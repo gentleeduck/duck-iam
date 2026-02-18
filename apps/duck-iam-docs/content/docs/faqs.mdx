@@ -1,0 +1,311 @@
+---
+title: faqs
+description: Frequently asked questions about duck-iam -- installation, concepts, adapters, frameworks, debugging, and production usage.
+---
+
+Common questions about duck-iam. If you cannot find what you need, open an issue or
+discussion on GitHub: https://github.com/gentleeduck/duck-iam
+
+<br />
+<br />
+<br />
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="what-is-duck-iam">
+    <AccordionTrigger>What is duck-iam?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      duck-iam is a TypeScript authorization engine that combines Role-Based Access Control (RBAC) and
+      Attribute-Based Access Control (ABAC) into a single evaluation pipeline. You define roles with
+      permissions, write policies with conditions, and the engine evaluates them together to produce
+      an allow or deny decision. Everything is type-safe -- actions, resources, scopes, and role IDs
+      are checked at compile time.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="rbac-vs-abac">
+    <AccordionTrigger>How does duck-iam compare to pure RBAC or pure ABAC?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Pure RBAC is simple but rigid -- you cannot express rules like "editors can only update their own
+      posts." Pure ABAC is powerful but verbose -- every permission requires a full policy rule, even
+      for basic role checks. duck-iam combines both. You define roles for common patterns (viewer,
+      editor, admin) and add policies for fine-grained rules (owner-only access, time-based
+      restrictions, IP filtering). Roles are internally converted to policies, so the same condition
+      engine handles everything in a unified pipeline.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="install">
+    <AccordionTrigger>How do I install duck-iam?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Install the package with your preferred package manager:
+      <div className="mt-3 flex flex-col gap-2">
+        <code className="rounded bg-muted px-2 py-1">bun add duck-iam</code>
+        <code className="rounded bg-muted px-2 py-1">npm install duck-iam</code>
+        <code className="rounded bg-muted px-2 py-1">pnpm add duck-iam</code>
+      </div>
+      <p className="mt-3">
+        duck-iam has zero runtime dependencies. The core package works in Node.js, Bun, Deno,
+        and edge runtimes.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="frameworks">
+    <AccordionTrigger>Which frameworks are supported?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      duck-iam provides server integrations for:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>Express</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">duck-iam/server/express</code></li>
+        <li><strong>Hono</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">duck-iam/server/hono</code></li>
+        <li><strong>NestJS</strong> -- guard + decorator via <code className="rounded bg-muted px-2 py-1">duck-iam/server/nest</code></li>
+        <li><strong>Next.js</strong> -- route wrappers via <code className="rounded bg-muted px-2 py-1">duck-iam/server/next</code></li>
+        <li><strong>Generic</strong> -- framework-agnostic helpers via <code className="rounded bg-muted px-2 py-1">duck-iam/server/generic</code></li>
+      </ul>
+      <p className="mt-3">
+        Client libraries are available for React, Vue, and vanilla JavaScript/TypeScript.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="role-inheritance">
+    <AccordionTrigger>How does role inheritance work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Roles can inherit from other roles using the <code className="rounded bg-muted px-2 py-1">inherits</code> property.
+      When a subject has the <code className="rounded bg-muted px-2 py-1">editor</code> role, and
+      <code className="rounded bg-muted px-2 py-1">editor</code> inherits from <code className="rounded bg-muted px-2 py-1">viewer</code>,
+      the subject gets all of <code className="rounded bg-muted px-2 py-1">viewer</code>'s permissions automatically.
+      Inheritance chains are resolved transitively -- if <code className="rounded bg-muted px-2 py-1">admin</code> inherits
+      <code className="rounded bg-muted px-2 py-1">editor</code>, which inherits <code className="rounded bg-muted px-2 py-1">viewer</code>,
+      then <code className="rounded bg-muted px-2 py-1">admin</code> has all three sets of permissions.
+      Circular inheritance is detected and handled safely.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="scoped-roles">
+    <AccordionTrigger>What are scoped roles?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Scoped roles allow a subject to have different roles in different contexts (tenants, organizations,
+      workspaces). For example, a user can be <code className="rounded bg-muted px-2 py-1">admin</code> in
+      <code className="rounded bg-muted px-2 py-1">org-1</code> and <code className="rounded bg-muted px-2 py-1">viewer</code> in
+      <code className="rounded bg-muted px-2 py-1">org-2</code>. When you pass a
+      <code className="rounded bg-muted px-2 py-1">scope</code> parameter to
+      <code className="rounded bg-muted px-2 py-1">engine.can()</code> or
+      <code className="rounded bg-muted px-2 py-1">engine.check()</code>, the engine
+      merges the subject's scoped roles for that scope with their base roles before evaluation.
+      This is the foundation of multi-tenant authorization.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="conditions">
+    <AccordionTrigger>How do conditions work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Conditions are expressions that must evaluate to true for a rule to match. They compare
+      field values from the request context using operators. Fields can reference
+      <code className="rounded bg-muted px-2 py-1">subject.attributes</code>,
+      <code className="rounded bg-muted px-2 py-1">resource.attributes</code>, or
+      <code className="rounded bg-muted px-2 py-1">environment</code> properties. Values prefixed with
+      <code className="rounded bg-muted px-2 py-1">$</code> are resolved dynamically (e.g.,
+      <code className="rounded bg-muted px-2 py-1">$subject.id</code> resolves to the requesting user's ID).
+      Conditions can be grouped with <code className="rounded bg-muted px-2 py-1">all</code> (AND),
+      <code className="rounded bg-muted px-2 py-1">any</code> (OR), and
+      <code className="rounded bg-muted px-2 py-1">none</code> (NOT), and these groups can be nested.
+      Available operators include: eq, neq, gt, gte, lt, lte, in, nin, contains, not_contains,
+      starts_with, ends_with, matches, exists, not_exists, subset_of, and superset_of.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="combining-algorithms">
+    <AccordionTrigger>What combining algorithms are available?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Each policy has a combining algorithm that determines how its rules produce a single result:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>deny-overrides</strong> -- if any rule denies, the policy denies. Most restrictive, good for security-sensitive policies.</li>
+        <li><strong>allow-overrides</strong> -- if any rule allows, the policy allows. Used for the internal RBAC policy.</li>
+        <li><strong>first-match</strong> -- the first matching rule wins. Order matters.</li>
+        <li><strong>highest-priority</strong> -- the matching rule with the highest priority number wins.</li>
+      </ul>
+      <p className="mt-3">
+        Across policies, duck-iam uses AND-combination: a deny from any policy means the
+        overall result is deny (defense-in-depth).
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="debug-denials">
+    <AccordionTrigger>How do I debug permission denials?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use <code className="rounded bg-muted px-2 py-1">engine.explain()</code>. It returns a full evaluation
+      trace showing every policy, every rule, and every condition with their pass/fail status.
+      The <code className="rounded bg-muted px-2 py-1">result.summary</code> property gives you a
+      human-readable multi-line string you can print to the console. For each condition, the trace
+      shows the expected value, the actual value, and whether it passed -- so you can immediately
+      see which condition failed and why. See the
+      <a href="/docs/advanced/explain" className="underline">Explain and Debug</a> page for details.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="database-storage">
+    <AccordionTrigger>How do I store policies in a database?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use a database adapter. duck-iam provides built-in adapters for Prisma and Drizzle:
+      <div className="mt-3 flex flex-col gap-2">
+        <code className="rounded bg-muted px-2 py-1">import {"{"} PrismaAdapter {"}"} from 'duck-iam/adapters/prisma'</code>
+        <code className="rounded bg-muted px-2 py-1">import {"{"} DrizzleAdapter {"}"} from 'duck-iam/adapters/drizzle'</code>
+      </div>
+      <p className="mt-3">
+        These adapters store policies, roles, and subject data in your database tables. You can
+        also use the <code className="rounded bg-muted px-2 py-1">HttpAdapter</code> to fetch data
+        from a remote authorization service, or implement the
+        <code className="rounded bg-muted px-2 py-1">Adapter</code> interface to write your own.
+      </p>
+      <p className="mt-3">
+        When loading policies from external sources, always validate them with
+        <code className="rounded bg-muted px-2 py-1">validatePolicy()</code> before passing them
+        to the engine.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="client-libraries">
+    <AccordionTrigger>Can I use duck-iam with React, Vue, or other frontend frameworks?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. duck-iam provides client libraries for common frontend frameworks:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>React</strong> -- <code className="rounded bg-muted px-2 py-1">duck-iam/client/react</code> provides a context provider and hooks.</li>
+        <li><strong>Vue</strong> -- <code className="rounded bg-muted px-2 py-1">duck-iam/client/vue</code> provides a plugin and composables.</li>
+        <li><strong>Vanilla</strong> -- <code className="rounded bg-muted px-2 py-1">duck-iam/client/vanilla</code> provides a framework-agnostic client.</li>
+      </ul>
+      <p className="mt-3">
+        These clients fetch the user's permission map from a server endpoint and expose it to your
+        components. Permissions are still evaluated on the server -- the client only receives the
+        boolean results for rendering decisions (show/hide buttons, enable/disable actions).
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="production-ready">
+    <AccordionTrigger>Is duck-iam production-ready?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      duck-iam is designed for production use. The core engine has comprehensive test coverage,
+      handles edge cases like circular role inheritance and deeply nested conditions safely,
+      includes built-in caching with configurable TTL, and validates all inputs. The engine
+      fails closed -- errors default to deny, malformed conditions default to deny, and the
+      default effect is deny. That said, always validate your role and policy configurations
+      at startup using <code className="rounded bg-muted px-2 py-1">validateRoles()</code> and
+      <code className="rounded bg-muted px-2 py-1">validatePolicy()</code> to catch mistakes early.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="caching">
+    <AccordionTrigger>How does caching work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine maintains four LRU caches: one for policies, one for roles, one for the synthetic
+      RBAC policy (converted from role definitions), and one for resolved subjects. All caches have
+      a configurable TTL (default: 60 seconds) and maximum size (default: 1000 entries for subjects).
+      The admin API automatically invalidates relevant caches when data changes. You can also
+      manually invalidate with <code className="rounded bg-muted px-2 py-1">engine.invalidate()</code>,
+      <code className="rounded bg-muted px-2 py-1">engine.invalidateSubject(id)</code>,
+      <code className="rounded bg-muted px-2 py-1">engine.invalidatePolicies()</code>, or
+      <code className="rounded bg-muted px-2 py-1">engine.invalidateRoles()</code>.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="performance">
+    <AccordionTrigger>What is the performance like?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Permission checks are fast. With cached data, a typical evaluation takes under 1 millisecond.
+      The engine loads policies, roles, and subjects once and caches them. Each check only runs the
+      evaluation logic -- iterating over policies, matching rules, and evaluating conditions. For
+      batch checks, use <code className="rounded bg-muted px-2 py-1">engine.permissions()</code> which
+      loads data once and evaluates many checks against it. The
+      <code className="rounded bg-muted px-2 py-1">Decision</code> object includes a
+      <code className="rounded bg-muted px-2 py-1">duration</code> field (in milliseconds) so you
+      can monitor evaluation times in production.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="owner-access">
+    <AccordionTrigger>How do I implement owner-only access?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use a policy with a condition that compares the resource owner to the requesting subject:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const ownerPolicy = policy('owner-only')
+  .algorithm('deny-overrides')
+  .rule('deny-non-owner', r => r
+    .deny()
+    .on('update', 'delete')
+    .of('post')
+    .priority(100)
+    .when(w => w.check('resource.attributes.ownerId', 'neq', '$subject.id'))
+  )
+  .rule('allow-all', r => r.allow().on('*').of('*'))
+  .build()`}</code></pre>
+      <p className="mt-3">
+        The key is the <code className="rounded bg-muted px-2 py-1">$subject.id</code> dynamic
+        reference -- at evaluation time, it resolves to the actual subject's ID. Combined with
+        <code className="rounded bg-muted px-2 py-1">neq</code> (not equals) and a
+        <code className="rounded bg-muted px-2 py-1">deny</code> effect, this blocks anyone who
+        is not the owner. Make sure you pass
+        <code className="rounded bg-muted px-2 py-1">ownerId</code> in the resource attributes
+        when calling <code className="rounded bg-muted px-2 py-1">engine.can()</code> or
+        <code className="rounded bg-muted px-2 py-1">engine.check()</code>.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="wildcard">
+    <AccordionTrigger>Can I use wildcards for actions and resources?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Use <code className="rounded bg-muted px-2 py-1">{"'*'"}</code> to match any action or
+      resource. For example, <code className="rounded bg-muted px-2 py-1">{"grant('*', '*')"}</code> on
+      a role gives full access to everything. In policies, a rule with
+      <code className="rounded bg-muted px-2 py-1">{"actions: ['*']"}</code> matches any action, and
+      <code className="rounded bg-muted px-2 py-1">{"resources: ['*']"}</code> matches any resource.
+      duck-iam also supports hierarchical resource types using dots -- a resource type of
+      <code className="rounded bg-muted px-2 py-1">{"'dashboard.users'"}</code> matches rules that
+      target <code className="rounded bg-muted px-2 py-1">{"'dashboard'"}</code> or
+      <code className="rounded bg-muted px-2 py-1">{"'dashboard.users'"}</code>.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="custom-adapter">
+    <AccordionTrigger>How do I write a custom adapter?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Implement the <code className="rounded bg-muted px-2 py-1">Adapter</code> interface, which
+      combines <code className="rounded bg-muted px-2 py-1">PolicyStore</code>,
+      <code className="rounded bg-muted px-2 py-1">RoleStore</code>, and
+      <code className="rounded bg-muted px-2 py-1">SubjectStore</code>. You need to implement methods
+      for listing, getting, saving, and deleting policies and roles, plus methods for managing subject
+      roles and attributes. The <code className="rounded bg-muted px-2 py-1">getSubjectScopedRoles()</code>
+      method is optional -- if your adapter does not support multi-tenant scoping, simply omit it.
+      Use the built-in <code className="rounded bg-muted px-2 py-1">MemoryAdapter</code> source code
+      as a reference implementation.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="type-safe-config">
+    <AccordionTrigger>Do I need to use createAccessConfig() for type safety?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No, but it is recommended for production applications. Without
+      <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>, you can import
+      <code className="rounded bg-muted px-2 py-1">defineRole</code>,
+      <code className="rounded bg-muted px-2 py-1">policy</code>, and
+      <code className="rounded bg-muted px-2 py-1">Engine</code> directly -- they accept any
+      string for actions and resources, which is convenient for prototyping. With
+      <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>, you pass your
+      actions, resources, and scopes as <code className="rounded bg-muted px-2 py-1">as const</code>
+      arrays, and every builder method is constrained to those values. Typos are caught at compile
+      time. See the <a href="/docs/advanced/config" className="underline">Type-safe Config</a> page
+      for details.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="troubleshooting">
+    <AccordionTrigger>I still have issues. Where should I ask for help?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Open an issue or discussion with your environment details and a minimal reproduction:
+      <div className="mt-3">
+        <code className="rounded bg-muted px-2 py-1">https://github.com/gentleeduck/duck-iam</code>
+      </div>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
