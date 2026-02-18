@@ -1,6 +1,6 @@
-import type { AccessRequest, CombiningAlgorithm, Decision, Effect, Policy, Rule } from './types'
 import { evalConditionGroup } from './conditions'
 import { matchesAction, matchesResource } from './resolve'
+import type { AccessRequest, CombiningAlgorithm, Decision, Effect, Policy, Rule } from './types'
 
 // --- Rule matching ---
 
@@ -38,7 +38,10 @@ function policyApplies(policy: Policy, req: AccessRequest): boolean {
 
 // --- Combining algorithms ---
 
-type Combiner = (matched: Array<{ rule: Rule; effect: Effect }>, defaultEffect: Effect) => { rule?: Rule; effect: Effect; reason: string }
+type Combiner = (
+  matched: Array<{ rule: Rule; effect: Effect }>,
+  defaultEffect: Effect,
+) => { rule?: Rule; effect: Effect; reason: string }
 
 const combiners: Record<CombiningAlgorithm, Combiner> = {
   'deny-overrides': (matched, defaultEffect) => {

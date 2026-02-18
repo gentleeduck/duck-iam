@@ -29,7 +29,7 @@
  *   </Can>
  */
 
-import type { PermissionMap, PermissionKey } from '../../core/types'
+import type { PermissionKey, PermissionMap } from '../../core/types'
 
 // We export factory functions so React is a peer dependency, not a hard one.
 // The consuming app calls these with their React import.
@@ -107,7 +107,17 @@ export function createAccessControl(React: any) {
     return can(action, resource, resourceId) ? children : fallback
   }
 
-  function Cannot({ action, resource, resourceId, children }: { action: string; resource: string; resourceId?: string; children: any }) {
+  function Cannot({
+    action,
+    resource,
+    resourceId,
+    children,
+  }: {
+    action: string
+    resource: string
+    resourceId?: string
+    children: any
+  }) {
     const { cannot } = useAccess()
     return cannot(action, resource, resourceId) ? children : null
   }

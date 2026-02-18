@@ -1,4 +1,4 @@
-import type { Adapter, Policy, Role, Attributes } from '../../core/types'
+import type { Adapter, Attributes, Policy, Role } from '../../core/types'
 
 /**
  * Generic Prisma client type so we don't require @prisma/client as a hard dep.

@@ -9,7 +9,7 @@
  */
 
 import type { Engine } from '../../core/engine'
-import type { Resource, Environment, PermissionCheck, PermissionMap } from '../../core/types'
+import type { Environment, PermissionCheck, PermissionMap, Resource } from '../../core/types'
 import { METHOD_ACTION_MAP } from '../generic'
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -38,7 +38,13 @@ export interface WithAccessOptions {
  *   export const DELETE = withAccess(engine, "delete", "post", handler);
  *   export const PATCH  = withAccess(engine, "update", "post", handler);
  */
-export function withAccess(engine: Engine, action: string, resourceType: string, handler: RouteHandler, opts: WithAccessOptions = {}): RouteHandler {
+export function withAccess(
+  engine: Engine,
+  action: string,
+  resourceType: string,
+  handler: RouteHandler,
+  opts: WithAccessOptions = {},
+): RouteHandler {
   const {
     getUserId = (req) => req.headers.get('x-user-id'),
     getEnvironment = (req) => ({
@@ -57,7 +63,12 @@ export function withAccess(engine: Engine, action: string, resourceType: string,
     const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
     const resourceId = params?.id
 
-    const allowed = await engine.can(userId, action, { type: resourceType, id: resourceId, attributes: {} }, getEnvironment(req))
+    const allowed = await engine.can(
+      userId,
+      action,
+      { type: resourceType, id: resourceId, attributes: {} },
+      getEnvironment(req),
+    )
 
     if (!allowed) {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
@@ -79,7 +90,13 @@ export function withAccess(engine: Engine, action: string, resourceType: string,
  *     return canEdit ? <Editor /> : <Viewer />;
  *   }
  */
-export async function checkAccess(engine: Engine, subjectId: string, action: string, resourceType: string, resourceId?: string): Promise<boolean> {
+export async function checkAccess(
+  engine: Engine,
+  subjectId: string,
+  action: string,
+  resourceType: string,
+  resourceId?: string,
+): Promise<boolean> {
   return engine.can(subjectId, action, {
     type: resourceType,
     id: resourceId,
@@ -100,7 +117,11 @@ export async function checkAccess(engine: Engine, subjectId: string, action: str
  *     return <AccessProvider permissions={perms}>{children}</AccessProvider>;
  *   }
  */
-export async function getPermissions(engine: Engine, subjectId: string, checks: PermissionCheck[]): Promise<PermissionMap> {
+export async function getPermissions(
+  engine: Engine,
+  subjectId: string,
+  checks: PermissionCheck[],
+): Promise<PermissionMap> {
   return engine.permissions(subjectId, checks)
 }
 

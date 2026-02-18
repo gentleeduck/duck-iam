@@ -1,5 +1,5 @@
 import type { Engine } from '../../core/engine'
-import type { Resource, Environment } from '../../core/types'
+import type { Environment, Resource } from '../../core/types'
 import { extractEnvironment, METHOD_ACTION_MAP } from '../generic'
 
 /**
@@ -100,7 +100,10 @@ export function nestAccessGuard(engine: Engine, opts: NestGuardOptions = {}) {
     const handler = context.getHandler()
 
     const meta: AuthorizeMeta | undefined =
-      handler.__accessMeta ?? (typeof Reflect !== 'undefined' && Reflect.getMetadata ? Reflect.getMetadata(ACCESS_METADATA_KEY, handler) : undefined)
+      handler.__accessMeta ??
+      (typeof Reflect !== 'undefined' && Reflect.getMetadata
+        ? Reflect.getMetadata(ACCESS_METADATA_KEY, handler)
+        : undefined)
 
     if (!meta) return true // No @Authorize decorator = allow
 
@@ -111,7 +114,12 @@ export function nestAccessGuard(engine: Engine, opts: NestGuardOptions = {}) {
 
     const resource = meta.infer ? inferResource(request) : (meta.resource ?? 'unknown')
 
-    return engine.can(userId, action, { type: resource, id: getResourceId(request), attributes: {} }, getEnvironment(request))
+    return engine.can(
+      userId,
+      action,
+      { type: resource, id: getResourceId(request), attributes: {} },
+      getEnvironment(request),
+    )
   }
 }
 

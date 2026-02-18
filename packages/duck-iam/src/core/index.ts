@@ -1,35 +1,35 @@
+export { defineRole, defineRule, PolicyBuilder, policy, RoleBuilder, RuleBuilder, When, when } from './builder'
+export { evalConditionGroup } from './conditions'
 export { Engine } from './engine'
 export { evaluate, evaluatePolicy } from './evaluate'
-export { rolesToPolicy, resolveEffectiveRoles } from './rbac'
-export { policy, defineRole, defineRule, when, When, RuleBuilder, PolicyBuilder, RoleBuilder } from './builder'
-export { resolve, matchesAction, matchesResource } from './resolve'
-export { evalConditionGroup } from './conditions'
+export { resolveEffectiveRoles, rolesToPolicy } from './rbac'
+export { matchesAction, matchesResource, resolve } from './resolve'
 
 export type {
-  Scalar,
-  AttributeValue,
-  Attributes,
-  Subject,
-  Resource,
-  Environment,
   AccessRequest,
-  Effect,
-  Operator,
+  Adapter,
+  Attributes,
+  AttributeValue,
+  CombiningAlgorithm,
   Condition,
   ConditionGroup,
-  Rule,
-  CombiningAlgorithm,
-  Policy,
-  Permission,
-  Role,
   Decision,
-  PolicyStore,
-  RoleStore,
-  SubjectStore,
-  Adapter,
+  Effect,
   EngineConfig,
   EngineHooks,
-  PermissionMap,
+  Environment,
+  Operator,
+  Permission,
   PermissionCheck,
   PermissionKey,
+  PermissionMap,
+  Policy,
+  PolicyStore,
+  Resource,
+  Role,
+  RoleStore,
+  Rule,
+  Scalar,
+  Subject,
+  SubjectStore,
 } from './types'

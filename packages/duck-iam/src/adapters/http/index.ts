@@ -1,4 +1,4 @@
-import type { Adapter, Policy, Role, Attributes } from '../../core/types'
+import type { Adapter, Attributes, Policy, Role } from '../../core/types'
 
 /**
  * HTTP adapter: fetches policies, roles, and subject data from your API.

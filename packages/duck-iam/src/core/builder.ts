@@ -1,4 +1,16 @@
-import type { Policy, Rule, Role, Permission, Condition, ConditionGroup, CombiningAlgorithm, Effect, Operator, AttributeValue, Attributes } from './types'
+import type {
+  Attributes,
+  AttributeValue,
+  CombiningAlgorithm,
+  Condition,
+  ConditionGroup,
+  Effect,
+  Operator,
+  Permission,
+  Policy,
+  Role,
+  Rule,
+} from './types'
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Condition builder with AND/OR/NONE nesting

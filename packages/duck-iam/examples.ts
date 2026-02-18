@@ -13,7 +13,13 @@ async function pureRBAC() {
 
   const editor = defineRole('editor').name('Editor').inherits('viewer').grantCRUD('post').grantCRUD('comment').build()
 
-  const admin = defineRole('admin').name('Admin').inherits('editor').grantAll('user').grantAll('settings').grantAll('billing').build()
+  const admin = defineRole('admin')
+    .name('Admin')
+    .inherits('editor')
+    .grantAll('user')
+    .grantAll('settings')
+    .grantAll('billing')
+    .build()
 
   const engine = new Engine({
     adapter: new MemoryAdapter({
@@ -85,7 +91,9 @@ async function pureABAC() {
         .allow()
         .on('deploy')
         .of('production')
-        .when((w) => w.attr('department', 'in', ['engineering', 'devops']).env('hour', 'gte', 9).env('hour', 'lte', 17)),
+        .when((w) =>
+          w.attr('department', 'in', ['engineering', 'devops']).env('hour', 'gte', 9).env('hour', 'lte', 17),
+        ),
     )
 
     .build()
@@ -531,7 +539,9 @@ async function runtimeAdmin() {
   const engine = new Engine({ adapter: new MemoryAdapter() })
 
   // Create roles dynamically
-  await engine.admin.saveRole(defineRole('support').name('Support Agent').grantRead('ticket', 'user').grant('update', 'ticket').build())
+  await engine.admin.saveRole(
+    defineRole('support').name('Support Agent').grantRead('ticket', 'user').grant('update', 'ticket').build(),
+  )
 
   // Assign to user
   await engine.admin.assignRole('agent-42', 'support')

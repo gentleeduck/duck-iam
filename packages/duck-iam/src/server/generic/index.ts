@@ -1,11 +1,16 @@
 import type { Engine } from '../../core/engine'
-import type { Resource, Environment, PermissionCheck, PermissionMap } from '../../core/types'
+import type { Environment, PermissionCheck, PermissionMap, Resource } from '../../core/types'
 
 /**
  * Server-side permission map generator.
  * Call once per request, pass the map to the client.
  */
-export async function generatePermissionMap(engine: Engine, subjectId: string, checks: PermissionCheck[], environment?: Environment): Promise<PermissionMap> {
+export async function generatePermissionMap(
+  engine: Engine,
+  subjectId: string,
+  checks: PermissionCheck[],
+  environment?: Environment,
+): Promise<PermissionMap> {
   return engine.permissions(subjectId, checks, environment)
 }
 

@@ -1,5 +1,5 @@
 import type { Engine } from '../../core/engine'
-import type { Resource, Environment } from '../../core/types'
+import type { Environment, Resource } from '../../core/types'
 import { METHOD_ACTION_MAP } from '../generic'
 
 /**
@@ -99,7 +99,12 @@ export function guard(
     const userId = getUserId(c)
     if (!userId) return c.json({ error: 'Unauthorized' }, 401)
 
-    const allowed = await engine.can(userId, action, { type: resourceType, id: c.req.param('id'), attributes: {} }, getEnvironment(c))
+    const allowed = await engine.can(
+      userId,
+      action,
+      { type: resourceType, id: c.req.param('id'), attributes: {} },
+      getEnvironment(c),
+    )
 
     if (!allowed) return onDenied(c)
     await next()

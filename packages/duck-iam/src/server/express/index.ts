@@ -1,5 +1,5 @@
 import type { Engine } from '../../core/engine'
-import type { Resource, Environment } from '../../core/types'
+import type { Environment, Resource } from '../../core/types'
 import { extractEnvironment, METHOD_ACTION_MAP } from '../generic'
 
 // Minimal Express types to avoid hard dependency
@@ -91,7 +91,12 @@ export function guard(
     }
 
     try {
-      const allowed = await engine.can(userId, action, { type: resourceType, id: req.params?.id, attributes: {} }, getEnvironment(req))
+      const allowed = await engine.can(
+        userId,
+        action,
+        { type: resourceType, id: req.params?.id, attributes: {} },
+        getEnvironment(req),
+      )
       allowed ? next() : onDenied(req, res)
     } catch (err) {
       next(err)

@@ -63,7 +63,10 @@ export function createVueAccess(vue: { ref: any; computed: any; inject: any; pro
   function useAccess() {
     const state = inject(ACCESS_INJECTION_KEY)
     if (!state) {
-      throw new Error('access-engine: useAccess() called without provideAccess(). ' + 'Use provideAccess() in a parent component or install the plugin.')
+      throw new Error(
+        'access-engine: useAccess() called without provideAccess(). ' +
+          'Use provideAccess() in a parent component or install the plugin.',
+      )
     }
     return state as ReturnType<typeof createAccessState>
   }

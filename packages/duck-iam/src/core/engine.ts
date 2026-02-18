@@ -1,3 +1,6 @@
+import { LRUCache } from '../shared/cache'
+import { evaluate } from './evaluate'
+import { resolveEffectiveRoles, rolesToPolicy } from './rbac'
 import type {
   AccessRequest,
   Adapter,
@@ -13,9 +16,6 @@ import type {
   Role,
   Subject,
 } from './types'
-import { evaluate } from './evaluate'
-import { rolesToPolicy, resolveEffectiveRoles } from './rbac'
-import { LRUCache } from '../shared/cache'
 
 export class Engine {
   private adapter: Adapter
@@ -134,7 +134,12 @@ export class Engine {
   /**
    * Simple boolean check: can this user do this action on this resource?
    */
-  async can(subjectId: string, action: string, resource: Resource, environment?: AccessRequest['environment']): Promise<boolean> {
+  async can(
+    subjectId: string,
+    action: string,
+    resource: Resource,
+    environment?: AccessRequest['environment'],
+  ): Promise<boolean> {
     const subject = await this.resolveSubject(subjectId)
     const decision = await this.authorize({ subject, action, resource, environment })
     return decision.allowed
@@ -143,7 +148,12 @@ export class Engine {
   /**
    * Same as `can` but returns the full Decision.
    */
-  async check(subjectId: string, action: string, resource: Resource, environment?: AccessRequest['environment']): Promise<Decision> {
+  async check(
+    subjectId: string,
+    action: string,
+    resource: Resource,
+    environment?: AccessRequest['environment'],
+  ): Promise<Decision> {
     const subject = await this.resolveSubject(subjectId)
     return this.authorize({ subject, action, resource, environment })
   }
@@ -153,7 +163,11 @@ export class Engine {
    * Returns a PermissionMap keyed by "action:resource" or "action:resource:id".
    * Loads DB data once, evaluates many.
    */
-  async permissions(subjectId: string, checks: PermissionCheck[], environment?: AccessRequest['environment']): Promise<PermissionMap> {
+  async permissions(
+    subjectId: string,
+    checks: PermissionCheck[],
+    environment?: AccessRequest['environment'],
+  ): Promise<PermissionMap> {
     const subject = await this.resolveSubject(subjectId)
 
     const [policies, roles] = await Promise.all([this.loadPolicies(), this.loadRoles()])

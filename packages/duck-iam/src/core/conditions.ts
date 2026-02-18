@@ -1,5 +1,5 @@
-import type { AccessRequest, AttributeValue, Condition, ConditionGroup, Operator, Scalar } from './types'
 import { resolve } from './resolve'
+import type { AccessRequest, AttributeValue, Condition, ConditionGroup, Operator, Scalar } from './types'
 
 // --- Operator implementations ---
 
@@ -70,15 +70,22 @@ function evalCondition(req: AccessRequest, cond: Condition): boolean {
 
 export function evalConditionGroup(req: AccessRequest, group: ConditionGroup): boolean {
   if ('all' in group) {
-    return group.all.every((item) => ('field' in item ? evalCondition(req, item as Condition) : evalConditionGroup(req, item as ConditionGroup)))
+    return group.all.every((item) =>
+      'field' in item ? evalCondition(req, item as Condition) : evalConditionGroup(req, item as ConditionGroup),
+    )
   }
 
   if ('any' in group) {
-    return group.any.some((item) => ('field' in item ? evalCondition(req, item as Condition) : evalConditionGroup(req, item as ConditionGroup)))
+    return group.any.some((item) =>
+      'field' in item ? evalCondition(req, item as Condition) : evalConditionGroup(req, item as ConditionGroup),
+    )
   }
 
   if ('none' in group) {
-    return group.none.every((item) => !('field' in item ? evalCondition(req, item as Condition) : evalConditionGroup(req, item as ConditionGroup)))
+    return group.none.every(
+      (item) =>
+        !('field' in item ? evalCondition(req, item as Condition) : evalConditionGroup(req, item as ConditionGroup)),
+    )
   }
 
   return false

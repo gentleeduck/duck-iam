@@ -1,10 +1,14 @@
-import type { Role, Policy, Rule } from './types'
+import type { Policy, Role, Rule } from './types'
 
 /**
  * Flatten role inheritance, returning all permissions including inherited ones.
  * Handles cycles via visited set.
  */
-function collectPermissions(roleId: string, rolesMap: Map<string, Role>, visited = new Set<string>()): Role['permissions'][number][] {
+function collectPermissions(
+  roleId: string,
+  rolesMap: Map<string, Role>,
+  visited = new Set<string>(),
+): Role['permissions'][number][] {
   if (visited.has(roleId)) return []
   visited.add(roleId)
 
