@@ -1,30 +1,31 @@
-// src/app/layout.tsx
-//
-// Root layout: Server Component.
-// Generates the permission map on the server and passes it to the client
-// via AccessProvider. Every client component under this tree can use
-// useAccess() / <Can> / <Cannot> with zero latency.
-
+import type { AppAction, AppResource } from '@gentleduck/example-shared'
 import type { PermissionMap } from 'access-engine'
-import { getPermissions } from 'access-engine/server/next'
-import { engine, STANDARD_CHECKS } from '@/lib/access'
+import { Sidebar } from '@/components/sidebar'
 import { AccessProvider } from '@/lib/access-client'
+import { apiFetch } from '@/lib/api'
 import { getCurrentUserId } from '@/lib/auth'
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // ── Generate permissions on the server ──
-  let permissions: PermissionMap = {}
+  let permissions: PermissionMap<AppAction, AppResource> = {} as PermissionMap<AppAction, AppResource>
 
   const userId = await getCurrentUserId()
   if (userId) {
-    permissions = await getPermissions(engine, userId, STANDARD_CHECKS)
+    try {
+      permissions = await apiFetch('/me/permissions', { userId })
+    } catch {
+      // Backend unavailable — fall back to empty permissions (deny all)
+    }
   }
 
   return (
     <html lang="en">
       <body>
-        {/* Hydrate client with permissions */}
-        <AccessProvider permissions={permissions}>{children}</AccessProvider>
+        <AccessProvider permissions={permissions}>
+          <div style={{ display: 'flex' }}>
+            {userId && <Sidebar />}
+            <main style={{ flex: 1 }}>{children}</main>
+          </div>
+        </AccessProvider>
       </body>
     </html>
   )

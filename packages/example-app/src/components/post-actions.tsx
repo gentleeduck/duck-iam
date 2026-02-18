@@ -1,14 +1,20 @@
-// src/components/post-actions.tsx
 'use client'
+
+import { API_URL } from '@/lib/api'
 
 interface PostActionsProps {
   postId: string
+  userId: string
   canEdit: boolean
   canDelete: boolean
   canPublish: boolean
 }
 
-export function PostActions({ postId, canEdit, canDelete, canPublish }: PostActionsProps) {
+function authHeaders(userId: string): HeadersInit {
+  return { Authorization: `Bearer ${userId}` }
+}
+
+export function PostActions({ postId, userId, canEdit, canDelete, canPublish }: PostActionsProps) {
   return (
     <div className="mt-4 flex gap-2">
       {canEdit && (
@@ -22,7 +28,10 @@ export function PostActions({ postId, canEdit, canDelete, canPublish }: PostActi
       {canPublish && (
         <button
           onClick={async () => {
-            await fetch(`/api/posts/${postId}/publish`, { method: 'POST' })
+            await fetch(`${API_URL}/posts/${postId}/publish`, {
+              method: 'POST',
+              headers: authHeaders(userId),
+            })
             window.location.reload()
           }}
           className="rounded bg-green-600 px-4 py-2 text-white">
@@ -34,7 +43,10 @@ export function PostActions({ postId, canEdit, canDelete, canPublish }: PostActi
         <button
           onClick={async () => {
             if (!confirm('Delete this post?')) return
-            await fetch(`/api/posts/${postId}`, { method: 'DELETE' })
+            await fetch(`${API_URL}/posts/${postId}`, {
+              method: 'DELETE',
+              headers: authHeaders(userId),
+            })
             window.location.href = '/posts'
           }}
           className="rounded bg-red-600 px-4 py-2 text-white">

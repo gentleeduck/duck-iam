@@ -1,12 +1,7 @@
-// src/components/sidebar.tsx
-//
-// Client component using useAccess() and <Can> for declarative permission checks.
-// The PermissionMap was generated server-side and hydrated via AccessProvider in layout.tsx.
-// All checks here are instant (no network requests).
-
 'use client'
 
 import { Can, Cannot, useAccess } from '@/lib/access-client'
+import { API_URL } from '@/lib/api'
 
 export function Sidebar() {
   const { can } = useAccess()
@@ -97,7 +92,7 @@ export function Sidebar() {
         <Can action="export" resource="post">
           <li>
             <button
-              onClick={() => window.open('/api/posts/export', '_blank')}
+              onClick={() => window.open(`${API_URL}/posts/export`, '_blank')}
               className="block w-full rounded p-2 text-left hover:bg-gray-700">
               Export Data
             </button>

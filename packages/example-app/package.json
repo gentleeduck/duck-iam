@@ -9,33 +9,22 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "check-types": "bunx prisma generate && tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
+    "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
-    "clean": "rimraf dist .cache .turbo node_modules .next",
-    "db:migrate": "bunx prisma migrate dev --name access_engine",
-    "db:seed": "bun prisma/seed.ts",
-    "db:reset": "bunx prisma migrate reset && bun prisma/seed.ts",
-    "express": "bun src/api/express-server.ts",
-    "setup": "bunx prisma migrate dev --name access_engine && bunx prisma generate && bun prisma/seed.ts"
+    "clean": "rimraf dist .cache .turbo node_modules .next"
   },
   "dependencies": {
-    "@prisma/client": "^6.0.0",
+    "@gentleduck/example-shared": "workspace:*",
     "access-engine": "workspace:*",
-    "express": "^5.0.0",
     "next": "^16.1.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.0.0",
     "@gentleduck/typescript-config": "workspace:*",
-    "@types/express": "^5.0.0",
     "@types/node": "22.19.3",
-    "@types/react": "^19.2.8",
-    "drizzle-orm": "^0.44.0",
-    "hono": "^4.0.0",
-    "prisma": "^6.0.0",
+    "@types/react": "^19.2.14",
     "typescript": "5.9.3"
   },
   "author": "GentleDuck (https://www.gentleduck.org)",
@@ -48,8 +37,5 @@
     "type": "git",
     "url": "git+https://github.com/gentleeduck/duck-ui.git",
     "directory": "packages/example-app"
-  },
-  "prisma": {
-    "seed": "bun prisma/seed.ts"
   }
 }
