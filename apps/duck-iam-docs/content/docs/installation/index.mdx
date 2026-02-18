@@ -1,0 +1,198 @@
+---
+title: installation
+description: Install duck-iam, configure a storage adapter, and run your first permission check in under five minutes.
+---
+
+## Prerequisites
+
+Before installing, make sure you have:
+
+- **Node.js 18** or newer -- check with `node --version`.
+- **TypeScript 5.0+** -- duck-iam relies on const type parameters and satisfies operator.
+- A package manager: **npm**, **bun**, or **pnpm**.
+
+## Install duck-iam
+
+duck-iam is a single package. The core engine, memory adapter, type builders, and all
+integration entry points are included.
+
+<Steps>
+
+<Step>Install the package</Step>
+
+```bash
+# npm
+npm install duck-iam
+
+# bun
+bun add duck-iam
+
+# pnpm
+pnpm add duck-iam
+```
+
+<Step>Basic setup</Step>
+
+Create your access control configuration with roles and an engine:
+
+```typescript title="src/lib/access.ts"
+import { createAccessConfig, MemoryAdapter } from "duck-iam";
+
+// 1. Define your application's actions, resources, and scopes
+const access = createAccessConfig({
+  actions: ["create", "read", "update", "delete", "manage"],
+  resources: ["post", "comment", "user", "team"],
+  scopes: ["org"],
+} as const);
+
+// 2. Define roles using typed builders
+const viewer = access
+  .defineRole("viewer")
+  .grantRead("post", "comment")
+  .build();
+
+const editor = access
+  .defineRole("editor")
+  .inherits("viewer")
+  .grant("create", "post")
+  .grant("update", "post")
+  .grant("create", "comment")
+  .build();
+
+const admin = access
+  .defineRole("admin")
+  .inherits("editor")
+  .grant("delete", "post")
+  .grant("delete", "comment")
+  .grantCRUD("user")
+  .grant("manage", "team")
+  .build();
+
+// 3. Create an adapter
+const adapter = new MemoryAdapter({
+  roles: [viewer, editor, admin],
+  assignments: {
+    "user-1": ["admin"],
+    "user-2": ["editor"],
+    "user-3": ["viewer"],
+  },
+});
+
+// 4. Create the engine
+export const engine = access.createEngine({ adapter });
+```
+
+<Step>Check permissions</Step>
+
+```typescript
+// Simple boolean check
+const canCreate = await engine.can(
+  "user-2",
+  "create",
+  { type: "post", attributes: {} }
+);
+// -> true (editor can create posts)
+
+const canDelete = await engine.can(
+  "user-2",
+  "delete",
+  { type: "post", attributes: {} }
+);
+// -> false (editor cannot delete posts)
+
+// Full decision with metadata
+const decision = await engine.check(
+  "user-2",
+  "delete",
+  { type: "post", attributes: {} }
+);
+// -> { allowed: false, effect: "deny", reason: "...", duration: 0.12, ... }
+
+// Debug why a permission was granted or denied
+const trace = await engine.explain(
+  "user-2",
+  "delete",
+  { type: "post", attributes: {} }
+);
+// -> detailed trace of every policy, rule, and condition evaluated
+```
+
+<Step>Batch permission checks</Step>
+
+Load many permissions at once for a user -- useful for hydrating client-side UI:
+
+```typescript
+const permissions = await engine.permissions("user-2", [
+  { action: "create", resource: "post" },
+  { action: "update", resource: "post" },
+  { action: "delete", resource: "post" },
+  { action: "manage", resource: "team" },
+]);
+// -> { "create:post": true, "update:post": true, "delete:post": false, "manage:team": false }
+```
+
+</Steps>
+
+## Optional Peer Dependencies
+
+duck-iam has optional peer dependencies for framework integrations. Install only what you use:
+
+| Integration | Peer dependency | Install |
+| --- | --- | --- |
+| React client | `react >= 18.0.0` | `npm install react` |
+| Vue client | `vue >= 3.3.0` | `npm install vue` |
+| Prisma adapter | `@prisma/client >= 5.0.0` | `npm install @prisma/client` |
+
+The core engine, memory adapter, Drizzle adapter, HTTP adapter, and all server integrations
+(Express, Hono, NestJS, Next.js) have **zero peer dependencies** -- they use minimal type
+interfaces internally instead of importing framework packages.
+
+## Import Paths
+
+duck-iam uses subpath exports to keep your bundle lean. Import only what you need:
+
+```typescript
+// Core engine, builders, memory adapter, types
+import { Engine, defineRole, policy, when, MemoryAdapter } from "duck-iam";
+
+// Server integrations
+import { accessMiddleware, guard } from "duck-iam/server/express";
+import { accessMiddleware, guard } from "duck-iam/server/hono";
+import { Authorize, nestAccessGuard } from "duck-iam/server/nest";
+import { withAccess, checkAccess, getPermissions } from "duck-iam/server/next";
+
+// Client libraries
+import { createAccessControl } from "duck-iam/client/react";
+import { createVueAccess } from "duck-iam/client/vue";
+import { AccessClient } from "duck-iam/client/vanilla";
+
+// Storage adapters
+import { MemoryAdapter } from "duck-iam/adapters/memory";
+import { PrismaAdapter } from "duck-iam/adapters/prisma";
+import { DrizzleAdapter } from "duck-iam/adapters/drizzle";
+import { HttpAdapter } from "duck-iam/adapters/http";
+```
+
+## TypeScript Configuration
+
+duck-iam works out of the box with standard TypeScript settings. For the best experience,
+make sure your `tsconfig.json` includes:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "strict": true,
+    "moduleResolution": "bundler"
+  }
+}
+```
+
+The `strict` flag enables the const type parameter inference that powers type-safe role and
+policy builders. The `bundler` module resolution is required for subpath exports to resolve
+correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
+
+## Next Steps
+
+- [Quick Start](/docs/guides) -- end-to-end walkthrough with roles, policies, server middleware, and client hooks.
+- [Core Concepts](/docs/core) -- deep dive into the RBAC + ABAC evaluation model.
+- [Integrations](/docs/integrations) -- set up Express, Hono, NestJS, or Next.js middleware.
