@@ -120,7 +120,7 @@ app.delete('/api/posts/:id', async (req, res) => {
 
 app.post('/api/posts/:id/publish', guard(engine, 'publish', 'post', guardOpts), async (req, res) => {
   await prisma.post.update({
-    where: { id: req.params.id },
+    where: { id: req.params!.id },
     data: { published: true },
   })
   res.json({ published: true })
@@ -152,7 +152,7 @@ app.get('/api/me/permissions', async (req, res) => {
 // Call this when user data changes (plan upgrade, org suspension, etc.)
 
 app.post('/api/admin/sync-attributes/:userId', guard(engine, 'manage', 'user', guardOpts), async (req, res) => {
-  const { userId } = req.params
+  const userId = req.params!.userId as string
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { org: true },

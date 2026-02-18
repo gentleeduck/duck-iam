@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/workers-types" />
 // src/api/hono-worker.ts
 //
 // Hono backend for Cloudflare Workers / Bun / Deno.
@@ -9,19 +10,26 @@
 //   database_name = "my-app-db"
 //   database_id = "xxx"
 
-import { defineRole, Engine, policy } from 'access-engine'
+import { Engine } from 'access-engine'
 import { DrizzleAdapter } from 'access-engine/adapters/drizzle'
-import { accessMiddleware, guard } from 'access-engine/server/hono'
 import { and, eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/d1'
+import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
 import { accessAssignments, accessPolicies, accessRoles, accessSubjectAttrs, posts } from '../db/drizzle-schema'
 
-type Env = {
+interface Env {
   DB: D1Database
 }
 
-const app = new Hono<{ Bindings: Env }>()
+interface Variables {
+  userId: string
+}
+
+type AppEnv = { Bindings: Env; Variables: Variables }
+type AppContext = Context<AppEnv>
+
+const app = new Hono<AppEnv>()
 
 // ── Create engine per request (D1 binding is request-scoped) ──
 
@@ -44,7 +52,7 @@ function createEngine(db: D1Database) {
 
 // ── Auth middleware ──
 
-app.use('*', async (c, next) => {
+app.use('*', async (c: AppContext, next: Next) => {
   const token = c.req.header('authorization')?.replace('Bearer ', '')
   if (token) c.set('userId', token)
   await next()
@@ -52,13 +60,13 @@ app.use('*', async (c, next) => {
 
 // ── Routes ──
 
-app.get('/api/posts', async (c) => {
+app.get('/api/posts', async (c: AppContext) => {
   const db = drizzle(c.env.DB)
   const allPosts = await db.select().from(posts).where(eq(posts.published, 1))
   return c.json(allPosts)
 })
 
-app.post('/api/posts', async (c) => {
+app.post('/api/posts', async (c: AppContext) => {
   const engine = createEngine(c.env.DB)
   const userId = c.get('userId')
   if (!userId) return c.json({ error: 'Unauthorized' }, 401)
@@ -81,7 +89,7 @@ app.post('/api/posts', async (c) => {
   return c.json({ created: true }, 201)
 })
 
-app.get('/api/me/permissions', async (c) => {
+app.get('/api/me/permissions', async (c: AppContext) => {
   const userId = c.get('userId')
   if (!userId) return c.json({ error: 'Unauthorized' }, 401)
 

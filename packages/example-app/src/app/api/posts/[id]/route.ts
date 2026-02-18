@@ -21,10 +21,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
 // ── PUT /api/posts/:id (requires "update" on "post") ──
 
-async function updateHandler(req: Request, ctx: { params: Promise<{ id: string }> }) {
+async function updateHandler(req: Request, ctx: { params: Promise<Record<string, string>> | Record<string, string> }) {
   const { id } = await ctx.params
   const userId = getUserIdFromRequest(req)
-  const body = await req.json()
+  const body = (await req.json()) as { title?: string; body?: string }
 
   const post = await prisma.post.findUnique({ where: { id } })
   if (!post) return Response.json({ error: 'Not found' }, { status: 404 })
@@ -47,7 +47,7 @@ export const PUT = withAccess(engine, 'update', 'post', updateHandler, authOpts)
 
 // ── DELETE /api/posts/:id (requires "delete" on "post") ──
 
-async function deleteHandler(req: Request, ctx: { params: Promise<{ id: string }> }) {
+async function deleteHandler(req: Request, ctx: { params: Promise<Record<string, string>> | Record<string, string> }) {
   const { id } = await ctx.params
   const userId = getUserIdFromRequest(req)
 

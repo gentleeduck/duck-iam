@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
+    "check-types": "bunx prisma generate && tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules .next",
@@ -20,17 +20,21 @@
     "setup": "bunx prisma migrate dev --name access_engine && bunx prisma generate && bun prisma/seed.ts"
   },
   "dependencies": {
-    "access-engine": "workspace:*",
     "@prisma/client": "^6.0.0",
+    "access-engine": "workspace:*",
     "express": "^5.0.0",
-    "next": "^15.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "next": "^16.1.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
     "@gentleduck/typescript-config": "workspace:*",
     "@types/express": "^5.0.0",
-    "@types/react": "^19.0.0",
+    "@types/node": "22.19.3",
+    "@types/react": "^19.2.8",
+    "drizzle-orm": "^0.44.0",
+    "hono": "^4.0.0",
     "prisma": "^6.0.0",
     "typescript": "5.9.3"
   },
