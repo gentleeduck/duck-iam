@@ -1,0 +1,497 @@
+---
+title: roles and permissions
+description: Define roles with the builder API, set up inheritance chains, scope roles for multi-tenancy, and attach conditions to permissions.
+---
+
+## Defining Roles
+
+Roles are the RBAC side of duck-iam. You define them with the `defineRole()` builder,
+granting permissions as action/resource pairs. At evaluation time, roles are converted
+into ABAC policies automatically, so they flow through the same engine as hand-written
+policies.
+
+```typescript
+import { defineRole } from 'duck-iam'
+
+const viewer = defineRole('viewer')
+  .name('Viewer')
+  .desc('Read-only access to published content')
+  .grant('read', 'post')
+  .grant('read', 'comment')
+  .build()
+```
+
+The `defineRole()` function returns a `RoleBuilder`. Each method returns `this`, so
+you can chain calls fluently. Call `.build()` at the end to produce a plain `Role`
+object.
+
+### Role object structure
+
+After calling `.build()`, you get a plain object matching the `Role` interface:
+
+```typescript
+interface Role {
+  id: string
+  name: string
+  description?: string
+  permissions: readonly Permission[]
+  inherits?: readonly string[]
+  scope?: string
+  metadata?: Record<string, AttributeValue>
+}
+```
+
+Each permission is an action/resource pair with optional scope and conditions:
+
+```typescript
+interface Permission {
+  action: string | '*'
+  resource: string | '*'
+  scope?: string | '*'
+  conditions?: ConditionGroup
+}
+```
+
+## Role Inheritance
+
+Roles can inherit from other roles. When role B inherits from role A, it gets all
+of A's permissions plus its own. Inheritance chains can be arbitrarily deep.
+
+```typescript
+const viewer = defineRole('viewer')
+  .name('Viewer')
+  .grant('read', 'post')
+  .grant('read', 'comment')
+  .build()
+
+const editor = defineRole('editor')
+  .name('Editor')
+  .inherits('viewer')
+  .grant('create', 'post')
+  .grant('update', 'post')
+  .grant('delete', 'post')
+  .build()
+
+const admin = defineRole('admin')
+  .name('Admin')
+  .inherits('editor')
+  .grantAll('*')
+  .build()
+```
+
+This creates the chain: `viewer -> editor -> admin`. An admin gets everything an
+editor can do (which includes everything a viewer can do), plus unrestricted access.
+
+### How inheritance is resolved
+
+The engine calls `resolveEffectiveRoles()` when loading a subject. Given a user
+assigned the `editor` role, the function walks the inheritance tree and returns
+`['editor', 'viewer']` -- the full set of effective roles.
+
+When `rolesToPolicy()` converts roles into an ABAC policy, it calls
+`collectPermissions()` which flattens the inheritance chain. The editor role's
+generated rules include both its own permissions and the viewer's permissions, each
+with a condition checking `subject.roles contains "editor"`.
+
+Cycles are handled safely -- if role A inherits from role B which inherits from role A,
+the visited set prevents infinite recursion.
+
+### Multiple inheritance
+
+A role can inherit from multiple parents:
+
+```typescript
+const moderator = defineRole('moderator')
+  .name('Moderator')
+  .inherits('viewer', 'commenter')
+  .grant('delete', 'comment')
+  .grant('update', 'comment')
+  .build()
+```
+
+This collects permissions from both `viewer` and `commenter`, then adds the
+moderator's own permissions.
+
+## Scoped Roles (Multi-Tenancy)
+
+Scopes let you restrict roles to specific tenants, organizations, or workspaces.
+There are two mechanisms: role-level scopes and permission-level scopes.
+
+### Role-level scope
+
+Setting a scope on a role means all its permissions only apply within that scope:
+
+```typescript
+const orgEditor = defineRole('org-editor')
+  .name('Org Editor')
+  .scope('org-1')
+  .grant('create', 'post')
+  .grant('update', 'post')
+  .build()
+```
+
+When this role is converted to policy rules, each rule gets an additional condition:
+`scope eq "org-1"`. The permission only fires when the request's scope matches.
+
+### Permission-level scope with grantScoped
+
+You can also scope individual permissions within a role:
+
+```typescript
+const hybridRole = defineRole('hybrid')
+  .name('Hybrid Role')
+  .grant('read', 'post')                         // global -- no scope restriction
+  .grantScoped('org-1', 'update', 'post')         // only in org-1
+  .grantScoped('org-2', 'create', 'comment')      // only in org-2
+  .build()
+```
+
+This creates a role with mixed global and scoped permissions. The `read` permission
+works everywhere, but `update` only works in `org-1` and `create` only in `org-2`.
+
+### Scoped role assignments
+
+Beyond defining scoped roles, the engine supports **scoped role assignments** per
+subject. A user can have the `editor` role globally and the `admin` role only in
+`org-1`:
+
+```typescript
+// In the adapter / admin API:
+await engine.admin.assignRole('user-1', 'editor')              // global
+await engine.admin.assignRole('user-1', 'admin', 'org-1')      // scoped
+
+// When checking access:
+const allowed = await engine.can(
+  'user-1',
+  'delete',
+  { type: 'post', attributes: {} },
+  undefined,  // environment
+  'org-1',    // scope
+)
+// user-1 has admin in org-1, so delete is allowed
+```
+
+When the request has a scope, the engine enriches the subject by merging in any
+scoped role assignments matching that scope. The `admin` role is only added to
+`subject.roles` for requests with `scope: "org-1"`.
+
+## Conditional Permissions with grantWhen
+
+Sometimes a role should only grant a permission under certain conditions. Use
+`grantWhen()` to attach conditions to individual permissions:
+
+```typescript
+const author = defineRole('author')
+  .name('Author')
+  .grant('create', 'post')
+  .grant('read', 'post')
+  .grantWhen('update', 'post', w => w.isOwner())
+  .grantWhen('delete', 'post', w => w.isOwner())
+  .build()
+```
+
+Authors can create and read any post, but can only update or delete posts they own.
+The `isOwner()` shortcut generates a condition checking
+`resource.attributes.ownerId eq $subject.id` -- the `$subject.id` is a variable
+reference resolved at evaluation time.
+
+### Complex conditional permissions
+
+The `grantWhen()` callback receives a `When` builder, so you can compose any
+condition logic:
+
+```typescript
+const teamLead = defineRole('team-lead')
+  .name('Team Lead')
+  .grant('read', 'report')
+  .grantWhen('approve', 'expense', w => w
+    .attr('department', 'eq', 'engineering')
+    .resourceAttr('amount', 'lte', 10000)
+  )
+  .build()
+```
+
+This grants the `approve` permission on expenses only when the subject is in the
+engineering department AND the expense amount is at most 10,000. Both conditions must
+hold (the `When` builder uses AND by default).
+
+## Shorthand Methods
+
+The role builder provides several convenience methods for common permission patterns.
+
+### grantAll(resource)
+
+Grants all actions (`'*'`) on a resource:
+
+```typescript
+const superAdmin = defineRole('super-admin')
+  .name('Super Admin')
+  .grantAll('*')   // all actions on all resources
+  .build()
+
+const postAdmin = defineRole('post-admin')
+  .name('Post Admin')
+  .grantAll('post')  // all actions on posts
+  .build()
+```
+
+### grantCRUD(resource)
+
+Grants `create`, `read`, `update`, and `delete` on a resource. This is more explicit
+than `grantAll` -- it does not include custom actions like `publish` or `archive`.
+
+```typescript
+const contentManager = defineRole('content-manager')
+  .name('Content Manager')
+  .grantCRUD('post')
+  .grantCRUD('comment')
+  .build()
+
+// Equivalent to:
+// .grant('create', 'post')
+// .grant('read', 'post')
+// .grant('update', 'post')
+// .grant('delete', 'post')
+// .grant('create', 'comment')
+// .grant('read', 'comment')
+// .grant('update', 'comment')
+// .grant('delete', 'comment')
+```
+
+### grantRead(resources...)
+
+Grants `read` on one or more resources. Takes multiple arguments:
+
+```typescript
+const auditor = defineRole('auditor')
+  .name('Auditor')
+  .grantRead('post', 'comment', 'user', 'audit-log')
+  .build()
+
+// Equivalent to:
+// .grant('read', 'post')
+// .grant('read', 'comment')
+// .grant('read', 'user')
+// .grant('read', 'audit-log')
+```
+
+### grantScoped(scope, action, resource)
+
+Grants a single permission restricted to a scope:
+
+```typescript
+const orgViewer = defineRole('org-viewer')
+  .name('Org Viewer')
+  .grantScoped('org-1', 'read', 'post')
+  .grantScoped('org-1', 'read', 'comment')
+  .grantScoped('org-2', 'read', 'post')
+  .build()
+```
+
+### meta(metadata)
+
+Attach arbitrary metadata to a role for your own bookkeeping. Metadata is stored on the
+role object but is not used by the engine during evaluation -- it is for your application
+code (admin dashboards, audit logs, UI labels).
+
+```typescript
+const role = defineRole('beta-tester')
+  .name('Beta Tester')
+  .meta({ createdBy: 'system', tier: 'beta', maxSeats: 10 })
+  .grant('read', 'beta-feature')
+  .build()
+
+// Access metadata later:
+console.log(role.metadata)
+// { createdBy: 'system', tier: 'beta', maxSeats: 10 }
+```
+
+## Edge Cases
+
+A few behaviors to be aware of when working with roles:
+
+- **Empty permissions**: a role with no permissions and no inheritance is valid but will
+  not grant any access. `validateRoles()` flags this as a warning.
+- **Deep inheritance chains**: inheritance is resolved by walking the tree recursively.
+  The engine uses a visited set to prevent infinite loops on cycles. Performance is linear
+  in the number of roles -- even chains 10 levels deep resolve in microseconds.
+- **Removing inherited permissions**: not supported. If `editor` inherits `viewer`, there is
+  no way to remove viewer's `read` permission from the editor. Instead, use ABAC policies
+  to deny specific access at a finer grain.
+- **Wildcard scope**: a permission with `scope: '*'` matches all scopes, including requests
+  without a scope. Use this for global permissions that should apply everywhere.
+
+## How Roles Become Policies (rolesToPolicy)
+
+Under the hood, `rolesToPolicy()` converts your role definitions into a single ABAC
+policy. Understanding this conversion helps you reason about how RBAC and ABAC
+interact.
+
+For each role, the function:
+
+1. Flattens the inheritance chain to collect all permissions (own + inherited).
+2. For each permission, creates a Rule with:
+   - `effect: "allow"`
+   - `actions` and `resources` from the permission
+   - A condition `subject.roles contains "<roleId>"`
+   - An additional `scope eq "<scope>"` condition if the permission or role has a scope
+   - Any user-defined conditions from `grantWhen()`
+   - `priority: 10` (default)
+3. Wraps all rules in a policy with `id: "__rbac__"` and `algorithm: "allow-overrides"`.
+
+Here is what the viewer role looks like after conversion:
+
+```typescript
+// Input:
+const viewer = defineRole('viewer')
+  .name('Viewer')
+  .grant('read', 'post')
+  .grant('read', 'comment')
+  .build()
+
+// Generated policy (conceptual):
+{
+  id: '__rbac__',
+  name: 'RBAC Policies',
+  algorithm: 'allow-overrides',
+  rules: [
+    {
+      id: 'rbac.viewer.read.post.0',
+      effect: 'allow',
+      actions: ['read'],
+      resources: ['post'],
+      conditions: {
+        all: [{ field: 'subject.roles', operator: 'contains', value: 'viewer' }]
+      }
+    },
+    {
+      id: 'rbac.viewer.read.comment.1',
+      effect: 'allow',
+      actions: ['read'],
+      resources: ['comment'],
+      conditions: {
+        all: [{ field: 'subject.roles', operator: 'contains', value: 'viewer' }]
+      }
+    }
+  ]
+}
+```
+
+The `allow-overrides` algorithm means: if any role grants the permission, the subject
+is allowed. This is the natural RBAC behavior -- a user with multiple roles gets the
+union of all their permissions.
+
+## Type-Safe Roles with createAccessConfig
+
+For full type safety across your role definitions, use `createAccessConfig()` to get
+typed builder functions:
+
+```typescript
+import { createAccessConfig } from 'duck-iam'
+
+const access = createAccessConfig({
+  actions: ['create', 'read', 'update', 'delete', 'publish'] as const,
+  resources: ['post', 'comment', 'user'] as const,
+  scopes: ['org-1', 'org-2'] as const,
+})
+
+// These builders are fully typed -- invalid actions/resources are compile errors
+const viewer = access.defineRole('viewer')
+  .name('Viewer')
+  .grant('read', 'post')
+  .grant('read', 'comment')
+  // .grant('fly', 'post')  // TypeScript error: 'fly' is not a valid action
+  .build()
+```
+
+The `access.defineRole()`, `access.policy()`, and `access.defineRule()` functions all
+return builders constrained to your declared actions, resources, and scopes.
+
+## Validating Roles
+
+Before saving roles to your adapter, you can validate them for common mistakes:
+
+```typescript
+import { createAccessConfig } from 'duck-iam'
+
+const access = createAccessConfig({
+  actions: ['read', 'write'] as const,
+  resources: ['post'] as const,
+})
+
+const roles = [viewer, editor, admin]
+const result = access.validateRoles(roles)
+
+if (!result.valid) {
+  console.error('Role validation errors:')
+  for (const issue of result.issues) {
+    console.error(`  [${issue.type}] ${issue.message}`)
+  }
+}
+```
+
+The validator checks for:
+
+- Duplicate role IDs
+- Dangling `inherits` references (inheriting from a role that does not exist)
+- Inheritance cycles (A inherits B, B inherits A)
+- Empty permission lists
+
+## Complete Example
+
+Here is a full multi-tenant role setup:
+
+```typescript
+import { createAccessConfig } from 'duck-iam'
+
+const access = createAccessConfig({
+  actions: ['create', 'read', 'update', 'delete', 'publish', 'archive'] as const,
+  resources: ['post', 'comment', 'user', 'settings'] as const,
+  scopes: ['org-alpha', 'org-beta'] as const,
+})
+
+const viewer = access.defineRole('viewer')
+  .name('Viewer')
+  .grantRead('post', 'comment')
+  .build()
+
+const author = access.defineRole('author')
+  .name('Author')
+  .inherits('viewer')
+  .grant('create', 'post')
+  .grantWhen('update', 'post', w => w.isOwner())
+  .grantWhen('delete', 'post', w => w.isOwner())
+  .grant('create', 'comment')
+  .build()
+
+const editor = access.defineRole('editor')
+  .name('Editor')
+  .inherits('author')
+  .grant('update', 'post')
+  .grant('delete', 'post')
+  .grant('publish', 'post')
+  .grant('archive', 'post')
+  .grantCRUD('comment')
+  .build()
+
+const orgAdmin = access.defineRole('org-admin')
+  .name('Organization Admin')
+  .inherits('editor')
+  .grantCRUD('user')
+  .grantCRUD('settings')
+  .build()
+
+const superAdmin = access.defineRole('super-admin')
+  .name('Super Admin')
+  .grantAll('*')
+  .build()
+
+// Validate before saving
+const validation = access.validateRoles([viewer, author, editor, orgAdmin, superAdmin])
+console.log(validation.valid) // true
+
+// Save to adapter
+for (const role of [viewer, author, editor, orgAdmin, superAdmin]) {
+  await engine.admin.saveRole(role)
+}
+```

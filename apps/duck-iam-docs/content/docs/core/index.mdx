@@ -1,0 +1,398 @@
+---
+title: core concepts
+description: How duck-iam combines RBAC and ABAC into a single evaluation pipeline -- subjects, resources, policies, rules, conditions, and combining algorithms.
+---
+
+## How duck-iam Works
+
+duck-iam is a hybrid access control engine. It lets you define **roles** (RBAC) and
+**policies** (ABAC) side by side. At evaluation time, both systems feed into the same
+pipeline, so you get the simplicity of roles with the precision of attribute-based rules.
+
+The key insight: roles are converted into ABAC policies internally. This means every
+authorization check goes through one unified evaluator, regardless of whether the
+permission came from a role definition or a hand-written policy.
+
+## The Evaluation Flow
+
+When you call `engine.can()` or `engine.authorize()`, here is what happens:
+
+<MermaidDiagram chart={`flowchart TD
+    A["Request"] --> B["Resolve subject"]
+    B --> C["Convert roles to ABAC policy"]
+    C --> D["Collect all policies"]
+    D --> E["Evaluate each policy"]
+    E --> F["AND-combine across policies"]
+    F --> G["Decision"]
+
+    B -.- B1["load roles, expand inheritance, merge scoped roles"]
+    C -.- C1["rolesToPolicy()"]
+    D -.- D1["rbac-generated-policy + user-defined-policies"]
+    E -.- E1["each policy uses its own combining algorithm"]
+    F -.- F1["any deny = overall deny"]
+    G -.- G1["allowed, effect, rule, policy, reason, duration"]`} />
+
+### Step by step
+
+1. **Resolve the subject.** The engine loads the user's assigned roles from the adapter,
+   walks inheritance chains to compute effective roles, and merges any scoped roles that
+   match the request scope.
+
+2. **Convert roles to policy.** `rolesToPolicy()` turns every role permission into an
+   ABAC rule with conditions that check `subject.roles contains <roleId>`. The generated
+   policy uses the `allow-overrides` combining algorithm.
+
+3. **Collect all policies.** The RBAC-generated policy is prepended to whatever ABAC
+   policies you have stored in the adapter.
+
+4. **Evaluate each policy independently.** Each policy has its own combining algorithm
+   (`deny-overrides`, `allow-overrides`, `first-match`, or `highest-priority`) that
+   determines how its rules combine into a single effect.
+
+5. **AND-combine across policies.** The engine walks the policy results in order. If any
+   policy returns `deny`, evaluation stops and the request is denied. All policies must
+   allow for the request to be allowed. This is defense in depth -- a restrictive policy
+   cannot be overridden by a permissive one.
+
+6. **Return the decision.** The `Decision` object includes the boolean `allowed` flag,
+   the winning `effect`, which `rule` and `policy` made the decision, a human-readable
+   `reason`, and timing information.
+
+## Key Concepts
+
+### Subject
+
+The entity making the request -- typically a user or service account.
+
+```typescript
+interface Subject {
+  id: string
+  roles: readonly string[]
+  scopedRoles?: readonly ScopedRole[]
+  attributes: Record<string, AttributeValue>
+}
+```
+
+A subject carries its identity (`id`), the roles assigned to it, and arbitrary
+attributes (department, plan tier, clearance level -- anything your domain needs).
+
+### Resource
+
+The thing being accessed -- a post, a document, a settings page.
+
+```typescript
+interface Resource {
+  type: string      // e.g. "post", "comment", "dashboard.settings"
+  id?: string       // optional instance ID
+  attributes: Record<string, AttributeValue>
+}
+```
+
+Resource types support hierarchical matching with dots. A rule targeting `"dashboard"`
+will also match `"dashboard.users"` and `"dashboard.users.settings"`.
+
+### Action
+
+A string describing what the subject wants to do: `"read"`, `"create"`, `"update"`,
+`"delete"`, or any custom action your app defines. Actions support wildcard matching --
+`"*"` matches everything, and `"posts:*"` matches `"posts:read"`, `"posts:write"`, etc.
+
+### Scope
+
+An optional namespace for multi-tenant isolation. When a request carries
+`scope: "org-1"`, only roles and rules that match that scope apply. Scopes are
+strings -- use whatever fits your domain: org IDs, workspace slugs, project keys.
+
+### AccessRequest
+
+The full context for an authorization check:
+
+```typescript
+interface AccessRequest {
+  subject: Subject
+  action: string
+  resource: Resource
+  scope?: string
+  environment?: Environment
+}
+```
+
+The `environment` field carries request-time context like IP address, user agent,
+timestamp, or any custom key-value pairs your conditions need.
+
+```typescript
+interface Environment {
+  ip?: string
+  userAgent?: string
+  timestamp?: number
+  [key: string]: AttributeValue | undefined  // custom fields
+}
+```
+
+### Policy
+
+A named collection of rules with a combining algorithm:
+
+```typescript
+interface Policy {
+  id: string
+  name: string
+  description?: string
+  version?: number
+  algorithm: CombiningAlgorithm
+  rules: readonly Rule[]
+  targets?: {
+    actions?: readonly string[]
+    resources?: readonly string[]
+    roles?: readonly string[]
+  }
+}
+```
+
+Policies can have **targets** that scope them to specific actions, resources, or roles.
+If a request does not match a policy's targets, the policy is skipped entirely.
+
+### Rule
+
+A single authorization statement inside a policy:
+
+```typescript
+interface Rule {
+  id: string
+  effect: 'allow' | 'deny'
+  description?: string
+  priority: number
+  actions: readonly string[]
+  resources: readonly string[]
+  conditions: ConditionGroup
+}
+```
+
+A rule says "allow (or deny) these actions on these resources when these conditions are
+true." Rules are matched against the request -- if the action matches, the resource
+matches, and all conditions pass, the rule fires with its declared effect.
+
+### Condition and ConditionGroup
+
+Conditions are the core of ABAC. A single condition checks one field against one value:
+
+```typescript
+interface Condition {
+  field: string       // e.g. "subject.attributes.department"
+  operator: Operator  // e.g. "eq", "in", "contains"
+  value?: AttributeValue
+}
+```
+
+Conditions are grouped using logical operators:
+
+```typescript
+type ConditionGroup =
+  | { all: Array<Condition | ConditionGroup> }   // AND
+  | { any: Array<Condition | ConditionGroup> }   // OR
+  | { none: Array<Condition | ConditionGroup> }  // NOT (none must be true)
+```
+
+Groups can be nested up to 10 levels deep. The engine fails closed -- if nesting
+exceeds the limit, the condition evaluates to `false`.
+
+### Field Resolution
+
+Condition `field` values are resolved against the `AccessRequest` using dot-notation paths.
+The engine supports these top-level paths:
+
+- `subject.id`, `subject.roles`, `subject.attributes.<key>`
+- `resource.type`, `resource.id`, `resource.attributes.<key>`
+- `environment.<key>`
+- `action` (the action string directly)
+- `scope` (the scope string directly)
+
+Fields that do not exist resolve to `null`. The resolver blocks access to `__proto__`,
+`constructor`, and `prototype` to prevent prototype pollution.
+
+### Dynamic References ($-variables)
+
+When a condition value starts with `$`, it is resolved at evaluation time instead of
+being compared as a literal string. This lets you compare two request fields against
+each other.
+
+```typescript
+// Does resource.attributes.ownerId equal the subject's ID?
+{ field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' }
+```
+
+The `$` prefix is stripped and the remainder is resolved using the same field resolution
+paths. Common uses include ownership checks (`$subject.id`), department matching
+(`$subject.attributes.department`), and scope validation (`$scope`).
+
+### Decision
+
+The output of every authorization check:
+
+```typescript
+interface Decision {
+  allowed: boolean    // the boolean you need
+  effect: 'allow' | 'deny'
+  rule?: Rule         // which rule decided
+  policy?: string     // which policy it came from
+  reason: string      // human-readable explanation
+  duration: number    // evaluation time in ms
+  timestamp: number   // when the check happened
+}
+```
+
+## Combining Algorithms
+
+Each policy uses a combining algorithm to resolve conflicts when multiple rules match
+the same request. There are four algorithms.
+
+### deny-overrides (default)
+
+If any matching rule says `deny`, the policy result is `deny`. Otherwise, if any rule
+says `allow`, the result is `allow`. This is the safest default -- deny always wins.
+
+```typescript
+const strictPolicy = policy('strict')
+  .algorithm('deny-overrides')
+  .rule('allow-read', r => r.allow().on('read').of('post'))
+  .rule('block-drafts', r => r
+    .deny()
+    .on('read')
+    .of('post')
+    .when(w => w.resourceAttr('status', 'eq', 'draft'))
+  )
+  .build()
+
+// If both rules match, deny wins -- you cannot read draft posts.
+```
+
+### allow-overrides
+
+If any matching rule says `allow`, the policy result is `allow`. Otherwise, if any rule
+says `deny`, the result is `deny`. Use this when you want permissive policies where a
+single allow rule is enough.
+
+```typescript
+const permissivePolicy = policy('permissive')
+  .algorithm('allow-overrides')
+  .rule('deny-default', r => r.deny().on('*').of('*'))
+  .rule('admin-override', r => r
+    .allow()
+    .on('*')
+    .of('*')
+    .when(w => w.role('admin'))
+  )
+  .build()
+
+// Admin role triggers the allow rule, which overrides the deny.
+```
+
+This is the algorithm used by the auto-generated RBAC policy. If any role grants
+the permission, the subject is allowed.
+
+### first-match
+
+The first rule that matches determines the result. Rule order matters. This gives
+you explicit control over evaluation order.
+
+```typescript
+const orderedPolicy = policy('ordered')
+  .algorithm('first-match')
+  .rule('block-ip', r => r
+    .deny()
+    .on('*')
+    .of('*')
+    .when(w => w.env('ip', 'eq', '10.0.0.99'))
+  )
+  .rule('allow-all', r => r.allow().on('*').of('*'))
+  .build()
+
+// The deny rule is checked first. If the IP matches, deny.
+// Otherwise, the allow-all rule fires.
+```
+
+### highest-priority
+
+The matching rule with the highest `priority` value wins. If multiple rules share the
+highest priority, the first one encountered wins. Use this when you want fine-grained
+control without worrying about rule ordering.
+
+```typescript
+const priorityPolicy = policy('priority-based')
+  .algorithm('highest-priority')
+  .rule('general-allow', r => r
+    .allow()
+    .on('read')
+    .of('post')
+    .priority(10)
+  )
+  .rule('emergency-deny', r => r
+    .deny()
+    .on('*')
+    .of('*')
+    .priority(100)
+    .when(w => w.env('maintenanceMode', 'eq', true))
+  )
+  .build()
+
+// During maintenance, the priority-100 deny rule beats the priority-10 allow.
+```
+
+## Cross-Policy AND-Combination
+
+The combining algorithm works **within** a single policy. **Across** policies, duck-iam
+uses strict AND-combination: every policy must allow the request for the final decision
+to be `allow`.
+
+```typescript
+// Policy A: RBAC-generated, allows editors to update posts
+// Policy B: Custom, denies updates on weekends
+
+// On a weekday: Policy A allows, Policy B allows -> ALLOWED
+// On a weekend: Policy A allows, Policy B denies  -> DENIED
+```
+
+This means you can layer policies for defense in depth:
+
+- The RBAC policy handles "who can do what"
+- A time-based policy handles "when they can do it"
+- A geo-fencing policy handles "where they can do it from"
+
+Each policy is evaluated independently. A deny from any one of them is final.
+
+## The Default Effect
+
+When no rules match a request within a policy, the engine falls back to the
+`defaultEffect`. This defaults to `"deny"` (fail closed), but you can configure it:
+
+```typescript
+const engine = new Engine({
+  adapter: myAdapter,
+  defaultEffect: 'deny',  // this is the default
+})
+```
+
+Keep this set to `"deny"` in production. Fail-closed is the safe default -- if you
+forget to write a rule for something, it is denied rather than accidentally allowed.
+
+## Debugging with explain()
+
+When you need to understand why a request was allowed or denied, use the `explain()`
+method. It returns a full evaluation trace without triggering side-effect hooks:
+
+```typescript
+const trace = await engine.explain(
+  'user-1',
+  'update',
+  { type: 'post', id: 'post-42', attributes: { ownerId: 'user-1' } },
+)
+
+console.log(trace.summary)
+// ALLOWED: "user-1" -> update on post
+//   Roles: [editor]
+//   __rbac__ [allow-overrides]: Allowed by rule "rbac.editor.update.post.2" (1/8 rules matched)
+//   Result: Allowed by rule "rbac.editor.update.post.2"
+```
+
+The trace includes per-policy breakdowns, per-rule match details, and per-condition
+actual vs. expected values. This is invaluable for debugging complex permission setups.
