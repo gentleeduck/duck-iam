@@ -1,42 +1,85 @@
-import type { Adapter, Attributes, Policy, Role } from '../../core/types'
+import type { Adapter, Attributes, Policy, Role, ScopedRole } from '../../core/types'
 
 /**
- * Drizzle adapter.
- * Works with PostgreSQL, MySQL, SQLite, Cloudflare D1, Turso, LibSQL.
- *
- * You provide:
- *   1. Your drizzle `db` instance
- *   2. Your drizzle table objects
- *   3. The `eq` and `and` operators from drizzle-orm
- *
- * Example:
- *   import { db } from "./db";
- *   import { eq, and } from "drizzle-orm";
- *   import { accessPolicies, accessRoles, accessAssignments, accessSubjectAttrs } from "./schema";
- *
- *   const adapter = new DrizzleAdapter({
- *     db,
- *     tables: { policies: accessPolicies, roles: accessRoles, assignments: accessAssignments, attrs: accessSubjectAttrs },
- *     ops: { eq, and },
- *   });
+ * Row shapes returned by Drizzle queries.
  */
+interface PolicyRow {
+  id: string
+  name: string
+  description: string | null
+  version: number
+  algorithm: string
+  rules: string | unknown
+  targets: string | unknown | null
+}
+
+interface RoleRow {
+  id: string
+  name: string
+  description: string | null
+  permissions: string | unknown
+  inherits: string | unknown | null
+  scope: string | null
+  metadata: string | unknown | null
+}
+
+interface AssignmentRow {
+  subjectId: string
+  roleId: string
+  scope: string | null
+}
+
+interface AttrRow {
+  subjectId: string
+  data: string | unknown
+}
 
 export interface DrizzleConfig {
-  db: any
+  db: {
+    select: () => { from: (table: unknown) => DrizzleQuery }
+    insert: (table: unknown) => { values: (data: Record<string, unknown>) => DrizzleInsert }
+    delete: (table: unknown) => { where: (condition: unknown) => Promise<unknown> }
+  }
   tables: {
-    policies: any
-    roles: any
-    assignments: any
-    attrs: any
+    policies: DrizzleTable
+    roles: DrizzleTable
+    assignments: DrizzleTable
+    attrs: DrizzleTable
   }
   ops: {
-    eq: (col: any, val: any) => any
-    and: (...conditions: any[]) => any
+    eq: (col: unknown, val: unknown) => unknown
+    and: (...conditions: unknown[]) => unknown
   }
 }
 
-export class DrizzleAdapter implements Adapter {
-  private db: any
+interface DrizzleTable {
+  id?: unknown
+  subjectId?: unknown
+  roleId?: unknown
+  scope?: unknown
+  [key: string]: unknown
+}
+
+interface DrizzleQuery {
+  where: (condition: unknown) => { limit: (n: number) => Promise<Record<string, unknown>[]> }
+  limit: (n: number) => Promise<Record<string, unknown>[]>
+  then: (onfulfilled: (value: Record<string, unknown>[]) => unknown) => Promise<unknown>
+  [Symbol.iterator]?: unknown
+}
+
+interface DrizzleInsert {
+  onConflictDoUpdate: (args: { target: unknown; set: Record<string, unknown> }) => Promise<unknown>
+  onConflictDoNothing: () => Promise<unknown>
+}
+
+export class DrizzleAdapter<
+  TAction extends string = string,
+  TResource extends string = string,
+  TRole extends string = string,
+  TScope extends string = string,
+> implements Adapter<TAction, TResource, TRole, TScope>
+{
+  private db: DrizzleConfig['db']
   private t: DrizzleConfig['tables']
   private eq: DrizzleConfig['ops']['eq']
   private and: DrizzleConfig['ops']['and']
@@ -48,19 +91,23 @@ export class DrizzleAdapter implements Adapter {
     this.and = config.ops.and
   }
 
-  // ── PolicyStore ──
+  // -- PolicyStore --
 
-  async listPolicies(): Promise<Policy[]> {
-    const rows = await this.db.select().from(this.t.policies)
-    return rows.map(parsePolicy)
+  async listPolicies(): Promise<Policy<TAction, TResource, TRole>[]> {
+    const rows = (await this.db.select().from(this.t.policies)) as unknown as PolicyRow[]
+    return rows.map(parsePolicy) as Policy<TAction, TResource, TRole>[]
   }
 
-  async getPolicy(id: string): Promise<Policy | null> {
-    const rows = await this.db.select().from(this.t.policies).where(this.eq(this.t.policies.id, id)).limit(1)
-    return rows[0] ? parsePolicy(rows[0]) : null
+  async getPolicy(id: string): Promise<Policy<TAction, TResource, TRole> | null> {
+    const rows = (await this.db
+      .select()
+      .from(this.t.policies)
+      .where(this.eq(this.t.policies.id, id))
+      .limit(1)) as unknown as PolicyRow[]
+    return rows[0] ? (parsePolicy(rows[0]) as Policy<TAction, TResource, TRole>) : null
   }
 
-  async savePolicy(p: Policy): Promise<void> {
+  async savePolicy(p: Policy<TAction, TResource, TRole>): Promise<void> {
     const data = serializePolicy(p)
     await this.db.insert(this.t.policies).values(data).onConflictDoUpdate({ target: this.t.policies.id, set: data })
   }
@@ -69,19 +116,23 @@ export class DrizzleAdapter implements Adapter {
     await this.db.delete(this.t.policies).where(this.eq(this.t.policies.id, id))
   }
 
-  // ── RoleStore ──
+  // -- RoleStore --
 
-  async listRoles(): Promise<Role[]> {
-    const rows = await this.db.select().from(this.t.roles)
-    return rows.map(parseRole)
+  async listRoles(): Promise<Role<TAction, TResource, TRole, TScope>[]> {
+    const rows = (await this.db.select().from(this.t.roles)) as unknown as RoleRow[]
+    return rows.map(parseRole) as Role<TAction, TResource, TRole, TScope>[]
   }
 
-  async getRole(id: string): Promise<Role | null> {
-    const rows = await this.db.select().from(this.t.roles).where(this.eq(this.t.roles.id, id)).limit(1)
-    return rows[0] ? parseRole(rows[0]) : null
+  async getRole(id: string): Promise<Role<TAction, TResource, TRole, TScope> | null> {
+    const rows = (await this.db
+      .select()
+      .from(this.t.roles)
+      .where(this.eq(this.t.roles.id, id))
+      .limit(1)) as unknown as RoleRow[]
+    return rows[0] ? (parseRole(rows[0]) as Role<TAction, TResource, TRole, TScope>) : null
   }
 
-  async saveRole(r: Role): Promise<void> {
+  async saveRole(r: Role<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = serializeRole(r)
     await this.db.insert(this.t.roles).values(data).onConflictDoUpdate({ target: this.t.roles.id, set: data })
   }
@@ -90,31 +141,46 @@ export class DrizzleAdapter implements Adapter {
     await this.db.delete(this.t.roles).where(this.eq(this.t.roles.id, id))
   }
 
-  // ── SubjectStore ──
+  // -- SubjectStore --
 
-  async getSubjectRoles(subjectId: string): Promise<string[]> {
-    const rows = await this.db.select().from(this.t.assignments).where(this.eq(this.t.assignments.subjectId, subjectId))
-    return rows.map((r: any) => r.roleId)
+  async getSubjectRoles(subjectId: string): Promise<TRole[]> {
+    const rows = (await this.db
+      .select()
+      .from(this.t.assignments)
+      .where(this.eq(this.t.assignments.subjectId, subjectId))) as unknown as AssignmentRow[]
+    return [...new Set(rows.map((r) => r.roleId as TRole))]
   }
 
-  async assignRole(subjectId: string, roleId: string, scope?: string): Promise<void> {
+  async getSubjectScopedRoles(subjectId: string): Promise<ScopedRole<TRole, TScope>[]> {
+    const rows = (await this.db
+      .select()
+      .from(this.t.assignments)
+      .where(this.eq(this.t.assignments.subjectId, subjectId))) as unknown as AssignmentRow[]
+    return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
+  }
+
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     await this.db
       .insert(this.t.assignments)
       .values({ subjectId, roleId, scope: scope ?? null })
       .onConflictDoNothing()
   }
 
-  async revokeRole(subjectId: string, roleId: string, scope?: string): Promise<void> {
+  async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     const conditions = [this.eq(this.t.assignments.subjectId, subjectId), this.eq(this.t.assignments.roleId, roleId)]
     if (scope) conditions.push(this.eq(this.t.assignments.scope, scope))
     await this.db.delete(this.t.assignments).where(this.and(...conditions))
   }
 
   async getSubjectAttributes(subjectId: string): Promise<Attributes> {
-    const rows = await this.db.select().from(this.t.attrs).where(this.eq(this.t.attrs.subjectId, subjectId)).limit(1)
+    const rows = (await this.db
+      .select()
+      .from(this.t.attrs)
+      .where(this.eq(this.t.attrs.subjectId, subjectId))
+      .limit(1)) as unknown as AttrRow[]
     if (!rows[0]) return {}
     const data = rows[0].data
-    return typeof data === 'string' ? JSON.parse(data) : (data ?? {})
+    return typeof data === 'string' ? JSON.parse(data) : ((data as Attributes) ?? {})
   }
 
   async setSubjectAttributes(subjectId: string, attrs: Attributes): Promise<void> {
@@ -127,21 +193,25 @@ export class DrizzleAdapter implements Adapter {
   }
 }
 
-// ── Serialization helpers ──
+// -- Serialization helpers --
 
-function parsePolicy(row: any): Policy {
+function parsePolicy(row: PolicyRow): Policy {
   return {
     id: row.id,
     name: row.name,
-    description: row.description,
+    description: row.description ?? undefined,
     version: row.version,
-    algorithm: row.algorithm,
-    rules: typeof row.rules === 'string' ? JSON.parse(row.rules) : row.rules,
-    targets: row.targets ? (typeof row.targets === 'string' ? JSON.parse(row.targets) : row.targets) : undefined,
+    algorithm: row.algorithm as Policy['algorithm'],
+    rules: typeof row.rules === 'string' ? JSON.parse(row.rules) : (row.rules as Policy['rules']),
+    targets: row.targets
+      ? typeof row.targets === 'string'
+        ? JSON.parse(row.targets)
+        : (row.targets as Policy['targets'])
+      : undefined,
   }
 }
 
-function serializePolicy(p: Policy): Record<string, any> {
+function serializePolicy(p: Policy): Record<string, unknown> {
   return {
     id: p.id,
     name: p.name,
@@ -153,19 +223,24 @@ function serializePolicy(p: Policy): Record<string, any> {
   }
 }
 
-function parseRole(row: any): Role {
+function parseRole(row: RoleRow): Role {
   return {
     id: row.id,
     name: row.name,
-    description: row.description,
-    permissions: typeof row.permissions === 'string' ? JSON.parse(row.permissions) : row.permissions,
-    inherits: typeof row.inherits === 'string' ? JSON.parse(row.inherits) : (row.inherits ?? []),
-    scope: row.scope,
-    metadata: row.metadata ? (typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata) : undefined,
+    description: row.description ?? undefined,
+    permissions:
+      typeof row.permissions === 'string' ? JSON.parse(row.permissions) : (row.permissions as Role['permissions']),
+    inherits: typeof row.inherits === 'string' ? JSON.parse(row.inherits) : ((row.inherits as string[]) ?? []),
+    scope: row.scope ?? undefined,
+    metadata: row.metadata
+      ? typeof row.metadata === 'string'
+        ? JSON.parse(row.metadata)
+        : (row.metadata as Role['metadata'])
+      : undefined,
   }
 }
 
-function serializeRole(r: Role): Record<string, any> {
+function serializeRole(r: Role): Record<string, unknown> {
   return {
     id: r.id,
     name: r.name,

@@ -1,16 +1,7 @@
-import type { Adapter, Attributes, Policy, Role } from '../../core/types'
-
-/**
- * HTTP adapter: fetches policies, roles, and subject data from your API.
- *
- * Use this on the client side when you want to evaluate permissions locally
- * but load the data from your server.
- *
- * Configure your server to expose these endpoints (or customize the paths).
- */
+import type { Adapter, Attributes, Policy, Role, ScopedRole } from '../../core/types'
 
 export interface HttpAdapterConfig {
-  /** Base URL of your access-engine API, e.g. "https://api.example.com/access" */
+  /** Base URL of your duck-iam API, e.g. "https://api.example.com/access" */
   baseUrl: string
   /** Custom fetch function (defaults to globalThis.fetch) */
   fetch?: typeof globalThis.fetch
@@ -18,7 +9,13 @@ export interface HttpAdapterConfig {
   headers?: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>)
 }
 
-export class HttpAdapter implements Adapter {
+export class HttpAdapter<
+  TAction extends string = string,
+  TResource extends string = string,
+  TRole extends string = string,
+  TScope extends string = string,
+> implements Adapter<TAction, TResource, TRole, TScope>
+{
   private baseUrl: string
   private _fetch: typeof globalThis.fetch
   private _headers: HttpAdapterConfig['headers']
@@ -42,20 +39,20 @@ export class HttpAdapter implements Adapter {
     })
 
     if (!res.ok) {
-      throw new Error(`access-engine HTTP ${res.status}: ${await res.text()}`)
+      throw new Error(`duck-iam HTTP ${res.status}: ${await res.text()}`)
     }
 
     return res.json()
   }
 
-  // ── PolicyStore ──
-  async listPolicies(): Promise<Policy[]> {
+  // -- PolicyStore --
+  async listPolicies(): Promise<Policy<TAction, TResource, TRole>[]> {
     return this.request('/policies')
   }
-  async getPolicy(id: string): Promise<Policy | null> {
+  async getPolicy(id: string): Promise<Policy<TAction, TResource, TRole> | null> {
     return this.request(`/policies/${id}`)
   }
-  async savePolicy(p: Policy): Promise<void> {
+  async savePolicy(p: Policy<TAction, TResource, TRole>): Promise<void> {
     await this.request('/policies', {
       method: 'PUT',
       body: JSON.stringify(p),
@@ -65,32 +62,36 @@ export class HttpAdapter implements Adapter {
     await this.request(`/policies/${id}`, { method: 'DELETE' })
   }
 
-  // ── RoleStore ──
-  async listRoles(): Promise<Role[]> {
+  // -- RoleStore --
+  async listRoles(): Promise<Role<TAction, TResource, TRole, TScope>[]> {
     return this.request('/roles')
   }
-  async getRole(id: string): Promise<Role | null> {
+  async getRole(id: string): Promise<Role<TAction, TResource, TRole, TScope> | null> {
     return this.request(`/roles/${id}`)
   }
-  async saveRole(r: Role): Promise<void> {
+  async saveRole(r: Role<TAction, TResource, TRole, TScope>): Promise<void> {
     await this.request('/roles', { method: 'PUT', body: JSON.stringify(r) })
   }
   async deleteRole(id: string): Promise<void> {
     await this.request(`/roles/${id}`, { method: 'DELETE' })
   }
 
-  // ── SubjectStore ──
-  async getSubjectRoles(subjectId: string): Promise<string[]> {
+  // -- SubjectStore --
+  async getSubjectRoles(subjectId: string): Promise<TRole[]> {
     return this.request(`/subjects/${subjectId}/roles`)
   }
-  async assignRole(subjectId: string, roleId: string): Promise<void> {
+  async getSubjectScopedRoles(subjectId: string): Promise<ScopedRole<TRole, TScope>[]> {
+    return this.request(`/subjects/${subjectId}/scoped-roles`)
+  }
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     await this.request(`/subjects/${subjectId}/roles`, {
       method: 'POST',
-      body: JSON.stringify({ roleId }),
+      body: JSON.stringify({ roleId, scope }),
     })
   }
-  async revokeRole(subjectId: string, roleId: string): Promise<void> {
-    await this.request(`/subjects/${subjectId}/roles/${roleId}`, {
+  async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+    const params = scope ? `?scope=${encodeURIComponent(scope)}` : ''
+    await this.request(`/subjects/${subjectId}/roles/${roleId}${params}`, {
       method: 'DELETE',
     })
   }
