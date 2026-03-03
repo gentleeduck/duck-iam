@@ -37,7 +37,32 @@ export const docsConfig = {
           title: 'whoiam',
         },
         {
+          collapsible: true,
           href: '/docs/changelog',
+          items: [
+            {
+              href: '/docs/changelog/march-2026',
+              items: [],
+              label: 'new',
+              title: 'March 2026',
+            },
+            {
+              href: '/docs/changelog/february-2026',
+              items: [],
+              title: 'February 2026',
+            },
+            {
+              href: '/docs/changelog/january-2026',
+              items: [],
+              title: 'January 2026',
+            },
+            {
+              href: '/docs/changelog/december-2025',
+              items: [],
+              title: 'December 2025',
+            },
+          ],
+          label: 'new',
           title: 'Changelog',
         },
       ],
