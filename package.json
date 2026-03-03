@@ -37,7 +37,13 @@
     "tooling/*"
   ],
   "overrides": {
-    "vite": "npm:rolldown-vite@^7.3.0"
+    "vite": "npm:rolldown-vite@^7.3.0",
+    "@gentleduck/variants": "0.1.19",
+    "@gentleduck/hooks": "0.1.11",
+    "@gentleduck/libs": "0.1.14",
+    "@gentleduck/motion": "0.1.16",
+    "@gentleduck/primitives": "0.2.3",
+    "@gentleduck/vim": "0.1.15"
   },
   "trustedDependencies": [
     "@biomejs/biome",
