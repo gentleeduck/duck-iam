@@ -21,7 +21,7 @@
         "@gentleduck/lazy": "^1.2.12",
         "@gentleduck/libs": "^0.1.14",
         "@gentleduck/motion": "^0.1.16",
-        "@gentleduck/registry-ui": "^0.2.3",
+        "@gentleduck/registry-ui": "^0.2.4",
         "@gentleduck/vim": "^0.1.15",
         "geist": "^1.7.0",
         "lucide-react": "0.562.0",
@@ -390,7 +390,7 @@
 
     "@gentleduck/primitives": ["@gentleduck/primitives@0.2.3", "", { "dependencies": { "@floating-ui/react-dom": "^2.1.7", "aria-hidden": "^1.2.6", "react-remove-scroll": "^2.7.2" }, "peerDependencies": { "react": "^19.2.4", "react-dom": "^19.2.4", "tabbable": "6.2.0" } }, "sha512-H7ctq5lWI+dx990l0seIYeZ36xixwN6WGCGXn/758JD8+YEsMdgqkp2CupK8MxBXhPeZDo8vfbWxF7Kk0ZpNRQ=="],
 
-    "@gentleduck/registry-ui": ["@gentleduck/registry-ui@0.2.3", "", { "dependencies": { "@gentleduck/hooks": "workspace:*", "@gentleduck/libs": "workspace:*", "@gentleduck/motion": "workspace:*", "@gentleduck/primitives": "workspace:*", "@gentleduck/variants": "workspace:*", "@gentleduck/vim": "workspace:*", "embla-carousel-react": "8.6.0", "lucide-react": "0.576.0", "next-themes": "^0.4.6", "react": "^19.2.4", "react-day-picker": "^9.8.1", "react-dom": "^19.2.4", "react-hook-form": "^7.71.1", "react-resizable-panels": "^4.7.0", "recharts": "^3.7.0", "sonner": "^2.0.7", "tailwindcss": "^4.2.0", "uuidv7": "^1.1.0", "vaul": "1.1.2", "zod": "4.3.6" } }, "sha512-XXs6/DAIFz4pYRzjtn+ugeBKEd5brlk1BlJh8Yr7dhWC+tQjaMFgGwkrlIE9ahKrWZ7FfxIELdoWsnVubaDolg=="],
+    "@gentleduck/registry-ui": ["@gentleduck/registry-ui@0.2.4", "", { "dependencies": { "@gentleduck/hooks": "workspace:*", "@gentleduck/libs": "workspace:*", "@gentleduck/motion": "workspace:*", "@gentleduck/primitives": "workspace:*", "@gentleduck/variants": "workspace:*", "@gentleduck/vim": "workspace:*", "embla-carousel-react": "8.6.0", "lucide-react": "0.576.0", "next-themes": "^0.4.6", "react": "^19.2.4", "react-day-picker": "^9.8.1", "react-dom": "^19.2.4", "react-hook-form": "^7.71.1", "react-resizable-panels": "^4.7.0", "recharts": "^3.7.0", "sonner": "^2.0.7", "tailwindcss": "^4.2.0", "uuidv7": "^1.1.0", "vaul": "1.1.2", "zod": "4.3.6" } }, "sha512-Qkt9GDlnnEug54py/0sk9xqUAQ25RLbJvdrwLBD1Ibs0xduukPN62kyS/zVvdnX8R8ywtoErkBsY2WqBfED18g=="],
 
     "@gentleduck/tailwind-config": ["@gentleduck/tailwind-config@workspace:tooling/tailwind"],
 
