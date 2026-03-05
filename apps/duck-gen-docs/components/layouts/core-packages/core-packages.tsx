@@ -47,13 +47,15 @@ function EcosystemCard({ pkg, index }: { pkg: (typeof packages)[number]; index: 
 export function EcosystemSection() {
   return (
     <section aria-labelledby="ecosystem-heading" className="relative" id="ecosystem">
-      {/* Background elements */}
       <div
         aria-hidden="true"
-        className="absolute top-1/4 left-1/4 z-0 h-64 w-64 rounded-full bg-orange-500/20 blur-3xl"></div>
+        className="pointer-events-none absolute -top-32 -left-20 z-0 h-[12rem] w-[12rem] rounded-full bg-gradient-to-br from-orange-500/12 to-amber-400/8 blur-[90px] md:h-[18rem] md:w-[18rem]"></div>
       <div
         aria-hidden="true"
-        className="absolute right-1/4 bottom-1/4 z-0 h-72 w-72 rounded-full bg-rose-500/20 blur-3xl"></div>
+        className="pointer-events-none absolute -right-20 -bottom-32 z-0 h-[10rem] w-[10rem] rounded-full bg-gradient-to-tl from-rose-500/10 to-pink-400/6 blur-[100px] md:h-[16rem] md:w-[16rem]"></div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -top-40 right-1/3 z-0 h-[8rem] w-[8rem] rounded-full bg-gradient-to-r from-red-400/5 to-orange-300/4 blur-[80px] md:h-[14rem] md:w-[14rem]"></div>
 
       <div className="container relative mx-auto pb-24 sm:pb-32 lg:pb-40">
         <SectionTitle
