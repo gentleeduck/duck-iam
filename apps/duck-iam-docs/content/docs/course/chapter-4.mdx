@@ -1,0 +1,716 @@
+---
+title: "chapter 4: the engine in depth"
+description: Master the engine's methods, hooks, caching, batch permissions, explain/debug, and Admin API to build a complete authorization backend.
+---
+
+## Goal
+
+The engine is more than `engine.can()`. This chapter covers every engine method, hooks for
+enrichment and logging, caching for performance, batch permission checks for UIs, the explain
+API for debugging, and the Admin API for runtime management.
+
+<MermaidDiagram chart={`flowchart LR
+    subgraph Engine["Engine Features"]
+        direction TB
+        H["Hooks\\nbeforeEvaluate\\nafterEvaluate\\nonDeny, onError"]
+        C["Caching\\n4 LRU caches\\nTTL + size limits"]
+        B["Batch\\npermissions()\\ncheck many at once"]
+        X["Explain\\nfull evaluation trace\\ndebug denials"]
+        A["Admin API\\nmanage at runtime\\nauto-invalidate"]
+    end`} />
+
+## Engine Methods Overview
+
+The engine provides five core methods:
+
+| Method | Returns | Description |
+| --- | --- | --- |
+| `engine.can(subjectId, action, resource, env?, scope?)` | `boolean` | Simple yes/no permission check |
+| `engine.check(subjectId, action, resource, env?, scope?)` | `Decision` | Full decision with reason, timing |
+| `engine.authorize(request)` | `Decision` | Low-level: takes a full `AccessRequest` |
+| `engine.permissions(subjectId, checks, env?)` | `PermissionMap` | Batch check multiple permissions |
+| `engine.explain(subjectId, action, resource, env?, scope?)` | `ExplainResult` | Debug trace showing every evaluation step |
+
+### engine.can() and engine.check()
+
+These are the convenience methods you will use most:
+
+```typescript
+// Boolean check -- most common
+const allowed = await engine.can('bob', 'update', {
+  type: 'post',
+  id: 'post-1',
+  attributes: { ownerId: 'bob' },
+})
+// true
+
+// Full decision
+const decision = await engine.check('bob', 'update', {
+  type: 'post',
+  id: 'post-1',
+  attributes: { ownerId: 'bob' },
+})
+// { allowed: true, effect: 'allow', reason: '...', duration: 0.5, timestamp: 1708300000000 }
+```
+
+Both accept optional `environment` and `scope` parameters:
+
+```typescript
+await engine.can('bob', 'update',
+  { type: 'post', id: 'post-1', attributes: { ownerId: 'bob' } },
+  { ip: '192.168.1.1', timestamp: Date.now() },  // environment
+  'acme',  // scope
+)
+```
+
+### engine.authorize()
+
+The low-level method takes a full `AccessRequest` object:
+
+```typescript
+import type { AccessRequest } from 'duck-iam'
+
+const request: AccessRequest = {
+  subject: {
+    id: 'bob',
+    roles: ['editor', 'viewer'],
+    attributes: { department: 'engineering' },
+  },
+  action: 'update',
+  resource: {
+    type: 'post',
+    id: 'post-1',
+    attributes: { ownerId: 'bob' },
+  },
+  environment: { ip: '192.168.1.1' },
+  scope: 'acme',
+}
+
+const decision = await engine.authorize(request)
+```
+
+When you call `can()` or `check()`, they call `resolveSubject()` to load the subject
+from the adapter, then call `authorize()` internally. Use `authorize()` directly when
+you manage subject resolution yourself.
+
+### engine.resolveSubject()
+
+Loads a subject's roles and attributes from the adapter:
+
+```typescript
+const subject = await engine.resolveSubject('bob')
+// {
+//   id: 'bob',
+//   roles: ['editor', 'viewer'],  // includes inherited roles
+//   scopedRoles: [{ role: 'admin', scope: 'acme' }],
+//   attributes: { department: 'engineering' },
+// }
+```
+
+The result is cached. Subsequent calls for the same subject return the cached version
+until the cache TTL expires or you manually invalidate.
+
+## Hooks
+
+Hooks let you run code at key points in the evaluation lifecycle.
+
+<MermaidDiagram chart={`flowchart TD
+    subgraph Lifecycle["Hook Execution Order"]
+        direction TB
+        H1["1. beforeEvaluate\\n(can modify request)"]
+        H2["2. evaluate\\n(core engine logic)"]
+        H3["3. afterEvaluate\\n(always runs)"]
+        H4["4. onDeny\\n(only if denied)"]
+    end
+
+    subgraph Error["On Error"]
+        direction TB
+        E1["onError\\n(if any step throws)"]
+        E2["Result: deny\\n(fail closed)"]
+    end
+
+    H1 --> H2 --> H3 --> H4
+    H1 -.->|"throws"| E1 --> E2
+    H2 -.->|"throws"| E1`} />
+
+### Hook Type Signatures
+
+```typescript
+interface EngineHooks {
+  // Runs before evaluation. Can modify the request (enrich with DB data).
+  beforeEvaluate?(
+    request: AccessRequest,
+  ): AccessRequest | Promise<AccessRequest>
+
+  // Runs after evaluation, regardless of outcome.
+  afterEvaluate?(
+    request: AccessRequest,
+    decision: Decision,
+  ): void | Promise<void>
+
+  // Runs only when the decision is deny.
+  onDeny?(
+    request: AccessRequest,
+    decision: Decision,
+  ): void | Promise<void>
+
+  // Runs if any error occurs during evaluation.
+  onError?(
+    error: Error,
+    request: AccessRequest,
+  ): void | Promise<void>
+}
+```
+
+<Steps>
+  <Step>
+    **beforeEvaluate -- enrich the request**
+
+    Fetch resource data from a database before the evaluation runs:
+
+    ```typescript title="src/access.ts"
+    export const engine = new Engine({
+      adapter,
+      hooks: {
+        beforeEvaluate: async (request) => {
+          if (request.resource.type !== 'post') return request
+
+          // Fetch the post to get its ownerId
+          const post = await db.posts.findUnique({
+            where: { id: request.resource.id },
+          })
+
+          return {
+            ...request,
+            resource: {
+              ...request.resource,
+              attributes: {
+                ...request.resource.attributes,
+                ownerId: post?.authorId,
+              },
+            },
+          }
+        },
+      },
+    })
+    ```
+
+    Now callers do not need to pass `ownerId` -- the hook fetches it automatically. The
+    hook receives the full `AccessRequest` and returns a (potentially modified) request.
+    You can modify any part: subject attributes, resource attributes, environment, etc.
+
+    **Important:** if `beforeEvaluate` throws, evaluation is skipped and the result is
+    deny (fail closed). The `onError` hook is called.
+  </Step>
+
+  <Step>
+    **afterEvaluate -- audit logging**
+
+    Log every permission check for compliance:
+
+    ```typescript
+    hooks: {
+      afterEvaluate: async (request, decision) => {
+        console.log(
+          `[audit] ${request.subject.id} ${decision.effect} ${request.action}` +
+          ` on ${request.resource.type}:${request.resource.id ?? 'any'}`
+        )
+      },
+    }
+    ```
+
+    `afterEvaluate` runs regardless of the outcome (allow or deny). It receives both
+    the request and the decision. Use it for audit trails, metrics, and analytics.
+  </Step>
+
+  <Step>
+    **onDeny -- alert on denied access**
+
+    Track denied requests for security monitoring:
+
+    ```typescript
+    hooks: {
+      onDeny: async (request, decision) => {
+        metrics.increment('access.denied', {
+          action: request.action,
+          resource: request.resource.type,
+          subject: request.subject.id,
+          reason: decision.reason,
+        })
+      },
+    }
+    ```
+
+    `onDeny` runs only when the decision is deny. It runs after `afterEvaluate`.
+  </Step>
+
+  <Step>
+    **onError -- handle evaluation failures**
+
+    ```typescript
+    hooks: {
+      onError: async (error, request) => {
+        logger.error('Authorization error', {
+          error: error.message,
+          subjectId: request.subject.id,
+          action: request.action,
+          resource: request.resource.type,
+        })
+      },
+    }
+    ```
+
+    If any error occurs during evaluation (including in hooks), the engine catches it,
+    calls `onError`, and returns a deny decision. This is fail-closed behavior -- errors
+    never result in accidental allows.
+
+    The deny decision includes the error message:
+    `{ allowed: false, reason: 'Evaluation error: ...' }`
+  </Step>
+</Steps>
+
+### Hooks in Batch Permissions
+
+`engine.permissions()` triggers hooks for **each check** in the batch. Each permission
+check goes through `beforeEvaluate`, evaluation, `afterEvaluate`, and `onDeny` (if denied).
+This means your audit log captures every individual check.
+
+### Hooks in Explain
+
+`engine.explain()` does **not** trigger `afterEvaluate`, `onDeny`, or `onError` hooks.
+It only triggers `beforeEvaluate` (because the hook may modify the request, which affects
+the evaluation trace). This makes `explain()` safe to call in debug tooling without side
+effects in your audit logs.
+
+## Caching
+
+The engine maintains four LRU (Least Recently Used) caches to avoid hitting the adapter
+on every check:
+
+<MermaidDiagram chart={`flowchart LR
+    subgraph Caches["4 LRU Caches"]
+        direction TB
+        PC["Policy Cache\\nall policies from adapter\\n(1 entry)"]
+        RC["Role Cache\\nall role definitions\\n(1 entry)"]
+        RB["RBAC Policy Cache\\nsynthetic __rbac__ policy\\n(1 entry)"]
+        SC["Subject Cache\\nper-user roles + attributes\\n(up to maxCacheSize entries)"]
+    end
+
+    REQ["Permission\\nCheck"] --> SC
+    SC --> |"miss"| ADAPTER["Adapter"]
+    SC --> |"hit"| EVAL["Evaluate"]
+    ADAPTER --> SC`} />
+
+### How Caching Works
+
+1. **Policy cache** (1 entry) -- stores the result of `adapter.listPolicies()`. All policies
+   are loaded once and cached together.
+2. **Role cache** (1 entry) -- stores the result of `adapter.listRoles()`. All roles are
+   loaded once and cached together.
+3. **RBAC policy cache** (1 entry) -- stores the `__rbac__` policy generated from roles.
+   Regenerated only when the role cache is invalidated.
+4. **Subject cache** (up to `maxCacheSize` entries) -- stores per-user data: resolved roles,
+   scoped roles, and attributes. Uses LRU eviction when full -- the least recently accessed
+   subject is dropped when a new one is added.
+
+All caches use TTL (time-to-live). Entries expire after `cacheTTL` seconds and are
+re-fetched from the adapter on the next access.
+
+### Configuration
+
+```typescript
+const engine = new Engine({
+  adapter,
+  cacheTTL: 60,         // seconds (default: 60, set to 0 to disable)
+  maxCacheSize: 1000,   // max cached subjects (default: 1000)
+})
+```
+
+- `cacheTTL: 0` disables caching entirely (useful for tests)
+- The subject cache uses LRU eviction -- least recently used entries are dropped first
+- Policy and role caches are single-entry -- they store all data in one cache slot
+
+### Manual Invalidation
+
+```typescript
+engine.invalidate()                  // clear ALL caches
+engine.invalidateSubject('user-1')   // clear one user's cached data
+engine.invalidatePolicies()          // clear policy cache only
+engine.invalidateRoles()             // clear role + RBAC + ALL subject caches
+```
+
+`invalidateRoles()` also clears the subject cache because subjects cache their resolved
+roles. If role definitions change, all cached subject data becomes stale.
+
+## Batch Permissions
+
+For UIs, you often need to check 10-20 permissions at once to decide what buttons to show.
+Use `engine.permissions()`:
+
+```typescript
+const checks = [
+  { action: 'create', resource: 'post' },
+  { action: 'update', resource: 'post', resourceId: 'post-1' },
+  { action: 'delete', resource: 'post', resourceId: 'post-1' },
+  { action: 'manage', resource: 'dashboard' },
+  { action: 'manage', resource: 'user', scope: 'acme' },
+]
+
+const perms = await engine.permissions('bob', checks)
+// {
+//   'create:post': true,
+//   'update:post:post-1': true,
+//   'delete:post:post-1': false,
+//   'manage:dashboard': false,
+//   'acme:manage:user': true,
+// }
+```
+
+### PermissionCheck Type
+
+Each element in the checks array is a `PermissionCheck`:
+
+```typescript
+interface PermissionCheck {
+  action: string       // the action to check
+  resource: string     // the resource type
+  resourceId?: string  // optional: specific resource instance
+  scope?: string       // optional: scope for this check
+}
+```
+
+### PermissionMap Key Format
+
+The returned map uses colon-separated keys:
+
+| Format | Example | When |
+| --- | --- | --- |
+| `action:resource` | `'create:post'` | No resourceId, no scope |
+| `action:resource:resourceId` | `'update:post:post-1'` | With resourceId |
+| `scope:action:resource` | `'acme:manage:user'` | With scope |
+| `scope:action:resource:resourceId` | `'acme:update:post:post-1'` | Both scope and resourceId |
+
+### Performance
+
+`permissions()` is faster than calling `can()` multiple times because:
+- Subject data is loaded once (not per-check)
+- All policies are loaded once
+- The adapter is queried once, not N times
+
+Each individual check still goes through the full evaluation pipeline including hooks.
+If any check throws, it defaults to `false` and the `onError` hook is called.
+
+### Environment in Batch
+
+You can pass an environment that applies to all checks:
+
+```typescript
+const perms = await engine.permissions('bob', checks, {
+  ip: '192.168.1.1',
+  timestamp: Date.now(),
+})
+```
+
+## Explain and Debug
+
+When a permission check returns an unexpected result, use `engine.explain()`:
+
+```typescript
+const result = await engine.explain('bob', 'update', {
+  type: 'post',
+  id: 'post-2',
+  attributes: { ownerId: 'alice' },
+})
+
+console.log(result.summary)
+```
+
+Output:
+
+```text
+DENIED: "bob" -> update on post
+  Roles: [editor, viewer]
+  __rbac__ [allow-overrides]: Allowed by rule "rbac.editor.update.post.0" (1/6 rules matched)
+  owner-restrictions [deny-overrides]: Denied by rule "deny-non-owner-update" (1/1 rules matched)
+  Result: Denied by rule "deny-non-owner-update"
+```
+
+### ExplainResult Structure
+
+The explain result contains the complete evaluation trace:
+
+```typescript
+interface ExplainResult {
+  decision: Decision                // the final decision
+  request: {
+    action: string
+    resourceType: string
+    resourceId?: string
+    scope?: string
+  }
+  subject: {
+    id: string
+    roles: string[]                 // base roles
+    scopedRolesApplied: string[]    // additional scoped roles added
+    attributes: Record<string, any>
+  }
+  policies: PolicyTrace[]           // trace for each policy
+  summary: string                   // human-readable summary
+}
+```
+
+### PolicyTrace and RuleTrace
+
+Each policy in the trace shows all its rules and whether they matched:
+
+```typescript
+interface PolicyTrace {
+  policyId: string
+  policyName: string
+  algorithm: CombiningAlgorithm
+  targetMatch: boolean           // did the policy targets match?
+  rules: RuleTrace[]             // trace for each rule
+  result: Effect                 // this policy's result
+  reason: string                 // why this policy decided this way
+  decidingRuleId?: string        // which rule decided (if any)
+}
+
+interface RuleTrace {
+  ruleId: string
+  description?: string
+  effect: Effect
+  priority: number
+  actionMatch: boolean           // did the action match?
+  resourceMatch: boolean         // did the resource match?
+  conditionsMet: boolean         // did all conditions pass?
+  conditions: ConditionGroupTrace // detailed condition trace
+  matched: boolean               // actionMatch AND resourceMatch AND conditionsMet
+}
+```
+
+### ConditionTrace
+
+The deepest level shows exactly what each condition expected vs what it got:
+
+```typescript
+// Leaf condition trace
+interface ConditionLeafTrace {
+  type: 'condition'
+  field: string           // e.g., 'resource.attributes.ownerId'
+  operator: Operator      // e.g., 'neq'
+  expected: any           // e.g., 'bob' (resolved from $subject.id)
+  actual: any             // e.g., 'alice' (resolved from the resource)
+  result: boolean         // true (alice neq bob = true)
+}
+
+// Group condition trace
+interface ConditionGroupTrace {
+  type: 'group'
+  logic: 'all' | 'any' | 'none'
+  result: boolean
+  children: (ConditionLeafTrace | ConditionGroupTrace)[]
+}
+```
+
+This lets you see exactly which condition failed, what value was expected, and what value
+was actually present. Invaluable for debugging complex policies.
+
+### Explain Does Not Short-Circuit
+
+Unlike normal evaluation, `explain()` evaluates **all** rules in **all** policies, even
+after a deny is found. This gives you the complete picture. Normal `evaluate()` stops at
+the first denying policy for performance.
+
+## Admin API
+
+Manage authorization data at runtime through `engine.admin`:
+
+```typescript
+// Policies
+await engine.admin.listPolicies()
+await engine.admin.getPolicy('owner-restrictions')
+await engine.admin.savePolicy(newPolicy)
+await engine.admin.deletePolicy('old-policy-id')
+
+// Roles
+await engine.admin.listRoles()
+await engine.admin.getRole('editor')
+await engine.admin.saveRole(newRole)
+await engine.admin.deleteRole('old-role-id')
+
+// Subject management
+await engine.admin.assignRole('user-1', 'editor')
+await engine.admin.assignRole('user-1', 'admin', 'acme')  // scoped
+await engine.admin.revokeRole('user-1', 'editor')
+await engine.admin.revokeRole('user-1', 'admin', 'acme')  // scoped
+
+// Subject attributes
+await engine.admin.setAttributes('user-1', { department: 'engineering' })
+const attrs = await engine.admin.getAttributes('user-1')
+```
+
+### Complete Admin API
+
+| Method | Description | Cache Invalidation |
+| --- | --- | --- |
+| `listPolicies()` | List all policies | none |
+| `getPolicy(id)` | Get a single policy | none |
+| `savePolicy(policy)` | Create or update a policy | clears policy cache |
+| `deletePolicy(id)` | Delete a policy | clears policy cache |
+| `listRoles()` | List all roles | none |
+| `getRole(id)` | Get a single role | none |
+| `saveRole(role)` | Create or update a role | clears role + RBAC + subject caches |
+| `deleteRole(id)` | Delete a role | clears role + RBAC + subject caches |
+| `assignRole(subjectId, roleId, scope?)` | Assign a role to a subject | clears that subject's cache |
+| `revokeRole(subjectId, roleId, scope?)` | Revoke a role from a subject | clears that subject's cache |
+| `setAttributes(subjectId, attrs)` | Set subject attributes | clears that subject's cache |
+| `getAttributes(subjectId)` | Get subject attributes | none |
+
+Every mutation **automatically invalidates the relevant cache**. When you call
+`admin.assignRole('user-1', 'editor')`, the user-1 subject cache is cleared so the next
+permission check picks up the new role. You never need to manually invalidate after admin
+operations.
+
+## Checkpoint: Complete Engine Setup
+
+<details>
+<summary>Full engine with all features</summary>
+
+```typescript
+import { Engine, validateRoles } from 'duck-iam'
+import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { viewer, editor, admin } from './roles'
+import { ownerPolicy } from './policies'
+
+validateRoles([viewer, editor, admin])
+
+const adapter = new MemoryAdapter({
+  roles: [viewer, editor, admin],
+  assignments: { alice: ['viewer'], bob: ['editor'], charlie: ['admin'] },
+  policies: [ownerPolicy],
+})
+
+export const engine = new Engine({
+  adapter,
+  defaultEffect: 'deny',
+  cacheTTL: 60,
+  maxCacheSize: 1000,
+  hooks: {
+    beforeEvaluate: async (request) => {
+      // Enrich with DB data
+      if (request.resource.type === 'post' && request.resource.id) {
+        const post = await db.posts.findUnique({ where: { id: request.resource.id } })
+        return {
+          ...request,
+          resource: {
+            ...request.resource,
+            attributes: { ...request.resource.attributes, ownerId: post?.authorId },
+          },
+        }
+      }
+      return request
+    },
+    afterEvaluate: async (request, decision) => {
+      console.log(`[audit] ${request.subject.id} ${decision.effect} ${request.action}:${request.resource.type}`)
+    },
+    onDeny: async (request, decision) => {
+      console.log(`[denied] ${request.subject.id} -> ${request.action}:${request.resource.type}: ${decision.reason}`)
+    },
+    onError: async (error) => {
+      console.error('[auth-error]', error)
+    },
+  },
+})
+```
+
+</details>
+
+---
+
+## Chapter 4 FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="c4-hook-order">
+    <AccordionTrigger>In what order do hooks run?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      `beforeEvaluate` runs first (before evaluation), `afterEvaluate` runs after the decision
+      is made, `onDeny` runs only if denied (after `afterEvaluate`), and `onError` runs if any
+      error occurs. If `beforeEvaluate` throws, evaluation is skipped and the result is deny.
+      All hooks are async-safe.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c4-cache-stale">
+    <AccordionTrigger>What if the cache serves stale data?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The cache has a TTL (default 60 seconds). After that, the next check refreshes the data
+      from the adapter. If you need immediate consistency after a change, either use the Admin
+      API (which auto-invalidates) or call `engine.invalidateSubject(id)` manually. For tests,
+      set `cacheTTL: 0` to disable caching entirely.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c4-explain-production">
+    <AccordionTrigger>Can I use explain() in production?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. `explain()` does not trigger side-effect hooks (afterEvaluate, onDeny, onError),
+      so it will not pollute your audit logs. However, it evaluates ALL rules without
+      short-circuiting, so it is slightly more expensive than `can()`. Use it for debug
+      endpoints or admin tooling, not for every request.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c4-admin-security">
+    <AccordionTrigger>Should the Admin API be exposed to users?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. The Admin API should only be accessible to administrators or internal services.
+      Protect it with its own authorization check (e.g., only users with the `admin` role
+      can call admin endpoints). Never expose `savePolicy()` or `assignRole()` to untrusted
+      users without validation.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c4-permissions-scoped">
+    <AccordionTrigger>Can engine.permissions() use scopes?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Each check in the array can include an optional `scope` field:
+      `{ action: 'manage', resource: 'user', scope: 'acme' }`. The key in the returned map
+      includes the scope: `'acme:manage:user': true`. Each check is evaluated with its own
+      scope, so you can mix scoped and unscoped checks in the same batch.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c4-authorize-vs-can">
+    <AccordionTrigger>When should I use authorize() instead of can()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `authorize()` when you already have a resolved `Subject` object (from
+      `resolveSubject()` or your own data source) and want to skip the adapter lookup.
+      This is useful in middleware where you resolve the user once and check multiple
+      permissions, or in tests where you construct subjects manually.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c4-default-effect">
+    <AccordionTrigger>Should I ever change defaultEffect from 'deny'?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Almost never. The default `'deny'` means unmatched requests are denied (fail-closed).
+      Changing to `'allow'` means any request that does not match a rule is allowed, which is
+      a significant security risk. The only valid use case is in development environments where
+      you want to log denials without blocking requests.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c4-invalidate-roles">
+    <AccordionTrigger>Why does invalidateRoles() also clear the subject cache?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Because subjects cache their resolved roles (including inherited ones). If you change
+      a role definition (e.g., add a permission to `editor`), all cached subjects with that
+      role have stale data. `invalidateRoles()` clears the role cache, the RBAC policy cache,
+      and all subject caches to ensure consistency.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+Next: [Chapter 5: Multi-Tenant Scoping](/docs/course/chapter-5)

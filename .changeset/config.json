@@ -6,7 +6,7 @@
   "commit": false,
   "fixed": [],
   "ignore": [
-    "@gentleduck/gen-docs"
+    "@gentleduck/iam-docs"
   ],
   "linked": [],
   "updateInternalDependencies": "minor"

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:mobile="http://www.google.com/schemas/sitemap-mobile/1.0" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+<<<<<<< HEAD:apps/duck-iam-docs/public/sitemap-0.xml
+<url><loc>https://gen.gentleduck.org</loc><lastmod>2026-02-19T10:46:03.603Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+=======
+<url><loc>https://gen.gentleduck.org</loc><lastmod>2026-03-01T12:40:15.806Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/changelog</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-gen</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-gen/api-routes</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-gen/configuration</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-gen/generated-types</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-gen/messages</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-query</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-query/advanced</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-query/client-methods</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/duck-query/types</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/faqs</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/guides</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/installation</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/templates</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+<url><loc>https://gen.gentleduck.org/docs/whoiam</loc><lastmod>2026-03-01T12:40:15.807Z</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+>>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964:apps/duck-gen-docs/public/sitemap-0.xml
+</urlset>

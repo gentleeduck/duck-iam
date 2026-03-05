@@ -1,0 +1,1890 @@
+---
+title: faqs
+description: Frequently asked questions about duck-iam -- installation, concepts, roles, policies, conditions, adapters, frameworks, caching, debugging, security, and production usage.
+---
+
+Common questions about duck-iam organized by topic. If you cannot find what you need, open an
+issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
+
+---
+
+## Getting Started
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="what-is-duck-iam">
+    <AccordionTrigger>What is duck-iam?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      duck-iam is a TypeScript authorization engine that combines Role-Based Access Control (RBAC) and
+      Attribute-Based Access Control (ABAC) into a single evaluation pipeline. You define roles with
+      permissions, write policies with conditions, and the engine evaluates them together to produce
+      an allow or deny decision. Everything is type-safe -- actions, resources, scopes, and role IDs
+      are checked at compile time when using `createAccessConfig()`.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="rbac-vs-abac">
+    <AccordionTrigger>How does duck-iam compare to pure RBAC or pure ABAC?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Pure RBAC is simple but rigid -- you cannot express rules like "editors can only update their own
+      posts." Pure ABAC is powerful but verbose -- every permission requires a full policy rule, even
+      for basic role checks. duck-iam combines both: roles handle common patterns (viewer, editor, admin)
+      and policies handle fine-grained rules (owner-only access, time-based restrictions, IP filtering).
+      Roles are internally converted to an ABAC policy via `rolesToPolicy()`, so the same condition
+      engine handles everything in one unified pipeline.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="install">
+    <AccordionTrigger>How do I install duck-iam?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Install the package with your preferred package manager:
+      ```
+      npm install duck-iam
+      ```
+      <p className="mt-3">
+        duck-iam has zero runtime dependencies. The core package works in Node.js, Bun, Deno,
+        and edge runtimes.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="zero-deps">
+    <AccordionTrigger>Why does duck-iam have zero runtime dependencies?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Zero dependencies means fewer supply-chain risks, smaller bundle sizes, and no version conflicts
+      with your other packages. The core engine is pure TypeScript logic -- it does not need any external
+      libraries. Database adapters (Prisma, Drizzle) use peer dependencies so the ORM version is yours
+      to control.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="frameworks">
+    <AccordionTrigger>Which frameworks are supported?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Server integrations:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>Express</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">duck-iam/server/express</code></li>
+        <li><strong>Hono</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">duck-iam/server/hono</code></li>
+        <li><strong>NestJS</strong> -- guard + decorator via <code className="rounded bg-muted px-2 py-1">duck-iam/server/nest</code></li>
+        <li><strong>Next.js</strong> -- route wrappers via <code className="rounded bg-muted px-2 py-1">duck-iam/server/next</code></li>
+        <li><strong>Generic</strong> -- framework-agnostic helpers via <code className="rounded bg-muted px-2 py-1">duck-iam/server/generic</code></li>
+      </ul>
+      Client libraries:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>React</strong> -- context provider + hooks via <code className="rounded bg-muted px-2 py-1">duck-iam/client/react</code></li>
+        <li><strong>Vue</strong> -- plugin + composables via <code className="rounded bg-muted px-2 py-1">duck-iam/client/vue</code></li>
+        <li><strong>Vanilla</strong> -- framework-agnostic via <code className="rounded bg-muted px-2 py-1">duck-iam/client/vanilla</code></li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="subpath-exports">
+    <AccordionTrigger>What are all the import paths available?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      duck-iam uses subpath exports so you only import what you need:
+      <ul className="mt-2 list-disc pl-5">
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam</code> -- core engine, builders, validators, types</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/adapters/memory</code> -- in-memory adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/adapters/prisma</code> -- Prisma ORM adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/adapters/drizzle</code> -- Drizzle ORM adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/adapters/http</code> -- HTTP/REST adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/express</code> -- Express middleware</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/hono</code> -- Hono middleware</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/nest</code> -- NestJS guard and decorators</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/next</code> -- Next.js route wrappers</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/generic</code> -- framework-agnostic helpers</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/client/react</code> -- React hooks + provider</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/client/vue</code> -- Vue plugin + composables</li>
+        <li><code className="rounded bg-muted px-2 py-1">duck-iam/client/vanilla</code> -- vanilla JS/TS client</li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="production-ready">
+    <AccordionTrigger>Is duck-iam production-ready?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. The core engine has comprehensive test coverage (295+ tests), handles edge cases like circular
+      role inheritance and deeply nested conditions safely, includes built-in caching with configurable TTL,
+      and validates all inputs. The engine fails closed -- errors default to deny, malformed conditions
+      default to deny, and the default effect is deny. Always validate your role and policy configurations
+      at startup using `validateRoles()` and `validatePolicy()` to catch mistakes early.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="minimal-setup">
+    <AccordionTrigger>What is the minimum code needed to get started?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { defineRole, Engine } from 'duck-iam'
+import { MemoryAdapter } from 'duck-iam/adapters/memory'
+
+const viewer = defineRole('viewer').grant('read', 'post').build()
+
+const adapter = new MemoryAdapter({
+  roles: [viewer],
+  assignments: { 'user-1': ['viewer'] },
+})
+
+const engine = new Engine({ adapter })
+
+const result = await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+// result.allowed === true`}</code></pre>
+      <p className="mt-3">
+        That is a working authorization check in under 15 lines. You can add policies, conditions,
+        scopes, and more as your needs grow.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Roles and Permissions
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="what-is-role">
+    <AccordionTrigger>What is a role in duck-iam?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      A role is a named collection of permissions. Each permission is an action-resource pair like
+      `read:post` or `delete:comment`. Roles can inherit from other roles to form hierarchies.
+      Subjects (users) are assigned one or more roles, and the engine resolves all permissions
+      transitively through the inheritance chain.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="role-inheritance">
+    <AccordionTrigger>How does role inheritance work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Roles can inherit from other roles using the `inherits` property in `defineRole().inherits('parent')`.
+      When a subject has the `editor` role, and `editor` inherits from `viewer`, the subject gets all
+      of `viewer`'s permissions automatically. Inheritance chains are resolved transitively -- if `admin`
+      inherits `editor`, which inherits `viewer`, then `admin` has all three sets of permissions.
+      The engine uses a visited-set to prevent infinite loops from circular inheritance.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="multiple-inheritance">
+    <AccordionTrigger>Can a role inherit from multiple parents?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. A role can inherit from as many parents as you need. For example, a `moderator` role can
+      inherit from both `viewer` and `commenter`:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const moderator = defineRole('moderator')
+  .inherits('viewer', 'commenter')
+  .grant('delete', 'comment')
+  .build()`}</code></pre>
+      <p className="mt-3">
+        The engine collects permissions from all ancestors. Duplicate permissions are deduplicated
+        automatically.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="circular-inheritance">
+    <AccordionTrigger>What happens with circular role inheritance?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine handles it safely. During role resolution, it maintains a visited-set of role IDs.
+      If a role has already been visited, it is skipped, breaking the cycle. `validateRoles()` will
+      report circular inheritance as a warning (not an error) because the engine handles it gracefully
+      at runtime. However, circular inheritance is almost always a configuration mistake -- fix the
+      cycle when you see the warning.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="multiple-roles-per-user">
+    <AccordionTrigger>Can a subject have multiple roles?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. A subject can have any number of roles assigned. The engine resolves permissions from all
+      assigned roles (including inherited ones) and combines them into a single synthetic `__rbac__`
+      policy with `allow-overrides`. This means if any role grants a permission, the RBAC layer allows
+      it. Policies can then add further restrictions on top of that.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="roles-to-policy">
+    <AccordionTrigger>How are roles converted to policies internally?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine calls `rolesToPolicy()` which takes the subject's resolved roles and creates a synthetic
+      policy with ID `__rbac__`. Each permission becomes a rule with `effect: 'allow'` and the matching
+      action and resource. This policy uses `allow-overrides` as its combining algorithm -- if any
+      permission matches, the RBAC layer allows the request. This policy is then evaluated alongside
+      your custom ABAC policies.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="wildcard-permissions">
+    <AccordionTrigger>Can I use wildcards in role permissions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Use `'*'` to match any action or resource:
+      <ul className="mt-2 list-disc pl-5">
+        <li>`grant('*', 'post')` -- all actions on posts</li>
+        <li>`grant('read', '*')` -- read access on all resources</li>
+        <li>`grant('*', '*')` -- full access to everything (superadmin)</li>
+      </ul>
+      <p className="mt-3">
+        Wildcards are matched during rule evaluation. A rule with `actions: ['*']` matches any action
+        in the request.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="role-scoped-permissions">
+    <AccordionTrigger>Can a role's permissions be limited to a specific scope?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Permissions in a role can include an optional `scope` field. When present, that permission
+      only matches if the request scope matches. For example:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const orgAdmin = defineRole('org-admin')
+  .grant('manage', 'user', { scope: 'org-1' })
+  .build()`}</code></pre>
+      <p className="mt-3">
+        This grants `manage:user` only when the request scope is `org-1`. Requests with a different
+        scope or no scope will not match this permission.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="validate-roles">
+    <AccordionTrigger>How do I validate my role configuration?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Call `validateRoles()` at application startup:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { validateRoles } from 'duck-iam'
+
+const result = validateRoles([viewer, editor, admin])
+if (!result.valid) {
+  throw new Error(result.issues.map(i => i.message).join(', '))
+}`}</code></pre>
+      <p className="mt-3">
+        It checks for: duplicate role IDs (error), dangling inherits referencing missing roles (error),
+        circular inheritance (warning), and empty roles with no permissions and no inheritance (warning).
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="hierarchical-resources">
+    <AccordionTrigger>What are hierarchical resource types?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Resource types can use dot notation to form hierarchies. A type of `dashboard.users` matches
+      rules that target `dashboard` or `dashboard.users`. This means granting `read` on `dashboard`
+      also grants `read` on `dashboard.users`, `dashboard.settings`, etc. The engine checks if the
+      request resource type starts with the rule's resource type followed by a dot.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Policies and Rules
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="what-is-policy">
+    <AccordionTrigger>What is a policy?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      A policy is a named container of rules with a combining algorithm. Each rule defines an
+      effect (allow or deny), a set of actions and resources it applies to, a priority, and optional
+      conditions. The combining algorithm determines how multiple matching rules produce a single
+      policy-level result. Policies represent the ABAC side of duck-iam -- they can express any
+      authorization logic that roles alone cannot handle.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="when-use-policy">
+    <AccordionTrigger>When should I use a policy instead of just roles?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use policies when you need logic that depends on attributes or context:
+      <ul className="mt-2 list-disc pl-5">
+        <li>Owner-only access ("users can only edit their own posts")</li>
+        <li>Time-based restrictions ("no deployments on weekends")</li>
+        <li>IP or location filtering ("admin panel only from office network")</li>
+        <li>Status-based rules ("cannot edit locked or archived resources")</li>
+        <li>Conditional denials ("deny delete unless user is admin")</li>
+      </ul>
+      <p className="mt-3">
+        If the decision only depends on "does this user have role X" then roles are sufficient.
+        If it depends on "who owns this resource" or "what time is it" then you need a policy.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="combining-algorithms">
+    <AccordionTrigger>What combining algorithms are available?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Each policy has a combining algorithm that determines how its rules produce a single result:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>deny-overrides</strong> -- if any matching rule denies, the policy denies. Safest default for security-sensitive policies.</li>
+        <li><strong>allow-overrides</strong> -- if any matching rule allows, the policy allows. Used internally for the RBAC policy.</li>
+        <li><strong>first-match</strong> -- the first matching rule (by insertion order) wins. Good for ordered rule lists.</li>
+        <li><strong>highest-priority</strong> -- the matching rule with the highest priority number wins. Good for layered overrides.</li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="cross-policy-combination">
+    <AccordionTrigger>How are multiple policies combined together?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Across policies, duck-iam uses AND-combination: all policies must allow for the overall result
+      to be allow. A deny from any single policy means the overall result is deny. This gives you
+      defense-in-depth -- each policy is an independent security gate. The RBAC policy (from roles)
+      is one of these policies, so roles must grant the permission AND all custom policies must allow it.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="default-effect">
+    <AccordionTrigger>What happens when no rules match in a policy?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine uses a `defaultEffect` which defaults to `'deny'`. If no rules match in a policy,
+      the policy returns the default effect. Since the default is deny, this means "if nothing
+      explicitly allows it, it is denied." You can change the default effect per-engine by passing
+      `defaultEffect: 'allow'` in the engine options, but this is not recommended for production.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="policy-targets">
+    <AccordionTrigger>What are policy targets?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Targets are optional filters on a policy that determine whether the policy is even evaluated
+      for a given request. A policy can target specific actions, resources, or roles:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const restrictedPolicy = policy('restricted')
+  .targets({ actions: ['delete'], resources: ['post'], roles: ['editor'] })
+  .algorithm('deny-overrides')
+  .rule(...)
+  .build()`}</code></pre>
+      <p className="mt-3">
+        This policy is only evaluated when the action is `delete`, the resource is `post`, and the
+        subject has the `editor` role. For all other requests, the policy is skipped entirely. This
+        improves both performance and clarity.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="rule-priority">
+    <AccordionTrigger>What does rule priority do?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Priority is a number on each rule. Its meaning depends on the combining algorithm:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>highest-priority</strong> -- the matching rule with the highest priority number wins. This is where priority matters most.</li>
+        <li><strong>deny-overrides / allow-overrides</strong> -- priority is ignored; the algorithm only cares about deny or allow.</li>
+        <li><strong>first-match</strong> -- priority is ignored; insertion order determines which rule wins.</li>
+      </ul>
+      <p className="mt-3">
+        Higher numbers mean higher priority. A rule with priority 100 beats a rule with priority 10.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="rule-matching">
+    <AccordionTrigger>How does the engine decide if a rule matches?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      A rule matches when all three checks pass:
+      <ol className="mt-2 list-decimal pl-5">
+        <li><strong>Action match</strong> -- the request action is in the rule's `actions` array, or the rule has `['*']`.</li>
+        <li><strong>Resource match</strong> -- the request resource type is in the rule's `resources` array, or the rule has `['*']`, or a hierarchical match (e.g., rule targets `dashboard` and request is `dashboard.users`).</li>
+        <li><strong>Conditions met</strong> -- all condition groups evaluate to true (or the rule has no conditions).</li>
+      </ol>
+      <p className="mt-3">
+        All three must pass. If the action matches but the resource does not, the rule is skipped.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="validate-policy">
+    <AccordionTrigger>How do I validate a policy from an external source?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `validatePolicy()` before saving or using untrusted policy data:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { validatePolicy } from 'duck-iam'
+
+const result = validatePolicy(policyFromAPI)
+if (!result.valid) {
+  console.error(result.issues.map(i => i.message).join(', '))
+}`}</code></pre>
+      <p className="mt-3">
+        It checks for: required fields (`id`, `name`, `algorithm`, `rules`), valid combining algorithm,
+        valid effect values (`allow` / `deny`), valid condition operators, correct condition group
+        structure, duplicate rule IDs, and valid target structure.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="standalone-rules">
+    <AccordionTrigger>Can I define rules outside of a policy and reuse them?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Use `defineRule()` to create standalone rules:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const ownerRule = defineRule('owner-check')
+  .allow()
+  .on('update', 'delete')
+  .of('post')
+  .priority(10)
+  .when(w => w.isOwner())
+  .build()
+
+// Add to any policy:
+const p = policy('my-policy')
+  .algorithm('deny-overrides')
+  .addRule(ownerRule)
+  .build()`}</code></pre>
+      <p className="mt-3">
+        This is useful when the same rule logic applies across multiple policies.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Conditions and Operators
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="how-conditions-work">
+    <AccordionTrigger>How do conditions work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Conditions are expressions attached to rules that must evaluate to true for the rule to match.
+      Each condition compares a field value from the request context against an expected value using
+      an operator. Fields are dot-notation paths like `resource.attributes.ownerId` or
+      `environment.time`. Conditions are grouped into logical blocks (`all`, `any`, `none`) that
+      can be nested.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="all-operators">
+    <AccordionTrigger>What operators are available for conditions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>eq</strong> -- equals (strict equality)</li>
+        <li><strong>neq</strong> -- not equals</li>
+        <li><strong>gt</strong> -- greater than</li>
+        <li><strong>gte</strong> -- greater than or equal</li>
+        <li><strong>lt</strong> -- less than</li>
+        <li><strong>lte</strong> -- less than or equal</li>
+        <li><strong>in</strong> -- value is in an array</li>
+        <li><strong>nin</strong> -- value is not in an array</li>
+        <li><strong>contains</strong> -- array contains the value</li>
+        <li><strong>not_contains</strong> -- array does not contain the value</li>
+        <li><strong>starts_with</strong> -- string starts with the value</li>
+        <li><strong>ends_with</strong> -- string ends with the value</li>
+        <li><strong>matches</strong> -- string matches a regex pattern</li>
+        <li><strong>exists</strong> -- field is not null/undefined</li>
+        <li><strong>not_exists</strong> -- field is null/undefined</li>
+        <li><strong>subset_of</strong> -- array is a subset of the value array</li>
+        <li><strong>superset_of</strong> -- array is a superset of the value array</li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="condition-groups">
+    <AccordionTrigger>What are condition groups (all, any, none)?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Conditions are organized into logical groups:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>all</strong> -- AND logic. Every condition in the group must pass.</li>
+        <li><strong>any</strong> -- OR logic. At least one condition must pass.</li>
+        <li><strong>none</strong> -- NOT logic. No condition may pass (all must fail).</li>
+      </ul>
+      <p className="mt-3">
+        Groups can be nested up to 10 levels deep. For example, you can have an `all` group containing
+        an `any` group and a `none` group to express: "must be (admin OR owner) AND must NOT be banned."
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="dollar-variables">
+    <AccordionTrigger>What are $-variables in condition values?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Values starting with `$` are resolved dynamically at evaluation time from the request context:
+      <ul className="mt-2 list-disc pl-5">
+        <li><code className="rounded bg-muted px-2 py-1">$subject.id</code> -- the requesting subject's ID</li>
+        <li><code className="rounded bg-muted px-2 py-1">$subject.roles</code> -- the subject's resolved roles array</li>
+        <li><code className="rounded bg-muted px-2 py-1">$subject.attributes.department</code> -- a subject attribute</li>
+        <li><code className="rounded bg-muted px-2 py-1">$resource.id</code> -- the resource ID</li>
+        <li><code className="rounded bg-muted px-2 py-1">$resource.type</code> -- the resource type</li>
+        <li><code className="rounded bg-muted px-2 py-1">$resource.attributes.ownerId</code> -- a resource attribute</li>
+        <li><code className="rounded bg-muted px-2 py-1">$environment.time</code> -- an environment value</li>
+      </ul>
+      <p className="mt-3">
+        Without the `$` prefix, the value is treated as a static literal. With it, the engine
+        resolves the actual value from the request context at runtime.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="field-resolution">
+    <AccordionTrigger>How does field resolution work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Fields in conditions are dot-notation paths resolved against the AccessRequest object. The engine
+      splits the path by dots and walks the object tree. Available root paths:
+      <ul className="mt-2 list-disc pl-5">
+        <li><code className="rounded bg-muted px-2 py-1">subject.id</code>, <code className="rounded bg-muted px-2 py-1">subject.roles</code>, <code className="rounded bg-muted px-2 py-1">{"subject.attributes.*"}</code></li>
+        <li><code className="rounded bg-muted px-2 py-1">resource.type</code>, <code className="rounded bg-muted px-2 py-1">resource.id</code>, <code className="rounded bg-muted px-2 py-1">{"resource.attributes.*"}</code></li>
+        <li><code className="rounded bg-muted px-2 py-1">{"environment.*"}</code></li>
+      </ul>
+      <p className="mt-3">
+        If a path does not resolve (the field does not exist), the result is `undefined`. The engine
+        includes prototype pollution protection -- it blocks access to `__proto__`, `constructor`,
+        and `prototype` in field paths.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="isowner-shortcut">
+    <AccordionTrigger>What does the isOwner() condition shortcut do?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      `isOwner()` is a convenience method on the condition builder that expands to:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`{ field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' }`}</code></pre>
+      <p className="mt-3">
+        It checks if the resource's `ownerId` attribute equals the requesting subject's ID. You must
+        pass `ownerId` in the resource attributes when calling `engine.can()` or `engine.check()` for
+        this to work.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="role-condition">
+    <AccordionTrigger>Can I check roles inside a condition?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Use the `role()` shortcut on the condition builder:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`when(w => w.role('admin'))`}</code></pre>
+      <p className="mt-3">
+        This expands to `{"{"} field: 'subject.roles', operator: 'contains', value: 'admin' {"}"}`.
+        You can also write it manually with `.check('subject.roles', 'contains', 'admin')`.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="not-conditions">
+    <AccordionTrigger>How do I negate conditions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the `not()` method on the condition builder or a `none` group:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// Using not() in builder:
+.when(w => w
+  .not(w => w.role('banned'))
+  .isOwner()
+)
+
+// Raw condition group:
+{ none: [{ field: 'subject.roles', operator: 'contains', value: 'banned' }] }`}</code></pre>
+      <p className="mt-3">
+        `none` means "none of these conditions may pass" -- it is the logical NOT. If the inner
+        condition is true, the `none` group is false, and vice versa.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="regex-conditions">
+    <AccordionTrigger>Can I use regex in conditions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Use the `matches` operator:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`.check('resource.attributes.email', 'matches', '^.*@company\\.com$')`}</code></pre>
+      <p className="mt-3">
+        The value is treated as a regex pattern string. The engine creates a `RegExp` from it and
+        tests it against the resolved field value. Be careful with regex complexity to avoid ReDoS.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="condition-undefined">
+    <AccordionTrigger>What happens when a condition field resolves to undefined?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      If a field path does not resolve, the actual value is `undefined`. Most operators will return
+      `false` when comparing against `undefined` (e.g., `eq` with a non-undefined expected value
+      fails). The `exists` operator explicitly checks for non-null/non-undefined, and `not_exists`
+      checks for null/undefined. Use `exists` and `not_exists` to safely handle optional fields.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="nesting-limit">
+    <AccordionTrigger>Is there a limit on condition nesting depth?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Condition groups can be nested up to 10 levels deep. The engine enforces this limit
+      during evaluation to prevent stack overflows from excessively deep or malicious condition
+      trees. If you hit this limit, simplify your condition structure by flattening nested groups
+      or splitting logic across multiple rules or policies.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Multi-Tenant and Scoping
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="scoped-roles">
+    <AccordionTrigger>What are scoped roles?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Scoped roles allow a subject to have different roles in different contexts (tenants, organizations,
+      workspaces). For example, a user can be `admin` in `org-1` and `viewer` in `org-2`. When you pass
+      a `scope` parameter to `engine.can()`, the engine calls `adapter.getSubjectScopedRoles()` to get
+      the extra roles for that scope and merges them with the subject's base roles before evaluation.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="scoping-levels">
+    <AccordionTrigger>What are the different levels of scoping?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      duck-iam supports scoping at three levels:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>Assignment-level scoping</strong> -- A subject has different roles in different scopes. This is the most common pattern for multi-tenant apps. Handled by `getSubjectScopedRoles()` in the adapter.</li>
+        <li><strong>Permission-level scoping</strong> -- Individual permissions within a role are limited to a scope. Set via `grant('action', 'resource', {"{"} scope: 'org-1' {"}"})` in the role builder.</li>
+        <li><strong>Role-level scoping</strong> -- The entire role definition is constrained to a scope. Set via `defineRole('admin').scope('org-1')`.</li>
+      </ul>
+      <p className="mt-3">
+        You can combine these levels. Most applications use assignment-level scoping as it is the
+        simplest and most flexible.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="pass-scope">
+    <AccordionTrigger>How do I pass a scope when checking permissions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Pass the scope as the fifth parameter to `engine.can()` or `engine.check()`:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`await engine.can('user-1', 'manage', { type: 'dashboard', attributes: {} }, undefined, 'org-1')
+// 4th param is environment (or undefined), 5th is scope`}</code></pre>
+      <p className="mt-3">
+        In server middleware, the scope is typically extracted from the request (URL path, header,
+        or JWT claim) and passed automatically.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="no-scope-adapter">
+    <AccordionTrigger>What if my adapter does not support scoped roles?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      If your adapter does not implement `getSubjectScopedRoles()`, the engine falls back to an empty
+      array -- no extra scoped roles are added. The subject's base roles are still used. You can always
+      add scoping support later by implementing that method on your adapter.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="scope-in-conditions">
+    <AccordionTrigger>Can I reference the scope in policy conditions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. The scope is available in the AccessRequest context. You can write conditions that
+      check the scope value alongside other attributes. For example, you could create a condition
+      that only allows access when the resource's `orgId` matches the request scope, adding an
+      extra layer of tenant isolation on top of scoped role assignments.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Engine and Evaluation
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="engine-constructor">
+    <AccordionTrigger>What options can I pass to the Engine constructor?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`new Engine({
+  adapter,              // Required: the data adapter
+  cacheTTL: 60,         // Cache time-to-live in seconds (default: 60)
+  maxSubjectCacheSize: 1000,  // Max entries in the subject cache (default: 1000)
+  defaultEffect: 'deny',     // Default when no rules match (default: 'deny')
+  hooks: { ... },       // Optional lifecycle hooks
+})`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="can-vs-check">
+    <AccordionTrigger>What is the difference between engine.can() and engine.check()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      They are the same. `can()` is an alias for `check()`. Both run the full evaluation pipeline
+      and return a `Decision` object. Use whichever reads better in your code:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// These are identical:
+await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+await engine.check('user-1', 'read', { type: 'post', attributes: {} })`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="decision-object">
+    <AccordionTrigger>What does the Decision object contain?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`interface Decision {
+  allowed: boolean       // The final allow/deny result
+  effect: 'allow' | 'deny'  // Same as allowed, as a string
+  duration: number       // Evaluation time in milliseconds
+  reason?: string        // Human-readable reason for the decision
+  decidingPolicyId?: string  // Which policy determined the result
+  decidingRuleId?: string    // Which rule determined the result
+}`}</code></pre>
+      <p className="mt-3">
+        Check `result.allowed` for the boolean. Use `result.reason` and `result.decidingPolicyId`
+        for debugging or audit logging.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="evaluation-order">
+    <AccordionTrigger>What is the evaluation order?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine follows these steps in order:
+      <ol className="mt-2 list-decimal pl-5">
+        <li><strong>Load subject</strong> -- get roles and attributes from the adapter (cached)</li>
+        <li><strong>Resolve scoped roles</strong> -- if a scope is passed, merge scoped roles with base roles</li>
+        <li><strong>Build RBAC policy</strong> -- convert resolved roles to a synthetic `__rbac__` policy (cached)</li>
+        <li><strong>Load ABAC policies</strong> -- get custom policies from the adapter (cached)</li>
+        <li><strong>Run beforeEvaluate hook</strong> -- allows request enrichment</li>
+        <li><strong>Evaluate all policies</strong> -- iterate through RBAC + ABAC policies, evaluate rules</li>
+        <li><strong>AND-combine results</strong> -- all policies must allow, any deny means overall deny</li>
+        <li><strong>Run afterEvaluate hook</strong> -- for audit logging</li>
+        <li><strong>Run onDeny hook</strong> -- if the result was denied</li>
+      </ol>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="permissions-batch">
+    <AccordionTrigger>How do I check multiple permissions at once?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `engine.permissions()` for batch checks:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const checks = [
+  { action: 'create', resource: 'post' },
+  { action: 'update', resource: 'post', resourceId: 'post-1' },
+  { action: 'delete', resource: 'post', resourceId: 'post-1' },
+  { action: 'manage', resource: 'dashboard' },
+]
+
+const perms = await engine.permissions('user-1', checks)
+// { 'create:post': true, 'update:post:post-1': false, ... }`}</code></pre>
+      <p className="mt-3">
+        This is more efficient than calling `can()` multiple times because it loads the subject,
+        roles, and policies once and evaluates all checks against the same cached data.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="permission-map-keys">
+    <AccordionTrigger>How are permission map keys formatted?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The keys in the permission map returned by `engine.permissions()` are formatted as
+      `action:resource` or `action:resource:resourceId` when a resource ID is provided:
+      <ul className="mt-2 list-disc pl-5">
+        <li><code className="rounded bg-muted px-2 py-1">create:post</code> -- action + resource</li>
+        <li><code className="rounded bg-muted px-2 py-1">update:post:post-1</code> -- action + resource + resourceId</li>
+        <li><code className="rounded bg-muted px-2 py-1">manage:dashboard</code> -- action + resource</li>
+      </ul>
+      <p className="mt-3">
+        These keys are generated by the `buildPermissionKey()` utility function. The same format
+        is used by client libraries to look up permissions.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="environment-param">
+    <AccordionTrigger>What is the environment parameter for?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The environment is an optional object you can pass to `engine.can()` for context that is neither
+      subject nor resource. Common examples:
+      <ul className="mt-2 list-disc pl-5">
+        <li>`environment.time` -- current timestamp for time-based restrictions</li>
+        <li>`environment.ip` -- client IP for network-based rules</li>
+        <li>`environment.dayOfWeek` -- day of week for schedule-based access</li>
+      </ul>
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`await engine.can('user-1', 'deploy', resource, {
+  time: Date.now(),
+  dayOfWeek: new Date().toLocaleDateString('en', { weekday: 'long' }),
+  ip: '192.168.1.1',
+})`}</code></pre>
+      <p className="mt-3">
+        Conditions can reference environment values with paths like `environment.time` or
+        `$environment.dayOfWeek`.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="error-handling">
+    <AccordionTrigger>What happens when an error occurs during evaluation?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine fails closed. If any error occurs during evaluation (adapter failure, condition
+      evaluation error, etc.), the result defaults to deny. The `onError` hook is called with the
+      error for logging. This is a security-first design -- authorization errors should never
+      accidentally grant access.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Hooks and Extensibility
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="what-are-hooks">
+    <AccordionTrigger>What hooks does the engine support?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Four lifecycle hooks:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>beforeEvaluate</strong> -- runs before evaluation. Can modify the AccessRequest (e.g., enrich with extra attributes from a database). Return the modified request.</li>
+        <li><strong>afterEvaluate</strong> -- runs after evaluation with the request and decision. Use for audit logging, metrics, or analytics.</li>
+        <li><strong>onDeny</strong> -- runs only when the decision is deny. Use for alerting, rate limiting, or logging denied access attempts.</li>
+        <li><strong>onError</strong> -- runs when an error occurs during evaluation. Use for error tracking and monitoring.</li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="before-evaluate-example">
+    <AccordionTrigger>How do I enrich requests with beforeEvaluate?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const engine = new Engine({
+  adapter,
+  hooks: {
+    beforeEvaluate: async (request) => {
+      // Fetch the resource from the database to get ownerId
+      const post = await db.posts.findUnique({ where: { id: request.resource.id } })
+      return {
+        ...request,
+        resource: {
+          ...request.resource,
+          attributes: { ...request.resource.attributes, ownerId: post?.authorId },
+        },
+      }
+    },
+  },
+})`}</code></pre>
+      <p className="mt-3">
+        This is useful when the caller does not have all the resource attributes at the time of
+        the permission check. The hook can fetch them from a database or API.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="hooks-explain">
+    <AccordionTrigger>Are hooks called during engine.explain()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Only `beforeEvaluate` is called during `explain()`. The `afterEvaluate`, `onDeny`, and `onError`
+      hooks are NOT called. This is by design -- `explain()` is a read-only diagnostic tool and should
+      not generate audit logs, alerts, or side effects. This means you can call `explain()` freely
+      in debug tooling without triggering production hooks.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="hook-errors">
+    <AccordionTrigger>What happens if a hook throws an error?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      If `beforeEvaluate` throws, the evaluation is aborted and the result defaults to deny (fail
+      closed). The `onError` hook is called with the error. If `afterEvaluate` or `onDeny` throws,
+      the error is caught by `onError` but does not change the already-computed decision. If `onError`
+      itself throws, the error is silently swallowed to prevent cascading failures.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Caching and Performance
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="caching">
+    <AccordionTrigger>How does caching work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine maintains four LRU caches:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>Policy cache</strong> -- caches the list of policies from the adapter</li>
+        <li><strong>Role cache</strong> -- caches the list of role definitions from the adapter</li>
+        <li><strong>RBAC policy cache</strong> -- caches the synthetic `__rbac__` policy built from roles</li>
+        <li><strong>Subject cache</strong> -- caches per-subject data (roles, attributes, scoped roles)</li>
+      </ul>
+      <p className="mt-3">
+        All caches have a configurable TTL (default: 60 seconds). The subject cache has a configurable
+        max size (default: 1000 entries). Caches are automatically populated on first access and refreshed
+        when the TTL expires.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="cache-ttl">
+    <AccordionTrigger>How do I change the cache TTL?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Pass `cacheTTL` (in seconds) to the Engine constructor:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const engine = new Engine({ adapter, cacheTTL: 120 })  // 2 minutes
+const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</code></pre>
+      <p className="mt-3">
+        Setting `cacheTTL: 0` disables caching entirely -- every permission check will hit the adapter.
+        This is useful for testing but not recommended for production.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="cache-invalidation">
+    <AccordionTrigger>How do I manually invalidate caches?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine provides several invalidation methods:
+      <ul className="mt-2 list-disc pl-5">
+        <li><code className="rounded bg-muted px-2 py-1">engine.invalidate()</code> -- clears all four caches</li>
+        <li><code className="rounded bg-muted px-2 py-1">engine.invalidateSubject('user-1')</code> -- clears one subject's cached data</li>
+        <li><code className="rounded bg-muted px-2 py-1">engine.invalidatePolicies()</code> -- clears the policy cache</li>
+        <li><code className="rounded bg-muted px-2 py-1">engine.invalidateRoles()</code> -- clears the role and RBAC policy caches</li>
+      </ul>
+      <p className="mt-3">
+        The admin API automatically invalidates relevant caches when you save/delete policies or
+        assign/remove roles through `engine.admin.*` methods.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="performance">
+    <AccordionTrigger>What is the performance like?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      With cached data, a typical evaluation takes under 1 millisecond. The engine loads policies,
+      roles, and subjects once and caches them. Each check only runs the evaluation logic -- iterating
+      over policies, matching rules, and evaluating conditions. For batch checks, use
+      `engine.permissions()` which loads data once and evaluates many checks against it. The `Decision`
+      object includes a `duration` field (in milliseconds) so you can monitor evaluation times in
+      production.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="batch-performance">
+    <AccordionTrigger>Why is engine.permissions() faster than multiple engine.can() calls?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      `engine.permissions()` loads the subject, roles, and policies once, then evaluates all permission
+      checks against the same loaded data. If you called `engine.can()` 10 times, even with caching
+      you would have 10 separate async calls with cache lookups. `permissions()` does it in one call
+      with one set of cache lookups. For UI permission maps with 5-20 checks, this makes a measurable
+      difference.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="lru-eviction">
+    <AccordionTrigger>What happens when the subject cache is full?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The subject cache uses an LRU (Least Recently Used) eviction policy. When the cache reaches
+      `maxSubjectCacheSize` (default: 1000), the least recently accessed entry is evicted to make room
+      for the new entry. This means frequently active users stay cached while inactive users are evicted.
+      If you have more than 1000 concurrent active users, increase `maxSubjectCacheSize` accordingly.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Admin API
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="what-admin-api">
+    <AccordionTrigger>What is the Admin API?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The Admin API is accessed via `engine.admin` and provides methods for managing authorization
+      data at runtime. It wraps the adapter methods and automatically invalidates relevant caches
+      when data changes. This is how you manage roles, policies, and subject assignments in a running
+      application.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="admin-operations">
+    <AccordionTrigger>What operations does the Admin API support?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>Policies:</strong> `savePolicy()`, `deletePolicy()`, `listPolicies()`, `getPolicy()`</li>
+        <li><strong>Roles:</strong> `saveRole()`, `deleteRole()`, `listRoles()`, `getRole()`</li>
+        <li><strong>Subject roles:</strong> `assignRole()`, `removeRole()`, `getSubjectRoles()`</li>
+        <li><strong>Subject attributes:</strong> `setSubjectAttributes()`, `getSubjectAttributes()`</li>
+        <li><strong>Scoped roles:</strong> `assignScopedRole()`, `removeScopedRole()`, `getSubjectScopedRoles()`</li>
+      </ul>
+      <p className="mt-3">
+        Each mutation method automatically invalidates the appropriate cache (e.g., `savePolicy()`
+        invalidates the policy cache, `assignRole()` invalidates the specific subject's cache).
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="admin-cache">
+    <AccordionTrigger>Do Admin API operations invalidate the cache automatically?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Each admin operation invalidates the relevant cache:
+      <ul className="mt-2 list-disc pl-5">
+        <li>`savePolicy()` / `deletePolicy()` -- invalidates policy cache</li>
+        <li>`saveRole()` / `deleteRole()` -- invalidates role cache and RBAC policy cache</li>
+        <li>`assignRole()` / `removeRole()` -- invalidates the specific subject's cache</li>
+        <li>`setSubjectAttributes()` -- invalidates the specific subject's cache</li>
+      </ul>
+      <p className="mt-3">
+        This means changes take effect immediately for the next permission check without waiting
+        for the cache TTL to expire.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Adapters and Storage
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="what-adapter">
+    <AccordionTrigger>What is an adapter?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      An adapter is the data layer interface that the engine uses to load and store authorization data
+      (policies, roles, subject assignments). duck-iam provides four built-in adapters:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>MemoryAdapter</strong> -- stores everything in memory. Great for testing and prototyping.</li>
+        <li><strong>PrismaAdapter</strong> -- stores in a database via Prisma ORM.</li>
+        <li><strong>DrizzleAdapter</strong> -- stores in a database via Drizzle ORM.</li>
+        <li><strong>HttpAdapter</strong> -- fetches from a remote authorization service via HTTP.</li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="memory-adapter-production">
+    <AccordionTrigger>Can I use MemoryAdapter in production?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      You can, but be aware of the trade-offs. MemoryAdapter stores all data in process memory, so
+      it is lost when the process restarts. It does not share state across multiple server instances.
+      It is best for: testing, prototyping, single-instance applications with static role/policy
+      definitions, or edge/serverless functions where you define everything in code.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="database-storage">
+    <AccordionTrigger>How do I store policies in a database?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use a database adapter:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { PrismaAdapter } from 'duck-iam/adapters/prisma'
+const adapter = new PrismaAdapter({ prisma: prismaClient })
+
+// Or with Drizzle:
+import { DrizzleAdapter } from 'duck-iam/adapters/drizzle'
+const adapter = new DrizzleAdapter({ db: drizzleInstance })`}</code></pre>
+      <p className="mt-3">
+        These adapters store policies, roles, and subject data in your database tables. When loading
+        policies from external sources, always validate them with `validatePolicy()` before passing
+        them to the engine.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="http-adapter">
+    <AccordionTrigger>When should I use the HttpAdapter?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use HttpAdapter when your authorization data lives in a separate service -- for example, a
+      centralized authorization microservice that multiple applications share. The HttpAdapter
+      fetches policies, roles, and subject data via HTTP requests. Configure the base URL and
+      optional headers (for authentication):
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { HttpAdapter } from 'duck-iam/adapters/http'
+
+const adapter = new HttpAdapter({
+  baseURL: 'https://auth-service.internal/api',
+  headers: { 'Authorization': 'Bearer <service-token>' },
+})`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="custom-adapter">
+    <AccordionTrigger>How do I write a custom adapter?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Implement the `Adapter` interface, which combines `PolicyStore`, `RoleStore`, and `SubjectStore`:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`interface Adapter extends PolicyStore, RoleStore, SubjectStore {}
+
+// PolicyStore: listPolicies, getPolicy, savePolicy, deletePolicy
+// RoleStore: listRoles, getRole, saveRole, deleteRole
+// SubjectStore: getSubjectRoles, setSubjectRoles, getSubjectAttributes,
+//              setSubjectAttributes, getSubjectScopedRoles (optional)`}</code></pre>
+      <p className="mt-3">
+        `getSubjectScopedRoles()` is optional -- if your adapter does not support multi-tenant scoping,
+        omit it. Use the built-in `MemoryAdapter` source code as a reference implementation.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="adapter-peer-deps">
+    <AccordionTrigger>Do database adapters add dependencies?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. Database adapters use peer dependencies. If you use `PrismaAdapter`, you must already have
+      `@prisma/client` installed in your project. If you use `DrizzleAdapter`, you must already have
+      `drizzle-orm` installed. The duck-iam package itself does not bundle these ORMs.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Server Integrations
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="express-middleware">
+    <AccordionTrigger>How do I use duck-iam with Express?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the Express middleware:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessMiddleware } from 'duck-iam/server/express'
+
+const accessMiddleware = createAccessMiddleware({
+  engine,
+  extractUserId: (req) => req.user.id,
+  extractAction: (req) => req.method === 'GET' ? 'read' : 'update',
+  extractResource: (req) => ({ type: 'post', attributes: {} }),
+})
+
+app.use('/api/posts', accessMiddleware)`}</code></pre>
+      <p className="mt-3">
+        The middleware extracts the subject, action, and resource from the request, runs
+        `engine.can()`, and either calls `next()` or responds with 403.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="nestjs-guard">
+    <AccordionTrigger>How do I use duck-iam with NestJS?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the NestJS guard and decorator:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { AccessGuard, RequireAccess } from 'duck-iam/server/nest'
+
+// Register the guard globally or per-controller
+@UseGuards(AccessGuard)
+@Controller('posts')
+export class PostsController {
+  @RequireAccess('update', 'post')
+  @Put(':id')
+  updatePost() { ... }
+}`}</code></pre>
+      <p className="mt-3">
+        The `AccessGuard` extracts the user from the request (via your auth guard) and checks
+        the permission specified in `@RequireAccess()`. The guard returns 403 if denied.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="nextjs-usage">
+    <AccordionTrigger>How do I use duck-iam with Next.js?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the Next.js route wrappers:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { withAccess } from 'duck-iam/server/next'
+
+export const GET = withAccess({
+  engine,
+  action: 'read',
+  resource: 'post',
+  extractUserId: (req) => getUserFromSession(req),
+})(async (req) => {
+  return NextResponse.json({ posts: await getPosts() })
+})`}</code></pre>
+      <p className="mt-3">
+        Works with both App Router (Route Handlers) and Pages Router (API Routes).
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="hono-middleware">
+    <AccordionTrigger>How do I use duck-iam with Hono?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the Hono middleware:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessMiddleware } from 'duck-iam/server/hono'
+
+const accessMiddleware = createAccessMiddleware({
+  engine,
+  extractUserId: (c) => c.get('userId'),
+  extractAction: (c) => c.req.method === 'GET' ? 'read' : 'update',
+  extractResource: (c) => ({ type: 'post', attributes: {} }),
+})
+
+app.use('/api/posts/*', accessMiddleware)`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="generic-server">
+    <AccordionTrigger>What if my framework is not listed?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the generic server helper from `duck-iam/server/generic`. It provides framework-agnostic
+      functions that you can wrap in your framework's middleware pattern. Or call `engine.can()`
+      directly in your request handler -- the engine does not depend on any framework.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="permissions-endpoint">
+    <AccordionTrigger>How do I create a permissions endpoint for the frontend?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Create an endpoint that calls `engine.permissions()` and returns the result:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`app.get('/api/permissions', async (req, res) => {
+  const userId = req.user.id
+  const checks = [
+    { action: 'create', resource: 'post' },
+    { action: 'update', resource: 'post' },
+    { action: 'delete', resource: 'post' },
+    { action: 'manage', resource: 'dashboard' },
+  ]
+  const perms = await engine.permissions(userId, checks)
+  res.json(perms)
+})`}</code></pre>
+      <p className="mt-3">
+        The frontend receives a flat `Record&lt;string, boolean&gt;` like
+        `{"{"} "create:post": true, "delete:post": false {"}"}`
+        and uses it for rendering decisions.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Client Libraries
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="client-overview">
+    <AccordionTrigger>How do client libraries work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Client libraries fetch the user's permission map (a `Record&lt;string, boolean&gt;`) from a server
+      endpoint and expose it to your components. Permissions are always evaluated on the server -- the
+      client only receives the boolean results for rendering decisions (show/hide buttons, enable/disable
+      actions). This means the client never sees your policies, roles, or conditions.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="react-usage">
+    <AccordionTrigger>How do I use duck-iam with React?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { AccessProvider, useAccess } from 'duck-iam/client/react'
+
+// Wrap your app:
+<AccessProvider fetchPermissions={() => fetch('/api/permissions').then(r => r.json())}>
+  <App />
+</AccessProvider>
+
+// In any component:
+function PostActions() {
+  const { can, isLoading } = useAccess()
+  if (isLoading) return <Spinner />
+  return (
+    <>
+      {can('create:post') && <CreateButton />}
+      {can('delete:post') && <DeleteButton />}
+    </>
+  )
+}`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="vue-usage">
+    <AccordionTrigger>How do I use duck-iam with Vue?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessPlugin, useAccess } from 'duck-iam/client/vue'
+
+// Install plugin:
+app.use(createAccessPlugin({
+  fetchPermissions: () => fetch('/api/permissions').then(r => r.json()),
+}))
+
+// In any component:
+const { can, isLoading } = useAccess()
+// Use v-if="can('create:post')" in template`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="vanilla-usage">
+    <AccordionTrigger>How do I use duck-iam without React or Vue?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the vanilla client:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessClient } from 'duck-iam/client/vanilla'
+
+const access = createAccessClient({
+  fetchPermissions: () => fetch('/api/permissions').then(r => r.json()),
+})
+
+await access.load()
+access.can('create:post')  // true or false`}</code></pre>
+      <p className="mt-3">
+        Works with any framework or no framework. Also works with Svelte, Solid, Angular, or plain
+        JavaScript.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="client-security">
+    <AccordionTrigger>Is it safe to send permissions to the frontend?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes, because the permission map is just a flat map of booleans (`"create:post": true`). It does
+      not expose your policy definitions, conditions, role structures, or any business logic. The
+      client only knows "can this user do this action" -- not why. Always enforce permissions on the
+      server too. Client-side checks are for UI rendering only and should never be your only
+      authorization check.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="client-refresh">
+    <AccordionTrigger>How do I refresh permissions after a role change?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Call the `refresh()` method on the client:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// React:
+const { refresh } = useAccess()
+await refresh()  // re-fetches from the server
+
+// Vanilla:
+await access.refresh()`}</code></pre>
+      <p className="mt-3">
+        You should call this after events that change the user's roles or permissions (e.g., after
+        an admin promotes a user, or after the user switches organizations).
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Debugging and Troubleshooting
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="debug-denials">
+    <AccordionTrigger>How do I debug permission denials?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `engine.explain()`:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const result = await engine.explain('user-1', 'update', {
+  type: 'post',
+  id: 'post-5',
+  attributes: { ownerId: 'user-3' },
+})
+console.log(result.summary)`}</code></pre>
+      <p className="mt-3">
+        The summary tells you: the final result, the subject's roles, which policies were evaluated,
+        which rules matched or were skipped, and which conditions failed. For each condition, the trace
+        shows the expected value, the actual value, and whether it passed.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="explain-vs-check">
+    <AccordionTrigger>What is the difference between explain() and check()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      `check()` (and `can()`) run the evaluation and return a `Decision` (boolean + metadata).
+      `explain()` runs the same evaluation but does NOT short-circuit -- it evaluates ALL policies
+      and ALL rules even after a deny, so you get the complete picture. It returns an `ExplainResult`
+      with full traces of every policy, rule, and condition. `explain()` also does not trigger
+      `afterEvaluate`, `onDeny`, or `onError` hooks.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="no-matching-rules">
+    <AccordionTrigger>The summary says "No matching rules" -- what does that mean?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      It means no rules in any policy matched the request's action and resource combination. This
+      usually means the subject does not have a role that grants that permission. Check:
+      <ul className="mt-2 list-disc pl-5">
+        <li>`result.subject.roles` -- does the subject have the expected roles?</li>
+        <li>Is the action spelled correctly? ("read" vs "Read")</li>
+        <li>Is the resource type spelled correctly? ("post" vs "posts")</li>
+        <li>Did you pass the scope parameter if the roles are scoped?</li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="condition-failed">
+    <AccordionTrigger>A condition is failing but I think it should pass. How do I debug it?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Look at the condition trace in the `ExplainResult`. Each `ConditionLeafTrace` shows:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>field</strong> -- the path being checked (e.g., `resource.attributes.ownerId`)</li>
+        <li><strong>expected</strong> -- the value from the condition definition</li>
+        <li><strong>actual</strong> -- the value resolved from the request at runtime</li>
+        <li><strong>result</strong> -- true or false</li>
+      </ul>
+      <p className="mt-3">
+        Common problems: the field path is wrong (`author` vs `ownerId`), the actual value is `null`
+        because the attribute was not passed, or a `$` variable was not resolved because the request
+        context is missing that field.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="scoped-roles-not-applied">
+    <AccordionTrigger>My scoped roles are not being applied. What is wrong?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Check with `explain()`:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const result = await engine.explain('user-1', 'manage',
+  { type: 'dashboard', attributes: {} },
+  undefined,  // environment
+  'org-1',    // scope
+)
+console.log('Base roles:', result.subject.roles)
+console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></pre>
+      <p className="mt-3">
+        If `scopedRolesApplied` is empty, either: your adapter does not implement
+        `getSubjectScopedRoles()`, there are no scoped role assignments for this subject/scope
+        combination, or you forgot to pass the scope parameter.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="unexpected-allow">
+    <AccordionTrigger>Why was my request allowed when it should be denied?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `explain()` and look at which policies allowed it:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`for (const pt of result.policies) {
+  if (pt.result === 'allow') {
+    console.log('Policy "' + pt.policyId + '" allowed:')
+    for (const rule of pt.rules.filter(r => r.matched && r.effect === 'allow')) {
+      console.log('  Rule "' + rule.ruleId + '" matched')
+    }
+  }
+}`}</code></pre>
+      <p className="mt-3">
+        Common causes: a wildcard permission (`grant('*', '*')`) on a role, a policy with
+        `allow-overrides` that is too permissive, or the deny policy's target filter does not
+        match the request so it is skipped.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="validation-errors">
+    <AccordionTrigger>Common mistakes caught by validatePolicy()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <ul className="mt-2 list-disc pl-5">
+        <li>Capitalized effect values (`"Allow"` instead of `"allow"`)</li>
+        <li>Wrong operator names (`"equal"` instead of `"eq"`, `"not_equal"` instead of `"neq"`)</li>
+        <li>Missing required fields (`id`, `name`, `algorithm`, `rules`)</li>
+        <li>Missing rule fields (`id`, `effect`, `priority`, `actions`, `resources`)</li>
+        <li>Conditions using a bare object instead of an `all`/`any`/`none` group</li>
+        <li>Invalid combining algorithm names</li>
+        <li>Duplicate rule IDs within a policy (warning)</li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Security and Edge Cases
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="fail-closed">
+    <AccordionTrigger>What does "fail closed" mean?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Fail closed means that when something goes wrong, the system defaults to deny. In duck-iam:
+      <ul className="mt-2 list-disc pl-5">
+        <li>If no rules match, the result is deny (via `defaultEffect: 'deny'`)</li>
+        <li>If an adapter call throws an error, the result is deny</li>
+        <li>If a condition evaluation fails, that condition returns false</li>
+        <li>If a `beforeEvaluate` hook throws, the result is deny</li>
+        <li>If the subject is not found, the result is deny</li>
+      </ul>
+      <p className="mt-3">
+        This is the opposite of "fail open" (defaulting to allow), which would be a security risk.
+        An authorization system should never accidentally grant access.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="prototype-pollution">
+    <AccordionTrigger>Is duck-iam protected against prototype pollution?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. The field resolution function blocks access to `__proto__`, `constructor`, and `prototype`
+      in dot-notation paths. A condition with a field like `resource.attributes.__proto__.polluted`
+      will not resolve and the condition will fail safely. This prevents attackers from crafting
+      condition paths that exploit prototype chain traversal.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="defense-in-depth">
+    <AccordionTrigger>What is defense-in-depth in the context of duck-iam?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      duck-iam's cross-policy AND-combination provides defense-in-depth. Every policy is an independent
+      security gate. The RBAC policy (from roles) must allow, AND every custom ABAC policy must allow.
+      A deny from any single policy means overall deny. This means you can add new restriction policies
+      without worrying about existing policies overriding them. Each layer adds protection, and no
+      single layer can bypass the others.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="client-only-security">
+    <AccordionTrigger>Can I rely on client-side permission checks for security?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. Client-side checks are for UI rendering only (show/hide buttons, enable/disable actions).
+      A user can always bypass client-side checks by modifying the JavaScript, calling the API directly,
+      or tampering with the permission map. Always enforce permissions on the server using middleware
+      or `engine.can()` in your request handlers. The client library is a convenience for better UX,
+      not a security boundary.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="no-roles-assigned">
+    <AccordionTrigger>What happens when a subject has no roles assigned?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The subject has zero permissions from RBAC. The synthetic `__rbac__` policy will have no matching
+      rules, so it returns the default effect (deny). If no custom ABAC policies explicitly allow
+      anything for roleless subjects, the result is deny for everything. This is the expected
+      secure default -- no roles means no access.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="subject-not-found">
+    <AccordionTrigger>What happens when the subject does not exist in the adapter?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      If the adapter returns no data for a subject (no roles, no attributes), the subject is treated
+      as having no roles and no attributes. This means zero RBAC permissions and no subject attributes
+      for conditions to match against. The result will be deny unless an ABAC policy explicitly allows
+      access without any subject-based conditions.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="empty-policy-rules">
+    <AccordionTrigger>What happens if a policy has no rules?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      An empty policy (no rules) returns the default effect for the combining algorithm. For
+      `deny-overrides` and `highest-priority`, no matching rules means the default effect (deny).
+      For `allow-overrides`, no matching allow rules means deny. For `first-match`, no matching
+      rules means the default effect. In practice, an empty policy always results in deny with
+      the default configuration.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="max-conditions-depth">
+    <AccordionTrigger>Can deeply nested conditions cause stack overflows?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. The engine enforces a maximum nesting depth of 10 levels for condition groups. Beyond this
+      depth, the condition evaluation stops and returns false (fail closed). This prevents both
+      accidental complexity and deliberate denial-of-service via deeply nested condition trees.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="regex-safety">
+    <AccordionTrigger>Can the `matches` operator cause ReDoS attacks?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The `matches` operator creates a `RegExp` from the condition value. If untrusted users can
+      define policy conditions (e.g., via an admin dashboard), they could craft a malicious regex
+      pattern that causes catastrophic backtracking. To mitigate this: validate regex patterns
+      before saving policies, limit who can create conditions with `matches`, or use simpler
+      operators like `starts_with`, `ends_with`, or `eq` when possible.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Type Safety
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="typed-vs-untyped">
+    <AccordionTrigger>What is the difference between typed and untyped mode?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <strong>Untyped (direct imports):</strong> Import `defineRole`, `policy`, `Engine` directly from
+      `duck-iam`. Actions and resources accept any string. Quick and flexible, but typos are not caught
+      at compile time.
+      <br /><br />
+      <strong>Typed (createAccessConfig):</strong> Call `createAccessConfig()` with `as const` arrays.
+      Every builder method is constrained to your declared schema. Misspell an action and TypeScript
+      catches it before your code runs.
+      <br /><br />
+      For production applications, the typed approach is strongly recommended. It prevents an entire
+      class of bugs where a permission check silently fails because of a typo.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="as-const">
+    <AccordionTrigger>Why is `as const` required for createAccessConfig()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Without `as const`, TypeScript widens arrays to `string[]`:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// Without as const:
+const actions = ['create', 'read']  // type: string[]
+
+// With as const:
+const actions = ['create', 'read'] as const  // type: readonly ['create', 'read']`}</code></pre>
+      <p className="mt-3">
+        `createAccessConfig()` needs the literal types (`'create' | 'read'`) to constrain builder
+        methods. With `string[]`, it cannot tell the difference between `'create'` and `'craete'`,
+        so there is no compile-time error checking.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="typed-checks">
+    <AccordionTrigger>What does access.checks() do?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      `access.checks()` is a pure typing utility -- it returns the input array unchanged but constrains
+      the types at compile time. Use it with `engine.permissions()` for batch permission checks:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const uiChecks = access.checks([
+  { action: 'create', resource: 'post' },
+  { action: 'manage', resource: 'dashboard' },
+  // { action: 'approve', resource: 'post' }  // ERROR: 'approve' is not valid
+])
+
+const perms = await engine.permissions('user-1', uiChecks)`}</code></pre>
+      <p className="mt-3">
+        At runtime, `access.checks()` is a no-op. Its only purpose is compile-time validation.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="typed-engine">
+    <AccordionTrigger>Is the engine typed when created via access.createEngine()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. When you use `access.createEngine()` instead of `new Engine()`, the engine's `can()`,
+      `check()`, `explain()`, and `permissions()` methods are all constrained to your schema's
+      actions and resources. Passing an invalid action or resource is a compile error.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="omit-scopes">
+    <AccordionTrigger>Can I omit scopes from createAccessConfig()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Scopes are optional in the config:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const access = createAccessConfig({
+  actions: ['create', 'read', 'update', 'delete'] as const,
+  resources: ['post', 'comment'] as const,
+  // scopes omitted -- scope parameters accept 'string' without constraint
+})`}</code></pre>
+      <p className="mt-3">
+        If you omit scopes, scope parameters in the engine will accept any string. You lose
+        type-checking for scopes but everything else is still constrained.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Common Patterns
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="owner-access">
+    <AccordionTrigger>How do I implement owner-only access?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Create a policy that denies non-owners:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const ownerPolicy = policy('owner-only')
+  .algorithm('deny-overrides')
+  .rule('deny-non-owner', r => r
+    .deny()
+    .on('update', 'delete')
+    .of('post')
+    .priority(100)
+    .when(w => w
+      .check('resource.attributes.ownerId', 'neq', '$subject.id')
+      .not(w => w.role('admin'))  // admins are exempt
+    )
+  )
+  .build()`}</code></pre>
+      <p className="mt-3">
+        The key: `$subject.id` resolves to the actual user's ID at runtime. Combined with `neq`
+        and `deny`, this blocks anyone who is not the owner. The `.not()` makes admins exempt.
+        Make sure you pass `ownerId` in resource attributes.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="time-based-access">
+    <AccordionTrigger>How do I implement time-based access restrictions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Pass time information in the environment and check it in conditions:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// When checking:
+await engine.can('user-1', 'deploy', resource, {
+  dayOfWeek: new Date().toLocaleDateString('en', { weekday: 'long' }),
+  hour: new Date().getHours(),
+})
+
+// In a policy rule:
+.when(w => w
+  .check('environment.dayOfWeek', 'nin', ['Saturday', 'Sunday'])
+  .check('environment.hour', 'gte', 9)
+  .check('environment.hour', 'lt', 17)
+)`}</code></pre>
+      <p className="mt-3">
+        This restricts deployments to weekdays between 9 AM and 5 PM.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="admin-bypass">
+    <AccordionTrigger>How do I let admins bypass all restrictions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Option 1: Give the admin role wildcard permissions:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const admin = defineRole('admin').grant('*', '*').build()`}</code></pre>
+      Option 2: Exclude admins from deny conditions using `.not()`:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`.when(w => w
+  .check('resource.attributes.ownerId', 'neq', '$subject.id')
+  .not(w => w.role('admin'))  // admin is exempt from this deny
+)`}</code></pre>
+      <p className="mt-3">
+        Option 1 gives full RBAC access. Option 2 exempts admins from specific ABAC restrictions.
+        For maximum flexibility, combine both.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="resource-status">
+    <AccordionTrigger>How do I restrict actions based on resource status?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Pass the status as a resource attribute and check it in conditions:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// When checking:
+await engine.can('user-1', 'update', {
+  type: 'post',
+  id: 'post-1',
+  attributes: { status: 'locked', ownerId: 'user-1' },
+})
+
+// In a policy:
+.rule('deny-locked-edit', r => r
+  .deny()
+  .on('update', 'delete')
+  .of('post')
+  .when(w => w.check('resource.attributes.status', 'eq', 'locked'))
+)`}</code></pre>
+      <p className="mt-3">
+        This denies editing or deleting locked posts regardless of who the user is.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="ip-filtering">
+    <AccordionTrigger>How do I restrict access by IP address?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Pass the IP in the environment and check it in conditions:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`await engine.can('user-1', 'manage', resource, {
+  ip: req.ip,
+})
+
+// Policy rule:
+.rule('office-only', r => r
+  .deny()
+  .on('manage')
+  .of('settings')
+  .when(w => w.check('environment.ip', 'not_contains', '10.0.'))
+)`}</code></pre>
+      <p className="mt-3">
+        For more sophisticated IP matching, use the `matches` operator with a regex pattern.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="feature-flags">
+    <AccordionTrigger>Can I use duck-iam for feature flags?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes, though it is not the primary use case. You can model features as resources and access
+      as actions:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const betaTester = defineRole('beta-tester')
+  .grant('access', 'feature-dark-mode')
+  .grant('access', 'feature-ai-assistant')
+  .build()
+
+await engine.can('user-1', 'access', { type: 'feature-dark-mode', attributes: {} })`}</code></pre>
+      <p className="mt-3">
+        This works for role-based feature flags. For percentage-based rollouts or A/B testing,
+        use a dedicated feature flag service instead.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+## Migration and Advanced
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="dynamic-policies">
+    <AccordionTrigger>Can policies be created and modified at runtime?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Use the Admin API to create, update, and delete policies at runtime:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`await engine.admin.savePolicy(newPolicy)
+await engine.admin.deletePolicy('old-policy-id')`}</code></pre>
+      <p className="mt-3">
+        The admin API automatically invalidates the policy cache when you save or delete. Always
+        validate dynamic policies with `validatePolicy()` before saving them, especially if the
+        policy data comes from user input or an external API.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="migrate-from-rbac">
+    <AccordionTrigger>How do I migrate from a pure RBAC system?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Start by mapping your existing roles to duck-iam roles:
+      <ol className="mt-2 list-decimal pl-5">
+        <li>Define each role with its permissions using `defineRole()`</li>
+        <li>Set up role assignments in your adapter</li>
+        <li>Replace your existing `if (user.role === 'admin')` checks with `engine.can()`</li>
+        <li>Validate roles at startup with `validateRoles()`</li>
+        <li>Add ABAC policies later as needed for fine-grained rules</li>
+      </ol>
+      <p className="mt-3">
+        You can migrate incrementally -- start with RBAC-only and add policies for specific
+        use cases over time. The engine handles both seamlessly.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="multiple-engines">
+    <AccordionTrigger>Can I have multiple engine instances?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Each engine instance is independent with its own adapter and cache. This is useful for:
+      <ul className="mt-2 list-disc pl-5">
+        <li>Different authorization domains in the same app (e.g., one for API access, one for admin panel)</li>
+        <li>Testing (create a fresh engine per test with MemoryAdapter)</li>
+        <li>Microservices that need different policy sets</li>
+      </ul>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="edge-runtime">
+    <AccordionTrigger>Does duck-iam work in edge runtimes (Cloudflare Workers, Vercel Edge)?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. The core engine is pure TypeScript with no Node.js-specific APIs. It works in any
+      JavaScript runtime that supports ES2020+, including Cloudflare Workers, Vercel Edge Functions,
+      Deno Deploy, and Bun. For edge runtimes, use `MemoryAdapter` with policies defined in code,
+      or `HttpAdapter` to fetch from a central authorization service.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="testing">
+    <AccordionTrigger>How do I test authorization logic?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `MemoryAdapter` with test data:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const adapter = new MemoryAdapter({
+  roles: [viewer, editor, admin],
+  assignments: { 'test-user': ['editor'] },
+  policies: [ownerPolicy],
+})
+const engine = new Engine({ adapter, cacheTTL: 0 })
+
+// Test specific scenarios:
+const result = await engine.can('test-user', 'update', {
+  type: 'post',
+  id: 'post-1',
+  attributes: { ownerId: 'test-user' },
+})
+expect(result.allowed).toBe(true)`}</code></pre>
+      <p className="mt-3">
+        Set `cacheTTL: 0` in tests so you can modify data between assertions without cache issues.
+        Each test can create its own engine instance with its own adapter for full isolation.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="explain-in-tests">
+    <AccordionTrigger>How do I get better test failure messages?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `engine.explain()` instead of `engine.can()` in your tests. When an assertion fails,
+      the `result.summary` tells you exactly why:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const result = await engine.explain('test-user', 'delete', resource)
+if (!result.decision.allowed) {
+  console.log(result.summary)
+  // Shows which policy/rule/condition caused the denial
+}
+expect(result.decision.allowed).toBe(true)`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="audit-logging">
+    <AccordionTrigger>How do I add audit logging?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the `afterEvaluate` hook:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const engine = new Engine({
+  adapter,
+  hooks: {
+    afterEvaluate: async (request, decision) => {
+      await auditLog.write({
+        subjectId: request.subject.id,
+        action: request.action,
+        resource: request.resource.type,
+        resourceId: request.resource.id,
+        allowed: decision.allowed,
+        reason: decision.reason,
+        timestamp: new Date(),
+      })
+    },
+  },
+})`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="troubleshooting">
+    <AccordionTrigger>I still have issues. Where should I ask for help?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Open an issue or discussion with your environment details and a minimal reproduction:
+      <div className="mt-3">
+        <code className="rounded bg-muted px-2 py-1">https://github.com/gentleeduck/duck-iam</code>
+      </div>
+      <p className="mt-3">
+        Include: your duck-iam version, the output of `engine.explain()` for the failing check,
+        your role definitions, and the relevant policy. The `explain()` output is the most helpful
+        piece of information for diagnosing issues.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>

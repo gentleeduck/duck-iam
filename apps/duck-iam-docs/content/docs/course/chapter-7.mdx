@@ -1,0 +1,672 @@
+---
+title: "chapter 7: client libraries"
+description: Use permission maps in the browser to show and hide UI elements. Integrate with React, Vue, or vanilla JavaScript for real-time permission-based rendering.
+---
+
+## Goal
+
+BlogDuck's server is protected. Now you need the UI to respect permissions too -- hide the
+delete button if the user cannot delete, show the edit form only for editors. This chapter
+covers the three client integrations: React, Vue, and vanilla JavaScript.
+
+<MermaidDiagram chart={`flowchart LR
+    subgraph Server["Server (Chapter 6)"]
+        direction TB
+        S1["getPermissions()"]
+        S2["PermissionMap"]
+    end
+
+    subgraph Client["Client (Chapter 7)"]
+        direction TB
+        C1["AccessProvider"]
+        C2["useAccess()"]
+        C3["Can / Cannot"]
+    end
+
+    subgraph UI["Rendered UI"]
+        direction TB
+        U1["Edit button: shown"]
+        U2["Delete button: hidden"]
+    end
+
+    Server --> |"JSON"| Client --> UI`} />
+
+## The PermissionMap
+
+A `PermissionMap` is a simple key-value object generated on the server:
+
+```typescript
+{
+  "create:post": true,
+  "update:post:post-1": true,
+  "delete:post:post-1": false,
+  "manage:dashboard": false,
+  "acme:manage:user": true,    // scoped permission
+}
+```
+
+### PermissionKey Format
+
+Keys are colon-separated strings built by the `buildPermissionKey()` function:
+
+```typescript
+type PermissionKey =
+  | `${action}:${resource}`                      // create:post
+  | `${action}:${resource}:${resourceId}`        // update:post:post-1
+  | `${scope}:${action}:${resource}`             // acme:manage:user
+  | `${scope}:${action}:${resource}:${resourceId}` // acme:update:post:post-1
+```
+
+```typescript
+type PermissionMap = Record<PermissionKey, boolean>
+```
+
+The server generates this map using `engine.permissions()` or `generatePermissionMap()`,
+then sends it to the client as JSON. The client never calls the engine directly --
+it just reads the map. This makes client-side checks O(1) key lookups.
+
+## React
+
+<Steps>
+  <Step>
+    **Create the access control system**
+
+    ```typescript title="src/lib/access-client.tsx"
+    import React from 'react'
+    import { createAccessControl } from 'duck-iam/client/react'
+
+    export const {
+      AccessProvider,
+      useAccess,
+      Can,
+      Cannot,
+      AccessContext,
+    } = createAccessControl(React)
+    ```
+
+    `createAccessControl` takes the React instance to avoid a hard dependency on React.
+    This keeps duck-iam tree-shakeable -- if you only use the vanilla client, React is
+    never bundled.
+
+    **What it returns:**
+
+    | Export | Type | Description |
+    | --- | --- | --- |
+    | `AccessProvider` | Component | Context provider, wraps your app |
+    | `useAccess()` | Hook | Returns `{ permissions, can, cannot }` |
+    | `Can` | Component | Renders children when permission is granted |
+    | `Cannot` | Component | Renders children when permission is denied |
+    | `AccessContext` | React.Context | Raw context for advanced use cases |
+  </Step>
+
+  <Step>
+    **Wrap your app with the provider**
+
+    ```tsx title="src/app/layout.tsx"
+    import { AccessProvider } from '@/lib/access-client'
+    import { getPermissions } from 'duck-iam/server/next'
+    import { engine } from '@/lib/access'
+
+    export default async function Layout({ children }) {
+      const userId = 'alice'  // from your auth
+      const permissions = await getPermissions(engine, userId, [
+        { action: 'create', resource: 'post' },
+        { action: 'manage', resource: 'dashboard' },
+        { action: 'manage', resource: 'user', scope: 'acme' },
+      ])
+
+      return (
+        <AccessProvider permissions={permissions}>
+          {children}
+        </AccessProvider>
+      )
+    }
+    ```
+
+    The provider makes permissions available to all child components via React context.
+    The `can()` function is memoized internally for performance.
+  </Step>
+
+  <Step>
+    **Use the hook for programmatic checks**
+
+    ```tsx title="src/components/post-actions.tsx"
+    'use client'
+    import { useAccess } from '@/lib/access-client'
+
+    export function PostActions({ postId }: { postId: string }) {
+      const { can, cannot, permissions } = useAccess()
+
+      return (
+        <div>
+          {can('update', 'post', postId) && (
+            <button>Edit</button>
+          )}
+          {can('delete', 'post', postId) && (
+            <button>Delete</button>
+          )}
+          {cannot('update', 'post', postId) && (
+            <span>Read only</span>
+          )}
+        </div>
+      )
+    }
+    ```
+
+    **useAccess() return value:**
+
+    ```typescript
+    interface AccessContextValue {
+      permissions: PermissionMap    // the raw permission map
+      can(action, resource, resourceId?, scope?): boolean
+      cannot(action, resource, resourceId?, scope?): boolean
+    }
+    ```
+
+    `can()` and `cannot()` are synchronous -- they do a key lookup in the permission map.
+  </Step>
+
+  <Step>
+    **Use declarative components**
+
+    ```tsx title="src/components/toolbar.tsx"
+    'use client'
+    import { Can, Cannot } from '@/lib/access-client'
+
+    export function Toolbar() {
+      return (
+        <nav>
+          <Can action="create" resource="post">
+            <button>New Post</button>
+          </Can>
+
+          <Can action="manage" resource="dashboard" fallback={<span>View only</span>}>
+            <a href="/admin">Admin Panel</a>
+          </Can>
+
+          <Cannot action="create" resource="post">
+            <p>You do not have permission to create posts.</p>
+          </Cannot>
+        </nav>
+      )
+    }
+    ```
+
+    **Can component props:**
+
+    | Prop | Type | Description |
+    | --- | --- | --- |
+    | `action` | string | Required action |
+    | `resource` | string | Required resource type |
+    | `resourceId` | string? | Optional resource instance |
+    | `scope` | string? | Optional scope |
+    | `children` | ReactNode | Rendered when permission is granted |
+    | `fallback` | ReactNode? | Rendered when permission is denied |
+
+    **Cannot** has the same props except no `fallback` -- it only renders when denied.
+  </Step>
+
+  <Step>
+    **Fetch permissions dynamically (SPA pattern)**
+
+    For SPAs that do not use server-side rendering:
+
+    ```tsx title="src/components/app.tsx"
+    import { usePermissions } from 'duck-iam/client/react'
+
+    function App() {
+      const { permissions, can, loading, error } = usePermissions(
+        () => fetch('/api/permissions').then(r => r.json()),
+        []  // dependency array -- re-fetch when deps change
+      )
+
+      if (loading) return <div>Loading...</div>
+      if (error) return <div>Error: {error.message}</div>
+
+      return (
+        <div>
+          {can('create', 'post') && <button>New Post</button>}
+        </div>
+      )
+    }
+    ```
+
+    **usePermissions() signature:**
+
+    ```typescript
+    function usePermissions(
+      fetchFn: () => Promise<PermissionMap>,
+      deps?: any[],
+    ): {
+      permissions: PermissionMap
+      can(action, resource, resourceId?, scope?): boolean
+      loading: boolean
+      error: Error | null
+    }
+    ```
+
+    The hook fetches on mount and whenever `deps` change. While loading, `can()` returns
+    `false` for all checks (safe default). If the fetch fails, `error` is set and `can()`
+    still returns `false`.
+  </Step>
+</Steps>
+
+### Standalone Permission Checker
+
+If you have a permission map but do not need React context:
+
+```typescript
+import { createPermissionChecker } from 'duck-iam/client/react'
+
+const { can, cannot, permissions } = createPermissionChecker(permissionMap)
+
+if (can('delete', 'post', 'post-1')) {
+  // render delete button
+}
+```
+
+This works in any environment -- server, client, tests, or Node.js scripts. No React
+context or provider needed.
+
+## Vue 3
+
+<Steps>
+  <Step>
+    **Create the access system**
+
+    ```typescript title="src/lib/access-client.ts"
+    import { ref, computed, inject, provide, defineComponent, h } from 'vue'
+    import { createVueAccess } from 'duck-iam/client/vue'
+
+    export const {
+      provideAccess,
+      useAccess,
+      createAccessPlugin,
+      createAccessState,
+      Can,
+      Cannot,
+      ACCESS_INJECTION_KEY,
+    } = createVueAccess({ ref, computed, inject, provide, defineComponent, h })
+    ```
+
+    Like React, Vue utilities are passed as a parameter to avoid a hard dependency.
+
+    **What it returns:**
+
+    | Export | Type | Description |
+    | --- | --- | --- |
+    | `provideAccess(perms)` | Function | Provides access state to component tree |
+    | `useAccess()` | Composable | Returns `{ permissions, can, cannot, update }` |
+    | `createAccessPlugin(perms)` | Vue Plugin | Global plugin with `$can` and `$cannot` |
+    | `createAccessState(perms)` | Function | Low-level reactive state factory |
+    | `Can` | Component | Renders slot when permission granted |
+    | `Cannot` | Component | Renders slot when permission denied |
+    | `ACCESS_INJECTION_KEY` | Symbol | For advanced provide/inject scenarios |
+  </Step>
+
+  <Step>
+    **Install as a plugin**
+
+    ```typescript title="src/main.ts"
+    import { createApp } from 'vue'
+    import { createAccessPlugin } from '@/lib/access-client'
+    import App from './App.vue'
+
+    const permissions = await fetch('/api/permissions').then(r => r.json())
+
+    const app = createApp(App)
+    app.use(createAccessPlugin(permissions))
+    app.mount('#app')
+    ```
+
+    The plugin makes `$can` and `$cannot` available on all component instances via
+    `this.$can('delete', 'post')` in the Options API.
+  </Step>
+
+  <Step>
+    **Use provide/inject (alternative)**
+
+    ```typescript title="src/App.vue"
+    <script setup>
+    import { provideAccess } from '@/lib/access-client'
+
+    const props = defineProps<{ permissions: PermissionMap }>()
+    const { can, cannot, update } = provideAccess(props.permissions)
+    </script>
+    ```
+
+    `provideAccess()` returns reactive access state and provides it to all descendants.
+    The `update(newPerms)` function replaces the permissions reactively.
+  </Step>
+
+  <Step>
+    **Use the composable**
+
+    ```vue title="src/components/PostActions.vue"
+    <script setup>
+    import { useAccess } from '@/lib/access-client'
+
+    const props = defineProps<{ postId: string }>()
+    const { can, cannot } = useAccess()
+    </script>
+
+    <template>
+      <div>
+        <button v-if="can('update', 'post', props.postId)">Edit</button>
+        <button v-if="can('delete', 'post', props.postId)">Delete</button>
+        <span v-if="cannot('update', 'post', props.postId)">Read only</span>
+      </div>
+    </template>
+    ```
+
+    **useAccess() return value:**
+
+    ```typescript
+    {
+      permissions: Ref<PermissionMap>  // reactive
+      can(action, resource, resourceId?, scope?): boolean
+      cannot(action, resource, resourceId?, scope?): boolean
+      update(newPermissions: PermissionMap): void
+    }
+    ```
+  </Step>
+
+  <Step>
+    **Use the Can and Cannot components**
+
+    ```vue title="src/components/Toolbar.vue"
+    <template>
+      <nav>
+        <Can action="create" resource="post">
+          <button>New Post</button>
+          <template #fallback>
+            <span>No permission</span>
+          </template>
+        </Can>
+
+        <Cannot action="manage" resource="dashboard">
+          <p>Admin access required.</p>
+        </Cannot>
+      </nav>
+    </template>
+
+    <script setup>
+    import { Can, Cannot } from '@/lib/access-client'
+    </script>
+    ```
+
+    **Can component:**
+    - Default slot: rendered when permission is granted
+    - `#fallback` slot: rendered when permission is denied
+    - Props: `action`, `resource`, `resourceId?`, `scope?`
+  </Step>
+
+  <Step>
+    **Low-level reactive state**
+
+    For advanced scenarios, use `createAccessState()` directly:
+
+    ```typescript
+    import { createAccessState } from '@/lib/access-client'
+
+    const state = createAccessState(initialPermissions)
+
+    // state.permissions is a Vue Ref
+    // state.can() and state.cannot() are reactive
+    // state.update(newPerms) replaces permissions
+    ```
+
+    This gives you reactive access state without the provide/inject system.
+  </Step>
+</Steps>
+
+## Vanilla JavaScript
+
+For any framework or no framework at all:
+
+<Steps>
+  <Step>
+    **Create a client**
+
+    ```typescript title="src/access-client.ts"
+    import { AccessClient } from 'duck-iam/client/vanilla'
+
+    // From a server endpoint
+    const access = await AccessClient.fromServer('/api/permissions')
+
+    // Or from an existing map
+    const access = new AccessClient(permissionMap)
+
+    // Or empty (update later)
+    const access = new AccessClient()
+    ```
+
+    **Constructor:** `new AccessClient(permissions?: PermissionMap)`
+
+    **Static factory:** `AccessClient.fromServer(url: string, init?: RequestInit): Promise<AccessClient>`
+    - Fetches the URL, parses the JSON response as a `PermissionMap`
+    - `init` is passed to `fetch()` for headers, credentials, etc.
+  </Step>
+
+  <Step>
+    **Check permissions**
+
+    ```typescript
+    // Basic checks
+    access.can('create', 'post')           // true/false
+    access.cannot('delete', 'post')        // true/false
+
+    // With resource ID
+    access.can('update', 'post', 'post-1')
+
+    // With scope
+    access.can('manage', 'user', undefined, 'acme')
+
+    // Read-only access to the map
+    console.log(access.permissions)  // Readonly<PermissionMap>
+    ```
+  </Step>
+
+  <Step>
+    **Query permissions**
+
+    ```typescript
+    // Get all actions allowed on a resource
+    const postActions = access.allowedActions('post')
+    // ['create', 'read', 'update']
+
+    // Check if user has ANY permission on a resource
+    if (access.hasAnyOn('dashboard')) {
+      showDashboardLink()
+    }
+    ```
+
+    `allowedActions()` scans the permission map for all keys containing the resource type
+    and returns the unique actions that are `true`. `hasAnyOn()` returns `true` if any
+    permission involving the resource is granted.
+  </Step>
+
+  <Step>
+    **Update and subscribe**
+
+    ```typescript
+    // Replace all permissions
+    access.update(newPermissions)
+
+    // Merge new permissions into existing ones
+    access.merge({ 'manage:dashboard': true })
+
+    // Subscribe to changes
+    const unsubscribe = access.subscribe((permissions) => {
+      console.log('Permissions changed:', permissions)
+      rerenderUI()
+    })
+
+    // Clean up
+    unsubscribe()
+    ```
+
+    The `subscribe()` method lets you react to permission changes. Both `update()` and
+    `merge()` notify all subscribers. This is useful for:
+    - Real-time updates via WebSockets
+    - Re-rendering after a role change
+    - Syncing permissions across tabs
+  </Step>
+</Steps>
+
+### Complete AccessClient API
+
+| Method / Property | Type | Description |
+| --- | --- | --- |
+| `new AccessClient(perms?)` | Constructor | Create with optional initial permissions |
+| `AccessClient.fromServer(url, init?)` | Static | Fetch permissions from a server |
+| `.can(action, resource, id?, scope?)` | `boolean` | Check if permission is granted |
+| `.cannot(action, resource, id?, scope?)` | `boolean` | Check if permission is denied |
+| `.permissions` | `Readonly<PermissionMap>` | Read-only access to the map |
+| `.update(perms)` | `void` | Replace all permissions |
+| `.merge(perms)` | `void` | Merge into existing permissions |
+| `.subscribe(listener)` | `() => void` | Listen for changes, returns unsubscribe |
+| `.allowedActions(resource)` | `string[]` | All allowed actions on a resource |
+| `.hasAnyOn(resource)` | `boolean` | Any permission granted on a resource |
+
+## Scoped Permissions in the Client
+
+When your app is multi-tenant, include the scope in permission checks:
+
+```typescript
+// React
+const { can } = useAccess()
+can('manage', 'user', undefined, 'acme')
+
+// Vue
+const { can } = useAccess()
+can('manage', 'user', undefined, 'acme')
+
+// Vanilla
+access.can('manage', 'user', undefined, 'acme')
+```
+
+The client looks up the key `'acme:manage:user'` in the permission map.
+
+The server must include scoped permissions in the generated map:
+
+```typescript
+const permissions = await getPermissions(engine, userId, [
+  { action: 'manage', resource: 'user', scope: 'acme' },
+  { action: 'manage', resource: 'user', scope: 'globex' },
+])
+// { "acme:manage:user": true, "globex:manage:user": false }
+```
+
+## Type Safety
+
+All client APIs accept generic type parameters for compile-time checking:
+
+```typescript
+// React
+const { AccessProvider, useAccess, Can } = createAccessControl<
+  'read' | 'create' | 'update' | 'delete' | 'manage',  // TAction
+  'post' | 'comment' | 'user' | 'dashboard',              // TResource
+  'acme' | 'globex'                                        // TScope
+>(React)
+
+// Now this is a compile error:
+// can('publish', 'post')  // 'publish' is not a valid action
+
+// Vanilla
+const access = new AccessClient<
+  'read' | 'create' | 'update' | 'delete',
+  'post' | 'comment',
+  'acme' | 'globex'
+>(permissionMap)
+```
+
+## Security Note
+
+The permission map is a **UX optimization**, not a security boundary. It controls what
+the UI shows, but the server still enforces access on every request (Chapter 6). Even if
+a user tampers with the client-side map (via browser devtools or intercepting the response),
+the server will deny unauthorized actions.
+
+**Defense in depth: server enforces, client adapts.**
+
+---
+
+## Chapter 7 FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="c7-security">
+    <AccordionTrigger>Is it safe to send permissions to the client?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes, but treat it as a UX optimization, not a security boundary. The permission map
+      controls what the UI shows, but the server still enforces access on every request.
+      Even if a user tampers with the client-side map, the server will deny unauthorized
+      actions. Only include permissions the user needs to know about -- you do not need to
+      send every possible permission.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c7-refresh">
+    <AccordionTrigger>How do I refresh permissions after a role change?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Re-fetch the permission map from the server. In React, pass a new `permissions` prop
+      to `AccessProvider` (or re-render the server component). With the vanilla client, call
+      `access.update(newMap)` and subscribers will be notified. In Vue, call the `update()`
+      function from `useAccess()` or `provideAccess()`.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c7-ssr">
+    <AccordionTrigger>Can I use this with server-side rendering?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Generate the permission map on the server (in a Server Component, `getServerSideProps`,
+      or your SSR data loader) and pass it to the client as props. The `AccessProvider` hydrates
+      with the server-generated map, so there is no flash of unauthorized content and no
+      extra client-side fetch needed.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c7-vue-react-diff">
+    <AccordionTrigger>Why do the factories take the framework as a parameter?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      To avoid a hard dependency on React or Vue. duck-iam is a single package that supports
+      multiple frameworks. By accepting the framework instance as a parameter, the client
+      code is tree-shakeable -- if you only use the vanilla client, React and Vue are never
+      bundled. This also means duck-iam works with any version of React or Vue.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c7-performance">
+    <AccordionTrigger>Is the permission check fast enough for rendering?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Client-side `can()` is a synchronous key lookup in a plain object -- O(1). There
+      are no network calls, no async operations, no engine evaluations. You can call it
+      hundreds of times per render without performance concern. The `can()` function in
+      React's `useAccess()` is also memoized.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c7-usePerms-vs-provider">
+    <AccordionTrigger>When should I use usePermissions vs AccessProvider?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `AccessProvider` with server-rendered permissions (SSR/RSC) for the best user
+      experience -- no loading state, no flash. Use `usePermissions` in pure SPAs where
+      permissions must be fetched client-side. You can combine both: use the provider for
+      initial permissions and `usePermissions` for dynamic refreshes.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c7-vanilla-reactive">
+    <AccordionTrigger>How do I make the vanilla client reactive?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the `subscribe()` method. Every time `update()` or `merge()` is called, all
+      subscribers are notified with the new permission map. Connect this to your UI
+      framework's re-render mechanism: `access.subscribe(() => forceUpdate())` or
+      use it with a state management library.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+
+---
+
+Next: [Chapter 8: Production Readiness](/docs/course/chapter-8)

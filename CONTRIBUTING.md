@@ -1,4 +1,4 @@
-# Contributing to @duck-gen
+# Contributing to duck-iam
 
 First off, thank you for considering contributing to **Gentleduck**!
 We welcome all kinds of contributions — from bug reports and documentation improvements to feature requests and new packages.
@@ -19,8 +19,13 @@ Please treat everyone with respect and kindness.
 ### 1. Fork & Clone
 
 ```bash
+<<<<<<< HEAD
+git clone https://github.com/gentleeduck/duck-ui.git
+cd duck-ui
+=======
 git clone https://github.com/gentleeduck/duck-gen.git
 cd duck-gen
+>>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964
 ```
 
 ### 2. Install Dependencies

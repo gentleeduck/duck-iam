@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@gentleduck/example-app",
+  "private": true,
+  "engines": {
+    "bun": ">=1.3.5"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
+    "lint": "biome lint --write ./",
+    "format": "biome format --write ./",
+    "clean": "rimraf dist .cache .turbo node_modules .next"
+  },
+  "dependencies": {
+    "@gentleduck/example-shared": "workspace:*",
+    "duck-iam": "workspace:*",
+    "next": "^16.1.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {
+    "@gentleduck/typescript-config": "workspace:*",
+    "@types/node": "22.19.3",
+    "@types/react": "^19.2.14",
+    "typescript": "5.9.3"
+  },
+  "author": "GentleDuck (https://www.gentleduck.org)",
+  "license": "MIT",
+  "homepage": "https://github.com/gentleeduck/duck-ui/tree/master/packages/example-app#readme",
+  "bugs": {
+    "url": "https://github.com/gentleeduck/duck-ui/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gentleeduck/duck-ui.git",
+    "directory": "packages/example-app"
+  }
+}

@@ -9,27 +9,7 @@
     "enabled": true
   },
   "files": {
-    "includes": [
-      "**",
-      "!**/node_modules",
-      "!**/node_modules.root-owned",
-      "!**/dist",
-      "!**/build",
-      "!**/out",
-      "!**/coverage",
-      "!**/public",
-      "!**/.next",
-      "!**/apps/docs/.next",
-      "!**/website",
-      "!**/.*",
-      "!**/generated.root-owned",
-      "!**/old_*",
-      "!packages/___",
-      "./apps/docs/__ui_registry__/**",
-      "!packages/_oldstuff_refactor",
-      "!packages/benchmark",
-      "!packages/duck-orm-skitch"
-    ]
+    "includes": ["**", "!**/node_modules", "!**/dist", "!**/build", "!**/out", "!**/coverage", "!**/.next", "!**/.*"]
   },
   "formatter": {
     "attributePosition": "multiline",
@@ -40,24 +20,12 @@
     "includes": [
       "**",
       "!**/node_modules/**",
-      "!**/node_modules.root-owned/**",
       "!**/dist/**",
       "!**/build/**",
       "!**/out/**",
       "!**/coverage/**",
-      "!**/test/**",
-      "!**/public/**",
       "!**/.next/**",
-      "!**/apps/docs/.next/**",
-      "!**/website/**",
-      "!**/.*/**",
-      "!**/generated.root-owned/**",
-      "!**/old_*/**",
-      "!packages/___/**",
-      "./apps/docs/__ui_registry__/**",
-      "!packages/_oldstuff_refactor/**",
-      "!packages/benchmark/**",
-      "!packages/duck-orm-skitch/**"
+      "!**/.*/**"
     ],
     "indentStyle": "space",
     "indentWidth": 2,
@@ -78,41 +46,19 @@
       "quoteStyle": "single",
       "semicolons": "asNeeded",
       "trailingCommas": "all"
-    },
-    "globals": ["Global1"]
+    }
   },
   "linter": {
     "enabled": true,
     "includes": [
       "**",
       "!**/node_modules/**",
-      "!**/node_modules.root-owned/**",
       "!**/dist/**",
       "!**/build/**",
       "!**/out/**",
       "!**/coverage/**",
-      "!**/public/**",
       "!**/.next/**",
-      "!**/apps/docs/.next/**",
-      "!**/website/**",
-      "!**/.*/**",
-      "!**/generated.root-owned/**",
-      "!**/old_*/**",
-      "!**/_*/**",
-      "!apps/docs/**",
-      "!apps/upload-api/**",
-      "!apps/www/**",
-      "!apps/benchmark/**",
-      "!packages/___/**",
-      "!packages/_oldstuff_refactor/**",
-      "!packages/duck-state/**",
-      "!packages/duck-benchmark/**",
-      "!packages/registry-build-duckui/**",
-      "!packages/sandbox-server/**",
-      "!**/duck-state/**",
-      "!**/upload/**",
-      "!**/table/**",
-      "!**/combobox.tsx"
+      "!**/.*/**"
     ],
     "rules": {
       "complexity": {
@@ -134,7 +80,6 @@
         "useImportType": "on"
       },
       "suspicious": {
-        "noDocumentCookie": "off",
         "noDoubleEquals": "error",
         "noExplicitAny": "off",
         "noThenProperty": "error",

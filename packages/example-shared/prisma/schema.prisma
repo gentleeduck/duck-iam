@@ -1,0 +1,100 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Your existing app models
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  plan      String   @default("free") // "free" | "pro" | "enterprise"
+  orgId     String?  @map("org_id")
+  org       Org?     @relation(fields: [orgId], references: [id])
+  posts     Post[]
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("users")
+}
+
+model Org {
+  id     String @id @default(cuid())
+  name   String
+  status String @default("active") // "active" | "suspended"
+  users  User[]
+
+  @@map("orgs")
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  published Boolean  @default(false)
+  authorId  String   @map("author_id")
+  author    User     @relation(fields: [authorId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("posts")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// duck-iam tables (add these to your existing schema)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model AccessPolicy {
+  id          String   @id
+  name        String
+  description String?
+  version     Int      @default(1)
+  algorithm   String   @default("deny-overrides")
+  rules       Json     // Rule[] serialized
+  targets     Json?    // { actions?, resources?, roles? }
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("access_policies")
+}
+
+model AccessRole {
+  id          String             @id
+  name        String
+  description String?
+  permissions Json               // Permission[] serialized
+  inherits    String[]           @default([])
+  scope       String?
+  metadata    Json?
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  assignments AccessAssignment[]
+
+  @@map("access_roles")
+}
+
+model AccessAssignment {
+  id        String     @id @default(cuid())
+  subjectId String     @map("subject_id")
+  roleId    String     @map("role_id")
+  scope     String?    // optional: "tenant" for scoped roles
+  role      AccessRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  @@unique([subjectId, roleId, scope])
+  @@index([subjectId])
+  @@map("access_assignments")
+}
+
+model AccessSubjectAttr {
+  subjectId String   @id @map("subject_id")
+  data      Json     // { plan: "pro", department: "eng", ... }
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("access_subject_attrs")
+}

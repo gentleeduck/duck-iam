@@ -1,0 +1,75 @@
+import { PageActions, PageHeader, PageHeaderDescription, PageHeaderHeading } from '@gentleduck/docs/client'
+import type { Metadata } from 'next'
+import Link from 'next/link'
+import { Announcement } from '~/components/announcement'
+import { FeaturesSection } from '~/components/layouts/features'
+import { SponsorsSection } from '~/components/layouts/sponsors'
+
+const title = 'duck-iam -- Type-safe access control that actually works.'
+const description =
+  'duck-iam is a unified RBAC + ABAC authorization engine for TypeScript. Define roles, write policies, and protect your app with type-safe middleware.'
+
+export const dynamic = 'force-static'
+export const revalidate = false
+
+export const metadata: Metadata = {
+  description,
+  openGraph: {
+    images: [
+      {
+        url: `/og?title=${encodeURIComponent(title)}&description=${encodeURIComponent(description)}`,
+      },
+    ],
+  },
+  title,
+  twitter: {
+    card: 'summary_large_image',
+    images: [
+      {
+        url: `/og?title=${encodeURIComponent(title)}&description=${encodeURIComponent(description)}`,
+      },
+    ],
+  },
+}
+
+export default function Page() {
+  return (
+    <>
+      <PageHeader className="relative flex flex-col justify-start justify-self-center text-center">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-40 -right-40 z-0 h-[14rem] w-[14rem] rounded-full bg-gradient-to-br from-yellow-400/15 to-orange-400/10 blur-[100px] md:h-[20rem] md:w-[20rem]"></div>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-36 -left-40 z-0 h-[12rem] w-[12rem] rounded-full bg-gradient-to-tr from-primary/12 to-sky-400/8 blur-[90px] md:h-[18rem] md:w-[18rem]"></div>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-48 left-1/2 z-0 h-[10rem] w-[10rem] -translate-x-1/2 rounded-full bg-gradient-to-b from-violet-500/8 to-fuchsia-400/5 blur-[110px] md:h-[16rem] md:w-[16rem]"></div>
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-20 -bottom-32 z-0 h-[8rem] w-[8rem] rounded-full bg-gradient-to-tl from-rose-400/6 to-pink-300/4 blur-[80px] md:h-[14rem] md:w-[14rem]"></div>
+        <Announcement />
+        <PageHeaderHeading>{title}</PageHeaderHeading>
+        <PageHeaderDescription>{description}</PageHeaderDescription>
+        <PageActions className="mx-auto w-full justify-center">
+          <Link
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground text-sm"
+            href="/docs">
+            Get Started
+          </Link>
+          <Link
+            className="inline-flex items-center justify-center rounded-md border px-4 py-2 font-medium text-sm hover:bg-muted"
+            href="/docs/core">
+            Core Concepts
+          </Link>
+        </PageActions>
+      </PageHeader>
+      <div className="container-wrapper">
+        <div className="">
+          <FeaturesSection />
+          <SponsorsSection />
+        </div>
+      </div>
+    </>
+  )
+}

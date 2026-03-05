@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "duck-iam",
+  "version": "1.0.0",
+  "description": "Modern ABAC/RBAC access control engine. Framework-agnostic core with integrations for Express, NestJS, Hono, Next.js, React, and Vue.",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./core": {
+      "import": {
+        "types": "./dist/core/index.d.ts",
+        "default": "./dist/core/index.js"
+      },
+      "require": {
+        "types": "./dist/core/index.d.cts",
+        "default": "./dist/core/index.cjs"
+      }
+    },
+    "./adapters/memory": {
+      "import": {
+        "types": "./dist/adapters/memory/index.d.ts",
+        "default": "./dist/adapters/memory/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/memory/index.d.cts",
+        "default": "./dist/adapters/memory/index.cjs"
+      }
+    },
+    "./adapters/prisma": {
+      "import": {
+        "types": "./dist/adapters/prisma/index.d.ts",
+        "default": "./dist/adapters/prisma/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/prisma/index.d.cts",
+        "default": "./dist/adapters/prisma/index.cjs"
+      }
+    },
+    "./adapters/drizzle": {
+      "import": {
+        "types": "./dist/adapters/drizzle/index.d.ts",
+        "default": "./dist/adapters/drizzle/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/drizzle/index.d.cts",
+        "default": "./dist/adapters/drizzle/index.cjs"
+      }
+    },
+    "./adapters/http": {
+      "import": {
+        "types": "./dist/adapters/http/index.d.ts",
+        "default": "./dist/adapters/http/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/http/index.d.cts",
+        "default": "./dist/adapters/http/index.cjs"
+      }
+    },
+    "./server/express": {
+      "import": {
+        "types": "./dist/server/express/index.d.ts",
+        "default": "./dist/server/express/index.js"
+      },
+      "require": {
+        "types": "./dist/server/express/index.d.cts",
+        "default": "./dist/server/express/index.cjs"
+      }
+    },
+    "./server/nest": {
+      "import": {
+        "types": "./dist/server/nest/index.d.ts",
+        "default": "./dist/server/nest/index.js"
+      },
+      "require": {
+        "types": "./dist/server/nest/index.d.cts",
+        "default": "./dist/server/nest/index.cjs"
+      }
+    },
+    "./server/hono": {
+      "import": {
+        "types": "./dist/server/hono/index.d.ts",
+        "default": "./dist/server/hono/index.js"
+      },
+      "require": {
+        "types": "./dist/server/hono/index.d.cts",
+        "default": "./dist/server/hono/index.cjs"
+      }
+    },
+    "./server/next": {
+      "import": {
+        "types": "./dist/server/next/index.d.ts",
+        "default": "./dist/server/next/index.js"
+      },
+      "require": {
+        "types": "./dist/server/next/index.d.cts",
+        "default": "./dist/server/next/index.cjs"
+      }
+    },
+    "./server/generic": {
+      "import": {
+        "types": "./dist/server/generic/index.d.ts",
+        "default": "./dist/server/generic/index.js"
+      },
+      "require": {
+        "types": "./dist/server/generic/index.d.cts",
+        "default": "./dist/server/generic/index.cjs"
+      }
+    },
+    "./client/react": {
+      "import": {
+        "types": "./dist/client/react/index.d.ts",
+        "default": "./dist/client/react/index.js"
+      },
+      "require": {
+        "types": "./dist/client/react/index.d.cts",
+        "default": "./dist/client/react/index.cjs"
+      }
+    },
+    "./client/vue": {
+      "import": {
+        "types": "./dist/client/vue/index.d.ts",
+        "default": "./dist/client/vue/index.js"
+      },
+      "require": {
+        "types": "./dist/client/vue/index.d.cts",
+        "default": "./dist/client/vue/index.cjs"
+      }
+    },
+    "./client/vanilla": {
+      "import": {
+        "types": "./dist/client/vanilla/index.d.ts",
+        "default": "./dist/client/vanilla/index.js"
+      },
+      "require": {
+        "types": "./dist/client/vanilla/index.d.cts",
+        "default": "./dist/client/vanilla/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest",
+    "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
+    "lint": "biome lint --write ./",
+    "format": "biome format --write ./",
+    "clean": "rimraf dist .cache .turbo node_modules"
+  },
+  "peerDependencies": {
+    "@prisma/client": ">=5.0.0",
+    "react": ">=18.0.0",
+    "vue": ">=3.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@prisma/client": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@gentleduck/tsdown-config": "workspace:*",
+    "@gentleduck/typescript-config": "workspace:*",
+    "@gentleduck/vitest-config": "workspace:*",
+    "@types/react": "^19.2.14",
+    "tsdown": "0.18.3",
+    "typescript": "5.9.3",
+    "vitest": "^4.0.16"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "GentleDuck (https://www.gentleduck.org)",
+  "license": "MIT",
+  "homepage": "https://github.com/gentleeduck/duck-iam#readme",
+  "bugs": {
+    "url": "https://github.com/gentleeduck/duck-iam/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gentleeduck/duck-iam.git"
+  },
+  "keywords": [
+    "rbac",
+    "abac",
+    "access-control",
+    "authorization",
+    "permissions",
+    "policy-engine",
+    "middleware",
+    "express",
+    "nestjs",
+    "hono",
+    "nextjs",
+    "react",
+    "vue"
+  ]
+}

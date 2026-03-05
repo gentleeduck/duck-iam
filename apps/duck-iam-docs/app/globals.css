@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+@source "../node_modules/@gentleduck/docs/src/";
+@source "../node_modules/@gentleduck/lazy/src/";
+@source "../../../packages/_oldstuff_refactor/ui/";
+@source
+@import "@gentleduck/docs/styles/docs.css";
