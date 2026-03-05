@@ -19,8 +19,13 @@ Please treat everyone with respect and kindness.
 ### 1. Fork & Clone
 
 ```bash
+<<<<<<< HEAD
 git clone https://github.com/gentleeduck/duck-ui.git
 cd duck-ui
+=======
+git clone https://github.com/gentleeduck/duck-gen.git
+cd duck-gen
+>>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964
 ```
 
 ### 2. Install Dependencies
@@ -60,10 +65,10 @@ This will spin up local development environments for the packages and docs.
 1. **Branching**
 
    * Create a new branch from `main`.
-   * Use a descriptive name, e.g. `fix/button-hover`, `feat/new-dialog`, `docs/readme-update`.
+   * Use a descriptive name, e.g. `fix/gen-output`, `feat/new-generator`, `docs/readme-update`.
 
    ```bash
-   git checkout -b feat/new-component
+   git checkout -b feat/new-generator
    ```
 
 2. **Coding Standards**
@@ -77,8 +82,8 @@ This will spin up local development environments for the packages and docs.
    Also make sure that you pass the `Husky` checks.
 
    ```
-   feat: add new dropdown menu component
-   fix: resolve button focus issue in Safari
+   feat: add new generator for express routes
+   fix: resolve schema validation edge case
    docs: update contributing guide
    ```
 
@@ -98,7 +103,7 @@ This will spin up local development environments for the packages and docs.
 1. Push your branch:
 
    ```bash
-   git push origin feat/new-component
+   git push origin feat/new-generator
    ```
 
 2. Open a Pull Request (PR) against the `main` branch.
@@ -107,13 +112,13 @@ This will spin up local development environments for the packages and docs.
 
    * A clear description of your changes
    * Any related issues (`Closes #123`)
-   * Screenshots or code samples (if UI related)
+   * Code samples or terminal output (if relevant)
 
 ---
 
 ## Reporting Issues
 
-If you find a bug, please [open an issue](https://github.com/gentleeduck/duck-ui/issues) with:
+If you find a bug, please [open an issue](https://github.com/gentleeduck/duck-gen/issues) with:
 
 * Steps to reproduce
 * Expected behavior
@@ -126,7 +131,6 @@ If you find a bug, please [open an issue](https://github.com/gentleeduck/duck-ui
 
 * **Code**: Bug fixes, features, optimizations
 * **Docs**: Tutorials, guides, API references
-* **Design**: Improving UX, accessibility, component design
 * **Community**: Helping others in discussions, writing blog posts, or sharing Gentleduck
 
 ---
@@ -134,7 +138,7 @@ If you find a bug, please [open an issue](https://github.com/gentleeduck/duck-ui
 ## Tips
 
 * Start small - even fixing a typo helps!
-* Look at the ["good first issue"](https://github.com/gentleeduck/duck-ui/labels/good%20first%20issue) label for beginner-friendly contributions.
+* Look at the ["good first issue"](https://github.com/gentleeduck/duck-gen/labels/good%20first%20issue) label for beginner-friendly contributions.
 * Ask questions! We’re happy to guide you.
 
 ---

@@ -20,7 +20,7 @@ A clear and concise description of the feature you’d like to see.
 
 ## Proposed Solution
 - Describe the solution you’d like in detail.  
-- Share API design ideas, function signatures, or component props if relevant.  
+- Share API design ideas, function signatures, or config options if relevant.
 - Provide examples of how developers would use it in their code:  
 
 ```tsx
@@ -68,9 +68,9 @@ How important is this feature to you?
 
 ---
 
-## Mockups / References
+## References
 
-If applicable, add wireframes, design mockups, or links to similar implementations in other libraries.
+If applicable, add links to similar implementations in other libraries or relevant documentation.
 
 ---
 

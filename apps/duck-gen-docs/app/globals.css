@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@source "../node_modules/@gentleduck/registry-ui/src/";
+@source "../node_modules/@gentleduck/docs/src/";
+@source "../node_modules/@gentleduck/lazy/src/";
+@source "../node_modules/@gentleduck/motion/src/";
+
+@import "@gentleduck/docs/styles/docs.css";
+@import "tw-animate-css";

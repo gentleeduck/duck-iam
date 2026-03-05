@@ -15,8 +15,8 @@ A clear and concise description of the bug.
 Provide a step-by-step guide to reproduce the issue (the smaller the reproduction, the better):
 
 1. Setup project with version `X.Y.Z`
-2. Run command `bun run dev`
-3. Use component `Button` with props `{...}`
+2. Configure `duck-gen.json` with `{...}`
+3. Run command `bun run generate`
 4. See error
 
 ---
@@ -50,11 +50,11 @@ Please complete the following information:
 ---
 
 ## Project Context
-- Framework: [e.g. Next.js 15, Vite 6, CRA]  
-- Build Tool: [e.g. Turborepo, Nx, plain Bun workspaces]  
-- Configurations:  
-  - Tailwind version & config (if relevant)  
-  - Custom webpack/vite settings (if relevant)  
+- Framework: [e.g. NestJS 11, Express 5]
+- Build Tool: [e.g. Turborepo, Nx, plain Bun workspaces]
+- Configurations:
+  - `duck-gen.json` config (if relevant)
+  - Custom TypeScript settings (if relevant)
 
 ---
 
@@ -69,6 +69,6 @@ Paste any relevant logs or error messages (console, server, or build logs):
 
 ```bash
 # Example
-bun run dev
-Error: Button component failed to render...
+bun run generate
+Error: Failed to resolve schema at path...
 ```

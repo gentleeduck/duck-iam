@@ -3,7 +3,12 @@
 Modern ABAC/RBAC access control engine for TypeScript. Framework-agnostic core with integrations for Express, NestJS, Hono, Next.js, React, and Vue.
 
 ## Documentation
+<<<<<<< HEAD
 - GitHub: https://github.com/gentleeduck/duck-ui
+=======
+- Website: https://gen.gentleduck.org
+- GitHub: https://github.com/gentleeduck/duck-gen
+>>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964
 
 ## What's in the repo
 
@@ -30,8 +35,13 @@ Modern ABAC/RBAC access control engine for TypeScript. Framework-agnostic core w
 
 ## Getting Started
 ```bash
+<<<<<<< HEAD
 git clone https://github.com/gentleeduck/duck-ui.git
 cd duck-ui
+=======
+git clone https://github.com/gentleeduck/duck-gen.git
+cd duck-gen
+>>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964
 bun install
 ```
 

@@ -4,17 +4,32 @@
     "bun": ">=1.3.5"
   },
   "dependencies": {
+<<<<<<< HEAD:apps/duck-iam-docs/package.json
     "@gentleduck/docs": "^0.0.14",
     "@gentleduck/lazy": "^1.2.10",
     "@gentleduck/libs": "^0.1.12",
     "@gentleduck/vim": "^0.1.13",
+=======
+    "@gentleduck/docs": "^0.1.0",
+    "@gentleduck/lazy": "^1.2.12",
+    "@gentleduck/libs": "^0.1.14",
+    "@gentleduck/motion": "^0.1.16",
+    "@gentleduck/registry-ui": "^0.2.3",
+    "@gentleduck/vim": "^0.1.15",
+    "geist": "^1.7.0",
+    "jotai": "^2.18.0",
+>>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964:apps/duck-gen-docs/package.json
     "lucide-react": "0.562.0",
     "next": "^16.1.1",
     "next-sitemap": "^4.2.3",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+<<<<<<< HEAD:apps/duck-iam-docs/package.json
     "next-themes": "^0.4.6",
     "react-resizable-panels": "^3.0.6"
+=======
+    "tw-animate-css": "^1.4.0"
+>>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964:apps/duck-gen-docs/package.json
   },
   "devDependencies": {
     "@gentleduck/typescript-config": "workspace:*",
@@ -31,12 +46,21 @@
   "license": "MIT",
   "homepage": "https://www.gentleduck.org",
   "bugs": {
+<<<<<<< HEAD:apps/duck-iam-docs/package.json
     "url": "https://github.com/gentleeduck/duck-iam/issues"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gentleeduck/duck-iam.git",
     "directory": "apps/duck-iam-docs"
+=======
+    "url": "https://github.com/gentleeduck/duck-gen/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gentleeduck/duck-gen.git",
+    "directory": "apps/duck-gen-docs"
+>>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964:apps/duck-gen-docs/package.json
   },
   "private": true,
   "publishConfig": {
@@ -54,5 +78,13 @@
     "preview": "bunx vercel deploy",
     "deploy": "bunx vercel deploy --prod"
   },
-  "version": "0.0.21"
+  "version": "0.0.21",
+  "overrides": {
+    "@gentleduck/hooks": "0.1.11",
+    "@gentleduck/libs": "0.1.14",
+    "@gentleduck/motion": "0.1.16",
+    "@gentleduck/primitives": "0.2.3",
+    "@gentleduck/variants": "0.1.19",
+    "@gentleduck/vim": "0.1.15"
+  }
 }

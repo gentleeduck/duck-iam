@@ -21,11 +21,11 @@
   "name": "@gentleduck/tsdown-config",
   "homepage": "https://github.com/gentleeduck/duck-gen/tree/master/tooling/tsdown#readme",
   "bugs": {
-    "url": "https://github.com/gentleeduck/duck-ui/issues"
+    "url": "https://github.com/gentleeduck/duck-gen/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gentleeduck/duck-ui.git",
+    "url": "git+https://github.com/gentleeduck/duck-gen.git",
     "directory": "tooling/tsdown"
   },
   "packageManager": "bun@1.3.5",

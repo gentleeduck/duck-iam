@@ -1,35 +1,38 @@
 import { Heart } from 'lucide-react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { SectionTitle } from '~/components/layouts/features'
 
 interface Sponsor {
-  description: string
-  href: string
   name: string
+  href: string
+  avatar: string
 }
 
 const sponsors: Sponsor[] = [
   {
-    description: 'Core ecosystem maintainer and upstream package owner.',
-    href: 'https://github.com/wildduck2',
-    name: 'wildduck2',
-  },
-  {
-    description: 'Community support channel for roadmap and feedback.',
-    href: 'https://github.com/wildduck2/duck-iam',
-    name: 'duck-iam Community',
+    avatar: 'https://aibrush.co/sparkles.svg',
+    href: 'https://aibrush.co',
+    name: 'AIBrush',
   },
 ]
 
 function SponsorCell({ sponsor }: { sponsor: Sponsor }) {
   return (
     <Link
-      className="group flex flex-col gap-1 border-r border-b border-border/60 px-8 py-6 transition-colors last:border-r-0 hover:bg-muted/40"
+      className="group flex items-center justify-center gap-3 border-border/60 border-r border-b px-8 py-6 transition-colors last:border-r-0 hover:bg-muted/40"
       href={sponsor.href}
       rel="noreferrer"
       target="_blank">
+      <Image
+        alt={sponsor.name}
+        className="size-8 shrink-0 rounded-full object-cover"
+        height={32}
+        src={sponsor.avatar}
+        unoptimized
+        width={32}
+      />
       <span className="font-semibold text-foreground text-lg tracking-tight">{sponsor.name}</span>
-      <span className="text-muted-foreground text-sm">{sponsor.description}</span>
     </Link>
   )
 }
@@ -45,10 +48,11 @@ export function SponsorsSection() {
         className="absolute right-1/4 bottom-1/4 z-0 h-48 w-48 rounded-full bg-orange-500/15 blur-3xl"></div>
 
       <div className="container relative mx-auto py-24 sm:py-32">
-        <SectionTitle subtitle="Backers and maintainers helping duck-iam stay healthy." title="Partners" />
+        <SectionTitle subtitle="The people and organizations that keep this project alive." title="Partners" />
 
-        <div className="mx-auto mt-12 max-w-2xl overflow-hidden rounded-xl border border-border/60">
-          <div className="grid grid-cols-1 sm:grid-cols-2">
+        <div
+          className={`mx-auto mt-12 overflow-hidden rounded-xl border border-border/60 ${sponsors.length > 1 ? 'max-w-2xl' : 'max-w-sm'}`}>
+          <div className={`grid grid-cols-1 ${sponsors.length > 1 ? 'sm:grid-cols-2' : ''}`}>
             {sponsors.map((sponsor) => (
               <SponsorCell key={sponsor.name} sponsor={sponsor} />
             ))}
