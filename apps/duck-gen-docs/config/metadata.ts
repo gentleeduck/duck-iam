@@ -15,11 +15,11 @@ export const METADATA: Metadata = {
   },
   authors: [
     {
-      name: 'wilddcuk2',
+      name: 'wildduck2',
       url: 'https://github.com/wildduck2',
     },
   ],
-  creator: 'wilddcuk2',
+  creator: 'wildduck2',
   description: siteConfig.description,
   icons: {
     apple: '/apple-touch-icon.png',

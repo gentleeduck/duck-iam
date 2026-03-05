@@ -1,41 +1,54 @@
 import { DashboardTableOfContents, DocsCopyPage, DocsPagerBottom, DocsPagerTop, Mdx } from '@gentleduck/docs/client'
+import { absoluteUrl } from '@gentleduck/docs/lib'
 import { cn } from '@gentleduck/libs/cn'
-import { badgeVariants } from '@gentleduck/registry-ui-duckui/badge'
-import { ExternalLinkIcon } from 'lucide-react'
+import { badgeVariants } from '@gentleduck/registry-ui/badge'
+import { Button } from '@gentleduck/registry-ui/button'
+import { Separator } from '@gentleduck/registry-ui/separator'
+import { ArrowDownIcon, ArrowUpIcon, ExternalLinkIcon, SquareArrowOutUpRight } from 'lucide-react'
 import type { Metadata } from 'next'
-import { headers } from 'next/headers'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import React from 'react'
-// import { DocCopy } from '~/components/ui/Blocks/doc-copy'
+import { DocsPathBreadcrumb } from '~/components/docs-path-breadcrumb'
 import { SLUG_METADATA } from '~/config/metadata'
 import { docs } from '../../../../.velite'
 
-export const runtime = 'edge'
+export const dynamic = 'force-static'
+export const dynamicParams = false
+export const revalidate = false
 
-interface DocPageProps {
-  params: {
-    slug: string[]
-  }
+function getDocFromSlug(slug?: string[]) {
+  const path = slug && slug.length > 0 ? slug.join('/') : 'index'
+  const normalizedPath = path.replace(/^\/+|\/+$/g, '')
+  const candidates = normalizedPath === 'index' ? ['index'] : [normalizedPath, `${normalizedPath}/index`]
+
+  return docs.find((doc) => candidates.includes(doc.permalink)) ?? null
 }
 
-async function getDocFromParams({ params }: DocPageProps) {
-  const slug = params.slug
-  const doc = docs.find((doc) => slug?.includes(doc.permalink))
+export async function generateStaticParams() {
+  const unique = new Map<string, string[]>()
 
-  if (!doc) {
-    return null
+  for (const doc of docs) {
+    const permalink = doc.permalink.replace(/^\/+|\/+$/g, '')
+
+    if (permalink === 'index') {
+      unique.set('', [])
+      continue
+    }
+
+    const cleanPath = permalink.endsWith('/index') ? permalink.slice(0, -'/index'.length) : permalink
+    unique.set(cleanPath, cleanPath.split('/'))
   }
 
-  return doc
+  return Array.from(unique.values()).map((slug) => ({ slug }))
 }
 
 export async function generateMetadata(props: {
-  params: Promise<{ slug: string[] }>
+  params: Promise<{ slug?: string[] }>
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
 }): Promise<Metadata> {
   const params = await props.params
-  const doc = await getDocFromParams({ params })
+  const doc = getDocFromSlug(params.slug)
 
   if (!doc) {
     return {}
@@ -43,26 +56,9 @@ export async function generateMetadata(props: {
   return SLUG_METADATA(doc)
 }
 
-const PostLayout = async ({ params }: { params: Promise<{ slug: any }> }) => {
-  const headersList = await headers()
-  const host = headersList.get('host')
-  const protocol = headersList.get('x-forwarded-proto') || 'http'
+const PostLayout = async ({ params }: { params: Promise<{ slug?: string[] }> }) => {
   const _params = await params
-  const path = _params.slug ? '/' + _params.slug.join('/') : '/'
-
-  const fullUrl = `${protocol}://${host}/docs${path}`
-
-  const doc = docs.find((post) => {
-    if (post?.slug === 'docs/index' && !_params.slug) {
-      return true
-    }
-
-    if (post.slug.endsWith('/index')) {
-      return String(fullUrl + '/index').endsWith(post.slug)
-    } else {
-      return fullUrl.endsWith(post.slug)
-    }
-  })
+  const doc = getDocFromSlug(_params.slug)
 
   if (!doc) {
     notFound()
@@ -70,14 +66,16 @@ const PostLayout = async ({ params }: { params: Promise<{ slug: any }> }) => {
 
   return (
     <main className="relative py-6 lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_300px]">
-      <div className="mx-auto w-full min-w-0 max-w-2xl" style={{ contain: 'paint' }}>
-        <div className="space-y-2">
-          <div className="absolute top-0 right-0 flex items-center gap-2">
-            {
-              // <DocsCopyPage page={doc.content} url={absoluteUrl('')} />
-            }
+      <div className="relative mx-auto w-full min-w-0 max-w-2xl">
+        <div className="mb-4 flex h-8 items-center justify-between gap-2">
+          <DocsPathBreadcrumb segments={_params.slug ?? []} />
+          <div className="flex-1" />
+          <div className="flex items-center gap-2">
+            <DocsCopyPage page={doc.content} url={absoluteUrl(doc.slug)} />
             <DocsPagerTop doc={doc} />
           </div>
+        </div>
+        <div className="space-y-2">
           <div className="space-y-2">
             <h1 className={cn('scroll-m-20 font-bold text-3xl capitalize tracking-tight')}>
               {doc.title.split('-').join(' ')}
@@ -94,7 +92,8 @@ const PostLayout = async ({ params }: { params: Promise<{ slug: any }> }) => {
                 rel="noreferrer"
                 target="_blank">
                 Docs
-                <ExternalLinkIcon className="h-3 w-3" />
+                <ExternalLinkIcon aria-hidden="true" className="h-3 w-3" />
+                <span className="sr-only"> (opens in a new tab)</span>
               </Link>
             )}
             {doc.links?.api && (
@@ -104,7 +103,8 @@ const PostLayout = async ({ params }: { params: Promise<{ slug: any }> }) => {
                 rel="noreferrer"
                 target="_blank">
                 API Reference
-                <ExternalLinkIcon className="h-3 w-3" />
+                <ExternalLinkIcon aria-hidden="true" className="h-3 w-3" />
+                <span className="sr-only"> (opens in a new tab)</span>
               </Link>
             )}
           </div>
@@ -113,12 +113,35 @@ const PostLayout = async ({ params }: { params: Promise<{ slug: any }> }) => {
           <Mdx code={doc.body} />
         </div>
         {<DocsPagerBottom doc={doc} />}
+        <div aria-hidden="true" id="bottom" />
       </div>
       {doc.toc && (
         <div className="hidden text-sm xl:block">
-          <div className="sticky top-16 -mt-10 pt-4">
-            <div className="show-scroll-hover sticky top-16 -mt-10 h-[calc(100vh-3.5rem)] overflow-y-auto py-12 pb-10">
-              <DashboardTableOfContents toc={doc.toc} />
+          <div className="sticky top-16 -mt-10 flex h-[calc(100vh-3.5rem)] flex-col py-12">
+            <DashboardTableOfContents toc={doc.toc} />
+            <Separator className="my-4 shrink-0" />
+            <div className="flex shrink-0 flex-col gap-1">
+              <Button asChild className="justify-start" size="sm" variant="link">
+                <a
+                  href={`https://github.com/gentleeduck/duck-gen/blob/master/apps/duck-gen-docs/content/${doc.slug}.mdx`}
+                  rel="noreferrer"
+                  target="_blank">
+                  <SquareArrowOutUpRight aria-hidden="true" className="size-3.5" />
+                  Edit this page on GitHub
+                </a>
+              </Button>
+              <Button asChild className="justify-start" size="sm" variant="link">
+                <a href="#">
+                  <ArrowUpIcon aria-hidden="true" className="size-3.5" />
+                  Scroll to top
+                </a>
+              </Button>
+              <Button asChild className="justify-start" size="sm" variant="link">
+                <a href="#bottom">
+                  <ArrowDownIcon aria-hidden="true" className="size-3.5" />
+                  Scroll to bottom
+                </a>
+              </Button>
             </div>
           </div>
         </div>

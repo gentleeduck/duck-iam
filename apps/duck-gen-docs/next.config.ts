@@ -15,7 +15,6 @@ const nextConfig: NextConfig = {
     externalDir: true,
     // swcPlugins: [['@lingui/swc-plugin', {}]],
   },
-  output: 'standalone',
   images: {
     remotePatterns: [
       {
@@ -27,11 +26,11 @@ const nextConfig: NextConfig = {
         protocol: 'https',
       },
       {
-        hostname: 'media.discordapp.net', // Add this line for Discord images
+        hostname: 'media.discordapp.net',
         protocol: 'https',
       },
       {
-        hostname: 'images.unsplash.com', // Add this line for Discord images
+        hostname: 'images.unsplash.com',
         protocol: 'https',
       },
       {
@@ -53,9 +52,7 @@ const nextConfig: NextConfig = {
     ],
   },
   reactStrictMode: false,
-  // redirects: async () => {},
-  transpilePackages: ['@gentleduck/registry-ui-duckui', '@gentleduck/docs'],
-  typescript: {},
+  transpilePackages: ['@gentleduck/registry-ui', '@gentleduck/docs'],
   // rewrites: async () => {
   //   return [
   //     {

@@ -1,4 +1,4 @@
-import { Badge } from '@gentleduck/registry-ui-duckui/badge'
+import { Badge } from '@gentleduck/registry-ui/badge'
 import { ArrowRightIcon } from 'lucide-react'
 import Link from 'next/link'
 
@@ -10,7 +10,7 @@ export function Announcement() {
         <span className="text-sm">
           Duck Gen and Duck Query are production-ready <span className="underline">Get started</span>
         </span>
-        <ArrowRightIcon />
+        <ArrowRightIcon aria-hidden="true" />
       </Link>
     </Badge>
   )

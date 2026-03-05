@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun run build:*)",
+      "Bash(bunx tsdown:*)",
+      "Bash(SHELL=/bin/bash bash -c:*)",
+      "Bash(sudo chown:*)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(bun pm ls:*)",
+      "Bash(HUSKY=0 SHELL=/bin/bash bash:*)",
+      "Bash(xargs sed:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
