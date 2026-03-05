@@ -8,7 +8,7 @@
     "@gentleduck/lazy": "^1.2.12",
     "@gentleduck/libs": "^0.1.14",
     "@gentleduck/motion": "^0.1.16",
-    "@gentleduck/registry-ui": "^0.2.3",
+    "@gentleduck/registry-ui": "^0.2.4",
     "@gentleduck/vim": "^0.1.15",
     "geist": "^1.7.0",
     "lucide-react": "0.562.0",
