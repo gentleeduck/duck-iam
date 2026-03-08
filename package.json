@@ -36,7 +36,8 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "tooling/*"
+    "tooling/*",
+    "examples/blogduck/packages/*"
   ],
   "overrides": {
     "vite": "npm:rolldown-vite@^7.3.0",
