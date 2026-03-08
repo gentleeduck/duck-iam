@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "duck-iam",
+  "name": "@gentleduck/iam",
   "version": "1.0.0",
   "description": "Modern ABAC/RBAC access control engine. Framework-agnostic core with integrations for Express, NestJS, Hono, Next.js, React, and Vue.",
   "type": "module",

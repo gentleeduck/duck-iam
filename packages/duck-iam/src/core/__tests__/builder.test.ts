@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PolicyBuilder, RoleBuilder, RuleBuilder, When, defineRole, defineRule, policy, when } from '../builder'
+import { defineRole, defineRule, PolicyBuilder, policy, RoleBuilder, RuleBuilder, When, when } from '../builder'
 
 describe('When (condition builder)', () => {
   it('builds an all-group from chained conditions', () => {
@@ -79,9 +79,7 @@ describe('When (condition builder)', () => {
   })
 
   it('nested not group', () => {
-    const group = new When()
-      .not((w) => w.eq('action', 'delete'))
-      .buildAll()
+    const group = new When().not((w) => w.eq('action', 'delete')).buildAll()
 
     expect('none' in group.all[0]!).toBe(true)
   })
@@ -200,9 +198,7 @@ describe('PolicyBuilder', () => {
   })
 
   it('rule() adds rules via builder callback', () => {
-    const p = new PolicyBuilder('p1')
-      .rule('r1', (r) => r.allow().on('read').of('post'))
-      .build()
+    const p = new PolicyBuilder('p1').rule('r1', (r) => r.allow().on('read').of('post')).build()
     expect(p.rules).toHaveLength(1)
     expect(p.rules[0]!.id).toBe('r1')
   })

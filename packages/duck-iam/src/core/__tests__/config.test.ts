@@ -53,9 +53,7 @@ describe('createAccessConfig()', () => {
   })
 
   it('validateRoles() detects dangling inherits', () => {
-    const result = config.validateRoles([
-      { id: 'editor', name: 'Editor', inherits: ['nonexistent'], permissions: [] },
-    ])
+    const result = config.validateRoles([{ id: 'editor', name: 'Editor', inherits: ['nonexistent'], permissions: [] }])
     expect(result.valid).toBe(false)
     expect(result.issues.some((i) => i.code === 'DANGLING_INHERIT')).toBe(true)
   })

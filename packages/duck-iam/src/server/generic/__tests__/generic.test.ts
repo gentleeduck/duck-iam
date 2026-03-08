@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Engine } from '../../../core/engine'
 import type { Role } from '../../../core/types'
-import { METHOD_ACTION_MAP, createSubjectCan, extractEnvironment, generatePermissionMap } from '../index'
+import { createSubjectCan, extractEnvironment, generatePermissionMap, METHOD_ACTION_MAP } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
 type Resource = 'post' | 'comment'

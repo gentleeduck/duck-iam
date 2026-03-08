@@ -5,7 +5,7 @@
  * Run it with: npx tsx src/example.ts
  */
 
-import { MemoryAdapter, createAccessConfig, evaluatePolicy } from './index'
+import { createAccessConfig, evaluatePolicy, MemoryAdapter } from './index'
 
 // -- 1. Type-safe configuration ------------------------------------------
 //
@@ -94,7 +94,11 @@ const publishPolicy = access
   .desc('Only senior staff can publish')
   .algorithm('first-match')
   .rule('allow-senior', (r) =>
-    r.allow().on('publish').of('post').when((w) => w.attr('level', 'gte', 5)),
+    r
+      .allow()
+      .on('publish')
+      .of('post')
+      .when((w) => w.attr('level', 'gte', 5)),
   )
   .rule('deny-junior', (r) => r.deny().on('publish').of('post'))
   .build()
@@ -129,10 +133,11 @@ const policyOk = access.validatePolicy(publishPolicy)
 console.log('policy valid:', policyOk.valid)
 
 // Catch mistakes early
-const badRoles = access.validateRoles([
-  { id: 'x', name: 'X', inherits: ['missing'], permissions: [] },
-])
-console.log('bad roles:', badRoles.issues.map((i) => i.message))
+const badRoles = access.validateRoles([{ id: 'x', name: 'X', inherits: ['missing'], permissions: [] }])
+console.log(
+  'bad roles:',
+  badRoles.issues.map((i) => i.message),
+)
 
 // -- 8. Engine setup ------------------------------------------------------
 //
@@ -214,17 +219,11 @@ async function main() {
   // Changes automatically invalidate the relevant caches.
   console.log('\n--- Runtime admin ---')
   await engine.admin.assignRole('charlie', 'editor')
-  console.log(
-    'charlie create (promoted):',
-    await engine.can('charlie', 'create', { type: 'post', attributes: {} }),
-  )
+  console.log('charlie create (promoted):', await engine.can('charlie', 'create', { type: 'post', attributes: {} }))
 
   await engine.admin.revokeRole('charlie', 'editor')
   engine.invalidate() // force full cache clear
-  console.log(
-    'charlie create (demoted):',
-    await engine.can('charlie', 'create', { type: 'post', attributes: {} }),
-  )
+  console.log('charlie create (demoted):', await engine.can('charlie', 'create', { type: 'post', attributes: {} }))
 
   // -- 12. Scoped role assignments ----------------------------------------
   //
@@ -239,10 +238,7 @@ async function main() {
     'charlie create in org-2:',
     await engine.can('charlie', 'create', { type: 'post', attributes: {} }, undefined, 'org-2'),
   )
-  console.log(
-    'charlie create (no scope):',
-    await engine.can('charlie', 'create', { type: 'post', attributes: {} }),
-  )
+  console.log('charlie create (no scope):', await engine.can('charlie', 'create', { type: 'post', attributes: {} }))
 }
 
 main().catch(console.error)

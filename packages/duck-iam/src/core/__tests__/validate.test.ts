@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { validatePolicy, validateRoles } from '../validate'
 import type { Role } from '../types'
+import { validatePolicy, validateRoles } from '../validate'
 
 describe('validateRoles()', () => {
   it('valid roles return valid=true', () => {
@@ -24,9 +24,7 @@ describe('validateRoles()', () => {
   })
 
   it('detects dangling inherits references', () => {
-    const roles: Role[] = [
-      { id: 'editor', name: 'Editor', inherits: ['nonexistent'], permissions: [] },
-    ]
+    const roles: Role[] = [{ id: 'editor', name: 'Editor', inherits: ['nonexistent'], permissions: [] }]
     const result = validateRoles(roles)
     expect(result.valid).toBe(false)
     expect(result.issues.some((i) => i.code === 'DANGLING_INHERIT')).toBe(true)
