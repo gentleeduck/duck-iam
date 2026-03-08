@@ -49,7 +49,7 @@ Adapters are the storage layer for duck-iam. They implement the `Adapter` interf
 Every adapter is fully typed with your application's action, resource, role, and scope types.
 
 ```typescript
-import { Engine } from 'duck-iam'
+import { Engine } from '@gentleduck/iam'
 
 const engine = new Engine({
   adapter: yourAdapter,
@@ -63,7 +63,7 @@ const engine = new Engine({
 ## Memory adapter
 
 ```
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 ```
 
 The in-memory adapter stores everything in `Map` instances. It is designed for development, testing, and prototyping. Data does not survive process restarts.
@@ -71,7 +71,7 @@ The in-memory adapter stores everything in `Map` instances. It is designed for d
 ### Basic usage
 
 ```typescript
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 const adapter = new MemoryAdapter({
   roles: [
@@ -185,7 +185,7 @@ const adapter = new MemoryAdapter({
 ## Prisma adapter
 
 ```
-import { PrismaAdapter } from 'duck-iam/adapters/prisma'
+import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
 ```
 
 The Prisma adapter stores policies, roles, assignments, and subject attributes in your database through Prisma Client. It expects four models in your Prisma schema.
@@ -254,8 +254,8 @@ Run `prisma migrate dev` after adding these models.
 
 ```typescript
 import { PrismaClient } from '@prisma/client'
-import { PrismaAdapter } from 'duck-iam/adapters/prisma'
-import { Engine } from 'duck-iam'
+import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
+import { Engine } from '@gentleduck/iam'
 
 const prisma = new PrismaClient()
 const adapter = new PrismaAdapter(prisma)
@@ -289,7 +289,7 @@ The adapter uses `upsert` for save operations, so calling `savePolicy` or `saveR
 ## Drizzle adapter
 
 ```
-import { DrizzleAdapter } from 'duck-iam/adapters/drizzle'
+import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 ```
 
 The Drizzle adapter works with any Drizzle ORM database driver (PostgreSQL, MySQL, SQLite). You provide your table definitions and Drizzle's operator functions.
@@ -342,8 +342,8 @@ export const accessSubjectAttrs = pgTable('access_subject_attrs', {
 ```typescript
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, and } from 'drizzle-orm'
-import { DrizzleAdapter } from 'duck-iam/adapters/drizzle'
-import { Engine } from 'duck-iam'
+import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+import { Engine } from '@gentleduck/iam'
 import * as tables from './db/schema/access'
 
 const db = drizzle(pool)
@@ -383,7 +383,7 @@ The Drizzle adapter automatically handles JSON serialization. If your database d
 ## HTTP adapter
 
 ```
-import { HttpAdapter } from 'duck-iam/adapters/http'
+import { HttpAdapter } from '@gentleduck/iam/adapters/http'
 ```
 
 The HTTP adapter delegates all storage operations to a remote API. This is the right choice when:
@@ -395,8 +395,8 @@ The HTTP adapter delegates all storage operations to a remote API. This is the r
 ### Usage
 
 ```typescript
-import { HttpAdapter } from 'duck-iam/adapters/http'
-import { Engine } from 'duck-iam'
+import { HttpAdapter } from '@gentleduck/iam/adapters/http'
+import { Engine } from '@gentleduck/iam'
 
 const adapter = new HttpAdapter({
   baseUrl: 'https://api.example.com/access',
@@ -427,7 +427,7 @@ const adapter = new HttpAdapter({
 Provide your own fetch implementation for environments that do not have a global `fetch`, or to add middleware like logging or retries.
 
 ```typescript
-import { HttpAdapter } from 'duck-iam/adapters/http'
+import { HttpAdapter } from '@gentleduck/iam/adapters/http'
 
 const adapter = new HttpAdapter({
   baseUrl: 'https://api.example.com/access',
@@ -465,7 +465,7 @@ You can expose these endpoints using the Express `adminRouter` helper or impleme
 
 ### Error handling
 
-The HTTP adapter throws an `Error` with the message `"duck-iam HTTP {status}: {responseText}"`
+The HTTP adapter throws an `Error` with the message `"@gentleduck/iam HTTP {status}: {responseText}"`
 for any non-2xx response. It does not retry failed requests. If you need retries, implement
 them in your custom `fetch` function.
 
@@ -490,7 +490,7 @@ Implement the `Adapter` interface to connect duck-iam to any storage backend.
 ### The Adapter interface
 
 ```typescript
-import type { Adapter, Policy, Role, Attributes, ScopedRole } from 'duck-iam'
+import type { Adapter, Policy, Role, Attributes, ScopedRole } from '@gentleduck/iam'
 
 interface Adapter<TAction, TResource, TRole, TScope> {
   // PolicyStore
@@ -520,7 +520,7 @@ Note that `getSubjectScopedRoles` is optional. If your application does not use 
 ### Example: Redis adapter
 
 ```typescript
-import type { Adapter, Policy, Role, Attributes, ScopedRole } from 'duck-iam'
+import type { Adapter, Policy, Role, Attributes, ScopedRole } from '@gentleduck/iam'
 import type { Redis } from 'ioredis'
 
 export class RedisAdapter implements Adapter {
@@ -563,7 +563,7 @@ Use the `MemoryAdapter` as a reference implementation. Your adapter should behav
 4. Test edge cases: missing subjects, empty roles, scoped vs unscoped assignments
 
 ```typescript
-import { Engine } from 'duck-iam'
+import { Engine } from '@gentleduck/iam'
 import { YourAdapter } from './your-adapter'
 
 const adapter = new YourAdapter(/* config */)

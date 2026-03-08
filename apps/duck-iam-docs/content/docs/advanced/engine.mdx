@@ -30,8 +30,8 @@ decision.
     Engine_Block --> Adapters`} />
 
 ```typescript
-import { Engine } from 'duck-iam'
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { Engine } from '@gentleduck/iam'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 const adapter = new MemoryAdapter({
   roles: [viewer, editor, admin],
@@ -627,7 +627,7 @@ Here is a complete example that sets up an engine with hooks, uses the admin API
 roles and policies, and runs permission checks:
 
 ```typescript
-import { defineRole, Engine, MemoryAdapter } from 'duck-iam'
+import { defineRole, Engine, MemoryAdapter } from '@gentleduck/iam'
 
 // Define roles
 const viewer = defineRole('viewer')

@@ -245,7 +245,7 @@ essential when policies come from a database, API, or admin dashboard where the 
 could be malformed.
 
 ```typescript
-import { validatePolicy } from 'duck-iam'
+import { validatePolicy } from '@gentleduck/iam'
 
 // Policy from an external source (database, API, user input)
 const policyJson = await db.query('SELECT data FROM policies WHERE id = $1', [id])
@@ -295,7 +295,7 @@ Use `validateRoles()` to validate your role configuration. This catches structur
 that would cause silent failures at runtime.
 
 ```typescript
-import { validateRoles } from 'duck-iam'
+import { validateRoles } from '@gentleduck/iam'
 
 const viewer = defineRole('viewer').grant('read', 'post').build()
 const editor = defineRole('editor').inherits('viewer').grant('update', 'post').build()

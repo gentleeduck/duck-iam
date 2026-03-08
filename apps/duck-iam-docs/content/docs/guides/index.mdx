@@ -39,7 +39,7 @@ Start by declaring the actions, resources, and scopes your application uses. Thi
 a typed factory that constrains all subsequent builders:
 
 ```typescript title="src/lib/access.ts"
-import { createAccessConfig } from "duck-iam";
+import { createAccessConfig } from "@gentleduck/iam";
 
 export const access = createAccessConfig({
   actions: ["create", "read", "update", "delete", "manage"],
@@ -104,7 +104,7 @@ from all three parent roles, plus its own direct grants.
 Wire the roles into an adapter and create the engine:
 
 ```typescript title="src/lib/engine.ts"
-import { MemoryAdapter } from "duck-iam";
+import { MemoryAdapter } from "@gentleduck/iam";
 import { access } from "./access";
 import { allRoles } from "./roles";
 
@@ -229,7 +229,7 @@ In multi-tenant applications, users often have different roles in different orga
 duck-iam supports this with scoped role assignments:
 
 ```typescript title="src/lib/scoped-engine.ts"
-import { MemoryAdapter } from "duck-iam";
+import { MemoryAdapter } from "@gentleduck/iam";
 import { access } from "./access";
 import { allRoles } from "./roles";
 
@@ -285,7 +285,7 @@ Protect your API routes by adding duck-iam middleware to your server framework.
 
 ```typescript title="src/server.ts"
 import express from "express";
-import { accessMiddleware, guard } from "duck-iam/server/express";
+import { accessMiddleware, guard } from "@gentleduck/iam/server/express";
 import { engine } from "./lib/engine";
 
 const app = express();
@@ -313,7 +313,7 @@ app.listen(3000);
 
 ```typescript title="src/worker.ts"
 import { Hono } from "hono";
-import { accessMiddleware, guard } from "duck-iam/server/hono";
+import { accessMiddleware, guard } from "@gentleduck/iam/server/hono";
 import { engine } from "./lib/engine";
 
 const app = new Hono();
@@ -335,7 +335,7 @@ export default app;
 
 ```typescript title="src/posts/posts.controller.ts"
 import { Controller, Get, Delete, Param, UseGuards } from "@nestjs/common";
-import { Authorize, nestAccessGuard } from "duck-iam/server/nest";
+import { Authorize, nestAccessGuard } from "@gentleduck/iam/server/nest";
 import { engine } from "../lib/engine";
 
 const AccessGuard = nestAccessGuard(engine, {
@@ -362,7 +362,7 @@ export class PostsController {
 ### Next.js
 
 ```typescript title="src/app/api/posts/[id]/route.ts"
-import { withAccess } from "duck-iam/server/next";
+import { withAccess } from "@gentleduck/iam/server/next";
 import { engine } from "@/lib/engine";
 import { getSession } from "@/lib/auth";
 
@@ -386,7 +386,7 @@ export const DELETE = withAccess(
 For Server Components, use `checkAccess()` and `getPermissions()`:
 
 ```typescript title="src/app/layout.tsx"
-import { getPermissions } from "duck-iam/server/next";
+import { getPermissions } from "@gentleduck/iam/server/next";
 import { engine } from "@/lib/engine";
 import { getSession } from "@/lib/auth";
 
@@ -415,7 +415,7 @@ On the client side, use the React integration to check permissions in components
 "use client";
 
 import React from "react";
-import { createAccessControl } from "duck-iam/client/react";
+import { createAccessControl } from "@gentleduck/iam/client/react";
 
 export const {
   AccessProvider,

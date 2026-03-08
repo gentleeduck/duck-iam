@@ -30,7 +30,7 @@ permission came from a role definition or a hand-written policy.
         A3 --> A4["Allow / Deny"]
     end
 
-    subgraph DUCK["duck-iam (Hybrid)"]
+    subgraph DUCK["@gentleduck/iam (Hybrid)"]
         direction TB
         D1["User + Context"] --> D2["Roles converted to Policy"]
         D2 --> D3["All Policies Evaluated"]

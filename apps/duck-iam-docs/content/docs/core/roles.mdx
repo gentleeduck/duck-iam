@@ -11,7 +11,7 @@ into ABAC policies automatically, so they flow through the same engine as hand-w
 policies.
 
 ```typescript
-import { defineRole } from 'duck-iam'
+import { defineRole } from '@gentleduck/iam'
 
 const viewer = defineRole('viewer')
   .name('Viewer')
@@ -474,7 +474,7 @@ For full type safety across your role definitions, use `createAccessConfig()` to
 typed builder functions:
 
 ```typescript
-import { createAccessConfig } from 'duck-iam'
+import { createAccessConfig } from '@gentleduck/iam'
 
 const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete', 'publish'] as const,
@@ -499,7 +499,7 @@ return builders constrained to your declared actions, resources, and scopes.
 Before saving roles to your adapter, you can validate them for common mistakes:
 
 ```typescript
-import { createAccessConfig } from 'duck-iam'
+import { createAccessConfig } from '@gentleduck/iam'
 
 const access = createAccessConfig({
   actions: ['read', 'write'] as const,
@@ -529,7 +529,7 @@ The validator checks for:
 Here is a full multi-tenant role setup:
 
 ```typescript
-import { createAccessConfig } from 'duck-iam'
+import { createAccessConfig } from '@gentleduck/iam'
 
 const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete', 'publish', 'archive'] as const,

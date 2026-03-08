@@ -22,13 +22,13 @@ integration entry points are included.
 
 ```bash
 # npm
-npm install duck-iam
+npm install @gentleduck/iam
 
 # bun
-bun add duck-iam
+bun add @gentleduck/iam
 
 # pnpm
-pnpm add duck-iam
+pnpm add @gentleduck/iam
 ```
 
 <Step>Basic setup</Step>
@@ -36,7 +36,7 @@ pnpm add duck-iam
 Create your access control configuration with roles and an engine:
 
 ```typescript title="src/lib/access.ts"
-import { createAccessConfig, MemoryAdapter } from "duck-iam";
+import { createAccessConfig, MemoryAdapter } from "@gentleduck/iam";
 
 // 1. Define your application's actions, resources, and scopes
 const access = createAccessConfig({
@@ -152,13 +152,13 @@ interfaces internally instead of importing framework packages.
 duck-iam uses subpath exports to keep your bundle lean. Import only what you need:
 
 <MermaidDiagram chart={`flowchart LR
-    subgraph Core["duck-iam (core)"]
+    subgraph Core["@gentleduck/iam (core)"]
         direction TB
         C1["Engine, defineRole, policy"]
         C2["when, MemoryAdapter, types"]
     end
 
-    subgraph Server["duck-iam/server/*"]
+    subgraph Server["@gentleduck/iam/server/*"]
         direction TB
         S1["server/express"]
         S2["server/hono"]
@@ -167,14 +167,14 @@ duck-iam uses subpath exports to keep your bundle lean. Import only what you nee
         S5["server/generic"]
     end
 
-    subgraph Client["duck-iam/client/*"]
+    subgraph Client["@gentleduck/iam/client/*"]
         direction TB
         CL1["client/react"]
         CL2["client/vue"]
         CL3["client/vanilla"]
     end
 
-    subgraph Adapters["duck-iam/adapters/*"]
+    subgraph Adapters["@gentleduck/iam/adapters/*"]
         direction TB
         A1["adapters/memory"]
         A2["adapters/prisma"]
@@ -184,24 +184,24 @@ duck-iam uses subpath exports to keep your bundle lean. Import only what you nee
 
 ```typescript
 // Core engine, builders, memory adapter, types
-import { Engine, defineRole, policy, when, MemoryAdapter } from "duck-iam";
+import { Engine, defineRole, policy, when, MemoryAdapter } from "@gentleduck/iam";
 
 // Server integrations
-import { accessMiddleware, guard } from "duck-iam/server/express";
-import { accessMiddleware, guard } from "duck-iam/server/hono";
-import { Authorize, nestAccessGuard } from "duck-iam/server/nest";
-import { withAccess, checkAccess, getPermissions } from "duck-iam/server/next";
+import { accessMiddleware, guard } from "@gentleduck/iam/server/express";
+import { accessMiddleware, guard } from "@gentleduck/iam/server/hono";
+import { Authorize, nestAccessGuard } from "@gentleduck/iam/server/nest";
+import { withAccess, checkAccess, getPermissions } from "@gentleduck/iam/server/next";
 
 // Client libraries
-import { createAccessControl } from "duck-iam/client/react";
-import { createVueAccess } from "duck-iam/client/vue";
-import { AccessClient } from "duck-iam/client/vanilla";
+import { createAccessControl } from "@gentleduck/iam/client/react";
+import { createVueAccess } from "@gentleduck/iam/client/vue";
+import { AccessClient } from "@gentleduck/iam/client/vanilla";
 
 // Storage adapters
-import { MemoryAdapter } from "duck-iam/adapters/memory";
-import { PrismaAdapter } from "duck-iam/adapters/prisma";
-import { DrizzleAdapter } from "duck-iam/adapters/drizzle";
-import { HttpAdapter } from "duck-iam/adapters/http";
+import { MemoryAdapter } from "@gentleduck/iam/adapters/memory";
+import { PrismaAdapter } from "@gentleduck/iam/adapters/prisma";
+import { DrizzleAdapter } from "@gentleduck/iam/adapters/drizzle";
+import { HttpAdapter } from "@gentleduck/iam/adapters/http";
 ```
 
 ## TypeScript Configuration

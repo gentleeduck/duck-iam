@@ -45,7 +45,7 @@ roles, and the engine AND-combines them: a deny from any policy is final.
 Use the `policy()` builder to create policies:
 
 ```typescript
-import { policy } from 'duck-iam'
+import { policy } from '@gentleduck/iam'
 
 const weekendDeny = policy('deny-weekends')
   .name('Deny on Weekends')
@@ -112,7 +112,7 @@ const myPolicy = policy('content-policy')
 You can also define rules separately and add them to policies:
 
 ```typescript
-import { defineRule } from 'duck-iam'
+import { defineRule } from '@gentleduck/iam'
 
 const ownerOnly = defineRule('owner-only')
   .allow()
@@ -728,7 +728,7 @@ ordering within the policy definition.
 Here is a real-world example combining RBAC roles with ABAC policies:
 
 ```typescript
-import { createAccessConfig } from 'duck-iam'
+import { createAccessConfig } from '@gentleduck/iam'
 
 const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete', 'publish'] as const,

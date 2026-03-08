@@ -57,14 +57,14 @@ Keys follow one of four formats depending on which fields are present:
 }
 ```
 
-Generate it on the server using `engine.permissions()` or the `getPermissions` helper from `duck-iam/server/next`. When a key is not found in the map, all client libraries return `false` (deny by default).
+Generate it on the server using `engine.permissions()` or the `getPermissions` helper from `@gentleduck/iam/server/next`. When a key is not found in the map, all client libraries return `false` (deny by default).
 
 ---
 
 ## React
 
 ```
-import { createAccessControl, createPermissionChecker } from 'duck-iam/client/react'
+import { createAccessControl, createPermissionChecker } from '@gentleduck/iam/client/react'
 ```
 
 ### Setup
@@ -74,7 +74,7 @@ Create the access control system once at app initialization. Pass your React imp
 ```typescript
 // lib/access.tsx
 import React from 'react'
-import { createAccessControl } from 'duck-iam/client/react'
+import { createAccessControl } from '@gentleduck/iam/client/react'
 
 export const {
   AccessProvider,
@@ -92,7 +92,7 @@ Wrap your app (or a subtree) with the provider. Pass the permission map generate
 ```tsx
 // app/layout.tsx (Next.js example)
 import { AccessProvider } from '@/lib/access'
-import { getPermissions } from 'duck-iam/server/next'
+import { getPermissions } from '@gentleduck/iam/server/next'
 
 export default async function RootLayout({ children }) {
   const session = await auth()
@@ -221,7 +221,7 @@ array changes before the fetch completes, stale results are discarded.
 For code outside of React components (utilities, event handlers, tests), use `createPermissionChecker`. It takes a `PermissionMap` and returns a checker object with `can`, `cannot`, and the raw `permissions`.
 
 ```typescript
-import { createPermissionChecker } from 'duck-iam/client/react'
+import { createPermissionChecker } from '@gentleduck/iam/client/react'
 
 const checker = createPermissionChecker(permissionMap)
 checker.can('delete', 'post')         // boolean
@@ -236,7 +236,7 @@ This is useful in server-side utilities, test helpers, or anywhere you need perm
 ## Vue
 
 ```
-import { createVueAccess, ACCESS_INJECTION_KEY } from 'duck-iam/client/vue'
+import { createVueAccess, ACCESS_INJECTION_KEY } from '@gentleduck/iam/client/vue'
 ```
 
 ### Setup
@@ -246,7 +246,7 @@ Create the Vue access control system by passing Vue's reactive utilities. This a
 ```typescript
 // lib/access.ts
 import { ref, computed, inject, provide, defineComponent, h } from 'vue'
-import { createVueAccess } from 'duck-iam/client/vue'
+import { createVueAccess } from '@gentleduck/iam/client/vue'
 
 export const {
   useAccess,
@@ -375,7 +375,7 @@ This is returned from `createVueAccess()` alongside the other exports.
 ## Vanilla (framework-agnostic)
 
 ```
-import { AccessClient } from 'duck-iam/client/vanilla'
+import { AccessClient } from '@gentleduck/iam/client/vanilla'
 ```
 
 ### Basic usage
@@ -383,7 +383,7 @@ import { AccessClient } from 'duck-iam/client/vanilla'
 Create an `AccessClient` from a server-provided permission map.
 
 ```typescript
-import { AccessClient } from 'duck-iam/client/vanilla'
+import { AccessClient } from '@gentleduck/iam/client/vanilla'
 
 const access = new AccessClient(permissionsFromServer)
 
@@ -454,7 +454,7 @@ The vanilla client works as the foundation for any framework.
 ```typescript
 // stores/access.ts
 import { writable, derived } from 'svelte/store'
-import { AccessClient } from 'duck-iam/client/vanilla'
+import { AccessClient } from '@gentleduck/iam/client/vanilla'
 
 const client = new AccessClient(initialPermissions)
 const permissions = writable(client.permissions)
@@ -469,7 +469,7 @@ export const can = (action: string, resource: string) =>
 
 ```typescript
 import { createSignal } from 'solid-js'
-import { AccessClient } from 'duck-iam/client/vanilla'
+import { AccessClient } from '@gentleduck/iam/client/vanilla'
 
 const client = new AccessClient(initialPermissions)
 const [permissions, setPermissions] = createSignal(client.permissions)

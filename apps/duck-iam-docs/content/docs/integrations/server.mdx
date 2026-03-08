@@ -51,7 +51,7 @@ You can override this per-route or globally through the `getAction` option.
 ## Express
 
 ```
-import { accessMiddleware, guard, adminRouter } from 'duck-iam/server/express'
+import { accessMiddleware, guard, adminRouter } from '@gentleduck/iam/server/express'
 ```
 
 ### Global middleware
@@ -59,7 +59,7 @@ import { accessMiddleware, guard, adminRouter } from 'duck-iam/server/express'
 Apply access control to every route under a path prefix. The middleware extracts the user ID, action, and resource from each request, then calls `engine.can()`.
 
 ```typescript
-import { accessMiddleware } from 'duck-iam/server/express'
+import { accessMiddleware } from '@gentleduck/iam/server/express'
 
 const middleware = accessMiddleware(engine, {
   // Extract user ID from your auth layer (passport, jwt, etc.)
@@ -99,7 +99,7 @@ app.use('/api', middleware)
 For more granular control, use the `guard` function on individual routes. This is useful when the action and resource are known at definition time.
 
 ```typescript
-import { guard } from 'duck-iam/server/express'
+import { guard } from '@gentleduck/iam/server/express'
 
 // Basic guard -- action and resource are fixed
 app.delete('/posts/:id', guard(engine, 'delete', 'post'), (req, res) => {
@@ -133,7 +133,7 @@ Mount a pre-built admin API for managing policies, roles, and assignments at run
 
 ```typescript
 import express from 'express'
-import { adminRouter } from 'duck-iam/server/express'
+import { adminRouter } from '@gentleduck/iam/server/express'
 
 const createRouter = adminRouter(engine)
 app.use('/api/access-admin', createRouter(() => express.Router()))
@@ -167,7 +167,7 @@ This exposes:
 ## NestJS
 
 ```
-import { nestAccessGuard, Authorize, createTypedAuthorize, createEngineProvider } from 'duck-iam/server/nest'
+import { nestAccessGuard, Authorize, createTypedAuthorize, createEngineProvider } from '@gentleduck/iam/server/nest'
 ```
 
 ### Guard factory
@@ -175,7 +175,7 @@ import { nestAccessGuard, Authorize, createTypedAuthorize, createEngineProvider 
 Create a NestJS-compatible guard function. It reads metadata from the `@Authorize` decorator on each handler to determine the required action and resource.
 
 ```typescript
-import { nestAccessGuard } from 'duck-iam/server/nest'
+import { nestAccessGuard } from '@gentleduck/iam/server/nest'
 
 const canAccess = nestAccessGuard(engine, {
   getUserId: (req) => req.user?.id ?? req.user?.sub,
@@ -195,7 +195,7 @@ Handlers without an `@Authorize` decorator are allowed by default -- the guard o
 Mark controller methods with their required permissions.
 
 ```typescript
-import { Authorize } from 'duck-iam/server/nest'
+import { Authorize } from '@gentleduck/iam/server/nest'
 
 @Controller('posts')
 export class PostsController {
@@ -236,7 +236,7 @@ If no scope is set on the decorator, the guard falls back to the `getScope` opti
 Use `createTypedAuthorize` to constrain the decorator to your application's exact action, resource, and scope types. Typos become compile-time errors.
 
 ```typescript
-import { createTypedAuthorize } from 'duck-iam/server/nest'
+import { createTypedAuthorize } from '@gentleduck/iam/server/nest'
 
 type Action = 'create' | 'read' | 'update' | 'delete' | 'manage'
 type Resource = 'post' | 'user' | 'billing' | 'report'
@@ -256,7 +256,7 @@ const Auth = createTypedAuthorize<Action, Resource, Scope>()
 Register the engine as a NestJS provider for dependency injection.
 
 ```typescript
-import { createEngineProvider, ACCESS_ENGINE_TOKEN } from 'duck-iam/server/nest'
+import { createEngineProvider, ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
 
 @Module({
   providers: [
@@ -286,7 +286,7 @@ export class AppModule {}
 ## Hono
 
 ```
-import { accessMiddleware, guard } from 'duck-iam/server/hono'
+import { accessMiddleware, guard } from '@gentleduck/iam/server/hono'
 ```
 
 ### Global middleware
@@ -294,7 +294,7 @@ import { accessMiddleware, guard } from 'duck-iam/server/hono'
 Apply access control to all routes under a path pattern.
 
 ```typescript
-import { accessMiddleware } from 'duck-iam/server/hono'
+import { accessMiddleware } from '@gentleduck/iam/server/hono'
 
 app.use('/api/*', accessMiddleware(engine, {
   getUserId: (c) => c.get('userId') as string ?? c.req.header('x-user-id'),
@@ -311,7 +311,7 @@ The middleware reads the user ID from context or headers by default. If no user 
 Guard individual routes with fixed action and resource types.
 
 ```typescript
-import { guard } from 'duck-iam/server/hono'
+import { guard } from '@gentleduck/iam/server/hono'
 
 app.delete(
   '/posts/:id',
@@ -360,7 +360,7 @@ Override with the `getEnvironment` option if you need custom fields.
 ## Next.js App Router
 
 ```
-import { withAccess, checkAccess, getPermissions, createNextMiddleware } from 'duck-iam/server/next'
+import { withAccess, checkAccess, getPermissions, createNextMiddleware } from '@gentleduck/iam/server/next'
 ```
 
 The Next.js integration covers four use cases: route handler protection, server component checks, permission map generation for client hydration, and edge middleware.
@@ -370,7 +370,7 @@ The Next.js integration covers four use cases: route handler protection, server 
 Protect App Router route handlers (the functions exported as GET, POST, DELETE, etc.).
 
 ```typescript
-import { withAccess } from 'duck-iam/server/next'
+import { withAccess } from '@gentleduck/iam/server/next'
 import { engine } from '@/lib/engine'
 import { auth } from '@/lib/auth'
 
@@ -396,7 +396,7 @@ The wrapper automatically reads `params.id` as the resource instance ID.
 Check a single permission inside a React Server Component or server action.
 
 ```typescript
-import { checkAccess } from 'duck-iam/server/next'
+import { checkAccess } from '@gentleduck/iam/server/next'
 import { engine } from '@/lib/engine'
 
 export default async function PostPage({ params }: { params: { id: string } }) {
@@ -419,7 +419,7 @@ export default async function PostPage({ params }: { params: { id: string } }) {
 Generate a `PermissionMap` on the server and pass it to the client. This is the recommended pattern for client-side access control -- evaluate permissions once on the server and hydrate the client with the results.
 
 ```typescript
-import { getPermissions } from 'duck-iam/server/next'
+import { getPermissions } from '@gentleduck/iam/server/next'
 import { engine } from '@/lib/engine'
 import { AccessProvider } from '@/lib/access-client'
 
@@ -454,7 +454,7 @@ Protect routes at the edge before they reach your application code. Define rules
 
 ```typescript
 // middleware.ts
-import { createNextMiddleware } from 'duck-iam/server/next'
+import { createNextMiddleware } from '@gentleduck/iam/server/next'
 import { engine } from '@/lib/engine'
 import { NextResponse } from 'next/server'
 

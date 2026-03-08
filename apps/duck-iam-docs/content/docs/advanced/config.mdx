@@ -22,7 +22,7 @@ duck-iam provides two ways to define permissions:
     BUILDERS --> ERR["grant('craete', 'post') -- COMPILE ERROR"]`} />
 
 - **Untyped builders** -- `defineRole()`, `policy()`, `defineRule()`, `when()` imported
-  directly from `duck-iam`. These accept any string for actions, resources, and scopes.
+  directly from `@gentleduck/iam`. These accept any string for actions, resources, and scopes.
   Quick and flexible, but no compile-time validation.
 
 - **Typed config** -- `createAccessConfig()` locks down your actions, resources, and scopes
@@ -40,7 +40,7 @@ The `createAccessConfig()` factory accepts your permission schema and returns an
 `AccessConfig` object with typed builder methods.
 
 ```typescript
-import { createAccessConfig } from 'duck-iam'
+import { createAccessConfig } from '@gentleduck/iam'
 
 const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete', 'manage'] as const,
@@ -174,7 +174,7 @@ Creates a typed engine instance. Permission checks on this engine are constraine
 schema.
 
 ```typescript
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 const adapter = new MemoryAdapter({
   roles: [viewer, editor, admin],
@@ -275,8 +275,8 @@ Here is a complete example showing how to define and use a typed permission sche
 multi-tenant blog application:
 
 ```typescript
-import { createAccessConfig } from 'duck-iam'
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { createAccessConfig } from '@gentleduck/iam'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 // 1. Define the permission schema
 const access = createAccessConfig({
@@ -370,7 +370,7 @@ async function getDashboardPermissions(userId: string) {
 ### Untyped (direct imports)
 
 ```typescript
-import { defineRole, Engine, MemoryAdapter } from 'duck-iam'
+import { defineRole, Engine, MemoryAdapter } from '@gentleduck/iam'
 
 const viewer = defineRole('viewer')
   .grant('raed', 'post')   // typo: "raed" instead of "read" -- NO error
@@ -384,7 +384,7 @@ await engine.can('user-1', 'raed', { type: 'post', attributes: {} })
 ### Typed (createAccessConfig)
 
 ```typescript
-import { createAccessConfig } from 'duck-iam'
+import { createAccessConfig } from '@gentleduck/iam'
 
 const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete'] as const,
