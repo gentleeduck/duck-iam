@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import '@gentleduck/motion/css'
-import { TailwindIndicator, ThemeProvider } from '@gentleduck/docs/client'
+import { DocsProvider, TailwindIndicator, ThemeProvider } from '@gentleduck/docs/client'
 import { cn } from '@gentleduck/libs/cn'
 import { KeyProvider } from '@gentleduck/vim/react'
 import { GeistMono } from 'geist/font/mono'
