@@ -39,7 +39,7 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
     <AccordionContent className="text-muted-foreground">
       Install the package with your preferred package manager:
       ```
-      npm install duck-iam
+      npm install @gentleduck/iam
       ```
       <p className="mt-3">
         duck-iam has zero runtime dependencies. The core package works in Node.js, Bun, Deno,
@@ -63,17 +63,17 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
     <AccordionContent className="text-muted-foreground">
       Server integrations:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>Express</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">duck-iam/server/express</code></li>
-        <li><strong>Hono</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">duck-iam/server/hono</code></li>
-        <li><strong>NestJS</strong> -- guard + decorator via <code className="rounded bg-muted px-2 py-1">duck-iam/server/nest</code></li>
-        <li><strong>Next.js</strong> -- route wrappers via <code className="rounded bg-muted px-2 py-1">duck-iam/server/next</code></li>
-        <li><strong>Generic</strong> -- framework-agnostic helpers via <code className="rounded bg-muted px-2 py-1">duck-iam/server/generic</code></li>
+        <li><strong>Express</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/express</code></li>
+        <li><strong>Hono</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/hono</code></li>
+        <li><strong>NestJS</strong> -- guard + decorator via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/nest</code></li>
+        <li><strong>Next.js</strong> -- route wrappers via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code></li>
+        <li><strong>Generic</strong> -- framework-agnostic helpers via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/generic</code></li>
       </ul>
       Client libraries:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>React</strong> -- context provider + hooks via <code className="rounded bg-muted px-2 py-1">duck-iam/client/react</code></li>
-        <li><strong>Vue</strong> -- plugin + composables via <code className="rounded bg-muted px-2 py-1">duck-iam/client/vue</code></li>
-        <li><strong>Vanilla</strong> -- framework-agnostic via <code className="rounded bg-muted px-2 py-1">duck-iam/client/vanilla</code></li>
+        <li><strong>React</strong> -- context provider + hooks via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code></li>
+        <li><strong>Vue</strong> -- plugin + composables via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vue</code></li>
+        <li><strong>Vanilla</strong> -- framework-agnostic via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vanilla</code></li>
       </ul>
     </AccordionContent>
   </AccordionItem>
@@ -83,19 +83,19 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
     <AccordionContent className="text-muted-foreground">
       duck-iam uses subpath exports so you only import what you need:
       <ul className="mt-2 list-disc pl-5">
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam</code> -- core engine, builders, validators, types</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/adapters/memory</code> -- in-memory adapter</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/adapters/prisma</code> -- Prisma ORM adapter</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/adapters/drizzle</code> -- Drizzle ORM adapter</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/adapters/http</code> -- HTTP/REST adapter</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/express</code> -- Express middleware</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/hono</code> -- Hono middleware</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/nest</code> -- NestJS guard and decorators</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/next</code> -- Next.js route wrappers</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/server/generic</code> -- framework-agnostic helpers</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/client/react</code> -- React hooks + provider</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/client/vue</code> -- Vue plugin + composables</li>
-        <li><code className="rounded bg-muted px-2 py-1">duck-iam/client/vanilla</code> -- vanilla JS/TS client</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam</code> -- core engine, builders, validators, types</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/memory</code> -- in-memory adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/prisma</code> -- Prisma ORM adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/drizzle</code> -- Drizzle ORM adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/http</code> -- HTTP/REST adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/express</code> -- Express middleware</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/hono</code> -- Hono middleware</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/nest</code> -- NestJS guard and decorators</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code> -- Next.js route wrappers</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/generic</code> -- framework-agnostic helpers</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code> -- React hooks + provider</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vue</code> -- Vue plugin + composables</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vanilla</code> -- vanilla JS/TS client</li>
       </ul>
     </AccordionContent>
   </AccordionItem>
@@ -114,8 +114,8 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
   <AccordionItem value="minimal-setup">
     <AccordionTrigger>What is the minimum code needed to get started?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { defineRole, Engine } from 'duck-iam'
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { defineRole, Engine } from '@gentleduck/iam'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 const viewer = defineRole('viewer').grant('read', 'post').build()
 
@@ -245,7 +245,7 @@ const result = await engine.can('user-1', 'read', { type: 'post', attributes: {}
     <AccordionTrigger>How do I validate my role configuration?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Call `validateRoles()` at application startup:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { validateRoles } from 'duck-iam'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { validateRoles } from '@gentleduck/iam'
 
 const result = validateRoles([viewer, editor, admin])
 if (!result.valid) {
@@ -388,7 +388,7 @@ if (!result.valid) {
     <AccordionTrigger>How do I validate a policy from an external source?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Use `validatePolicy()` before saving or using untrusted policy data:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { validatePolicy } from 'duck-iam'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { validatePolicy } from '@gentleduck/iam'
 
 const result = validatePolicy(policyFromAPI)
 if (!result.valid) {
@@ -1032,11 +1032,11 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
     <AccordionTrigger>How do I store policies in a database?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Use a database adapter:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { PrismaAdapter } from 'duck-iam/adapters/prisma'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
 const adapter = new PrismaAdapter({ prisma: prismaClient })
 
 // Or with Drizzle:
-import { DrizzleAdapter } from 'duck-iam/adapters/drizzle'
+import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 const adapter = new DrizzleAdapter({ db: drizzleInstance })`}</code></pre>
       <p className="mt-3">
         These adapters store policies, roles, and subject data in your database tables. When loading
@@ -1053,7 +1053,7 @@ const adapter = new DrizzleAdapter({ db: drizzleInstance })`}</code></pre>
       centralized authorization microservice that multiple applications share. The HttpAdapter
       fetches policies, roles, and subject data via HTTP requests. Configure the base URL and
       optional headers (for authentication):
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { HttpAdapter } from 'duck-iam/adapters/http'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { HttpAdapter } from '@gentleduck/iam/adapters/http'
 
 const adapter = new HttpAdapter({
   baseURL: 'https://auth-service.internal/api',
@@ -1098,7 +1098,7 @@ const adapter = new HttpAdapter({
     <AccordionTrigger>How do I use duck-iam with Express?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Use the Express middleware:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessMiddleware } from 'duck-iam/server/express'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessMiddleware } from '@gentleduck/iam/server/express'
 
 const accessMiddleware = createAccessMiddleware({
   engine,
@@ -1119,7 +1119,7 @@ app.use('/api/posts', accessMiddleware)`}</code></pre>
     <AccordionTrigger>How do I use duck-iam with NestJS?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Use the NestJS guard and decorator:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { AccessGuard, RequireAccess } from 'duck-iam/server/nest'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { AccessGuard, RequireAccess } from '@gentleduck/iam/server/nest'
 
 // Register the guard globally or per-controller
 @UseGuards(AccessGuard)
@@ -1140,7 +1140,7 @@ export class PostsController {
     <AccordionTrigger>How do I use duck-iam with Next.js?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Use the Next.js route wrappers:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { withAccess } from 'duck-iam/server/next'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { withAccess } from '@gentleduck/iam/server/next'
 
 export const GET = withAccess({
   engine,
@@ -1160,7 +1160,7 @@ export const GET = withAccess({
     <AccordionTrigger>How do I use duck-iam with Hono?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Use the Hono middleware:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessMiddleware } from 'duck-iam/server/hono'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessMiddleware } from '@gentleduck/iam/server/hono'
 
 const accessMiddleware = createAccessMiddleware({
   engine,
@@ -1176,7 +1176,7 @@ app.use('/api/posts/*', accessMiddleware)`}</code></pre>
   <AccordionItem value="generic-server">
     <AccordionTrigger>What if my framework is not listed?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Use the generic server helper from `duck-iam/server/generic`. It provides framework-agnostic
+      Use the generic server helper from `@gentleduck/iam/server/generic`. It provides framework-agnostic
       functions that you can wrap in your framework's middleware pattern. Or call `engine.can()`
       directly in your request handler -- the engine does not depend on any framework.
     </AccordionContent>
@@ -1224,7 +1224,7 @@ app.use('/api/posts/*', accessMiddleware)`}</code></pre>
   <AccordionItem value="react-usage">
     <AccordionTrigger>How do I use duck-iam with React?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { AccessProvider, useAccess } from 'duck-iam/client/react'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { AccessProvider, useAccess } from '@gentleduck/iam/client/react'
 
 // Wrap your app:
 <AccessProvider fetchPermissions={() => fetch('/api/permissions').then(r => r.json())}>
@@ -1248,7 +1248,7 @@ function PostActions() {
   <AccordionItem value="vue-usage">
     <AccordionTrigger>How do I use duck-iam with Vue?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessPlugin, useAccess } from 'duck-iam/client/vue'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessPlugin, useAccess } from '@gentleduck/iam/client/vue'
 
 // Install plugin:
 app.use(createAccessPlugin({
@@ -1265,7 +1265,7 @@ const { can, isLoading } = useAccess()
     <AccordionTrigger>How do I use duck-iam without React or Vue?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Use the vanilla client:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessClient } from 'duck-iam/client/vanilla'
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessClient } from '@gentleduck/iam/client/vanilla'
 
 const access = createAccessClient({
   fetchPermissions: () => fetch('/api/permissions').then(r => r.json()),
@@ -1546,7 +1546,7 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
     <AccordionTrigger>What is the difference between typed and untyped mode?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       <strong>Untyped (direct imports):</strong> Import `defineRole`, `policy`, `Engine` directly from
-      `duck-iam`. Actions and resources accept any string. Quick and flexible, but typos are not caught
+      `@gentleduck/iam`. Actions and resources accept any string. Quick and flexible, but typos are not caught
       at compile time.
       <br /><br />
       <strong>Typed (createAccessConfig):</strong> Call `createAccessConfig()` with `as const` arrays.
@@ -1615,6 +1615,110 @@ const perms = await engine.permissions('user-1', uiChecks)`}</code></pre>
         If you omit scopes, scope parameters in the engine will accept any string. You lose
         type-checking for scopes but everything else is still constrained.
       </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="config-vs-standalone">
+    <AccordionTrigger>What is the difference between createAccessConfig() builders and standalone defineRole() / defineRule()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The difference is **compile-time type safety**. Both produce identical output at runtime.
+      <br /><br />
+      <strong>Standalone builders</strong> default their generics to `string`, so they accept anything:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { defineRole } from '@gentleduck/iam'
+
+const viewer = defineRole('viewer')
+  .grant('read', 'post')
+  .grant('deletee', 'postt')  // no error -- both are valid strings
+  .build()`}</code></pre>
+      <p className="mt-3">
+        TypeScript sees `'deletee'` as a perfectly valid `string` and lets it through. The role
+        ends up with a permission that never matches any request -- a silent bug you may not
+        discover until production.
+      </p>
+      <strong>Config-bound builders</strong> lock generics to your declared schema:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessConfig } from '@gentleduck/iam'
+
+const access = createAccessConfig({
+  actions: ['create', 'read', 'update', 'delete'] as const,
+  resources: ['post', 'user'] as const,
+})
+
+const viewer = access
+  .defineRole('viewer')
+  .grant('read', 'post')      // OK
+  .grant('deletee', 'postt')  // compile error on both arguments
+  .build()`}</code></pre>
+      <p className="mt-3">
+        Because `as const` produces literal unions, TypeScript knows the only valid actions are
+        `'create' | 'read' | 'update' | 'delete' | '*'` and the only valid resources are
+        `'post' | 'user' | '*'`. The typos are caught before the code runs.
+      </p>
+      <p className="mt-3">
+        This applies to every builder on the config object:
+      </p>
+      <ul className="mt-2 list-disc pl-5">
+        <li><code className="rounded bg-muted px-2 py-1">access.defineRole()</code> -- constrained <code className="rounded bg-muted px-2 py-1">.grant()</code> and <code className="rounded bg-muted px-2 py-1">.inherits()</code></li>
+        <li><code className="rounded bg-muted px-2 py-1">access.defineRule()</code> -- constrained <code className="rounded bg-muted px-2 py-1">.on()</code> and <code className="rounded bg-muted px-2 py-1">.of()</code></li>
+        <li><code className="rounded bg-muted px-2 py-1">access.policy()</code> -- constrained rule actions and resources</li>
+        <li><code className="rounded bg-muted px-2 py-1">access.when()</code> -- constrained condition builder</li>
+        <li><code className="rounded bg-muted px-2 py-1">access.checks()</code> -- constrained permission check definitions</li>
+        <li><code className="rounded bg-muted px-2 py-1">access.createEngine()</code> -- engine typed with your schema, so <code className="rounded bg-muted px-2 py-1">engine.can()</code> is also constrained</li>
+      </ul>
+      <p className="mt-3">
+        The engine does not care which approach was used. Both produce the same <code className="rounded bg-muted px-2 py-1">Role</code> and
+        <code className="rounded bg-muted px-2 py-1">Policy</code> objects at runtime. The only difference is whether
+        TypeScript can help you catch mistakes before they ship.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="export-types-from-config">
+    <AccordionTrigger>How do I share my action and resource types across the codebase?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Extract type aliases from your config and export them:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// shared/access.ts
+export const access = createAccessConfig({
+  actions: ['create', 'read', 'update', 'delete'] as const,
+  resources: ['post', 'user'] as const,
+})
+
+export type AppAction = (typeof access.actions)[number]
+// => 'create' | 'read' | 'update' | 'delete'
+
+export type AppResource = (typeof access.resources)[number]
+// => 'post' | 'user'`}</code></pre>
+      <p className="mt-3">
+        Then use these types everywhere -- in your NestJS guard, your <code className="rounded bg-muted px-2 py-1">@Authorize</code> decorator,
+        your React components, and your API types:
+      </p>
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// api/access/guard.ts
+import type { Engine } from '@gentleduck/iam'
+import type { AppAction, AppResource } from '@shared/access'
+
+constructor(@Inject(ACCESS_ENGINE_TOKEN) engine: Engine<AppAction, AppResource>) { ... }
+
+// api/access/authorize.ts
+import { createTypedAuthorize } from '@gentleduck/iam/server/nest'
+import type { AppAction, AppResource } from '@shared/access'
+
+export const Authorize = createTypedAuthorize<AppAction, AppResource>()`}</code></pre>
+      <p className="mt-3">
+        This creates a single source of truth. Add a new action or resource to the config, and
+        TypeScript tells you everywhere it needs to be handled.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="can-mix-approaches">
+    <AccordionTrigger>Can I mix config-bound and standalone builders?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Technically yes -- both produce the same <code className="rounded bg-muted px-2 py-1">Role</code> and
+      <code className="rounded bg-muted px-2 py-1">Policy</code> objects at runtime. The engine processes them identically.
+      <br /><br />
+      However, there is no reason to mix them. Standalone builders bypass all the type safety that
+      <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> provides. A single
+      <code className="rounded bg-muted px-2 py-1">defineRole()</code> call with a typo defeats the purpose
+      of constraining everything else. Pick one approach and use it consistently.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
