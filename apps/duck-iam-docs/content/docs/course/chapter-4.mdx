@@ -12,11 +12,11 @@ API for debugging, and the Admin API for runtime management.
 <MermaidDiagram chart={`flowchart LR
     subgraph Engine["Engine Features"]
         direction TB
-        H["Hooks\\nbeforeEvaluate\\nafterEvaluate\\nonDeny, onError"]
-        C["Caching\\n4 LRU caches\\nTTL + size limits"]
-        B["Batch\\npermissions()\\ncheck many at once"]
-        X["Explain\\nfull evaluation trace\\ndebug denials"]
-        A["Admin API\\nmanage at runtime\\nauto-invalidate"]
+        H["Hooks<br/>beforeEvaluate<br/>afterEvaluate<br/>onDeny, onError"]
+        C["Caching<br/>4 LRU caches<br/>TTL + size limits"]
+        B["Batch<br/>permissions()<br/>check many at once"]
+        X["Explain<br/>full evaluation trace<br/>debug denials"]
+        A["Admin API<br/>manage at runtime<br/>auto-invalidate"]
     end`} />
 
 ## Engine Methods Overview
@@ -68,7 +68,7 @@ await engine.can('bob', 'update',
 The low-level method takes a full `AccessRequest` object:
 
 ```typescript
-import type { AccessRequest } from 'duck-iam'
+import type { AccessRequest } from '@gentleduck/iam'
 
 const request: AccessRequest = {
   subject: {
@@ -117,16 +117,16 @@ Hooks let you run code at key points in the evaluation lifecycle.
 <MermaidDiagram chart={`flowchart TD
     subgraph Lifecycle["Hook Execution Order"]
         direction TB
-        H1["1. beforeEvaluate\\n(can modify request)"]
-        H2["2. evaluate\\n(core engine logic)"]
-        H3["3. afterEvaluate\\n(always runs)"]
-        H4["4. onDeny\\n(only if denied)"]
+        H1["1. beforeEvaluate<br/>(can modify request)"]
+        H2["2. evaluate<br/>(core engine logic)"]
+        H3["3. afterEvaluate<br/>(always runs)"]
+        H4["4. onDeny<br/>(only if denied)"]
     end
 
     subgraph Error["On Error"]
         direction TB
-        E1["onError\\n(if any step throws)"]
-        E2["Result: deny\\n(fail closed)"]
+        E1["onError<br/>(if any step throws)"]
+        E2["Result: deny<br/>(fail closed)"]
     end
 
     H1 --> H2 --> H3 --> H4
@@ -290,13 +290,13 @@ on every check:
 <MermaidDiagram chart={`flowchart LR
     subgraph Caches["4 LRU Caches"]
         direction TB
-        PC["Policy Cache\\nall policies from adapter\\n(1 entry)"]
-        RC["Role Cache\\nall role definitions\\n(1 entry)"]
-        RB["RBAC Policy Cache\\nsynthetic __rbac__ policy\\n(1 entry)"]
-        SC["Subject Cache\\nper-user roles + attributes\\n(up to maxCacheSize entries)"]
+        PC["Policy Cache<br/>all policies from adapter<br/>(1 entry)"]
+        RC["Role Cache<br/>all role definitions<br/>(1 entry)"]
+        RB["RBAC Policy Cache<br/>synthetic __rbac__ policy<br/>(1 entry)"]
+        SC["Subject Cache<br/>per-user roles + attributes<br/>(up to maxCacheSize entries)"]
     end
 
-    REQ["Permission\\nCheck"] --> SC
+    REQ["Permission<br/>Check"] --> SC
     SC --> |"miss"| ADAPTER["Adapter"]
     SC --> |"hit"| EVAL["Evaluate"]
     ADAPTER --> SC`} />
@@ -573,12 +573,14 @@ operations.
 
 ## Checkpoint: Complete Engine Setup
 
-<details>
-<summary>Full engine with all features</summary>
+<Accordion type="single" collapsible className="w-full">
+  <AccordionItem value="c4-full-engine">
+    <AccordionTrigger>Full engine with all features</AccordionTrigger>
+    <AccordionContent>
 
 ```typescript
-import { Engine, validateRoles } from 'duck-iam'
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { Engine, validateRoles } from '@gentleduck/iam'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 import { viewer, editor, admin } from './roles'
 import { ownerPolicy } from './policies'
 
@@ -623,7 +625,9 @@ export const engine = new Engine({
 })
 ```
 
-</details>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
 
 ---
 

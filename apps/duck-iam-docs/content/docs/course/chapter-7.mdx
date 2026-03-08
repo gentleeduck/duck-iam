@@ -73,7 +73,7 @@ it just reads the map. This makes client-side checks O(1) key lookups.
 
     ```typescript title="src/lib/access-client.tsx"
     import React from 'react'
-    import { createAccessControl } from 'duck-iam/client/react'
+    import { createAccessControl } from '@gentleduck/iam/client/react'
 
     export const {
       AccessProvider,
@@ -104,7 +104,7 @@ it just reads the map. This makes client-side checks O(1) key lookups.
 
     ```tsx title="src/app/layout.tsx"
     import { AccessProvider } from '@/lib/access-client'
-    import { getPermissions } from 'duck-iam/server/next'
+    import { getPermissions } from '@gentleduck/iam/server/next'
     import { engine } from '@/lib/access'
 
     export default async function Layout({ children }) {
@@ -212,7 +212,7 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     For SPAs that do not use server-side rendering:
 
     ```tsx title="src/components/app.tsx"
-    import { usePermissions } from 'duck-iam/client/react'
+    import { usePermissions } from '@gentleduck/iam/client/react'
 
     function App() {
       const { permissions, can, loading, error } = usePermissions(
@@ -256,7 +256,7 @@ it just reads the map. This makes client-side checks O(1) key lookups.
 If you have a permission map but do not need React context:
 
 ```typescript
-import { createPermissionChecker } from 'duck-iam/client/react'
+import { createPermissionChecker } from '@gentleduck/iam/client/react'
 
 const { can, cannot, permissions } = createPermissionChecker(permissionMap)
 
@@ -276,7 +276,7 @@ context or provider needed.
 
     ```typescript title="src/lib/access-client.ts"
     import { ref, computed, inject, provide, defineComponent, h } from 'vue'
-    import { createVueAccess } from 'duck-iam/client/vue'
+    import { createVueAccess } from '@gentleduck/iam/client/vue'
 
     export const {
       provideAccess,
@@ -429,7 +429,7 @@ For any framework or no framework at all:
     **Create a client**
 
     ```typescript title="src/access-client.ts"
-    import { AccessClient } from 'duck-iam/client/vanilla'
+    import { AccessClient } from '@gentleduck/iam/client/vanilla'
 
     // From a server endpoint
     const access = await AccessClient.fromServer('/api/permissions')

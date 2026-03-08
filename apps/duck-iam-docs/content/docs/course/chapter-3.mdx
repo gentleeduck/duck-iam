@@ -17,13 +17,13 @@ chapter, BlogDuck will enforce owner-only editing -- editors can only update pos
 
     subgraph ABAC["ABAC Layer (Policy)"]
         direction TB
-        P1["Rule: deny update on post\\nwhen ownerId != subject.id"]
+        P1["Rule: deny update on post<br/>when ownerId != subject.id"]
     end
 
     subgraph Result["Combined"]
         direction TB
-        RES["RBAC allows\\n+ ABAC allows\\n= ALLOWED"]
-        RES2["RBAC allows\\n+ ABAC denies\\n= DENIED"]
+        RES["RBAC allows<br/>+ ABAC allows<br/>= ALLOWED"]
+        RES2["RBAC allows<br/>+ ABAC denies<br/>= DENIED"]
     end
 
     RBAC --> Result
@@ -47,7 +47,7 @@ You use both together. Roles handle the broad strokes, policies handle the fine 
     **Create an owner-only policy**
 
     ```typescript title="src/policies.ts"
-    import { policy } from 'duck-iam'
+    import { policy } from '@gentleduck/iam'
 
     export const ownerPolicy = policy('owner-restrictions')
       .name('Owner Restrictions')
@@ -127,10 +127,10 @@ You use both together. Roles handle the broad strokes, policies handle the fine 
 <MermaidDiagram chart={`flowchart TD
     subgraph Condition["Condition Evaluation"]
         direction TB
-        F["Read field:\\nresource.attributes.ownerId\\n= 'alice'"]
-        V["Resolve value:\\n'$subject.id'\\n= 'bob'"]
-        O["Apply operator:\\n'alice' neq 'bob'\\n= true"]
-        R["Condition met = true\\nRule fires = DENY"]
+        F["Read field:<br/>resource.attributes.ownerId<br/>= 'alice'"]
+        V["Resolve value:<br/>'$subject.id'<br/>= 'bob'"]
+        O["Apply operator:<br/>'alice' neq 'bob'<br/>= true"]
+        R["Condition met = true<br/>Rule fires = DENY"]
     end
 
     F --> O
@@ -376,7 +376,7 @@ to prevent stack overflow.
 You can build condition groups outside of a rule using the `when()` factory:
 
 ```typescript
-import { when } from 'duck-iam'
+import { when } from '@gentleduck/iam'
 
 // Build an ANY group (OR)
 const isAdminOrOwner = when()
@@ -480,7 +480,7 @@ If you pass multiple scopes, it uses `in`:
 You can create rules outside of a policy and add them later:
 
 ```typescript
-import { defineRule } from 'duck-iam'
+import { defineRule } from '@gentleduck/iam'
 
 const ownerCheck = defineRule('owner-check')
   .deny()
@@ -582,12 +582,12 @@ Each policy has an algorithm that determines how its rules combine:
 
     subgraph FM["first-match"]
         direction LR
-        FM1["First matching\\nrule wins"]
+        FM1["First matching<br/>rule wins"]
     end
 
     subgraph HP["highest-priority"]
         direction LR
-        HP1["Matching rule with\\nhighest number wins"]
+        HP1["Matching rule with<br/>highest number wins"]
     end`} />
 
 | Algorithm | Behavior | Use When |
@@ -611,8 +611,8 @@ When you have multiple policies (RBAC + your custom ones), the engine combines t
 <MermaidDiagram chart={`flowchart LR
     subgraph Eval["Evaluate in order"]
         direction TB
-        P1["__rbac__ policy\\n(allow-overrides)"] --> P2["owner-restrictions\\n(deny-overrides)"]
-        P2 --> P3["time-restrictions\\n(deny-overrides)"]
+        P1["__rbac__ policy<br/>(allow-overrides)"] --> P2["owner-restrictions<br/>(deny-overrides)"]
+        P2 --> P3["time-restrictions<br/>(deny-overrides)"]
     end
 
     subgraph Result["AND combination"]
@@ -631,11 +631,13 @@ stops (short-circuits) and the overall result is deny.
 
 ## Checkpoint
 
-<details>
-<summary>Full `src/policies.ts`</summary>
+<Accordion type="single" collapsible className="w-full">
+  <AccordionItem value="c3-full-policies-ts">
+    <AccordionTrigger>Full `src/policies.ts`</AccordionTrigger>
+    <AccordionContent>
 
 ```typescript
-import { policy } from 'duck-iam'
+import { policy } from '@gentleduck/iam'
 
 export const ownerPolicy = policy('owner-restrictions')
   .name('Owner Restrictions')
@@ -653,7 +655,9 @@ export const ownerPolicy = policy('owner-restrictions')
   .build()
 ```
 
-</details>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
 
 ---
 

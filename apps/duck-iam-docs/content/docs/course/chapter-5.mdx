@@ -12,14 +12,14 @@ different permissions in different tenants.
 <MermaidDiagram chart={`flowchart TD
     subgraph Alice["Alice's Roles"]
         direction LR
-        BASE["Base roles:\\nviewer"]
-        ACME["Acme Corp:\\nadmin"]
-        GLOBEX["Globex Inc:\\nviewer"]
+        BASE["Base roles:<br/>viewer"]
+        ACME["Acme Corp:<br/>admin"]
+        GLOBEX["Globex Inc:<br/>viewer"]
     end
 
     subgraph Check["Permission Check"]
         direction LR
-        REQ["can alice manage user\\nin scope acme?"]
+        REQ["can alice manage user<br/>in scope acme?"]
         MERGE["Merge: viewer + admin"]
         RES["ALLOWED"]
     end
@@ -31,7 +31,7 @@ different permissions in different tenants.
 
 <Steps>
   <Step>
-    **Set up scoped assignments**
+    **Set up base roles and scoped assignments**
 
     ```typescript title="src/access.ts"
     const adapter = new MemoryAdapter({
@@ -41,20 +41,20 @@ different permissions in different tenants.
         'bob': ['editor'],
         'charlie': ['admin'],
       },
-      scopedAssignments: {
-        'alice': {
-          'acme': ['admin'],       // alice is admin in acme
-          'globex': ['viewer'],    // alice is viewer in globex
-        },
-        'bob': {
-          'acme': ['editor'],
-          'globex': ['editor'],
-        },
-      },
     })
+
+    // Assign scoped roles using the adapter API
+    await adapter.assignRole('alice', 'admin', 'acme')    // alice is admin in acme
+    await adapter.assignRole('alice', 'viewer', 'globex')  // alice is viewer in globex
+    await adapter.assignRole('bob', 'editor', 'acme')
+    await adapter.assignRole('bob', 'editor', 'globex')
+
+    export const engine = new Engine({ adapter })
     ```
 
-    Base roles apply everywhere. Scoped roles are added on top when a scope is provided.
+    The `assignments` init option sets base (unscoped) roles. For scoped roles, use
+    `adapter.assignRole(subjectId, roleId, scope)` after construction. Base roles
+    apply everywhere. Scoped roles are added on top when a scope is provided.
   </Step>
 
   <Step>
@@ -97,11 +97,11 @@ different permissions in different tenants.
 <MermaidDiagram chart={`flowchart LR
     subgraph Resolution["Role Resolution with Scope"]
         direction TB
-        S1["1. Get base roles\\nalice -> ['viewer']"]
-        S2["2. Get scoped roles\\nalice + acme -> ['admin']"]
-        S3["3. Merge + deduplicate\\n['viewer', 'admin']"]
-        S4["4. Resolve inheritance\\nviewer + editor + admin"]
-        S5["5. Build __rbac__ policy\\nwith all permissions"]
+        S1["1. Get base roles<br/>alice -> ['viewer']"]
+        S2["2. Get scoped roles<br/>alice + acme -> ['admin']"]
+        S3["3. Merge + deduplicate<br/>['viewer', 'admin']"]
+        S4["4. Resolve inheritance<br/>viewer + editor + admin"]
+        S5["5. Build __rbac__ policy<br/>with all permissions"]
     end
 
     S1 --> S2 --> S3 --> S4 --> S5`} />
@@ -183,12 +183,9 @@ duck-iam supports scoping at three levels:
 Different roles per scope, as shown above. This is what most multi-tenant apps need.
 
 ```typescript
-scopedAssignments: {
-  'alice': {
-    'acme': ['admin'],
-    'globex': ['viewer'],
-  },
-}
+// After creating the adapter with base roles:
+await adapter.assignRole('alice', 'admin', 'acme')
+await adapter.assignRole('alice', 'viewer', 'globex')
 ```
 
 The user gets their base roles plus scoped roles for the matching scope. Simple and flexible.

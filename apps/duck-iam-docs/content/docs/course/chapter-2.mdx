@@ -10,8 +10,8 @@ posts, and an **admin** who can do everything. Instead of duplicating permission
 use inheritance so each role builds on the one below it.
 
 <MermaidDiagram chart={`flowchart BT
-    V["viewer\\nread post, read comment"] --> E["editor\\n+ create post, update post\\n+ create comment, update comment"]
-    E --> A["admin\\n+ delete post, delete comment\\n+ manage user, manage dashboard"]`} />
+    V["viewer<br/>read post, read comment"] --> E["editor<br/>+ create post, update post<br/>+ create comment, update comment"]
+    E --> A["admin<br/>+ delete post, delete comment<br/>+ manage user, manage dashboard"]`} />
 
 ## Building the Hierarchy
 
@@ -111,7 +111,7 @@ use inheritance so each role builds on the one below it.
         S1["Start: charlie has admin"] --> S2["admin inherits editor"]
         S2 --> S3["editor inherits viewer"]
         S3 --> S4["viewer has no parents"]
-        S4 --> S5["Collect all permissions:\\nviewer + editor + admin"]
+        S4 --> S5["Collect all permissions:<br/>viewer + editor + admin"]
     end
 
     subgraph Safety["Cycle Detection"]
@@ -315,7 +315,7 @@ Dot-based resource hierarchies (`dashboard.users`) are covered in Chapter 5.
 Before running your app, validate your role configuration to catch mistakes:
 
 ```typescript
-import { validateRoles } from 'duck-iam'
+import { validateRoles } from '@gentleduck/iam'
 
 const result = validateRoles([viewer, editor, admin])
 
@@ -357,12 +357,14 @@ Always validate at startup -- it is cheap and prevents silent failures at runtim
 
 ## Checkpoint
 
-<details>
-<summary>Full `src/access.ts`</summary>
+<Accordion type="single" collapsible className="w-full">
+  <AccordionItem value="c2-full-access-ts">
+    <AccordionTrigger>Full `src/access.ts`</AccordionTrigger>
+    <AccordionContent>
 
 ```typescript
-import { defineRole, Engine, validateRoles } from 'duck-iam'
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { defineRole, Engine, validateRoles } from '@gentleduck/iam'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 export const viewer = defineRole('viewer')
   .name('Viewer')
@@ -406,7 +408,9 @@ const adapter = new MemoryAdapter({
 export const engine = new Engine({ adapter })
 ```
 
-</details>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
 
 ---
 

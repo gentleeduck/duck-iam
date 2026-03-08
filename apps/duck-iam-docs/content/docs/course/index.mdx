@@ -1,6 +1,6 @@
 ---
 title: build an app with duck-iam
-description: A hands-on course that takes you from zero to a production-ready authorization system. Build a real blog platform step by step, using every duck-iam feature along the way.
+description: A hands-on course that takes you from zero to a production-ready authorization system. Build a real blog platform step by step, using every feature along the way.
 ---
 
 ## What You Will Build
@@ -13,42 +13,42 @@ and client-side permission rendering.
 <MermaidDiagram chart={`flowchart LR
     subgraph CH1["Chapter 1"]
         direction TB
-        C1["Your First\\nPermission Check"]
+        C1["Your First<br/>Permission Check"]
     end
 
     subgraph CH2["Chapter 2"]
         direction TB
-        C2["Role Hierarchies\\n& Inheritance"]
+        C2["Role Hierarchies<br/>& Inheritance"]
     end
 
     subgraph CH3["Chapter 3"]
         direction TB
-        C3["Policies, Rules\\n& Conditions"]
+        C3["Policies, Rules<br/>& Conditions"]
     end
 
     subgraph CH4["Chapter 4"]
         direction TB
-        C4["The Engine\\nIn Depth"]
+        C4["The Engine<br/>In Depth"]
     end
 
     subgraph CH5["Chapter 5"]
         direction TB
-        C5["Multi-Tenant\\nScoping"]
+        C5["Multi-Tenant<br/>Scoping"]
     end
 
     subgraph CH6["Chapter 6"]
         direction TB
-        C6["Server\\nIntegration"]
+        C6["Server<br/>Integration"]
     end
 
     subgraph CH7["Chapter 7"]
         direction TB
-        C7["Client\\nLibraries"]
+        C7["Client<br/>Libraries"]
     end
 
     subgraph CH8["Chapter 8"]
         direction TB
-        C8["Production\\nReadiness"]
+        C8["Production<br/>Readiness"]
     end
 
     CH1 --> CH2 --> CH3 --> CH4 --> CH5 --> CH6 --> CH7 --> CH8`} />
@@ -78,20 +78,17 @@ You can follow along by creating a new project:
   <Step>
     Create a new project directory and initialize it:
 
-    ```sh title="package.json"
+    ```sh
+    mkdir blogduck && cd blogduck
     npm init -y
-    npm install duck-iam typescript tsx
+    npm install @gentleduck/iam typescript tsx
     npx tsc --init
+    mkdir src
     ```
-    adf
 
   </Step>
   <Step>
-    Create a `src/` directory for your code:
-    <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`mkdir src`}</code></pre>
-  </Step>
-  <Step>
-    You are ready. Start with <a href="/docs/course/chapter-1" className="underline font-semibold">Chapter 1: Your First Permission Check</a>.
+    You are ready. Start with [Chapter 1: Your First Permission Check](/docs/course/chapter-1).
   </Step>
 </Steps>
 

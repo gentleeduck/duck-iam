@@ -48,7 +48,7 @@ resources, and scopes so the entire stack is type-checked at compile time.
     **Define your configuration**
 
     ```typescript title="src/access.ts"
-    import { createAccessConfig } from 'duck-iam'
+    import { createAccessConfig } from '@gentleduck/iam'
 
     export const access = createAccessConfig({
       actions: ['create', 'read', 'update', 'delete', 'manage'] as const,
@@ -204,7 +204,7 @@ const access = createAccessConfig({
 duck-iam exports three utility types to extract the literal union types from your config:
 
 ```typescript
-import type { InferAction, InferResource, InferScope } from 'duck-iam'
+import type { InferAction, InferResource, InferScope } from '@gentleduck/iam'
 
 const config = {
   actions: ['create', 'read', 'update', 'delete'] as const,
@@ -368,7 +368,7 @@ In production, you need persistent storage. duck-iam provides four adapters.
 For prototyping, testing, and simple apps:
 
 ```typescript
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 const adapter = new MemoryAdapter({
   policies: [ownerPolicy],
@@ -409,7 +409,7 @@ For scoped assignments, use `adapter.assignRole(subjectId, roleId, scope)` after
 ### PrismaAdapter
 
 ```typescript title="src/access.ts"
-import { PrismaAdapter } from 'duck-iam/adapters/prisma'
+import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
@@ -495,7 +495,7 @@ it uses `deleteMany` with a compound filter on `(subjectId, roleId, scope)`.
 ### DrizzleAdapter
 
 ```typescript title="src/access.ts"
-import { DrizzleAdapter } from 'duck-iam/adapters/drizzle'
+import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 import { db } from './db'
 import { eq, and } from 'drizzle-orm'
 import * as tables from './schema'
@@ -586,7 +586,7 @@ export const accessSubjectAttrs = sqliteTable('access_subject_attrs', {
 For microservice architectures where a central service manages authorization:
 
 ```typescript title="src/access.ts"
-import { HttpAdapter } from 'duck-iam/adapters/http'
+import { HttpAdapter } from '@gentleduck/iam/adapters/http'
 
 const adapter = new HttpAdapter({
   baseUrl: 'https://auth.internal.company.com/access',
@@ -647,7 +647,7 @@ with Express + admin router, and have other services connect via the HTTP adapte
 Implement the `Adapter` interface to connect any storage backend:
 
 ```typescript
-import type { Adapter, Attributes, Policy, Role, ScopedRole } from 'duck-iam'
+import type { Adapter, Attributes, Policy, Role, ScopedRole } from '@gentleduck/iam'
 
 export class MongoAdapter implements Adapter {
   constructor(private db: Db) {}
@@ -739,10 +739,10 @@ The engine uses four LRU caches to minimize adapter calls:
 <MermaidDiagram chart={`flowchart TD
     subgraph Caches["Engine Caches"]
         direction TB
-        PC["policyCache (size: 1)\\nKey: 'all' -> Policy[]"]
-        RC["roleCache (size: 1)\\nKey: 'all' -> Role[]"]
-        RBC["rbacPolicyCache (size: 1)\\nKey: 'rbac' -> Policy"]
-        SC["subjectCache (size: maxCacheSize)\\nKey: subjectId -> Subject"]
+        PC["policyCache (size: 1)<br/>Key: 'all' -> Policy[]"]
+        RC["roleCache (size: 1)<br/>Key: 'all' -> Role[]"]
+        RBC["rbacPolicyCache (size: 1)<br/>Key: 'rbac' -> Policy"]
+        SC["subjectCache (size: maxCacheSize)<br/>Key: subjectId -> Subject"]
     end
 
     subgraph Config["EngineConfig"]
@@ -1085,8 +1085,8 @@ segments) apply.
 
     ```typescript title="__tests__/access.test.ts"
     import { describe, it, expect } from 'vitest'
-    import { Engine } from 'duck-iam'
-    import { MemoryAdapter } from 'duck-iam/adapters/memory'
+    import { Engine } from '@gentleduck/iam'
+    import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
     import { viewer, editor, admin, ownerPolicy } from '../src/access'
 
     function createTestEngine() {
@@ -1454,7 +1454,7 @@ segments) apply.
     ```typescript
     import express from 'express'
     import request from 'supertest'
-    import { accessMiddleware, guard } from 'duck-iam/integrations/express'
+    import { accessMiddleware, guard } from '@gentleduck/iam/integrations/express'
 
     describe('Express middleware', () => {
       function createApp() {
@@ -1532,12 +1532,14 @@ Before shipping BlogDuck:
 
 ## Complete Production Setup
 
-<details>
-<summary>Full production `src/access.ts`</summary>
+<Accordion type="single" collapsible className="w-full">
+  <AccordionItem value="c8-full-production-access">
+    <AccordionTrigger>Full production `src/access.ts`</AccordionTrigger>
+    <AccordionContent>
 
 ```typescript
-import { createAccessConfig } from 'duck-iam'
-import { PrismaAdapter } from 'duck-iam/adapters/prisma'
+import { createAccessConfig } from '@gentleduck/iam'
+import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
 import { PrismaClient } from '@prisma/client'
 
 // 1. Type-safe config
@@ -1618,7 +1620,9 @@ export const appChecks = access.checks([
 ] as const)
 ```
 
-</details>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
 
 ---
 

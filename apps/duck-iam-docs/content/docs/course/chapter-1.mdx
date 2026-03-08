@@ -9,7 +9,7 @@ By the end of this chapter you will have a working authorization check. A user n
 will be able to read blog posts but not delete them.
 
 <MermaidDiagram chart={`flowchart LR
-    A["Alice\\n(viewer role)"] --> E["Engine"]
+    A["Alice<br/>(viewer role)"] --> E["Engine"]
     E --> |"can read post?"| YES["ALLOWED"]
     E --> |"can delete post?"| NO["DENIED"]`} />
 
@@ -20,7 +20,7 @@ will be able to read blog posts but not delete them.
     **Install duck-iam**
 
     ```bash
-    npm install duck-iam
+    npm install @gentleduck/iam
     ```
 
     duck-iam has zero runtime dependencies. This is the only package you need.
@@ -33,7 +33,7 @@ will be able to read blog posts but not delete them.
     Create `src/access.ts`:
 
     ```typescript title="src/access.ts"
-    import { defineRole } from 'duck-iam'
+    import { defineRole } from '@gentleduck/iam'
 
     // A viewer can read posts and comments
     export const viewer = defineRole('viewer')
@@ -54,8 +54,8 @@ will be able to read blog posts but not delete them.
     we use `MemoryAdapter` which stores everything in memory:
 
     ```typescript title="src/access.ts"
-    import { defineRole, Engine } from 'duck-iam'
-    import { MemoryAdapter } from 'duck-iam/adapters/memory'
+    import { defineRole, Engine } from '@gentleduck/iam'
+    import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
     export const viewer = defineRole('viewer')
       .grant('read', 'post')
@@ -146,20 +146,20 @@ The `environment` and `scope` parameters are optional -- you will use them in la
 <MermaidDiagram chart={`flowchart TD
     subgraph Input["You Provided"]
         direction LR
-        R["Role: viewer\\ngrant read on post"]
-        A["Assignment:\\nalice -> viewer"]
+        R["Role: viewer<br/>grant read on post"]
+        A["Assignment:<br/>alice -> viewer"]
     end
 
     subgraph Engine["Engine Evaluation"]
         direction TB
-        E1["1. resolveSubject()\\nLoad alice's roles from adapter"]
-        E2["2. rolesToPolicy()\\nConvert roles to __rbac__ policy"]
-        E3["3. evaluate()\\nDoes any rule match\\nread + post?"]
-        E4["4. Rule matches!\\nEffect: allow"]
+        E1["1. resolveSubject()<br/>Load alice's roles from adapter"]
+        E2["2. rolesToPolicy()<br/>Convert roles to __rbac__ policy"]
+        E3["3. evaluate()<br/>Does any rule match<br/>read + post?"]
+        E4["4. Rule matches!<br/>Effect: allow"]
     end
 
     subgraph Output["Result"]
-        D["Decision:\\nallowed = true"]
+        D["Decision:<br/>allowed = true"]
     end
 
     Input --> Engine --> Output`} />
@@ -311,12 +311,14 @@ blogduck/
   tsconfig.json
 ```
 
-<details>
-<summary>Full `src/access.ts`</summary>
+<Accordion type="single" collapsible className="w-full">
+  <AccordionItem value="c1-full-access-ts">
+    <AccordionTrigger>Full `src/access.ts`</AccordionTrigger>
+    <AccordionContent>
 
 ```typescript
-import { defineRole, Engine } from 'duck-iam'
-import { MemoryAdapter } from 'duck-iam/adapters/memory'
+import { defineRole, Engine } from '@gentleduck/iam'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 export const viewer = defineRole('viewer')
   .grant('read', 'post')
@@ -333,10 +335,14 @@ const adapter = new MemoryAdapter({
 export const engine = new Engine({ adapter })
 ```
 
-</details>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
 
-<details>
-<summary>Full `src/main.ts`</summary>
+<Accordion type="single" collapsible className="w-full">
+  <AccordionItem value="c1-full-main-ts">
+    <AccordionTrigger>Full `src/main.ts`</AccordionTrigger>
+    <AccordionContent>
 
 ```typescript
 import { engine } from './access'
@@ -358,7 +364,9 @@ async function main() {
 main()
 ```
 
-</details>
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
 
 ---
 
