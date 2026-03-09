@@ -100,6 +100,16 @@
         "indentWidth": 2
       },
       "includes": ["**/*.json"]
+    },
+    {
+      "includes": ["examples/blogduck/packages/api/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useImportType": "off"
+          }
+        }
+      }
     }
   ],
   "plugins": []
