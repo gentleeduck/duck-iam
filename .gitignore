@@ -63,3 +63,4 @@ tailwind.config.ts
 **/.fuse_*
 node-compile-cache
 **/tsconfig.tsbuildinfo
+**/.claude

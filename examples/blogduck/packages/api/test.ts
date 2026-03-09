@@ -1,39 +1,44 @@
-import { defineRole, Engine, MemoryAdapter, PolicyBuilder } from '@gentleduck/iam'
+import { defineRole, Engine, MemoryAdapter } from '@gentleduck/iam'
 
 // --------------------------------------------------------------------------------
 
-type Roles = 'viewer' | 'admin'
-type Subjects = 'comment' | 'post'
-type Permissions = 'read' | 'write'
+type Roles = 'viewer' | 'editor' | 'admin' | 'commenter' | 'moderator'
+type Subjects = 'comment' | 'post' | 'user' | 'dashboard'
+type Permissions = 'create' | 'read' | 'update' | 'delete' | 'list' | 'manage'
 type Scopes = 'public' | 'private'
 
 const f = (name: Roles) => defineRole<Roles, Permissions, Subjects, Scopes>(name)
 
-const viewer = f('viewer')
-  .name('viewer')
-  .desc('This is the viewer role')
-  .grant('read', 'comment')
-  .grant('read', 'post')
-  .meta({
-    public: false,
-  })
+export const viewer = f('viewer').grant('read', 'post').grant('read', 'comment').build()
+
+const editor = f('editor')
+  .inherits('viewer')
+  .grant('create', 'post')
+  .grant('update', 'post')
+  .grant('create', 'comment')
+  .grant('update', 'comment')
   .build()
 
 const admin = f('admin')
-  .name('admin')
-  .desc('This is the admin role')
-  .grant('read', 'comment')
-  .grant('read', 'post')
-  .grant('write', 'comment')
-  .grant('write', 'post')
+  .inherits('editor')
+  .grant('delete', 'post')
+  .grant('delete', 'comment')
+  .grant('manage', 'user')
+  .grant('manage', 'dashboard')
   .build()
+
+const commenter = f('commenter').grant('create', 'comment').grant('update', 'comment').build()
+
+const moderator = f('moderator').inherits('viewer', 'commenter').grant('delete', 'comment').build()
 
 // --------------------------------------------------------------------------------
 
 const adapter = new MemoryAdapter({
-  roles: [viewer],
+  roles: [viewer, editor, admin, commenter, moderator],
   assignments: {
     alice: ['viewer'],
+    bob: ['editor'],
+    charlie: ['admin'],
   },
 })
 
@@ -41,31 +46,26 @@ const engine = new Engine({
   adapter,
 })
 
-const yes_can = await engine.can('alice', 'read', {
-  id: 'comment:1',
-  type: 'comment',
-  attributes: {
-    public: true,
-  },
-})
+async function main() {
+  // Viewer: can read, cannot create
+  console.log('alice read post:', await engine.can('alice', 'read', { type: 'post', attributes: {} }))
+  // true
+  console.log('alice create post:', await engine.can('alice', 'create', { type: 'post', attributes: {} }))
+  // false
 
-const no_can_not = await engine.check(
-  'alice',
-  'write',
-  {
-    id: 'comment:1',
-    type: 'comment',
-    attributes: {
-      public: true,
-    },
-  },
-  {
-    id: 'post:1',
-    type: 'post',
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-  },
-  'public',
-)
+  // Editor: can read (inherited) + create
+  console.log('bob read post:', await engine.can('bob', 'read', { type: 'post', attributes: {} }))
+  // true
+  console.log('bob create post:', await engine.can('bob', 'create', { type: 'post', attributes: {} }))
+  // true
+  console.log('bob delete post:', await engine.can('bob', 'delete', { type: 'post', attributes: {} }))
+  // false
 
-console.log(`alice can read comment:1, attributes: ${yes_can}`)
-console.log(`alice can not write comment:1, attributes: ${JSON.stringify(no_can_not, null, 2)}`)
+  // Admin: can do everything
+  console.log('charlie delete post:', await engine.can('charlie', 'delete', { type: 'post', attributes: {} }))
+  // true
+  console.log('charlie manage user:', await engine.can('charlie', 'manage', { type: 'user', attributes: {} }))
+  // true
+}
+
+main()
