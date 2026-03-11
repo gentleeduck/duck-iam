@@ -1,0 +1,54 @@
+{
+  "name": "@gentleduck/ui",
+  "version": "0.0.1",
+  "description": "Production-ready React UI components built on Gentleduck primitives — accessible, themeable, and dependency-light.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "author": "GentleDuck (https://gentleduck.org)",
+  "homepage": "https://gentleduck.org/docs/components",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gentleeduck/duck-iam.git",
+    "directory": "packages/ui"
+  },
+  "bugs": {
+    "url": "https://github.com/gentleeduck/duck-iam/issues"
+  },
+  "exports": {
+    "./*": "./src/ui/*/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@types/react": ">=19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "catalog:"
+  },
+  "dependencies": {
+    "@gentleduck/hooks": "catalog:",
+    "@gentleduck/libs": "catalog:",
+    "@gentleduck/motion": "catalog:",
+    "@gentleduck/primitives": "catalog:",
+    "@gentleduck/variants": "catalog:",
+    "@gentleduck/vim": "catalog:",
+    "@tailwindcss/postcss": "catalog:",
+    "embla-carousel-react": "catalog:",
+    "lucide-react": "catalog:",
+    "next-themes": "catalog:",
+    "postcss": "^8.5.8",
+    "react-day-picker": "catalog:",
+    "react-hook-form": "catalog:",
+    "react-resizable-panels": "catalog:",
+    "recharts": "catalog:",
+    "sonner": "catalog:",
+    "tailwindcss": "catalog:",
+    "tw-animate-css": "catalog:",
+    "vaul": "catalog:"
+  }
+}

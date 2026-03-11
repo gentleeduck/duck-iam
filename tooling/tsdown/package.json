@@ -1,17 +1,16 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "engines": {
-    "bun": ">=1.3.5"
+    "node": ">=22.0.0"
   },
-  "author": "gentleduck",
+  "author": "@gentleduck contributors",
   "dependencies": {
+    "@gentleduck/typescript-config": "workspace:*",
     "@vitejs/plugin-react-swc": "^3.11.0",
     "tsdown": "0.18.3"
   },
-  "description": "this is a package for `tsdown` build configs",
-  "devDependencies": {
-    "@gentleduck/typescript-config": "workspace:*"
-  },
+  "description": "Shared tsdown build configuration for duck-iam.",
+  "version": "0.0.1",
   "keywords": [
     "tsdown",
     "tsdown-config"
@@ -19,13 +18,13 @@
   "license": "MIT",
   "main": "dist/index.mjs",
   "name": "@gentleduck/tsdown-config",
-  "homepage": "https://github.com/gentleeduck/duck-gen/tree/master/tooling/tsdown#readme",
+  "homepage": "https://github.com/gentleeduck/duck-iam/tree/master/tooling/tsdown#readme",
   "bugs": {
-    "url": "https://github.com/gentleeduck/duck-gen/issues"
+    "url": "https://github.com/gentleeduck/duck-iam/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gentleeduck/duck-gen.git",
+    "url": "git+https://github.com/gentleeduck/duck-iam.git",
     "directory": "tooling/tsdown"
   },
   "packageManager": "bun@1.3.5",
@@ -37,6 +36,5 @@
     "lint": "biome lint --write ./"
   },
   "type": "module",
-  "types": "dist/index.d.mts",
-  "version": "0.0.1"
+  "types": "dist/index.d.mts"
 }
