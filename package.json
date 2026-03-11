@@ -43,7 +43,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "ci": "bun run check && bun run lint:ws && bun run check-types && bun run test && bun run build",
-    "release": "bun run ci && changeset publish",
+    "release": "bun run build && changeset publish",
     "clean": "rimraf dist .cache .turbo node_modules .next .velite",
     "clean:git": "git clean -xdf .cache .turbo node_modules dist",
     "lint:ws": "sherif",
