@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --port 3000",
+    "dev": "next dev --port 3003",
     "build": "next build",
     "start": "next start"
   },

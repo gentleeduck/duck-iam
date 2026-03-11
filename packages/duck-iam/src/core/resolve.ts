@@ -69,7 +69,7 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
   }
 
   // Hierarchical: "org" matches "org:project:doc"
-  if (resourceType.startsWith(pattern + ':')) return true
+  if (resourceType.startsWith(`${pattern}:`)) return true
 
   return false
 }
@@ -92,7 +92,7 @@ export function matchesResourceHierarchical(pattern: string, resourceType: strin
   }
 
   // Parent matches children: "dashboard" matches "dashboard.users.settings"
-  if (resourceType.startsWith(pattern + '.')) return true
+  if (resourceType.startsWith(`${pattern}.`)) return true
 
   return false
 }

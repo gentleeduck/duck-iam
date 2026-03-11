@@ -8,7 +8,6 @@ import { ArrowDownIcon, ArrowUpIcon, ExternalLinkIcon, SquareArrowOutUpRight } f
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import React from 'react'
 import { DocsPathBreadcrumb } from '~/components/docs-path-breadcrumb'
 import { SLUG_METADATA } from '~/config/metadata'
 import { docs } from '../../../../.velite'

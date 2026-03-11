@@ -61,7 +61,7 @@ export function accessMiddleware<
     getEnvironment = extractEnvironment,
     getScope,
     onDenied = (_, res) => res.status(403).json({ error: 'Forbidden' }),
-    onError = (err, _, res) => res.status(500).json({ error: 'Internal server error' }),
+    onError = (_err, _, res) => res.status(500).json({ error: 'Internal server error' }),
   } = opts
 
   return async (req, res, next) => {
@@ -168,12 +168,12 @@ export function adminRouter<
 
     router.post('/subjects/:id/roles', async (req: Req, res: Res) => {
       const body = req.body as Record<string, unknown>
-      await engine.admin.assignRole(req.params!.id as string, body.roleId as TRole, body.scope as TScope)
+      await engine.admin.assignRole(req.params?.id as string, body.roleId as TRole, body.scope as TScope)
       res.json({ ok: true })
     })
 
     router.delete('/subjects/:id/roles/:roleId', async (req: Req, res: Res) => {
-      await engine.admin.revokeRole(req.params!.id as string, req.params!.roleId as TRole)
+      await engine.admin.revokeRole(req.params?.id as string, req.params?.roleId as TRole)
       res.json({ ok: true })
     })
 

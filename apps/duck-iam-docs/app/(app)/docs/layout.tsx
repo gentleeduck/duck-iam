@@ -1,4 +1,3 @@
-import { DocsSidebarNav } from '@gentleduck/docs/client'
 import { DocsRouteScrollReset } from './route-scroll-reset'
 
 interface DocsLayoutProps {

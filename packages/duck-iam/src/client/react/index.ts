@@ -41,7 +41,7 @@ import { buildPermissionKey } from '../../shared/keys'
 // Minimal React API surface -- matches React 18+ / 19
 // ------------------------------------------------------------
 
-interface ReactContext<T> {
+interface ReactContext<_T> {
   Provider: unknown
 }
 
@@ -53,7 +53,7 @@ interface ReactLike {
   useCallback<T extends Function>(callback: T, deps: readonly unknown[]): T
   createElement(type: unknown, props: Record<string, unknown> | null, ...children: ReactNode[]): ReactNode
   useState<T>(initialState: T | (() => T)): [T, (value: T | ((prev: T) => T)) => void]
-  useEffect(effect: () => void | (() => void), deps?: readonly unknown[]): void
+  useEffect(effect: () => undefined | (() => void), deps?: readonly unknown[]): void
 }
 
 // ------------------------------------------------------------

@@ -1,5 +1,5 @@
 import type { Engine } from '../../core/engine'
-import type { Environment, PermissionCheck, PermissionMap, Resource } from '../../core/types'
+import type { Environment, PermissionCheck, PermissionMap } from '../../core/types'
 
 /**
  * Server-side permission map generator.

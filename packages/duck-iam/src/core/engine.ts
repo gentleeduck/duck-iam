@@ -13,12 +13,10 @@ import type {
   EngineConfig,
   EngineHooks,
   PermissionCheck,
-  PermissionKey,
   PermissionMap,
   Policy,
   Resource,
   Role,
-  ScopedRole,
   Subject,
 } from './types'
 

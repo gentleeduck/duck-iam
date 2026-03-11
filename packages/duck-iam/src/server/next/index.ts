@@ -9,7 +9,7 @@
  */
 
 import type { Engine } from '../../core/engine'
-import type { Environment, PermissionCheck, PermissionMap, Resource } from '../../core/types'
+import type { Environment, PermissionCheck, PermissionMap } from '../../core/types'
 import { METHOD_ACTION_MAP } from '../generic'
 
 // ------------------------------------------------------------

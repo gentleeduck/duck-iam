@@ -17,7 +17,7 @@ interface HonoContext {
   text(data: string, status?: number): Response
 }
 type HonoNext = () => Promise<void>
-type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | void>
+type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | undefined>
 
 export interface HonoOptions<TScope extends string = string> {
   getUserId?: (c: HonoContext) => string | null

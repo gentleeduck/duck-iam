@@ -60,9 +60,9 @@ export function Authorize<
 >(
   meta: AuthorizeMeta<TAction, TResource, TScope> = { infer: true } as AuthorizeMeta<TAction, TResource, TScope>,
 ): MethodDecorator {
-  return (target, propertyKey, descriptor) => {
+  return (_target, _propertyKey, descriptor) => {
     // Use Reflect.defineMetadata if available, otherwise fallback
-    if (typeof Reflect !== 'undefined' && Reflect.defineMetadata) {
+    if (Reflect?.defineMetadata) {
       Reflect.defineMetadata(ACCESS_METADATA_KEY, meta, descriptor.value as object)
     }
     // Attach directly as well for guard to read
@@ -90,7 +90,7 @@ function getHandlerMeta(handler: object): AuthorizeMeta | undefined {
     return (handler as HandlerWithMeta).__accessMeta
   }
   // Fall back to Reflect metadata
-  if (typeof Reflect !== 'undefined' && Reflect.getMetadata) {
+  if (Reflect?.getMetadata) {
     return Reflect.getMetadata(ACCESS_METADATA_KEY, handler) as AuthorizeMeta | undefined
   }
   return undefined

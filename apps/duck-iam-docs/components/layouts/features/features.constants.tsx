@@ -1,4 +1,4 @@
-import { FileText, Layers, Lock, Puzzle, Server, Shield, Terminal, Zap } from 'lucide-react'
+import { Layers, Puzzle, Server, Shield, Terminal, Zap } from 'lucide-react'
 export const features = [
   {
     bgColor: 'rgba(59, 130, 246, 0.1)',

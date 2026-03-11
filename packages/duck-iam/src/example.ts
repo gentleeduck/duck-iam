@@ -162,7 +162,7 @@ const engine = access.createEngine({
   cacheTTL: 60, // cache DB lookups for 60s
   hooks: {
     // Hooks observe decisions without modifying the engine.
-    onDeny: (req, decision) => {
+    onDeny: (req, _decision) => {
       console.log(`  [denied] ${req.subject.id} ${req.action} ${req.resource.type}`)
     },
   },

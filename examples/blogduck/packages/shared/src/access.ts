@@ -11,7 +11,7 @@ export const access = createAccessConfig({
   scopes: ['org-1', 'org-2'] as const,
 })
 
-let hi = access.defineRole('viewer')
+const _hi = access.defineRole('viewer')
 
 export type AppAction = (typeof access.actions)[number]
 export type AppResource = (typeof access.resources)[number]

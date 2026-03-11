@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+!/usr/bin/env bash
 set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -38,7 +38,7 @@ sleep 2
 
 # ── 4. Start frontend ──────────────────────────────────────────
 echo "Starting frontend on http://localhost:3000 ..."
-cd "$ROOT/packages/web" && bun --bun next dev --port 3000 &
+cd "$ROOT/packages/web" && bun --bun next dev --port 3003 &
 WEB_PID=$!
 
 echo ""

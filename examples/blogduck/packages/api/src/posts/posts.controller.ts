@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Req } from '@nestjs/common'
 import type { Request } from 'express'
 import { Authorize } from '../access/authorize'
-import { PostsService } from './posts.service'
+import type { PostsService } from './posts.service'
 
 @Controller('posts')
 export class PostsController {
