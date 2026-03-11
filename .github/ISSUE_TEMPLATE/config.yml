@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 📚 Documentation
-    url: https://gen.gentleduck.org
+  - name: Documentation
+    url: https://ui.gentleduck.org
     about: Check the docs before opening an issue.
-  - name: 💬 Community Discussions
-    url: https://github.com/gentleduck/duck-gen/discussions
+  - name: Community Discussions
+    url: https://github.com/gentleeduck/duck-iam/discussions
     about: Ask questions, share ideas, or start a conversation.
-  - name: 🛡️ Security Reports
-    url: https://github.com/gentleduck/duck-gen/security/policy
+  - name: Security Reports
+    url: https://github.com/gentleeduck/duck-iam/security/policy
     about: Report security vulnerabilities responsibly.

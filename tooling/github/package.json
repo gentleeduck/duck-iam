@@ -1,18 +1,18 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "engines": {
-    "bun": ">=1.3.5"
+    "node": ">=22.0.0"
   },
   "name": "@gentleduck/github",
-  "author": "GentleDuck (https://www.gentleduck.org)",
+  "author": "@gentleduck contributors",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/gentleeduck/duck-gen/issues"
+    "url": "https://github.com/gentleeduck/duck-iam/issues"
   },
-  "homepage": "https://github.com/gentleeduck/duck-gen/tree/master/tooling/github#readme",
+  "homepage": "https://github.com/gentleeduck/duck-iam/tree/master/tooling/github#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gentleeduck/duck-gen.git",
+    "url": "git+https://github.com/gentleeduck/duck-iam.git",
     "directory": "tooling/github"
   },
   "packageManager": "bun@1.3.5",
