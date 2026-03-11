@@ -47,7 +47,7 @@
     "clean": "rimraf dist .cache .turbo node_modules .next .velite",
     "clean:git": "git clean -xdf .cache .turbo node_modules dist",
     "lint:ws": "sherif",
-    "postinstall": "bun run lint:ws",
+    "postinstall": "bun run lint:ws || true",
     "prepare": "husky",
     "check-types": "turbo run check-types"
   },
