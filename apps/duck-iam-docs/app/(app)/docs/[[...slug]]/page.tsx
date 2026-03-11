@@ -122,7 +122,7 @@ const PostLayout = async ({ params }: { params: Promise<{ slug?: string[] }> }) 
             <div className="flex shrink-0 flex-col gap-1">
               <Button asChild className="justify-start" size="sm" variant="link">
                 <a
-                  href={`https://github.com/gentleeduck/duck-ui/blob/master/apps/duck-ui-docs/content/${doc.slug}.mdx`}
+                  href={`https://github.com/gentleeduck/duck-iam/blob/master/apps/duck-iam-docs/content/${doc.slug}.mdx`}
                   rel="noreferrer"
                   target="_blank">
                   <SquareArrowOutUpRight aria-hidden="true" className="size-3.5" />

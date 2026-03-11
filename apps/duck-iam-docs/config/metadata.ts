@@ -46,15 +46,14 @@ export const METADATA: Metadata = {
     'type-safe permissions',
   ],
   manifest: `${siteConfig.url}/site.webmanifest`,
-  metadataBase: new URL(siteConfig.url),
+  metadataBase: new URL(
+    siteConfig.url.startsWith('http') ? siteConfig.url : `https://${process.env.VERCEL_URL ?? 'localhost:3000'}`,
+  ),
   openGraph: {
     description: siteConfig.description,
     images: [
       {
-        alt: siteConfig.name,
-        height: 630,
-        url: siteConfig.ogImage,
-        width: 1200,
+        url: `/og?title=${encodeURIComponent(siteConfig.name)}&description=${encodeURIComponent(siteConfig.title)}`,
       },
     ],
     locale: 'en_US',
@@ -71,34 +70,37 @@ export const METADATA: Metadata = {
     card: 'summary_large_image',
     creator: '@gentleduck',
     description: siteConfig.description,
-    images: [siteConfig.ogImage],
+    images: [
+      {
+        url: `/og?title=${encodeURIComponent(siteConfig.name)}&description=${encodeURIComponent(siteConfig.title)}`,
+      },
+    ],
     title: siteConfig.name,
   },
 }
 
-const ogImage = {
-  alt: siteConfig.name,
-  height: 630,
-  url: siteConfig.ogImage,
-  width: 1200,
+export const SLUG_METADATA = (doc: { title: string; description: string; slug: string }): Metadata => {
+  const ogUrl = `/og?title=${encodeURIComponent(doc.title)}&description=${encodeURIComponent(doc.description)}`
+  return {
+    ...METADATA,
+    alternates: {
+      canonical: absoluteUrl(doc.slug),
+    },
+    description: doc.description,
+    openGraph: {
+      ...METADATA.openGraph,
+      description: doc.description,
+      images: [{ url: ogUrl }],
+      title: doc.title,
+      type: 'article',
+      url: absoluteUrl(doc.slug),
+    },
+    title: doc.title,
+    twitter: {
+      ...METADATA.twitter,
+      description: doc.description,
+      images: [{ url: ogUrl }],
+      title: doc.title,
+    },
+  }
 }
-
-export const SLUG_METADATA = (doc: { title: string; description: string; slug: string }): Metadata => ({
-  ...METADATA,
-  description: doc.description,
-  openGraph: {
-    ...METADATA.openGraph,
-    description: doc.description,
-    images: [ogImage],
-    title: doc.title,
-    type: 'article',
-    url: absoluteUrl(doc.slug),
-  },
-  title: doc.title,
-  twitter: {
-    ...METADATA.twitter,
-    description: doc.description,
-    images: [siteConfig.ogImage],
-    title: doc.title,
-  },
-})
