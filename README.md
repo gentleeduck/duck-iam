@@ -1,62 +1,81 @@
-# duck-iam
+<p align="center">
+  <img src="./apps/duck-iam-docs/public/og/iam-home-67.png" alt="duck-iam homepage snapshot (67%)" width="800"/>
+</p>
 
-Modern ABAC/RBAC access control engine for TypeScript. Framework-agnostic core with integrations for Express, NestJS, Hono, Next.js, React, and Vue.
+# gentleduck/iam
+
+A Bun-based monorepo for the duck-iam access control engine, docs, and related tooling.
 
 ## Documentation
-<<<<<<< HEAD
-- GitHub: https://github.com/gentleeduck/duck-ui
-=======
-- Website: https://gen.gentleduck.org
-- GitHub: https://github.com/gentleeduck/duck-gen
->>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964
+- Docs app: `apps/duck-iam-docs`
+- GitHub: https://github.com/gentleeduck/duck-iam
 
-## What's in the repo
-
-### Packages
-- `packages/duck-iam` — `duck-iam` core library (RBAC + ABAC + hybrid)
-- `packages/example-shared` — shared access config, types, and DB schema for examples
-- `packages/example-api` — NestJS backend example with typed `@Authorize()` decorators
-- `packages/example-app` — Next.js frontend example with `<Can>` / `useAccess()` components
+## Workspace Matrix
 
 ### Apps
-- `apps/duck-iam-docs` — documentation site
 
-## Features
-- Type-safe RBAC with role inheritance
-- Attribute-based access control (ABAC) with 17 condition operators
-- Hybrid RBAC + ABAC in a single evaluation pipeline
-- Hierarchical resources via dot-notation (`dashboard.users.settings`)
-- Scoped permissions (`system`, `tenant`)
-- 4 combining algorithms: deny-overrides, allow-overrides, first-match, highest-priority
-- Adapters: Memory, Prisma, Drizzle, HTTP
-- Server integrations: Express, NestJS, Hono, Next.js
-- Client libraries: React, Vue, vanilla JS
-- Compile-time type checking for actions, resources, scopes, and roles
+| Path | Package | Role | Status |
+| --- | --- | --- | --- |
+| `apps/duck-iam-docs` | `@gentleduck/iam-docs` | Public docs site for duck-iam | Active |
+
+### Published Packages
+
+| Path | Package | Role | Status |
+| --- | --- | --- | --- |
+| `packages/duck-iam` | `@gentleduck/iam` | Type-safe RBAC + ABAC access control engine for TypeScript | Active |
+
+### Private / Internal Packages
+
+| Path | Package | Role | Status |
+| --- | --- | --- | --- |
+| `packages/ui` | `@gentleduck/ui` | Production-ready React UI components built on Gentleduck primitives | Private, active |
+
+### Tooling Packages
+
+| Path | Package | Role | Status |
+| --- | --- | --- | --- |
+| `tooling/biome` | `@gentleduck/biome-config` | Shared Biome config | Internal |
+| `tooling/github` | `@gentleduck/github` | GitHub/project automation support | Internal |
+| `tooling/tailwind` | `@gentleduck/tailwind-config` | Shared Tailwind config | Internal |
+| `tooling/tsdown` | `@gentleduck/tsdown-config` | Shared `tsdown` config | Internal |
+| `tooling/typescript` | `@gentleduck/typescript-config` | Shared TypeScript config | Internal |
+| `tooling/vitest` | `@gentleduck/vitest-config` | Shared Vitest config | Internal |
+| `tooling/bash` | `bash` | Shell utilities and misc scripts | Internal |
+
+### Examples
+
+| Path | Role | Status |
+| --- | --- | --- |
+| `examples/blogduck` | Example app using duck-iam | Active |
+
+## Workspace Policy
+
+- Root quality scripts target the active workspace graph only.
+- Published packages are released to npm via changesets.
 
 ## Getting Started
+
+> Requires **Node >= 22** and **Bun >= 1.3**.
+
 ```bash
-<<<<<<< HEAD
-git clone https://github.com/gentleeduck/duck-ui.git
-cd duck-ui
-=======
-git clone https://github.com/gentleeduck/duck-gen.git
-cd duck-gen
->>>>>>> 68028f2b8f071c10853ff31e15c817d8fd06f964
+git clone https://github.com/gentleeduck/duck-iam.git
+cd duck-iam
 bun install
 ```
 
-## Build
+## Run a Single App
 ```bash
-bun run build
+bun --filter @gentleduck/iam-docs dev
 ```
 
-## Run examples
+## Common Workspace Commands
 ```bash
-# Start the NestJS API
-cd packages/example-api && bun run start:dev
-
-# Start the Next.js app
-cd packages/example-app && bun run dev
+bun run dev          # run all workspace dev tasks
+bun run build        # build all packages/apps
+bun run test         # run tests across workspaces
+bun run check        # biome checks
+bun run check-types  # TypeScript type checks
+bun run ci           # non-mutating repo verification (check, workspace lint, types, tests, build)
 ```
 
 ## Contributing
