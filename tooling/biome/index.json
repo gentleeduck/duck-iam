@@ -1,7 +1,12 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.3.11/schema.json",
   "assists": {
     "enabled": true
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
   },
   "formatter": {
     "attributePosition": "multiline",
@@ -15,10 +20,7 @@
       "**/public/**",
       "**/.next/**",
       "**/.velite/**",
-      "./apps/old_react_docs/",
-      "./packages/___/",
       "./packages/_oldstuff_refactor/",
-      "./packages/benchmark/",
       "./**/_*/**"
     ],
     "indentStyle": "space",
@@ -38,7 +40,7 @@
       "semicolons": "asNeeded",
       "trailingCommas": "all"
     },
-    "globals": ["Global1"]
+    "globals": []
   },
   "linter": {
     "enabled": true,
@@ -50,15 +52,10 @@
       "**/public/**",
       "**/.next/**",
       "**/.velite/**",
-      "./apps/old_react_docs/",
-      "./apps/docs/",
-      "./apps/upload-api/",
       "./apps/www/",
-      "./packages/___/",
       "./packages/_oldstuff_refactor/",
       "./packages/duck-state/",
       "./packages/duck-benchmark/",
-      "./packages/benchmark/",
       "**/upload/**",
       "**/table/**",
       "**/combobox.tsx",

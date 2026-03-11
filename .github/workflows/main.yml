@@ -1,19 +1,67 @@
 name: CI
 on:
   push:
-    branches:
-      - "**"
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  BUN_VERSION: "1.3.5"
+  NODE_VERSION: "22"
+  NEXT_PUBLIC_APP_URL: https://ui.gentleduck.org
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.5
-
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
+            turbo-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run build
-        env:
-          NEXT_PUBLIC_APP_URL: https://gentleduck.org
+      - run: bun run check-types
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
+            turbo-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run test

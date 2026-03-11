@@ -3,6 +3,8 @@
 # dependencies
 node_modules
 node_modules.root-owned
+.node_modules.root-owned/
+node_modules.bun-attempt.*/
 .pnp
 .pnp.js
 
@@ -11,6 +13,7 @@ coverage
 
 # next.js
 .next/
+**/.open-next/
 out/
 next-env.d.ts
 
@@ -62,5 +65,40 @@ certificates
 tailwind.config.ts
 **/.fuse_*
 node-compile-cache
+.node-compile-cache.root-owned/
+node-compile-cache.root-owned/
+*.root-owned-backup.*/
+.root-owned-backups.*/
+**/.backup-root-owned-modules*/
+**/.backup-root-owned-modules.*/
+**/.dist.root-owned.*/
+**/dist.root-owned.*/
+**/.turbo.root-owned*/
+**/.next.root-owned*/
+**/.registry-build/
+**/dist.prebun.*/
+**/.dist.prebun.*/
 **/tsconfig.tsbuildinfo
-**/.claude
+
+# Logs
+logs
+*.log
+dev-debug.log
+# Dependency directories
+node_modules/
+# Environment variables
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+**/.fuse_hidden*
+# OS specific
+
+# Task files
+# tasks.json
+# tasks/ 
+**/.claude/

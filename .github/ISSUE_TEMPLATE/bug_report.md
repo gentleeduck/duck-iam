@@ -1,74 +1,34 @@
 ---
-name: "🐛 Bug Report"
-about: Report a reproducible bug in Gentleduck
+name: Bug Report
+about: Report a reproducible bug in gentleduck/ui
 title: "[BUG] "
 labels: bug
 assignees: ""
 ---
 
-## Bug Description
-A clear and concise description of the bug.
-
----
+## Description
+A clear description of the bug.
 
 ## Steps to Reproduce
-Provide a step-by-step guide to reproduce the issue (the smaller the reproduction, the better):
+1. ...
+2. ...
+3. See error
 
-1. Setup project with version `X.Y.Z`
-2. Configure `duck-gen.json` with `{...}`
-3. Run command `bun run generate`
-4. See error
-
----
-
-## Expected Behavior
-What you expected to happen.
-
----
-
-## Actual Behavior
-What actually happened (include exact error messages, console output, or failed network requests).
-
----
-
-## Screenshots / Recordings
-If applicable, add screenshots, GIFs, or a screen recording that demonstrates the issue.
-
----
+## Expected vs Actual Behavior
+**Expected:** ...
+**Actual:** ...
 
 ## Environment
-Please complete the following information:
+- **OS:** [e.g. Ubuntu 22.04, macOS Sequoia]
+- **Node.js:** [e.g. v22.0.0]
+- **Bun:** [e.g. 1.3.5]
+- **Package(s):** [e.g. @gentleduck/primitives@1.0.0]
+- **Framework:** [e.g. Next.js 16, Vite 6]
 
-- **OS:** [e.g. Ubuntu 22.04, Windows 11, macOS Sonoma]
-- **Browser & Version:** [e.g. Chrome 118, Firefox 118]
-- **Bun Version:** [e.g. 1.3.5]
-- **Gentleduck Package(s) & Versions:**  
-  - `@gentleduck/gen@X.Y.Z`  
-  - `@gentleduck/query@X.Y.Z`  
-  - …  
+## Reproduction
+Link to a minimal repo, CodeSandbox, or StackBlitz that reproduces the bug.
 
----
-
-## Project Context
-- Framework: [e.g. NestJS 11, Express 5]
-- Build Tool: [e.g. Turborepo, Nx, plain Bun workspaces]
-- Configurations:
-  - `duck-gen.json` config (if relevant)
-  - Custom TypeScript settings (if relevant)
-
----
-
-## Minimal Reproduction Repo
-Please provide a link to a **minimal GitHub repo** or **CodeSandbox/StackBlitz** that reproduces the bug.  
-This speeds up fixing by 10x.  
-
----
-
-## Logs
-Paste any relevant logs or error messages (console, server, or build logs):  
-
-```bash
-# Example
-bun run generate
-Error: Failed to resolve schema at path...
+## Logs / Screenshots
+```
+(paste relevant error output here)
 ```
