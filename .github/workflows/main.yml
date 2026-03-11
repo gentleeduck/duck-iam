@@ -1,14 +1,14 @@
 name: CI
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
 
 env:
   BUN_VERSION: "1.3.5"
   NODE_VERSION: "22"
-  NEXT_PUBLIC_APP_URL: https://ui.gentleduck.org
+  NEXT_PUBLIC_APP_URL: https://iam.gentleduck.org
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
