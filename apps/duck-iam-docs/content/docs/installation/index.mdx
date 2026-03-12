@@ -227,3 +227,54 @@ correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
 - [Quick Start](/docs/guides) -- end-to-end walkthrough with roles, policies, server middleware, and client hooks.
 - [Core Concepts](/docs/core) -- deep dive into the RBAC + ABAC evaluation model.
 - [Integrations](/docs/integrations) -- set up Express, Hono, NestJS, or Next.js middleware.
+
+---
+
+## Installation FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="peer-dependencies-required">
+    <AccordionTrigger>Do I need every peer dependency to use duck-iam?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. <code className="rounded bg-muted px-2 py-1">react</code>, <code className="rounded bg-muted px-2 py-1">vue</code>,
+      and <code className="rounded bg-muted px-2 py-1">@prisma/client</code> are optional peers. Install only the
+      peers needed by the subpaths you import.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="runtime-vs-monorepo-requirements">
+    <AccordionTrigger>Why do the package runtime requirements differ from the monorepo tooling requirements?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The published package targets application runtimes, while the monorepo also includes docs, examples,
+      and workspace tooling. In practice, duck-iam itself is designed for Node.js 18+ runtimes, while the
+      monorepo may require newer Node or Bun versions to run the entire workspace.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="subpath-imports-only">
+    <AccordionTrigger>Can I import only the pieces I need?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. The package uses subpath exports such as <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/express</code>,
+      <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code>, and
+      <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/drizzle</code> so framework-specific code stays opt-in.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="need-create-access-config">
+    <AccordionTrigger>Do I have to use createAccessConfig() on day one?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. You can start with the untyped builders and move to <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>
+      when you want compile-time validation for actions, resources, scopes, and roles. The typed path is the
+      better long-term default for production apps, but it is not required to get started.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="what-to-seed-first">
+    <AccordionTrigger>What should I seed first in a new project?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Start with your stable role definitions, a small set of core policies, and the initial role assignments
+      needed to boot the app. Subject attributes can usually be added later as your domain data becomes
+      available.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
