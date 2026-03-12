@@ -324,6 +324,16 @@ are resolved at evaluation time instead of being treated as literals.
 The `$subject.id` string is not compared literally. At eval time, the engine strips the
 `$` prefix and resolves `subject.id` from the request, then compares the result.
 
+<Callout type="info">
+  **DollarPaths autocomplete:** When you use `createAccessConfig()` with a typed context,
+  `$`-references get full autocomplete in your editor. Type `'$'` in any value position
+  and your editor suggests all valid paths (e.g. `$subject.id`,
+  `$resource.attributes.ownerId`, `$env.ip`).
+
+  Internally, the `& {}` intersection trick is used so that even when the literal type
+  is `string`, autocomplete still shows `$`-prefixed suggestions.
+</Callout>
+
 The `isOwner()` shortcut uses this internally:
 
 ```typescript
@@ -332,9 +342,22 @@ The `isOwner()` shortcut uses this internally:
 .when(w => w.check('resource.attributes.ownerId', 'eq', '$subject.id'))
 ```
 
-You can use `$`-references with any resolvable path:
+You can use `$`-references anywhere a value is accepted -- in `.check()`,
+`.attr()`, `.resourceAttr()`, and `.env()`:
 
 ```typescript
+// Compare resource owner to current user
+.when(w => w.resourceAttr('ownerId', 'neq', '$subject.id'))
+
+// Compare subject attribute to resource attribute
+.when(w => w.attr('status', 'eq', '$resource.attributes.status'))
+
+// Prevent self-actions (e.g. user can't delete own account)
+.when(w => w.check('resource.id', 'eq', '$subject.id'))
+
+// Compare env value to resource attribute
+.when(w => w.env('ip', 'eq', '$resource.attributes.allowedIp'))
+
 // Resource department must match subject department
 .when(w => w.check(
   'resource.attributes.department',

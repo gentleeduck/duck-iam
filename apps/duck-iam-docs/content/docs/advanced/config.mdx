@@ -203,8 +203,9 @@ access.policy('global-owner')
     .on('delete')
     .of('*')
     .when(w => w
-      .not(n => n.resourceAttr('ownerId', 'eq', '$subject.id' as string))
+      .not(n => n.resourceAttr('ownerId', 'eq', '$subject.id'))
       //                        ^ available because ownerId exists on post + comment
+      //                        '$subject.id' gets full autocomplete via DollarPaths
     )
   )
   .build()
@@ -240,6 +241,7 @@ The typed context system uses several TypeScript utility types that work togethe
 | `ResourceAttrMap<T>` | Extracts `T['resourceAttributes']` (per-resource attribute map) |
 | `ResolvedResourceAttrs<T, R>` | Resolves resource attrs for resource `R` -- specific type for known resources, merged union for `'*'` |
 | `AttrValue<A, K>` | Resolves the value type for key `K` in attribute bag `A` |
+| `DollarPaths<T>` | Generates `$`-prefixed versions of all dot-paths. Used for autocomplete on dynamic cross-references like `'$subject.id'`. |
 
 The `context` phantom field on `createAccessConfig` captures your context type (`TContext`).
 This type parameter flows through `AccessConfig` into every builder:
@@ -258,6 +260,47 @@ createAccessConfig({ context: {} as AppContext })
 
 When `.of('*')` is used, `ResolvedResourceAttrs` merges all resource attribute types using
 `MergedResourceAttrs`, which collects every key from every resource and unions their value types.
+
+### DollarPaths: typed $-variable autocomplete
+
+When you provide a typed `context`, value positions in condition builders accept `$`-prefixed
+references with full autocomplete. This is powered by the `DollarPaths` utility type:
+
+```typescript
+type DollarPaths<TContext> = `$${DotPaths<TContext>}`
+// e.g. '$subject.id' | '$subject.roles' | '$subject.attributes.status' | '$resource.id' | ...
+```
+
+`DollarPaths<TContext>` maps every dot-path in your context into a `$`-prefixed template
+literal. These `$`-references are available on the value parameter of `.check()`, `.eq()`,
+`.neq()`, `.attr()`, `.resourceAttr()`, and `.env()` -- anywhere you can compare against
+a dynamic value from the request context.
+
+```typescript
+access.policy('owner-only')
+  .rule('deny-non-owner', r => r
+    .deny()
+    .on('update', 'delete')
+    .of('post')
+    .when(w => w
+      // Full autocomplete: '$subject.id', '$subject.roles', '$subject.attributes.status', ...
+      .resourceAttr('ownerId', 'neq', '$subject.id')
+      // Cross-attribute comparison
+      .attr('status', 'eq', '$resource.attributes.status')
+    )
+  )
+  .build()
+```
+
+No `as string` cast is needed. The value parameter accepts both literal values (e.g. `'draft'`)
+and `$`-references (e.g. `'$subject.id'`) in a single union type.
+
+<Callout type="info">
+Internally, `DollarPaths` uses an `& {}` intersection trick to prevent TypeScript from
+collapsing `string | '$subject.id'` into just `string`. This preserves the individual
+`$`-prefixed literals in autocomplete suggestions while still allowing arbitrary string
+values when the context is untyped.
+</Callout>
 
 ## AccessConfig Methods
 
