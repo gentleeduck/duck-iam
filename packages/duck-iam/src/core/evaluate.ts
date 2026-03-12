@@ -44,6 +44,7 @@ function policyApplies(policy: Policy, req: AccessRequest): boolean {
 
 // --- Combining algorithms ---
 
+/** Signature for a combining algorithm implementation. */
 type Combiner = (
   matched: Array<{ rule: Rule; effect: Effect }>,
   defaultEffect: Effect,
@@ -119,7 +120,15 @@ const combiners: Record<CombiningAlgorithm, Combiner> = {
 // --- Public evaluation functions ---
 
 /**
- * Evaluate a single policy against a request. Pure function, no side effects.
+ * Evaluates a single policy against an access request.
+ *
+ * Pure function with no side effects. Checks policy targets first, then
+ * evaluates matching rules using the policy's combining algorithm.
+ *
+ * @param policy        - The policy to evaluate
+ * @param request       - The access request to evaluate against
+ * @param defaultEffect - Effect to use when no rules match (defaults to `'deny'`)
+ * @returns A {@link Decision} with the evaluation result
  */
 export function evaluatePolicy(policy: Policy, request: AccessRequest, defaultEffect: Effect = 'deny'): Decision {
   const start = performance.now()
@@ -158,8 +167,15 @@ export function evaluatePolicy(policy: Policy, request: AccessRequest, defaultEf
 }
 
 /**
- * Evaluate multiple policies. Deny from any policy = overall deny.
- * This is the AND-combination across policies (defense in depth).
+ * Evaluates multiple policies against an access request using AND-combination.
+ *
+ * A deny from any single policy is final (defense in depth). Policies are
+ * evaluated in order; the first non-allow result short-circuits.
+ *
+ * @param policies      - All policies to evaluate
+ * @param request       - The access request to evaluate against
+ * @param defaultEffect - Effect to use when no rules match (defaults to `'deny'`)
+ * @returns A {@link Decision} with the overall evaluation result
  */
 export function evaluate(policies: Policy[], request: AccessRequest, defaultEffect: Effect = 'deny'): Decision {
   const start = performance.now()

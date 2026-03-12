@@ -82,7 +82,14 @@ export function rolesToPolicy(roles: Role[]): Policy {
 }
 
 /**
- * Resolve a subject's effective roles, including inherited ones.
+ * Resolves a subject's effective roles by walking the inheritance tree.
+ *
+ * Starting from the assigned roles, recursively follows `inherits` chains
+ * and returns all unique role IDs. Handles cycles via a visited set.
+ *
+ * @param assignedRoles - The role IDs directly assigned to the subject
+ * @param allRoles      - All role definitions (needed for inheritance lookup)
+ * @returns All effective role IDs (assigned + inherited)
  */
 export function resolveEffectiveRoles(assignedRoles: string[], allRoles: Role[]): string[] {
   const rolesMap = new Map(allRoles.map((r) => [r.id, r]))
