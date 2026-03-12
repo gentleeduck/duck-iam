@@ -49,7 +49,6 @@
     "access": "restricted"
   },
   "scripts": {
-    "prebuild": "bunx velite",
     "build": "next build",
     "build:docs": "bunx velite",
     "dev": "next dev",
