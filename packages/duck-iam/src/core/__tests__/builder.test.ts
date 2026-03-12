@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { defineRole, defineRule, PolicyBuilder, policy, RoleBuilder, RuleBuilder, When, when } from '../builder'
+import type { DefaultContext } from '../types'
 
 describe('When (condition builder)', () => {
   it('builds an all-group from chained conditions', () => {
-    const group = new When().eq('action', 'read').contains('subject.roles', 'editor').buildAll()
+    const group = new When<string, string, string, string, DefaultContext>().eq('action', 'read').contains('subject.roles', 'editor').buildAll()
     expect(group).toEqual({
       all: [
         { field: 'action', operator: 'eq', value: 'read' },
@@ -13,24 +14,25 @@ describe('When (condition builder)', () => {
   })
 
   it('builds an any-group', () => {
-    const group = new When().eq('action', 'read').eq('action', 'write').buildAny()
+    const group = new When<string, string, string, string, DefaultContext>().eq('action', 'read').eq('action', 'write').buildAny()
     expect('any' in group).toBe(true)
   })
 
   it('builds a none-group', () => {
-    const group = new When().eq('action', 'delete').buildNone()
+    const group = new When<string, string, string, string, DefaultContext>().eq('action', 'delete').buildNone()
     expect('none' in group).toBe(true)
   })
 
   it('shorthand operators work', () => {
-    const w = new When()
+    // biome-ignore lint/suspicious/noExplicitAny: testing arbitrary field names
+    const w = new When<string, string, string, string, any>()
     w.neq('a', 1).in('b', [1, 2]).gt('c', 0).gte('d', 1).lt('e', 10).lte('f', 5).matches('g', '^x').exists('h')
     const group = w.buildAll()
     expect(group.all).toHaveLength(8)
   })
 
   it('isOwner adds $subject.id condition', () => {
-    const group = new When().isOwner().buildAll()
+    const group = new When<string, string, string, string, DefaultContext>().isOwner().buildAll()
     expect(group.all[0]).toEqual({
       field: 'resource.attributes.ownerId',
       operator: 'eq',
@@ -39,7 +41,7 @@ describe('When (condition builder)', () => {
   })
 
   it('isOwner accepts custom field', () => {
-    const group = new When().isOwner('resource.attributes.authorId').buildAll()
+    const group = new When<string, string, string, string, DefaultContext>().isOwner('resource.attributes.authorId').buildAll()
     expect((group.all[0] as any).field).toBe('resource.attributes.authorId')
   })
 
@@ -54,22 +56,22 @@ describe('When (condition builder)', () => {
   })
 
   it('attr() prefixes with subject.attributes', () => {
-    const group = new When().attr('level', 'gte', 5).buildAll()
+    const group = new When<string, string, string, string, DefaultContext>().attr('level', 'gte', 5).buildAll()
     expect((group.all[0] as any).field).toBe('subject.attributes.level')
   })
 
   it('resourceAttr() prefixes with resource.attributes', () => {
-    const group = new When().resourceAttr('status', 'eq', 'published').buildAll()
+    const group = new When<string, string, string, string, DefaultContext>().resourceAttr('status', 'eq', 'published').buildAll()
     expect((group.all[0] as any).field).toBe('resource.attributes.status')
   })
 
   it('env() prefixes with environment', () => {
-    const group = new When().env('ip', 'eq', '127.0.0.1').buildAll()
+    const group = new When<string, string, string, string, DefaultContext>().env('ip', 'eq', '127.0.0.1').buildAll()
     expect((group.all[0] as any).field).toBe('environment.ip')
   })
 
   it('nested and/or/not groups', () => {
-    const group = new When()
+    const group = new When<string, string, string, string, DefaultContext>()
       .eq('action', 'read')
       .or((w) => w.eq('subject.id', 'admin').role('super-admin'))
       .buildAll()
@@ -79,7 +81,7 @@ describe('When (condition builder)', () => {
   })
 
   it('nested not group', () => {
-    const group = new When().not((w) => w.eq('action', 'delete')).buildAll()
+    const group = new When<string, string, string, string, DefaultContext>().not((w) => w.eq('action', 'delete')).buildAll()
 
     expect('none' in group.all[0]!).toBe(true)
   })

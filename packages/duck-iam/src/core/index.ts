@@ -16,37 +16,5 @@ export type {
 export { explainEvaluation } from './explain'
 export { resolveEffectiveRoles, rolesToPolicy } from './rbac'
 export { matchesAction, matchesResource, matchesResourceHierarchical, matchesScope, resolve } from './resolve'
-export type {
-  AccessRequest,
-  Adapter,
-  Attributes,
-  AttributeValue,
-  CombiningAlgorithm,
-  Condition,
-  ConditionGroup,
-  Decision,
-  Effect,
-  EngineConfig,
-  EngineHooks,
-  Environment,
-  InferAction,
-  InferResource,
-  InferScope,
-  Operator,
-  Permission,
-  PermissionCheck,
-  PermissionKey,
-  PermissionMap,
-  Policy,
-  PolicyStore,
-  Resource,
-  Role,
-  RoleStore,
-  Rule,
-  Scalar,
-  ScopedRole,
-  Subject,
-  SubjectStore,
-} from './types'
-export type { ValidationIssue, ValidationResult } from './validate'
-export { validatePolicy, validateRoles } from './validate'
+export * from './types'
+export * from './validate'
