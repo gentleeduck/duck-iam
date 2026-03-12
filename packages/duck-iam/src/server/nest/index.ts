@@ -10,6 +10,7 @@ declare namespace Reflect {
 
 // -- Minimal NestJS types -- no hard dependency on @nestjs/common --
 
+/** Minimal NestJS request shape. */
 interface NestRequest {
   user?: { id?: string; sub?: string; [key: string]: unknown }
   params?: Record<string, string>
@@ -21,13 +22,14 @@ interface NestRequest {
   [key: string]: unknown
 }
 
+/** Minimal NestJS execution context. */
 interface NestExecutionContext {
   switchToHttp(): { getRequest(): NestRequest }
   // NestJS returns Function -- we use `object` as the compatible supertype
   getHandler(): object
 }
 
-// -- Metadata key for the decorator --
+/** Metadata key for the @Authorize decorator. */
 export const ACCESS_METADATA_KEY = 'duck-iam:authorize'
 
 // -- Types for decorator config --
@@ -36,13 +38,17 @@ export interface AuthorizeMeta<
   TResource extends string = string,
   TScope extends string = string,
 > {
+  /** Required action (e.g. "delete", "manage"). */
   action?: TAction
+  /** Target resource type (e.g. "post", "user"). */
   resource?: TResource
+  /** Optional scope constraint. */
   scope?: TScope
   /** If true, infer action from HTTP method and resource from route path */
   infer?: boolean
 }
 
+/** Handler function with attached authorize metadata. */
 interface HandlerWithMeta {
   __accessMeta?: AuthorizeMeta
 }
@@ -77,13 +83,19 @@ export function Authorize<
  * Guard factory for NestJS.
  */
 export interface NestGuardOptions<TScope extends string = string> {
+  /** Extract the current user ID from the request. */
   getUserId?: (request: NestRequest) => string | null
+  /** Extract environment context (IP, user-agent, etc.) from the request. */
   getEnvironment?: (request: NestRequest) => Environment
+  /** Extract the resource ID from the request. */
   getResourceId?: (request: NestRequest) => string | undefined
+  /** Determine the scope for the access check. */
   getScope?: (request: NestRequest) => TScope | undefined
+  /** Custom error handler; return true to allow, false to deny. */
   onError?: (err: Error, request: NestRequest) => boolean
 }
 
+/** Extract authorize metadata from a handler. */
 function getHandlerMeta(handler: object): AuthorizeMeta | undefined {
   // Check property attached by @Authorize decorator
   if ('__accessMeta' in handler) {
@@ -142,6 +154,7 @@ export function nestAccessGuard<
   }
 }
 
+/** Infer resource type from request route path. */
 function inferResource(request: NestRequest): string {
   const path: string = request.route?.path ?? request.path ?? '/'
   const segments = path.split('/').filter((s: string) => s && !s.startsWith(':'))
@@ -165,6 +178,7 @@ export function createTypedAuthorize<
   return Authorize as (meta?: AuthorizeMeta<TAction, TResource, TScope>) => MethodDecorator
 }
 
+/** DI token for the access Engine in NestJS. */
 export const ACCESS_ENGINE_TOKEN = 'ACCESS_ENGINE'
 
 /**

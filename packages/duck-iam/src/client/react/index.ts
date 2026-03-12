@@ -41,10 +41,12 @@ import { buildPermissionKey } from '../../shared/keys'
 // Minimal React API surface -- matches React 18+ / 19
 // ------------------------------------------------------------
 
+/** Minimal React context type. */
 interface ReactContext<_T> {
   Provider: unknown
 }
 
+/** Minimal React API surface for dependency injection. */
 interface ReactLike {
   createContext<T>(defaultValue: T): ReactContext<T>
   useContext<T>(context: ReactContext<T>): T
@@ -65,8 +67,11 @@ export interface AccessContextValue<
   TResource extends string = string,
   TScope extends string = string,
 > {
+  /** The resolved permission map. */
   permissions: PermissionMap<TAction, TResource, TScope>
+  /** Returns `true` if the given action/resource combination is allowed. */
   can: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
+  /** Returns `true` if the given action/resource combination is denied. */
   cannot: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
 }
 
@@ -95,6 +100,7 @@ export function createAccessControl<
 
   // -- Provider --
 
+  /** Context provider component that supplies permission data to the tree. */
   function AccessProvider({
     permissions,
     children,
@@ -120,12 +126,14 @@ export function createAccessControl<
 
   // -- Hook --
 
+  /** Hook to access the permission context. */
   function useAccess(): AccessContextValue<TAction, TResource, TScope> {
     return useContext(AccessContext)
   }
 
   // -- Declarative components --
 
+  /** Declarative component that renders children only when the permission is granted. */
   function Can({
     action,
     resource,
@@ -145,6 +153,7 @@ export function createAccessControl<
     return can(action, resource, resourceId, scope) ? children : fallback
   }
 
+  /** Declarative component that renders children only when the permission is denied. */
   function Cannot({
     action,
     resource,
@@ -164,6 +173,7 @@ export function createAccessControl<
 
   // -- Utility hook: fetch permissions from server --
 
+  /** Hook to asynchronously fetch permissions from a server endpoint. */
   function usePermissions(
     fetchFn: () => Promise<PermissionMap<TAction, TResource, TScope>>,
     deps: readonly unknown[] = [],
