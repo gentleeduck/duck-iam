@@ -25,7 +25,7 @@
   "devDependencies": {
     "@gentleduck/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "^4.1.18",
-    "@types/node": "22.19.3",
+    "@types/node": "25.4.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "tailwindcss": "4.1.18",
