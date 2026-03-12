@@ -2,6 +2,9 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/iam",
   "version": "1.1.1",
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Modern ABAC/RBAC access control engine. Framework-agnostic core with integrations for Express, NestJS, Hono, Next.js, React, and Vue.",
   "type": "module",
   "main": "dist/index.js",
