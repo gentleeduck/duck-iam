@@ -16,13 +16,19 @@ import { METHOD_ACTION_MAP } from '../generic'
 // API Route Handler wrapper
 // ------------------------------------------------------------
 
+/** Next.js route handler context with params. */
 type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
+/** Next.js App Router route handler signature. */
 type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response>
 
 export interface WithAccessOptions<TScope extends string = string> {
+  /** Extract the current user ID from the request. */
   getUserId?: (req: Request) => string | null | Promise<string | null>
+  /** Extract environment context (IP, user-agent, etc.) from the request. */
   getEnvironment?: (req: Request) => Environment
+  /** Scope to apply for the access check. */
   scope?: TScope
+  /** Custom error handler for access check failures. */
   onError?: (err: Error, req: Request) => Response
 }
 
@@ -151,7 +157,9 @@ export interface NextMiddlewareOptions<
     /** Optional scope for this route */
     scope?: TScope
   }>
+  /** Extract the current user ID from the request. */
   getUserId: (req: Request) => string | null | Promise<string | null>
+  /** Custom error handler for access check failures. */
   onError?: (err: Error, req: Request) => Response
 }
 

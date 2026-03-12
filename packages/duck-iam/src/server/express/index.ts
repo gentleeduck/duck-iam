@@ -2,7 +2,7 @@ import type { Engine } from '../../core/engine'
 import type { Environment, Policy, Resource, Role } from '../../core/types'
 import { extractEnvironment, METHOD_ACTION_MAP } from '../generic'
 
-// Minimal Express types -- no hard dependency on express
+/** Minimal Express request shape. */
 interface Req {
   method?: string
   path?: string
@@ -14,13 +14,17 @@ interface Req {
   user?: { id: string; [k: string]: unknown }
   [k: string]: unknown
 }
+/** Minimal Express response shape. */
 interface Res {
   status(code: number): Res
   json(body: unknown): void
 }
+/** Express next function. */
 type Next = (err?: unknown) => void
+/** Express middleware function. */
 type Middleware = (req: Req, res: Res, next: Next) => void
 
+/** Minimal Express Router interface for admin routes. */
 interface ExpressRouterLike {
   get(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
   put(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
@@ -29,12 +33,19 @@ interface ExpressRouterLike {
 }
 
 export interface ExpressOptions<TScope extends string = string> {
+  /** Extract the current user ID from the request. */
   getUserId?: (req: Req) => string | null
+  /** Derive the target resource from the request. */
   getResource?: (req: Req) => Resource
+  /** Derive the action being performed from the request. */
   getAction?: (req: Req) => string
+  /** Extract environment context (IP, user-agent, etc.) from the request. */
   getEnvironment?: (req: Req) => Environment
+  /** Determine the scope for the access check. */
   getScope?: (req: Req) => TScope | undefined
+  /** Custom handler invoked when access is denied. */
   onDenied?: (req: Req, res: Res) => void
+  /** Custom error handler for access check failures. */
   onError?: (err: Error, req: Req, res: Res, next: Next) => void
 }
 

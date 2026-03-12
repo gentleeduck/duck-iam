@@ -2,7 +2,7 @@ import type { Engine } from '../../core/engine'
 import type { Environment, Resource } from '../../core/types'
 import { METHOD_ACTION_MAP } from '../generic'
 
-// Minimal Hono-compatible types -- no hard dependency on hono
+/** Minimal Hono context shape. */
 interface HonoContext {
   req: {
     method: string
@@ -16,19 +16,29 @@ interface HonoContext {
   json(data: unknown, status?: number): Response
   text(data: string, status?: number): Response
 }
+/** Hono next function. */
 type HonoNext = () => Promise<void>
+/** Hono middleware function. */
 type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | undefined>
 
 export interface HonoOptions<TScope extends string = string> {
+  /** Extract the current user ID from the context. */
   getUserId?: (c: HonoContext) => string | null
+  /** Derive the target resource from the context. */
   getResource?: (c: HonoContext) => Resource
+  /** Derive the action being performed from the context. */
   getAction?: (c: HonoContext) => string
+  /** Extract environment context (IP, user-agent, etc.) from the context. */
   getEnvironment?: (c: HonoContext) => Environment
+  /** Determine the scope for the access check. */
   getScope?: (c: HonoContext) => TScope | undefined
+  /** Custom handler invoked when access is denied. */
   onDenied?: (c: HonoContext) => Response
+  /** Custom error handler for access check failures. */
   onError?: (err: Error, c: HonoContext) => Response
 }
 
+/** Extract environment from Hono context using common headers. */
 function defaultEnv(c: HonoContext): Environment {
   return {
     ip: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for'),
