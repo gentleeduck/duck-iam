@@ -21,18 +21,22 @@
 import type { PermissionMap } from '../../core/types'
 import { buildPermissionKey } from '../../shared/keys'
 
+/** Vue injection key for the access control state. */
 export const ACCESS_INJECTION_KEY = Symbol('duck-iam')
 
 // -- Minimal Vue 3 API surface -- no hard dependency on vue --
 
+/** Minimal Vue ref type. */
 interface VueRef<T> {
   value: T
 }
 
+/** Minimal Vue virtual node type. */
 interface VNode {
   [key: string]: unknown
 }
 
+/** Minimal Vue API surface for dependency injection. */
 interface VueLike {
   ref<T>(value: T): VueRef<T>
   computed<T>(getter: () => T): Readonly<VueRef<T>>
@@ -42,6 +46,7 @@ interface VueLike {
   h(type: unknown, props?: Record<string, unknown> | null, children?: unknown): VNode
 }
 
+/** Minimal Vue application instance type. */
 interface VueApp {
   provide(key: symbol | string, value: unknown): void
   config: { globalProperties: Record<string, unknown> }
@@ -63,8 +68,9 @@ export function createVueAccess<
   TResource extends string = string,
   TScope extends string = string,
 >(vue: VueLike) {
-  const { ref, inject, provide, defineComponent, h } = vue
+  const { ref, inject, provide, defineComponent } = vue
 
+  /** Create reactive access control state with can/cannot helpers. */
   function createAccessState(initialPermissions: PermissionMap<TAction, TResource, TScope>) {
     const permissions = ref(initialPermissions as PermissionMap<TAction, TResource, TScope>)
 
@@ -84,12 +90,14 @@ export function createVueAccess<
     return { permissions, can, cannot, update }
   }
 
+  /** Provide access control state to child components via Vue's provide/inject. */
   function provideAccess(permissions: PermissionMap<TAction, TResource, TScope>) {
     const state = createAccessState(permissions)
     provide(ACCESS_INJECTION_KEY, state)
     return state
   }
 
+  /** Composable to access the permission state from a parent provider. */
   function useAccess() {
     const state = inject(ACCESS_INJECTION_KEY)
     if (!state) {
@@ -101,6 +109,7 @@ export function createVueAccess<
     return state as ReturnType<typeof createAccessState>
   }
 
+  /** Create a Vue plugin that installs access control globally. */
   function createAccessPlugin(permissions: PermissionMap<TAction, TResource, TScope>) {
     return {
       install(app: VueApp) {

@@ -1,13 +1,12 @@
-import { LRUCache } from '../shared/cache'
-import { buildPermissionKey } from '../shared/keys'
-import { evaluate } from './evaluate'
-import type { ExplainResult } from './explain'
-import { explainEvaluation } from './explain'
-import { resolveEffectiveRoles, rolesToPolicy } from './rbac'
+import { LRUCache } from '../../shared/cache'
+import { buildPermissionKey } from '../../shared/keys'
+import { evaluate } from '../evaluate'
+import type { ExplainResult } from '../explain'
+import { explainEvaluation } from '../explain'
+import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 import type {
   AccessRequest,
   Adapter,
-  Attributes,
   Decision,
   Effect,
   EngineConfig,
@@ -18,50 +17,9 @@ import type {
   Resource,
   Role,
   Subject,
-} from './types'
-
-/**
- * Administrative interface for managing policies, roles, and subject data.
- *
- * Accessed via `engine.admin`. All mutation methods automatically invalidate
- * the relevant engine caches.
- *
- * @template TAction   - Union of valid action strings
- * @template TResource - Union of valid resource strings
- * @template TRole     - Union of valid role strings
- * @template TScope    - Union of valid scope strings
- */
-interface EngineAdmin<
-  TAction extends string = string,
-  TResource extends string = string,
-  TRole extends string = string,
-  TScope extends string = string,
-> {
-  /** Returns all stored policies. */
-  listPolicies(): Promise<Policy<TAction, TResource, TRole>[]>
-  /** Returns a single policy by ID, or `null` if not found. */
-  getPolicy(id: string): Promise<Policy<TAction, TResource, TRole> | null>
-  /** Creates or updates a policy. Invalidates the policy cache. */
-  savePolicy(policy: Policy<TAction, TResource, TRole>): Promise<void>
-  /** Deletes a policy by ID. Invalidates the policy cache. */
-  deletePolicy(id: string): Promise<void>
-  /** Returns all stored roles. */
-  listRoles(): Promise<Role<TAction, TResource, TRole, TScope>[]>
-  /** Returns a single role by ID, or `null` if not found. */
-  getRole(id: string): Promise<Role<TAction, TResource, TRole, TScope> | null>
-  /** Creates or updates a role. Invalidates role and subject caches. */
-  saveRole(role: Role<TAction, TResource, TRole, TScope>): Promise<void>
-  /** Deletes a role by ID. Invalidates role and subject caches. */
-  deleteRole(id: string): Promise<void>
-  /** Assigns a role to a subject. Invalidates that subject's cache entry. */
-  assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
-  /** Revokes a role from a subject. Invalidates that subject's cache entry. */
-  revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
-  /** Sets the attribute bag for a subject. Invalidates that subject's cache entry. */
-  setAttributes(subjectId: string, attrs: Attributes): Promise<void>
-  /** Returns the attribute bag for a subject. */
-  getAttributes(subjectId: string): Promise<Attributes>
-}
+} from '../types'
+import { createAdmin, enrichSubjectWithScopedRoles } from './engine.libs'
+import type { EngineAdmin } from './engine.types'
 
 /**
  * The authorization engine: the central runtime that evaluates access requests
@@ -113,10 +71,7 @@ export class Engine<
     this.subjectCache = new LRUCache(maxSize, ttl)
   }
 
-  // -----------------------------------------------
-  // Data loading
-  // -----------------------------------------------
-
+  /** Load all policies from the adapter, using the cache if available. */
   private async loadPolicies(): Promise<Policy[]> {
     const cached = this.policyCache.get('all')
     if (cached) return cached
@@ -125,6 +80,7 @@ export class Engine<
     return policies as Policy[]
   }
 
+  /** Load all roles from the adapter, using the cache if available. */
   private async loadRoles(): Promise<Role[]> {
     const cached = this.roleCache.get('all')
     if (cached) return cached
@@ -133,7 +89,8 @@ export class Engine<
     return roles as Role[]
   }
 
-  async resolveSubject(subjectId: string): Promise<Subject> {
+  /** Resolve a subject's roles, scoped roles, and attributes, using the cache if available. */
+  private async resolveSubject(subjectId: string): Promise<Subject> {
     const cached = this.subjectCache.get(subjectId)
     if (cached) return cached
 
@@ -155,10 +112,6 @@ export class Engine<
     return subject
   }
 
-  // -----------------------------------------------
-  // Core evaluation
-  // -----------------------------------------------
-
   /**
    * Load RBAC + ABAC policies for evaluation.
    * Each user-defined policy keeps its own combining algorithm.
@@ -178,22 +131,6 @@ export class Engine<
   }
 
   /**
-   * Enrich a subject's roles with scoped role assignments matching the request scope.
-   * If user has role 'editor' scoped to 'org-1' and request.scope is 'org-1',
-   * 'editor' is added to subject.roles for this evaluation.
-   */
-  private enrichSubjectWithScopedRoles(subject: Subject, scope: TScope | undefined): Subject {
-    if (!scope || !subject.scopedRoles?.length) return subject
-
-    const extraRoles = subject.scopedRoles.filter((sr) => sr.scope === scope).map((sr) => sr.role)
-
-    if (extraRoles.length === 0) return subject
-
-    const mergedRoles = [...new Set([...subject.roles, ...extraRoles])]
-    return { ...subject, roles: mergedRoles }
-  }
-
-  /**
    * Full authorization check with a complete AccessRequest.
    */
   async authorize(request: AccessRequest<TAction, TResource, TScope>): Promise<Decision> {
@@ -202,7 +139,7 @@ export class Engine<
     try {
       // Enrich subject with scoped roles matching the request scope
       if (req.scope && req.subject.scopedRoles?.length) {
-        req = { ...req, subject: this.enrichSubjectWithScopedRoles(req.subject, req.scope) }
+        req = { ...req, subject: enrichSubjectWithScopedRoles(req.subject, req.scope) }
       }
 
       if (this.hooks.beforeEvaluate) {
@@ -233,10 +170,6 @@ export class Engine<
       }
     }
   }
-
-  // -----------------------------------------------
-  // Convenience methods
-  // -----------------------------------------------
 
   /**
    * Simple boolean check: can this user do this action on this resource?
@@ -288,7 +221,7 @@ export class Engine<
 
     let enrichedSubject = subject
     if (scope && subject.scopedRoles?.length) {
-      enrichedSubject = this.enrichSubjectWithScopedRoles(subject, scope)
+      enrichedSubject = enrichSubjectWithScopedRoles(subject, scope)
     }
 
     const scopedRolesApplied = (enrichedSubject.roles as string[]).filter((r) => !originalRoles.includes(r))
@@ -344,7 +277,7 @@ export class Engine<
 
         // Enrich with scoped roles matching this check's scope
         if (req.scope && req.subject.scopedRoles?.length) {
-          req = { ...req, subject: this.enrichSubjectWithScopedRoles(req.subject, req.scope) }
+          req = { ...req, subject: enrichSubjectWithScopedRoles(req.subject, req.scope) }
         }
 
         if (this.hooks.beforeEvaluate) {
@@ -378,63 +311,12 @@ export class Engine<
     return map as PermissionMap<TAction, TResource, TScope>
   }
 
-  // -----------------------------------------------
-  // Admin operations
-  // -----------------------------------------------
-
   private _admin?: EngineAdmin<TAction, TResource, TRole, TScope>
 
+  /** Lazily-created admin interface for CRUD operations on policies, roles, and subjects. */
   get admin(): EngineAdmin<TAction, TResource, TRole, TScope> {
     if (this._admin) return this._admin
-
-    const adapter = this.adapter
-    const engine = this
-
-    this._admin = {
-      async listPolicies() {
-        return adapter.listPolicies()
-      },
-      async getPolicy(id: string) {
-        return adapter.getPolicy(id)
-      },
-      async savePolicy(policy: Policy<TAction, TResource, TRole>) {
-        await adapter.savePolicy(policy)
-        engine.invalidatePolicies()
-      },
-      async deletePolicy(id: string) {
-        await adapter.deletePolicy(id)
-        engine.invalidatePolicies()
-      },
-      async listRoles() {
-        return adapter.listRoles()
-      },
-      async getRole(id: string) {
-        return adapter.getRole(id)
-      },
-      async saveRole(role: Role<TAction, TResource, TRole, TScope>) {
-        await adapter.saveRole(role)
-        engine.invalidateRoles()
-      },
-      async deleteRole(id: string) {
-        await adapter.deleteRole(id)
-        engine.invalidateRoles()
-      },
-      async assignRole(subjectId: string, roleId: TRole, scope?: TScope) {
-        await adapter.assignRole(subjectId, roleId, scope)
-        engine.invalidateSubject(subjectId)
-      },
-      async revokeRole(subjectId: string, roleId: TRole, scope?: TScope) {
-        await adapter.revokeRole(subjectId, roleId, scope)
-        engine.invalidateSubject(subjectId)
-      },
-      async setAttributes(subjectId: string, attrs: Attributes) {
-        await adapter.setSubjectAttributes(subjectId, attrs)
-        engine.invalidateSubject(subjectId)
-      },
-      async getAttributes(subjectId: string) {
-        return adapter.getSubjectAttributes(subjectId)
-      },
-    }
+    this._admin = createAdmin<TAction, TResource, TRole, TScope>(this.adapter, this)
     return this._admin
   }
 
