@@ -260,6 +260,13 @@ The `isOwner()` shortcut generates a condition checking
 `resource.attributes.ownerId eq $subject.id` -- the `$subject.id` is a variable
 reference resolved at evaluation time.
 
+<Callout type="info">
+  **Per-resource narrowing:** When using `createAccessConfig()` with a typed `context`
+  and `resourceAttributes`, calling `.grantWhen('update', 'post', w => ...)` narrows
+  `w.resourceAttr()` to only attributes defined for posts. See the
+  [typed context docs](/docs/advanced/config#per-resource-attribute-narrowing) for details.
+</Callout>
+
 ### Complex conditional permissions
 
 The `grantWhen()` callback receives a `When` builder, so you can compose any
@@ -471,7 +478,8 @@ union of all their permissions.
 ## Type-Safe Roles with createAccessConfig
 
 For full type safety across your role definitions, use `createAccessConfig()` to get
-typed builder functions:
+typed builder functions. When you declare `roles`, the role ID parameter in `defineRole()`
+and the `.role()` / `.roles()` methods in conditions are constrained to your declared values.
 
 ```typescript
 import { createAccessConfig } from '@gentleduck/iam'
@@ -480,19 +488,33 @@ const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete', 'publish'] as const,
   resources: ['post', 'comment', 'user'] as const,
   scopes: ['org-1', 'org-2'] as const,
+  roles: ['viewer', 'editor', 'admin'] as const,
 })
 
-// These builders are fully typed -- invalid actions/resources are compile errors
-const viewer = access.defineRole('viewer')
+// These builders are fully typed -- invalid actions/resources/roles are compile errors
+const viewer = access.defineRole('viewer')    // ok -- 'viewer' is in roles
   .name('Viewer')
   .grant('read', 'post')
   .grant('read', 'comment')
-  // .grant('fly', 'post')  // TypeScript error: 'fly' is not a valid action
+  // .grant('fly', 'post')       // TypeScript error: 'fly' is not a valid action
+  // access.defineRole('intern')  // TypeScript error: 'intern' is not a valid role
+  .build()
+
+// Role checks in conditions are also typed
+const ownerPolicy = access.policy('owner-only')
+  .rule('admin-override', r => r
+    .allow()
+    .on('*').of('*')
+    .when(w => w.role('admin'))      // ok -- 'admin' is in roles
+    // .when(w => w.role('manager')) // TypeScript error: 'manager' is not a valid role
+  )
   .build()
 ```
 
-The `access.defineRole()`, `access.policy()`, and `access.defineRule()` functions all
-return builders constrained to your declared actions, resources, and scopes.
+The `access.defineRole()`, `access.policy()`, `access.defineRule()`, and `access.when()`
+functions all return builders constrained to your declared actions, resources, scopes,
+and roles. The type flows through the entire chain -- from `grantWhen()` callbacks to
+`whenAny()` conditions.
 
 ## Validating Roles
 
@@ -535,6 +557,7 @@ const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete', 'publish', 'archive'] as const,
   resources: ['post', 'comment', 'user', 'settings'] as const,
   scopes: ['org-alpha', 'org-beta'] as const,
+  roles: ['viewer', 'author', 'editor', 'org-admin', 'super-admin'] as const,
 })
 
 const viewer = access.defineRole('viewer')

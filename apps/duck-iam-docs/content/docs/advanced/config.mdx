@@ -13,22 +13,23 @@ duck-iam provides two ways to define permissions:
         A["actions: ['create','read','update','delete']"]
         R["resources: ['post','comment','user']"]
         S["scopes: ['org-1','org-2']"]
+        RL["roles: ['viewer','editor','admin']"]
     end
 
     Input --> CONFIG["createAccessConfig()"]
-    CONFIG --> UNION["TypeScript union types:\n'create' | 'read' | 'update' | 'delete'"]
+    CONFIG --> UNION["TypeScript union types:\n'create' | 'read' | 'update' | 'delete'\n'viewer' | 'editor' | 'admin'"]
     UNION --> BUILDERS["Typed builders:\ndefineRole / policy / defineRule / when"]
-    BUILDERS --> OK["grant('read', 'post') -- OK"]
-    BUILDERS --> ERR["grant('craete', 'post') -- COMPILE ERROR"]`} />
+    BUILDERS --> OK["grant('read', 'post') -- OK\nwhen().role('admin') -- OK"]
+    BUILDERS --> ERR["grant('craete', 'post') -- COMPILE ERROR\ndefineRole('intern') -- COMPILE ERROR"]`} />
 
 - **Untyped builders** -- `defineRole()`, `policy()`, `defineRule()`, `when()` imported
   directly from `@gentleduck/iam`. These accept any string for actions, resources, and scopes.
   Quick and flexible, but no compile-time validation.
 
-- **Typed config** -- `createAccessConfig()` locks down your actions, resources, and scopes
-  at the type level using `const` assertions. Every builder method is constrained to your
-  declared schema. Misspell an action or reference a resource that does not exist, and
-  TypeScript catches it before your code runs.
+- **Typed config** -- `createAccessConfig()` locks down your actions, resources, scopes,
+  and roles at the type level using `const` assertions. Every builder method is constrained
+  to your declared schema. Misspell an action, reference a resource that does not exist,
+  or pass an invalid role ID, and TypeScript catches it before your code runs.
 
 For production applications, the typed config is strongly recommended. It prevents an
 entire class of bugs where a permission check silently fails because of a typo in an
@@ -46,6 +47,7 @@ const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete', 'manage'] as const,
   resources: ['post', 'comment', 'user', 'dashboard'] as const,
   scopes: ['org-1', 'org-2'] as const,
+  roles: ['viewer', 'editor', 'admin', 'super-admin'] as const,
 })
 ```
 
@@ -55,15 +57,207 @@ The `as const` assertion is required. Without it, TypeScript widens the arrays t
 ### Input shape
 
 ```typescript
-interface AccessConfigInput<TActions, TResources, TScopes> {
+interface AccessConfigInput<TActions, TResources, TScopes, TRoles, TContext> {
   actions: TActions      // readonly string[] with const assertion
   resources: TResources  // readonly string[] with const assertion
   scopes?: TScopes       // optional, readonly string[] with const assertion
+  roles?: TRoles         // optional, readonly string[] with const assertion
+  context?: TContext     // optional, phantom field for typed dot-path intellisense
 }
 ```
 
-If you omit `scopes`, the config still works -- scope parameters will accept `string`
-without constraint.
+If you omit `scopes` or `roles`, the config still works -- those parameters will accept
+`string` without constraint. When `roles` is provided, `defineRole()`, `when().role()`,
+and all builders that reference roles are constrained to the declared role IDs.
+
+### Typed context for dot-path intellisense
+
+By default, the `When` condition builder accepts any string for `.attr()`, `.resourceAttr()`,
+`.env()`, and `.check()` field paths. To get full autocompletion and type-checked values,
+pass a `context` phantom field with your application's context type:
+
+```typescript
+import { createAccessConfig, type DefaultContext } from '@gentleduck/iam'
+
+// Define your application's context shape
+interface AppContext extends DefaultContext {
+  subject: {
+    id: string
+    roles: string[]
+    attributes: {
+      status: 'active' | 'banned' | 'suspended'
+      department: string
+    }
+  }
+  resource: {
+    type: 'post' | 'comment' | 'user'
+    id?: string
+    attributes: {
+      ownerId: string
+      status: 'draft' | 'published' | 'archived'
+    }
+  }
+  environment: {
+    hour: number
+    dayOfWeek: number
+    maintenanceMode: boolean
+  }
+  scope: string
+}
+
+const access = createAccessConfig({
+  actions: ['create', 'read', 'update', 'delete'] as const,
+  resources: ['post', 'comment', 'user'] as const,
+  roles: ['viewer', 'editor', 'admin'] as const,
+  context: {} as unknown as AppContext,
+})
+```
+
+Now every `When` builder created through `access` gets full intellisense:
+
+```typescript
+access.policy('banned-users')
+  .rule('block-banned', r => r
+    .deny()
+    .on('*').of('*')
+    .when(w => w
+      .attr('status', 'eq', 'banned')
+      // 'status' autocompletes from subject.attributes
+      // 'banned' constrained to 'active' | 'banned' | 'suspended'
+    )
+  )
+  .build()
+
+access.policy('maintenance')
+  .rule('deny-writes', r => r
+    .deny()
+    .on('create', 'update', 'delete').of('*')
+    .when(w => w
+      .env('maintenanceMode', 'eq', true)
+      // 'maintenanceMode' autocompletes from environment
+      // value constrained to boolean
+    )
+  )
+  .build()
+```
+
+The `context` field is a phantom type -- its runtime value is never used. The `{} as unknown as AppContext`
+cast is safe because the value is discarded; only the type information flows through to the builders.
+
+If you omit `context`, everything still works but `.attr()`, `.env()`, etc. accept any string
+for field names and any `AttributeValue` for values.
+
+### Per-resource attribute narrowing
+
+When you declare a `resourceAttributes` map in your context, `.resourceAttr()` narrows
+its available keys based on the resource specified in `.of()`:
+
+```typescript
+interface AppContext extends DefaultContext {
+  // ... subject, resource, environment, scope ...
+  resourceAttributes: {
+    post: { ownerId: string; status: 'draft' | 'published' | 'archived'; title: string }
+    comment: { ownerId: string; body: string }
+    user: { email: string; status: 'active' | 'banned' }
+    dashboard: { name: string }
+  }
+}
+
+const access = createAccessConfig({
+  actions: ['create', 'read', 'update', 'delete'] as const,
+  resources: ['post', 'comment', 'user', 'dashboard'] as const,
+  context: {} as unknown as AppContext,
+})
+```
+
+Now `.resourceAttr()` shows only the keys for the resource specified in `.of()`:
+
+```typescript
+// .of('post') -> resourceAttr shows: 'ownerId' | 'status' | 'title'
+access.policy('post-title')
+  .rule('deny-empty', r => r
+    .deny()
+    .on('create', 'update')
+    .of('post')
+    .when(w => w.not(n => n.resourceAttr('title', 'exists')))
+    //                                     ^ only post keys here
+  )
+  .build()
+
+// .of('comment') -> resourceAttr shows: 'ownerId' | 'body'
+access.policy('comment-body')
+  .rule('deny-empty', r => r
+    .deny()
+    .on('create')
+    .of('comment')
+    .when(w => w.not(n => n.resourceAttr('body', 'exists')))
+    //                                    ^ only comment keys here
+  )
+  .build()
+
+// .of('*') -> resourceAttr shows union of ALL keys:
+// 'ownerId' | 'status' | 'title' | 'body' | 'email' | 'name'
+access.policy('global-owner')
+  .rule('deny-non-owner', r => r
+    .deny()
+    .on('delete')
+    .of('*')
+    .when(w => w
+      .not(n => n.resourceAttr('ownerId', 'eq', '$subject.id' as string))
+      //                        ^ available because ownerId exists on post + comment
+    )
+  )
+  .build()
+```
+
+The same narrowing works in `grantWhen` on roles:
+
+```typescript
+access.defineRole('member')
+  .grantWhen('update', 'post', w => w
+    .isOwner()
+    .resourceAttr('status', 'eq', 'draft')
+    // 'status' narrows to 'draft' | 'published' | 'archived' (post attrs)
+  )
+  .build()
+```
+
+Without `resourceAttributes`, `.resourceAttr()` falls back to `resource.attributes` which
+uses the general attribute type from your context.
+
+### How the type system works
+
+The typed context system uses several TypeScript utility types that work together:
+
+| Type | Purpose |
+|---|---|
+| `DotPaths<T>` | Generates all valid dot-separated paths through `T` (e.g. `'subject.attributes.status'`) |
+| `PathValue<T, P>` | Resolves the value type at path `P` within `T` |
+| `FieldValue<T, P>` | Like `PathValue` but falls back to `AttributeValue` for non-attribute types |
+| `SubjectAttrs<T>` | Extracts `T['subject']['attributes']` |
+| `ResourceAttrs<T>` | Extracts `T['resource']['attributes']` |
+| `EnvAttrs<T>` | Extracts `T['environment']` |
+| `ResourceAttrMap<T>` | Extracts `T['resourceAttributes']` (per-resource attribute map) |
+| `ResolvedResourceAttrs<T, R>` | Resolves resource attrs for resource `R` -- specific type for known resources, merged union for `'*'` |
+| `AttrValue<A, K>` | Resolves the value type for key `K` in attribute bag `A` |
+
+The `context` phantom field on `createAccessConfig` captures your context type (`TContext`).
+This type parameter flows through `AccessConfig` into every builder:
+
+```
+createAccessConfig({ context: {} as AppContext })
+  -> AccessConfig<..., TContext=AppContext>
+    -> PolicyBuilder<..., TContext>
+      -> RuleBuilder<..., TContext>
+        -> .of('post') returns RuleBuilder<..., TActiveResource='post'>
+          -> When<..., TContext, TActiveResource='post'>
+            -> .resourceAttr() uses ResolvedResourceAttrs<AppContext, 'post'>
+              -> returns AppContext['resourceAttributes']['post']
+              -> { ownerId: string; status: 'draft' | 'published' | 'archived'; title: string }
+```
+
+When `.of('*')` is used, `ResolvedResourceAttrs` merges all resource attribute types using
+`MergedResourceAttrs`, which collects every key from every resource and unions their value types.
 
 ## AccessConfig Methods
 
@@ -71,13 +265,15 @@ The returned `AccessConfig` object exposes these typed methods:
 
 ### access.defineRole()
 
-Creates a typed role builder. Actions and resources are constrained to your schema.
+Creates a typed role builder. Actions, resources, and the role ID are constrained to your
+schema. When `roles` is declared in the config, only those role IDs are accepted.
 
 ```typescript
-const viewer = access.defineRole('viewer')
+const viewer = access.defineRole('viewer')    // ok -- 'viewer' is in roles
   .grant('read', 'post')       // ok
   .grant('read', 'comment')    // ok
   // .grant('read', 'invoice') // ERROR: 'invoice' is not in resources
+  // access.defineRole('intern') // ERROR: 'intern' is not in roles
   .build()
 
 const editor = access.defineRole('editor')
@@ -148,7 +344,8 @@ const p = access.policy('my-policy')
 ### access.when()
 
 Creates a typed condition builder for reusable condition groups. Use `buildAll()`,
-`buildAny()`, or `buildNone()` to produce a `ConditionGroup`.
+`buildAny()`, or `buildNone()` to produce a `ConditionGroup`. When `roles` is declared
+in the config, `.role()` and `.roles()` are constrained to the declared role IDs.
 
 ```typescript
 const isOwner = access.when()
@@ -157,12 +354,13 @@ const isOwner = access.when()
 // { all: [{ field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' }] }
 
 const isAdmin = access.when()
-  .contains('subject.roles', 'admin')
+  .role('admin')              // type-checked against declared roles
   .buildAll()
 // { all: [{ field: 'subject.roles', operator: 'contains', value: 'admin' }] }
 
 const isAdminOrOwner = access.when()
-  .role('admin')
+  .role('admin')              // ok -- 'admin' is in roles
+  // .role('superuser')       // ERROR: 'superuser' is not in roles
   .isOwner()
   .buildAny()
 // { any: [...] } -- either condition is sufficient
@@ -265,9 +463,13 @@ to extract the union of literal values:
 ```typescript
 type TAction = (typeof actions)[number]
 // = 'create' | 'read' | 'update'
+
+type TRole = (typeof roles)[number]
+// = 'viewer' | 'editor' | 'admin'
 ```
 
-This union type flows through all builders, constraining every parameter.
+These union types flow through all builders, constraining every parameter -- actions,
+resources, scopes, and roles.
 
 ## Full Example: Defining Your App's Permission Schema
 
@@ -283,6 +485,7 @@ const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete', 'publish', 'manage'] as const,
   resources: ['post', 'comment', 'user', 'analytics', 'settings'] as const,
   scopes: ['org-acme', 'org-globex'] as const,
+  roles: ['viewer', 'author', 'editor', 'admin'] as const,
 })
 
 // 2. Define roles using typed builders
