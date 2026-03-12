@@ -1,5 +1,11 @@
 # @gentleduck/iam
 
+## 1.3.0
+
+### Minor Changes
+
+- Add DollarPaths type for $-variable autocomplete in conditions, refactor core into modular folders, and add comprehensive JSDoc and inline FAQs to documentation
+
 ## 1.2.0
 
 ### Minor Changes
