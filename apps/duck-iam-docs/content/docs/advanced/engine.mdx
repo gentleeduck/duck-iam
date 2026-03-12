@@ -168,12 +168,18 @@ roles for this check.
 
 If any error occurs during evaluation (adapter failure, hook exception, etc.), the engine
 catches it, calls the `onError` hook if defined, and returns a deny decision with the
-error message as the reason. The engine never throws from `authorize()`.
+error message as the reason. One caveat: if your `onError` hook itself throws, the
+surrounding `authorize()` / `can()` / `check()` call can reject.
 
 ### engine.permissions()
 
 Batch check multiple permissions at once. Loads data once, evaluates many. Returns a
-`PermissionMap` keyed by `"action:resource"` or `"scope:action:resource"`.
+`PermissionMap` keyed by one of four forms:
+
+- `"action:resource"`
+- `"action:resource:resourceId"`
+- `"scope:action:resource"`
+- `"scope:action:resource:resourceId"`
 
 ```typescript
 const perms = await engine.permissions('user-1', [
@@ -193,6 +199,11 @@ const perms = await engine.permissions('user-1', [
 
 This is the method you should use when rendering a UI that needs to know many permissions
 at once (e.g., which buttons to show/hide).
+
+The returned map uses the same key format as the client libraries and the root-level
+`buildPermissionKey()` helper. If you are writing custom hydration code, tests, or a
+framework integration outside the shipped clients, prefer that helper instead of hand-building
+key strings.
 
 With scopes and resource IDs:
 
@@ -311,7 +322,9 @@ can be synchronous or async.
     EVAL -- "Error" --> ERR["onError\n(report error)"]
     ERR --> DENY_D["Return deny"]`} />
 
-Note: `engine.explain()` only triggers `beforeEvaluate`. The `afterEvaluate`, `onDeny`, and `onError` hooks are not called -- explain is a read-only diagnostic tool.
+Note: `engine.explain()` only triggers `beforeEvaluate`. The `afterEvaluate`, `onDeny`, and `onError`
+hooks are not called on the explain path. If `beforeEvaluate`, subject resolution, or policy loading
+throws, the explain call rejects.
 
 ```typescript
 interface EngineHooks {
@@ -407,9 +420,9 @@ hooks: {
 
 ### Hook behavior details
 
-- **Hook errors**: if a hook itself throws, the engine catches it and returns a deny
-  decision. A failing `beforeEvaluate` hook will abort the evaluation. A failing
-  `afterEvaluate` or `onDeny` hook will not change the decision already made.
+- **Hook errors**: keep hooks side-effect-only. In the current implementation, a thrown
+  `beforeEvaluate`, `afterEvaluate`, or `onDeny` hook enters the error path and produces
+  a deny result for that check. If `onError` itself throws, the surrounding call can reject.
 - **Execution order for `authorize()` / `can()` / `check()`**:
   `beforeEvaluate` -> evaluate -> `afterEvaluate` -> `onDeny` (if denied) -> `onError` (on exception).
 - **`permissions()` batch checks**: each individual check in the batch runs through the full
@@ -417,6 +430,20 @@ hooks: {
   since each check can have a different scope.
 - **`explain()` traces**: `beforeEvaluate` is applied, but `afterEvaluate`, `onDeny`, and
   `onError` are NOT triggered. Explain is a read-only diagnostic tool.
+
+## Low-level helpers
+
+Most applications only need the `Engine`, but two adjacent exports are worth knowing about:
+
+```typescript
+import { LRUCache, buildPermissionKey } from '@gentleduck/iam'
+```
+
+- `buildPermissionKey(action, resource, resourceId?, scope?)` matches the exact key format
+  used by `engine.permissions()` and all shipped client libraries.
+- `LRUCache` is the small TTL cache implementation the engine uses internally. Import it only
+  if you want the same eviction semantics in neighboring application code; you do not need it
+  to configure or inspect the engine caches.
 
 ## Cache Management
 
@@ -731,6 +758,32 @@ await engine.can('user-1', 'delete', { type: 'post', attributes: {} })
       Use middleware and route wrappers for broad entry checks, then run record-level
       <code className="rounded bg-muted px-2 py-1">engine.can()</code> or <code className="rounded bg-muted px-2 py-1">engine.check()</code>
       inside handlers once you have the real resource ID and attributes.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="hook-errors-outcome">
+    <AccordionTrigger>Can hook exceptions change the result of a permission check?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. In the current implementation, thrown hook errors feed into the engine's error path, which means even a
+      logging or metrics hook can turn an otherwise successful check into a deny result. Keep hooks defensive and avoid
+      throwing from them.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="permission-key-helper">
+    <AccordionTrigger>When should I use buildPermissionKey() directly?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use it when you need to create or inspect `PermissionMap` keys outside the built-in helpers and clients. It keeps
+      your custom code aligned with the same action/resource/resourceId/scope ordering used by the engine.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="lrucache-import">
+    <AccordionTrigger>When would I import LRUCache instead of relying on engine caching?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Only when you want the same small TTL+LRU behavior in adjacent application code, such as caching derived auth
+      metadata. The engine already manages its own internal caches; importing <code className="rounded bg-muted px-2 py-1">LRUCache</code>
+      is not part of normal engine setup.
     </AccordionContent>
   </AccordionItem>
 </Accordion>

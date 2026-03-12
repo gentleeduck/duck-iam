@@ -644,4 +644,38 @@ for (const role of [viewer, author, editor, orgAdmin, superAdmin]) {
       warns because circular inheritance is almost always a modeling mistake even when it is survivable.
     </AccordionContent>
   </AccordionItem>
+
+  <AccordionItem value="tenant-role-ids-vs-scoped-assignments">
+    <AccordionTrigger>Should I create org-admin-acme style role IDs, or keep one role and scope the assignment?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Prefer one reusable role definition plus scoped assignments when the permission shape is the same across tenants.
+      Create tenant-specific role IDs only when the role definition itself truly differs by tenant and you want those
+      differences versioned as separate roles.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="grantwhen-vs-policy">
+    <AccordionTrigger>When should owner-only or attribute checks stay on a role with grantWhen() instead of moving to a policy?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Keep the condition on the role when it is part of the role's natural meaning, such as “authors can edit their own posts.”
+      Move it into a standalone policy when the rule cuts across many roles, needs its own lifecycle, or reads more clearly as a
+      global restriction than as role-local logic.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="global-plus-scoped-permissions-same-role">
+    <AccordionTrigger>What happens if one role mixes global permissions and scope-bound permissions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The global permissions remain active everywhere. The scoped permissions only activate when the request carries the matching
+      scope. This lets one role express “read everywhere, but update only inside org-1” without splitting into separate role IDs.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="inherits-with-scope">
+    <AccordionTrigger>Do inherited permissions keep honoring role-level and permission-level scopes?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Inheritance flattens permissions, but the scope constraints attached to those permissions still travel with them when
+      they are converted into the synthetic RBAC policy. Inheritance does not erase scope checks.
+    </AccordionContent>
+  </AccordionItem>
 </Accordion>

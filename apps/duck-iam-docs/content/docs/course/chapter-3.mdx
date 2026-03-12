@@ -726,8 +726,9 @@ export const ownerPolicy = policy('owner-restrictions')
       Targets are a performance optimization. They let the engine skip an entire policy
       when the request clearly does not match (wrong action, wrong resource type, or user
       lacks the required role). Without targets, every rule in the policy is evaluated on
-      every request. With targets, the policy is skipped entirely when the target does not
-      match, reducing evaluation time.
+      every request. With targets, the policy's rules are not evaluated when the target does not
+      match, reducing evaluation time. One detail: `targets.resources` uses direct resource
+      matching, not the hierarchical dot-aware matcher that normal rule resources use.
     </AccordionContent>
   </AccordionItem>
 

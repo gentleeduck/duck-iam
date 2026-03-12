@@ -279,8 +279,9 @@ This means your audit log captures every individual check.
 
 `engine.explain()` does **not** trigger `afterEvaluate`, `onDeny`, or `onError` hooks.
 It only triggers `beforeEvaluate` (because the hook may modify the request, which affects
-the evaluation trace). This makes `explain()` safe to call in debug tooling without side
-effects in your audit logs.
+the evaluation trace). That keeps explain free of those side-effect hooks, but it is not
+fully fail-closed: if subject resolution, `beforeEvaluate`, or policy loading throws, the
+`explain()` call rejects.
 
 ## Caching
 
@@ -657,10 +658,10 @@ export const engine = new Engine({
   <AccordionItem value="c4-explain-production">
     <AccordionTrigger>Can I use explain() in production?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. `explain()` does not trigger side-effect hooks (afterEvaluate, onDeny, onError),
-      so it will not pollute your audit logs. However, it evaluates ALL rules without
-      short-circuiting, so it is slightly more expensive than `can()`. Use it for debug
-      endpoints or admin tooling, not for every request.
+      Yes, for controlled troubleshooting paths. `explain()` does not trigger side-effect hooks
+      (`afterEvaluate`, `onDeny`, `onError`), but it still runs `beforeEvaluate` and it can reject
+      if setup or data loading fails. It also evaluates ALL rules without short-circuiting, so it is
+      slightly more expensive than `can()`. Use it for debug endpoints or admin tooling, not for every request.
     </AccordionContent>
   </AccordionItem>
 

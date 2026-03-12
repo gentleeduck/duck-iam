@@ -302,6 +302,36 @@ collapsing `string | '$subject.id'` into just `string`. This preserves the indiv
 values when the context is untyped.
 </Callout>
 
+### Why value autocomplete can still be broad
+
+Field-path autocomplete and value autocomplete are related, but they are not the same thing.
+
+- If a field resolves to a narrow literal union such as `'draft' | 'published'`, the value
+  side can stay narrow and still offer `$subject.*` / `$resource.*` / `$environment.*`
+  references.
+- If a field resolves to broad `string`, `number`, `boolean`, or a generic `AttributeValue`,
+  TypeScript can only offer broad scalar input plus the `$` references.
+- Open-ended attribute bags such as `Record<string, unknown>` or the default `AnyAttributes`
+  are the usual reason value suggestions feel looser than expected.
+
+For the best autocomplete, make the parts of your context that matter most explicit:
+
+```typescript
+interface AppContext extends DefaultContext {
+  subject: {
+    id: string
+    roles: string[]
+    attributes: {
+      status: 'active' | 'banned'
+      tier: 'free' | 'pro'
+    }
+  }
+}
+```
+
+That gives you better value narrowing in `.check()`, `.eq()`, `.neq()`, `.attr()`,
+`.resourceAttr()`, and `.env()` without changing runtime behavior.
+
 ## AccessConfig Methods
 
 The returned `AccessConfig` object exposes these typed methods:
@@ -703,6 +733,35 @@ of permissions, this prevents real bugs.
       Stable role and policy definitions usually start in code because they are easy to review and version. Once you
       need runtime administration, tenant-specific configuration, or operational workflows, move those definitions into
       persistent storage and keep code responsible for seeding and validation.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="value-autocomplete-broad">
+    <AccordionTrigger>Why do my field names autocomplete, but my condition values still look broad?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Because value typing comes from the resolved field type. If your context says a field is just
+      <code className="rounded bg-muted px-2 py-1">string</code> or an open-ended attribute bag, duck-iam cannot invent a
+      narrower literal union. Tighten the context type for that field if you want richer value suggestions.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="dollar-value-positions">
+    <AccordionTrigger>Which builder methods accept typed $-references on the value side?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The typed `$...` references are available in the condition methods that compare against a right-hand value:
+      <code className="rounded bg-muted px-2 py-1">check()</code>, <code className="rounded bg-muted px-2 py-1">eq()</code>,
+      <code className="rounded bg-muted px-2 py-1">neq()</code>, <code className="rounded bg-muted px-2 py-1">attr()</code>,
+      <code className="rounded bg-muted px-2 py-1">resourceAttr()</code>, and <code className="rounded bg-muted px-2 py-1">env()</code>.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="resourceattributes-when">
+    <AccordionTrigger>When should I define resourceAttributes instead of only resource.attributes?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use <code className="rounded bg-muted px-2 py-1">resourceAttributes</code> when different resource types need
+      different attribute keys and you want <code className="rounded bg-muted px-2 py-1">resourceAttr()</code> to narrow
+      based on the resource named in <code className="rounded bg-muted px-2 py-1">.of(...)</code>. Keep only
+      <code className="rounded bg-muted px-2 py-1">resource.attributes</code> when one shared attribute bag is enough.
     </AccordionContent>
   </AccordionItem>
 </Accordion>

@@ -277,4 +277,32 @@ correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
       available.
     </AccordionContent>
   </AccordionItem>
+
+  <AccordionItem value="mix-root-and-subpaths">
+    <AccordionTrigger>Can I mix root imports with adapter, server, and client subpaths?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. That is the normal setup. Import builders, types, and the engine from
+      <code className="rounded bg-muted px-2 py-1">@gentleduck/iam</code>, then pull framework-specific pieces from
+      their subpaths such as <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code> or
+      <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code>.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="memory-root-vs-subpath">
+    <AccordionTrigger>Why is MemoryAdapter available from both the root package and its own subpath?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      It is exported from the root as a convenience because it is the default starting adapter for tests, demos, and
+      quick prototypes. The dedicated subpath still exists for consistency with the other adapters.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="autocomplete-not-there-yet">
+    <AccordionTrigger>Why do I not get strong autocomplete immediately after installing?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Strong autocomplete depends on type information, not just the package install. Use
+      <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> with
+      <code className="rounded bg-muted px-2 py-1">as const</code> arrays for actions/resources/scopes, and add a typed
+      <code className="rounded bg-muted px-2 py-1">context</code> if you want rich dot-path and `$` value suggestions.
+    </AccordionContent>
+  </AccordionItem>
 </Accordion>

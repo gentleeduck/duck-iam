@@ -59,6 +59,24 @@ Keys follow one of four formats depending on which fields are present:
 
 Generate it on the server using `engine.permissions()` or the `getPermissions` helper from `@gentleduck/iam/server/next`. When a key is not found in the map, all client libraries return `false` (deny by default).
 
+### Permission keys and buildPermissionKey
+
+All client integrations use the same internal key builder:
+
+```typescript
+import { buildPermissionKey } from '@gentleduck/iam'
+
+buildPermissionKey('delete', 'post')
+// "delete:post"
+
+buildPermissionKey('update', 'post', 'post-42', 'org-1')
+// "org-1:update:post:post-42"
+```
+
+You usually do not need to call `buildPermissionKey()` yourself because the React, Vue,
+and vanilla clients do it internally. It is useful when you generate or inspect
+`PermissionMap` objects manually in tests, server endpoints, or custom client helpers.
+
 ---
 
 ## React
@@ -425,6 +443,10 @@ access.hasAnyOn('post')        // true
 Both methods handle all four key formats. For a 3-part key like `"org-1:read:post"`, the
 method correctly identifies `"post"` as the resource and `"read"` as the action.
 
+These helpers are best for UI summarization such as navigation menus, toolbar groups, or
+"does this user have anything on posts at all?" checks. They scan the existing
+`PermissionMap`; they do not replace a fresh instance-level permission evaluation on the server.
+
 ### Reactive updates
 
 Subscribe to permission changes to trigger re-renders in any framework.
@@ -616,6 +638,50 @@ access.update(newPerms) // subscribers are notified automatically
     <AccordionContent className="text-muted-foreground">
       Not in the general case. A permission map is a flattened result for a known set of checks. If the answer depends on
       fresh resource attributes or server-side context, the evaluation still belongs on the server or in a trusted engine runtime.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="resourceid-and-scope">
+    <AccordionTrigger>When should I include resourceId or scope in a client-side check?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Include them whenever the server generated a resource-specific or scope-specific permission. If your map contains
+      keys like <code className="rounded bg-muted px-2 py-1">org-1:update:post:post-42</code>, the client must call
+      <code className="rounded bg-muted px-2 py-1">can('update', 'post', 'post-42', 'org-1')</code> to hit the same key.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="missing-key-deny">
+    <AccordionTrigger>What happens when the permission map is stale or missing a key?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The clients fail closed and return <code className="rounded bg-muted px-2 py-1">false</code>. That is the right
+      default for rendering gates, but it also means you should refresh the permission map after role, scope, or feature
+      changes that affect the visible UI.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="allowedactions-granularity">
+    <AccordionTrigger>Are allowedActions() and hasAnyOn() safe for record-level decisions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Not by themselves. They summarize the keys already present in the map for a resource type, which is useful for
+      broad UI decisions. Record ownership, fresh attributes, and server-only context still belong in server evaluation.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="manual-key-building">
+    <AccordionTrigger>Should I build PermissionMap keys manually?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Prefer <code className="rounded bg-muted px-2 py-1">buildPermissionKey()</code> if you need to compose keys
+      outside the shipped clients. It keeps your custom code aligned with the exact key order used by
+      <code className="rounded bg-muted px-2 py-1">engine.permissions()</code>, the Next helper, and the vanilla client.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="missing-scope-or-id">
+    <AccordionTrigger>What happens if I forget the scope or resourceId when the map only contains a scoped or instance key?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The lookup misses and returns <code className="rounded bg-muted px-2 py-1">false</code>. The client does not try to
+      “best guess” a broader permission from a narrower key, so the shape of your
+      <code className="rounded bg-muted px-2 py-1">can(...)</code> call needs to match the shape of the key the server generated.
     </AccordionContent>
   </AccordionItem>
 </Accordion>

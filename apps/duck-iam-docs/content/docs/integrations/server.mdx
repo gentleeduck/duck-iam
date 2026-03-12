@@ -46,6 +46,42 @@ const METHOD_ACTION_MAP = {
 
 You can override this per-route or globally through the `getAction` option.
 
+## Generic helpers
+
+```typescript
+import {
+  METHOD_ACTION_MAP,
+  createSubjectCan,
+  extractEnvironment,
+  generatePermissionMap,
+} from '@gentleduck/iam/server/generic'
+```
+
+Use the generic helpers when the built-in framework wrappers are too opinionated, or when
+you want the same access-control glue across several runtimes.
+
+- `generatePermissionMap(engine, subjectId, checks, environment?)` is a small wrapper around
+  `engine.permissions()` for server-to-client hydration.
+- `createSubjectCan(engine, subjectId, environment?)` returns a subject-bound
+  `can(action, resource, resourceId?, scope?)` function that is convenient in handlers,
+  jobs, and service objects.
+- `extractEnvironment(req)` builds the default `{ ip, userAgent, timestamp }` environment
+  object from common request shapes.
+- `METHOD_ACTION_MAP` is the same CRUD-oriented map the built-in integrations use by default.
+
+```typescript
+const can = createSubjectCan(engine, userId, extractEnvironment(req))
+
+if (await can('delete', 'post', req.params.postId)) {
+  await deletePost(req.params.postId)
+}
+
+const permissions = await generatePermissionMap(engine, userId, [
+  { action: 'create', resource: 'post' },
+  { action: 'manage', resource: 'team', scope: 'org-1' },
+])
+```
+
 ---
 
 ## Express
@@ -127,6 +163,13 @@ The `guard` function catches errors and passes them to Express's `next(err)`, so
 reach your error-handling middleware. The `accessMiddleware` catches errors and calls
 the `onError` option.
 
+<Callout type="info">
+The Express `guard()` helper reads the resource instance ID from `req.params.id`. If your
+route uses a different param name such as `:postId`, either use `accessMiddleware()` with a
+custom `getResource`, or run `engine.can()` / `engine.check()` yourself inside the handler
+once you have the real resource ID and attributes.
+</Callout>
+
 ### Admin router
 
 Mount a pre-built admin API for managing policies, roles, and assignments at runtime.
@@ -138,6 +181,12 @@ import { adminRouter } from '@gentleduck/iam/server/express'
 const createRouter = adminRouter(engine)
 app.use('/api/access-admin', createRouter(() => express.Router()))
 ```
+
+<Callout type="warning" title="Scoped revoke caveat">
+  The built-in delete route revokes by `subjectId` + `roleId` only. If you store both global and
+  scoped assignments for the same role and you need to revoke only one scoped assignment, expose a
+  custom route that calls `engine.admin.revokeRole(subjectId, roleId, scope)` explicitly.
+</Callout>
 
 This exposes:
 
@@ -333,6 +382,12 @@ app.post(
 
 The guard automatically reads `c.req.param('id')` as the resource ID when available.
 
+<Callout type="info">
+Like the Express guard, the Hono `guard()` helper assumes the route param is named `id`.
+For nested resources or different param names, prefer `accessMiddleware()` with a custom
+`getResource` function or a manual `engine.can()` call in the handler.
+</Callout>
+
 ### Environment extraction
 
 Hono's default environment extractor reads:
@@ -390,6 +445,12 @@ export const DELETE = withAccess(engine, 'delete', 'post', handler, {
 ```
 
 The wrapper automatically reads `params.id` as the resource instance ID.
+
+<Callout type="info">
+`withAccess()` only auto-binds `params.id`. If your route uses `params.postId` or another
+name, keep the wrapper for coarse route gating and run a deeper `engine.can()` /
+`engine.check()` inside the handler once you have the real instance identifier.
+</Callout>
 
 ### Server component checks
 
@@ -507,7 +568,7 @@ When no rule matches a request path, the middleware returns `null` and the reque
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `pattern` | `string or RegExp` | yes | URL path prefix (string) or regex pattern |
+| `pattern` | `string or RegExp` | yes | String prefix match or regex pattern |
 | `resource` | `string` | yes | Resource type for matched routes |
 | `action` | `string` | no | Fixed action (defaults to HTTP method map) |
 | `scope` | `string` | no | Required scope for matched routes |
@@ -640,6 +701,45 @@ const permissions = await engine.permissions(userId, checks)
     <AccordionContent className="text-muted-foreground">
       Yes. That is the recommended split. Middleware and route wrappers are for coarse-grained gating, while handler-level
       checks are where you should enforce owner checks, attribute-based restrictions, and other resource-instance rules.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="generic-helpers-vs-wrappers">
+    <AccordionTrigger>When should I use the generic server helpers instead of the framework wrappers?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use the framework wrappers when their defaults match your routing model. Use
+      <code className="rounded bg-muted px-2 py-1">server/generic</code> when you want to bind a subject once,
+      reuse the same environment extraction logic across frameworks, or build your own integration layer without
+      adopting the wrapper assumptions.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="custom-id-params">
+    <AccordionTrigger>How should I handle routes that use postId, userId, or nested params instead of id?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Treat the built-in guards as coarse route gates only. The simple wrappers assume an
+      <code className="rounded bg-muted px-2 py-1">id</code> param for automatic resource IDs, so custom param
+      names are better handled with a custom resource extractor or an explicit
+      <code className="rounded bg-muted px-2 py-1">engine.can()</code> /
+      <code className="rounded bg-muted px-2 py-1">engine.check()</code> inside the handler.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="middleware-owner-checks">
+    <AccordionTrigger>Why can middleware know the route and user, but still not be enough for owner checks?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Because ownership usually depends on resource attributes that are not in the raw route shape. Middleware can often
+      tell you “this is a delete on post 42,” but it cannot know `ownerId`, status, or tenant metadata until your handler
+      loads the actual record. That is why record-level checks still belong near the data fetch.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="next-pattern-prefix">
+    <AccordionTrigger>Do string patterns in createNextMiddleware() behave like globs?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. String patterns are checked with simple path-prefix matching. If you need stricter matching,
+      optional segments, or glob-like behavior, use a <code className="rounded bg-muted px-2 py-1">RegExp</code>
+      pattern instead of a string.
     </AccordionContent>
   </AccordionItem>
 
