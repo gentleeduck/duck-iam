@@ -1,17 +1,41 @@
 import type { Adapter, Attributes, Policy, Role, ScopedRole } from '../../core/types'
 
+/**
+ * Initialization options for the {@link MemoryAdapter}.
+ *
+ * @template TAction   - Union of valid action strings
+ * @template TResource - Union of valid resource strings
+ * @template TRole     - Union of valid role strings
+ * @template TScope    - Union of valid scope strings
+ */
 export interface MemoryAdapterInit<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 > {
+  /** Initial policies to seed the adapter with. */
   policies?: Policy<TAction, TResource, TRole>[]
+  /** Initial roles to seed the adapter with. */
   roles?: Role<TAction, TResource, TRole, TScope>[]
+  /** Initial role assignments, keyed by subject ID. */
   assignments?: Record<string, TRole[]>
+  /** Initial subject attributes, keyed by subject ID. */
   attributes?: Record<string, Attributes>
 }
 
+/**
+ * In-memory implementation of the {@link Adapter} interface.
+ *
+ * Stores all data in `Map` objects. Useful for testing, prototyping, and
+ * applications that do not need persistent storage. For production, implement
+ * a database-backed adapter instead.
+ *
+ * @template TAction   - Union of valid action strings
+ * @template TResource - Union of valid resource strings
+ * @template TRole     - Union of valid role strings
+ * @template TScope    - Union of valid scope strings
+ */
 export class MemoryAdapter<
   TAction extends string = string,
   TResource extends string = string,

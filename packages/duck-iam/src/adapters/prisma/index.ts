@@ -75,6 +75,18 @@ interface PrismaLike {
   }
 }
 
+/**
+ * Prisma adapter for duck-iam.
+ *
+ * Implements the {@link Adapter} interface backed by Prisma Client queries.
+ * Expects four Prisma models: `accessPolicy`, `accessRole`, `accessAssignment`,
+ * and `accessSubjectAttr`. JSON columns are handled natively by Prisma.
+ *
+ * @template TAction   - Union of valid action strings
+ * @template TResource - Union of valid resource strings
+ * @template TRole     - Union of valid role strings
+ * @template TScope    - Union of valid scope strings
+ */
 export class PrismaAdapter<
   TAction extends string = string,
   TResource extends string = string,

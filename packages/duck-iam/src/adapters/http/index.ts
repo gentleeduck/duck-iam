@@ -9,6 +9,18 @@ export interface HttpAdapterConfig {
   headers?: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>)
 }
 
+/**
+ * HTTP-based adapter for duck-iam.
+ *
+ * Implements the {@link Adapter} interface by making HTTP requests to a
+ * remote duck-iam API. Useful for client-side engines that delegate storage
+ * to a backend service.
+ *
+ * @template TAction   - Union of valid action strings
+ * @template TResource - Union of valid resource strings
+ * @template TRole     - Union of valid role strings
+ * @template TScope    - Union of valid scope strings
+ */
 export class HttpAdapter<
   TAction extends string = string,
   TResource extends string = string,
