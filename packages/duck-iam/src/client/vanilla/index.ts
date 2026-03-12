@@ -29,10 +29,21 @@
 import type { PermissionMap } from '../../core/types'
 import { buildPermissionKey } from '../../shared/keys'
 
+/** Callback invoked when permissions are updated via {@link AccessClient.update} or {@link AccessClient.merge}. */
 type Listener<TAction extends string = string, TResource extends string = string, TScope extends string = string> = (
   permissions: PermissionMap<TAction, TResource, TScope>,
 ) => void
 
+/**
+ * Framework-agnostic client-side access control.
+ *
+ * Wraps a {@link PermissionMap} (typically fetched from the server) and provides
+ * simple `.can()` / `.cannot()` checks. Supports reactive updates via `.subscribe()`.
+ *
+ * @template TAction   - Union of valid action strings
+ * @template TResource - Union of valid resource strings
+ * @template TScope    - Union of valid scope strings
+ */
 export class AccessClient<
   TAction extends string = string,
   TResource extends string = string,
@@ -41,6 +52,7 @@ export class AccessClient<
   private _permissions: PermissionMap<TAction, TResource, TScope>
   private _listeners = new Set<Listener<TAction, TResource, TScope>>()
 
+  /** @param permissions - Initial permission map (optional, can be set later via `.update()`). */
   constructor(permissions?: PermissionMap<TAction, TResource, TScope>) {
     this._permissions = permissions ?? ({} as PermissionMap<TAction, TResource, TScope>)
   }
@@ -59,15 +71,18 @@ export class AccessClient<
     return new AccessClient<TA, TR, TS>(perms)
   }
 
+  /** Returns a readonly view of the current permission map. */
   get permissions(): Readonly<PermissionMap<TAction, TResource, TScope>> {
     return this._permissions
   }
 
+  /** Returns `true` if the permission map grants the specified action on the resource. */
   can(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
     const key = buildPermissionKey(action, resource, resourceId, scope)
     return (this._permissions as Record<string, boolean>)[key] ?? false
   }
 
+  /** Returns `true` if the permission map does NOT grant the specified action on the resource. */
   cannot(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
     return !this.can(action, resource, resourceId, scope)
   }

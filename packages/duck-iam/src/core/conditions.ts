@@ -3,6 +3,7 @@ import type { AccessRequest, AttributeValue, Condition, ConditionGroup, Operator
 
 // --- Operator implementations ---
 
+/** Function signature for a single operator implementation. */
 type OpFn = (field: AttributeValue, value: AttributeValue) => boolean
 
 /** Max allowed regex pattern length to mitigate ReDoS */
@@ -123,6 +124,17 @@ export function resolveConditionValue(req: AccessRequest, value: AttributeValue)
   return resolveValue(req, value)
 }
 
+/**
+ * Evaluates a condition group tree against an access request.
+ *
+ * Handles `all` (AND), `any` (OR), and `none` (NOT/NOR) groups recursively.
+ * Fails closed (returns `false`) when nesting exceeds `MAX_CONDITION_DEPTH`.
+ *
+ * @param req   - The access request providing field values
+ * @param group - The condition group to evaluate
+ * @param depth - Current recursion depth (internal, do not set)
+ * @returns Whether the condition group is satisfied
+ */
 export function evalConditionGroup(req: AccessRequest, group: ConditionGroup, depth = 0): boolean {
   if (depth >= MAX_CONDITION_DEPTH) {
     return false // Deny when nesting is too deep -- fail closed

@@ -72,6 +72,18 @@ interface DrizzleInsert {
   onConflictDoNothing: () => Promise<unknown>
 }
 
+/**
+ * Drizzle ORM adapter for duck-iam.
+ *
+ * Implements the {@link Adapter} interface backed by Drizzle queries.
+ * Requires four tables: policies, roles, assignments, and subject attributes.
+ * JSON columns (rules, permissions, targets, metadata) are serialized/deserialized automatically.
+ *
+ * @template TAction   - Union of valid action strings
+ * @template TResource - Union of valid resource strings
+ * @template TRole     - Union of valid role strings
+ * @template TScope    - Union of valid scope strings
+ */
 export class DrizzleAdapter<
   TAction extends string = string,
   TResource extends string = string,
