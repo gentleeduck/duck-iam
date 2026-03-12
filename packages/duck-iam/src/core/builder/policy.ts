@@ -153,7 +153,9 @@ export class PolicyBuilder<
    */
   rule(
     id: string,
-    fn: (r: RuleBuilder<TAction, TResource, TScope, TRole, TContext>) => RuleBuilder<TAction, TResource, TScope, TRole, TContext, any>,
+    fn: (
+      r: RuleBuilder<TAction, TResource, TScope, TRole, TContext>,
+    ) => RuleBuilder<TAction, TResource, TScope, TRole, TContext, any>,
   ): this {
     const builder = new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)
     fn(builder)

@@ -124,7 +124,11 @@ export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: i
  * Internal helper for {@link MergedResourceAttrs}. Distributes over the map's
  * values and unions all their keys.
  */
-type AllResourceKeys<M> = M[keyof M] extends infer U ? (U extends Record<string, any> ? keyof U & string : never) : never
+type AllResourceKeys<M> = M[keyof M] extends infer U
+  ? U extends Record<string, any>
+    ? keyof U & string
+    : never
+  : never
 
 /**
  * For a given attribute key, collects the value type from whichever resources declare it.
@@ -132,8 +136,7 @@ type AllResourceKeys<M> = M[keyof M] extends infer U ? (U extends Record<string,
  * Internal helper for {@link MergedResourceAttrs}. If key `K` appears on
  * multiple resources, the resulting type is the union of all their value types.
  */
-type ResourceKeyValue<M, K extends string> =
-  { [R in keyof M]: K extends keyof M[R] ? M[R][K] : never }[keyof M]
+type ResourceKeyValue<M, K extends string> = { [R in keyof M]: K extends keyof M[R] ? M[R][K] : never }[keyof M]
 
 /**
  * Merges all per-resource attribute types into a single object with all keys.
