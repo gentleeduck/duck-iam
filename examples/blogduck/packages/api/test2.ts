@@ -368,7 +368,7 @@ const privatePost = {
 const bobReadsPrivate = await engine.can('user-bob', 'read', privatePost, undefined, 'private')
 console.log(bobReadsPrivate) // false
 
-const perms = await engine.permissions(
+const _perms = await engine.permissions(
   'user-bob',
   access.checks([
     { action: 'read', resource: 'post' },
