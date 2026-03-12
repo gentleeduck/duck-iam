@@ -128,15 +128,15 @@ export class When<
 
   // -- Build --
 
-  buildAll(): ConditionGroup {
+  buildAll(): { readonly all: ReadonlyArray<Condition | ConditionGroup> } {
     return { all: this.items }
   }
 
-  buildAny(): ConditionGroup {
+  buildAny(): { readonly any: ReadonlyArray<Condition | ConditionGroup> } {
     return { any: this.items }
   }
 
-  buildNone(): ConditionGroup {
+  buildNone(): { readonly none: ReadonlyArray<Condition | ConditionGroup> } {
     return { none: this.items }
   }
 }
