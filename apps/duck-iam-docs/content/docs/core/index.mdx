@@ -259,7 +259,7 @@ interface Policy {
 ```
 
 Policies can have **targets** that scope them to specific actions, resources, or roles.
-If a request does not match a policy's targets, the policy is skipped entirely.
+If a request does not match a policy's targets, that policy's rules are not evaluated.
 
 ### Rule
 
@@ -684,6 +684,45 @@ actual vs. expected values. This is invaluable for debugging complex permission 
     <AccordionContent className="text-muted-foreground">
       Scoped roles are merged into the subject only for evaluations that include a matching request scope.
       Without a scope value, only global roles participate in authorization.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="rbac-policy-in-explain">
+    <AccordionTrigger>Why do I see a __rbac__ policy in explain() output even though I never created one?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Because duck-iam materializes your resolved role permissions into a synthetic RBAC policy before evaluation.
+      That policy is how roles enter the same rule engine as your hand-written ABAC policies, so seeing
+      <code className="rounded bg-muted px-2 py-1">__rbac__</code> in traces is expected.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="scope-vs-environment">
+    <AccordionTrigger>When should tenant or org information live in scope instead of environment or resource attributes?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Put it in <code className="rounded bg-muted px-2 py-1">scope</code> when it should activate scoped role assignments
+      and scope-aware permissions. Keep it in <code className="rounded bg-muted px-2 py-1">environment</code> or
+      <code className="rounded bg-muted px-2 py-1">resource.attributes</code> when it is only extra context for conditions
+      and should not change how subject roles are resolved.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="hierarchical-match-direction">
+    <AccordionTrigger>How exactly does hierarchical resource matching work?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      It is one-way and prefix-based. A rule targeting <code className="rounded bg-muted px-2 py-1">dashboard</code> matches
+      requests for <code className="rounded bg-muted px-2 py-1">dashboard</code> and
+      <code className="rounded bg-muted px-2 py-1">dashboard.users</code>, but a rule targeting
+      <code className="rounded bg-muted px-2 py-1">dashboard.users</code> does not match a request for the broader
+      <code className="rounded bg-muted px-2 py-1">dashboard</code> resource.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="policy-not-apply-vs-no-rule">
+    <AccordionTrigger>What is the practical difference between “policy did not apply” and “no rule matched”?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Both end up flowing into the evaluator's default-effect behavior, but they happen at different layers. A target
+      miss means the whole policy was skipped before rule evaluation. “No rule matched” means the policy applied, but none
+      of its rules produced an allow or deny outcome.
     </AccordionContent>
   </AccordionItem>
 </Accordion>

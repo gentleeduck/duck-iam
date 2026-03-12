@@ -53,10 +53,10 @@ The `explain()` method runs the same evaluation as `check()` but traces every st
 short-circuiting. Even if the first policy denies access, the engine still evaluates all
 remaining policies so you can see the complete picture.
 
-`explain()` is a **read-only diagnostic tool**. It applies the `beforeEvaluate` hook (so
-enriched requests are traced accurately), but it does **not** trigger `afterEvaluate`,
-`onDeny`, or `onError` hooks. This means you can call it freely in debug tooling without
-generating audit logs or alerts.
+`explain()` is a diagnostic tool. It applies the `beforeEvaluate` hook so the traced request
+matches the real evaluation input, but it does **not** trigger `afterEvaluate`, `onDeny`,
+or `onError`. One caveat matters: if `beforeEvaluate` throws, the explain call rejects because
+that hook still runs on the main explain path.
 
 ```typescript
 const result = await engine.explain('user-1', 'delete', {
@@ -129,8 +129,10 @@ interface PolicyTrace {
 }
 ```
 
-When `targetMatch` is `false`, the policy was skipped entirely because its target filter
-(actions, resources, or roles) did not match the request. The `rules` array will be empty.
+When `targetMatch` is `false`, the policy's rules were not evaluated because its target filter
+(actions, resources, or roles) did not match the request. The `rules` array will be empty. In
+the current trace format, `result` still mirrors the engine's default effect, so use
+`targetMatch` as the signal that the policy was bypassed.
 
 ```typescript
 for (const pt of result.policies) {
@@ -468,10 +470,22 @@ Common mistakes in dynamic policies:
   <AccordionItem value="explain-hooks">
     <AccordionTrigger>Why did engine.explain() not trigger my audit hooks?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Explain mode is intentionally read-only. It applies <code className="rounded bg-muted px-2 py-1">beforeEvaluate</code>
+      Explain mode is intentionally read-only from the side-effect hooks' perspective. It applies
+      <code className="rounded bg-muted px-2 py-1">beforeEvaluate</code>
       because that hook can change the request, but it does not run
       <code className="rounded bg-muted px-2 py-1">afterEvaluate</code>, <code className="rounded bg-muted px-2 py-1">onDeny</code>,
-      or <code className="rounded bg-muted px-2 py-1">onError</code>.
+      or <code className="rounded bg-muted px-2 py-1">onError</code>. If <code className="rounded bg-muted px-2 py-1">beforeEvaluate</code>
+      throws, the explain call still rejects.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="explain-rule-gap">
+    <AccordionTrigger>Why does ExplainResult.decision.rule stay empty even when a rule clearly won?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The explain trace records the deciding rule on each <code className="rounded bg-muted px-2 py-1">PolicyTrace</code>
+      via <code className="rounded bg-muted px-2 py-1">decidingRuleId</code>, but the top-level
+      <code className="rounded bg-muted px-2 py-1">decision.rule</code> is not currently populated on the explain path.
+      Use the policy traces and summary string when you need the exact rule-level breadcrumb.
     </AccordionContent>
   </AccordionItem>
 

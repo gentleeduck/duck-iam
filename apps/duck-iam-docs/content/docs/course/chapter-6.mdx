@@ -228,6 +228,9 @@ if (await can('manage', 'user', undefined, 'acme')) {
 
     **Protect the admin router** with your own auth middleware. Never expose it
     to unauthenticated users.
+
+    If you need to revoke one scoped assignment without touching the same role in other scopes,
+    add your own route that calls `engine.admin.revokeRole(subjectId, roleId, scope)` directly.
   </Step>
 </Steps>
 

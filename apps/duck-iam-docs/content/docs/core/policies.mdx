@@ -170,7 +170,8 @@ r.on('read').of('*')
 ```
 
 Resources also support hierarchical matching. A rule targeting `"dashboard"` will match
-requests for `"dashboard.users"` and `"dashboard.users.settings"`.
+requests for `"dashboard.users"` and `"dashboard.users.settings"`. This hierarchical behavior
+applies to rule resources. Policy targets are narrower and use direct resource matching.
 
 ## Conditions: The When Builder
 
@@ -527,8 +528,7 @@ const rule = defineRule('flexible-access')
 ## Policy Targets
 
 Targets let you scope an entire policy to specific actions, resources, or roles. If a
-request does not match the targets, the policy is skipped entirely -- its rules are not
-evaluated.
+request does not match the targets, the policy's rules are not evaluated.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Skip_Example["Request: read post"]
@@ -560,7 +560,7 @@ const adminPolicy = policy('admin-only')
   .build()
 
 // This policy is only evaluated for subjects with admin or super-admin role.
-// For everyone else, it is skipped.
+// For everyone else, its rules are not evaluated.
 ```
 
 ### Target fields
@@ -573,6 +573,10 @@ const adminPolicy = policy('admin-only')
 
 All fields are optional. If a field is not set, it matches everything. All set fields
 must match (AND logic).
+
+`targets.resources` uses direct resource matching, not the hierarchical dot-aware matcher used
+by rule resources. A target of `"dashboard"` will not match `"dashboard.users"` unless you also
+list `"dashboard.users"` or use a wildcard at the rule layer instead.
 
 ```typescript
 const writePolicy = policy('write-restrictions')
@@ -904,6 +908,57 @@ with a catch-all allow as the last rule.
       A target mismatch means the policy does not apply to the request. duck-iam does not invent a separate
       neutral state for that branch; it continues with the configured default effect for the evaluation path,
       which is why <code className="rounded bg-muted px-2 py-1">deny</code> remains the safest default.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="whenany-vs-or">
+    <AccordionTrigger>When should I use whenAny() instead of nesting .or() groups inside when()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use <code className="rounded bg-muted px-2 py-1">whenAny()</code> when the whole rule is one top-level OR expression.
+      Use nested <code className="rounded bg-muted px-2 py-1">.or()</code> groups when the OR logic is only one branch inside a
+      larger AND-shaped rule. The difference is mostly about readability and how clearly the top-level logic is expressed.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="grantwhen-vs-standalone-policy">
+    <AccordionTrigger>How do I decide between grantWhen() on a role and a standalone policy rule?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Reach for <code className="rounded bg-muted px-2 py-1">grantWhen()</code> when the condition belongs to a single role's
+      permission semantics. Reach for a standalone policy when the rule spans many roles, acts as a global deny layer, or needs a
+      separate combining algorithm and operational lifecycle.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="dollar-where-exactly">
+    <AccordionTrigger>Where exactly can I use $-references, and what can they point at?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      `$` references are value-side comparisons, so they work in <code className="rounded bg-muted px-2 py-1">check()</code>,
+      <code className="rounded bg-muted px-2 py-1">eq()</code>, <code className="rounded bg-muted px-2 py-1">neq()</code>,
+      <code className="rounded bg-muted px-2 py-1">attr()</code>, <code className="rounded bg-muted px-2 py-1">resourceAttr()</code>,
+      and <code className="rounded bg-muted px-2 py-1">env()</code>. They can point at the same request roots as field paths:
+      <code className="rounded bg-muted px-2 py-1">$subject...</code>,
+      <code className="rounded bg-muted px-2 py-1">$resource...</code>,
+      <code className="rounded bg-muted px-2 py-1">$environment...</code>,
+      <code className="rounded bg-muted px-2 py-1">$action</code>, and
+      <code className="rounded bg-muted px-2 py-1">$scope</code>.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="deny-only-policy-shape">
+    <AccordionTrigger>How do I write a deny-only policy without accidentally blocking everything?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Be explicit about the policy shape. A deny-only policy paired with a fail-closed default effect can still produce a deny
+      when none of its rules match. If the policy is meant to act only as an extra restriction layer, add a catch-all allow rule
+      where appropriate or choose a combining strategy that makes the fallback behavior obvious to future readers.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="targets-rules-conditions-layers">
+    <AccordionTrigger>How do targets, rule action/resource filters, and conditions layer together?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Think of them as concentric filters. Targets decide whether the policy is worth evaluating at all. Rule action/resource
+      filters decide which rules are even candidates. Conditions are the final contextual checks on those candidate rules.
+      Put broad preconditions in targets, rule-local matching in actions/resources, and contextual logic in conditions.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
