@@ -27,6 +27,7 @@ export type {
   ConditionTrace,
   Decision,
   DefaultContext,
+  DollarPaths,
   DotPaths,
   Effect,
   // Engine types
