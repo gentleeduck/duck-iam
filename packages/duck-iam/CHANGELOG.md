@@ -1,5 +1,11 @@
 # @gentleduck/iam
 
+## 1.1.2
+
+### Patch Changes
+
+- 66608fe: Add publishConfig with public access for scoped npm package.
+
 ## 1.1.1
 
 ### Patch Changes
