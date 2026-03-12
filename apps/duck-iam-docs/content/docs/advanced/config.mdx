@@ -232,7 +232,7 @@ The typed context system uses several TypeScript utility types that work togethe
 
 | Type | Purpose |
 |---|---|
-| `DotPaths<T>` | Generates all valid dot-separated paths through `T` (e.g. `'subject.attributes.status'`) |
+| `DotPaths<T>` | Generates all valid dot-separated paths through `T` (e.g. `'subject.attributes.status'`). Arrays are treated as leaf paths and functions are skipped, so only real data properties appear. |
 | `PathValue<T, P>` | Resolves the value type at path `P` within `T` |
 | `FieldValue<T, P>` | Like `PathValue` but falls back to `AttributeValue` for non-attribute types |
 | `SubjectAttrs<T>` | Extracts `T['subject']['attributes']` |

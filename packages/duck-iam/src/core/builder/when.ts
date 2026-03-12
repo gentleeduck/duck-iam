@@ -77,11 +77,7 @@ export class When<
    * w.check('subject.attributes.age', 'eq', 30)            // ERROR if 'age' not in type
    * ```
    */
-  check<P extends DotPaths<TContext>>(
-    field: P,
-    op: Operator,
-    value?: (FieldValue<TContext, P> & {}) | DollarPaths<TContext>,
-  ): this {
+  check<P extends DotPaths<TContext>>(field: P, op: Operator, value?: DollarPaths<TContext>): this {
     this.items.push({ field, operator: op, value })
     return this
   }
