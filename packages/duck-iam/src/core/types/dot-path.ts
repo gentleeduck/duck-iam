@@ -66,6 +66,24 @@ export type FieldValue<TContext, P extends string> =
   PathValue<TContext, P> extends AttributeValue ? PathValue<TContext, P> : AttributeValue
 
 /**
+ * Generates `$`-prefixed versions of all valid dot-paths through a context type.
+ *
+ * Used as a union member in condition value parameters so that the developer
+ * gets autocomplete for dynamic cross-references like `'$subject.id'` or
+ * `'$resource.attributes.ownerId'`.
+ *
+ * @template TContext - The full evaluation context type
+ *
+ * @example
+ * ```ts
+ * type Ctx = { subject: { id: string; roles: string[] } }
+ * type Refs = DollarPaths<Ctx>
+ * // = '$subject' | '$subject.id' | '$subject.roles'
+ * ```
+ */
+export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
+
+/**
  * Extracts the subject's attribute type from a context.
  *
  * Given a context with `{ subject: { attributes: A } }`, returns `A`.

@@ -292,7 +292,8 @@ export const globalOwnerPolicy = policy('global-owner')
       .of('*')
       .when((w) =>
         w
-          .not((w) => w.resourceAttr('ownerId', 'eq', '$subject.id' as string))
+          .not((w) => w.resourceAttr('ownerId', 'eq', '$subject.id'))
+          // '$subject.id' gets full autocomplete via DollarPaths -- no 'as string' cast needed
           // 'ownerId' available because it exists on post + comment (union of all)
           .not((w) => w.roles('admin', 'super-admin')),
       ),
@@ -379,3 +380,77 @@ const _perms = await engine.permissions(
     // invalid actions/resources are compile errors here
   ]),
 )
+
+// --- DollarPaths: typed $-variable cross-references ---
+//
+// Values starting with '$' are resolved at runtime against the request context.
+// DollarPaths<TContext> provides full autocomplete for these references.
+// Type '$' in any value position and your editor suggests all valid paths:
+//
+//   '$subject.id'                  -- the requesting user's ID
+//   '$subject.roles'               -- the user's role array
+//   '$subject.attributes.status'   -- a subject attribute (autocompleted from AppContext)
+//   '$resource.type'               -- the resource type
+//   '$resource.id'                 -- the resource instance ID
+//   '$resource.attributes.ownerId' -- a resource attribute (autocompleted)
+//   '$environment.hour'            -- an environment value (autocompleted)
+
+// 1. Using $ with .resourceAttr() -- compare resource owner to current user
+const _ownerPolicy = policy('dollar-owner-demo')
+  .name('Owner Only Updates')
+  .desc('Only the owner can update their own posts')
+  .algorithm('deny-overrides')
+  .rule('deny-non-owner', (r) =>
+    r
+      .deny()
+      .on('update', 'delete')
+      .of('post')
+      .when((w) => w.resourceAttr('ownerId', 'neq', '$subject.id')),
+    // '$subject.id' gets autocomplete -- no 'as string' cast needed
+  )
+  .build()
+
+// 2. Using $ with .attr() -- compare subject attribute to a resource attribute
+const _matchStatusPolicy = policy('dollar-status-demo')
+  .name('Status Match')
+  .desc('Deny if subject status matches the resource status (e.g. both banned)')
+  .algorithm('deny-overrides')
+  .rule('deny-status-match', (r) =>
+    r
+      .deny()
+      .on('*')
+      .of('post')
+      .when((w) => w.attr('status', 'eq', '$resource.attributes.status')),
+    // '$resource.attributes.status' resolves at runtime to the post's status value
+  )
+  .build()
+
+// 3. Using $ with .check() -- full dot-path on both sides
+const _crossAttrPolicy = policy('dollar-cross-attr-demo')
+  .name('Cross-Attribute Check')
+  .desc('Compare any two fields from the request context')
+  .algorithm('deny-overrides')
+  .rule('deny-self-action', (r) =>
+    r
+      .deny()
+      .on('delete')
+      .of('user')
+      .when((w) => w.check('resource.id', 'eq', '$subject.id')),
+    // Deny users from deleting their own account -- resource.id == subject.id
+  )
+  .build()
+
+// 4. Using $ with .env() -- compare environment value to a resource attribute
+const _envCrossRefPolicy = policy('dollar-env-demo')
+  .name('Env Cross-Reference')
+  .desc('Deny if current IP matches a resource attribute')
+  .algorithm('deny-overrides')
+  .rule('deny-ip-match', (r) =>
+    r
+      .deny()
+      .on('read')
+      .of('*')
+      .when((w) => w.env('ip', 'eq', '$resource.attributes.ownerId')),
+    // Silly example but shows env() also accepts $ refs with autocomplete
+  )
+  .build()

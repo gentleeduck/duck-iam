@@ -534,6 +534,76 @@ const p = policy('my-policy')
     </AccordionContent>
   </AccordionItem>
 
+  <AccordionItem value="why-dollar-prefix">
+    <AccordionTrigger>Why does duck-iam use the $ prefix for dynamic value references?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The engine needs a way to distinguish between a **literal string** and a **path to resolve at runtime**.
+      Without a marker, a condition value like `'subject.id'` would be compared as the literal string
+      `"subject.id"`, not the actual subject's ID. The `$` prefix tells the engine to strip the `$` and
+      resolve the remaining path against the request context.
+      <p className="mt-3">
+        Alternative designs (like a separate `rightField` property or a wrapper object `{"{"} $ref: 'subject.id' {"}"}`)
+        would add complexity to the condition type and evaluation logic. The `$` prefix keeps it simple --
+        one `if` statement in `resolveValue()`, no extra types, no schema changes. It is also a widely
+        understood convention (shell variables, MongoDB operators, template strings).
+      </p>
+      <p className="mt-3">
+        With the typed API, you also get full IDE autocomplete for <code className="rounded bg-muted px-2 py-1">$</code>-prefixed
+        values. The <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> type generates all valid
+        <code className="rounded bg-muted px-2 py-1">$</code>-prefixed dot-paths from your context type, so when you use
+        <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> with a typed context and type
+        <code className="rounded bg-muted px-2 py-1">'$'</code> in a value position, your IDE suggests paths like
+        <code className="rounded bg-muted px-2 py-1">'$subject.id'</code> or <code className="rounded bg-muted px-2 py-1">'$resource.attributes.ownerId'</code>.
+        No <code className="rounded bg-muted px-2 py-1">as string</code> cast is needed.
+      </p>
+      <p className="mt-3">
+        The only tradeoff is that you cannot use a literal value that starts with `$`, but this never
+        comes up in practice for access control attributes.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="dollar-resolution-walkthrough">
+    <AccordionTrigger>How does $ variable resolution work step-by-step?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      When a condition is evaluated, the engine processes both sides of the comparison:
+      <ol className="mt-2 list-decimal pl-5">
+        <li><strong>Left side (field)</strong> -- always resolved as a dot-path against the request. For example,
+          `'resource.attributes.ownerId'` walks `request.resource.attributes.ownerId`.</li>
+        <li><strong>Right side (value)</strong> -- if it starts with `$`, the engine strips the `$` and resolves
+          it as a dot-path too. Otherwise it is used as-is.</li>
+      </ol>
+      <p className="mt-3">
+        For example, `isOwner()` produces this condition:
+      </p>
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`{ field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' }`}</code></pre>
+      <p className="mt-3">
+        Given a request where Alice deletes her own post:
+      </p>
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`subject: { id: 'user-alice' }
+resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
+      <ol className="mt-2 list-decimal pl-5">
+        <li>`resolve('resource.attributes.ownerId')` returns `'user-alice'`</li>
+        <li>`resolveValue('$subject.id')` strips `$`, then `resolve('subject.id')` returns `'user-alice'`</li>
+        <li>`eq('user-alice', 'user-alice')` returns `true` -- allowed</li>
+      </ol>
+      <p className="mt-3">
+        If Bob tries the same request, `resolve('subject.id')` returns `'user-bob'`, and
+        `eq('user-alice', 'user-bob')` returns `false` -- denied.
+      </p>
+      <p className="mt-3">
+        When using <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> with a typed context,
+        all <code className="rounded bg-muted px-2 py-1">$</code>-prefixed values get full IDE autocomplete via the
+        <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> type. Typing
+        <code className="rounded bg-muted px-2 py-1">'$'</code> in a value position shows all valid paths, so you do not
+        need an <code className="rounded bg-muted px-2 py-1">as string</code> cast. Internally, the
+        <code className="rounded bg-muted px-2 py-1">& {"{}"}</code> trick prevents TypeScript from collapsing
+        <code className="rounded bg-muted px-2 py-1">string | '$subject.id'</code> into just
+        <code className="rounded bg-muted px-2 py-1">string</code>.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
   <AccordionItem value="role-condition">
     <AccordionTrigger>Can I check roles inside a condition?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
@@ -1463,6 +1533,37 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
     </AccordionContent>
   </AccordionItem>
 
+  <AccordionItem value="allowed-blocked-lists">
+    <AccordionTrigger>Why does field resolution have an allowed list and a blocked list?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The `resolve()` function uses two safety mechanisms when walking dot-paths:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>Allowed list</strong> (`subject`, `resource`, `environment`) -- only these three top-level
+          keys can be traversed. The `AccessRequest` object may have other internal properties, and allowing
+          arbitrary traversal could leak engine internals. `action` and `scope` are handled as special cases
+          before traversal starts, since they are top-level scalars, not nested objects.</li>
+        <li><strong>Blocked list</strong> (`__proto__`, `constructor`, `prototype`) -- these property names are
+          blocked at every level of traversal. Since `resolve()` does dynamic property access on objects,
+          a malicious condition field like `resource.attributes.__proto__.polluted` could access prototype
+          chain properties. Blocking these segments prevents prototype pollution attacks.</li>
+      </ul>
+      <p className="mt-3">
+        Together, these two lists ensure that condition fields can only reach the data you intend to expose
+        (subject attributes, resource attributes, environment values) and cannot escape to engine internals
+        or JavaScript prototype chains. This is especially important when policies come from untrusted sources
+        like databases, admin dashboards, or APIs.
+      </p>
+      <p className="mt-3">
+        With the typed API, the <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> type
+        enforces similar constraints at compile time. It only generates <code className="rounded bg-muted px-2 py-1">$</code>-prefixed
+        paths for the keys present in your context type, so autocomplete only shows valid paths. Combined with
+        the runtime allowed/blocked lists, you get both compile-time and runtime safety. No
+        <code className="rounded bg-muted px-2 py-1">as string</code> cast is needed when using
+        <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> with a typed context.
+      </p>
+    </AccordionContent>
+  </AccordionItem>
+
   <AccordionItem value="defense-in-depth">
     <AccordionTrigger>What is defense-in-depth in the context of duck-iam?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
@@ -1719,6 +1820,33 @@ export const Authorize = createTypedAuthorize<AppAction, AppResource>()`}</code>
       <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> provides. A single
       <code className="rounded bg-muted px-2 py-1">defineRole()</code> call with a typo defeats the purpose
       of constraining everything else. Pick one approach and use it consistently.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="dollar-paths-autocomplete">
+    <AccordionTrigger>How do I get autocomplete for $-variable references?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      When you use <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> with a typed context,
+      all <code className="rounded bg-muted px-2 py-1">$</code>-references get full IDE autocomplete. The
+      <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> type generates
+      <code className="rounded bg-muted px-2 py-1">$</code>-prefixed versions of all valid dot-paths from your context type.
+      <p className="mt-3">
+        In value positions of <code className="rounded bg-muted px-2 py-1">.check()</code>,
+        <code className="rounded bg-muted px-2 py-1">.eq()</code>, <code className="rounded bg-muted px-2 py-1">.neq()</code>,
+        <code className="rounded bg-muted px-2 py-1">.attr()</code>, <code className="rounded bg-muted px-2 py-1">.resourceAttr()</code>,
+        and <code className="rounded bg-muted px-2 py-1">.env()</code>, typing
+        <code className="rounded bg-muted px-2 py-1">'$'</code> triggers suggestions like:
+      </p>
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`'$subject.id'
+'$subject.roles'
+'$resource.attributes.ownerId'
+'$environment.hour'`}</code></pre>
+      <p className="mt-3">
+        No <code className="rounded bg-muted px-2 py-1">as string</code> cast is needed. The
+        <code className="rounded bg-muted px-2 py-1">& {"{}"}</code> trick is used internally to prevent TypeScript
+        from collapsing <code className="rounded bg-muted px-2 py-1">string | '$subject.id'</code> into just
+        <code className="rounded bg-muted px-2 py-1">string</code>, which would eliminate autocomplete.
+      </p>
     </AccordionContent>
   </AccordionItem>
 </Accordion>

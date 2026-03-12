@@ -4,6 +4,7 @@ import type {
   Condition,
   ConditionGroup,
   DefaultContext,
+  DollarPaths,
   DotPaths,
   EnvAttrs,
   FieldValue,
@@ -76,7 +77,7 @@ export class When<
    * w.check('subject.attributes.age', 'eq', 30)            // ERROR if 'age' not in type
    * ```
    */
-  check<P extends DotPaths<TContext>>(field: P, op: Operator, value?: FieldValue<TContext, P>): this {
+  check<P extends DotPaths<TContext>>(field: P, op: Operator, value?: (FieldValue<TContext, P> & {}) | DollarPaths<TContext>): this {
     this.items.push({ field, operator: op, value })
     return this
   }
@@ -92,7 +93,7 @@ export class When<
    * @param value - Expected value (inferred from path type)
    * @returns `this` for chaining
    */
-  eq<P extends DotPaths<TContext>>(field: P, value: FieldValue<TContext, P>): this {
+  eq<P extends DotPaths<TContext>>(field: P, value: (FieldValue<TContext, P> & {}) | DollarPaths<TContext>): this {
     return this.check(field, 'eq', value)
   }
 
@@ -103,7 +104,7 @@ export class When<
    * @param value - Value the field must not equal
    * @returns `this` for chaining
    */
-  neq<P extends DotPaths<TContext>>(field: P, value: FieldValue<TContext, P>): this {
+  neq<P extends DotPaths<TContext>>(field: P, value: (FieldValue<TContext, P> & {}) | DollarPaths<TContext>): this {
     return this.check(field, 'neq', value)
   }
 
@@ -152,7 +153,8 @@ export class When<
    * @returns `this` for chaining
    */
   gt<P extends DotPaths<TContext>>(field: P, value: number): this {
-    return this.check(field, 'gt', value as FieldValue<TContext, P>)
+    this.items.push({ field, operator: 'gt', value })
+    return this
   }
 
   /**
@@ -163,7 +165,8 @@ export class When<
    * @returns `this` for chaining
    */
   gte<P extends DotPaths<TContext>>(field: P, value: number): this {
-    return this.check(field, 'gte', value as FieldValue<TContext, P>)
+    this.items.push({ field, operator: 'gte', value })
+    return this
   }
 
   /**
@@ -174,7 +177,8 @@ export class When<
    * @returns `this` for chaining
    */
   lt<P extends DotPaths<TContext>>(field: P, value: number): this {
-    return this.check(field, 'lt', value as FieldValue<TContext, P>)
+    this.items.push({ field, operator: 'lt', value })
+    return this
   }
 
   /**
@@ -185,7 +189,8 @@ export class When<
    * @returns `this` for chaining
    */
   lte<P extends DotPaths<TContext>>(field: P, value: number): this {
-    return this.check(field, 'lte', value as FieldValue<TContext, P>)
+    this.items.push({ field, operator: 'lte', value })
+    return this
   }
 
   /**
@@ -196,7 +201,8 @@ export class When<
    * @returns `this` for chaining
    */
   matches<P extends DotPaths<TContext>>(field: P, regex: string): this {
-    return this.check(field, 'matches', regex as FieldValue<TContext, P>)
+    this.items.push({ field, operator: 'matches', value: regex })
+    return this
   }
 
   // ---------------------------------------------------------------------------
@@ -311,7 +317,7 @@ export class When<
   attr<K extends keyof SubjectAttrs<TContext> & string>(
     path: K,
     op: Operator,
-    value?: AttrValue<SubjectAttrs<TContext>, K>,
+    value?: (AttrValue<SubjectAttrs<TContext>, K> & {}) | DollarPaths<TContext>,
   ): this {
     this.items.push({ field: `subject.attributes.${path}`, operator: op, value })
     return this
@@ -336,7 +342,7 @@ export class When<
   resourceAttr<K extends keyof ResolvedResourceAttrs<TContext, TActiveResource> & string>(
     path: K,
     op: Operator,
-    value?: AttrValue<ResolvedResourceAttrs<TContext, TActiveResource>, K>,
+    value?: (AttrValue<ResolvedResourceAttrs<TContext, TActiveResource>, K> & {}) | DollarPaths<TContext>,
   ): this {
     this.items.push({ field: `resource.attributes.${path}`, operator: op, value })
     return this
@@ -362,7 +368,7 @@ export class When<
   env<K extends keyof EnvAttrs<TContext> & string>(
     path: K,
     op: Operator,
-    value?: AttrValue<EnvAttrs<TContext>, K>,
+    value?: (AttrValue<EnvAttrs<TContext>, K> & {}) | DollarPaths<TContext>,
   ): this {
     this.items.push({ field: `environment.${path}`, operator: op, value })
     return this
