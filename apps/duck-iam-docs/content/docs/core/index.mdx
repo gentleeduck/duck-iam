@@ -645,3 +645,45 @@ console.log(trace.summary)
 
 The trace includes per-policy breakdowns, per-rule match details, and per-condition
 actual vs. expected values. This is invaluable for debugging complex permission setups.
+
+---
+
+## Core Concepts FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="action-scope-shorthands">
+    <AccordionTrigger>Can conditions reference action and scope directly?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Field resolution supports <code className="rounded bg-muted px-2 py-1">action</code> and
+      <code className="rounded bg-muted px-2 py-1">scope</code> as first-class shorthands in addition to
+      <code className="rounded bg-muted px-2 py-1">subject</code>, <code className="rounded bg-muted px-2 py-1">resource</code>, and
+      <code className="rounded bg-muted px-2 py-1">environment</code> paths.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="role-as-policy">
+    <AccordionTrigger>Are roles just shorthand for policies?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Conceptually, yes. duck-iam converts resolved role permissions into a synthetic RBAC policy so that
+      roles and ABAC rules go through the same evaluator. You still model them differently because roles are
+      easier for common grants and policies are better for contextual logic.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="default-effect-target-miss">
+    <AccordionTrigger>What happens when no rules or targets match?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The evaluator falls back to the configured default effect, which is usually
+      <code className="rounded bg-muted px-2 py-1">deny</code>. duck-iam treats “policy does not apply” and
+      “no rule matched” as fail-closed outcomes unless you explicitly choose a different default.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="scoped-roles-require-scope">
+    <AccordionTrigger>Why do scoped role assignments do nothing unless I pass a scope?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Scoped roles are merged into the subject only for evaluations that include a matching request scope.
+      Without a scope value, only global roles participate in authorization.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>

@@ -654,3 +654,55 @@ of permissions, this prevents real bugs.
 | Dynamic permissions from DB | Use untyped for the dynamic parts, validate with `validatePolicy()` |
 | Library or framework code | Use generic type parameters for maximum flexibility |
 | Testing | Either works -- typed catches config mistakes, untyped is less verbose |
+
+---
+
+## Configuration FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="phantom-context">
+    <AccordionTrigger>Why does createAccessConfig() ask for a fake context value?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The <code className="rounded bg-muted px-2 py-1">context</code> field is a phantom value used only for type
+      inference. duck-iam never reads it at runtime. Its job is to give TypeScript enough information to infer
+      valid dot-paths and the value types behind those paths.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="dot-paths-widen">
+    <AccordionTrigger>Why do my dot-path types suddenly widen to plain string?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      This usually happens when your context uses open-ended index signatures such as
+      <code className="rounded bg-muted px-2 py-1">Record&lt;string, unknown&gt;</code>. duck-iam intentionally widens
+      those cases to <code className="rounded bg-muted px-2 py-1">string</code> so TypeScript does not try to
+      infinitely expand impossible recursive path unions.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="access-checks-benefit">
+    <AccordionTrigger>What does access.checks() actually buy me?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      It preserves a strongly typed tuple for batched permission checks. The runtime value is unchanged, but
+      TypeScript can now validate every action, resource, and scope in the batch before you pass it to
+      <code className="rounded bg-muted px-2 py-1">engine.permissions()</code>.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="typed-adapter-setup">
+    <AccordionTrigger>How should I keep adapters and engines fully typed in a real app?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Define one <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> schema for your application,
+      derive the action, resource, role, and scope unions from it, and thread those same types through your roles,
+      policies, adapter, and engine setup. That gives you one source of truth instead of repeating string unions.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="seed-strategy">
+    <AccordionTrigger>What should live in code first, and what should live in the database later?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Stable role and policy definitions usually start in code because they are easy to review and version. Once you
+      need runtime administration, tenant-specific configuration, or operational workflows, move those definitions into
+      persistent storage and keep code responsible for seeding and validation.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>

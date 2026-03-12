@@ -675,3 +675,62 @@ await engine.admin.assignRole('user-1', 'admin')
 await engine.can('user-1', 'delete', { type: 'post', attributes: {} })
 // -> true (admin has wildcard)
 ```
+
+---
+
+## Engine FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="authorize-vs-can-check">
+    <AccordionTrigger>Why would I use engine.authorize() instead of engine.can() or engine.check()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use <code className="rounded bg-muted px-2 py-1">authorize()</code> when you already have a fully built
+      <code className="rounded bg-muted px-2 py-1">AccessRequest</code> or want total control over the request object.
+      Use <code className="rounded bg-muted px-2 py-1">can()</code> for a boolean convenience API and
+      <code className="rounded bg-muted px-2 py-1">check()</code> when you want the full decision metadata.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="permissions-vs-loop">
+    <AccordionTrigger>How is engine.permissions() different from calling engine.can() in a loop?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <code className="rounded bg-muted px-2 py-1">permissions()</code> resolves the subject and policies once, then
+      evaluates each requested permission with its own scope and hooks. It is the right API for navigation menus,
+      client hydration, and other batched UI checks.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="cache-shape">
+    <AccordionTrigger>Why are policies and roles cached as single entries while subjects are cached per user?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Policies and roles are loaded as whole collections, so one cached entry is enough for each. Subjects are resolved
+      individually, so the engine keeps a separate cache entry per subject ID.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="admin-invalidates-cache">
+    <AccordionTrigger>Do engine.admin mutations clear caches automatically?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. The admin facade invalidates policy, role, and subject caches after writes. Direct writes through the adapter
+      do not automatically clear caches, so call the invalidation methods yourself when you bypass
+      <code className="rounded bg-muted px-2 py-1">engine.admin</code>.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="runtime-updates">
+    <AccordionTrigger>Can I change roles and policies at runtime without redeploying?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes, if your adapter is backed by persistent storage. The engine reads roles and policies from the adapter, so a
+      database-backed setup can evolve independently of application deployments.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="coarse-vs-fine-grained">
+    <AccordionTrigger>How should I split coarse-grained and fine-grained authorization?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use middleware and route wrappers for broad entry checks, then run record-level
+      <code className="rounded bg-muted px-2 py-1">engine.can()</code> or <code className="rounded bg-muted px-2 py-1">engine.check()</code>
+      inside handlers once you have the real resource ID and attributes.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>

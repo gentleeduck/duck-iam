@@ -601,3 +601,81 @@ assert(canDelete === false)
 | **Custom** | Any other storage backend | Your choice | Your choice |
 
 All adapters are interchangeable. You can start with the memory adapter during development and switch to Prisma or Drizzle in production without changing any engine or middleware code.
+
+---
+
+## Adapter FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="adapter-responsibility">
+    <AccordionTrigger>What does an adapter actually do in duck-iam?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      An adapter is the persistence layer. It loads and stores policies, roles, role assignments, scoped assignments,
+      and subject attributes. The engine still owns evaluation, policy combination, explain traces, and decision logic.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="memory-persistence">
+    <AccordionTrigger>Does MemoryAdapter persist anything?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. It stores everything in process memory. Restarting the process resets policies, roles, assignments, and
+      attributes, which is why it is best for tests, demos, and local development.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="memory-scoped-seed">
+    <AccordionTrigger>Can I seed scoped assignments in MemoryAdapter constructor input?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Not directly. Constructor assignment seeding is unscoped. For scoped assignments, create the adapter first and then
+      call <code className="rounded bg-muted px-2 py-1">assignRole(subjectId, roleId, scope)</code>.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="existing-database">
+    <AccordionTrigger>Can I use my existing database instead of a dedicated auth database?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. duck-iam only needs four storage areas for policies, roles, assignments, and subject attributes. Those can live
+      alongside the rest of your application schema.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="prisma-vs-drizzle">
+    <AccordionTrigger>How do PrismaAdapter and DrizzleAdapter differ in practice?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Prisma expects named models and lets Prisma handle JSON columns natively. Drizzle expects you to wire the tables and
+      query operators explicitly, and the adapter serializes or parses JSON fields for you.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="attribute-merge-behavior">
+    <AccordionTrigger>Do adapters merge subject attributes or replace them?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The built-in adapters merge incoming attributes into the current subject attribute map. This lets you patch a few
+      attributes without rewriting the entire stored object.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="duplicate-assignment-behavior">
+    <AccordionTrigger>How are duplicate role assignments handled?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Memory ignores duplicates in memory, Drizzle uses conflict-safe inserts, and Prisma is intended to rely on the sample
+      uniqueness constraint in the schema. The intended model is idempotent assignment rather than accumulating duplicates.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="http-adapter-local-eval">
+    <AccordionTrigger>Does HttpAdapter move policy evaluation to the server?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. HttpAdapter fetches authorization data over HTTP, but the consuming engine still evaluates permissions locally.
+      Use it when you want shared storage behind a service boundary, not when you want to outsource evaluation entirely.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="http-dynamic-headers">
+    <AccordionTrigger>Can HttpAdapter attach auth headers dynamically?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. The <code className="rounded bg-muted px-2 py-1">headers</code> option can be a static object or an async
+      function, which makes it suitable for short-lived bearer tokens and per-request auth state.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>

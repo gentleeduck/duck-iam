@@ -867,3 +867,43 @@ The evaluation flow for this request:
 to `defaultEffect` (typically `"deny"`). To avoid an accidental deny, either add an explicit
 allow rule (as in the business-hours policy above) or use `first-match` / `allow-overrides`
 with a catch-all allow as the last rule.
+
+---
+
+## Policies FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="bad-field-paths">
+    <AccordionTrigger>Why does a bad field path not throw an exception?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Field resolution fails closed. Unsupported roots, blocked prototype-like segments, and missing properties
+      resolve to <code className="rounded bg-muted px-2 py-1">null</code>, so the condition safely fails instead of
+      crashing evaluation.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="targets-vs-conditions">
+    <AccordionTrigger>Why should I use policy targets instead of only rule conditions?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Targets are a fast pre-filter. They let the engine skip entire policies before it ever inspects individual
+      rules or conditions, which keeps large policy sets easier to reason about and cheaper to evaluate.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="deny-role-allow">
+    <AccordionTrigger>Can a policy deny something that a role allows?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. Roles are converted into an allow-oriented RBAC policy, but your custom policies are still evaluated
+      alongside it. If a deny rule in another policy matches, the final AND-combined result is deny.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="target-mismatch-default-effect">
+    <AccordionTrigger>Why does a target mismatch fall back to the default effect?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      A target mismatch means the policy does not apply to the request. duck-iam does not invent a separate
+      neutral state for that branch; it continues with the configured default effect for the evaluation path,
+      which is why <code className="rounded bg-muted px-2 py-1">deny</code> remains the safest default.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>

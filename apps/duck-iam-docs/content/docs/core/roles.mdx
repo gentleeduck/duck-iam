@@ -605,3 +605,43 @@ for (const role of [viewer, author, editor, orgAdmin, superAdmin]) {
   await engine.admin.saveRole(role)
 }
 ```
+
+---
+
+## Roles FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="scoped-roles-no-scope">
+    <AccordionTrigger>Why are my scoped roles ignored unless I pass a scope?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      duck-iam keeps global roles and scoped role assignments separate. A scoped assignment becomes active
+      only when the current request carries the same scope, which prevents tenant-specific grants from
+      leaking into unscoped or cross-tenant checks.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="global-and-scoped-together">
+    <AccordionTrigger>Can one subject have global and scoped roles at the same time?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. That is a common multi-tenant setup. Global roles continue to apply everywhere, while scoped roles
+      are merged in only for matching scopes.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="scope-level-choice">
+    <AccordionTrigger>When should I use role-level scope, permission-level scope, or scoped assignments?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use scoped assignments when the same role should be granted in one tenant but not another. Use role-level
+      scope when the whole role is inherently tenant-bound. Use permission-level scope when only a few grants on
+      the role should be restricted to a specific scope.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="circular-warning-not-error">
+    <AccordionTrigger>Why are circular inherits warnings instead of hard errors?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The runtime handles cycles safely with visited-set traversal, so evaluation does not break. Validation still
+      warns because circular inheritance is almost always a modeling mistake even when it is survivable.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>

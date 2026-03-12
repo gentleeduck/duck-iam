@@ -2120,3 +2120,57 @@ expect(result.decision.allowed).toBe(true)`}</code></pre>
     </AccordionContent>
   </AccordionItem>
 </Accordion>
+
+---
+
+## Architecture and Adoption
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="memory-first-migrate-later">
+    <AccordionTrigger>Can I start with MemoryAdapter and migrate later?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. That is a common adoption path. The engine API stays the same, so migration is mostly about moving your roles,
+      policies, and assignments into persistent storage and swapping the adapter.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="permission-maps-where">
+    <AccordionTrigger>Where should permission maps be generated for frontend apps?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      On the server, from the same engine and adapter setup that enforces your real authorization rules. The client should
+      usually receive the resulting <code className="rounded bg-muted px-2 py-1">PermissionMap</code>, not the raw policy system.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="serialized-permission-keys">
+    <AccordionTrigger>Why does duck-iam use serialized permission keys like scope:action:resource:id?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      That shared key format makes permission maps portable across the engine, server integrations, client libraries, and
+      caches. Scope and resource instance IDs are part of the permission identity, so they must be encoded into the key.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="missing-user-id">
+    <AccordionTrigger>What happens if no user ID is present in a server integration?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The default behavior is fail-closed. Server integrations treat a missing identity as unauthorized and return a
+      <code className="rounded bg-muted px-2 py-1">401</code> response unless you override that behavior.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="tenant-scope-integrations">
+    <AccordionTrigger>How should I handle tenant scope in framework integrations?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Pass a <code className="rounded bg-muted px-2 py-1">getScope</code> function or fixed scope where the integration supports it,
+      and generate permission maps per scope when hydrating clients. Treat scope as request data, not just configuration.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="production-without-admin-ui">
+    <AccordionTrigger>What is the safest production path if I do not want an admin UI yet?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Keep policy and role definitions in migrations, seed scripts, or reviewed startup code, persist them with Prisma or
+      Drizzle, validate them at startup, and expose only the minimal assignment flows your application actually needs.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>

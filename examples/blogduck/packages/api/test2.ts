@@ -400,12 +400,14 @@ const _ownerPolicy = policy('dollar-owner-demo')
   .name('Owner Only Updates')
   .desc('Only the owner can update their own posts')
   .algorithm('deny-overrides')
-  .rule('deny-non-owner', (r) =>
-    r
-      .deny()
-      .on('update', 'delete')
-      .of('post')
-      .when((w) => w.resourceAttr('ownerId', 'neq', '$subject.id')),
+  .rule(
+    'deny-non-owner',
+    (r) =>
+      r
+        .deny()
+        .on('update', 'delete')
+        .of('post')
+        .when((w) => w.resourceAttr('ownerId', 'neq', '$subject.id')),
     // '$subject.id' gets autocomplete -- no 'as string' cast needed
   )
   .build()
@@ -415,12 +417,14 @@ const _matchStatusPolicy = policy('dollar-status-demo')
   .name('Status Match')
   .desc('Deny if subject status matches the resource status (e.g. both banned)')
   .algorithm('deny-overrides')
-  .rule('deny-status-match', (r) =>
-    r
-      .deny()
-      .on('*')
-      .of('post')
-      .when((w) => w.attr('status', 'eq', '$resource.attributes.status')),
+  .rule(
+    'deny-status-match',
+    (r) =>
+      r
+        .deny()
+        .on('*')
+        .of('post')
+        .when((w) => w.attr('status', 'eq', '$resource.attributes.status')),
     // '$resource.attributes.status' resolves at runtime to the post's status value
   )
   .build()
@@ -430,12 +434,14 @@ const _crossAttrPolicy = policy('dollar-cross-attr-demo')
   .name('Cross-Attribute Check')
   .desc('Compare any two fields from the request context')
   .algorithm('deny-overrides')
-  .rule('deny-self-action', (r) =>
-    r
-      .deny()
-      .on('delete')
-      .of('user')
-      .when((w) => w.check('resource.id', 'eq', '$subject.id')),
+  .rule(
+    'deny-self-action',
+    (r) =>
+      r
+        .deny()
+        .on('delete')
+        .of('user')
+        .when((w) => w.check('resource.id', 'eq', '$subject.id')),
     // Deny users from deleting their own account -- resource.id == subject.id
   )
   .build()
@@ -445,12 +451,14 @@ const _envCrossRefPolicy = policy('dollar-env-demo')
   .name('Env Cross-Reference')
   .desc('Deny if current IP matches a resource attribute')
   .algorithm('deny-overrides')
-  .rule('deny-ip-match', (r) =>
-    r
-      .deny()
-      .on('read')
-      .of('*')
-      .when((w) => w.env('ip', 'eq', '$resource.attributes.ownerId')),
+  .rule(
+    'deny-ip-match',
+    (r) =>
+      r
+        .deny()
+        .on('read')
+        .of('*')
+        .when((w) => w.env('ip', 'eq', '$resource.attributes.ownerId')),
     // Silly example but shows env() also accepts $ refs with autocomplete
   )
   .build()

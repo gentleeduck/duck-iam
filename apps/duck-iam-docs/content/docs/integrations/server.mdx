@@ -585,3 +585,70 @@ const permissions = await engine.permissions(userId, checks)
 // Client: hydrate and use
 // See the client libraries documentation for framework-specific setup
 ```
+
+---
+
+## Server Integration FAQ
+
+<Accordion type="multiple" collapsible className="w-full">
+  <AccordionItem value="override-inference">
+    <AccordionTrigger>Why should I override the default resource and action inference?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The defaults are optimized for CRUD-style demos: action comes from the HTTP method map, resource type usually comes
+      from the path, and resource attributes are empty. Real applications often need custom logic for nested routes,
+      record attributes, body-driven actions, query parameters, or tenant metadata.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="default-failure-responses">
+    <AccordionTrigger>What are the default auth failure responses in the server integrations?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Missing user identity fails closed with <code className="rounded bg-muted px-2 py-1">401</code>. A denied access
+      check returns <code className="rounded bg-muted px-2 py-1">403</code>. Unexpected integration or adapter errors
+      default to <code className="rounded bg-muted px-2 py-1">500</code>. Each integration exposes overrides for those handlers.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="express-admin-surface">
+    <AccordionTrigger>Does the Express admin router secure itself?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. It is an admin surface for policy, role, and assignment management, but it does not automatically wrap itself in
+      authorization. Mount it behind your own admin-only authentication and authorization controls.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="nest-reflect-metadata">
+    <AccordionTrigger>Does the NestJS integration require reflect-metadata?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      It uses reflect metadata when available and also stores metadata directly on the handler as a fallback. In a normal
+      Nest application you should still load <code className="rounded bg-muted px-2 py-1">reflect-metadata</code>, but the
+      integration is written defensively so the decorator metadata is not tied to a single mechanism.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="next-wrapper-vs-middleware">
+    <AccordionTrigger>What is the difference between withAccess() and createNextMiddleware()?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      <code className="rounded bg-muted px-2 py-1">withAccess()</code> wraps an App Router route handler and can work with
+      route params such as <code className="rounded bg-muted px-2 py-1">params.id</code>. <code className="rounded bg-muted px-2 py-1">createNextMiddleware()</code>
+      is route-level filtering based on path rules, resource type, and scope. It is not a substitute for record-level checks.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="middleware-plus-handler-checks">
+    <AccordionTrigger>Can I protect routes in middleware and still do deeper checks later?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Yes. That is the recommended split. Middleware and route wrappers are for coarse-grained gating, while handler-level
+      checks are where you should enforce owner checks, attribute-based restrictions, and other resource-instance rules.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="edge-runtime-friendliness">
+    <AccordionTrigger>Which server integrations are edge-friendly?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The generic helpers and Next request helpers are the most edge-oriented surfaces. Whether the whole stack can run at
+      the edge still depends on your adapter choice. Memory and HTTP are the easiest fits; database adapters depend on the
+      runtime support of their ORM and driver stack.
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
