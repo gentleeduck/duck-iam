@@ -8,8 +8,7 @@ import type { AttributeValue } from './primitives'
  * `'a' | 'a.b'`.
  *
  * Bails out to `string` when `T` has a string index signature (i.e. `Record<string, ...>`)
- * to prevent infinite recursion. Also treats arrays as leaf paths (does not recurse
- * into array methods like `length`, `push`, etc.) and skips function-valued properties.
+ * to prevent infinite recursion.
  *
  * @template T      - The object type to extract paths from
  * @template Prefix - Internal accumulator for the current path prefix (do not set manually)
@@ -25,9 +24,9 @@ export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
   ? string // bail out for types with string index signatures
   : {
       [K in keyof T & string]: T[K] extends readonly any[]
-        ? `${Prefix}${K}` // arrays: include as leaf path, don't recurse into array methods
+        ? `${Prefix}${K}`
         : T[K] extends (...args: any[]) => any
-          ? never // functions: skip entirely
+          ? never
           : T[K] extends object
             ? `${Prefix}${K}` | DotPaths<T[K], `${Prefix}${K}.`>
             : `${Prefix}${K}`
