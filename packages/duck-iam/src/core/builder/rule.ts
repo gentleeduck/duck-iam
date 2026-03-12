@@ -204,7 +204,11 @@ export class RuleBuilder<
    * @param fn - Callback that receives a {@link When} builder and returns it after chaining conditions
    * @returns `this` for chaining
    */
-  when(fn: (w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>): this {
+  when(
+    fn: (
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+  ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(w)
     this._conditions = w.buildAll()
@@ -232,7 +236,11 @@ export class RuleBuilder<
    * @param fn - Callback that receives a {@link When} builder and returns it after chaining conditions
    * @returns `this` for chaining
    */
-  whenAny(fn: (w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>): this {
+  whenAny(
+    fn: (
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+  ): this {
     const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(w)
     this._conditions = w.buildAny()

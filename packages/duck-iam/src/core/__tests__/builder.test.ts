@@ -4,7 +4,10 @@ import type { DefaultContext } from '../types'
 
 describe('When (condition builder)', () => {
   it('builds an all-group from chained conditions', () => {
-    const group = new When<string, string, string, string, DefaultContext>().eq('action', 'read').contains('subject.roles', 'editor').buildAll()
+    const group = new When<string, string, string, string, DefaultContext>()
+      .eq('action', 'read')
+      .contains('subject.roles', 'editor')
+      .buildAll()
     expect(group).toEqual({
       all: [
         { field: 'action', operator: 'eq', value: 'read' },
@@ -14,7 +17,10 @@ describe('When (condition builder)', () => {
   })
 
   it('builds an any-group', () => {
-    const group = new When<string, string, string, string, DefaultContext>().eq('action', 'read').eq('action', 'write').buildAny()
+    const group = new When<string, string, string, string, DefaultContext>()
+      .eq('action', 'read')
+      .eq('action', 'write')
+      .buildAny()
     expect('any' in group).toBe(true)
   })
 
@@ -41,7 +47,9 @@ describe('When (condition builder)', () => {
   })
 
   it('isOwner accepts custom field', () => {
-    const group = new When<string, string, string, string, DefaultContext>().isOwner('resource.attributes.authorId').buildAll()
+    const group = new When<string, string, string, string, DefaultContext>()
+      .isOwner('resource.attributes.authorId')
+      .buildAll()
     expect((group.all[0] as any).field).toBe('resource.attributes.authorId')
   })
 
@@ -61,7 +69,9 @@ describe('When (condition builder)', () => {
   })
 
   it('resourceAttr() prefixes with resource.attributes', () => {
-    const group = new When<string, string, string, string, DefaultContext>().resourceAttr('status', 'eq', 'published').buildAll()
+    const group = new When<string, string, string, string, DefaultContext>()
+      .resourceAttr('status', 'eq', 'published')
+      .buildAll()
     expect((group.all[0] as any).field).toBe('resource.attributes.status')
   })
 
@@ -81,7 +91,9 @@ describe('When (condition builder)', () => {
   })
 
   it('nested not group', () => {
-    const group = new When<string, string, string, string, DefaultContext>().not((w) => w.eq('action', 'delete')).buildAll()
+    const group = new When<string, string, string, string, DefaultContext>()
+      .not((w) => w.eq('action', 'delete'))
+      .buildAll()
 
     expect('none' in group.all[0]!).toBe(true)
   })

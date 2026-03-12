@@ -387,7 +387,9 @@ export class When<
    * @returns `this` for chaining
    */
   and(
-    fn: (w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    fn: (
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
     const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(nested)
@@ -410,7 +412,9 @@ export class When<
    * @returns `this` for chaining
    */
   or(
-    fn: (w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    fn: (
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
     const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(nested)
@@ -434,7 +438,9 @@ export class When<
    * @returns `this` for chaining
    */
   not(
-    fn: (w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    fn: (
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
     const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(nested)
