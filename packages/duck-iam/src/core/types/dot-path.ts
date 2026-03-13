@@ -117,6 +117,10 @@ export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
  * references. Narrow string unions keep their literal values and add the same
  * `$` references.
  *
+ * For open-ended contexts (DefaultContext), `DollarPaths` resolves to `never`
+ * because `DotPaths` bails on string index signatures, so we add `$${string}`
+ * via `HasOpenIndex` to still accept arbitrary `$`-references.
+ *
  * @template TContext - The full evaluation context type
  * @template TValue   - The string portion of the accepted value type
  */
