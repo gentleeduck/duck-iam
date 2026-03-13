@@ -21,6 +21,7 @@ export type {
   CombiningAlgorithm,
   Condition,
   ConditionGroup,
+  ConditionValue,
   // Explain / trace types
   ConditionGroupTrace,
   ConditionLeafTrace,
