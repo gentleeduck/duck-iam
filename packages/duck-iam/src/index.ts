@@ -25,6 +25,7 @@ export type {
   ConditionGroupTrace,
   ConditionLeafTrace,
   ConditionTrace,
+  ConditionValue,
   Decision,
   DefaultContext,
   DollarPaths,
@@ -38,6 +39,7 @@ export type {
   ExplainResult,
   ExplainSubjectInfo,
   FieldValue,
+  FlexibleDotPaths,
   // Inference helpers
   InferAction,
   InferResource,

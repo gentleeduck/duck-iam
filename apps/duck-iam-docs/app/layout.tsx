@@ -40,6 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         )}
 
         <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: This is a script tag to inject into the document
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
