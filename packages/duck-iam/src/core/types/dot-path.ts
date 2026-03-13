@@ -7,8 +7,10 @@ import type { AttributeValue } from './primitives'
  * reachable property path. For example, `{ a: { b: string } }` yields
  * `'a' | 'a.b'`.
  *
- * Bails out to `string` when `T` has a string index signature (i.e. `Record<string, ...>`)
- * to prevent infinite recursion.
+ * Bails out to `never` when `T` has a string index signature (i.e. `Record<string, ...>`)
+ * to prevent infinite recursion and avoid polluting the union with `string`.
+ * Use {@link FlexibleDotPaths} when you need the bail-out to accept arbitrary strings
+ * while preserving autocomplete for known paths.
  *
  * @template T      - The object type to extract paths from
  * @template Prefix - Internal accumulator for the current path prefix (do not set manually)
@@ -21,7 +23,7 @@ import type { AttributeValue } from './primitives'
  * ```
  */
 export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
-  ? string // bail out for types with string index signatures
+  ? never // bail out for string index signatures without polluting the union
   : {
       // biome-ignore lint/suspicious/noExplicitAny: array/function guards require any for correct variance
       [K in keyof T & string]: T[K] extends readonly any[]
@@ -33,6 +35,37 @@ export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
             ? `${Prefix}${K}` | DotPaths<T[K], `${Prefix}${K}.`>
             : `${Prefix}${K}`
     }[keyof T & string]
+
+/**
+ * Detects whether any branch of `T` contains a string index signature.
+ *
+ * Returns `true` if `T` or any nested object property has `[key: string]: ...`,
+ * which indicates an open-ended attribute bag like {@link AnyAttributes}.
+ *
+ * @internal Used by {@link FlexibleDotPaths} to decide whether to add a
+ * `(string & {})` fallback for loose path acceptance.
+ */
+type HasOpenIndex<T> = string extends keyof T
+  ? true
+  : true extends {
+        [K in keyof T & string]: T[K] extends object ? HasOpenIndex<T[K]> : false
+      }[keyof T & string]
+    ? true
+    : false
+
+/**
+ * Smart dot-path type that preserves autocomplete for known paths while
+ * accepting arbitrary strings when the context has open-ended attribute bags.
+ *
+ * - **Typed context** (no string index signatures): returns only specific
+ *   literal paths — misspelled paths are compile errors.
+ * - **DefaultContext** / open attribute bags: returns known structural paths
+ *   plus `(string & {})` so the IDE suggests `subject.id`, `resource.type`,
+ *   etc. while still allowing arbitrary attribute paths.
+ *
+ * @template T - The context type to extract paths from
+ */
+export type FlexibleDotPaths<T> = true extends HasOpenIndex<T> ? DotPaths<T> | (string & {}) : DotPaths<T>
 
 /**
  * Resolves the value type at a dot-separated path within an object type.
