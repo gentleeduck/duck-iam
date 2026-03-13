@@ -147,6 +147,7 @@ export function createVueAccess<
       props: { action: string; resource: string; resourceId?: string; scope?: string },
       { slots }: { slots: Record<string, (() => VNode[]) | undefined> },
     ) {
+      // biome-ignore lint/correctness/useHookAtTopLevel: this is a declarative component
       const { can } = useAccess()
       return () => {
         if (can(props.action as TAction, props.resource as TResource, props.resourceId, props.scope as TScope)) {
@@ -176,6 +177,7 @@ export function createVueAccess<
       props: { action: string; resource: string; resourceId?: string; scope?: string },
       { slots }: { slots: Record<string, (() => VNode[]) | undefined> },
     ) {
+      // biome-ignore lint/correctness/useHookAtTopLevel: this is a declarative component
       const { cannot } = useAccess()
       return () => {
         if (cannot(props.action as TAction, props.resource as TResource, props.resourceId, props.scope as TScope)) {

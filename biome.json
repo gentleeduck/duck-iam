@@ -171,7 +171,6 @@
         "noDoubleEquals": "error",
         "noDuplicateCustomProperties": "warn",
         "noDuplicateProperties": "warn",
-        "noExplicitAny": "warn",
         "noImplicitAnyLet": "warn",
         "noNonNullAssertedOptionalChain": "warn",
         "noRedeclare": "warn",
