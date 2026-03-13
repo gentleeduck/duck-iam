@@ -441,7 +441,7 @@ const _crossAttrPolicy = policy('dollar-cross-attr-demo')
         .deny()
         .on('delete')
         .of('user')
-        .when((w) => w.check('resource.id', 'eq', '$subject.id')),
+        .when((w) => w.check('resource.id', 'eq', '$subjec')),
     // Deny users from deleting their own account -- resource.id == subject.id
   )
   .build()

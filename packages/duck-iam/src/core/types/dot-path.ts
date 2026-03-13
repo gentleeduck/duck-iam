@@ -57,19 +57,6 @@ export type PathValue<T, P extends string> = P extends `${infer K}.${infer Rest}
     : never
 
 /**
- * Resolves the value type at a dot-path, falling back to {@link AttributeValue}
- * if the resolved type is not a valid attribute value.
- *
- * Used by the `When.check()` method to constrain the `value` parameter to the
- * type found at the given path in the context.
- *
- * @template TContext - The full evaluation context type
- * @template P       - A dot-separated path string
- */
-export type FieldValue<TContext, P extends string> =
-  PathValue<TContext, P> extends AttributeValue ? PathValue<TContext, P> : AttributeValue
-
-/**
  * Generates `$`-prefixed versions of all valid dot-paths through a context type.
  *
  * Used as a union member in condition value parameters so that the developer
@@ -86,6 +73,50 @@ export type FieldValue<TContext, P extends string> =
  * ```
  */
 export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
+
+/**
+ * Keeps string-based condition inputs `$`-aware without widening narrow string unions.
+ *
+ * When a field accepts a broad `string`, the `(string & {})` branch preserves
+ * editor suggestions for the `$subject.*` / `$resource.*` / `$environment.*`
+ * references. Narrow string unions keep their literal values and add the same
+ * `$` references.
+ *
+ * @template TContext - The full evaluation context type
+ * @template TValue   - The string portion of the accepted value type
+ */
+type StringConditionValue<TContext, TValue extends string> = string extends TValue
+  ? DollarPaths<TContext> | (string & {})
+  : TValue | DollarPaths<TContext>
+
+/**
+ * Adapts an attribute value type for builder inputs while preserving `$` references.
+ *
+ * Non-string values pass through unchanged. String-capable values add
+ * {@link DollarPaths} so condition builders can compare against other request
+ * fields while still preserving autocomplete for in-progress string input.
+ *
+ * @template TContext - The full evaluation context type
+ * @template TValue   - The attribute-compatible value type accepted by the builder
+ */
+export type ConditionValue<TContext, TValue extends AttributeValue> =
+  | Exclude<TValue, string>
+  | (Extract<TValue, string> extends never ? never : StringConditionValue<TContext, Extract<TValue, string>>)
+
+/**
+ * Resolves the value type at a dot-path, falling back to {@link AttributeValue}
+ * if the resolved type is not a valid attribute value.
+ *
+ * Used by the `When.check()` method to constrain the `value` parameter to the
+ * type found at the given path in the context.
+ *
+ * @template TContext - The full evaluation context type
+ * @template P       - A dot-separated path string
+ */
+export type FieldValue<TContext, P extends string> =
+  PathValue<TContext, P> extends AttributeValue
+    ? ConditionValue<TContext, PathValue<TContext, P>>
+    : ConditionValue<TContext, AttributeValue>
 
 /**
  * Extracts the subject's attribute type from a context.
