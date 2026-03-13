@@ -7,8 +7,10 @@ import type { AttributeValue } from './primitives'
  * reachable property path. For example, `{ a: { b: string } }` yields
  * `'a' | 'a.b'`.
  *
- * Bails out to `string` when `T` has a string index signature (i.e. `Record<string, ...>`)
- * to prevent infinite recursion.
+ * Bails out to `never` when `T` has a string index signature (i.e. `Record<string, ...>`)
+ * to prevent infinite recursion and avoid polluting the union with `string`.
+ * Use {@link FlexibleDotPaths} when you need the bail-out to accept arbitrary strings
+ * while preserving autocomplete for known paths.
  *
  * @template T      - The object type to extract paths from
  * @template Prefix - Internal accumulator for the current path prefix (do not set manually)
@@ -21,16 +23,49 @@ import type { AttributeValue } from './primitives'
  * ```
  */
 export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
-  ? string // bail out for types with string index signatures
+  ? never // bail out for string index signatures without polluting the union
   : {
+      // biome-ignore lint/suspicious/noExplicitAny: array/function guards require any for correct variance
       [K in keyof T & string]: T[K] extends readonly any[]
         ? `${Prefix}${K}`
-        : T[K] extends (...args: any[]) => any
+        : // biome-ignore lint/suspicious/noExplicitAny: contravariance prevents unknown here
+          T[K] extends (...args: any[]) => any
           ? never
           : T[K] extends object
             ? `${Prefix}${K}` | DotPaths<T[K], `${Prefix}${K}.`>
             : `${Prefix}${K}`
     }[keyof T & string]
+
+/**
+ * Detects whether any branch of `T` contains a string index signature.
+ *
+ * Returns `true` if `T` or any nested object property has `[key: string]: ...`,
+ * which indicates an open-ended attribute bag like {@link AnyAttributes}.
+ *
+ * @internal Used by {@link FlexibleDotPaths} to decide whether to add a
+ * `(string & {})` fallback for loose path acceptance.
+ */
+type HasOpenIndex<T> = string extends keyof T
+  ? true
+  : true extends {
+        [K in keyof T & string]: T[K] extends object ? HasOpenIndex<T[K]> : false
+      }[keyof T & string]
+    ? true
+    : false
+
+/**
+ * Smart dot-path type that preserves autocomplete for known paths while
+ * accepting arbitrary strings when the context has open-ended attribute bags.
+ *
+ * - **Typed context** (no string index signatures): returns only specific
+ *   literal paths — misspelled paths are compile errors.
+ * - **DefaultContext** / open attribute bags: returns known structural paths
+ *   plus `(string & {})` so the IDE suggests `subject.id`, `resource.type`,
+ *   etc. while still allowing arbitrary attribute paths.
+ *
+ * @template T - The context type to extract paths from
+ */
+export type FlexibleDotPaths<T> = true extends HasOpenIndex<T> ? DotPaths<T> | (string & {}) : DotPaths<T>
 
 /**
  * Resolves the value type at a dot-separated path within an object type.
@@ -57,19 +92,6 @@ export type PathValue<T, P extends string> = P extends `${infer K}.${infer Rest}
     : never
 
 /**
- * Resolves the value type at a dot-path, falling back to {@link AttributeValue}
- * if the resolved type is not a valid attribute value.
- *
- * Used by the `When.check()` method to constrain the `value` parameter to the
- * type found at the given path in the context.
- *
- * @template TContext - The full evaluation context type
- * @template P       - A dot-separated path string
- */
-export type FieldValue<TContext, P extends string> =
-  PathValue<TContext, P> extends AttributeValue ? PathValue<TContext, P> : AttributeValue
-
-/**
  * Generates `$`-prefixed versions of all valid dot-paths through a context type.
  *
  * Used as a union member in condition value parameters so that the developer
@@ -86,6 +108,50 @@ export type FieldValue<TContext, P extends string> =
  * ```
  */
 export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
+
+/**
+ * Keeps string-based condition inputs `$`-aware without widening narrow string unions.
+ *
+ * When a field accepts a broad `string`, the `(string & {})` branch preserves
+ * editor suggestions for the `$subject.*` / `$resource.*` / `$environment.*`
+ * references. Narrow string unions keep their literal values and add the same
+ * `$` references.
+ *
+ * @template TContext - The full evaluation context type
+ * @template TValue   - The string portion of the accepted value type
+ */
+type StringConditionValue<TContext, TValue extends string> = string extends TValue
+  ? DollarPaths<TContext> | (string & {})
+  : TValue | DollarPaths<TContext>
+
+/**
+ * Adapts an attribute value type for builder inputs while preserving `$` references.
+ *
+ * Non-string values pass through unchanged. String-capable values add
+ * {@link DollarPaths} so condition builders can compare against other request
+ * fields while still preserving autocomplete for in-progress string input.
+ *
+ * @template TContext - The full evaluation context type
+ * @template TValue   - The attribute-compatible value type accepted by the builder
+ */
+export type ConditionValue<TContext, TValue extends AttributeValue> =
+  | Exclude<TValue, string>
+  | (Extract<TValue, string> extends never ? never : StringConditionValue<TContext, Extract<TValue, string>>)
+
+/**
+ * Resolves the value type at a dot-path, falling back to {@link AttributeValue}
+ * if the resolved type is not a valid attribute value.
+ *
+ * Used by the `When.check()` method to constrain the `value` parameter to the
+ * type found at the given path in the context.
+ *
+ * @template TContext - The full evaluation context type
+ * @template P       - A dot-separated path string
+ */
+export type FieldValue<TContext, P extends string> =
+  PathValue<TContext, P> extends AttributeValue
+    ? ConditionValue<TContext, PathValue<TContext, P>>
+    : ConditionValue<TContext, AttributeValue>
 
 /**
  * Extracts the subject's attribute type from a context.
@@ -136,6 +202,7 @@ export type EnvAttrs<TContext> = TContext extends { environment: infer E } ? E :
  * // = { post: { ownerId: string; status: ... }; comment: { ownerId: string; body: string } }
  * ```
  */
+// biome-ignore lint/suspicious/noExplicitAny: infer constraint needs any for broad matching
 export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: infer M extends Record<string, any> }
   ? M
   : never
@@ -147,7 +214,8 @@ export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: i
  * values and unions all their keys.
  */
 type AllResourceKeys<M> = M[keyof M] extends infer U
-  ? U extends Record<string, any>
+  ? // biome-ignore lint/suspicious/noExplicitAny: must match broad record shapes
+    U extends Record<string, any>
     ? keyof U & string
     : never
   : never

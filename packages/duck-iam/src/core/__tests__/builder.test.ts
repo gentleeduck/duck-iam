@@ -2,6 +2,31 @@ import { describe, expect, it } from 'vitest'
 import { defineRole, defineRule, PolicyBuilder, policy, RoleBuilder, RuleBuilder, When, when } from '../builder'
 import type { DefaultContext } from '../types'
 
+interface TypedBuilderContext {
+  action: 'read' | 'update'
+  subject: {
+    id: string
+    roles: string[]
+    attributes: {
+      email: string
+      status: 'active' | 'banned'
+    }
+  }
+  resource: {
+    type: 'post'
+    id?: string
+    attributes: {
+      ownerId: string
+      status: 'draft' | 'published'
+    }
+  }
+  environment: {
+    ip: string
+    region: 'us' | 'eu'
+  }
+  scope: 'org-1'
+}
+
 describe('When (condition builder)', () => {
   it('builds an all-group from chained conditions', () => {
     const group = new When<string, string, string, string, DefaultContext>()
@@ -78,6 +103,42 @@ describe('When (condition builder)', () => {
   it('env() prefixes with environment', () => {
     const group = new When<string, string, string, string, DefaultContext>().env('ip', 'eq', '127.0.0.1').buildAll()
     expect((group.all[0] as any).field).toBe('environment.ip')
+  })
+
+  it('accepts $ references across typed value helpers', () => {
+    const group = new When<string, string, string, string, TypedBuilderContext>()
+      .check('subject.attributes.email', 'eq', '$resource.attributes.ownerId')
+      .eq('resource.attributes.ownerId', '$subject.id')
+      .neq('subject.attributes.status', '$resource.attributes.status')
+      .attr('email', 'eq', '$resource.attributes.ownerId')
+      .resourceAttr('ownerId', 'eq', '$subject.id')
+      .env('ip', 'eq', '$resource.attributes.ownerId')
+      .buildAll()
+
+    expect(group.all).toEqual([
+      { field: 'subject.attributes.email', operator: 'eq', value: '$resource.attributes.ownerId' },
+      { field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' },
+      { field: 'subject.attributes.status', operator: 'neq', value: '$resource.attributes.status' },
+      { field: 'subject.attributes.email', operator: 'eq', value: '$resource.attributes.ownerId' },
+      { field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' },
+      { field: 'environment.ip', operator: 'eq', value: '$resource.attributes.ownerId' },
+    ])
+  })
+
+  it('keeps narrow literal values on typed helpers', () => {
+    const group = new When<string, string, string, string, TypedBuilderContext>()
+      .eq('subject.attributes.status', 'active')
+      .attr('status', 'eq', 'banned')
+      .resourceAttr('status', 'eq', 'published')
+      .env('region', 'eq', 'us')
+      .buildAll()
+
+    expect(group.all).toEqual([
+      { field: 'subject.attributes.status', operator: 'eq', value: 'active' },
+      { field: 'subject.attributes.status', operator: 'eq', value: 'banned' },
+      { field: 'resource.attributes.status', operator: 'eq', value: 'published' },
+      { field: 'environment.region', operator: 'eq', value: 'us' },
+    ])
   })
 
   it('nested and/or/not groups', () => {

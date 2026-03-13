@@ -150,17 +150,17 @@ function extractAction(key: string, resource: string): string | null {
   switch (parts.length) {
     case 2:
       // action:resource
-      if (parts[1] === resource) return parts[0]!
+      if (parts[1] === resource) return parts[0] as string
       return null
     case 3:
       // Could be action:resource:resourceId OR scope:action:resource
       // Check both: resource at index 1 (unscoped) or index 2 (scoped)
-      if (parts[1] === resource) return parts[0]!
-      if (parts[2] === resource) return parts[1]!
+      if (parts[1] === resource) return parts[0] as string
+      if (parts[2] === resource) return parts[1] as string
       return null
     case 4:
       // scope:action:resource:resourceId
-      if (parts[2] === resource) return parts[1]!
+      if (parts[2] === resource) return parts[1] as string
       return null
     default:
       return null

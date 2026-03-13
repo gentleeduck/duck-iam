@@ -56,6 +56,7 @@ export function PostList({ posts: initial, userId }: { posts: Post[]; userId: st
 
           <Can action="delete" resource="post">
             <button
+              type="button"
               onClick={() => deletePost(post.id)}
               style={{ marginLeft: 12, color: 'red', background: 'none', border: 'none', cursor: 'pointer' }}>
               Delete
