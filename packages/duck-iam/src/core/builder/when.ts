@@ -5,9 +5,9 @@ import type {
   ConditionGroup,
   ConditionValue,
   DefaultContext,
-  DotPaths,
   EnvAttrs,
   FieldValue,
+  FlexibleDotPaths,
   Operator,
   ResolvedResourceAttrs,
   SubjectAttrs,
@@ -77,7 +77,7 @@ export class When<
    * w.check('subject.attributes.age', 'eq', 30)            // ERROR if 'age' not in type
    * ```
    */
-  check<P extends DotPaths<TContext>>(field: P, op: Operator, value?: FieldValue<TContext, P>): this {
+  check<P extends FlexibleDotPaths<TContext>>(field: P, op: Operator, value?: FieldValue<TContext, P>): this {
     this.items.push({ field, operator: op, value })
     return this
   }
@@ -93,8 +93,9 @@ export class When<
    * @param value - Expected value (inferred from path type)
    * @returns `this` for chaining
    */
-  eq<P extends DotPaths<TContext>>(field: P, value: FieldValue<TContext, P>): this {
-    return this.check(field, 'eq', value)
+  eq<P extends FlexibleDotPaths<TContext>>(field: P, value: FieldValue<TContext, P>): this {
+    this.items.push({ field, operator: 'eq', value })
+    return this
   }
 
   /**
@@ -104,8 +105,9 @@ export class When<
    * @param value - Value the field must not equal
    * @returns `this` for chaining
    */
-  neq<P extends DotPaths<TContext>>(field: P, value: FieldValue<TContext, P>): this {
-    return this.check(field, 'neq', value)
+  neq<P extends FlexibleDotPaths<TContext>>(field: P, value: FieldValue<TContext, P>): this {
+    this.items.push({ field, operator: 'neq', value })
+    return this
   }
 
   /**
@@ -115,7 +117,7 @@ export class When<
    * @param values - Array of acceptable values
    * @returns `this` for chaining
    */
-  in<P extends DotPaths<TContext>>(field: P, values: Array<FieldValue<TContext, P>>): this {
+  in<P extends FlexibleDotPaths<TContext>>(field: P, values: Array<FieldValue<TContext, P>>): this {
     this.items.push({ field, operator: 'in', value: values as AttributeValue })
     return this
   }
@@ -130,7 +132,7 @@ export class When<
    * @param value - The value that must be present in the array
    * @returns `this` for chaining
    */
-  contains<P extends DotPaths<TContext>>(field: P, value: string): this {
+  contains<P extends FlexibleDotPaths<TContext>>(field: P, value: string): this {
     this.items.push({ field, operator: 'contains', value })
     return this
   }
@@ -141,8 +143,9 @@ export class When<
    * @param field - Typed dot-path attribute path to check for existence
    * @returns `this` for chaining
    */
-  exists<P extends DotPaths<TContext>>(field: P): this {
-    return this.check(field, 'exists')
+  exists<P extends FlexibleDotPaths<TContext>>(field: P): this {
+    this.items.push({ field, operator: 'exists' })
+    return this
   }
 
   /**
@@ -152,7 +155,7 @@ export class When<
    * @param value - Numeric lower bound (exclusive)
    * @returns `this` for chaining
    */
-  gt<P extends DotPaths<TContext>>(field: P, value: number): this {
+  gt<P extends FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this.items.push({ field, operator: 'gt', value })
     return this
   }
@@ -164,7 +167,7 @@ export class When<
    * @param value - Numeric lower bound (inclusive)
    * @returns `this` for chaining
    */
-  gte<P extends DotPaths<TContext>>(field: P, value: number): this {
+  gte<P extends FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this.items.push({ field, operator: 'gte', value })
     return this
   }
@@ -176,7 +179,7 @@ export class When<
    * @param value - Numeric upper bound (exclusive)
    * @returns `this` for chaining
    */
-  lt<P extends DotPaths<TContext>>(field: P, value: number): this {
+  lt<P extends FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this.items.push({ field, operator: 'lt', value })
     return this
   }
@@ -188,7 +191,7 @@ export class When<
    * @param value - Numeric upper bound (inclusive)
    * @returns `this` for chaining
    */
-  lte<P extends DotPaths<TContext>>(field: P, value: number): this {
+  lte<P extends FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this.items.push({ field, operator: 'lte', value })
     return this
   }
@@ -200,7 +203,7 @@ export class When<
    * @param regex - Regular expression pattern (as a string)
    * @returns `this` for chaining
    */
-  matches<P extends DotPaths<TContext>>(field: P, regex: string): this {
+  matches<P extends FlexibleDotPaths<TContext>>(field: P, regex: string): this {
     this.items.push({ field, operator: 'matches', value: regex })
     return this
   }
@@ -280,7 +283,7 @@ export class When<
    *   Defaults to `'resource.attributes.ownerId'`.
    * @returns `this` for chaining
    */
-  isOwner(ownerField: DotPaths<TContext> = 'resource.attributes.ownerId' as DotPaths<TContext>): this {
+  isOwner(ownerField: FlexibleDotPaths<TContext> = 'resource.attributes.ownerId' as FlexibleDotPaths<TContext>): this {
     this.items.push({ field: ownerField, operator: 'eq', value: '$subject.id' })
     return this
   }

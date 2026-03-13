@@ -38,6 +38,7 @@ export type {
   ExplainResult,
   ExplainSubjectInfo,
   FieldValue,
+  FlexibleDotPaths,
   // Inference helpers
   InferAction,
   InferResource,
