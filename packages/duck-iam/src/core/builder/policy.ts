@@ -155,7 +155,7 @@ export class PolicyBuilder<
     id: string,
     fn: (
       r: RuleBuilder<TAction, TResource, TScope, TRole, TContext>,
-    // biome-ignore lint/suspicious/noExplicitAny: TActiveResource is an opaque internal generic
+      // biome-ignore lint/suspicious/noExplicitAny: TActiveResource is an opaque internal generic
     ) => RuleBuilder<TAction, TResource, TScope, TRole, TContext, any>,
   ): this {
     const builder = new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)

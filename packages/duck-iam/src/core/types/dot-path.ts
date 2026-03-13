@@ -181,8 +181,8 @@ export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: i
  * values and unions all their keys.
  */
 type AllResourceKeys<M> = M[keyof M] extends infer U
-  // biome-ignore lint/suspicious/noExplicitAny: must match broad record shapes
-  ? U extends Record<string, any>
+  ? // biome-ignore lint/suspicious/noExplicitAny: must match broad record shapes
+    U extends Record<string, any>
     ? keyof U & string
     : never
   : never
