@@ -232,9 +232,11 @@ The typed context system uses several TypeScript utility types that work togethe
 
 | Type | Purpose |
 |---|---|
-| `DotPaths<T>` | Generates all valid dot-separated paths through `T` (e.g. `'subject.attributes.status'`). Arrays are treated as leaf paths and functions are skipped, so only real data properties appear. |
+| `DotPaths<T>` | Generates all valid dot-separated paths through `T` (e.g. `'subject.attributes.status'`). Arrays are treated as leaf paths and functions are skipped. Bails to `never` for string-indexed types to avoid polluting the union with `string`. |
+| `FlexibleDotPaths<T>` | Smart wrapper: returns `DotPaths<T> \| (string & {})` when `T` has open-ended attribute bags (like `DefaultContext`), giving autocomplete for known structural paths while accepting arbitrary strings. For fully typed contexts, returns strict `DotPaths<T>` only. |
 | `PathValue<T, P>` | Resolves the value type at path `P` within `T` |
-| `FieldValue<T, P>` | Like `PathValue` but falls back to `AttributeValue` for non-attribute types |
+| `FieldValue<T, P>` | Like `PathValue` but wraps the result in `ConditionValue` to add `$`-reference support |
+| `ConditionValue<T, V>` | Adapts a value type for condition builders. Non-string values pass through unchanged; string values add `DollarPaths<T>` for `$`-reference autocomplete. Prevents type widening so `env('hour', 'lt', '')` correctly errors when `hour` is `number`. |
 | `SubjectAttrs<T>` | Extracts `T['subject']['attributes']` |
 | `ResourceAttrs<T>` | Extracts `T['resource']['attributes']` |
 | `EnvAttrs<T>` | Extracts `T['environment']` |
@@ -296,10 +298,12 @@ No `as string` cast is needed. The value parameter accepts both literal values (
 and `$`-references (e.g. `'$subject.id'`) in a single union type.
 
 <Callout type="info">
-Internally, `DollarPaths` uses an `& {}` intersection trick to prevent TypeScript from
-collapsing `string | '$subject.id'` into just `string`. This preserves the individual
-`$`-prefixed literals in autocomplete suggestions while still allowing arbitrary string
-values when the context is untyped.
+Value parameters use the `ConditionValue` type which splits the accepted value into its
+string and non-string parts. Non-string types (like `number` for `env('hour', ...)`) pass
+through unchanged, so passing a string where a number is expected is a compile error.
+String types get `DollarPaths<TContext>` added for `$`-reference autocomplete. When the
+field resolves to broad `string`, an `(string & {})` trick preserves the `$`-prefixed
+literals in autocomplete suggestions.
 </Callout>
 
 ### Why value autocomplete can still be broad
@@ -702,10 +706,17 @@ of permissions, this prevents real bugs.
   <AccordionItem value="dot-paths-widen">
     <AccordionTrigger>Why do my dot-path types suddenly widen to plain string?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      This usually happens when your context uses open-ended index signatures such as
-      <code className="rounded bg-muted px-2 py-1">Record&lt;string, unknown&gt;</code>. duck-iam intentionally widens
-      those cases to <code className="rounded bg-muted px-2 py-1">string</code> so TypeScript does not try to
-      infinitely expand impossible recursive path unions.
+      This happens when your context uses open-ended index signatures such as
+      <code className="rounded bg-muted px-2 py-1">Record&lt;string, unknown&gt;</code> or the default
+      <code className="rounded bg-muted px-2 py-1">AnyAttributes</code>. <code className="rounded bg-muted px-2 py-1">DotPaths</code> bails
+      to <code className="rounded bg-muted px-2 py-1">never</code> for these branches to avoid polluting the
+      union. The builder methods use <code className="rounded bg-muted px-2 py-1">FlexibleDotPaths</code> which
+      detects open-ended attribute bags and adds <code className="rounded bg-muted px-2 py-1">(string &amp; {'{}'})</code> so
+      you still get autocomplete for the known structural paths (like{' '}
+      <code className="rounded bg-muted px-2 py-1">subject.id</code>,{' '}
+      <code className="rounded bg-muted px-2 py-1">resource.type</code>) while accepting arbitrary strings for
+      untyped attribute sub-paths. For fully typed contexts, no fallback is added and invalid
+      paths are compile errors.
     </AccordionContent>
   </AccordionItem>
 
