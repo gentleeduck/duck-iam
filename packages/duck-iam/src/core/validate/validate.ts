@@ -56,7 +56,7 @@ export function validateRoles(roles: readonly Role[]): ValidationResult {
     const stack = [role.id]
 
     while (stack.length > 0) {
-      const current = stack.pop()!
+      const current = stack.pop() as string
       if (visited.has(current)) {
         issues.push({
           type: 'warning',

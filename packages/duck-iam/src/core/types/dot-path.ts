@@ -23,9 +23,11 @@ import type { AttributeValue } from './primitives'
 export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
   ? string // bail out for types with string index signatures
   : {
+      // biome-ignore lint/suspicious/noExplicitAny: array/function guards require any for correct variance
       [K in keyof T & string]: T[K] extends readonly any[]
         ? `${Prefix}${K}`
-        : T[K] extends (...args: any[]) => any
+        : // biome-ignore lint/suspicious/noExplicitAny: contravariance prevents unknown here
+          T[K] extends (...args: any[]) => any
           ? never
           : T[K] extends object
             ? `${Prefix}${K}` | DotPaths<T[K], `${Prefix}${K}.`>
@@ -167,6 +169,7 @@ export type EnvAttrs<TContext> = TContext extends { environment: infer E } ? E :
  * // = { post: { ownerId: string; status: ... }; comment: { ownerId: string; body: string } }
  * ```
  */
+// biome-ignore lint/suspicious/noExplicitAny: infer constraint needs any for broad matching
 export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: infer M extends Record<string, any> }
   ? M
   : never
@@ -178,6 +181,7 @@ export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: i
  * values and unions all their keys.
  */
 type AllResourceKeys<M> = M[keyof M] extends infer U
+  // biome-ignore lint/suspicious/noExplicitAny: must match broad record shapes
   ? U extends Record<string, any>
     ? keyof U & string
     : never

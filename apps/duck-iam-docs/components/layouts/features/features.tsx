@@ -45,7 +45,7 @@ export function FeaturesSection() {
     <section aria-labelledby="features-heading" className="relative" id="features">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -top-32 -left-20 z-0 h-[12rem] w-[12rem] rounded-full bg-gradient-to-br from-purple-500/12 to-indigo-400/8 blur-[90px] md:h-[18rem] md:w-[18rem]"></div>
+        className="pointer-events-none absolute -top-32 -left-20 z-0 h-48 w-48 rounded-full bg-gradient-to-br from-purple-500/12 to-indigo-400/8 blur-[90px] md:h-72 md:w-[18rem]"></div>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -right-20 -bottom-32 z-0 h-[10rem] w-[10rem] rounded-full bg-gradient-to-tl from-blue-500/10 to-cyan-400/6 blur-[100px] md:h-[16rem] md:w-[16rem]"></div>
@@ -61,6 +61,7 @@ export function FeaturesSection() {
 
         <div className="mt-16 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: This is a key for a map
             <FeatureCard feature={feature} key={i} />
           ))}
         </div>

@@ -130,6 +130,7 @@ const PostLayout = async ({ params }: { params: Promise<{ slug?: string[] }> }) 
                 </a>
               </Button>
               <Button asChild className="justify-start" size="sm" variant="link">
+                {/** biome-ignore lint/a11y/useValidAnchor: This is a link to the top of the page */}
                 <a href="#">
                   <ArrowUpIcon aria-hidden="true" className="size-3.5" />
                   Scroll to top

@@ -114,13 +114,13 @@ export class MemoryAdapter<
   async getSubjectScopedRoles(id: string): Promise<ScopedRole<TRole, TScope>[]> {
     return (this.assignments.get(id) ?? [])
       .filter((e) => e.scope != null)
-      .map((e) => ({ role: e.role, scope: e.scope! }))
+      .map((e) => ({ role: e.role, scope: e.scope as TScope }))
   }
 
   /** Assigns a role to a subject, optionally within a scope. Duplicate assignments are ignored. */
   async assignRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
     if (!this.assignments.has(id)) this.assignments.set(id, [])
-    const entries = this.assignments.get(id)!
+    const entries = this.assignments.get(id) as Array<{ role: TRole; scope?: TScope }>
     // Prevent duplicate assignments
     if (!entries.some((e) => e.role === roleId && e.scope === scope)) {
       entries.push({ role: roleId, scope })
