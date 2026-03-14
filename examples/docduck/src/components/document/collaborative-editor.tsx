@@ -7,7 +7,7 @@ import { Separator } from '@gentleduck/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { CircleIcon, Loader2Icon, WifiIcon, WifiOffIcon } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { PresenceAvatars } from './presence-avatars'
 import '@blocknote/core/fonts/inter.css'
@@ -31,6 +31,23 @@ export function CollaborativeEditor({ docId, workspaceId, user, editable, onWord
   const [ready, setReady] = useState(false)
   const ydocRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<HocuspocusProvider | null>(null)
+  const disconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const setStatusDebounced = useCallback((newStatus: ConnectionStatus) => {
+    if (disconnectTimeoutRef.current) {
+      clearTimeout(disconnectTimeoutRef.current)
+      disconnectTimeoutRef.current = null
+    }
+
+    // Delay showing "disconnected" by 1 second to avoid flicker on brief hiccups
+    if (newStatus === 'disconnected') {
+      disconnectTimeoutRef.current = setTimeout(() => {
+        setStatus('disconnected')
+      }, 1000)
+    } else {
+      setStatus(newStatus)
+    }
+  }, [])
 
   useEffect(() => {
     const ydoc = new Y.Doc()
@@ -39,15 +56,15 @@ export function CollaborativeEditor({ docId, workspaceId, user, editable, onWord
       name: docId,
       document: ydoc,
       token: JSON.stringify({ userId: user.id, workspaceId }),
-      onConnect: () => setStatus('connected'),
-      onDisconnect: () => setStatus('disconnected'),
+      onConnect: () => setStatusDebounced('connected'),
+      onDisconnect: () => setStatusDebounced('disconnected'),
       onSynced: () => {
-        setStatus('connected')
+        setStatusDebounced('connected')
         setReady(true)
         onSynced?.()
       },
       onStatus: ({ status: s }) => {
-        if (s === 'connecting') setStatus('syncing')
+        if (s === 'connecting') setStatusDebounced('syncing')
       },
     })
 
@@ -55,6 +72,7 @@ export function CollaborativeEditor({ docId, workspaceId, user, editable, onWord
     providerRef.current = provider
 
     return () => {
+      if (disconnectTimeoutRef.current) clearTimeout(disconnectTimeoutRef.current)
       provider.destroy()
       ydoc.destroy()
       ydocRef.current = null
@@ -62,7 +80,7 @@ export function CollaborativeEditor({ docId, workspaceId, user, editable, onWord
       setReady(false)
       setStatus('connecting')
     }
-  }, [docId, workspaceId, user.id, onSynced])
+  }, [docId, workspaceId, user.id, onSynced, setStatusDebounced])
 
   if (!ready || !ydocRef.current || !providerRef.current) {
     return (
@@ -118,25 +136,21 @@ function EditorContent({
   useEffect(() => {
     if (!onWordCountChange) return
 
+    const fragment = ydoc.getXmlFragment('document-store')
+
     function countWords() {
-      const blocks = editor.document
-      let count = 0
-      for (const block of blocks) {
-        if (block.content && Array.isArray(block.content)) {
-          for (const inline of block.content) {
-            if (typeof inline === 'object' && 'text' in inline && typeof inline.text === 'string') {
-              const words = inline.text.trim().split(/\s+/).filter(Boolean)
-              count += words.length
-            }
-          }
-        }
-      }
-      onWordCountChange(count)
+      const text = fragment.toDOM().textContent ?? ''
+      const words = text.trim().split(/\s+/).filter(Boolean)
+      onWordCountChange(words.length)
     }
 
     countWords()
-    editor.onChange(countWords)
-  }, [editor, onWordCountChange])
+    fragment.observeDeep(countWords)
+
+    return () => {
+      fragment.unobserveDeep(countWords)
+    }
+  }, [ydoc, onWordCountChange])
 
   const statusConfig: Record<ConnectionStatus, { icon: React.ReactNode; label: string; dotClass: string }> = {
     connected: {
