@@ -16,7 +16,8 @@
     "url": "https://github.com/gentleeduck/duck-iam/issues"
   },
   "exports": {
-    "./*": "./src/ui/*/index.ts"
+    "./*": "./src/ui/*/index.ts",
+    "./styles.css": "./src/styles.css"
   },
   "peerDependencies": {
     "@types/react": ">=19.2.14",
