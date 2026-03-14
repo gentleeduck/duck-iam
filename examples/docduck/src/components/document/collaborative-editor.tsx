@@ -2,16 +2,15 @@
 
 import { BlockNoteView } from '@blocknote/mantine'
 import { useCreateBlockNote } from '@blocknote/react'
-import { Badge } from '@gentleduck/ui/badge'
-import { Separator } from '@gentleduck/ui/separator'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
 import { HocuspocusProvider } from '@hocuspocus/provider'
-import { CircleIcon, Loader2Icon, WifiIcon, WifiOffIcon } from 'lucide-react'
+import { Loader2Icon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Y from 'yjs'
 import { PresenceAvatars } from './presence-avatars'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
+
+export type ConnectionStatus = 'connecting' | 'connected' | 'syncing' | 'disconnected'
 
 interface Props {
   docId: string
@@ -20,34 +19,46 @@ interface Props {
   editable: boolean
   onWordCountChange?: (count: number) => void
   onSynced?: () => void
+  onConnectionChange?: (status: ConnectionStatus) => void
 }
-
-type ConnectionStatus = 'connecting' | 'connected' | 'syncing' | 'disconnected'
 
 const COLORS = ['#958DF1', '#F98181', '#FBBC88', '#FAF594', '#70CFF8', '#94FADB', '#B9F18D', '#C3E2C2']
 
-export function CollaborativeEditor({ docId, workspaceId, user, editable, onWordCountChange, onSynced }: Props) {
+export function CollaborativeEditor({
+  docId,
+  workspaceId,
+  user,
+  editable,
+  onWordCountChange,
+  onSynced,
+  onConnectionChange,
+}: Props) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [ready, setReady] = useState(false)
   const ydocRef = useRef<Y.Doc | null>(null)
   const providerRef = useRef<HocuspocusProvider | null>(null)
   const disconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const setStatusDebounced = useCallback((newStatus: ConnectionStatus) => {
-    if (disconnectTimeoutRef.current) {
-      clearTimeout(disconnectTimeoutRef.current)
-      disconnectTimeoutRef.current = null
-    }
+  const setStatusDebounced = useCallback(
+    (newStatus: ConnectionStatus) => {
+      if (disconnectTimeoutRef.current) {
+        clearTimeout(disconnectTimeoutRef.current)
+        disconnectTimeoutRef.current = null
+      }
 
-    // Delay showing "disconnected" by 1 second to avoid flicker on brief hiccups
-    if (newStatus === 'disconnected') {
-      disconnectTimeoutRef.current = setTimeout(() => {
-        setStatus('disconnected')
-      }, 1000)
-    } else {
-      setStatus(newStatus)
-    }
-  }, [])
+      // Delay showing "disconnected" by 1 second to avoid flicker on brief hiccups
+      if (newStatus === 'disconnected') {
+        disconnectTimeoutRef.current = setTimeout(() => {
+          setStatus('disconnected')
+          onConnectionChange?.('disconnected')
+        }, 1000)
+      } else {
+        setStatus(newStatus)
+        onConnectionChange?.(newStatus)
+      }
+    },
+    [onConnectionChange],
+  )
 
   useEffect(() => {
     const ydoc = new Y.Doc()
@@ -110,7 +121,6 @@ function EditorContent({
   provider,
   user,
   editable,
-  status,
   onWordCountChange,
 }: {
   ydoc: Y.Doc
@@ -152,58 +162,11 @@ function EditorContent({
     }
   }, [ydoc, onWordCountChange])
 
-  const statusConfig: Record<ConnectionStatus, { icon: React.ReactNode; label: string; dotClass: string }> = {
-    connected: {
-      icon: <WifiIcon className="h-3 w-3" />,
-      label: 'Connected',
-      dotClass: 'bg-green-500',
-    },
-    syncing: {
-      icon: <Loader2Icon className="h-3 w-3 animate-spin" />,
-      label: 'Syncing...',
-      dotClass: 'bg-yellow-500',
-    },
-    disconnected: {
-      icon: <WifiOffIcon className="h-3 w-3" />,
-      label: 'Disconnected - Reconnecting...',
-      dotClass: 'bg-red-500',
-    },
-    connecting: {
-      icon: <CircleIcon className="h-3 w-3" />,
-      label: 'Connecting...',
-      dotClass: 'bg-yellow-500',
-    },
-  }
-
-  const currentStatus = statusConfig[status]
-
   return (
     <div className="min-h-[500px]">
-      <div className="flex items-center justify-between px-3 pt-2">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge
-                variant={status === 'connected' ? 'secondary' : status === 'disconnected' ? 'destructive' : 'outline'}
-                className="cursor-default gap-1.5 text-xs">
-                <span className={`h-1.5 w-1.5 rounded-full ${currentStatus.dotClass}`} />
-                {currentStatus.icon}
-                {currentStatus.label}
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              {status === 'connected' && 'Real-time sync is active'}
-              {status === 'syncing' && 'Synchronizing changes with server'}
-              {status === 'disconnected' && 'Connection lost. Attempting to reconnect...'}
-              {status === 'connecting' && 'Establishing connection...'}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
+      <div className="flex items-center justify-end px-3 pt-2 pb-1">
         <PresenceAvatars provider={provider} />
       </div>
-
-      <Separator className="my-2" />
 
       <BlockNoteView editor={editor} editable={editable} theme="light" />
     </div>
