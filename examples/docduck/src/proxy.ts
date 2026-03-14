@@ -1,6 +1,7 @@
+import { getSessionCookie } from 'better-auth/cookies'
 import { type NextRequest, NextResponse } from 'next/server'
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Allow auth API routes and static files
@@ -8,18 +9,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check for session cookie (better-auth uses "better-auth.session_token")
-  const sessionToken =
-    request.cookies.get('better-auth.session_token')?.value ??
-    request.cookies.get('__Secure-better-auth.session_token')?.value
-
+  const sessionCookie = getSessionCookie(request)
   const isAuthPage = pathname.startsWith('/auth/')
 
-  if (!sessionToken && !isAuthPage) {
+  if (!sessionCookie && !isAuthPage) {
     return NextResponse.redirect(new URL('/auth/login', request.url))
   }
 
-  if (sessionToken && isAuthPage) {
+  if (sessionCookie && isAuthPage) {
     return NextResponse.redirect(new URL('/workspaces', request.url))
   }
 
