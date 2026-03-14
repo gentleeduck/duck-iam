@@ -78,6 +78,7 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     export const {
       AccessProvider,
       useAccess,
+      usePermissions,
       Can,
       Cannot,
       AccessContext,
@@ -212,7 +213,7 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     For SPAs that do not use server-side rendering:
 
     ```tsx title="src/components/app.tsx"
-    import { usePermissions } from '@gentleduck/iam/client/react'
+    import { usePermissions } from '@/lib/access-client'
 
     function App() {
       const { permissions, can, loading, error } = usePermissions(
