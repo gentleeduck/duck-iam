@@ -73,7 +73,8 @@
     "packages": [
       "apps/*",
       "packages/*",
-      "tooling/*"
+      "tooling/*",
+      "examples/*"
     ],
     "catalog": {
       "@gentleduck/hooks": "0.1.12",
