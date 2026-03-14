@@ -1,9 +1,14 @@
 'use client'
 
-import { FileTextIcon, GlobeIcon, LockIcon, PlusIcon, TrashIcon } from 'lucide-react'
+import { Badge } from '@gentleduck/ui/badge'
+import { Button } from '@gentleduck/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@gentleduck/ui/card'
+import { Input } from '@gentleduck/ui/input'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
+import { FileTextIcon, GlobeIcon, LockIcon, PlusIcon, SearchIcon, TrashIcon } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Can, Cannot } from '@/lib/access-client'
 import { createDocument, deleteDocument, toggleDocumentPublic } from '@/server/actions/document'
@@ -27,6 +32,14 @@ interface Props {
 export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
   const router = useRouter()
   const [creating, setCreating] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filteredDocuments = useMemo(() => {
+    const query = search.toLowerCase().trim()
+    const filtered = query ? documents.filter((doc) => doc.title.toLowerCase().includes(query)) : documents
+
+    return [...filtered].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+  }, [documents, search])
 
   async function handleCreate() {
     setCreating(true)
@@ -61,79 +74,102 @@ export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
   }
 
   return (
-    <div>
-      <Can action="create" resource="document">
-        <button
-          type="button"
-          onClick={handleCreate}
-          disabled={creating}
-          className="mb-4 flex items-center gap-2 rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground text-sm hover:opacity-90 disabled:opacity-50">
-          <PlusIcon className="h-4 w-4" />
-          {creating ? 'Creating...' : 'New Document'}
-        </button>
-      </Can>
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <SearchIcon className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter documents by title..."
+            className="pl-9"
+          />
+        </div>
+
+        <Can action="create" resource="document">
+          <Button type="button" onClick={handleCreate} loading={creating}>
+            <PlusIcon className="h-4 w-4" />
+            {creating ? 'Creating...' : 'New Document'}
+          </Button>
+        </Can>
+      </div>
 
       <Cannot action="create" resource="document">
-        <p className="mb-4 text-muted-foreground text-sm">
+        <p className="text-muted-foreground text-sm">
           You don&apos;t have permission to create documents in this workspace.
         </p>
       </Cannot>
 
-      {documents.length === 0 ? (
+      {filteredDocuments.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center">
           <FileTextIcon className="mx-auto h-10 w-10 text-muted-foreground" />
-          <p className="mt-2 text-muted-foreground text-sm">No documents yet</p>
+          <p className="mt-2 text-muted-foreground text-sm">
+            {search ? 'No documents match your search' : 'No documents yet'}
+          </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {documents.map((doc) => (
-            <div
-              key={doc.id}
-              className="group flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-accent">
-              <Link
-                href={`/workspaces/${workspaceSlug}/documents/${doc.id}`}
-                className="flex flex-1 items-center gap-3">
-                <FileTextIcon className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <h3 className="font-medium">{doc.title}</h3>
-                  <p className="text-muted-foreground text-xs">
-                    Updated {new Date(doc.updatedAt).toLocaleDateString()}
-                  </p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredDocuments.map((doc) => (
+            <Card key={doc.id} className="group transition-colors hover:bg-accent/50">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <Link href={`/workspaces/${workspaceSlug}/documents/${doc.id}`} className="flex-1">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <FileTextIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{doc.title}</span>
+                    </CardTitle>
+                  </Link>
+                  <Badge variant={doc.isPublic ? 'secondary' : 'outline'}>
+                    {doc.isPublic ? (
+                      <span className="flex items-center gap-1">
+                        <GlobeIcon className="h-3 w-3" /> Public
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        <LockIcon className="h-3 w-3" /> Private
+                      </span>
+                    )}
+                  </Badge>
                 </div>
-              </Link>
+              </CardHeader>
+              <CardContent>
+                <p className="mb-3 text-muted-foreground text-xs">
+                  Updated{' '}
+                  {new Date(doc.updatedAt).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </p>
+                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <TooltipProvider>
+                    <Can action="share" resource="document">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button type="button" variant="ghost" size="icon" onClick={() => handleTogglePublic(doc.id)}>
+                            {doc.isPublic ? <LockIcon className="h-4 w-4" /> : <GlobeIcon className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{doc.isPublic ? 'Make private' : 'Make public'}</TooltipContent>
+                      </Tooltip>
+                    </Can>
 
-              <div className="flex items-center gap-2">
-                {doc.isPublic ? (
-                  <span className="flex items-center gap-1 text-muted-foreground text-xs">
-                    <GlobeIcon className="h-3 w-3" /> Public
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-muted-foreground text-xs">
-                    <LockIcon className="h-3 w-3" /> Private
-                  </span>
-                )}
-
-                <Can action="share" resource="document">
-                  <button
-                    type="button"
-                    onClick={() => handleTogglePublic(doc.id)}
-                    className="rounded p-1 text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100"
-                    title={doc.isPublic ? 'Make private' : 'Make public'}>
-                    {doc.isPublic ? <LockIcon className="h-4 w-4" /> : <GlobeIcon className="h-4 w-4" />}
-                  </button>
-                </Can>
-
-                <Can action="delete" resource="document">
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(doc.id)}
-                    className="rounded p-1 text-destructive opacity-0 hover:bg-destructive/10 group-hover:opacity-100"
-                    title="Delete">
-                    <TrashIcon className="h-4 w-4" />
-                  </button>
-                </Can>
-              </div>
-            </div>
+                    <Can action="delete" resource="document">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button type="button" variant="ghost" size="icon" onClick={() => handleDelete(doc.id)}>
+                            <TrashIcon className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete document</TooltipContent>
+                      </Tooltip>
+                    </Can>
+                  </TooltipProvider>
+                </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
