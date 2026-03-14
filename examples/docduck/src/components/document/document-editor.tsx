@@ -81,6 +81,8 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
     }
   }, [lastSaved])
 
+  const saveTitleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const saveTitle = useCallback(
     async (newTitle: string) => {
       if (newTitle === doc.title || !canEdit) return
@@ -96,6 +98,19 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
     },
     [doc.id, doc.title, canEdit],
   )
+
+  // Debounce title saves - only save after 500ms of no typing
+  useEffect(() => {
+    if (title === doc.title) return
+
+    saveTitleTimeoutRef.current = setTimeout(() => {
+      saveTitle(title)
+    }, 500)
+
+    return () => {
+      if (saveTitleTimeoutRef.current) clearTimeout(saveTitleTimeoutRef.current)
+    }
+  }, [title, doc.title, saveTitle])
 
   const handleWordCountChange = useCallback((count: number) => {
     setWordCount(count)
@@ -126,11 +141,10 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                onBlur={(e) => saveTitle(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') saveTitle(title)
+                  if (e.key === 'Enter') e.currentTarget.blur()
                 }}
-                className="border-none bg-transparent font-bold text-xl outline-none focus:ring-0"
+                className="border-transparent border-b-2 bg-transparent font-bold text-xl outline-none transition-colors focus:border-primary focus:ring-0"
                 placeholder="Untitled"
               />
             ) : (
