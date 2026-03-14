@@ -1,55 +1,16 @@
 @import "tailwindcss";
+@import "@gentleduck/ui/styles.css";
 
 @source "../../node_modules/@gentleduck/ui/src/";
 
 @theme {
-  --color-background: #ffffff;
-  --color-foreground: #09090b;
-  --color-card: #ffffff;
-  --color-card-foreground: #09090b;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #09090b;
-  --color-muted: #f4f4f5;
-  --color-muted-foreground: #71717a;
-  --color-border: #e4e4e7;
-  --color-input: #e4e4e7;
-  --color-primary: #18181b;
-  --color-primary-foreground: #fafafa;
-  --color-secondary: #f4f4f5;
-  --color-secondary-foreground: #18181b;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #fafafa;
-  --color-accent: #f4f4f5;
-  --color-accent-foreground: #18181b;
-  --color-ring: #18181b;
-  --color-sidebar: #fafafa;
-  --color-sidebar-foreground: #09090b;
-  --color-sidebar-border: #e4e4e7;
-  --color-sidebar-accent: #f4f4f5;
-  --color-sidebar-accent-foreground: #18181b;
-  --radius: 0.5rem;
-  --font-serif: var(--font-inria-serif), "Inria Serif", Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
   --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
-  --font-sans: var(--font-serif);
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  border-color: var(--color-border);
+  --font-serif: var(--font-inria-serif), "Inria Serif", Georgia, serif;
 }
 
 body {
-  font-family: var(--font-serif);
-  background: var(--color-background);
-  color: var(--color-foreground);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-code,
-pre,
-kbd {
-  font-family: var(--font-mono);
 }
