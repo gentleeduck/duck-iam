@@ -1,16 +1,25 @@
 'use client'
 
-import { ArrowLeftIcon, CircleIcon, Loader2Icon, LockIcon, PenIcon, WifiIcon, WifiOffIcon } from 'lucide-react'
+import type { HocuspocusProvider } from '@hocuspocus/provider'
+import { useSetAtom } from 'jotai'
+import { ArrowLeftIcon, CopyIcon, Loader2Icon, LockIcon, MoreHorizontalIcon, TypeIcon } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { documentTitleAtom } from '@/lib/atoms'
 import { updateDocumentTitle } from '@/server/actions/document'
+import { PresenceAvatars } from './presence-avatars'
 import type { ConnectionStatus } from './collaborative-editor'
 
 const CollaborativeEditor = dynamic(
@@ -18,7 +27,8 @@ const CollaborativeEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex min-h-[500px] items-center justify-center text-muted-foreground text-sm">
+      <div className="flex h-full items-center justify-center gap-2 text-muted-foreground text-sm">
+        <Loader2Icon className="h-4 w-4 animate-spin" />
         Loading editor...
       </div>
     ),
@@ -62,26 +72,22 @@ function formatRelativeTime(date: Date): string {
   return `${hours}h ago`
 }
 
-const CONNECTION_CONFIG: Record<ConnectionStatus, { icon: React.ReactNode; label: string; dotClass: string }> = {
+const CONNECTION_CONFIG: Record<ConnectionStatus, { label: string; dotClass: string }> = {
   connected: {
-    icon: <WifiIcon className="h-3 w-3" />,
     label: 'Connected',
     dotClass: 'bg-green-500',
   },
   syncing: {
-    icon: <Loader2Icon className="h-3 w-3 animate-spin" />,
     label: 'Syncing...',
-    dotClass: 'bg-yellow-500',
+    dotClass: 'bg-yellow-500 animate-pulse',
   },
   disconnected: {
-    icon: <WifiOffIcon className="h-3 w-3" />,
     label: 'Disconnected',
     dotClass: 'bg-red-500',
   },
   connecting: {
-    icon: <CircleIcon className="h-3 w-3" />,
     label: 'Connecting...',
-    dotClass: 'bg-yellow-500',
+    dotClass: 'bg-yellow-500 animate-pulse',
   },
 }
 
@@ -92,7 +98,14 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
   const [lastSavedDisplay, setLastSavedDisplay] = useState<string>('')
   const [wordCount, setWordCount] = useState(0)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
+  const [provider, setProvider] = useState<HocuspocusProvider | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const setDocumentTitle = useSetAtom(documentTitleAtom)
+
+  useEffect(() => {
+    setDocumentTitle(title || doc.title)
+    return () => setDocumentTitle(null)
+  }, [title, doc.title, setDocumentTitle])
 
   useEffect(() => {
     if (!lastSaved) return
@@ -125,7 +138,6 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
     [doc.id, doc.title, canEdit],
   )
 
-  // Debounce title saves - only save after 500ms of no typing
   useEffect(() => {
     if (title === doc.title) return
 
@@ -150,16 +162,25 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
     setConnectionStatus(status)
   }, [])
 
+  const handleProviderReady = useCallback((p: HocuspocusProvider) => {
+    setProvider(p)
+  }, [])
+
+  const handleCopyLink = useCallback(() => {
+    navigator.clipboard.writeText(window.location.href)
+    toast.success('Link copied to clipboard')
+  }, [])
+
   const currentConnection = CONNECTION_CONFIG[connectionStatus]
 
   return (
-    <div className="mx-auto max-w-4xl space-y-3">
+    <div className="flex h-full flex-col">
       <TooltipProvider>
-        {/* Header row: back button, title, badges */}
-        <div className="flex items-center gap-3">
+        {/* Compact header bar */}
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b px-3">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button type="button" variant="ghost" size="icon" className="shrink-0" asChild>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
                 <Link href={`/workspaces/${workspace.slug}`}>
                   <ArrowLeftIcon className="h-4 w-4" />
                 </Link>
@@ -168,90 +189,74 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
             <TooltipContent>Back to workspace</TooltipContent>
           </Tooltip>
 
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            {canEdit ? (
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') e.currentTarget.blur()
-                }}
-                className="min-w-0 flex-1 border-transparent border-b-2 bg-transparent font-semibold text-lg outline-none transition-colors focus:border-primary focus:ring-0"
-                placeholder="Untitled"
-              />
-            ) : (
-              <h1 className="min-w-0 truncate font-bold text-xl">{doc.title}</h1>
-            )}
-
-            {titleSaving && <span className="shrink-0 text-muted-foreground text-xs">Saving...</span>}
-          </div>
-
-          {canEdit ? (
-            <Badge variant="secondary" className="shrink-0 bg-green-50 text-green-700">
-              <PenIcon className="mr-1 h-3 w-3" /> Editing
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="shrink-0">
-              <LockIcon className="mr-1 h-3 w-3" /> Read-only
-            </Badge>
-          )}
-        </div>
-
-        {/* Toolbar bar */}
-        <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-1.5 text-muted-foreground text-xs">
-          <span>
-            {wordCount} {wordCount === 1 ? 'word' : 'words'}
-          </span>
-
-          <Separator orientation="vertical" className="h-3" />
-
+          {/* Connection dot */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="flex cursor-default items-center gap-1.5">
-                <span className={`h-1.5 w-1.5 rounded-full ${currentConnection.dotClass}`} />
-                {currentConnection.icon}
-                {currentConnection.label}
+              <span className="flex cursor-default items-center">
+                <span className={`h-2 w-2 rounded-full ${currentConnection.dotClass}`} />
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              {connectionStatus === 'connected' && 'Real-time sync is active'}
-              {connectionStatus === 'syncing' && 'Synchronizing changes with server'}
-              {connectionStatus === 'disconnected' && 'Connection lost. Attempting to reconnect...'}
-              {connectionStatus === 'connecting' && 'Establishing connection...'}
+              {currentConnection.label}
+              {lastSaved ? ` · Saved ${lastSavedDisplay}` : ''}
             </TooltipContent>
           </Tooltip>
 
-          <Separator orientation="vertical" className="h-3" />
+          {/* Word count & save status */}
+          <span className="text-[11px] text-muted-foreground">
+            {wordCount} {wordCount === 1 ? 'word' : 'words'}
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {lastSaved ? `Saved ${lastSavedDisplay}` : ''}
+          </span>
 
-          {lastSaved ? <span>Saved {lastSavedDisplay}</span> : <span>Not yet saved</span>}
+          <div className="flex-1" />
 
-          <Separator orientation="vertical" className="h-3" />
+          {/* Presence avatars */}
+          {provider && <PresenceAvatars provider={provider} />}
 
-          {canEdit ? (
-            <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-              Edit
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
-              Read-only
+          {/* Read-only badge */}
+          {!canEdit && (
+            <Badge variant="outline" className="shrink-0 text-[11px]">
+              <LockIcon className="mr-1 h-3 w-3" /> Read-only
             </Badge>
           )}
+
+          {/* More menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+                <MoreHorizontalIcon className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem disabled className="text-muted-foreground text-xs">
+                <TypeIcon className="mr-2 h-3.5 w-3.5" />
+                {wordCount} {wordCount === 1 ? 'word' : 'words'}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleCopyLink}>
+                <CopyIcon className="mr-2 h-3.5 w-3.5" />
+                Copy link
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
-        {/* Editor area */}
-        <Card>
-          <CardContent className="p-0">
-            <CollaborativeEditor
-              docId={doc.id}
-              workspaceId={workspace.id}
-              user={user}
-              editable={canEdit}
-              onWordCountChange={handleWordCountChange}
-              onSynced={handleSynced}
-              onConnectionChange={handleConnectionChange}
-            />
-          </CardContent>
-        </Card>
+        {/* Borderless editor — fills remaining height */}
+        <div className="min-h-0 flex-1">
+          <CollaborativeEditor
+            docId={doc.id}
+            workspaceId={workspace.id}
+            user={user}
+            editable={canEdit}
+            onWordCountChange={handleWordCountChange}
+            onSynced={handleSynced}
+            onConnectionChange={handleConnectionChange}
+            onProviderReady={handleProviderReady}
+          />
+        </div>
+
       </TooltipProvider>
     </div>
   )

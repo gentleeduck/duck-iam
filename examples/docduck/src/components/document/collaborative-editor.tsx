@@ -2,13 +2,16 @@
 
 import { BlockNoteView } from '@blocknote/mantine'
 import { useCreateBlockNote } from '@blocknote/react'
-import { HocuspocusProvider } from '@hocuspocus/provider'
+import type { HocuspocusProvider } from '@hocuspocus/provider'
+import { HocuspocusProvider as HocuspocusProviderImpl } from '@hocuspocus/provider'
 import { Loader2Icon } from 'lucide-react'
+import { useAtom } from 'jotai'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as Y from 'yjs'
-import { PresenceAvatars } from './presence-avatars'
+import { themeAtom } from '@/lib/theme'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
+import '@/styles/blocknote.css'
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'syncing' | 'disconnected'
 
@@ -20,6 +23,7 @@ interface Props {
   onWordCountChange?: (count: number) => void
   onSynced?: () => void
   onConnectionChange?: (status: ConnectionStatus) => void
+  onProviderReady?: (provider: HocuspocusProvider) => void
 }
 
 const COLORS = ['#958DF1', '#F98181', '#FBBC88', '#FAF594', '#70CFF8', '#94FADB', '#B9F18D', '#C3E2C2']
@@ -32,6 +36,7 @@ export function CollaborativeEditor({
   onWordCountChange,
   onSynced,
   onConnectionChange,
+  onProviderReady,
 }: Props) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [ready, setReady] = useState(false)
@@ -46,7 +51,6 @@ export function CollaborativeEditor({
         disconnectTimeoutRef.current = null
       }
 
-      // Delay showing "disconnected" by 1 second to avoid flicker on brief hiccups
       if (newStatus === 'disconnected') {
         disconnectTimeoutRef.current = setTimeout(() => {
           setStatus('disconnected')
@@ -62,7 +66,7 @@ export function CollaborativeEditor({
 
   useEffect(() => {
     const ydoc = new Y.Doc()
-    const provider = new HocuspocusProvider({
+    const provider = new HocuspocusProviderImpl({
       url: process.env.NEXT_PUBLIC_HOCUSPOCUS_URL ?? 'ws://localhost:8888',
       name: docId,
       document: ydoc,
@@ -81,6 +85,7 @@ export function CollaborativeEditor({
 
     ydocRef.current = ydoc
     providerRef.current = provider
+    onProviderReady?.(provider)
 
     return () => {
       if (disconnectTimeoutRef.current) clearTimeout(disconnectTimeoutRef.current)
@@ -91,11 +96,11 @@ export function CollaborativeEditor({
       setReady(false)
       setStatus('connecting')
     }
-  }, [docId, workspaceId, user.id, onSynced, setStatusDebounced])
+  }, [docId, workspaceId, user.id, onSynced, setStatusDebounced, onProviderReady])
 
   if (!ready || !ydocRef.current || !providerRef.current) {
     return (
-      <div className="flex min-h-[500px] items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="flex items-center gap-2 text-muted-foreground text-sm">
           <Loader2Icon className="h-4 w-4 animate-spin" />
           Connecting to document...
@@ -130,6 +135,7 @@ function EditorContent({
   status: ConnectionStatus
   onWordCountChange?: (count: number) => void
 }) {
+  const [theme] = useAtom(themeAtom)
   const color = useRef(COLORS[Math.floor(Math.random() * COLORS.length)] ?? '#958DF1').current
 
   const editor = useCreateBlockNote({
@@ -151,7 +157,7 @@ function EditorContent({
     function countWords() {
       const text = fragment.toDOM().textContent ?? ''
       const words = text.trim().split(/\s+/).filter(Boolean)
-      onWordCountChange(words.length)
+      onWordCountChange!(words.length)
     }
 
     countWords()
@@ -163,12 +169,14 @@ function EditorContent({
   }, [ydoc, onWordCountChange])
 
   return (
-    <div className="min-h-[500px]">
-      <div className="flex items-center justify-end px-3 pt-2 pb-1">
-        <PresenceAvatars provider={provider} />
-      </div>
-
-      <BlockNoteView editor={editor} editable={editable} theme="light" />
+    <div className="h-full w-full pt-6">
+      <BlockNoteView
+        editor={editor}
+        editable={editable}
+        theme={theme === 'bun' ? 'dark' : 'light'}
+        emojiPicker
+        className="h-full w-full [&_.bn-editor]:min-h-full [&_.bn-editor]:w-full"
+      />
     </div>
   )
 }
