@@ -20,6 +20,15 @@ const inriaSerif = Inria_Serif({
 export const metadata: Metadata = {
   title: 'DocDuck — Collaborative Document Editor',
   description: 'A collaborative document editor showcasing @gentleduck/iam',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
+  },
+  manifest: '/manifest.json',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -27,7 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" data-theme="bun" className={`${jetbrainsMono.variable} ${inriaSerif.variable}`}>
       <body className={jetbrainsMono.className}>
         {children}
-        <Toaster position="bottom-right" richColors closeButton />
+        <Toaster position="top-center" closeButton />
       </body>
     </html>
   )
