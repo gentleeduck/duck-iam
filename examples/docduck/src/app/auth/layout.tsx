@@ -6,5 +6,5 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
   const session = await auth.api.getSession({ headers: await headers() })
   if (session) redirect('/workspaces')
 
-  return <>{children}</>
+  return <div>{children}</div>
 }
