@@ -89,26 +89,10 @@ const request: AccessRequest = {
 const decision = await engine.authorize(request)
 ```
 
-When you call `can()` or `check()`, they call `resolveSubject()` to load the subject
-from the adapter, then call `authorize()` internally. Use `authorize()` directly when
-you manage subject resolution yourself.
-
-### engine.resolveSubject()
-
-Loads a subject's roles and attributes from the adapter:
-
-```typescript
-const subject = await engine.resolveSubject('bob')
-// {
-//   id: 'bob',
-//   roles: ['editor', 'viewer'],  // includes inherited roles
-//   scopedRoles: [{ role: 'admin', scope: 'acme' }],
-//   attributes: { department: 'engineering' },
-// }
-```
-
-The result is cached. Subsequent calls for the same subject return the cached version
-until the cache TTL expires or you manually invalidate.
+When you call `can()` or `check()`, the engine internally resolves the subject
+from the adapter (loading roles, scoped roles, and attributes), then calls `authorize()`.
+Use `authorize()` directly when you already have a fully resolved subject object
+and want to skip the adapter lookup.
 
 ## Hooks
 
@@ -689,9 +673,9 @@ export const engine = new Engine({
     <AccordionTrigger>When should I use authorize() instead of can()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Use `authorize()` when you already have a resolved `Subject` object (from
-      `resolveSubject()` or your own data source) and want to skip the adapter lookup.
-      This is useful in middleware where you resolve the user once and check multiple
-      permissions, or in tests where you construct subjects manually.
+      your own data source) and want to skip the adapter lookup. This is useful in
+      middleware where you resolve the user once and check multiple permissions, or
+      in tests where you construct subjects manually.
     </AccordionContent>
   </AccordionItem>
 

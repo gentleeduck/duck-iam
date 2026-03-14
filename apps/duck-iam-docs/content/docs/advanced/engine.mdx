@@ -234,26 +234,6 @@ const result = await engine.explain('user-1', 'delete', {
 console.log(result.summary)
 ```
 
-### engine.resolveSubject()
-
-Loads a subject's roles, scoped roles, and attributes from the adapter. The result is
-cached using the LRU cache. Role inheritance is resolved here -- the returned `roles`
-array includes all inherited roles, not just directly assigned ones.
-
-```typescript
-const subject = await engine.resolveSubject('user-1')
-// {
-//   id: 'user-1',
-//   roles: ['editor', 'viewer'],        // includes inherited roles
-//   scopedRoles: [{ role: 'admin', scope: 'org-1' }],
-//   attributes: { department: 'engineering' }
-// }
-```
-
-If the adapter does not implement `getSubjectScopedRoles()` (it is optional on the
-`SubjectStore` interface), the `scopedRoles` array will be empty. Adapters without
-multi-tenant support can safely omit this method.
-
 ## The Decision Object
 
 Every authorization check returns a `Decision`:
