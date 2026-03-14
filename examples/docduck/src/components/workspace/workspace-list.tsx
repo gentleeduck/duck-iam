@@ -46,15 +46,15 @@ export function WorkspaceList({ memberships }: { memberships: WorkspaceMembershi
         <Link key={workspace.id} href={`/workspaces/${workspace.slug}`} className="group">
           <Card className="transition-all hover:border-primary/30 hover:shadow-md">
             <CardContent className="flex items-start justify-between p-4">
-              <div className="flex items-center gap-3">
-                <Avatar className="h-10 w-10 rounded-md">
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar className="h-10 w-10 shrink-0 rounded-md">
                   <AvatarFallback className="rounded-md bg-primary/10 font-semibold text-primary">
                     {workspace.name.slice(0, 2).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <div>
-                  <h3 className="font-medium group-hover:underline">{workspace.name}</h3>
-                  <p className="text-muted-foreground text-xs">/{workspace.slug}</p>
+                <div className="min-w-0">
+                  <h3 className="truncate font-medium group-hover:underline">{workspace.name}</h3>
+                  <p className="truncate text-muted-foreground text-xs">/{workspace.slug}</p>
                 </div>
               </div>
               <Badge variant={roleBadgeVariant[role] ?? 'outline'} className="capitalize">

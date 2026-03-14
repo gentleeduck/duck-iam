@@ -21,8 +21,8 @@ export default function NewWorkspacePage() {
 
     const formData = new FormData(e.currentTarget)
     const data = {
-      name: formData.get('name') as string,
-      slug: formData.get('slug') as string,
+      name: String(formData.get('name') ?? ''),
+      slug: String(formData.get('slug') ?? ''),
     }
 
     const result = createWorkspaceSchema.safeParse(data)

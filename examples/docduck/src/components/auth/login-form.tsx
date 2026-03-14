@@ -120,7 +120,7 @@ export function LoginForm() {
           </Link>
         </p>
         <Separator />
-        <div className="flex w-full items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2">
           <span className="text-muted-foreground text-xs">Quick login:</span>
           <TooltipProvider delayDuration={200}>
             {DEMO_USERS.map((user) => (
