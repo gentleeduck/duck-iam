@@ -19,8 +19,8 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { documentTitleAtom } from '@/lib/atoms'
 import { updateDocumentTitle } from '@/server/actions/document'
-import { PresenceAvatars } from './presence-avatars'
 import type { ConnectionStatus } from './collaborative-editor'
+import { PresenceAvatars } from './presence-avatars'
 
 const CollaborativeEditor = dynamic(
   () => import('./collaborative-editor').then((m) => ({ default: m.CollaborativeEditor })),
@@ -206,9 +206,7 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
           <span className="text-[11px] text-muted-foreground">
             {wordCount} {wordCount === 1 ? 'word' : 'words'}
           </span>
-          <span className="text-[11px] text-muted-foreground">
-            {lastSaved ? `Saved ${lastSavedDisplay}` : ''}
-          </span>
+          <span className="text-[11px] text-muted-foreground">{lastSaved ? `Saved ${lastSavedDisplay}` : ''}</span>
 
           <div className="flex-1" />
 
@@ -256,7 +254,6 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
             onProviderReady={handleProviderReady}
           />
         </div>
-
       </TooltipProvider>
     </div>
   )
