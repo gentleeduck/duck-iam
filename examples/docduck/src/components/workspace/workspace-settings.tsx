@@ -15,11 +15,13 @@ import { Button } from '@gentleduck/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gentleduck/ui/card'
 import { Separator } from '@gentleduck/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@gentleduck/ui/tabs'
-import { TrashIcon, UserPlusIcon } from 'lucide-react'
+import { useAtom } from 'jotai'
+import { CheckIcon, TrashIcon, UserPlusIcon } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Can } from '@/lib/access-client'
+import { type Theme, themeAtom } from '@/lib/theme'
 import { deleteWorkspace, inviteMember, removeMember, updateMemberRole } from '@/server/actions/workspace'
 import { InviteDialog } from './invite-dialog'
 import { MemberList } from './member-list'
@@ -48,6 +50,7 @@ interface Props {
 export function WorkspaceSettings({ workspace, members }: Props) {
   const router = useRouter()
   const [showInvite, setShowInvite] = useState(false)
+  const [theme, setTheme] = useAtom(themeAtom)
 
   async function handleDeleteWorkspace() {
     try {
@@ -94,6 +97,7 @@ export function WorkspaceSettings({ workspace, members }: Props) {
         <TabsList>
           <TabsTrigger value="members">Members</TabsTrigger>
           <TabsTrigger value="permissions">Permissions</TabsTrigger>
+          <TabsTrigger value="appearance">Appearance</TabsTrigger>
         </TabsList>
 
         <TabsContent value="members" className="mt-4 space-y-4">
@@ -122,6 +126,40 @@ export function WorkspaceSettings({ workspace, members }: Props) {
           </div>
           <Separator />
           <PermissionsDashboard />
+        </TabsContent>
+
+        <TabsContent value="appearance" className="mt-4 space-y-4">
+          <div>
+            <h2 className="font-semibold text-lg">Theme</h2>
+            <p className="text-muted-foreground text-sm">Choose your preferred appearance</p>
+          </div>
+          <Separator />
+          <div className="grid grid-cols-2 gap-4 sm:max-w-md">
+            {(
+              [
+                { value: 'bun' as Theme, label: 'Bun Dark', color: 'bg-zinc-900' },
+                { value: 'light' as Theme, label: 'Light', color: 'bg-zinc-100' },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setTheme(option.value)}
+                className={`relative flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-colors ${
+                  theme === option.value
+                    ? 'border-primary ring-2 ring-primary/20'
+                    : 'border-border hover:border-muted-foreground/30'
+                }`}>
+                {theme === option.value && (
+                  <div className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary">
+                    <CheckIcon className="h-3 w-3 text-primary-foreground" />
+                  </div>
+                )}
+                <div className={`h-16 w-full rounded-md ${option.color} border`} />
+                <span className="font-medium text-sm">{option.label}</span>
+              </button>
+            ))}
+          </div>
         </TabsContent>
       </Tabs>
 

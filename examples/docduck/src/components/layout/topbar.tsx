@@ -17,6 +17,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { sidebarOpenAtom } from '@/lib/atoms'
 import type { Session } from '@/lib/auth'
 import { signOut } from '@/lib/auth-client'
+import { ThemeSwitcher } from './theme-switcher'
 
 interface TopbarProps {
   user: Session['user']
@@ -73,6 +74,9 @@ export function Topbar({ user }: TopbarProps) {
       </nav>
 
       <div className="flex-1" />
+
+      <ThemeSwitcher />
+      <Separator orientation="vertical" className="h-6" />
 
       {/* User dropdown */}
       <DropdownMenu>
