@@ -22,7 +22,7 @@ export default async function WorkspaceDocumentsPage({ params }: Props) {
   }))
 
   return (
-    <div className="mx-auto max-w-4xl px-4 sm:px-6">
+    <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="font-bold text-2xl">{workspace.name}</h1>
