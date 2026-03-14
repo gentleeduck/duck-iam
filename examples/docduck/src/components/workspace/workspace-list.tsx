@@ -41,7 +41,7 @@ export function WorkspaceList({ memberships }: { memberships: WorkspaceMembershi
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
       {memberships.map(({ workspace, role }) => (
         <Link key={workspace.id} href={`/workspaces/${workspace.slug}`} className="group">
           <Card className="transition-all hover:border-primary/30 hover:shadow-md">

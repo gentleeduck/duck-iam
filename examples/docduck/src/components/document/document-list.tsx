@@ -108,7 +108,7 @@ export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
           </p>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
           {filteredDocuments.map((doc) => (
             <Card key={doc.id} className="group transition-colors hover:bg-accent/50">
               <Link href={`/workspaces/${workspaceSlug}/documents/${doc.id}`} className="block">
