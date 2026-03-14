@@ -30,6 +30,9 @@ export function Topbar({ user }: TopbarProps) {
   const workspaceMatch = pathname.match(/\/workspaces\/([^/]+)/)
   const currentSlug = workspaceMatch?.[1]
 
+  const documentMatch = pathname.match(/\/workspaces\/[^/]+\/documents\/([^/]+)/)
+  const currentDocId = documentMatch?.[1]
+
   async function handleLogout() {
     await signOut()
     router.push('/auth/login')
@@ -56,7 +59,13 @@ export function Topbar({ user }: TopbarProps) {
         {currentSlug && (
           <>
             <ChevronRightIcon className="h-3.5 w-3.5" />
-            <span className="font-medium text-foreground">{currentSlug}</span>
+            <span className={currentDocId ? '' : 'font-medium text-foreground'}>{currentSlug}</span>
+          </>
+        )}
+        {currentDocId && (
+          <>
+            <ChevronRightIcon className="h-3.5 w-3.5" />
+            <span className="font-medium text-foreground">{currentDocId}</span>
           </>
         )}
       </nav>

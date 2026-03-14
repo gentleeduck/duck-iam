@@ -1,7 +1,7 @@
 'use client'
 
 import { Avatar, AvatarFallback } from '@gentleduck/ui/avatar'
-import { Badge } from '@gentleduck/ui/badge'
+
 import { Separator } from '@gentleduck/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
 import { useAtom } from 'jotai'
@@ -84,23 +84,20 @@ export function AppSidebar({ user }: AppSidebarProps) {
               {!collapsed && (
                 <div className="mb-2 flex items-center gap-2 px-3">
                   <span className="font-medium text-muted-foreground text-xs uppercase">Workspace</span>
-                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                    member
-                  </Badge>
                 </div>
               )}
               <NavItem
                 href={`/workspaces/${currentSlug}`}
                 icon={<FileTextIcon className="h-4 w-4 shrink-0" />}
                 label="Documents"
-                active={pathname === `/workspaces/${currentSlug}`}
+                active={pathname.startsWith(`/workspaces/${currentSlug}`) && !pathname.includes('/settings')}
                 collapsed={collapsed}
               />
               <NavItem
                 href={`/workspaces/${currentSlug}/settings`}
                 icon={<SettingsIcon className="h-4 w-4 shrink-0" />}
                 label="Settings"
-                active={pathname.includes('/settings')}
+                active={pathname.startsWith(`/workspaces/${currentSlug}/settings`)}
                 collapsed={collapsed}
               />
             </>
