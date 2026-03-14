@@ -111,45 +111,44 @@ export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filteredDocuments.map((doc) => (
             <Card key={doc.id} className="group transition-colors hover:bg-accent/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <Link href={`/workspaces/${workspaceSlug}/documents/${doc.id}`} className="min-w-0 flex-1">
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <FileTextIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{doc.title}</span>
-                    </CardTitle>
-                  </Link>
-                  <Badge variant={doc.isPublic ? 'secondary' : 'outline'}>
+              <Link href={`/workspaces/${workspaceSlug}/documents/${doc.id}`} className="block">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <FileTextIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{doc.title}</span>
+                  </CardTitle>
+                </CardHeader>
+              </Link>
+              <CardContent>
+                <div className="mb-3 flex items-center gap-2 text-muted-foreground text-xs">
+                  <Badge variant={doc.isPublic ? 'secondary' : 'outline'} className="shrink-0 text-[10px]">
                     {doc.isPublic ? (
-                      <span className="flex items-center gap-1">
-                        <GlobeIcon className="h-3 w-3" /> Public
-                      </span>
+                      <>
+                        <GlobeIcon className="mr-1 h-3 w-3" />
+                        Public
+                      </>
                     ) : (
-                      <span className="flex items-center gap-1">
-                        <LockIcon className="h-3 w-3" /> Private
-                      </span>
+                      <>
+                        <LockIcon className="mr-1 h-3 w-3" />
+                        Private
+                      </>
                     )}
                   </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="mb-3 text-muted-foreground text-xs">
-                  Updated{' '}
-                  <span>
+                  <span className="truncate">
                     {new Date(doc.updatedAt).toLocaleDateString(undefined, {
                       year: 'numeric',
                       month: 'short',
                       day: 'numeric',
                     })}
+                    <span className="hidden sm:inline">
+                      {' '}
+                      {new Date(doc.updatedAt).toLocaleTimeString(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
                   </span>
-                  <span className="hidden sm:inline">
-                    {' '}
-                    {new Date(doc.updatedAt).toLocaleTimeString(undefined, {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                </p>
+                </div>
                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                   <TooltipProvider>
                     <Can action="share" resource="document">
