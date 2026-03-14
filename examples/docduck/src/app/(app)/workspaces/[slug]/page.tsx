@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { DocumentList } from '@/components/document/document-list'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { getDocuments } from '@/server/actions/document'
 import { getWorkspaceBySlug } from '@/server/actions/workspace'
@@ -24,21 +23,14 @@ export default async function WorkspaceDocumentsPage({ params }: Props) {
 
   return (
     <div>
-      <div className="mb-8 flex items-start gap-4">
-        <Avatar className="h-14 w-14 shrink-0 rounded-xl shadow-sm">
-          <AvatarFallback className="rounded-xl bg-gradient-to-br from-primary to-primary/70 font-bold text-lg text-primary-foreground">
-            {workspace.name.charAt(0).toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="truncate font-bold text-2xl leading-tight">{workspace.name}</h1>
-            <Badge variant="secondary" className="shrink-0 font-medium">
-              {docs.length} {docs.length === 1 ? 'document' : 'documents'}
-            </Badge>
-          </div>
-          <p className="mt-1 text-muted-foreground text-sm">Manage and organize documents in this workspace</p>
+      <div className="mb-6">
+        <div className="flex items-center gap-3">
+          <h1 className="truncate font-bold text-2xl">{workspace.name}</h1>
+          <Badge variant="secondary" className="shrink-0 text-xs">
+            {docs.length} {docs.length === 1 ? 'doc' : 'docs'}
+          </Badge>
         </div>
+        <p className="mt-1 text-muted-foreground text-sm">Manage documents in this workspace</p>
       </div>
       <DocumentList documents={serializedDocs} workspaceId={workspace.id} workspaceSlug={slug} />
     </div>
