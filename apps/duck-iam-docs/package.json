@@ -4,12 +4,12 @@
     "bun": ">=1.3.5"
   },
   "dependencies": {
-    "@gentleduck/docs": "0.2.7",
-    "@gentleduck/lazy": "^1.2.12",
-    "@gentleduck/libs": "^0.1.14",
-    "@gentleduck/motion": "^0.1.16",
+    "@gentleduck/docs": "0.2.8",
+    "@gentleduck/lazy": "^1.2.14",
+    "@gentleduck/libs": "^0.1.16",
+    "@gentleduck/motion": "^0.1.18",
     "@gentleduck/registry-ui": "0.2.8",
-    "@gentleduck/vim": "^0.1.15",
+    "@gentleduck/vim": "^0.1.17",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "geist": "^1.7.0",
     "jotai": "^2.18.1",
@@ -62,11 +62,11 @@
   },
   "version": "0.0.21",
   "overrides": {
-    "@gentleduck/hooks": "0.1.11",
-    "@gentleduck/libs": "0.1.14",
-    "@gentleduck/motion": "0.1.16",
-    "@gentleduck/primitives": "0.2.4",
-    "@gentleduck/variants": "0.1.19",
-    "@gentleduck/vim": "0.1.15"
+    "@gentleduck/hooks": "0.1.13",
+    "@gentleduck/libs": "0.1.16",
+    "@gentleduck/motion": "0.1.18",
+    "@gentleduck/primitives": "0.2.6",
+    "@gentleduck/variants": "0.1.21",
+    "@gentleduck/vim": "0.1.17"
   }
 }
