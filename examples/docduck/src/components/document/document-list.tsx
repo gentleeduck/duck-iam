@@ -113,7 +113,7 @@ export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
             <Card key={doc.id} className="group transition-colors hover:bg-accent/50">
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-2">
-                  <Link href={`/workspaces/${workspaceSlug}/documents/${doc.id}`} className="flex-1">
+                  <Link href={`/workspaces/${workspaceSlug}/documents/${doc.id}`} className="min-w-0 flex-1">
                     <CardTitle className="flex items-center gap-2 text-base">
                       <FileTextIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="truncate">{doc.title}</span>
@@ -135,13 +135,20 @@ export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
               <CardContent>
                 <p className="mb-3 text-muted-foreground text-xs">
                   Updated{' '}
-                  {new Date(doc.updatedAt).toLocaleDateString(undefined, {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  <span>
+                    {new Date(doc.updatedAt).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </span>
+                  <span className="hidden sm:inline">
+                    {' '}
+                    {new Date(doc.updatedAt).toLocaleTimeString(undefined, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
                 </p>
                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                   <TooltipProvider>

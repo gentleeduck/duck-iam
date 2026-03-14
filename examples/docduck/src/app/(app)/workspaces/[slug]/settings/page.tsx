@@ -21,7 +21,7 @@ export default async function WorkspaceSettingsPage({ params }: Props) {
   }))
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <div className="mx-auto max-w-4xl px-4 sm:px-6">
       <h1 className="mb-6 font-bold text-2xl">Workspace Settings</h1>
       <WorkspaceSettings workspace={workspace} members={serializedMembers} />
     </div>

@@ -54,18 +54,20 @@ export function Topbar({ user }: TopbarProps) {
       <Separator orientation="vertical" className="h-5" />
 
       {/* Breadcrumb-style navigation */}
-      <nav className="flex items-center gap-1.5 text-muted-foreground text-sm">
-        <span>Workspaces</span>
+      <nav className="hidden min-w-0 items-center gap-1.5 text-muted-foreground text-sm sm:flex">
+        <span className="shrink-0">Workspaces</span>
         {currentSlug && (
           <>
-            <ChevronRightIcon className="h-3.5 w-3.5" />
-            <span className={currentDocId ? '' : 'font-medium text-foreground'}>{currentSlug}</span>
+            <ChevronRightIcon className="h-3.5 w-3.5 shrink-0" />
+            <span className={`max-w-[200px] truncate ${currentDocId ? '' : 'font-medium text-foreground'}`}>
+              {currentSlug}
+            </span>
           </>
         )}
         {currentDocId && (
           <>
-            <ChevronRightIcon className="h-3.5 w-3.5" />
-            <span className="font-medium text-foreground">{currentDocId}</span>
+            <ChevronRightIcon className="h-3.5 w-3.5 shrink-0" />
+            <span className="max-w-[200px] truncate font-medium text-foreground">{currentDocId}</span>
           </>
         )}
       </nav>
@@ -86,8 +88,8 @@ export function Topbar({ user }: TopbarProps) {
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col gap-1">
-              <p className="font-medium text-sm leading-none">{user.name}</p>
-              <p className="text-muted-foreground text-xs leading-none">{user.email}</p>
+              <p className="truncate font-medium text-sm leading-none">{user.name}</p>
+              <p className="truncate text-muted-foreground text-xs leading-none">{user.email}</p>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />

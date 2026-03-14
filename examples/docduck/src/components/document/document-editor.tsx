@@ -125,10 +125,10 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
       <TooltipProvider>
         {/* Header / Toolbar */}
         <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" asChild>
+                <Button type="button" variant="ghost" size="icon" className="shrink-0" asChild>
                   <Link href={`/workspaces/${workspace.slug}`}>
                     <ArrowLeftIcon className="h-4 w-4" />
                   </Link>
@@ -144,11 +144,11 @@ export function DocumentEditor({ document: doc, workspace, user, canEdit }: Prop
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') e.currentTarget.blur()
                 }}
-                className="border-transparent border-b-2 bg-transparent font-bold text-xl outline-none transition-colors focus:border-primary focus:ring-0"
+                className="min-w-0 border-transparent border-b-2 bg-transparent font-bold text-xl outline-none transition-colors focus:border-primary focus:ring-0"
                 placeholder="Untitled"
               />
             ) : (
-              <h1 className="font-bold text-xl">{doc.title}</h1>
+              <h1 className="truncate font-bold text-xl">{doc.title}</h1>
             )}
             {titleSaving && <span className="text-muted-foreground text-xs">Saving...</span>}
           </div>

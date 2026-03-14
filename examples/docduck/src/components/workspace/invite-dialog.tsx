@@ -22,8 +22,8 @@ export function InviteDialog({ onInvite, onClose }: Props) {
 
     const formData = new FormData(e.currentTarget)
     const data = {
-      email: formData.get('email') as string,
-      role: formData.get('role') as string,
+      email: String(formData.get('email') ?? ''),
+      role: String(formData.get('role') ?? ''),
     }
 
     const result = inviteMemberSchema.safeParse(data)

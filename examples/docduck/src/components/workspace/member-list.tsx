@@ -45,15 +45,15 @@ export function MemberList({ members, onRoleChange, onRemove }: Props) {
       <div className="divide-y">
         {members.map((member) => (
           <div key={member.id} className="flex items-center justify-between gap-4 px-4 py-3">
-            <div className="flex items-center gap-3">
-              <Avatar className="h-9 w-9">
+            <div className="flex min-w-0 items-center gap-3">
+              <Avatar className="h-9 w-9 shrink-0">
                 <AvatarFallback className="font-medium text-xs">
                   {getInitials(member.user?.name ?? '??')}
                 </AvatarFallback>
               </Avatar>
-              <div>
-                <p className="font-medium text-sm">{member.user?.name ?? 'Unknown'}</p>
-                <p className="text-muted-foreground text-xs">{member.user?.email ?? ''}</p>
+              <div className="min-w-0">
+                <p className="truncate font-medium text-sm">{member.user?.name ?? 'Unknown'}</p>
+                <p className="truncate text-muted-foreground text-xs">{member.user?.email ?? ''}</p>
               </div>
             </div>
 
