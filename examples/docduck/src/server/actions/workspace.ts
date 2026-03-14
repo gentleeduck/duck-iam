@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import { engine } from '@/lib/access'
 import { db } from '@/lib/db'
 import { accessAssignments, workspaceMembers, workspaces } from '@/lib/db/schema'
+import { createWorkspaceSchema, inviteMemberSchema } from '@/lib/validations'
 import { requireSession } from './auth'
 
 export async function getWorkspaces() {
@@ -58,14 +59,14 @@ export async function getWorkspaceMembers(workspaceId: string) {
 
 export async function createWorkspace(formData: FormData) {
   const session = await requireSession()
-  const name = formData.get('name') as string
-  const slug = formData
-    .get('slug' as string)
-    ?.toString()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
+  const parsed = createWorkspaceSchema.safeParse({
+    name: formData.get('name'),
+    slug: formData.get('slug'),
+  })
+  if (!parsed.success) throw new Error(parsed.error.errors[0].message)
 
-  if (!name || !slug) throw new Error('Name and slug are required')
+  const { name } = parsed.data
+  const slug = parsed.data.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-')
 
   const id = `ws-${crypto.randomUUID().slice(0, 8)}`
 
@@ -93,12 +94,15 @@ export async function createWorkspace(formData: FormData) {
 export async function inviteMember(workspaceId: string, email: string, role: string) {
   const session = await requireSession()
 
+  const parsed = inviteMemberSchema.safeParse({ email, role })
+  if (!parsed.success) throw new Error(parsed.error.errors[0].message)
+
   const allowed = await engine.can(session.user.id, 'manage', { type: 'member' }, undefined, workspaceId)
   if (!allowed) throw new Error('Forbidden')
 
   // Find user by email
   const { users } = await import('@/lib/db/schema')
-  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1)
+  const [user] = await db.select().from(users).where(eq(users.email, parsed.data.email)).limit(1)
   if (!user) throw new Error('User not found')
 
   // Check if already a member
@@ -109,10 +113,10 @@ export async function inviteMember(workspaceId: string, email: string, role: str
     id: `wm-${crypto.randomUUID().slice(0, 8)}`,
     workspaceId,
     userId: user.id,
-    role,
+    role: parsed.data.role,
   })
 
-  await engine.admin.assignRole(user.id, role, workspaceId)
+  await engine.admin.assignRole(user.id, parsed.data.role, workspaceId)
 
   revalidatePath(`/workspaces`)
 }
