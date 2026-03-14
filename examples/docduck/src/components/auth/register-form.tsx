@@ -1,29 +1,55 @@
 'use client'
 
+import { Button } from '@gentleduck/ui/button'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@gentleduck/ui/card'
+import { Input } from '@gentleduck/ui/input'
+import { Label } from '@gentleduck/ui/label'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { signUp } from '@/lib/auth-client'
+import { registerSchema } from '@/lib/validations'
 
 export function RegisterForm() {
   const router = useRouter()
-  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    setError('')
+    setFieldErrors({})
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    const name = formData.get('name') as string
-    const email = formData.get('email') as string
-    const password = formData.get('password') as string
+    const raw = {
+      name: formData.get('name'),
+      email: formData.get('email'),
+      password: formData.get('password'),
+    }
 
-    const result = await signUp.email({ name, email, password })
+    const parsed = registerSchema.safeParse(raw)
+    if (!parsed.success) {
+      const errors: Record<string, string> = {}
+      for (const issue of parsed.error.issues) {
+        const key = issue.path[0]
+        if (typeof key === 'string' && !errors[key]) {
+          errors[key] = issue.message
+        }
+      }
+      setFieldErrors(errors)
+      setLoading(false)
+      return
+    }
+
+    const result = await signUp.email({
+      name: parsed.data.name,
+      email: parsed.data.email,
+      password: parsed.data.password,
+    })
 
     if (result.error) {
-      setError(result.error.message ?? 'Registration failed')
+      toast.error(result.error.message ?? 'Registration failed')
       setLoading(false)
     } else {
       router.push('/workspaces')
@@ -32,63 +58,53 @@ export function RegisterForm() {
   }
 
   return (
-    <div className="rounded-lg border bg-white p-6 shadow-sm">
-      <h2 className="mb-4 font-semibold text-xl">Create account</h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor="name" className="mb-1 block font-medium text-sm">
-            Name
-          </label>
-          <input
-            id="name"
-            name="name"
-            type="text"
-            required
-            placeholder="Your name"
-            className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
-        <div>
-          <label htmlFor="email" className="mb-1 block font-medium text-sm">
-            Email
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            required
-            placeholder="you@example.com"
-            className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
-        <div>
-          <label htmlFor="password" className="mb-1 block font-medium text-sm">
-            Password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            required
-            minLength={8}
-            placeholder="At least 8 characters"
-            className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
-        {error && <p className="text-destructive text-sm">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground text-sm hover:opacity-90 disabled:opacity-50">
-          {loading ? 'Creating account...' : 'Create account'}
-        </button>
-      </form>
-      <p className="mt-4 text-center text-muted-foreground text-sm">
-        Already have an account?{' '}
-        <Link href="/auth/login" className="font-medium text-foreground underline">
-          Sign in
-        </Link>
-      </p>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-xl">Create account</CardTitle>
+        <CardDescription>Fill in your details to get started</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form id="register-form" onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" name="name" type="text" placeholder="Your name" aria-invalid={!!fieldErrors.name} />
+            {fieldErrors.name && <p className="text-destructive text-sm">{fieldErrors.name}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              placeholder="you@example.com"
+              aria-invalid={!!fieldErrors.email}
+            />
+            {fieldErrors.email && <p className="text-destructive text-sm">{fieldErrors.email}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              name="password"
+              type="password"
+              placeholder="At least 8 characters"
+              aria-invalid={!!fieldErrors.password}
+            />
+            {fieldErrors.password && <p className="text-destructive text-sm">{fieldErrors.password}</p>}
+          </div>
+        </form>
+      </CardContent>
+      <CardFooter className="flex flex-col gap-4">
+        <Button type="submit" form="register-form" className="w-full" loading={loading}>
+          Create account
+        </Button>
+        <p className="text-center text-muted-foreground text-sm">
+          Already have an account?{' '}
+          <Link href="/auth/login" className="font-medium text-foreground underline">
+            Sign in
+          </Link>
+        </p>
+      </CardFooter>
+    </Card>
   )
 }
