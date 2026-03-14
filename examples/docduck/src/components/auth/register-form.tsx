@@ -1,13 +1,13 @@
 'use client'
 
-import { Button } from '@gentleduck/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@gentleduck/ui/card'
-import { Input } from '@gentleduck/ui/input'
-import { Label } from '@gentleduck/ui/label'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { signUp } from '@/lib/auth-client'
 import { registerSchema } from '@/lib/validations'
 

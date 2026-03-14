@@ -1,7 +1,7 @@
 @import "tailwindcss";
-@import "@gentleduck/ui/styles.css";
+@import "../../components/ui/styles.css";
 
-@source "../../node_modules/@gentleduck/ui/src/";
+@source "../../components/ui/";
 
 @theme {
   --font-sans: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;

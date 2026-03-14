@@ -1,19 +1,19 @@
 'use client'
 
-import { Avatar, AvatarFallback } from '@gentleduck/ui/avatar'
-import { Badge } from '@gentleduck/ui/badge'
-import { Button } from '@gentleduck/ui/button'
-import { Card, CardContent } from '@gentleduck/ui/card'
+import { ExternalLinkIcon, FolderIcon, SettingsIcon } from 'lucide-react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-} from '@gentleduck/ui/context-menu'
-import { ExternalLinkIcon, FolderIcon, SettingsIcon } from 'lucide-react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+} from '@/components/ui/context-menu'
 
 interface WorkspaceMembership {
   workspace: {

@@ -1,8 +1,8 @@
 'use client'
 
-import { Button } from '@gentleduck/ui/button'
 import { useAtom } from 'jotai'
 import { MoonIcon, SunIcon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { themeAtom } from '@/lib/theme'
 
 export function ThemeSwitcher() {

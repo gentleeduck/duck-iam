@@ -1,5 +1,10 @@
 'use client'
 
+import { useAtom } from 'jotai'
+import { CheckIcon, TrashIcon, UserPlusIcon } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
+import { toast } from 'sonner'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -10,16 +15,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@gentleduck/ui/alert-dialog'
-import { Button } from '@gentleduck/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gentleduck/ui/card'
-import { Separator } from '@gentleduck/ui/separator'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@gentleduck/ui/tabs'
-import { useAtom } from 'jotai'
-import { CheckIcon, TrashIcon, UserPlusIcon } from 'lucide-react'
-import { useRouter } from 'next/navigation'
-import { useState } from 'react'
-import { toast } from 'sonner'
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Can } from '@/lib/access-client'
 import { type Theme, themeAtom } from '@/lib/theme'
 import { deleteWorkspace, inviteMember, removeMember, updateMemberRole } from '@/server/actions/workspace'

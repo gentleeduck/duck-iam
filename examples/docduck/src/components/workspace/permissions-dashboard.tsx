@@ -1,8 +1,8 @@
 'use client'
 
-import { Badge } from '@gentleduck/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@gentleduck/ui/card'
 import { CheckIcon, ShieldIcon, XIcon } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAccess } from '@/lib/access-client'
 
 const PERMISSION_CHECKS: Array<{ action: string; resource: string; label: string }> = [

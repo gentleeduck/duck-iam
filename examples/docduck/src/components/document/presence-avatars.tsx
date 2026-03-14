@@ -1,9 +1,9 @@
 'use client'
 
-import { Avatar, AvatarFallback } from '@gentleduck/ui/avatar'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
 import type { HocuspocusProvider } from '@hocuspocus/provider'
 import { useEffect, useState } from 'react'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface AwarenessUser {
   name: string
