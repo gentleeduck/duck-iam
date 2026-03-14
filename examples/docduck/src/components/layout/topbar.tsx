@@ -13,8 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Separator } from '@/components/ui/separator'
-import { sidebarOpenAtom } from '@/lib/atoms'
+import { documentTitleAtom, sidebarOpenAtom } from '@/lib/atoms'
 import type { Session } from '@/lib/auth'
 import { signOut } from '@/lib/auth-client'
 import { ThemeSwitcher } from './theme-switcher'
@@ -25,6 +24,7 @@ interface TopbarProps {
 
 export function Topbar({ user }: TopbarProps) {
   const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
+  const [documentTitle] = useAtom(documentTitleAtom)
   const pathname = usePathname()
   const router = useRouter()
 
@@ -41,7 +41,7 @@ export function Topbar({ user }: TopbarProps) {
   }
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b bg-background px-4">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3">
       <Button
         type="button"
         variant="ghost"
@@ -52,23 +52,19 @@ export function Topbar({ user }: TopbarProps) {
         <PanelLeftIcon className="h-4 w-4" />
       </Button>
 
-      <Separator orientation="vertical" className="h-5" />
-
-      {/* Breadcrumb-style navigation */}
-      <nav className="hidden min-w-0 items-center gap-1.5 text-muted-foreground text-sm sm:flex">
+      {/* Breadcrumb */}
+      <nav className="hidden min-w-0 items-center gap-1 text-muted-foreground text-sm sm:flex">
         <span className="shrink-0">Workspaces</span>
         {currentSlug && (
           <>
             <ChevronRightIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className={`max-w-[200px] truncate ${currentDocId ? '' : 'font-medium text-foreground'}`}>
-              {currentSlug}
-            </span>
+            <span className={`max-w-[200px] truncate ${currentDocId ? '' : 'text-foreground'}`}>{currentSlug}</span>
           </>
         )}
         {currentDocId && (
           <>
             <ChevronRightIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="max-w-[200px] truncate font-medium text-foreground">{currentDocId}</span>
+            <span className="max-w-[200px] truncate text-foreground">{documentTitle ?? currentDocId}</span>
           </>
         )}
       </nav>
@@ -76,20 +72,19 @@ export function Topbar({ user }: TopbarProps) {
       <div className="flex-1" />
 
       <ThemeSwitcher />
-      <Separator orientation="vertical" className="h-6" />
 
       {/* User dropdown */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-full">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-primary font-medium text-primary-foreground text-xs">
+            <Avatar className="h-7 w-7">
+              <AvatarFallback className="bg-primary font-medium text-[11px] text-primary-foreground">
                 {user.name?.charAt(0)?.toUpperCase() ?? '?'}
               </AvatarFallback>
             </Avatar>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col gap-1">
               <p className="truncate font-medium text-sm leading-none">{user.name}</p>
