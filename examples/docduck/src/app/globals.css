@@ -28,7 +28,9 @@
   --color-sidebar-accent: #f4f4f5;
   --color-sidebar-accent-foreground: #18181b;
   --radius: 0.5rem;
-  --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-inria-serif), "Inria Serif", Georgia, "Times New Roman", serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: var(--font-serif);
 }
 
 * {
@@ -39,9 +41,15 @@
 }
 
 body {
-  font-family: var(--font-sans);
+  font-family: var(--font-serif);
   background: var(--color-background);
   color: var(--color-foreground);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
 }
