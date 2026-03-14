@@ -1,44 +1,84 @@
+'use client'
+
+import { Button } from '@gentleduck/ui/button'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@gentleduck/ui/card'
+import { Input } from '@gentleduck/ui/input'
+import { Label } from '@gentleduck/ui/label'
+import { useRouter } from 'next/navigation'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { createWorkspaceSchema } from '@/lib/validations'
 import { createWorkspace } from '@/server/actions/workspace'
 
 export default function NewWorkspacePage() {
+  const _router = useRouter()
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setErrors({})
+
+    const formData = new FormData(e.currentTarget)
+    const data = {
+      name: formData.get('name') as string,
+      slug: formData.get('slug') as string,
+    }
+
+    const result = createWorkspaceSchema.safeParse(data)
+    if (!result.success) {
+      const fieldErrors: Record<string, string> = {}
+      for (const issue of result.error.issues) {
+        const field = issue.path[0]
+        if (typeof field === 'string') {
+          fieldErrors[field] = issue.message
+        }
+      }
+      setErrors(fieldErrors)
+      return
+    }
+
+    setLoading(true)
+    try {
+      const fd = new FormData()
+      fd.set('name', result.data.name)
+      fd.set('slug', result.data.slug)
+      await createWorkspace(fd)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'An error occurred')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-md">
-      <h1 className="mb-6 font-bold text-2xl">Create Workspace</h1>
-      <form action={createWorkspace} className="space-y-4">
-        <div>
-          <label htmlFor="name" className="mb-1 block font-medium text-sm">
-            Workspace Name
-          </label>
-          <input
-            id="name"
-            name="name"
-            type="text"
-            required
-            placeholder="My Workspace"
-            className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
-        <div>
-          <label htmlFor="slug" className="mb-1 block font-medium text-sm">
-            URL Slug
-          </label>
-          <input
-            id="slug"
-            name="slug"
-            type="text"
-            required
-            placeholder="my-workspace"
-            pattern="[a-z0-9-]+"
-            className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-          />
-          <p className="mt-1 text-muted-foreground text-xs">Lowercase letters, numbers, and hyphens only</p>
-        </div>
-        <button
-          type="submit"
-          className="w-full rounded-md bg-primary px-4 py-2 font-medium text-primary-foreground text-sm hover:opacity-90">
-          Create Workspace
-        </button>
-      </form>
+      <Card>
+        <CardHeader>
+          <CardTitle>Create Workspace</CardTitle>
+          <CardDescription>Set up a new workspace for your team.</CardDescription>
+        </CardHeader>
+        <form onSubmit={handleSubmit}>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Workspace Name</Label>
+              <Input id="name" name="name" type="text" placeholder="My Workspace" />
+              {errors.name && <p className="text-destructive text-xs">{errors.name}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="slug">URL Slug</Label>
+              <Input id="slug" name="slug" type="text" placeholder="my-workspace" />
+              {errors.slug && <p className="text-destructive text-xs">{errors.slug}</p>}
+              <p className="text-muted-foreground text-xs">Lowercase letters, numbers, and hyphens only</p>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button type="submit" className="w-full" loading={loading}>
+              {loading ? 'Creating...' : 'Create Workspace'}
+            </Button>
+          </CardFooter>
+        </form>
+      </Card>
     </div>
   )
 }
