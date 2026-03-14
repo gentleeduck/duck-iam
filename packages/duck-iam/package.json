@@ -160,7 +160,7 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "test": "vitest",
+    "test": "vitest run",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
