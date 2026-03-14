@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${jetbrainsMono.variable} ${inriaSerif.variable}`}>
+    <html lang="en" data-theme="bun" className={`${jetbrainsMono.variable} ${inriaSerif.variable}`}>
       <body className={jetbrainsMono.className}>
         {children}
         <Toaster position="bottom-right" richColors closeButton />
