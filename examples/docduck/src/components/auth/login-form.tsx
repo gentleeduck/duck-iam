@@ -1,17 +1,25 @@
 'use client'
 
-import { Badge } from '@gentleduck/ui/badge'
 import { Button } from '@gentleduck/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@gentleduck/ui/card'
 import { Input } from '@gentleduck/ui/input'
 import { Label } from '@gentleduck/ui/label'
 import { Separator } from '@gentleduck/ui/separator'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
+import { InfoIcon } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { signIn } from '@/lib/auth-client'
 import { loginSchema } from '@/lib/validations'
+
+const DEMO_USERS = [
+  { email: 'alice@example.com', label: 'Alice', roles: 'owner@acme, viewer@startup' },
+  { email: 'bob@example.com', label: 'Bob', roles: 'editor@acme, owner@startup' },
+  { email: 'charlie@example.com', label: 'Charlie', roles: 'viewer@acme' },
+  { email: 'diana@example.com', label: 'Diana', roles: 'admin@acme' },
+] as const
 
 export function LoginForm() {
   const router = useRouter()
@@ -48,6 +56,18 @@ export function LoginForm() {
       password: parsed.data.password,
     })
 
+    if (result.error) {
+      toast.error(result.error.message ?? 'Login failed')
+      setLoading(false)
+    } else {
+      router.push('/workspaces')
+      router.refresh()
+    }
+  }
+
+  async function handleQuickLogin(email: string) {
+    setLoading(true)
+    const result = await signIn.email({ email, password: 'password123' })
     if (result.error) {
       toast.error(result.error.message ?? 'Login failed')
       setLoading(false)
@@ -100,16 +120,30 @@ export function LoginForm() {
           </Link>
         </p>
         <Separator />
-        <div className="w-full rounded-md bg-muted p-3 text-muted-foreground text-xs">
-          <p className="mb-2 font-medium">
-            Demo accounts <Badge variant="secondary">password123</Badge>
-          </p>
-          <ul className="space-y-0.5">
-            <li>alice@example.com — owner@acme, viewer@startup</li>
-            <li>bob@example.com — editor@acme, owner@startup</li>
-            <li>charlie@example.com — viewer@acme</li>
-            <li>diana@example.com — admin@acme</li>
-          </ul>
+        <div className="flex w-full items-center gap-2">
+          <span className="text-muted-foreground text-xs">Quick login:</span>
+          <TooltipProvider delayDuration={200}>
+            {DEMO_USERS.map((user) => (
+              <Tooltip key={user.email}>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={loading}
+                    onClick={() => handleQuickLogin(user.email)}
+                    className="gap-1 text-xs">
+                    {user.label}
+                    <InfoIcon className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  <p className="font-medium">{user.email}</p>
+                  <p className="text-muted-foreground">{user.roles}</p>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </TooltipProvider>
         </div>
       </CardFooter>
     </Card>
