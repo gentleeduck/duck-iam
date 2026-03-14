@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { engine } from '@/lib/access'
 import { db } from '@/lib/db'
 import { documents } from '@/lib/db/schema'
+import { createDocumentSchema, updateDocumentTitleSchema } from '@/lib/validations'
 import { requireSession } from './auth'
 
 export async function getDocuments(workspaceId: string) {
@@ -13,7 +14,18 @@ export async function getDocuments(workspaceId: string) {
   const allowed = await engine.can(session.user.id, 'read', { type: 'document' }, undefined, workspaceId)
   if (!allowed) throw new Error('Forbidden')
 
-  return db.select().from(documents).where(eq(documents.workspaceId, workspaceId))
+  return db
+    .select({
+      id: documents.id,
+      title: documents.title,
+      workspaceId: documents.workspaceId,
+      ownerId: documents.ownerId,
+      isPublic: documents.isPublic,
+      createdAt: documents.createdAt,
+      updatedAt: documents.updatedAt,
+    })
+    .from(documents)
+    .where(eq(documents.workspaceId, workspaceId))
 }
 
 export async function getDocument(docId: string) {
@@ -24,6 +36,9 @@ export async function getDocument(docId: string) {
 export async function createDocument(workspaceId: string, title: string) {
   const session = await requireSession()
 
+  const parsed = createDocumentSchema.safeParse({ title })
+  if (!parsed.success) throw new Error(parsed.error.errors[0].message)
+
   const allowed = await engine.can(session.user.id, 'create', { type: 'document' }, undefined, workspaceId)
   if (!allowed) throw new Error('Forbidden')
 
@@ -31,7 +46,7 @@ export async function createDocument(workspaceId: string, title: string) {
 
   await db.insert(documents).values({
     id,
-    title: title || 'Untitled',
+    title: parsed.data.title,
     workspaceId,
     ownerId: session.user.id,
   })
@@ -42,6 +57,10 @@ export async function createDocument(workspaceId: string, title: string) {
 
 export async function updateDocumentTitle(docId: string, title: string) {
   const session = await requireSession()
+
+  const parsed = updateDocumentTitleSchema.safeParse({ title })
+  if (!parsed.success) throw new Error(parsed.error.errors[0].message)
+
   const doc = await getDocument(docId)
   if (!doc) throw new Error('Document not found')
 
@@ -54,7 +73,7 @@ export async function updateDocumentTitle(docId: string, title: string) {
   )
   if (!allowed) throw new Error('Forbidden')
 
-  await db.update(documents).set({ title, updatedAt: new Date() }).where(eq(documents.id, docId))
+  await db.update(documents).set({ title: parsed.data.title, updatedAt: new Date() }).where(eq(documents.id, docId))
 
   revalidatePath(`/workspaces`)
 }

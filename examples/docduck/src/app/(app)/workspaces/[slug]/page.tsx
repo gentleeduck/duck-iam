@@ -15,7 +15,7 @@ export default async function WorkspaceDocumentsPage({ params }: Props) {
   const docs = await getDocuments(workspace.id)
 
   // Serialize dates for client component
-  const serializedDocs = docs.map(({ content, ...d }) => ({
+  const serializedDocs = docs.map((d) => ({
     ...d,
     createdAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
