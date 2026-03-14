@@ -110,22 +110,26 @@ export type PathValue<T, P extends string> = P extends `${infer K}.${infer Rest}
 export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
 
 /**
+ * Smart `$`-prefixed path type that preserves autocomplete for known `$`-paths
+ * while accepting arbitrary `$`-strings for custom attribute paths.
+ *
+ * Uses `DollarPaths` for known structural paths (e.g. `$subject.id`) and adds
+ * `` `$${string}` & {} `` so the IDE suggests known paths while still accepting
+ * any `$`-prefixed string. Must be used directly in method signatures (not nested
+ * in computed types) so the IDE can see the literal suggestions.
+ *
+ * @template TContext - The full evaluation context type
+ */
+export type FlexibleDollarPaths<TContext> = DollarPaths<TContext> | (string & {})
+
+/**
  * Keeps string-based condition inputs `$`-aware without widening narrow string unions.
- *
- * When a field accepts a broad `string`, the `(string & {})` branch preserves
- * editor suggestions for the `$subject.*` / `$resource.*` / `$environment.*`
- * references. Narrow string unions keep their literal values and add the same
- * `$` references.
- *
- * For open-ended contexts (DefaultContext), `DollarPaths` resolves to `never`
- * because `DotPaths` bails on string index signatures, so we add `$${string}`
- * via `HasOpenIndex` to still accept arbitrary `$`-references.
  *
  * @template TContext - The full evaluation context type
  * @template TValue   - The string portion of the accepted value type
  */
 type StringConditionValue<TContext, TValue extends string> = string extends TValue
-  ? DollarPaths<TContext> | (string & {})
+  ? DollarPaths<TContext>
   : TValue | DollarPaths<TContext>
 
 /**
@@ -292,8 +296,8 @@ export type ResolvedResourceAttrs<TContext, TResource extends string> =
 export type AttrValue<TAttrs, K extends string> =
   TAttrs extends Record<string, unknown>
     ? K extends keyof TAttrs
-      ? TAttrs[K] extends AttributeValue
-        ? TAttrs[K]
+      ? Exclude<TAttrs[K], undefined> extends AttributeValue
+        ? Exclude<TAttrs[K], undefined>
         : AttributeValue
       : AttributeValue
     : AttributeValue

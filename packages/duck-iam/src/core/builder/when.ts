@@ -7,6 +7,7 @@ import type {
   DefaultContext,
   EnvAttrs,
   FieldValue,
+  FlexibleDollarPaths,
   FlexibleDotPaths,
   Operator,
   ResolvedResourceAttrs,
@@ -77,7 +78,11 @@ export class When<
    * w.check('subject.attributes.age', 'eq', 30)            // ERROR if 'age' not in type
    * ```
    */
-  check<P extends FlexibleDotPaths<TContext>>(field: P, op: Operator, value?: FieldValue<TContext, P>): this {
+  check<P extends FlexibleDotPaths<TContext>>(
+    field: P,
+    op: Operator,
+    value?: FieldValue<TContext, P> | FlexibleDollarPaths<TContext>,
+  ): this {
     this.items.push({ field, operator: op, value })
     return this
   }
@@ -93,7 +98,10 @@ export class When<
    * @param value - Expected value (inferred from path type)
    * @returns `this` for chaining
    */
-  eq<P extends FlexibleDotPaths<TContext>>(field: P, value: FieldValue<TContext, P>): this {
+  eq<P extends FlexibleDotPaths<TContext>>(
+    field: P,
+    value: FieldValue<TContext, P> | FlexibleDollarPaths<TContext>,
+  ): this {
     this.items.push({ field, operator: 'eq', value })
     return this
   }
@@ -105,7 +113,10 @@ export class When<
    * @param value - Value the field must not equal
    * @returns `this` for chaining
    */
-  neq<P extends FlexibleDotPaths<TContext>>(field: P, value: FieldValue<TContext, P>): this {
+  neq<P extends FlexibleDotPaths<TContext>>(
+    field: P,
+    value: FieldValue<TContext, P> | FlexibleDollarPaths<TContext>,
+  ): this {
     this.items.push({ field, operator: 'neq', value })
     return this
   }
@@ -117,7 +128,10 @@ export class When<
    * @param values - Array of acceptable values
    * @returns `this` for chaining
    */
-  in<P extends FlexibleDotPaths<TContext>>(field: P, values: Array<FieldValue<TContext, P>>): this {
+  in<P extends FlexibleDotPaths<TContext>>(
+    field: P,
+    values: Array<FieldValue<TContext, P> | FlexibleDollarPaths<TContext>>,
+  ): this {
     this.items.push({ field, operator: 'in', value: values as AttributeValue })
     return this
   }
@@ -320,7 +334,7 @@ export class When<
   attr<K extends keyof SubjectAttrs<TContext> & string>(
     path: K,
     op: Operator,
-    value?: ConditionValue<TContext, AttrValue<SubjectAttrs<TContext>, K>>,
+    value?: ConditionValue<TContext, AttrValue<SubjectAttrs<TContext>, K>> | FlexibleDollarPaths<TContext>,
   ): this {
     this.items.push({ field: `subject.attributes.${path}`, operator: op, value })
     return this
@@ -345,7 +359,9 @@ export class When<
   resourceAttr<K extends keyof ResolvedResourceAttrs<TContext, TActiveResource> & string>(
     path: K,
     op: Operator,
-    value?: ConditionValue<TContext, AttrValue<ResolvedResourceAttrs<TContext, TActiveResource>, K>>,
+    value?:
+      | ConditionValue<TContext, AttrValue<ResolvedResourceAttrs<TContext, TActiveResource>, K>>
+      | FlexibleDollarPaths<TContext>,
   ): this {
     this.items.push({ field: `resource.attributes.${path}`, operator: op, value })
     return this
@@ -371,7 +387,7 @@ export class When<
   env<K extends keyof EnvAttrs<TContext> & string>(
     path: K,
     op: Operator,
-    value?: ConditionValue<TContext, AttrValue<EnvAttrs<TContext>, K>>,
+    value?: ConditionValue<TContext, AttrValue<EnvAttrs<TContext>, K>> | FlexibleDollarPaths<TContext>,
   ): this {
     this.items.push({ field: `environment.${path}`, operator: op, value })
     return this

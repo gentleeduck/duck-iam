@@ -39,6 +39,7 @@ export type {
   ExplainResult,
   ExplainSubjectInfo,
   FieldValue,
+  FlexibleDollarPaths,
   FlexibleDotPaths,
   // Inference helpers
   InferAction,
