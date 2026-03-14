@@ -1,7 +1,7 @@
 @import "tailwindcss";
-@import "../../components/ui/styles.css";
+@import "../components/ui/styles.css";
 
-@source "../../components/ui/";
+@source "../components/ui/";
 
 @theme {
   --font-sans: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
