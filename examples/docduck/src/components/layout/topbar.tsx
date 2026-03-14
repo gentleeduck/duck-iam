@@ -1,7 +1,10 @@
 'use client'
 
-import { Avatar, AvatarFallback } from '@gentleduck/ui/avatar'
-import { Button } from '@gentleduck/ui/button'
+import { useAtom } from 'jotai'
+import { ChevronRightIcon, LogOutIcon, PanelLeftIcon } from 'lucide-react'
+import { usePathname, useRouter } from 'next/navigation'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,11 +12,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@gentleduck/ui/dropdown-menu'
-import { Separator } from '@gentleduck/ui/separator'
-import { useAtom } from 'jotai'
-import { ChevronRightIcon, LogOutIcon, PanelLeftIcon } from 'lucide-react'
-import { usePathname, useRouter } from 'next/navigation'
+} from '@/components/ui/dropdown-menu'
+import { Separator } from '@/components/ui/separator'
 import { sidebarOpenAtom } from '@/lib/atoms'
 import type { Session } from '@/lib/auth'
 import { signOut } from '@/lib/auth-client'

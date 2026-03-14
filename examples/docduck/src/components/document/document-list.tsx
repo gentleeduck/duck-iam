@@ -1,21 +1,21 @@
 'use client'
 
-import { Badge } from '@gentleduck/ui/badge'
-import { Button } from '@gentleduck/ui/button'
-import { Card, CardContent } from '@gentleduck/ui/card'
+import { EditIcon, FileTextIcon, GlobeIcon, LockIcon, PlusIcon, SearchIcon, TrashIcon } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useMemo, useState } from 'react'
+import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
-} from '@gentleduck/ui/context-menu'
-import { Input } from '@gentleduck/ui/input'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
-import { EditIcon, FileTextIcon, GlobeIcon, LockIcon, PlusIcon, SearchIcon, TrashIcon } from 'lucide-react'
-import { useRouter } from 'next/navigation'
-import { useMemo, useState } from 'react'
-import { toast } from 'sonner'
+} from '@/components/ui/context-menu'
+import { Input } from '@/components/ui/input'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Can, Cannot } from '@/lib/access-client'
 import { createDocument, deleteDocument, toggleDocumentPublic } from '@/server/actions/document'
 

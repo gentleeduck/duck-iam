@@ -1,11 +1,11 @@
 'use client'
 
-import { Avatar, AvatarFallback } from '@gentleduck/ui/avatar'
-import { Badge } from '@gentleduck/ui/badge'
-import { Button } from '@gentleduck/ui/button'
-import { Card } from '@gentleduck/ui/card'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
 import { TrashIcon } from 'lucide-react'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Can } from '@/lib/access-client'
 
 interface Member {

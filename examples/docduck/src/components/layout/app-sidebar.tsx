@@ -1,13 +1,13 @@
 'use client'
 
-import { Avatar, AvatarFallback } from '@gentleduck/ui/avatar'
-import { Card } from '@gentleduck/ui/card'
-import { Separator } from '@gentleduck/ui/separator'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@gentleduck/ui/tooltip'
 import { useAtom } from 'jotai'
 import { FileTextIcon, FolderIcon, SettingsIcon } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Card } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { sidebarOpenAtom } from '@/lib/atoms'
 import type { Session } from '@/lib/auth'
 

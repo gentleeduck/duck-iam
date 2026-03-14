@@ -1,5 +1,5 @@
-import { Button } from '@gentleduck/ui/button'
 import Link from 'next/link'
+import { Button } from '@/components/ui/button'
 import { WorkspaceList } from '@/components/workspace/workspace-list'
 import { getWorkspaces } from '@/server/actions/workspace'
 

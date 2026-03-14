@@ -1,10 +1,10 @@
 'use client'
 
-import { Button } from '@gentleduck/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@gentleduck/ui/dialog'
-import { Input } from '@gentleduck/ui/input'
-import { Label } from '@gentleduck/ui/label'
 import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { inviteMemberSchema } from '@/lib/validations'
 
 interface Props {

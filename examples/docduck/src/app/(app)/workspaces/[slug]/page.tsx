@@ -1,7 +1,7 @@
-import { Avatar, AvatarFallback } from '@gentleduck/ui/avatar'
-import { Badge } from '@gentleduck/ui/badge'
 import { redirect } from 'next/navigation'
 import { DocumentList } from '@/components/document/document-list'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { getDocuments } from '@/server/actions/document'
 import { getWorkspaceBySlug } from '@/server/actions/workspace'
 
