@@ -1,5 +1,7 @@
 'use client'
 
+import { Badge } from '@gentleduck/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@gentleduck/ui/card'
 import { CheckIcon, ShieldIcon, XIcon } from 'lucide-react'
 import { useAccess } from '@/lib/access-client'
 
@@ -18,35 +20,38 @@ export function PermissionsDashboard() {
   const { can } = useAccess()
 
   return (
-    <div className="rounded-lg border">
-      <div className="flex items-center gap-2 border-b px-4 py-3">
-        <ShieldIcon className="h-4 w-4 text-muted-foreground" />
-        <span className="font-medium text-sm">Permission Overview</span>
-      </div>
-      <div className="divide-y">
-        {PERMISSION_CHECKS.map(({ action, resource, label }) => {
-          const allowed = can(action, resource)
-          return (
-            <div key={`${action}:${resource}`} className="flex items-center justify-between px-4 py-2">
-              <span className="text-sm">{label}</span>
-              <span
-                className={`flex items-center gap-1 font-medium text-xs ${
-                  allowed ? 'text-green-600' : 'text-red-500'
-                }`}>
-                {allowed ? (
-                  <>
-                    <CheckIcon className="h-3 w-3" /> Allowed
-                  </>
-                ) : (
-                  <>
-                    <XIcon className="h-3 w-3" /> Denied
-                  </>
-                )}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ShieldIcon className="h-4 w-4 text-muted-foreground" />
+          Permission Overview
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="divide-y">
+          {PERMISSION_CHECKS.map(({ action, resource, label }) => {
+            const allowed = can(action, resource)
+            return (
+              <div
+                key={`${action}:${resource}`}
+                className="flex items-center justify-between px-6 py-2.5 transition-colors hover:bg-muted/50">
+                <span className="text-sm">{label}</span>
+                <Badge variant={allowed ? 'default' : 'destructive'} className="gap-1">
+                  {allowed ? (
+                    <>
+                      <CheckIcon className="h-3 w-3" /> Allowed
+                    </>
+                  ) : (
+                    <>
+                      <XIcon className="h-3 w-3" /> Denied
+                    </>
+                  )}
+                </Badge>
+              </div>
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
