@@ -5,9 +5,9 @@ import { Announcement } from '~/components/announcement'
 import { FeaturesSection } from '~/components/layouts/features'
 import { SponsorsSection } from '~/components/layouts/sponsors'
 
-const title = 'duck-iam -- Type-safe access control that actually works.'
+const title = 'Authorization that writes itself.'
 const description =
-  'duck-iam is a unified RBAC + ABAC authorization engine for TypeScript. Define roles, write policies, and protect your app with type-safe middleware.'
+  'A unified RBAC and ABAC engine for TypeScript. Define roles, compose policies, and guard every route with fully type-safe middleware — zero runtime surprises.'
 
 export const dynamic = 'force-static'
 export const revalidate = false
