@@ -232,7 +232,7 @@ const result = await engine.can('user-1', 'read', { type: 'post', attributes: {}
       Yes. Permissions in a role can include an optional `scope` field. When present, that permission
       only matches if the request scope matches. For example:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const orgAdmin = defineRole('org-admin')
-  .grant('manage', 'user', { scope: 'org-1' })
+  .grant('manage', 'user', 'org-1')
   .build()`}</code></pre>
       <p className="mt-3">
         This grants `manage:user` only when the request scope is `org-1`. Requests with a different
@@ -689,7 +689,7 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
       duck-iam supports scoping at three levels:
       <ul className="mt-2 list-disc pl-5">
         <li><strong>Assignment-level scoping</strong> -- A subject has different roles in different scopes. This is the most common pattern for multi-tenant apps. Handled by `getSubjectScopedRoles()` in the adapter.</li>
-        <li><strong>Permission-level scoping</strong> -- Individual permissions within a role are limited to a scope. Set via `grant('action', 'resource', {"{"} scope: 'org-1' {"}"})` in the role builder.</li>
+        <li><strong>Permission-level scoping</strong> -- Individual permissions within a role are limited to a scope. Set via `grant('action', 'resource', 'org-1')` or `grantScoped('org-1', 'action', 'resource')` in the role builder.</li>
         <li><strong>Role-level scoping</strong> -- The entire role definition is constrained to a scope. Set via `defineRole('admin').scope('org-1')`.</li>
       </ul>
       <p className="mt-3">

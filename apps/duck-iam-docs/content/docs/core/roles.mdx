@@ -198,21 +198,25 @@ const orgEditor = defineRole('org-editor')
 When this role is converted to policy rules, each rule gets an additional condition:
 `scope eq "org-1"`. The permission only fires when the request's scope matches.
 
-### Permission-level scope with grantScoped
+### Permission-level scope
 
-You can also scope individual permissions within a role:
+You can scope individual permissions within a role by passing an optional third
+argument to `grant()`:
 
 ```typescript
 const hybridRole = defineRole('hybrid')
   .name('Hybrid Role')
-  .grant('read', 'post')                         // global -- no scope restriction
-  .grantScoped('org-1', 'update', 'post')         // only in org-1
-  .grantScoped('org-2', 'create', 'comment')      // only in org-2
+  .grant('read', 'post')                    // global -- no scope restriction
+  .grant('update', 'post', 'org-1')          // only in org-1
+  .grant('create', 'comment', 'org-2')       // only in org-2
   .build()
 ```
 
 This creates a role with mixed global and scoped permissions. The `read` permission
 works everywhere, but `update` only works in `org-1` and `create` only in `org-2`.
+
+The `grantScoped(scope, action, resource)` method is also available as an
+alternative with scope as the first argument.
 
 ### Scoped role assignments
 

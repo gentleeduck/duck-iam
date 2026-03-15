@@ -246,7 +246,9 @@ interface Permission {
 ```
 
 A simple `.grant('read', 'post')` creates `{ action: 'read', resource: 'post' }`. The
-`scope` and `conditions` fields are added by `.grantScoped()` and `.grantWhen()`.
+`scope` field is added by passing an optional third argument to `.grant()` (e.g.
+`.grant('read', 'post', 'org-1')`) or by using `.grantScoped()`. The `conditions`
+field is added by `.grantWhen()`.
 
 ## The Role Object
 
