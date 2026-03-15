@@ -5,7 +5,7 @@ import { Announcement } from '~/components/announcement'
 import { FeaturesSection } from '~/components/layouts/features'
 import { SponsorsSection } from '~/components/layouts/sponsors'
 
-const title = 'Authorization that writes itself.'
+const title = 'Type-safe authorization that scales from side project to production.'
 const description =
   'A unified RBAC and ABAC engine for TypeScript. Define roles, compose policies, and guard every route with fully type-safe middleware — zero runtime surprises.'
 
