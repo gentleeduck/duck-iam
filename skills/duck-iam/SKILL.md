@@ -219,13 +219,13 @@ const engine = access.createEngine({
 })
 ```
 
-**Engine API:**
-- `engine.can(subjectId, action, resource, environment?, scope?)` -- returns `boolean`
-- `engine.check(subjectId, action, resource, environment?, scope?)` -- returns `Decision`
+**Engine API** (all async except invalidation):
+- `engine.can(subjectId, action, resource, environment?, scope?)` -- returns `boolean`. `resource` is a `Resource` object: `{ type: string, id?: string, attributes: Record<string, unknown> }`.
+- `engine.check(subjectId, action, resource, environment?, scope?)` -- returns `Decision` (includes `allowed`, `effect`, `reason`, `duration`, `timestamp`)
 - `engine.authorize(request)` -- full `AccessRequest` evaluation
-- `engine.explain(subjectId, action, resource, environment?, scope?)` -- returns `ExplainResult` trace
-- `engine.permissions(subjectId, checks, environment?)` -- batch check, returns `PermissionMap`
-- `engine.admin` -- CRUD interface for policies, roles, subjects
+- `engine.explain(subjectId, action, resource, environment?, scope?)` -- returns `ExplainResult` trace (debug only, has overhead)
+- `engine.permissions(subjectId, checks, environment?)` -- batch check, returns `PermissionMap` keyed by `"action:resource"` or `"scope:action:resource"`
+- `engine.admin` -- CRUD interface for policies, roles, subjects (lazy-created)
 - `engine.invalidate()` / `engine.invalidateSubject(id)` / `engine.invalidatePolicies()` / `engine.invalidateRoles()`
 
 ### 7. Server Integrations
@@ -287,7 +287,7 @@ import React from 'react'
 import { createAccessControl } from '@gentleduck/iam/client/react'
 
 // Create once at app init
-export const { AccessProvider, useAccess, Can, Cannot } = createAccessControl(React)
+export const { AccessProvider, useAccess, usePermissions, Can, Cannot } = createAccessControl(React)
 
 // In layout (pass server-generated permissions)
 <AccessProvider permissions={perms}>
@@ -299,13 +299,59 @@ const { can, cannot } = useAccess()
 if (can('delete', 'post')) { /* show delete button */ }
 
 // Declarative
-<Can action="create" resource="post">
+<Can action="create" resource="post" fallback={<p>No access</p>}>
   <CreatePostButton />
 </Can>
 <Cannot action="delete" resource="post">
   <p>You cannot delete posts</p>
 </Cannot>
 ```
+
+**Also exported by `createAccessControl`:**
+- `usePermissions(fetchFn, deps?)` -- hook to async-fetch permissions from a server endpoint; returns `{ permissions, can, loading, error }`
+- `AccessContext` -- raw React context (rarely needed directly)
+
+## Testing Authorization
+
+Use `MemoryAdapter` for unit tests. Seed it with roles, policies, and assignments, then assert with `engine.can()` or `engine.check()`:
+
+```ts
+import { createAccessConfig } from '@gentleduck/iam'
+import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { describe, expect, it } from 'vitest'
+
+describe('authorization', () => {
+  const access = createAccessConfig({
+    actions: ['read', 'delete'] as const,
+    resources: ['post'] as const,
+    roles: ['viewer', 'admin'] as const,
+  })
+
+  const viewer = access.defineRole('viewer').grantRead('post').build()
+  const admin = access.defineRole('admin').grantAll('*').build()
+
+  const engine = access.createEngine({
+    adapter: new MemoryAdapter({
+      roles: [viewer, admin],
+      assignments: { 'u1': ['viewer'], 'u2': ['admin'] },
+    }),
+  })
+
+  it('viewer can read posts', async () => {
+    expect(await engine.can('u1', 'read', { type: 'post', attributes: {} })).toBe(true)
+  })
+
+  it('viewer cannot delete posts', async () => {
+    expect(await engine.can('u1', 'delete', { type: 'post', attributes: {} })).toBe(false)
+  })
+
+  it('admin can delete posts', async () => {
+    expect(await engine.can('u2', 'delete', { type: 'post', attributes: {} })).toBe(true)
+  })
+})
+```
+
+Use `engine.explain()` to debug failing assertions -- it returns the full evaluation trace.
 
 ## Coding Conventions
 
