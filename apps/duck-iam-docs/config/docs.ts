@@ -127,6 +127,16 @@ export const docsConfig = {
       ],
       title: 'Course',
     },
+    {
+      collapsible: false,
+      items: [
+        {
+          href: '/docs/skills',
+          title: 'Agent Skills',
+        },
+      ],
+      title: 'AI & Agents',
+    },
   ],
 } satisfies DocsConfig
 
