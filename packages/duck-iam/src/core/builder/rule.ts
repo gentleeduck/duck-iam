@@ -11,7 +11,7 @@ import { When } from './when'
  *
  * Rules are collected into a {@link PolicyBuilder} and evaluated by the engine
  * using the policy's chosen conflict-resolution algorithm
- * (`allow-overrides`, `deny-overrides`, or `first-applicable`).
+ * (`allow-overrides`, `deny-overrides`, `first-match`, or `highest-priority`).
  *
  * @example
  * ```ts
@@ -99,8 +99,8 @@ export class RuleBuilder<
    * Sets the rule's evaluation priority.
    *
    * Higher numbers are evaluated first. The default priority is `10`.
-   * Priority matters when the policy algorithm is `first-applicable` — the
-   * first matching rule (by priority order) wins.
+   * Priority matters when the policy algorithm is `highest-priority` — the
+   * matching rule with the highest priority number wins.
    *
    * @param p - Priority value (higher = evaluated earlier)
    * @returns `this` for chaining
