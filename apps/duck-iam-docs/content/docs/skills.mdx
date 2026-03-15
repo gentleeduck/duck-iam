@@ -1,0 +1,51 @@
+---
+title: Agent Skills
+description: Install AI coding skills that teach your agent how to work with gentleduck/iam.
+---
+
+## Overview
+
+gentleduck/iam ships agent skills that teach AI coding assistants how to work with the authorization engine. Skills follow the open [Agent Skills specification](https://agentskills.io/specification) and work with Claude Code, GitHub Copilot, Cursor, Cline, OpenCode, and 30+ other agents.
+
+## Install
+
+```bash
+npx skills add gentleeduck/duck-iam
+```
+
+This installs all available skills into your agent's configuration.
+
+## Available Skills
+
+| Skill | Package | What it covers |
+|---|---|---|
+| `duck-iam` | `@gentleduck/iam` | RBAC and ABAC authorization, role definitions, policy composition, middleware, React client |
+
+## MCP Documentation Server
+
+The docs site exposes an MCP server for real-time documentation access:
+
+```
+https://iam.gentleduck.org/api/mcp
+```
+
+To connect your agent, add this to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "duck-iam-docs": {
+      "type": "url",
+      "url": "https://iam.gentleduck.org/api/mcp"
+    }
+  }
+}
+```
+
+## How Skills Work
+
+Each skill is a `SKILL.md` file with YAML frontmatter and markdown instructions. The agent reads the `description` to decide when to activate the skill. The markdown body provides the instructions. Reference files in a `references/` subdirectory provide deeper context loaded on demand.
+
+## Contributing
+
+See the [skills README](https://github.com/gentleeduck/duck-iam/tree/main/skills) for the authoring guide and publishing instructions.
