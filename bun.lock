@@ -22,7 +22,7 @@
         "@gentleduck/lazy": "^1.2.14",
         "@gentleduck/libs": "^0.1.16",
         "@gentleduck/motion": "^0.1.18",
-        "@gentleduck/registry-ui": "0.2.8",
+        "@gentleduck/registry-ui": "0.2.11",
         "@gentleduck/vim": "^0.1.17",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "geist": "^1.7.0",
@@ -454,7 +454,7 @@
 
     "@gentleduck/primitives": ["@gentleduck/primitives@0.2.6", "", { "dependencies": { "@floating-ui/react-dom": "^2.1.7", "aria-hidden": "^1.2.6", "react-remove-scroll": "^2.7.2" }, "peerDependencies": { "react": "^19.2.4", "react-dom": "^19.2.4", "tabbable": "6.2.0" } }, "sha512-k9Rwg2kH2thg3pvYPa2mo4Pkc4VHp9+qCHODpYrJTjNkazfvFYZNOe1bjj0/FOIdvTN5Xzfe0tXEY4h+KNH64A=="],
 
-    "@gentleduck/registry-ui": ["@gentleduck/registry-ui@0.2.8", "", { "dependencies": { "@gentleduck/hooks": "^0.1.12", "@gentleduck/libs": "^0.1.15", "@gentleduck/motion": "^0.1.17", "@gentleduck/primitives": "^0.2.5", "@gentleduck/variants": "^0.1.20", "@gentleduck/vim": "^0.1.16", "embla-carousel-react": "8.6.0", "lucide-react": "0.576.0", "next-themes": "^0.4.6", "react": "^19.2.4", "react-day-picker": "^9.8.1", "react-dom": "^19.2.4", "react-hook-form": "^7.71.1", "react-resizable-panels": "^4.7.0", "recharts": "^3.7.0", "sonner": "^2.0.7", "tailwindcss": "^4.2.0", "uuidv7": "^1.1.0", "vaul": "1.1.2", "zod": "4.3.6" } }, "sha512-e57rdSc3YNCmnwk36hOCzImt+A+KeUJfQEzYmbQKM0W3VACoF6F42l9peuCiiRsXvBaDdTtdN+ITjvQ01EDdHw=="],
+    "@gentleduck/registry-ui": ["@gentleduck/registry-ui@0.2.11", "", { "dependencies": { "@gentleduck/hooks": "^0.1.12", "@gentleduck/libs": "^0.1.15", "@gentleduck/motion": "^0.1.17", "@gentleduck/primitives": "^0.2.5", "@gentleduck/variants": "^0.1.20", "@gentleduck/vim": "^0.1.16", "embla-carousel-react": "8.6.0", "lucide-react": "0.577.0", "next-themes": "^0.4.6", "react": "^19.2.4", "react-day-picker": "^9.8.1", "react-dom": "^19.2.4", "react-hook-form": "^7.71.1", "react-resizable-panels": "^4.7.0", "recharts": "^3.7.0", "sonner": "^2.0.7", "tailwindcss": "^4.2.0", "uuidv7": "^1.1.0", "vaul": "1.1.2", "zod": "4.3.6" } }, "sha512-fGu0EFjhlbFtZUCtN52d8pJ5DlWQipNHj0wB3ZYNBsqEiCJAmugG4nfYUM3nDf2EFFHpJJrSScpxKnC0UAqweA=="],
 
     "@gentleduck/tailwind-config": ["@gentleduck/tailwind-config@workspace:tooling/tailwind"],
 
@@ -2315,8 +2315,6 @@
     "@esbuild-kit/core-utils/esbuild": ["esbuild@0.18.20", "", { "optionalDependencies": { "@esbuild/android-arm": "0.18.20", "@esbuild/android-arm64": "0.18.20", "@esbuild/android-x64": "0.18.20", "@esbuild/darwin-arm64": "0.18.20", "@esbuild/darwin-x64": "0.18.20", "@esbuild/freebsd-arm64": "0.18.20", "@esbuild/freebsd-x64": "0.18.20", "@esbuild/linux-arm": "0.18.20", "@esbuild/linux-arm64": "0.18.20", "@esbuild/linux-ia32": "0.18.20", "@esbuild/linux-loong64": "0.18.20", "@esbuild/linux-mips64el": "0.18.20", "@esbuild/linux-ppc64": "0.18.20", "@esbuild/linux-riscv64": "0.18.20", "@esbuild/linux-s390x": "0.18.20", "@esbuild/linux-x64": "0.18.20", "@esbuild/netbsd-x64": "0.18.20", "@esbuild/openbsd-x64": "0.18.20", "@esbuild/sunos-x64": "0.18.20", "@esbuild/win32-arm64": "0.18.20", "@esbuild/win32-ia32": "0.18.20", "@esbuild/win32-x64": "0.18.20" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA=="],
 
     "@gentleduck/docs/tabbable": ["tabbable@6.4.0", "", {}, "sha512-05PUHKSNE8ou2dwIxTngl4EzcnsCDZGJ/iCLtDflR/SHB/ny14rXc+qU5P4mG9JkusiV7EivzY9Mhm55AzAvCg=="],
-
-    "@gentleduck/registry-ui/lucide-react": ["lucide-react@0.576.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-koNxU14BXrxUfZQ9cUaP0ES1uyPZKYDjk31FQZB6dQ/x+tXk979sVAn9ppZ/pVeJJyOxVM8j1E+8QEuSc02Vug=="],
 
     "@hocuspocus/server/uuid": ["uuid@11.1.0", "", { "bin": { "uuid": "dist/esm/bin/uuid" } }, "sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A=="],
 
