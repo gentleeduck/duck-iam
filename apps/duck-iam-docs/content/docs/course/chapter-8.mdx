@@ -1460,7 +1460,7 @@ segments) apply.
     ```typescript
     import express from 'express'
     import request from 'supertest'
-    import { accessMiddleware, guard } from '@gentleduck/iam/integrations/express'
+    import { accessMiddleware, guard } from '@gentleduck/iam/server/express'
 
     describe('Express middleware', () => {
       function createApp() {
@@ -1472,7 +1472,7 @@ segments) apply.
         })
         app.use(accessMiddleware({
           engine,
-          getSubjectId: (req) => (req as any).userId,
+          getUserId: (req) => (req as any).userId,
         }))
 
         app.get('/api/posts', guard('read', 'post'), (_req, res) => {
