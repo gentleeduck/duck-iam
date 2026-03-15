@@ -126,8 +126,8 @@ const adapter = new MemoryAdapter({
 
 const engine = new Engine({ adapter })
 
-const result = await engine.can('user-1', 'read', { type: 'post', attributes: {} })
-// result.allowed === true`}</code></pre>
+const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+// allowed === true`}</code></pre>
       <p className="mt-3">
         That is a working authorization check in under 15 lines. You can add policies, conditions,
         scopes, and more as your needs grow.
@@ -743,7 +743,7 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`new Engine({
   adapter,              // Required: the data adapter
   cacheTTL: 60,         // Cache time-to-live in seconds (default: 60)
-  maxSubjectCacheSize: 1000,  // Max entries in the subject cache (default: 1000)
+  maxCacheSize: 1000,         // Max entries in the subject cache (default: 1000)
   defaultEffect: 'deny',     // Default when no rules match (default: 'deny')
   hooks: { ... },       // Optional lifecycle hooks
 })`}</code></pre>
@@ -753,11 +753,15 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
   <AccordionItem value="can-vs-check">
     <AccordionTrigger>What is the difference between engine.can() and engine.check()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      They are the same. `can()` is an alias for `check()`. Both run the full evaluation pipeline
-      and return a `Decision` object. Use whichever reads better in your code:
-      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// These are identical:
-await engine.can('user-1', 'read', { type: 'post', attributes: {} })
-await engine.check('user-1', 'read', { type: 'post', attributes: {} })`}</code></pre>
+      `can()` returns a **boolean** -- `true` if allowed, `false` if denied. `check()` returns
+      the full **Decision object** with `allowed`, `effect`, `reason`, `policy`, `rule`, and timing
+      information. Use `can()` for simple guards and `check()` when you need to log or explain the decision:
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// Simple boolean:
+const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+
+// Full decision with details:
+const decision = await engine.check('user-1', 'read', { type: 'post', attributes: {} })
+// decision.allowed, decision.reason, decision.policy, decision.rule`}</code></pre>
     </AccordionContent>
   </AccordionItem>
 
@@ -1014,9 +1018,9 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
     <AccordionTrigger>What happens when the subject cache is full?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       The subject cache uses an LRU (Least Recently Used) eviction policy. When the cache reaches
-      `maxSubjectCacheSize` (default: 1000), the least recently accessed entry is evicted to make room
+      `maxCacheSize` (default: 1000), the least recently accessed entry is evicted to make room
       for the new entry. This means frequently active users stay cached while inactive users are evicted.
-      If you have more than 1000 concurrent active users, increase `maxSubjectCacheSize` accordingly.
+      If you have more than 1000 concurrent active users, increase `maxCacheSize` accordingly.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
@@ -2100,12 +2104,12 @@ await engine.admin.deletePolicy('old-policy-id')`}</code></pre>
 const engine = new Engine({ adapter, cacheTTL: 0 })
 
 // Test specific scenarios:
-const result = await engine.can('test-user', 'update', {
+const allowed = await engine.can('test-user', 'update', {
   type: 'post',
   id: 'post-1',
   attributes: { ownerId: 'test-user' },
 })
-expect(result.allowed).toBe(true)`}</code></pre>
+expect(allowed).toBe(true)`}</code></pre>
       <p className="mt-3">
         Set `cacheTTL: 0` in tests so you can modify data between assertions without cache issues.
         Each test can create its own engine instance with its own adapter for full isolation.
