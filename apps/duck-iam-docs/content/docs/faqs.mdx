@@ -342,7 +342,7 @@ if (!result.valid) {
       Targets are optional filters on a policy that determine whether the policy is even evaluated
       for a given request. A policy can target specific actions, resources, or roles:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const restrictedPolicy = policy('restricted')
-  .targets({ actions: ['delete'], resources: ['post'], roles: ['editor'] })
+  .target({ actions: ['delete'], resources: ['post'], roles: ['editor'] })
   .algorithm('deny-overrides')
   .rule(...)
   .build()`}</code></pre>
@@ -1046,9 +1046,8 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
       <ul className="mt-2 list-disc pl-5">
         <li><strong>Policies:</strong> `savePolicy()`, `deletePolicy()`, `listPolicies()`, `getPolicy()`</li>
         <li><strong>Roles:</strong> `saveRole()`, `deleteRole()`, `listRoles()`, `getRole()`</li>
-        <li><strong>Subject roles:</strong> `assignRole()`, `removeRole()`, `getSubjectRoles()`</li>
-        <li><strong>Subject attributes:</strong> `setSubjectAttributes()`, `getSubjectAttributes()`</li>
-        <li><strong>Scoped roles:</strong> `assignScopedRole()`, `removeScopedRole()`, `getSubjectScopedRoles()`</li>
+        <li><strong>Subject roles:</strong> `assignRole(subjectId, roleId, scope?)`, `revokeRole(subjectId, roleId, scope?)`</li>
+        <li><strong>Subject attributes:</strong> `setAttributes(subjectId, attrs)`, `getAttributes(subjectId)`</li>
       </ul>
       <p className="mt-3">
         Each mutation method automatically invalidates the appropriate cache (e.g., `savePolicy()`
@@ -1064,8 +1063,8 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
       <ul className="mt-2 list-disc pl-5">
         <li>`savePolicy()` / `deletePolicy()` -- invalidates policy cache</li>
         <li>`saveRole()` / `deleteRole()` -- invalidates role cache and RBAC policy cache</li>
-        <li>`assignRole()` / `removeRole()` -- invalidates the specific subject's cache</li>
-        <li>`setSubjectAttributes()` -- invalidates the specific subject's cache</li>
+        <li>`assignRole()` / `revokeRole()` -- invalidates the specific subject's cache</li>
+        <li>`setAttributes()` -- invalidates the specific subject's cache</li>
       </ul>
       <p className="mt-3">
         This means changes take effect immediately for the next permission check without waiting
@@ -1146,7 +1145,7 @@ const adapter = new HttpAdapter({
 
 // PolicyStore: listPolicies, getPolicy, savePolicy, deletePolicy
 // RoleStore: listRoles, getRole, saveRole, deleteRole
-// SubjectStore: getSubjectRoles, setSubjectRoles, getSubjectAttributes,
+// SubjectStore: getSubjectRoles, assignRole, revokeRole, getSubjectAttributes,
 //              setSubjectAttributes, getSubjectScopedRoles (optional)`}</code></pre>
       <p className="mt-3">
         `getSubjectScopedRoles()` is optional -- if your adapter does not support multi-tenant scoping,
