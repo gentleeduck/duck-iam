@@ -39,7 +39,7 @@ export async function getWorkspaceMembership(workspaceId: string, userId: string
 
 export async function getWorkspaceMembers(workspaceId: string) {
   const session = await requireSession()
-  const allowed = await engine.can(session.user.id, 'read', { type: 'member' }, undefined, workspaceId)
+  const allowed = await engine.can(session.user.id, 'read', { type: 'member', attributes: {} }, undefined, workspaceId)
   if (!allowed) throw new Error('Forbidden')
 
   const members = await db.query.workspaceMembers.findMany({
@@ -63,7 +63,7 @@ export async function createWorkspace(formData: FormData) {
     name: formData.get('name'),
     slug: formData.get('slug'),
   })
-  if (!parsed.success) throw new Error(parsed.error.errors[0].message)
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message)
 
   const { name } = parsed.data
   const slug = parsed.data.slug.toLowerCase().replace(/[^a-z0-9-]/g, '-')
@@ -95,9 +95,15 @@ export async function inviteMember(workspaceId: string, email: string, role: str
   const session = await requireSession()
 
   const parsed = inviteMemberSchema.safeParse({ email, role })
-  if (!parsed.success) throw new Error(parsed.error.errors[0].message)
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message)
 
-  const allowed = await engine.can(session.user.id, 'manage', { type: 'member' }, undefined, workspaceId)
+  const allowed = await engine.can(
+    session.user.id,
+    'manage',
+    { type: 'member', attributes: {} },
+    undefined,
+    workspaceId,
+  )
   if (!allowed) throw new Error('Forbidden')
 
   // Find user by email
@@ -124,7 +130,13 @@ export async function inviteMember(workspaceId: string, email: string, role: str
 export async function updateMemberRole(workspaceId: string, memberId: string, newRole: string) {
   const session = await requireSession()
 
-  const allowed = await engine.can(session.user.id, 'manage', { type: 'member' }, undefined, workspaceId)
+  const allowed = await engine.can(
+    session.user.id,
+    'manage',
+    { type: 'member', attributes: {} },
+    undefined,
+    workspaceId,
+  )
   if (!allowed) throw new Error('Forbidden')
 
   const [member] = await db.select().from(workspaceMembers).where(eq(workspaceMembers.id, memberId)).limit(1)
@@ -142,7 +154,13 @@ export async function updateMemberRole(workspaceId: string, memberId: string, ne
 export async function removeMember(workspaceId: string, memberId: string) {
   const session = await requireSession()
 
-  const allowed = await engine.can(session.user.id, 'manage', { type: 'member' }, undefined, workspaceId)
+  const allowed = await engine.can(
+    session.user.id,
+    'manage',
+    { type: 'member', attributes: {} },
+    undefined,
+    workspaceId,
+  )
   if (!allowed) throw new Error('Forbidden')
 
   const [member] = await db.select().from(workspaceMembers).where(eq(workspaceMembers.id, memberId)).limit(1)
@@ -160,7 +178,7 @@ export async function deleteWorkspace(workspaceId: string) {
   const allowed = await engine.can(
     session.user.id,
     'delete',
-    { type: 'workspace', id: workspaceId },
+    { type: 'workspace', id: workspaceId, attributes: {} },
     undefined,
     workspaceId,
   )
