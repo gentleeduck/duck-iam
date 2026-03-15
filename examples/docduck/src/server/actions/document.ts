@@ -11,7 +11,13 @@ import { requireSession } from './auth'
 export async function getDocuments(workspaceId: string) {
   const session = await requireSession()
 
-  const allowed = await engine.can(session.user.id, 'read', { type: 'document' }, undefined, workspaceId)
+  const allowed = await engine.can(
+    session.user.id,
+    'read',
+    { type: 'document', attributes: {} },
+    undefined,
+    workspaceId,
+  )
   if (!allowed) throw new Error('Forbidden')
 
   return db
@@ -37,9 +43,15 @@ export async function createDocument(workspaceId: string, title: string) {
   const session = await requireSession()
 
   const parsed = createDocumentSchema.safeParse({ title })
-  if (!parsed.success) throw new Error(parsed.error.errors[0].message)
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message)
 
-  const allowed = await engine.can(session.user.id, 'create', { type: 'document' }, undefined, workspaceId)
+  const allowed = await engine.can(
+    session.user.id,
+    'create',
+    { type: 'document', attributes: {} },
+    undefined,
+    workspaceId,
+  )
   if (!allowed) throw new Error('Forbidden')
 
   const id = `doc-${crypto.randomUUID().slice(0, 8)}`
@@ -59,7 +71,7 @@ export async function updateDocumentTitle(docId: string, title: string) {
   const session = await requireSession()
 
   const parsed = updateDocumentTitleSchema.safeParse({ title })
-  if (!parsed.success) throw new Error(parsed.error.errors[0].message)
+  if (!parsed.success) throw new Error(parsed.error.issues[0].message)
 
   const doc = await getDocument(docId)
   if (!doc) throw new Error('Document not found')

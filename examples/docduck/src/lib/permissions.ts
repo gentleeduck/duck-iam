@@ -23,7 +23,7 @@ export async function getScopedPermissions(userId: string, workspaceId: string) 
   const map: Record<string, boolean> = {}
 
   for (const { action, resource } of checks) {
-    const allowed = await engine.can(userId, action, { type: resource }, undefined, workspaceId)
+    const allowed = await engine.can(userId, action, { type: resource, attributes: {} }, undefined, workspaceId)
     const key = buildPermissionKey(action, resource)
     map[key] = allowed
   }

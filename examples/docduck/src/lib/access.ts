@@ -75,7 +75,7 @@ export const docOwnershipPolicy = access
       .deny()
       .on('update', 'delete')
       .of('document')
-      .when((w) => w.attr('workspaceRole', 'in', ['editor']).resourceAttr('ownerId', 'neq', '$subject.id')),
+      .when((w) => w.in('subject.attributes.workspaceRole', ['editor']).resourceAttr('ownerId', 'neq', '$subject.id')),
   )
   .build()
 
