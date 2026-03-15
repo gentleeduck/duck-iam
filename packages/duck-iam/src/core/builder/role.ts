@@ -139,20 +139,29 @@ export class RoleBuilder<
    * Grants a single unconditional permission on an action/resource pair.
    *
    * Pass `'*'` for either argument to match all actions or all resources.
+   * Pass an optional `scope` to restrict this permission to a specific scope
+   * (e.g. a tenant or workspace). Without a scope the permission is global.
    *
    * @example
    * ```ts
    * defineRole('viewer')
    *   .grant('read', 'post')
    *   .grant('read', 'comment')
+   *
+   * // With permission-level scope
+   * defineRole('hybrid')
+   *   .grant('read', 'post')                     // global
+   *   .grant('update', 'post', 'org-1')           // org-1 only
+   *   .grant('create', 'comment', 'org-2')        // org-2 only
    * ```
    *
    * @param action   - The action to permit, or `'*'` for all actions
    * @param resource - The resource to permit, or `'*'` for all resources
+   * @param scope    - Optional scope to restrict this permission to
    * @returns `this` for chaining
    */
-  grant(action: TAction | '*', resource: TResource | '*'): this {
-    this._permissions.push({ action, resource })
+  grant(action: TAction | '*', resource: TResource | '*', scope?: TScope): this {
+    this._permissions.push(scope ? { action, resource, scope } : { action, resource })
     return this
   }
 
