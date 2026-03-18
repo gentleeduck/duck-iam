@@ -1,4 +1,4 @@
-import type { Condition, ConditionGroup, Policy, Role, Rule } from './types'
+import type { Condition, ConditionGroup, Policy, Role, Rule } from '../types'
 
 /**
  * Flatten role inheritance, returning all permissions including inherited ones.

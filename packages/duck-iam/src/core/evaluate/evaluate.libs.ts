@@ -1,6 +1,6 @@
 import { evalConditionGroup } from '../conditions'
 import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
-import type { AccessRequest, CombiningAlgorithm, Effect, Policy, Rule } from '../types'
+import type { AccessRequest, CombiningAlgorithm, Policy, Rule } from '../types'
 import type { Combiner } from './evaluate.types'
 
 /**
@@ -128,7 +128,7 @@ export const combiners: Record<CombiningAlgorithm, Combiner> = {
   'highest-priority': (matched, defaultEffect) => {
     if (matched.length > 0) {
       const sorted = [...matched].sort((a, b) => b.rule.priority - a.rule.priority)
-      const top = sorted[0] as { rule: Rule; effect: Effect }
+      const top = sorted[0] as (typeof sorted)[0]
       return {
         rule: top.rule,
         effect: top.effect,

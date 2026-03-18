@@ -1,8 +1,7 @@
-import { PolicyBuilder, RoleBuilder, RuleBuilder, When } from './builder'
-import { Engine } from './engine'
-import type { DefaultContext, EngineConfig, PermissionCheck, Role } from './types'
-import type { ValidationResult } from './validate'
-import { validatePolicy, validateRoles } from './validate'
+import type { PolicyBuilder, RoleBuilder, RuleBuilder, When } from '../builder'
+import type { Engine, EngineConfig } from '../engine'
+import type { DefaultContext, PermissionCheck, Role } from '../types'
+import type { ValidationResult } from '../validate'
 
 // ------------------------------------------------------------
 // Input
@@ -140,68 +139,49 @@ export interface AccessConfig<
 }
 
 // ------------------------------------------------------------
-// Factory
+// Inference helpers
 // ------------------------------------------------------------
 
 /**
- * Creates a type-safe access configuration for your application.
- *
- * This is the primary entry point for duck-iam. Pass your permission schema
- * using `as const` arrays and get back an {@link AccessConfig} with fully typed
- * builder methods.
- *
- * @param input - Your permission schema: actions, resources, and optionally scopes, roles, and context.
- * @returns A typed {@link AccessConfig} with constrained builder methods.
+ * Extracts the union of action strings from a config input.
  *
  * @example
  * ```ts
- * const access = createAccessConfig({
- *   actions: ['create', 'read', 'update', 'delete'] as const,
- *   resources: ['post', 'comment', 'user'] as const,
- *   roles: ['viewer', 'editor', 'admin'] as const,
- *   context: {} as unknown as AppContext,
- * })
- *
- * // All builders are now type-safe:
- * access.defineRole('viewer').grant('read', 'post')   // OK
- * access.defineRole('viewer').grant('raed', 'post')   // compile error
+ * type Actions = InferAction<typeof configInput>
+ * // = 'create' | 'read' | 'update' | 'delete'
  * ```
  */
-export function createAccessConfig<
-  const TActions extends readonly string[],
-  const TResources extends readonly string[],
-  const TScopes extends readonly string[] = readonly string[],
-  const TRoles extends readonly string[] = readonly string[],
-  TContext extends object = DefaultContext,
->(
-  input: AccessConfigInput<TActions, TResources, TScopes, TRoles, TContext>,
-): AccessConfig<TActions[number], TResources[number], TScopes[number], TRoles[number], TContext> {
-  type TAction = TActions[number]
-  type TResource = TResources[number]
-  type TScope = TScopes[number]
-  type TRole = TRoles[number]
+export type InferAction<S extends { actions: readonly string[] }> = S['actions'][number]
 
-  return {
-    actions: input.actions,
-    resources: input.resources,
-    scopes: input.scopes ?? [],
-    roles: input.roles ?? [],
+/**
+ * Extracts the union of resource strings from a config input.
+ *
+ * @example
+ * ```ts
+ * type Resources = InferResource<typeof configInput>
+ * // = 'post' | 'comment' | 'user'
+ * ```
+ */
+export type InferResource<S extends { resources: readonly string[] }> = S['resources'][number]
 
-    defineRole: (id: TRole) => new RoleBuilder<TAction, TResource, TRole, TScope, TContext>(id),
+/**
+ * Extracts the union of scope strings from a config input.
+ *
+ * @example
+ * ```ts
+ * type Scopes = InferScope<typeof configInput>
+ * // = 'org-acme' | 'org-globex'
+ * ```
+ */
+export type InferScope<S extends { scopes: readonly string[] }> = S['scopes'][number]
 
-    policy: (id: string) => new PolicyBuilder<TAction, TResource, TRole, TScope, TContext>(id),
-
-    defineRule: (id: string) => new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id),
-
-    when: () => new When<TAction, TResource, TRole, TScope, TContext>(),
-
-    createEngine: (config: EngineConfig<TAction, TResource, TRole, TScope>) =>
-      new Engine<TAction, TResource, TRole, TScope>(config),
-
-    checks: <const T extends readonly PermissionCheck<TAction, TResource, TScope>[]>(checks: T) => checks,
-
-    validateRoles: (roles: readonly Role<TAction, TResource, string, TScope>[]) => validateRoles(roles),
-
-    validatePolicy: (input: unknown) => validatePolicy(input),
-  }
-}
+/**
+ * Extracts the union of role strings from a config input.
+ *
+ * @example
+ * ```ts
+ * type Roles = InferRole<typeof configInput>
+ * // = 'viewer' | 'editor' | 'admin'
+ * ```
+ */
+export type InferRole<S extends { roles: readonly string[] }> = S['roles'][number]
