@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./apps/duck-iam-docs/public/og/iam-home-67.png" alt="duck-iam homepage snapshot (67%)" width="800"/>
+  <img src="./.github/iam-home.png" alt="duck-iam — type-safe authorization that scales to production" width="800"/>
 </p>
 
 # gentleduck/iam
