@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
+import type { Policy, Role } from '../../types'
 import { Engine } from '../engine'
-import type { Policy, Role } from '../types'
 
 // -- Test setup --
 
@@ -296,7 +296,8 @@ describe('Engine.check() - detailed decision', () => {
     const decision = await engine.check('user-viewer', 'read', { type: 'post', attributes: {} })
     expect(decision.allowed).toBe(true)
     expect(decision.effect).toBe('allow')
-    expect(decision.reason).toBeDefined()
+    expect(typeof decision.reason).toBe('string')
+    expect(decision.reason.length).toBeGreaterThan(0)
     expect(decision.duration).toBeGreaterThanOrEqual(0)
     expect(decision.timestamp).toBeGreaterThan(0)
   })
@@ -310,7 +311,7 @@ describe('Engine.admin - CRUD operations', () => {
     await engine.admin.saveRole(viewerRole)
     const roles = await engine.admin.listRoles()
     expect(roles).toHaveLength(1)
-    expect(roles[0]!.id).toBe('viewer')
+    expect(roles[0]).toEqual(viewerRole)
   })
 
   it('assignRole / revokeRole', async () => {
@@ -338,9 +339,10 @@ describe('Engine.admin - CRUD operations', () => {
     await engine.admin.savePolicy(policy)
     const policies = await engine.admin.listPolicies()
     expect(policies).toHaveLength(1)
+    expect(policies[0]).toEqual(policy)
 
     await engine.admin.deletePolicy('test-policy')
-    expect(await engine.admin.listPolicies()).toHaveLength(0)
+    expect(await engine.admin.listPolicies()).toEqual([])
   })
 
   it('setAttributes / getAttributes', async () => {
