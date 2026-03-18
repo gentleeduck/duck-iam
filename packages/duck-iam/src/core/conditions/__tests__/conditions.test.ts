@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { AccessRequest, ConditionGroup } from '../../types'
 import { evalConditionGroup } from '../conditions'
-import type { AccessRequest, ConditionGroup } from '../types'
 
 function makeReq(overrides: Partial<AccessRequest> = {}): AccessRequest {
   return {

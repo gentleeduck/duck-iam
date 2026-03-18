@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { AccessRequest, Policy } from '../../types'
 import { evaluate, evaluatePolicy } from '../evaluate'
-import type { AccessRequest, Policy } from '../types'
 
 function makeReq(overrides: Partial<AccessRequest> = {}): AccessRequest {
   return {

@@ -135,8 +135,8 @@ describe('MemoryAdapter', () => {
         attributes: { 'user-1': { level: 5 } },
       })
 
-      expect(await adapter.listPolicies()).toHaveLength(1)
-      expect(await adapter.listRoles()).toHaveLength(1)
+      expect(await adapter.listPolicies()).toEqual([{ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }])
+      expect(await adapter.listRoles()).toEqual([{ id: 'viewer', name: 'Viewer', permissions: [] }])
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
       expect(await adapter.getSubjectAttributes('user-1')).toEqual({ level: 5 })
     })

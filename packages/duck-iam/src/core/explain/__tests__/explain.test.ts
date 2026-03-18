@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { AccessRequest, Policy } from '../../types'
 import { explainEvaluation } from '../explain'
-import type { AccessRequest, Policy } from '../types'
 
 function makeReq(overrides: Partial<AccessRequest> = {}): AccessRequest {
   return {
@@ -56,11 +56,14 @@ const subjectInfo = {
 describe('explainEvaluation()', () => {
   it('returns an ExplainResult with decision, request, subject, policies, summary', () => {
     const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
-    expect(result.decision).toBeDefined()
-    expect(result.request).toBeDefined()
-    expect(result.subject).toBeDefined()
-    expect(result.policies).toBeDefined()
-    expect(result.summary).toBeDefined()
+    expect(result.decision.allowed).toBe(true)
+    expect(result.request.action).toBe('read')
+    expect(result.request.resourceType).toBe('post')
+    expect(result.subject.id).toBe('user-1')
+    expect(result.policies).toHaveLength(1)
+    expect(result.policies[0]!.policyId).toBe('allow-read')
+    expect(typeof result.summary).toBe('string')
+    expect(result.summary.length).toBeGreaterThan(0)
   })
 
   it('correctly reports an allowed decision', () => {
@@ -78,15 +81,21 @@ describe('explainEvaluation()', () => {
   it('traces all policies without short-circuiting', () => {
     const result = explainEvaluation([allowReadPolicy, denyAllPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.policies).toHaveLength(2)
+    expect(result.policies[0]!.policyId).toBe('allow-read')
+    expect(result.policies[1]!.policyId).toBe('deny-all')
   })
 
   it('traces rule matching details', () => {
     const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
     const policyTrace = result.policies[0]!
     expect(policyTrace.rules).toHaveLength(1)
-    expect(policyTrace.rules[0]!.actionMatch).toBe(true)
-    expect(policyTrace.rules[0]!.resourceMatch).toBe(true)
-    expect(policyTrace.rules[0]!.matched).toBe(true)
+    const rule = policyTrace.rules[0]!
+    expect(rule.ruleId).toBe('r1')
+    expect(rule.effect).toBe('allow')
+    expect(rule.actionMatch).toBe(true)
+    expect(rule.resourceMatch).toBe(true)
+    expect(rule.conditionsMet).toBe(true)
+    expect(rule.matched).toBe(true)
   })
 
   it('reports non-matching rules correctly', () => {
@@ -180,5 +189,8 @@ describe('explainEvaluation()', () => {
     expect(ruleTrace.conditionsMet).toBe(true)
     expect(ruleTrace.conditions.type).toBe('group')
     expect(ruleTrace.conditions.children).toHaveLength(1)
+    const child = ruleTrace.conditions.children[0]!
+    expect(child.type).toBe('condition')
+    expect(child.result).toBe(true)
   })
 })

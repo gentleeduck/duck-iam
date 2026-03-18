@@ -73,6 +73,32 @@ describe('LRUCache', () => {
     expect(cache.get('a')).toBe('2')
   })
 
+  it('rejects negative maxSize', () => {
+    expect(() => new LRUCache<string>(0, 1000)).toThrow(RangeError)
+    expect(() => new LRUCache<string>(-1, 1000)).toThrow(RangeError)
+  })
+
+  it('rejects negative ttlMs', () => {
+    expect(() => new LRUCache<string>(10, -1)).toThrow(RangeError)
+  })
+
+  it('allows ttlMs of 0 without throwing', () => {
+    expect(() => new LRUCache<string>(10, 0)).not.toThrow()
+  })
+
+  it('evicts in correct LRU order with more than 2 entries', () => {
+    const cache = new LRUCache<string>(3, 60000)
+    cache.set('a', '1')
+    cache.set('b', '2')
+    cache.set('c', '3')
+    cache.get('a') // promote 'a'
+    cache.set('d', '4') // should evict 'b' (least recently used)
+    expect(cache.get('b')).toBeUndefined()
+    expect(cache.get('a')).toBe('1')
+    expect(cache.get('c')).toBe('3')
+    expect(cache.get('d')).toBe('4')
+  })
+
   describe('TTL expiration', () => {
     beforeEach(() => {
       vi.useFakeTimers()

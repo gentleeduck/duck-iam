@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { defineRole, defineRule, PolicyBuilder, policy, RoleBuilder, RuleBuilder, When, when } from '../builder'
-import type { DefaultContext } from '../types'
+import type { DefaultContext } from '../../types'
+import { defineRole, defineRule, PolicyBuilder, policy, RoleBuilder, RuleBuilder, When, when } from '..'
 
 interface TypedBuilderContext {
   action: 'read' | 'update'
@@ -60,6 +60,8 @@ describe('When (condition builder)', () => {
     w.neq('a', 1).in('b', [1, 2]).gt('c', 0).gte('d', 1).lt('e', 10).lte('f', 5).matches('g', '^x').exists('h')
     const group = w.buildAll()
     expect(group.all).toHaveLength(8)
+    const operators = group.all.map((c) => ('operator' in c ? c.operator : null))
+    expect(operators).toEqual(['neq', 'in', 'gt', 'gte', 'lt', 'lte', 'matches', 'exists'])
   })
 
   it('isOwner adds $subject.id condition', () => {
@@ -75,7 +77,7 @@ describe('When (condition builder)', () => {
     const group = new When<string, string, string, string, DefaultContext>()
       .isOwner('resource.attributes.authorId')
       .buildAll()
-    expect((group.all[0] as any).field).toBe('resource.attributes.authorId')
+    expect(group.all[0]).toMatchObject({ field: 'resource.attributes.authorId', operator: 'eq' })
   })
 
   it('role() adds contains condition on subject.roles', () => {
@@ -90,19 +92,19 @@ describe('When (condition builder)', () => {
 
   it('attr() prefixes with subject.attributes', () => {
     const group = new When<string, string, string, string, DefaultContext>().attr('level', 'gte', 5).buildAll()
-    expect((group.all[0] as any).field).toBe('subject.attributes.level')
+    expect(group.all[0]).toMatchObject({ field: 'subject.attributes.level', operator: 'gte', value: 5 })
   })
 
   it('resourceAttr() prefixes with resource.attributes', () => {
     const group = new When<string, string, string, string, DefaultContext>()
       .resourceAttr('status', 'eq', 'published')
       .buildAll()
-    expect((group.all[0] as any).field).toBe('resource.attributes.status')
+    expect(group.all[0]).toMatchObject({ field: 'resource.attributes.status', operator: 'eq', value: 'published' })
   })
 
   it('env() prefixes with environment', () => {
     const group = new When<string, string, string, string, DefaultContext>().env('ip', 'eq', '127.0.0.1').buildAll()
-    expect((group.all[0] as any).field).toBe('environment.ip')
+    expect(group.all[0]).toMatchObject({ field: 'environment.ip', operator: 'eq', value: '127.0.0.1' })
   })
 
   it('accepts $ references across typed value helpers', () => {
@@ -327,7 +329,11 @@ describe('RoleBuilder', () => {
   it('grantWhen() adds a permission with conditions', () => {
     const r = new RoleBuilder('editor').grantWhen('update', 'post', (w) => w.isOwner()).build()
     expect(r.permissions).toHaveLength(1)
-    expect(r.permissions[0]!.conditions).toBeDefined()
+    expect(r.permissions[0]!.action).toBe('update')
+    expect(r.permissions[0]!.resource).toBe('post')
+    expect(r.permissions[0]!.conditions).toMatchObject({
+      all: [{ field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' }],
+    })
   })
 
   it('grantAll() grants wildcard action', () => {

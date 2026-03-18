@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Role } from '../types'
+import type { Role } from '../../types'
 import { validatePolicy, validateRoles } from '../validate'
 
 describe('validateRoles()', () => {
