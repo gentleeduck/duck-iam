@@ -82,7 +82,7 @@ export function withAccess<
 
       return handler(req, ctx)
     } catch (err) {
-      return onError(err as Error, req)
+      return onError(err instanceof Error ? err : new Error(String(err)), req)
     }
   }
 }
@@ -213,7 +213,7 @@ export function createNextMiddleware<
 
       return null // Allow through
     } catch (err) {
-      return onError(err as Error, req)
+      return onError(err instanceof Error ? err : new Error(String(err)), req)
     }
   }
 }

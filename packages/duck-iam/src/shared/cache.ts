@@ -16,6 +16,8 @@ export class LRUCache<V> {
    * @param ttlMs   - Time-to-live in milliseconds for each entry
    */
   constructor(maxSize: number, ttlMs: number) {
+    if (maxSize < 1) throw new RangeError('LRUCache maxSize must be >= 1')
+    if (ttlMs < 0) throw new RangeError('LRUCache ttlMs must be >= 0')
     this.maxSize = maxSize
     this.ttl = ttlMs
   }

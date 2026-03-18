@@ -149,7 +149,7 @@ export function nestAccessGuard<
         scope,
       )
     } catch (err) {
-      return onError(err as Error, request)
+      return onError(err instanceof Error ? err : new Error(String(err)), request)
     }
   }
 }
