@@ -64,7 +64,7 @@ export function extractEnvironment(req: {
 /**
  * HTTP method to action mapping.
  */
-export const METHOD_ACTION_MAP: Record<string, string> = {
+export const METHOD_ACTION_MAP: Readonly<Record<string, string>> = {
   GET: 'read',
   HEAD: 'read',
   OPTIONS: 'read',

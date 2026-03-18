@@ -16,7 +16,7 @@ export function enrichSubjectWithScopedRoles<TScope extends string = string>(
   subject: Subject,
   scope: TScope | undefined,
 ): Subject {
-  if (!scope || !subject.scopedRoles?.length) return subject
+  if (scope == null || !subject.scopedRoles?.length) return subject
 
   const extraRoles = subject.scopedRoles.filter((sr) => sr.scope === scope).map((sr) => sr.role)
 

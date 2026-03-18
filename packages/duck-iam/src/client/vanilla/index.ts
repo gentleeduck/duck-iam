@@ -90,7 +90,13 @@ export class AccessClient<
   /** Update permissions and notify listeners */
   update(permissions: PermissionMap<TAction, TResource, TScope>): void {
     this._permissions = permissions
-    for (const fn of this._listeners) fn(permissions)
+    for (const fn of this._listeners) {
+      try {
+        fn(permissions)
+      } catch {
+        // Listener errors must not prevent other listeners from being notified
+      }
+    }
   }
 
   /** Merge new permissions into existing */

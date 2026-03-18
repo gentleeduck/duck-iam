@@ -85,7 +85,7 @@ export function accessMiddleware<
       if (!allowed) return onDenied(c)
       await next()
     } catch (err) {
-      return onError(err as Error, c)
+      return onError(err instanceof Error ? err : new Error(String(err)), c)
     }
   }
 }
@@ -131,7 +131,7 @@ export function guard<
       if (!allowed) return onDenied(c)
       await next()
     } catch (err) {
-      return onError(err as Error, c)
+      return onError(err instanceof Error ? err : new Error(String(err)), c)
     }
   }
 }

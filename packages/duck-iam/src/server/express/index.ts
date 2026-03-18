@@ -92,7 +92,7 @@ export function accessMiddleware<
       )
       allowed ? next() : onDenied(req, res)
     } catch (err) {
-      onError(err as Error, req, res, next)
+      onError(err instanceof Error ? err : new Error(String(err)), req, res, next)
     }
   }
 }
