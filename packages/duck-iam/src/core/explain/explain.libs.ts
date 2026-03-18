@@ -109,7 +109,7 @@ function applyCombiner(
     case 'highest-priority': {
       if (matched.length > 0) {
         const sorted = [...matched].sort((a, b) => b.priority - a.priority)
-        const top = sorted[0] as NonNullable<typeof sorted>[0]
+        const top = sorted[0] as (typeof sorted)[0]
         return {
           effect: top.effect,
           reason: `Highest priority: rule "${top.ruleId}" (p=${top.priority})`,

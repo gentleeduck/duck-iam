@@ -1,4 +1,4 @@
-import type { AccessRequest, AttributeValue } from './types'
+import type { AccessRequest, AttributeValue } from '../types'
 
 /** Allowed top-level path prefixes for field resolution */
 const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])

@@ -9,8 +9,6 @@ import type {
   Adapter,
   Decision,
   Effect,
-  EngineConfig,
-  EngineHooks,
   PermissionCheck,
   PermissionMap,
   Policy,
@@ -19,7 +17,7 @@ import type {
   Subject,
 } from '../types'
 import { createAdmin, enrichSubjectWithScopedRoles } from './engine.libs'
-import type { EngineAdmin } from './engine.types'
+import type { EngineAdmin, EngineConfig, EngineHooks } from './engine.types'
 
 /**
  * The authorization engine: the central runtime that evaluates access requests
@@ -158,13 +156,14 @@ export class Engine<
 
       return decision
     } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
       if (this.hooks.onError) {
-        await this.hooks.onError(error as Error, req)
+        await this.hooks.onError(err, req)
       }
       return {
         allowed: false,
         effect: 'deny',
-        reason: `Evaluation error: ${(error as Error).message}`,
+        reason: 'Evaluation error',
         duration: 0,
         timestamp: Date.now(),
       }
@@ -295,8 +294,9 @@ export class Engine<
 
         map[key] = decision.allowed
       } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error))
         if (this.hooks.onError) {
-          await this.hooks.onError(error as Error, {
+          await this.hooks.onError(err, {
             subject,
             action: c.action,
             resource: { type: c.resource, id: c.resourceId, attributes: {} },
