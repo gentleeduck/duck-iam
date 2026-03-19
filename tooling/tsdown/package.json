@@ -7,7 +7,7 @@
   "dependencies": {
     "@gentleduck/typescript-config": "workspace:*",
     "@vitejs/plugin-react-swc": "^4.3.0",
-    "tsdown": "0.21.2"
+    "tsdown": "0.21.4"
   },
   "description": "Shared tsdown build configuration for duck-iam.",
   "version": "0.0.1",
