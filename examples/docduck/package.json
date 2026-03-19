@@ -22,7 +22,7 @@
     "@gentleduck/libs": "workspace:*",
     "@gentleduck/primitives": "workspace:*",
     "@gentleduck/variants": "workspace:*",
-    "@hocuspocus/provider": "^2.15.0",
+    "@hocuspocus/provider": "^3.4.4",
     "@hocuspocus/server": "^2.15.0",
     "better-auth": "^1.2.8",
     "drizzle-orm": "^0.44.0",
