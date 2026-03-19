@@ -16,7 +16,7 @@
   "dependencies": {
     "@blocknote/core": "^0.31.1",
     "@blocknote/mantine": "^0.31.1",
-    "@blocknote/react": "^0.31.1",
+    "@blocknote/react": "^0.47.1",
     "@gentleduck/hooks": "workspace:*",
     "@gentleduck/iam": "workspace:*",
     "@gentleduck/libs": "workspace:*",
