@@ -2,7 +2,6 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "lib": ["ES2022", "dom", "dom.iterable"],
-    "baseUrl": ".",
     "incremental": false,
     "rootDir": "./",
     "outDir": "./dist",

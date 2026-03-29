@@ -18,12 +18,12 @@
       "name": "@gentleduck/iam-docs",
       "version": "0.0.21",
       "dependencies": {
-        "@gentleduck/docs": "0.3.0",
-        "@gentleduck/lazy": "^1.2.14",
+        "@gentleduck/docs": "0.3.2",
+        "@gentleduck/lazy": "^1.2.15",
         "@gentleduck/libs": "^0.1.16",
         "@gentleduck/motion": "^0.1.18",
-        "@gentleduck/registry-ui": "0.3.0",
-        "@gentleduck/vim": "^0.1.17",
+        "@gentleduck/registry-ui": "0.3.2",
+        "@gentleduck/vim": "^0.1.18",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "jotai": "^2.18.1",
         "lucide-react": "0.577.0",
@@ -88,7 +88,7 @@
     },
     "packages/duck-iam": {
       "name": "@gentleduck/iam",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "devDependencies": {
         "@gentleduck/tsdown-config": "workspace:*",
         "@gentleduck/typescript-config": "workspace:*",
@@ -190,23 +190,25 @@
     },
   },
   "overrides": {
+    "@gentleduck/calendar": "0.2.1",
     "@gentleduck/hooks": "0.1.13",
     "@gentleduck/libs": "0.1.16",
     "@gentleduck/motion": "0.1.18",
-    "@gentleduck/primitives": "0.2.6",
+    "@gentleduck/primitives": "0.2.9",
     "@gentleduck/variants": "0.1.21",
-    "@gentleduck/vim": "0.1.17",
+    "@gentleduck/vim": "0.1.18",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
   },
   "catalog": {
     "@changesets/cli": "^2.29.8",
+    "@gentleduck/calendar": "0.2.1",
     "@gentleduck/hooks": "0.1.13",
     "@gentleduck/libs": "0.1.16",
     "@gentleduck/motion": "0.1.18",
-    "@gentleduck/primitives": "0.2.6",
+    "@gentleduck/primitives": "0.2.9",
     "@gentleduck/variants": "0.1.21",
-    "@gentleduck/vim": "0.1.17",
+    "@gentleduck/vim": "0.1.18",
     "@tabler/icons-react": "3.36.0",
     "@tailwindcss/postcss": "4.2.1",
     "@tanstack/react-query": "^5.90.15",
@@ -437,7 +439,9 @@
 
     "@gentleduck/biome-config": ["@gentleduck/biome-config@workspace:tooling/biome"],
 
-    "@gentleduck/docs": ["@gentleduck/docs@0.3.0", "", { "dependencies": { "@shikijs/compat": "1.12.1", "@tanstack/react-virtual": "^3.13.19", "@types/unist": "^3.0.3", "aria-hidden": "^1.2.6", "hast": "^1.0.0", "hast-util-to-string": "^3.0.1", "lunr": "^2.3.9", "mdast-util-toc": "^7.1.0", "react-remove-scroll": "^2.7.2", "rehype-autolink-headings": "^7.1.0", "rehype-pretty-code": "^0.6.0", "rehype-slug": "^6.0.0", "remark": "^15.0.1", "remark-code-import": "^1.2.0", "remark-gfm": "^4.0.0", "tabbable": "6.4.0", "tw-animate-css": "^1.2.4", "unified": "^11.0.5", "unist-builder": "4.0.0", "unist-util-visit": "^5.0.0", "velite": "^0.3.1", "zod": "4.3.6" }, "peerDependencies": { "@excalidraw/excalidraw": "^0.18.0", "@gentleduck/hooks": "workspace:*", "@gentleduck/libs": "workspace:*", "@gentleduck/vim": "workspace:*", "jotai": "^2.14.0", "lucide-react": "0.577.0", "next": "^16.1.1", "next-themes": "^0.4.6", "react": "^19.2.4", "react-dom": "^19.2.4", "react-markdown": "^10.1.0", "react-resizable-panels": "^4.7.0", "shiki": "^2.5.0" }, "optionalPeers": ["@excalidraw/excalidraw", "@gentleduck/hooks", "@gentleduck/libs", "@gentleduck/vim", "jotai", "lucide-react", "next", "next-themes", "react", "react-dom", "react-markdown", "react-resizable-panels", "shiki"] }, "sha512-z9ICrz9egm+6aA3zFRtFjEO++oUyW0SpZbt014O6GC89ESBd38MbZ9Hs/8t2AsLUeIVkddrBVcUNTkE3lfcGQg=="],
+    "@gentleduck/calendar": ["@gentleduck/calendar@0.2.1", "", { "peerDependencies": { "date-fns": ">=3.0.0", "dayjs": ">=1.11.0", "luxon": ">=3.0.0", "react": ">=18.0.0" }, "optionalPeers": ["date-fns", "dayjs", "luxon", "react"] }, "sha512-jRFdEjm95FQ+ybaIl0GlgPwMd9C3rBtgyUlMdaLNxCe8jcvbNeR5TVR2YrSMsK3o2hnvO9XgYCwyPmdgZCjhzw=="],
+
+    "@gentleduck/docs": ["@gentleduck/docs@0.3.2", "", { "dependencies": { "@shikijs/compat": "1.12.1", "@tanstack/react-virtual": "^3.13.19", "@types/unist": "^3.0.3", "aria-hidden": "^1.2.6", "hast": "^1.0.0", "hast-util-to-string": "^3.0.1", "lunr": "^2.3.9", "mdast-util-toc": "^7.1.0", "react-remove-scroll": "^2.7.2", "rehype-autolink-headings": "^7.1.0", "rehype-pretty-code": "^0.6.0", "rehype-slug": "^6.0.0", "remark": "^15.0.1", "remark-code-import": "^1.2.0", "remark-gfm": "^4.0.0", "tabbable": "6.4.0", "tw-animate-css": "^1.2.4", "unified": "^11.0.5", "unist-builder": "4.0.0", "unist-util-visit": "^5.0.0", "velite": "^0.3.1", "zod": "4.3.6" }, "peerDependencies": { "@excalidraw/excalidraw": "^0.18.0", "@gentleduck/hooks": "workspace:*", "@gentleduck/libs": "workspace:*", "@gentleduck/vim": "workspace:*", "jotai": "^2.14.0", "lucide-react": "1.6.0", "next": "^16.1.1", "next-themes": "^0.4.6", "react": ">=18.0.0", "react-dom": ">=18.0.0", "react-markdown": "^10.1.0", "react-resizable-panels": "^4.7.0", "shiki": "^2.5.0" }, "optionalPeers": ["@excalidraw/excalidraw", "@gentleduck/hooks", "@gentleduck/libs", "@gentleduck/vim", "jotai", "lucide-react", "next", "next-themes", "react", "react-dom", "react-markdown", "react-resizable-panels", "shiki"] }, "sha512-ERUySQDWw2YmYwHfK+tN2Y/m160Q2LaJ7PDa77ZvSknohSCbrJI3OM22cU66EobxzGKTvjjQfVfcRdMqFHS8uQ=="],
 
     "@gentleduck/github": ["@gentleduck/github@workspace:tooling/github"],
 
@@ -447,15 +451,15 @@
 
     "@gentleduck/iam-docs": ["@gentleduck/iam-docs@workspace:apps/duck-iam-docs"],
 
-    "@gentleduck/lazy": ["@gentleduck/lazy@1.2.14", "", { "peerDependencies": { "next": "^16.1.1", "react": "^19.2.4" }, "optionalPeers": ["next"] }, "sha512-992kKMTa2q60xbCnLYliq/u4Omy0LFuV2ZeX80X8Jjf3NxgrK+ABs9BR4wRsM/ipP1bMR0hCg0Q7NrrQYykCBQ=="],
+    "@gentleduck/lazy": ["@gentleduck/lazy@1.2.15", "", { "peerDependencies": { "next": "^16.1.1", "react": ">=18.0.0" }, "optionalPeers": ["next"] }, "sha512-Rr0LIMkRBP1e9oIyslJksrYD2aJ4OSr8aKKvNAJeT0X050VCpDs8UShhxk3L98dng+h4S91cjWQSIMWYWnH5Ig=="],
 
     "@gentleduck/libs": ["@gentleduck/libs@0.1.16", "", { "peerDependencies": { "clsx": "^2.1.1", "tailwind-merge": "^3.4.0" } }, "sha512-wI58ujQw3Q7sJ3KjHFOkfDw2DrAKh52gAnLTU1P4gfUdyHeGSjNJ9lhBHHcfz5q8YhzHllegwXcEBUDDu2aihQ=="],
 
     "@gentleduck/motion": ["@gentleduck/motion@0.1.18", "", { "peerDependencies": { "@gentleduck/variants": "workspace:*", "react": "^18 || ^19" }, "optionalPeers": ["react"] }, "sha512-BCMFWJP9gVSeSjJVPcSyidw4xZ4zb2MnbqrOa9anbdxDP2bQCsdAH6lL1Puf7D/yryjkSxR1Unm4HKgJzsODVQ=="],
 
-    "@gentleduck/primitives": ["@gentleduck/primitives@0.2.6", "", { "dependencies": { "@floating-ui/react-dom": "^2.1.7", "aria-hidden": "^1.2.6", "react-remove-scroll": "^2.7.2" }, "peerDependencies": { "react": "^19.2.4", "react-dom": "^19.2.4", "tabbable": "6.2.0" } }, "sha512-k9Rwg2kH2thg3pvYPa2mo4Pkc4VHp9+qCHODpYrJTjNkazfvFYZNOe1bjj0/FOIdvTN5Xzfe0tXEY4h+KNH64A=="],
+    "@gentleduck/primitives": ["@gentleduck/primitives@0.2.9", "", { "dependencies": { "@floating-ui/react-dom": "^2.1.7", "@gentleduck/calendar": "workspace:*", "aria-hidden": "^1.2.6", "react-remove-scroll": "^2.7.2" }, "peerDependencies": { "react": ">=18.0.0", "react-dom": ">=18.0.0", "tabbable": "6.2.0" } }, "sha512-4aS8yHdziNf/cD+RotPEJq0eTBXGemrkUgNO+32jRv6GRkrqIvkAUFTmXP/K0NSJAJUWFgM9YhvfU8JNuA93ag=="],
 
-    "@gentleduck/registry-ui": ["@gentleduck/registry-ui@0.3.0", "", { "dependencies": { "@gentleduck/hooks": "^0.1.12", "@gentleduck/libs": "^0.1.15", "@gentleduck/motion": "^0.1.17", "@gentleduck/primitives": "^0.2.5", "@gentleduck/variants": "^0.1.20", "@gentleduck/vim": "^0.1.16", "embla-carousel-react": "8.6.0", "lucide-react": "0.577.0", "next-themes": "^0.4.6", "react": "^19.2.4", "react-day-picker": "^9.8.1", "react-dom": "^19.2.4", "react-hook-form": "^7.71.1", "react-resizable-panels": "^4.7.0", "recharts": "^3.7.0", "sonner": "^2.0.7", "tailwindcss": "^4.2.0", "uuidv7": "^1.1.0", "vaul": "1.1.2", "zod": "4.3.6" } }, "sha512-gfabwJyBguZul9u2rnutPsLzB2Fz4axq1+OjMVbRhscp9a4fSMHOgQaMGElsMXUpp3vfB0R8eOXQcZ9OfGglEQ=="],
+    "@gentleduck/registry-ui": ["@gentleduck/registry-ui@0.3.2", "", { "dependencies": { "@gentleduck/calendar": "workspace:*", "@gentleduck/hooks": "^0.1.12", "@gentleduck/libs": "^0.1.15", "@gentleduck/motion": "^0.1.17", "@gentleduck/primitives": "^0.2.5", "@gentleduck/variants": "^0.1.20", "@gentleduck/vim": "^0.1.16", "embla-carousel-react": "8.6.0", "lucide-react": "1.6.0", "next-themes": "^0.4.6", "react": "^19.2.4", "react-dom": "^19.2.4", "react-hook-form": "^7.71.1", "react-resizable-panels": "^4.7.0", "recharts": "^3.7.0", "sonner": "^2.0.7", "tailwindcss": "^4.2.0", "uuidv7": "^1.1.0", "vaul": "1.1.2", "zod": "4.3.6" } }, "sha512-fo5LybFZ94dVz3smf2OcAboENuPh0jJeBWcEVhx/wDcaJXLl21uW03H5rlaPhezRWaf3RrFC2wJMyHdw9fsQyQ=="],
 
     "@gentleduck/tailwind-config": ["@gentleduck/tailwind-config@workspace:tooling/tailwind"],
 
@@ -467,7 +471,7 @@
 
     "@gentleduck/variants": ["@gentleduck/variants@0.1.21", "", {}, "sha512-0ieP1Tt9JXhiIf34GijFDkGDOiM3B+R1shqQQ16OlbsE4cMzao+ZFhklSMGC/b5JCmilXbjvU92RIyI1ZJOVIQ=="],
 
-    "@gentleduck/vim": ["@gentleduck/vim@0.1.17", "", { "peerDependencies": { "react": "^18 || ^19", "react-dom": "^18 || ^19" } }, "sha512-sHb8eC0iZzcJgDNOycrZQ3981EZ5rv8yvagxBshSlKQEw0A3UOUqhIYQ2vsYdIX0WEGPAR+C8sNqyIULQC7f+A=="],
+    "@gentleduck/vim": ["@gentleduck/vim@0.1.18", "", { "peerDependencies": { "react": "^18 || ^19", "react-dom": "^18 || ^19" } }, "sha512-TQ0SKJGLRPjilju/5PPlh0BsoXpF/BK6aExyw/HET1VyZvpSJfOz5PIlgzi4brqcyn+dRjLU8yd4ImqnwhgFOA=="],
 
     "@gentleduck/vitest-config": ["@gentleduck/vitest-config@workspace:tooling/vitest"],
 
@@ -2336,6 +2340,8 @@
     "@esbuild-kit/core-utils/esbuild": ["esbuild@0.18.20", "", { "optionalDependencies": { "@esbuild/android-arm": "0.18.20", "@esbuild/android-arm64": "0.18.20", "@esbuild/android-x64": "0.18.20", "@esbuild/darwin-arm64": "0.18.20", "@esbuild/darwin-x64": "0.18.20", "@esbuild/freebsd-arm64": "0.18.20", "@esbuild/freebsd-x64": "0.18.20", "@esbuild/linux-arm": "0.18.20", "@esbuild/linux-arm64": "0.18.20", "@esbuild/linux-ia32": "0.18.20", "@esbuild/linux-loong64": "0.18.20", "@esbuild/linux-mips64el": "0.18.20", "@esbuild/linux-ppc64": "0.18.20", "@esbuild/linux-riscv64": "0.18.20", "@esbuild/linux-s390x": "0.18.20", "@esbuild/linux-x64": "0.18.20", "@esbuild/netbsd-x64": "0.18.20", "@esbuild/openbsd-x64": "0.18.20", "@esbuild/sunos-x64": "0.18.20", "@esbuild/win32-arm64": "0.18.20", "@esbuild/win32-ia32": "0.18.20", "@esbuild/win32-x64": "0.18.20" }, "bin": { "esbuild": "bin/esbuild" } }, "sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA=="],
 
     "@gentleduck/docs/tabbable": ["tabbable@6.4.0", "", {}, "sha512-05PUHKSNE8ou2dwIxTngl4EzcnsCDZGJ/iCLtDflR/SHB/ny14rXc+qU5P4mG9JkusiV7EivzY9Mhm55AzAvCg=="],
+
+    "@gentleduck/registry-ui/lucide-react": ["lucide-react@1.6.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-YxLKVCOF5ZDI1AhKQE5IBYMY9y/Nr4NT15+7QEWpsTSVCdn4vmZhww+6BP76jWYjQx8rSz1Z+gGme1f+UycWEw=="],
 
     "@hocuspocus/server/uuid": ["uuid@11.1.0", "", { "bin": { "uuid": "dist/esm/bin/uuid" } }, "sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A=="],
 

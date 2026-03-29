@@ -52,22 +52,24 @@
     "check-types": "turbo run check-types"
   },
   "resolutions": {
+    "@gentleduck/calendar": "0.2.1",
     "@gentleduck/hooks": "0.1.13",
     "@gentleduck/libs": "0.1.16",
     "@gentleduck/motion": "0.1.18",
-    "@gentleduck/primitives": "0.2.6",
+    "@gentleduck/primitives": "0.2.9",
     "@gentleduck/variants": "0.1.21",
-    "@gentleduck/vim": "0.1.17"
+    "@gentleduck/vim": "0.1.18"
   },
   "overrides": {
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "@gentleduck/calendar": "0.2.1",
     "@gentleduck/hooks": "0.1.13",
     "@gentleduck/libs": "0.1.16",
     "@gentleduck/motion": "0.1.18",
-    "@gentleduck/primitives": "0.2.6",
+    "@gentleduck/primitives": "0.2.9",
     "@gentleduck/variants": "0.1.21",
-    "@gentleduck/vim": "0.1.17"
+    "@gentleduck/vim": "0.1.18"
   },
   "workspaces": {
     "packages": [
@@ -77,12 +79,13 @@
       "examples/*"
     ],
     "catalog": {
+      "@gentleduck/calendar": "0.2.1",
       "@gentleduck/hooks": "0.1.13",
       "@gentleduck/libs": "0.1.16",
       "@gentleduck/motion": "0.1.18",
-      "@gentleduck/primitives": "0.2.6",
+      "@gentleduck/primitives": "0.2.9",
       "@gentleduck/variants": "0.1.21",
-      "@gentleduck/vim": "0.1.17",
+      "@gentleduck/vim": "0.1.18",
       "next": "^16.1.1",
       "lucide-react": "0.577.0",
       "@changesets/cli": "^2.29.8",
