@@ -448,7 +448,8 @@ const isAdminOrOwner = access.when()
 ### access.createEngine()
 
 Creates a typed engine instance. Permission checks on this engine are constrained to your
-schema.
+schema. An optional `mode` parameter sets the engine's operating mode, which flows through
+the generic for full type safety.
 
 ```typescript
 import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
@@ -463,8 +464,24 @@ const adapter = new MemoryAdapter({
 })
 
 const engine = access.createEngine({ adapter })
+// mode defaults to 'development'
 
-// Typed permission checks:
+// Or explicitly set mode for production:
+const prodEngine = access.createEngine({ adapter, mode: 'production' })
+// Engine<TAction, TResource, TRole, TScope, 'production'>
+```
+
+The `mode` parameter accepts `'development' | 'production'` and defaults to `'development'`.
+The mode type flows through the generic signature:
+
+```typescript
+createEngine<'production'>({ adapter, mode: 'production' })
+// => Engine<..., 'production'>
+```
+
+Typed permission checks work the same regardless of mode:
+
+```typescript
 await engine.can('user-1', 'read', { type: 'post', attributes: {} })
 // ok
 
@@ -628,7 +645,7 @@ const adapter = new MemoryAdapter({
   policies: [ownerPolicy],
 })
 
-const engine = access.createEngine({ adapter, cacheTTL: 120 })
+const engine = access.createEngine({ adapter, cacheTTL: 120, mode: 'production' })
 
 // 6. Define typed permission checks for UI
 const dashboardChecks = access.checks([
