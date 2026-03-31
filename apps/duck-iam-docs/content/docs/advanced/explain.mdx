@@ -55,6 +55,8 @@ provides two categories of debugging tools:
 
 ## engine.explain()
 
+> **Development mode only.** `explain()` is only available when the engine is created with `mode: 'development'` (the default). In production mode, calling `explain()` throws an error. If you need explain in production, create a separate development-mode engine for debug endpoints.
+
 The `explain()` method runs the same evaluation as `check()` but traces every step without
 short-circuiting. Even if the first policy denies access, the engine still evaluates all
 remaining policies so you can see the complete picture.

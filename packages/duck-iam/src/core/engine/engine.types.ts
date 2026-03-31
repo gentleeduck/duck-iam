@@ -1,4 +1,4 @@
-import type { AccessRequest, Adapter, Attributes, Decision, Policy, Role } from '../types'
+import type { AccessRequest, Adapter, Attributes, Decision, Mode, Policy, Role } from '../types'
 
 /**
  * Administrative interface for managing policies, roles, and subject data.
@@ -97,6 +97,7 @@ export interface EngineConfig<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TMode extends Mode = 'development',
 > {
   /** The storage adapter that provides policies, roles, and subject data. */
   readonly adapter: Adapter<TAction, TResource, TRole, TScope>
@@ -108,4 +109,6 @@ export interface EngineConfig<
   readonly maxCacheSize?: number
   /** Lifecycle hooks for observing or transforming requests and decisions. */
   readonly hooks?: EngineHooks<TAction, TResource, TScope>
+  /** Engine execution mode. `'development'` (default) returns rich Decision objects; `'production'` returns plain booleans. */
+  readonly mode?: TMode
 }

@@ -1,6 +1,6 @@
 import type { PolicyBuilder, RoleBuilder, RuleBuilder, When } from '../builder'
 import type { Engine, EngineConfig } from '../engine'
-import type { DefaultContext, PermissionCheck, Role } from '../types'
+import type { DefaultContext, Mode, PermissionCheck, Role } from '../types'
 import type { ValidationResult } from '../validate'
 
 // ------------------------------------------------------------
@@ -116,7 +116,9 @@ export interface AccessConfig<
    * Creates a typed {@link Engine} instance. Permission checks on this engine
    * are constrained to declared actions, resources, and scopes.
    */
-  createEngine: (config: EngineConfig<TAction, TResource, TRole, TScope>) => Engine<TAction, TResource, TRole, TScope>
+  createEngine: <TMode extends Mode = 'development'>(
+    config: EngineConfig<TAction, TResource, TRole, TScope, TMode>,
+  ) => Engine<TAction, TResource, TRole, TScope, TMode>
 
   /**
    * Pure typing utility that returns the input array as-is but constrains
