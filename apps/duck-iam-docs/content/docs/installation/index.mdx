@@ -5,16 +5,13 @@ description: Install duck-iam, configure a storage adapter, and run your first p
 
 ## Prerequisites
 
-Before installing, make sure you have:
-
-- **Node.js 18** or newer -- check with `node --version`.
-- **TypeScript 5.0+** -- duck-iam relies on const type parameters and satisfies operator.
-- A package manager: **npm**, **bun**, or **pnpm**.
+- Node.js 18+
+- TypeScript 5.0+ -- duck-iam uses const type parameters and the `satisfies` operator.
+- npm, bun, or pnpm.
 
 ## Install duck-iam
 
-duck-iam is a single package. The core engine, memory adapter, type builders, and all
-integration entry points are included.
+The core engine, memory adapter, type builders, and all integration entry points are in a single package.
 
 <Steps>
 
@@ -32,8 +29,6 @@ pnpm add @gentleduck/iam
 ```
 
 <Step>Basic setup</Step>
-
-Create your access control configuration with roles and an engine:
 
 ```typescript title="src/lib/access.ts"
 import { createAccessConfig, MemoryAdapter } from "@gentleduck/iam";
@@ -135,7 +130,7 @@ const permissions = await engine.permissions("user-2", [
 
 ## Optional Peer Dependencies
 
-duck-iam has optional peer dependencies for framework integrations. Install only what you use:
+Install only what you use:
 
 | Integration | Peer dependency | Install |
 | --- | --- | --- |
@@ -143,13 +138,11 @@ duck-iam has optional peer dependencies for framework integrations. Install only
 | Vue client | `vue >= 3.3.0` | `npm install vue` |
 | Prisma adapter | `@prisma/client >= 5.0.0` | `npm install @prisma/client` |
 
-The core engine, memory adapter, Drizzle adapter, HTTP adapter, and all server integrations
-(Express, Hono, NestJS, Next.js) have **zero peer dependencies** -- they use minimal type
-interfaces internally instead of importing framework packages.
+The core engine, memory adapter, Drizzle adapter, HTTP adapter, and all server integrations (Express, Hono, NestJS, Next.js) have zero peer dependencies.
 
 ## Import Paths
 
-duck-iam uses subpath exports to keep your bundle lean. Import only what you need:
+duck-iam uses subpath exports. Import only what you need:
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Core["@gentleduck/iam (core)"]
@@ -206,9 +199,6 @@ import { HttpAdapter } from "@gentleduck/iam/adapters/http";
 
 ## TypeScript Configuration
 
-duck-iam works out of the box with standard TypeScript settings. For the best experience,
-make sure your `tsconfig.json` includes:
-
 ```json title="tsconfig.json"
 {
   "compilerOptions": {
@@ -218,9 +208,7 @@ make sure your `tsconfig.json` includes:
 }
 ```
 
-The `strict` flag enables the const type parameter inference that powers type-safe role and
-policy builders. The `bundler` module resolution is required for subpath exports to resolve
-correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
+`strict` enables const type parameter inference for type-safe role and policy builders. `bundler` module resolution is required for subpath exports; `"moduleResolution": "nodenext"` also works.
 
 ## Next Steps
 
@@ -245,9 +233,8 @@ correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
   <AccordionItem value="runtime-vs-monorepo-requirements">
     <AccordionTrigger>Why do the package runtime requirements differ from the monorepo tooling requirements?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The published package targets application runtimes, while the monorepo also includes docs, examples,
-      and workspace tooling. In practice, duck-iam itself is designed for Node.js 18+ runtimes, while the
-      monorepo may require newer Node or Bun versions to run the entire workspace.
+      The published package targets Node.js 18+ runtimes. The monorepo also includes docs, examples,
+      and workspace tooling that may require newer Node or Bun versions.
     </AccordionContent>
   </AccordionItem>
 
