@@ -1,6 +1,6 @@
 import { LRUCache } from '../../shared/cache'
 import { buildPermissionKey } from '../../shared/keys'
-import { evaluate } from '../evaluate'
+import { evaluate, evaluateFast } from '../evaluate'
 import type { ExplainResult } from '../explain'
 import { explainEvaluation } from '../explain'
 import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
@@ -9,8 +9,10 @@ import type {
   Adapter,
   Decision,
   Effect,
+  Mode,
+  ModePermissionMap,
+  ModeResult,
   PermissionCheck,
-  PermissionMap,
   Policy,
   Resource,
   Role,
@@ -46,18 +48,21 @@ export class Engine<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TMode extends Mode = 'development',
 > {
   private adapter: Adapter<TAction, TResource, TRole, TScope>
   private defaultEffect: Effect
+  private mode: Mode
   private hooks: EngineHooks<TAction, TResource, TScope>
   private policyCache: LRUCache<Policy[]>
   private roleCache: LRUCache<Role[]>
   private rbacPolicyCache: LRUCache<Policy>
   private subjectCache: LRUCache<Subject>
 
-  constructor(config: EngineConfig<TAction, TResource, TRole, TScope>) {
+  constructor(config: EngineConfig<TAction, TResource, TRole, TScope, TMode>) {
     this.adapter = config.adapter
     this.defaultEffect = config.defaultEffect ?? 'deny'
+    this.mode = config.mode ?? ('development' as Mode)
     this.hooks = config.hooks ?? {}
 
     const ttl = (config.cacheTTL ?? 60) * 1000
@@ -130,8 +135,11 @@ export class Engine<
 
   /**
    * Full authorization check with a complete AccessRequest.
+   *
+   * In `'production'` mode, returns a plain `boolean`.
+   * In `'development'` mode, returns a full {@link Decision}.
    */
-  async authorize(request: AccessRequest<TAction, TResource, TScope>): Promise<Decision> {
+  async authorize(request: AccessRequest<TAction, TResource, TScope>): Promise<ModeResult<TMode>> {
     let req = request
 
     try {
@@ -145,6 +153,13 @@ export class Engine<
       }
 
       const allPolicies = await this.loadAllPolicies()
+
+      // Production fast path — plain boolean, no allocations
+      if (this.mode === 'production') {
+        const allowed = evaluateFast(allPolicies, req as AccessRequest, this.defaultEffect)
+        return allowed as ModeResult<TMode>
+      }
+
       const decision = evaluate(allPolicies, req as AccessRequest, this.defaultEffect)
 
       if (this.hooks.afterEvaluate) {
@@ -154,11 +169,14 @@ export class Engine<
         await this.hooks.onDeny(req, decision)
       }
 
-      return decision
+      return decision as ModeResult<TMode>
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
       if (this.hooks.onError) {
         await this.hooks.onError(err, req)
+      }
+      if (this.mode === 'production') {
+        return false as ModeResult<TMode>
       }
       return {
         allowed: false,
@@ -166,12 +184,13 @@ export class Engine<
         reason: 'Evaluation error',
         duration: 0,
         timestamp: Date.now(),
-      }
+      } as ModeResult<TMode>
     }
   }
 
   /**
    * Simple boolean check: can this user do this action on this resource?
+   * Always returns a plain `boolean` regardless of engine mode.
    */
   async can(
     subjectId: string,
@@ -181,12 +200,14 @@ export class Engine<
     scope?: TScope,
   ): Promise<boolean> {
     const subject = await this.resolveSubject(subjectId)
-    const decision = await this.authorize({ subject, action, resource, environment, scope })
-    return decision.allowed
+    const result = await this.authorize({ subject, action, resource, environment, scope })
+    // In production mode result is already a boolean; in dev mode extract .allowed
+    return typeof result === 'boolean' ? result : (result as Decision).allowed
   }
 
   /**
-   * Same as `can` but returns the full Decision.
+   * Same as `can` but returns the full Decision in development mode,
+   * or a plain boolean in production mode.
    */
   async check(
     subjectId: string,
@@ -194,7 +215,7 @@ export class Engine<
     resource: Resource<TResource>,
     environment?: AccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
-  ): Promise<Decision> {
+  ): Promise<ModeResult<TMode>> {
     const subject = await this.resolveSubject(subjectId)
     return this.authorize({ subject, action, resource, environment, scope })
   }
@@ -205,16 +226,22 @@ export class Engine<
    * which rules fired, which conditions passed/failed with actual vs
    * expected values, and a human-readable summary.
    *
+   * Only available in `'development'` mode. Throws in `'production'` mode.
+   *
    * Does NOT trigger afterEvaluate/onDeny/onError hooks (read-only).
    * Does apply beforeEvaluate hook since it affects the evaluation.
    */
   async explain(
+    this: Engine<TAction, TResource, TRole, TScope, 'development'>,
     subjectId: string,
     action: TAction,
     resource: Resource<TResource>,
     environment?: AccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
   ): Promise<ExplainResult> {
+    if (this.mode === 'production') {
+      throw new Error('explain() is not available in production mode')
+    }
     const subject = await this.resolveSubject(subjectId)
     const originalRoles = [...subject.roles] as string[]
 
@@ -252,12 +279,15 @@ export class Engine<
    * Returns a PermissionMap keyed by "action:resource" or "scope:action:resource".
    * Loads DB data once, evaluates many.
    * Each check goes through scoped role enrichment and hooks, consistent with authorize().
+   *
+   * In `'production'` mode, returns `Record<string, boolean>`.
+   * In `'development'` mode, returns the full typed `PermissionMap`.
    */
   async permissions(
     subjectId: string,
     checks: readonly PermissionCheck<TAction, TResource, TScope>[],
     environment?: AccessRequest<TAction, TResource, TScope>['environment'],
-  ): Promise<PermissionMap<TAction, TResource, TScope>> {
+  ): Promise<ModePermissionMap<TMode, TAction, TResource, TScope>> {
     const [subject, allPolicies] = await Promise.all([this.resolveSubject(subjectId), this.loadAllPolicies()])
 
     const map = {} as Record<string, boolean>
@@ -281,6 +311,12 @@ export class Engine<
 
         if (this.hooks.beforeEvaluate) {
           req = await this.hooks.beforeEvaluate(req)
+        }
+
+        // Production fast path
+        if (this.mode === 'production') {
+          map[key] = evaluateFast(allPolicies, req as AccessRequest, this.defaultEffect)
+          continue
         }
 
         const decision = evaluate(allPolicies, req as AccessRequest, this.defaultEffect)
@@ -308,7 +344,7 @@ export class Engine<
       }
     }
 
-    return map as PermissionMap<TAction, TResource, TScope>
+    return map as ModePermissionMap<TMode, TAction, TResource, TScope>
   }
 
   private _admin?: EngineAdmin<TAction, TResource, TRole, TScope>

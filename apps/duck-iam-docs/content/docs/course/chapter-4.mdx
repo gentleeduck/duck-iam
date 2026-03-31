@@ -197,6 +197,8 @@ const perms = await engine.permissions('bob', [
 // explain() is NOT available in production mode
 ```
 
+Production mode is ~2x faster because it skips: `performance.now()` timing, `Date.now()` timestamps, Decision object allocation, reason string generation, and `afterEvaluate`/`onDeny`/`onError` hooks. It also uses rule indexing (`Map` lookup by `action:resource`) instead of iterating all rules.
+
 ### Choosing a Mode
 
 Use **development** mode when you need to:

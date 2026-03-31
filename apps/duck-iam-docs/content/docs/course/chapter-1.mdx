@@ -119,15 +119,15 @@ The engine has two methods for permission checks:
 
 | Method | Returns | Use when |
 | --- | --- | --- |
-| `engine.can()` | `boolean` | You only need yes/no |
-| `engine.check()` | `Decision` object | You need the full decision with reason, timing, etc. |
+| `engine.can()` | `boolean` (always) | You only need yes/no |
+| `engine.check()` | `Decision` in dev, `boolean` in prod | You need the full decision with reason, timing, etc. |
 
 ```typescript
 // Simple boolean -- most common
 const allowed = await engine.can('alice', 'read', { type: 'post', attributes: {} })
 // true
 
-// Full decision object
+// Full decision object (in development mode -- returns boolean in production mode)
 const decision = await engine.check('alice', 'read', { type: 'post', attributes: {} })
 // { allowed: true, effect: 'allow', reason: '...', duration: 0.12, ... }
 ```
