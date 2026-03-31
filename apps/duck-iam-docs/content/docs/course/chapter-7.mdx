@@ -5,7 +5,7 @@ description: Use permission maps in the browser to show and hide UI elements. In
 
 ## Goal
 
-BlogDuck's server is protected. Now you need the UI to respect permissions too -- hide the
+BlogDuck's server is protected. Now the UI needs to respect permissions too — hide the
 delete button if the user cannot delete, show the edit form only for editors. This chapter
 covers the three client integrations: React, Vue, and vanilla JavaScript.
 
@@ -33,7 +33,7 @@ covers the three client integrations: React, Vue, and vanilla JavaScript.
 
 ## The PermissionMap
 
-A `PermissionMap` is a simple key-value object generated on the server:
+A `PermissionMap` is a key-value object generated on the server:
 
 ```typescript
 {
@@ -47,7 +47,7 @@ A `PermissionMap` is a simple key-value object generated on the server:
 
 ### PermissionKey Format
 
-Keys are colon-separated strings built by the `buildPermissionKey()` function:
+Keys are colon-separated strings built by `buildPermissionKey()`:
 
 ```typescript
 type PermissionKey =
@@ -62,8 +62,8 @@ type PermissionMap = Record<PermissionKey, boolean>
 ```
 
 The server generates this map using `engine.permissions()` or `generatePermissionMap()`,
-then sends it to the client as JSON. The client never calls the engine directly --
-it just reads the map. This makes client-side checks O(1) key lookups.
+then sends it to the client as JSON. The client never calls the engine directly —
+it reads the map. Checks are O(1) key lookups.
 
 ## React
 
@@ -86,10 +86,7 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     ```
 
     `createAccessControl` takes the React instance to avoid a hard dependency on React.
-    This keeps duck-iam tree-shakeable -- if you only use the vanilla client, React is
-    never bundled.
-
-    **What it returns:**
+    If you only use the vanilla client, React is never bundled.
 
     | Export | Type | Description |
     | --- | --- | --- |
@@ -124,8 +121,8 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     }
     ```
 
-    The provider makes permissions available to all child components via React context.
-    The `can()` function is memoized internally for performance.
+    Permissions are available to all child components via React context. `can()` is
+    memoized internally.
   </Step>
 
   <Step>
@@ -154,8 +151,6 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     }
     ```
 
-    **useAccess() return value:**
-
     ```typescript
     interface AccessContextValue {
       permissions: PermissionMap    // the raw permission map
@@ -164,7 +159,7 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     }
     ```
 
-    `can()` and `cannot()` are synchronous -- they do a key lookup in the permission map.
+    `can()` and `cannot()` are synchronous key lookups.
   </Step>
 
   <Step>
@@ -193,8 +188,6 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     }
     ```
 
-    **Can component props:**
-
     | Prop | Type | Description |
     | --- | --- | --- |
     | `action` | string | Required action |
@@ -204,13 +197,11 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     | `children` | ReactNode | Rendered when permission is granted |
     | `fallback` | ReactNode? | Rendered when permission is denied |
 
-    **Cannot** has the same props except no `fallback` -- it only renders when denied.
+    `Cannot` has the same props except no `fallback`.
   </Step>
 
   <Step>
     **Fetch permissions dynamically (SPA pattern)**
-
-    For SPAs that do not use server-side rendering:
 
     ```tsx title="src/components/app.tsx"
     import { usePermissions } from '@/lib/access-client'
@@ -232,8 +223,6 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     }
     ```
 
-    **usePermissions() signature:**
-
     ```typescript
     function usePermissions(
       fetchFn: () => Promise<PermissionMap>,
@@ -246,9 +235,8 @@ it just reads the map. This makes client-side checks O(1) key lookups.
     }
     ```
 
-    The hook fetches on mount and whenever `deps` change. While loading, `can()` returns
-    `false` for all checks (safe default). If the fetch fails, `error` is set and `can()`
-    still returns `false`.
+    Fetches on mount and re-fetches when `deps` change. While loading or on error,
+    `can()` returns `false`.
   </Step>
 </Steps>
 
@@ -266,8 +254,7 @@ if (can('delete', 'post', 'post-1')) {
 }
 ```
 
-This works in any environment -- server, client, tests, or Node.js scripts. No React
-context or provider needed.
+Works in any environment — server, client, tests, or Node.js scripts.
 
 ## Vue 3
 
@@ -290,9 +277,8 @@ context or provider needed.
     } = createVueAccess({ ref, computed, inject, provide, defineComponent, h })
     ```
 
-    Like React, Vue utilities are passed as a parameter to avoid a hard dependency.
-
-    **What it returns:**
+    Vue utilities are passed as a parameter to avoid a hard dependency, keeping the
+    package tree-shakeable.
 
     | Export | Type | Description |
     | --- | --- | --- |
@@ -320,8 +306,7 @@ context or provider needed.
     app.mount('#app')
     ```
 
-    The plugin makes `$can` and `$cannot` available on all component instances via
-    `this.$can('delete', 'post')` in the Options API.
+    Exposes `$can` and `$cannot` on all component instances via the Options API.
   </Step>
 
   <Step>
@@ -336,8 +321,8 @@ context or provider needed.
     </script>
     ```
 
-    `provideAccess()` returns reactive access state and provides it to all descendants.
-    The `update(newPerms)` function replaces the permissions reactively.
+    Returns reactive access state and provides it to all descendants. `update(newPerms)`
+    replaces permissions reactively.
   </Step>
 
   <Step>
@@ -359,8 +344,6 @@ context or provider needed.
       </div>
     </template>
     ```
-
-    **useAccess() return value:**
 
     ```typescript
     {
@@ -396,7 +379,6 @@ context or provider needed.
     </script>
     ```
 
-    **Can component:**
     - Default slot: rendered when permission is granted
     - `#fallback` slot: rendered when permission is denied
     - Props: `action`, `resource`, `resourceId?`, `scope?`
@@ -404,8 +386,6 @@ context or provider needed.
 
   <Step>
     **Low-level reactive state**
-
-    For advanced scenarios, use `createAccessState()` directly:
 
     ```typescript
     import { createAccessState } from '@/lib/access-client'
@@ -417,13 +397,12 @@ context or provider needed.
     // state.update(newPerms) replaces permissions
     ```
 
-    This gives you reactive access state without the provide/inject system.
+    Use `createAccessState()` directly when you need reactive access state without
+    the provide/inject system.
   </Step>
 </Steps>
 
 ## Vanilla JavaScript
-
-For any framework or no framework at all:
 
 <Steps>
   <Step>
@@ -442,11 +421,8 @@ For any framework or no framework at all:
     const access = new AccessClient()
     ```
 
-    **Constructor:** `new AccessClient(permissions?: PermissionMap)`
-
-    **Static factory:** `AccessClient.fromServer(url: string, init?: RequestInit): Promise<AccessClient>`
-    - Fetches the URL, parses the JSON response as a `PermissionMap`
-    - `init` is passed to `fetch()` for headers, credentials, etc.
+    `AccessClient.fromServer(url, init?)` fetches the URL and parses the JSON response
+    as a `PermissionMap`. `init` is passed to `fetch()` for headers, credentials, etc.
   </Step>
 
   <Step>
@@ -482,9 +458,8 @@ For any framework or no framework at all:
     }
     ```
 
-    `allowedActions()` scans the permission map for all keys containing the resource type
-    and returns the unique actions that are `true`. `hasAnyOn()` returns `true` if any
-    permission involving the resource is granted.
+    `allowedActions()` scans the map and returns unique actions that are `true`.
+    `hasAnyOn()` returns `true` if any permission on the resource is granted.
   </Step>
 
   <Step>
@@ -507,11 +482,8 @@ For any framework or no framework at all:
     unsubscribe()
     ```
 
-    The `subscribe()` method lets you react to permission changes. Both `update()` and
-    `merge()` notify all subscribers. This is useful for:
-    - Real-time updates via WebSockets
-    - Re-rendering after a role change
-    - Syncing permissions across tabs
+    Both `update()` and `merge()` notify all subscribers. Useful for real-time updates
+    via WebSockets, re-rendering after role changes, or syncing permissions across tabs.
   </Step>
 </Steps>
 
@@ -532,7 +504,7 @@ For any framework or no framework at all:
 
 ## Scoped Permissions in the Client
 
-When your app is multi-tenant, include the scope in permission checks:
+For multi-tenant apps, include the scope in permission checks:
 
 ```typescript
 // React
@@ -547,9 +519,8 @@ can('manage', 'user', undefined, 'acme')
 access.can('manage', 'user', undefined, 'acme')
 ```
 
-The client looks up the key `'acme:manage:user'` in the permission map.
-
-The server must include scoped permissions in the generated map:
+This looks up `'acme:manage:user'` in the permission map. The server must include
+scoped permissions in the generated map:
 
 ```typescript
 const permissions = await getPermissions(engine, userId, [
@@ -584,12 +555,11 @@ const access = new AccessClient<
 
 ## Security Note
 
-The permission map is a **UX optimization**, not a security boundary. It controls what
+The permission map is a UX optimization, not a security boundary. It controls what
 the UI shows, but the server still enforces access on every request (Chapter 6). Even if
-a user tampers with the client-side map (via browser devtools or intercepting the response),
-the server will deny unauthorized actions.
+a user tampers with the client-side map, the server will deny unauthorized actions.
 
-**Defense in depth: server enforces, client adapts.**
+Server enforces. Client adapts.
 
 ---
 
@@ -599,11 +569,9 @@ the server will deny unauthorized actions.
   <AccordionItem value="c7-security">
     <AccordionTrigger>Is it safe to send permissions to the client?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes, but treat it as a UX optimization, not a security boundary. The permission map
-      controls what the UI shows, but the server still enforces access on every request.
-      Even if a user tampers with the client-side map, the server will deny unauthorized
-      actions. Only include permissions the user needs to know about -- you do not need to
-      send every possible permission.
+      Yes, but treat it as a UX optimization, not a security boundary. The server still
+      enforces access on every request — tampering with the client-side map won't bypass
+      it. Only include permissions the user needs to know about.
     </AccordionContent>
   </AccordionItem>
 
@@ -612,58 +580,53 @@ the server will deny unauthorized actions.
     <AccordionContent className="text-muted-foreground">
       Re-fetch the permission map from the server. In React, pass a new `permissions` prop
       to `AccessProvider` (or re-render the server component). With the vanilla client, call
-      `access.update(newMap)` and subscribers will be notified. In Vue, call the `update()`
-      function from `useAccess()` or `provideAccess()`.
+      `access.update(newMap)` — subscribers are notified automatically. In Vue, call
+      `update()` from `useAccess()` or `provideAccess()`.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c7-ssr">
     <AccordionTrigger>Can I use this with server-side rendering?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. Generate the permission map on the server (in a Server Component, `getServerSideProps`,
-      or your SSR data loader) and pass it to the client as props. The `AccessProvider` hydrates
-      with the server-generated map, so there is no flash of unauthorized content and no
-      extra client-side fetch needed.
+      Yes. Generate the permission map on the server (Server Component, `getServerSideProps`,
+      or your SSR data loader) and pass it as props. `AccessProvider` hydrates with the
+      server-generated map — no flash of unauthorized content, no extra client-side fetch.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c7-vue-react-diff">
     <AccordionTrigger>Why do the factories take the framework as a parameter?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      To avoid a hard dependency on React or Vue. duck-iam is a single package that supports
-      multiple frameworks. By accepting the framework instance as a parameter, the client
-      code is tree-shakeable -- if you only use the vanilla client, React and Vue are never
-      bundled. This also means duck-iam works with any version of React or Vue.
+      To avoid a hard dependency on React or Vue. Passing the framework instance keeps the
+      package tree-shakeable and compatible with any version of React or Vue.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c7-performance">
     <AccordionTrigger>Is the permission check fast enough for rendering?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. Client-side `can()` is a synchronous key lookup in a plain object -- O(1). There
-      are no network calls, no async operations, no engine evaluations. You can call it
-      hundreds of times per render without performance concern. The `can()` function in
-      React's `useAccess()` is also memoized.
+      Yes. `can()` is a synchronous O(1) key lookup — no network calls, no async operations,
+      no engine evaluations. Call it hundreds of times per render without concern. The `can()`
+      from `useAccess()` is also memoized.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c7-usePerms-vs-provider">
     <AccordionTrigger>When should I use usePermissions vs AccessProvider?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Use `AccessProvider` with server-rendered permissions (SSR/RSC) for the best user
-      experience -- no loading state, no flash. Use `usePermissions` in pure SPAs where
-      permissions must be fetched client-side. You can combine both: use the provider for
-      initial permissions and `usePermissions` for dynamic refreshes.
+      Use `AccessProvider` with server-rendered permissions (SSR/RSC) — no loading state,
+      no flash. Use `usePermissions` in pure SPAs where permissions must be fetched
+      client-side. You can combine both: provider for initial permissions, `usePermissions`
+      for dynamic refreshes.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c7-vanilla-reactive">
     <AccordionTrigger>How do I make the vanilla client reactive?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Use the `subscribe()` method. Every time `update()` or `merge()` is called, all
-      subscribers are notified with the new permission map. Connect this to your UI
-      framework's re-render mechanism: `access.subscribe(() => forceUpdate())` or
-      use it with a state management library.
+      Use `subscribe()`. Every call to `update()` or `merge()` notifies all subscribers
+      with the new permission map. Connect it to your UI framework's re-render mechanism
+      or a state management library.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
