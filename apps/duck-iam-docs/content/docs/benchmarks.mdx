@@ -127,7 +127,7 @@ CASL and duck-iam solve authorization differently at the engine level:
 
 ### Where the ~2x gap comes from (profiled)
 
-We profiled every operation in the production fast path:
+Profiled operations in the production fast path:
 
 | Operation | Cost | What it does |
 |---|---|---|
@@ -145,7 +145,7 @@ The gap is not one big bottleneck — it's the sum of many small costs that a po
 
 ### What we optimized (and what we can't)
 
-We already applied every optimization that preserves the dynamic policy model:
+Every optimization that preserves the dynamic policy model is already applied:
 
 1. **Rule indexing** — pre-built `Map<action:resource, Rule[]>` per policy, cached via WeakMap. Eliminates the linear scan over all rules.
 2. **Unconditional rule flag** — rules with empty conditions skip `evalConditionGroup()` entirely.
@@ -167,7 +167,7 @@ Authorization is never your bottleneck. Here's a typical API request:
 | **duck-iam check (prod)** | **0.06 us** |
 | **CASL check** | **0.012 us** |
 
-The difference between 0.06 us and 0.012 us is 0.048 us — 48 **nanoseconds**. Even if you run 100 permission checks per request, the total difference is 4.8 us, which is 0.0001% of a typical 50 ms request. The features you get for that 48 ns (scoped roles, explain traces, dynamic policies, lifecycle hooks) are worth far more than the time cost.
+The gap is 48 nanoseconds. At 100 checks per request that's 4.8 us — 0.0001% of a typical 50 ms request.
 
 ---
 
@@ -208,7 +208,7 @@ const allowed = evaluateFast(policies, request) // boolean
 import { Engine } from '@gentleduck/iam'
 ```
 
-If you only need the pure evaluation function and manage policies yourself, `evaluateFast` + `evaluatePolicyFast` give you the smallest possible bundle with the fastest execution. The Engine class, explain system, builder, and config validator are only included if you import them.
+`evaluateFast` + `evaluatePolicyFast` give the smallest bundle when you manage policies yourself. The Engine, explain system, builder, and config validator are only included if you import them.
 
 `engine.explain()` is only available in development mode.
 
@@ -316,7 +316,7 @@ Times vary by machine. Run `bun run benchmark` for your hardware.
 
 - **Raw speed** — 2x faster than duck-iam in production mode thanks to pre-compiled ability index
 - **Bundle size** — ~6 KB, 3.5x smaller
-- **Maturity** — battle-tested since 2017
+- **Maturity** — production since 2017
 - **Ecosystem** — ~900K downloads/week, extensive docs and community
 - **Isomorphic** — proven frontend + backend sharing pattern
 
