@@ -20,14 +20,6 @@ description: End-to-end guide covering role definitions, ABAC policies, server m
     S3 --> S6
     S3 --> S7 --> S8`} />
 
-1. Define typed roles with inheritance.
-2. Create the engine and check permissions.
-3. Add an ABAC policy with attribute conditions.
-4. Protect server routes with middleware.
-5. Use the React client provider for UI-level access control.
-6. Set up multi-tenant scoped roles.
-7. Implement owner-only resource conditions.
-
 ## Step 1: Define Your Access Config
 
 Declare the actions, resources, and scopes your application uses. This creates a typed factory that constrains all subsequent builders:
@@ -128,7 +120,7 @@ await engine.can("user-carol", "create", { type: "post", attributes: {} });
 
 ## Step 4: Add an ABAC Policy
 
-RBAC handles the common cases. For more granular control, add ABAC policies. Here is a policy that denies access outside of business hours:
+A policy that denies access outside of business hours:
 
 ```typescript title="src/lib/policies.ts"
 import { access } from "./access";
