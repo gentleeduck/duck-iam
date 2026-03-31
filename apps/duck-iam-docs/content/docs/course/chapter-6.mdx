@@ -134,6 +134,29 @@ if (await can('manage', 'user', undefined, 'acme')) {
 }
 ```
 
+## Engine Mode on the Server
+
+All server integrations call `engine.can()` under the hood, which always returns a **boolean** regardless
+of the engine mode. This means your middleware, guards, and route handlers work identically in both
+`'development'` and `'production'` mode -- no code changes required when switching.
+
+For server deployments, use `mode: 'production'` for maximum throughput. Production mode skips
+Decision object allocation, timing, and hooks, making it roughly 2x faster:
+
+```typescript title="src/access.ts"
+import { Engine } from '@gentleduck/iam'
+import { adapter } from './adapter'
+
+export const engine = new Engine({
+  adapter,
+  mode: 'production', // recommended for servers -- ~2x faster, no Decision overhead
+})
+```
+
+If you need detailed decision traces for debugging a specific server, temporarily switch back to
+`'development'` mode. Since `engine.can()` returns boolean either way, the rest of your code stays
+the same.
+
 ## Express
 
 <Steps>
@@ -142,7 +165,7 @@ if (await can('manage', 'user', undefined, 'acme')) {
 
     ```typescript title="src/server.ts"
     import express from 'express'
-    import { engine } from './access'
+    import { engine } from './access'  // mode: 'production' recommended
     import { accessMiddleware } from '@gentleduck/iam/server/express'
 
     const app = express()
@@ -242,7 +265,7 @@ if (await can('manage', 'user', undefined, 'acme')) {
 
     ```typescript title="src/server.ts"
     import { Hono } from 'hono'
-    import { engine } from './access'
+    import { engine } from './access'  // mode: 'production' recommended
     import { accessMiddleware } from '@gentleduck/iam/server/hono'
 
     const app = new Hono()
@@ -301,7 +324,7 @@ if (await can('manage', 'user', undefined, 'acme')) {
     ```typescript title="src/access/access.module.ts"
     import { Module } from '@nestjs/common'
     import { createEngineProvider, ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
-    import { engine } from './access'
+    import { engine } from './access'  // mode: 'production' recommended
 
     @Module({
       providers: [
@@ -434,7 +457,7 @@ if (await can('manage', 'user', undefined, 'acme')) {
 
     ```typescript title="app/api/posts/[id]/route.ts"
     import { withAccess } from '@gentleduck/iam/server/next'
-    import { engine } from '@/lib/access'
+    import { engine } from '@/lib/access'  // mode: 'production' recommended
 
     export const DELETE = withAccess(engine, 'delete', 'post',
       async (req, { params }) => {
@@ -666,6 +689,16 @@ The client calls this endpoint and passes the result to `AccessProvider` (Chapte
       Add your own authentication and authorization middleware before mounting it. For example,
       use a `guard(engine, 'manage', 'dashboard')` before the admin router to restrict it to
       admin users only.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c6-mode-server">
+    <AccordionTrigger>Do I need to change my middleware when switching engine modes?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. `engine.can()` always returns a boolean regardless of mode, so all middleware,
+      guards, and route handlers work identically in both `'development'` and `'production'`
+      mode. Use `mode: 'production'` on servers for best throughput -- it skips Decision
+      allocation, timing, and hooks, giving roughly 2x faster permission checks.
     </AccordionContent>
   </AccordionItem>
 
