@@ -5,8 +5,8 @@ description: Build ABAC policies and rules with conditions, operators, the When 
 
 ## When to Use Policies
 
-Roles handle the common case: "editors can update posts." But some access control
-requirements go beyond what roles can express:
+Roles handle the common case: "editors can update posts." Some requirements go beyond
+what roles can express:
 
 <MermaidDiagram chart={`flowchart TD
     subgraph RBAC_Only["RBAC Can Handle"]
@@ -37,8 +37,8 @@ requirements go beyond what roles can express:
   changing role assignments.
 - **Maintenance mode** -- deny all writes globally when a feature flag is set.
 
-For these cases, define ABAC policies. They go through the same evaluation pipeline as
-roles, and the engine AND-combines them: a deny from any policy is final.
+ABAC policies go through the same evaluation pipeline as roles. The engine
+AND-combines them: a deny from any policy is final.
 
 ## Building Policies
 
@@ -109,8 +109,6 @@ const myPolicy = policy('content-policy')
 
 ### Standalone rules with defineRule
 
-You can also define rules separately and add them to policies:
-
 ```typescript
 import { defineRule } from '@gentleduck/iam'
 
@@ -175,9 +173,8 @@ applies to rule resources. Policy targets are narrower and use direct resource m
 
 ## Conditions: The When Builder
 
-The `When` builder is how you define conditions for rules (and for `grantWhen()` on
-roles). By default, all conditions added to a `When` builder are combined with AND --
-every condition must be true.
+The `When` builder defines conditions for rules (and for `grantWhen()` on roles). All
+conditions added to a `When` builder are combined with AND by default.
 
 ### Raw condition check
 
@@ -191,8 +188,6 @@ The most general method is `check(field, operator, value)`:
 ```
 
 ### Shorthand operator methods
-
-The builder provides named methods for the most common operators:
 
 ```typescript
 .when(w => w
@@ -210,8 +205,6 @@ The builder provides named methods for the most common operators:
 ```
 
 ### Semantic shortcuts
-
-These methods provide domain-specific shortcuts that resolve to the correct field paths:
 
 ```typescript
 .when(w => w
@@ -246,8 +239,6 @@ These methods provide domain-specific shortcuts that resolve to the correct fiel
 
 ## All Condition Operators
 
-Here is every operator with its behavior and an example:
-
 | Operator | Description | Example |
 | --- | --- | --- |
 | `eq` | Strict equality (`===`) | `w.eq('subject.id', 'user-1')` |
@@ -270,8 +261,6 @@ Here is every operator with its behavior and an example:
 
 ### Operator edge cases
 
-A few behaviors to be aware of:
-
 - **Numeric operators** (`gt`, `gte`, `lt`, `lte`): both the field value and the condition
   value must be numbers. If either is not a number, the condition returns `false`.
 - **String operators** (`starts_with`, `ends_with`, `matches`): both must be strings.
@@ -288,8 +277,8 @@ A few behaviors to be aware of:
 
 ## Field Resolution
 
-Conditions reference fields using dot-notation paths. The engine resolves these paths
-against the `AccessRequest` at evaluation time.
+Conditions reference fields using dot-notation paths resolved against the `AccessRequest`
+at evaluation time.
 
 ### Supported paths
 
@@ -313,9 +302,8 @@ pollution.
 
 ## $-Variable References
 
-Sometimes a condition needs to compare two fields from the request -- for example,
-checking if the resource owner matches the current subject. Dollar-prefixed values
-are resolved at evaluation time instead of being treated as literals.
+Dollar-prefixed values are resolved at evaluation time instead of being treated as
+literals. Use this to compare two fields from the same request.
 
 ```typescript
 // This checks: resource.attributes.ownerId === request.subject.id
@@ -372,8 +360,8 @@ You can use `$`-references anywhere a value is accepted -- in `.check()`,
 
 ## Nesting Conditions (and/or/not)
 
-By default, the `When` builder combines all conditions with AND. For more complex
-logic, use `and()`, `or()`, and `not()` to create nested groups.
+By default, the `When` builder combines all conditions with AND. Use `and()`, `or()`,
+and `not()` to create nested groups.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph AND_Group["all (AND) -- every child must pass"]
@@ -439,8 +427,6 @@ logic, use `and()`, `or()`, and `not()` to create nested groups.
 
 ### Composing nested groups
 
-You can mix and nest these arbitrarily:
-
 ```typescript
 const complexRule = defineRule('complex-access')
   .allow()
@@ -463,7 +449,7 @@ const complexRule = defineRule('complex-access')
 // Logic: NOT banned AND (admin OR (owner AND post not locked))
 ```
 
-Here is how the engine evaluates this condition tree:
+Evaluation tree:
 
 <MermaidDiagram chart={`flowchart TD
     ROOT["all (AND)"] --> NOT["none (NOT)"]
@@ -508,7 +494,7 @@ If a condition group has an empty array, the result follows standard logic conve
 
 ### whenAny for top-level OR
 
-If you want top-level OR instead of AND, use `whenAny()`:
+Use `whenAny()` when the top-level logic is OR instead of AND:
 
 ```typescript
 const rule = defineRule('flexible-access')
@@ -603,21 +589,9 @@ const writePolicy = policy('write-restrictions')
 // Read operations and other resource types are not affected.
 ```
 
-### Why targets matter
-
-When a policy is skipped due to target mismatch, the engine uses the `defaultEffect`
-for that policy's contribution to the overall decision. Since the default is `deny`,
-you might wonder if skipping a policy causes a deny. The answer depends on the
-cross-policy combination:
-
-- If a skipped policy returns `defaultEffect: "deny"`, that **will** cause an overall
-  deny. This is the secure default.
-- To make a policy truly optional (skip without penalty), use targets to ensure the
-  policy only participates when relevant, and ensure at least one other policy allows.
-
-In practice, targets are most useful for policies that add restrictions (deny rules).
-A policy with deny rules and targets effectively says: "for these specific
-actions/resources/roles, apply these additional restrictions."
+When a policy is skipped due to target mismatch, the engine uses `defaultEffect` for
+that policy's contribution. To make a policy conditional without a penalty, use targets
+to limit when the policy participates, and ensure at least one other policy allows.
 
 ## Combining Algorithms: Detailed Reference
 
@@ -655,13 +629,12 @@ Evaluation logic:
 3. Else if any has `effect: "allow"`, the policy result is **allow**.
 4. Else fall back to `defaultEffect`.
 
-Use this when security is the priority. A single deny rule can block access regardless
+Use this for restriction policies where a single deny rule must block access regardless
 of how many allow rules match.
 
 ### allow-overrides
 
-The inverse -- any allow wins over any deny. This is the algorithm used by the
-auto-generated RBAC policy.
+The inverse -- any allow wins over any deny. Used by the auto-generated RBAC policy.
 
 ```typescript
 const p = policy('permissive')
@@ -682,8 +655,7 @@ Evaluation logic:
 3. Else if any has `effect: "deny"`, the policy result is **deny**.
 4. Else fall back to `defaultEffect`.
 
-Use this when you want a deny-by-default policy where specific allow rules grant
-access. This is natural for RBAC -- if any role grants the permission, you are in.
+Use this for deny-by-default policies where specific allow rules grant access.
 
 ### first-match
 
@@ -714,8 +686,7 @@ Evaluation logic:
 3. The first matching rule's effect is the policy result.
 4. If none match, fall back to `defaultEffect`.
 
-Use this for firewall-style ordered rule lists where you want explicit control over
-which rules take precedence based on their position.
+Use this for firewall-style ordered rule lists.
 
 ### highest-priority
 
@@ -754,12 +725,10 @@ Evaluation logic:
 4. If tied, the first encountered among tied rules wins.
 5. If none match, fall back to `defaultEffect`.
 
-Use this when rules have clear importance tiers and you do not want to worry about
-ordering within the policy definition.
+Use this when rules have clear importance tiers and rule ordering in the definition
+should not matter.
 
 ## Complete Example: Layered Access Control
-
-Here is a real-world example combining RBAC roles with ABAC policies:
 
 ```typescript
 import { createAccessConfig } from '@gentleduck/iam'
@@ -867,10 +836,10 @@ The evaluation flow for this request:
 3. **content-safety** (`deny-overrides`): user is not banned (`status` is not `'banned'`), and the `owner-delete-only` rule targets `delete` but the request is `update` -- no deny rules match, no allow rules to fire -> falls through to `defaultEffect`.
 4. **Cross-policy AND**: RBAC allows, business-hours allows, content-safety uses default -> all must allow -> **ALLOWED**.
 
-**Important:** when a policy has only deny rules and none match, the policy falls through
-to `defaultEffect` (typically `"deny"`). To avoid an accidental deny, either add an explicit
-allow rule (as in the business-hours policy above) or use `first-match` / `allow-overrides`
-with a catch-all allow as the last rule.
+When a policy has only deny rules and none match, it falls through to `defaultEffect`
+(typically `"deny"`). To avoid an accidental deny, add an explicit allow rule (as in
+the business-hours policy above) or use `first-match` / `allow-overrides` with a
+catch-all allow as the last rule.
 
 ---
 
