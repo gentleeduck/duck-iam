@@ -5,8 +5,8 @@ description: Add authorization middleware to your backend. Protect Express, Hono
 
 ## Goal
 
-BlogDuck has a working authorization engine. Now you need to protect actual HTTP endpoints.
-This chapter shows how to wire duck-iam into four popular frameworks -- pick the one you use.
+BlogDuck has a working authorization engine. Now protect actual HTTP endpoints.
+Pick the framework you use.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Request["Incoming Request"]
@@ -37,10 +37,10 @@ This chapter shows how to wire duck-iam into four popular frameworks -- pick the
 
 All server integrations share the same pattern:
 
-1. **Extract** the user ID from the request (JWT, session, header)
-2. **Determine** the action (from HTTP method) and resource (from URL path)
-3. **Call** `engine.can()` with the extracted context
-4. **Allow** or **deny** the request
+1. Extract the user ID from the request (JWT, session, header)
+2. Determine the action (from HTTP method) and resource (from URL path)
+3. Call `engine.can()` with the extracted context
+4. Allow or deny the request
 
 ### HTTP Method to Action Mapping
 
@@ -70,7 +70,7 @@ The default resource extraction parses the URL path:
 ```
 
 The first path segment after a base path is the resource type, the second is the resource ID.
-You can customize this with the `getResource` callback.
+Customize this with the `getResource` callback.
 
 ### Environment Extraction
 
@@ -89,7 +89,7 @@ const env = extractEnvironment(req)
 
 ## Generic Helpers
 
-These framework-agnostic utilities work with any server:
+Framework-agnostic utilities that work with any server.
 
 ### generatePermissionMap()
 
@@ -119,7 +119,6 @@ import { createSubjectCan } from '@gentleduck/iam/server/generic'
 
 const can = createSubjectCan(engine, userId)
 
-// Now use it without repeating the userId
 if (await can('delete', 'post', 'post-1')) {
   // delete the post
 }
@@ -136,12 +135,12 @@ if (await can('manage', 'user', undefined, 'acme')) {
 
 ## Engine Mode on the Server
 
-All server integrations call `engine.can()` under the hood, which always returns a **boolean** regardless
-of the engine mode. This means your middleware, guards, and route handlers work identically in both
-`'development'` and `'production'` mode -- no code changes required when switching.
+All server integrations call `engine.can()` under the hood, which always returns a boolean
+regardless of engine mode. Middleware, guards, and route handlers work identically in both
+`'development'` and `'production'` mode.
 
-For server deployments, use `mode: 'production'` for maximum throughput. Production mode skips
-Decision object allocation, timing, and hooks, making it roughly 2x faster:
+Use `mode: 'production'` for maximum throughput. Production mode skips Decision object
+allocation, timing, and hooks — roughly 2x faster:
 
 ```typescript title="src/access.ts"
 import { Engine } from '@gentleduck/iam'
@@ -153,9 +152,8 @@ export const engine = new Engine({
 })
 ```
 
-If you need detailed decision traces for debugging a specific server, temporarily switch back to
-`'development'` mode. Since `engine.can()` returns boolean either way, the rest of your code stays
-the same.
+Temporarily switch back to `'development'` mode for decision traces. Since `engine.can()`
+returns boolean either way, the rest of your code stays the same.
 
 ## Express
 
@@ -177,8 +175,7 @@ the same.
     }))
     ```
 
-    The middleware checks every request against the engine. If the user ID is missing,
-    it returns 401. If the permission is denied, it returns 403.
+    Missing user ID returns 401. Denied permission returns 403.
 
     **Full options:**
 
@@ -223,8 +220,7 @@ the same.
     )
     ```
 
-    `guard()` is more explicit -- you specify the action and resource.
-    The resource ID is auto-extracted from `req.params.id`.
+    `guard()` takes an explicit action and resource. The resource ID is auto-extracted from `req.params.id`.
   </Step>
 
   <Step>
@@ -234,7 +230,6 @@ the same.
     import { Router } from 'express'
     import { adminRouter } from '@gentleduck/iam/server/express'
 
-    // Mount admin endpoints
     app.use('/api/access-admin', adminRouter(engine)(() => Router()))
     ```
 
@@ -249,11 +244,10 @@ the same.
     | POST | `/subjects/:id/roles` | Assign role to subject | `{ roleId, scope? }` |
     | DELETE | `/subjects/:id/roles/:roleId` | Revoke role from subject | |
 
-    **Protect the admin router** with your own auth middleware. Never expose it
-    to unauthenticated users.
+    Protect the admin router with your own auth middleware — never expose it to unauthenticated users.
 
-    If you need to revoke one scoped assignment without touching the same role in other scopes,
-    add your own route that calls `engine.admin.revokeRole(subjectId, roleId, scope)` directly.
+    To revoke one scoped assignment without affecting the same role in other scopes,
+    call `engine.admin.revokeRole(subjectId, roleId, scope)` directly.
   </Step>
 </Steps>
 
@@ -279,8 +273,7 @@ the same.
     The default `getUserId` checks `c.get('userId')` first (set by your auth middleware),
     then falls back to the `x-user-id` header.
 
-    For **Cloudflare Workers**, the IP is extracted from the `cf-connecting-ip` header
-    (then `x-forwarded-for` as fallback).
+    For Cloudflare Workers, the IP is extracted from `cf-connecting-ip` (then `x-forwarded-for` as fallback).
 
     **Full options:**
 
@@ -412,12 +405,10 @@ the same.
     }
     ```
 
-    When `@Authorize()` uses `infer: true` (the default):
-    - **Action** is inferred from the HTTP method via `METHOD_ACTION_MAP`
-    - **Resource** is inferred from the route path (last non-parameter segment)
+    When `@Authorize()` uses `infer: true` (the default), action is inferred from the HTTP method
+    via `METHOD_ACTION_MAP` and resource is inferred from the route path (last non-parameter segment).
 
-    If no `@Authorize` decorator is present on a handler, the guard allows the request
-    through (no authorization check is performed).
+    If no `@Authorize` decorator is present, the guard allows the request through.
 
     **AuthorizeMeta interface:**
 
@@ -482,7 +473,7 @@ the same.
     }
     ```
 
-    Note: `getUserId` can be async -- useful for reading from cookies or JWT.
+    `getUserId` can be async — useful for reading from cookies or JWT.
   </Step>
 
   <Step>
@@ -548,11 +539,11 @@ the same.
     ```
 
     **Rule matching:**
-    - String patterns use `path.startsWith(pattern)` -- `/api/admin` matches `/api/admin/users`
-    - Regex patterns use `pattern.test(path)` -- for precise matching
-    - First matching rule is used (order matters)
-    - If no rule matches, the request passes through (no authorization check)
-    - If no action is specified in the rule, it is inferred from the HTTP method
+    - String patterns use `path.startsWith(pattern)` — `/api/admin` matches `/api/admin/users`
+    - Regex patterns use `pattern.test(path)` — for precise matching
+    - First matching rule wins (order matters)
+    - No matching rule passes the request through
+    - Missing `action` is inferred from the HTTP method
 
     **Rule interface:**
 
@@ -606,14 +597,14 @@ withAccess(engine, 'delete', 'post', handler, {
 })
 ```
 
-**Default error responses:**
-- `401 Unauthorized` -- no user ID found
-- `403 Forbidden` -- permission denied
-- `500 Internal Server Error` -- unexpected error
+Default error responses:
+- `401 Unauthorized` — no user ID found
+- `403 Forbidden` — permission denied
+- `500 Internal Server Error` — unexpected error
 
 ## Permissions Endpoint Pattern
 
-A common pattern is to create a dedicated endpoint that returns permissions for the client:
+A common pattern is a dedicated endpoint that returns permissions for the client:
 
 ```typescript title="Express example"
 app.get('/api/permissions', async (req, res) => {
@@ -644,31 +635,31 @@ The client calls this endpoint and passes the result to `AccessProvider` (Chapte
   <AccordionItem value="c6-which-framework">
     <AccordionTrigger>Which framework integration should I use?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Use the integration that matches your backend framework. Express and Hono provide
-      middleware functions. NestJS provides decorators and guards. Next.js provides route
-      handler wrappers and Server Component helpers. If your framework is not listed, use
-      the generic helpers (`generatePermissionMap`, `createSubjectCan`, `extractEnvironment`)
-      and call `engine.can()` directly in your middleware.
+      Use the integration that matches your backend. Express and Hono provide middleware
+      functions. NestJS provides decorators and guards. Next.js provides route handler
+      wrappers and Server Component helpers. If your framework isn't listed, use the generic
+      helpers (`generatePermissionMap`, `createSubjectCan`, `extractEnvironment`) and call
+      `engine.can()` directly in your middleware.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c6-middleware-vs-guard">
     <AccordionTrigger>Should I use global middleware or per-route guards?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Per-route guards are more explicit and easier to reason about -- you see exactly what
-      action and resource each route requires. Global middleware is convenient for APIs where
-      the URL structure maps cleanly to resources. Most apps use a combination: global
-      middleware for the common case and per-route guards where you need explicit control.
+      Per-route guards are more explicit — you see exactly what action and resource each
+      route requires. Global middleware is convenient when the URL structure maps cleanly
+      to resources. Most apps use both: global middleware for the common case and per-route
+      guards where you need explicit control.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c6-extract-userid">
     <AccordionTrigger>How do I extract the user ID from a JWT?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      duck-iam does not handle authentication -- it only handles authorization. Use your
-      existing auth middleware (passport, next-auth, clerk, etc.) to verify the JWT and
-      attach the user to the request. Then pass `getUserId: (req) => req.user.id` to the
-      duck-iam middleware. Separation of auth and authz keeps both systems simpler.
+      duck-iam handles authorization only, not authentication. Use your existing auth
+      middleware (passport, next-auth, clerk, etc.) to verify the JWT and attach the user
+      to the request. Then pass `getUserId: (req) => req.user.id` to the duck-iam
+      middleware. Keeping auth and authz separate keeps both systems simpler.
     </AccordionContent>
   </AccordionItem>
 
@@ -686,9 +677,8 @@ The client calls this endpoint and passes the result to `AccessProvider` (Chapte
     <AccordionTrigger>Should I protect the admin router?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Yes. The admin router exposes mutation endpoints for policies, roles, and assignments.
-      Add your own authentication and authorization middleware before mounting it. For example,
-      use a `guard(engine, 'manage', 'dashboard')` before the admin router to restrict it to
-      admin users only.
+      Add authentication and authorization middleware before mounting it — for example,
+      `guard(engine, 'manage', 'dashboard')` to restrict it to admin users only.
     </AccordionContent>
   </AccordionItem>
 
@@ -697,7 +687,7 @@ The client calls this endpoint and passes the result to `AccessProvider` (Chapte
     <AccordionContent className="text-muted-foreground">
       No. `engine.can()` always returns a boolean regardless of mode, so all middleware,
       guards, and route handlers work identically in both `'development'` and `'production'`
-      mode. Use `mode: 'production'` on servers for best throughput -- it skips Decision
+      mode. Use `mode: 'production'` on servers for best throughput — it skips Decision
       allocation, timing, and hooks, giving roughly 2x faster permission checks.
     </AccordionContent>
   </AccordionItem>
@@ -705,10 +695,10 @@ The client calls this endpoint and passes the result to `AccessProvider` (Chapte
   <AccordionItem value="c6-no-hard-dep">
     <AccordionTrigger>Does duck-iam depend on Express/Hono/NestJS?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. Each server integration uses lightweight type interfaces instead of importing the
-      framework. This means duck-iam does not add the framework to your bundle or require
-      specific versions. The integration code uses generic request/response shapes that are
-      compatible with the framework's types.
+      No. Each integration uses lightweight type interfaces instead of importing the
+      framework, so duck-iam doesn't add the framework to your bundle or require specific
+      versions. The integration code uses generic request/response shapes compatible with
+      the framework's types.
     </AccordionContent>
   </AccordionItem>
 
@@ -717,7 +707,7 @@ The client calls this endpoint and passes the result to `AccessProvider` (Chapte
     <AccordionContent className="text-muted-foreground">
       When `@Authorize()` uses `infer: true` (the default), the guard reads the HTTP method
       to determine the action (via `METHOD_ACTION_MAP`) and parses the controller route path
-      for the resource type. It takes the last non-parameter segment (ignoring `:id` style
+      for the resource type — taking the last non-parameter segment (ignoring `:id` style
       params). For `@Controller('posts')` with `@Delete(':id')`, the inferred action is
       `delete` and resource is `posts`.
     </AccordionContent>
