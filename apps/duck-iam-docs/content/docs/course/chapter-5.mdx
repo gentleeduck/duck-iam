@@ -49,12 +49,19 @@ different permissions in different tenants.
     await adapter.assignRole('bob', 'editor', 'acme')
     await adapter.assignRole('bob', 'editor', 'globex')
 
-    export const engine = new Engine({ adapter })
+    export const engine = new Engine({
+      adapter,
+      // mode: 'production',  // optional — defaults to 'development'
+    })
     ```
 
     The `assignments` init option sets base (unscoped) roles. For scoped roles, use
     `adapter.assignRole(subjectId, roleId, scope)` after construction. Base roles
     apply everywhere. Scoped roles are added on top when a scope is provided.
+
+    > The `mode` option controls return types and diagnostics, not authorization
+    > logic. Scoped roles, scope enrichment, and all permission checks work
+    > identically in both `'development'` and `'production'` modes.
   </Step>
 
   <Step>
