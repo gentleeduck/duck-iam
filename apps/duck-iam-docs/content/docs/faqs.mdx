@@ -871,6 +871,50 @@ const perms = await engine.permissions('user-1', checks)
       the surrounding call can reject instead of returning a deny object. Keep `onError` defensive.
     </AccordionContent>
   </AccordionItem>
+
+  <AccordionItem value="dev-vs-prod-mode">
+    <AccordionTrigger>What's the difference between development and production mode?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      The Engine constructor accepts a `mode` option that controls the evaluation output format and
+      available features:
+      <ul className="mt-2 list-disc pl-5">
+        <li><strong>Development</strong> (`mode: 'development'`) -- returns rich `Decision` objects with timing
+          information and reasons, fires lifecycle hooks, and enables `explain()` for debugging.</li>
+        <li><strong>Production</strong> (`mode: 'production'`) -- returns plain booleans, skips hooks,
+          omits timing data, and is roughly 2x faster than development mode.</li>
+      </ul>
+      <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// Development (default):
+const engine = new Engine({ adapter, mode: 'development' })
+const decision = await engine.check(subject, 'read', resource)
+// decision.allowed, decision.reason, decision.duration
+
+// Production:
+const engine = new Engine({ adapter, mode: 'production' })
+const allowed = await engine.check(subject, 'read', resource)
+// allowed === true | false`}</code></pre>
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="prod-mode-bundle-size">
+    <AccordionTrigger>Does production mode reduce bundle size?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. The `mode` option is a runtime flag -- it does not affect what code is included in your
+      bundle. However, if you only need fast boolean checks you can import `evaluateFast` directly
+      instead of the full `Engine` class. Because `evaluateFast` is a standalone function with no
+      dependency on the Engine internals, bundlers can tree-shake the unused Engine code and produce
+      a smaller output.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="explain-in-production">
+    <AccordionTrigger>Can I use explain() in production mode?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      No. Calling `explain()` in production mode throws an error because the engine does not collect
+      the diagnostic data that `explain()` needs. If you need to debug a specific decision, temporarily
+      switch to `mode: 'development'` in that environment or spin up a development-mode instance
+      alongside your production one.
+    </AccordionContent>
+  </AccordionItem>
 </Accordion>
 
 ---
@@ -1021,6 +1065,19 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
       `maxCacheSize` (default: 1000), the least recently accessed entry is evicted to make room
       for the new entry. This means frequently active users stay cached while inactive users are evicted.
       If you have more than 1000 concurrent active users, increase `maxCacheSize` accordingly.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="casl-comparison">
+    <AccordionTrigger>How fast is duck-iam compared to CASL?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      CASL is roughly 2x faster on simple permission checks because it uses a pre-compiled ability
+      index -- lookups are essentially hash-map hits. duck-iam runs a dynamic policy engine that
+      evaluates conditions at runtime, which adds overhead per check. That said, duck-iam is faster
+      than casbin, accesscontrol, and role-acl in our benchmarks. If raw check speed on simple
+      RBAC-only rules is your top priority, CASL wins. If you need conditions, ABAC, scoped roles,
+      or a unified RBAC+ABAC pipeline, duck-iam is a better fit. See{' '}
+      <a href="/docs/benchmarks" className="underline">the benchmarks page</a> for detailed numbers.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
