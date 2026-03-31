@@ -114,7 +114,7 @@ const trace = await engine.explain(
 
 <Step>Batch permission checks</Step>
 
-Load many permissions at once for a user -- useful for hydrating client-side UI:
+Batch-load permissions for a user -- useful for hydrating client-side UI:
 
 ```typescript
 const permissions = await engine.permissions("user-2", [
@@ -130,8 +130,6 @@ const permissions = await engine.permissions("user-2", [
 
 ## Optional Peer Dependencies
 
-Install only what you use:
-
 | Integration | Peer dependency | Install |
 | --- | --- | --- |
 | React client | `react >= 18.0.0` | `npm install react` |
@@ -142,7 +140,7 @@ The core engine, memory adapter, Drizzle adapter, HTTP adapter, and all server i
 
 ## Import Paths
 
-duck-iam uses subpath exports. Import only what you need:
+duck-iam uses subpath exports:
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Core["@gentleduck/iam (core)"]
@@ -250,9 +248,8 @@ import { HttpAdapter } from "@gentleduck/iam/adapters/http";
   <AccordionItem value="need-create-access-config">
     <AccordionTrigger>Do I have to use createAccessConfig() on day one?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. You can start with the untyped builders and move to <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>
-      when you want compile-time validation for actions, resources, scopes, and roles. The typed path is the
-      better long-term default for production apps, but it is not required to get started.
+      No. You can start with the untyped builders and add <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>
+      when you want compile-time validation for actions, resources, scopes, and roles.
     </AccordionContent>
   </AccordionItem>
 
@@ -260,15 +257,14 @@ import { HttpAdapter } from "@gentleduck/iam/adapters/http";
     <AccordionTrigger>What should I seed first in a new project?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Start with your stable role definitions, a small set of core policies, and the initial role assignments
-      needed to boot the app. Subject attributes can usually be added later as your domain data becomes
-      available.
+      needed to boot the app. Subject attributes can be added later as your domain data becomes available.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="mix-root-and-subpaths">
     <AccordionTrigger>Can I mix root imports with adapter, server, and client subpaths?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. That is the normal setup. Import builders, types, and the engine from
+      Yes. Import builders, types, and the engine from
       <code className="rounded bg-muted px-2 py-1">@gentleduck/iam</code>, then pull framework-specific pieces from
       their subpaths such as <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code> or
       <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code>.
@@ -278,8 +274,8 @@ import { HttpAdapter } from "@gentleduck/iam/adapters/http";
   <AccordionItem value="memory-root-vs-subpath">
     <AccordionTrigger>Why is MemoryAdapter available from both the root package and its own subpath?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      It is exported from the root as a convenience because it is the default starting adapter for tests, demos, and
-      quick prototypes. The dedicated subpath still exists for consistency with the other adapters.
+      It is exported from the root as a convenience for tests, demos, and quick prototypes. The dedicated subpath
+      exists for consistency with the other adapters.
     </AccordionContent>
   </AccordionItem>
 
