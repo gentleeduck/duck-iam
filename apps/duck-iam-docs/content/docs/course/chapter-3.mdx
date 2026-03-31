@@ -64,16 +64,17 @@ Use both together. Roles handle broad access grants; policies handle fine-graine
       .build()
     ```
 
-    - `policy('owner-restrictions')` -- creates a policy with ID `owner-restrictions`
-    - `.algorithm('deny-overrides')` -- any deny wins
-    - `.deny()` -- this rule's effect is deny
-    - `.on('update', 'delete')` -- applies to these actions
-    - `.of('post')` -- applies to the `post` resource type
-    - `.priority(100)` -- higher number = higher priority (relevant for `highest-priority` algorithm)
-    - `.when(...)` -- condition that must be true for the rule to fire
-    - `'resource.attributes.ownerId'` -- reads ownerId from the resource
-    - `'neq'` -- not-equal operator
-    - `'$subject.id'` -- resolved at runtime to the requesting user's ID
+    - **`policy('owner-restrictions')`** -- creates a policy with ID `owner-restrictions`
+    - **`.algorithm('deny-overrides')`** -- if any rule denies, the policy denies
+    - **`.rule('deny-non-owner-update', ...)`** -- defines a rule inside the policy
+    - **`.deny()`** -- this rule's effect is deny
+    - **`.on('update', 'delete')`** -- applies to update and delete actions
+    - **`.of('post')`** -- applies to the `post` resource type
+    - **`.priority(100)`** -- higher number = higher priority (relevant for `highest-priority` algorithm)
+    - **`.when(...)`** -- the condition that must be true for this rule to fire
+    - **`'resource.attributes.ownerId'`** -- reads the ownerId from the resource
+    - **`'neq'`** -- "not equal" operator
+    - **`'$subject.id'`** -- resolved at runtime to the requesting user's ID
   </Step>
 
   <Step>
@@ -115,8 +116,8 @@ Use both together. Roles handle broad access grants; policies handle fine-graine
     console.log('Bob update alice post:', otherPost)  // false
     ```
 
-    `ownerId` in the resource attributes is compared to `$subject.id` (resolves to `'bob'`).
-    When they differ, the deny rule fires.
+    The `ownerId` in the resource attributes is compared to `$subject.id` (which resolves
+    to `'bob'`). When they differ, the deny rule fires.
   </Step>
 </Steps>
 
@@ -142,6 +143,8 @@ Each condition has three parts:
 3. **Value** -- what to compare against (a literal or a `$`-variable)
 
 ### Field Resolution
+
+The `resolve()` function reads a dot-notation path from the request:
 
 | Path | Resolves To |
 | --- | --- |
@@ -209,16 +212,20 @@ Values starting with `$` are resolved from the request context at runtime:
 Without `$`, values are treated as static literals. `'published'` is a literal string;
 `'$subject.id'` is resolved at runtime.
 
-## The When Builder
+## The When Builder: Complete API
+
+The `when()` callback receives a `When` builder. Here is every method available:
 
 ### Raw Condition
 
 ```typescript
-// All other methods are shortcuts for this
+// The general-purpose method -- all other methods are shortcuts for this
 .when(w => w.check('resource.attributes.ownerId', 'neq', '$subject.id'))
 ```
 
 ### Shorthand Operators
+
+Instead of `.check(field, operator, value)`, use operator-named methods:
 
 ```typescript
 .when(w => w
@@ -360,6 +367,8 @@ to prevent stack overflow.
 
 ### Building Standalone Condition Groups
 
+Build condition groups outside of a rule using the `when()` factory:
+
 ```typescript
 import { when } from '@gentleduck/iam'
 
@@ -384,6 +393,8 @@ const notBanned = when()
 These return `ConditionGroup` objects that can be used in rules.
 
 ## The Complete RuleBuilder API
+
+Each rule inside a policy is built with a `RuleBuilder`:
 
 ```typescript
 policy('my-policy')
@@ -459,6 +470,8 @@ Multiple scopes use `in`:
 ```
 
 ### Standalone Rules with defineRule()
+
+Create rules outside of a policy and add them later:
 
 ```typescript
 import { defineRule } from '@gentleduck/iam'
@@ -539,6 +552,8 @@ and returns the default effect. Target fields are all optional; omitting a field
 | `roles` | Only evaluate for users with at least one of these roles |
 
 ## Combining Algorithms
+
+Each policy has an algorithm that determines how its rules combine:
 
 <MermaidDiagram chart={`flowchart TD
     subgraph DO["deny-overrides"]
@@ -642,8 +657,9 @@ export const ownerPolicy = policy('owner-restrictions')
   <AccordionItem value="c3-rbac-abac-order">
     <AccordionTrigger>Which is evaluated first -- roles or policies?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Roles are converted to a synthetic `__rbac__` policy evaluated first, followed by
-      your custom policies. They are AND-combined: all must allow. The engine
+      Roles are converted to a synthetic `__rbac__` policy and evaluated first, followed by
+      your custom policies. They are AND-combined: all must allow for the final result to be
+      allow. The RBAC policy goes first, but order matters only because the engine
       short-circuits on the first deny.
     </AccordionContent>
   </AccordionItem>
@@ -652,15 +668,17 @@ export const ownerPolicy = policy('owner-restrictions')
     <AccordionTrigger>What if I forget to pass ownerId in the resource attributes?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       `resource.attributes.ownerId` resolves to `null`. The `neq` operator evaluates
-      `null neq 'bob'` as `true`, so the deny rule fires. Missing attributes always deny.
+      `null neq 'bob'` as `true`, so the deny rule fires. Omitting attributes results in
+      a deny -- you cannot accidentally grant access by missing data.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c3-admin-exempt">
     <AccordionTrigger>How do I make admins exempt from the owner restriction?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Add `.not(n => n.role('admin'))` to the condition. The rule becomes: "deny if
-      not the owner AND not an admin." This is what the checkpoint code shows.
+      Add `.not(n => n.role('admin'))` to the condition. The deny rule becomes: "deny if
+      not the owner AND not an admin." Admins bypass the deny rule and can edit any post.
+      This is what the checkpoint code shows.
     </AccordionContent>
   </AccordionItem>
 
@@ -668,7 +686,7 @@ export const ownerPolicy = policy('owner-restrictions')
     <AccordionTrigger>Can I have multiple policies?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Yes. Pass an array to the adapter: `policies: [ownerPolicy, timePolicy, ipPolicy]`.
-      All must allow for the overall result to be allow.
+      Each policy is evaluated independently. All must allow for the overall result to be allow.
     </AccordionContent>
   </AccordionItem>
 
@@ -683,9 +701,10 @@ export const ownerPolicy = policy('owner-restrictions')
   <AccordionItem value="c3-when-vs-whenAny">
     <AccordionTrigger>When should I use .when() vs .whenAny()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      `.when()` is AND -- all conditions must pass. `.whenAny()` is OR -- any condition
-      is sufficient. For complex logic, nest `.and()`, `.or()`, and `.not()` inside
-      `.when()`. The most common pattern is `.when()` with an inner `.not()` for exemptions.
+      Use `.when()` when all conditions must be true (AND). Use `.whenAny()` when any
+      condition is sufficient (OR). For complex logic, nest `.and()`, `.or()`, and `.not()`
+      inside `.when()`. The most common pattern is `.when()` with an inner `.not()` for
+      exemptions.
     </AccordionContent>
   </AccordionItem>
 
@@ -694,17 +713,17 @@ export const ownerPolicy = policy('owner-restrictions')
     <AccordionContent className="text-muted-foreground">
       Targets let the engine skip an entire policy when the request does not match (wrong
       action, wrong resource type, or user lacks the required role). Without targets, every
-      rule is evaluated on every request. Note: `targets.resources` uses direct resource
-      matching, not the hierarchical dot-aware matcher that normal rule resources use.
+      rule in the policy is evaluated on every request. Note: `targets.resources` uses direct
+      resource matching, not the hierarchical dot-aware matcher that normal rule resources use.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c3-forScope">
     <AccordionTrigger>What does .forScope() do on a rule?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      `.forScope('acme')` adds a scope condition so the rule only fires when the request
-      scope is `acme`. Multiple scopes: `.forScope('acme', 'globex')`. The scope condition
-      is merged with `.when()` conditions using AND.
+      `.forScope('acme')` adds a scope condition so the rule only fires when the request scope
+      is `acme`. Multiple scopes are supported: `.forScope('acme', 'globex')`. The scope
+      condition is merged with `.when()` conditions using AND.
     </AccordionContent>
   </AccordionItem>
 
