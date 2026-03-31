@@ -1083,6 +1083,90 @@ segments) apply.
 - **Cache TTL**: Prevents indefinite stale data (default 60 seconds)
 - **Cross-policy AND**: A deny from ANY policy blocks the request (defense in depth)
 
+## Choosing Development vs Production Mode
+
+The Engine constructor accepts a `mode` option that controls the trade-off between
+debugging capability and raw throughput.
+
+### Mode Comparison
+
+| | `mode: 'development'` (default) | `mode: 'production'` |
+| --- | --- | --- |
+| `engine.can()` return type | `boolean` | `boolean` |
+| `engine.check()` return type | Rich `Decision` object | `boolean` |
+| `engine.explain()` | Full trace with per-rule breakdown | Throws `Error` |
+| Hooks (`afterEvaluate`, `onDeny`, `onError`) | Fired | Skipped |
+| Timing (`decision.duration`) | Measured | Not measured |
+| Throughput | Baseline | ~2x faster |
+
+### When to Use Each Mode
+
+Use **development mode** during local development, staging, and anywhere you need
+to debug authorization decisions. The rich `Decision` objects, `explain()` traces,
+and hooks give you full visibility into why a request was allowed or denied.
+
+Use **production mode** on high-traffic production servers where throughput matters
+and you have already validated your policies. It skips Decision object construction,
+timing measurement, and all hooks -- returning plain booleans for maximum speed.
+
+```typescript title="src/access.ts"
+export const engine = access.createEngine({
+  adapter,
+  mode: 'production',   // ~2x faster, no Decision objects
+  cacheTTL: 60,
+  maxCacheSize: 1000,
+})
+```
+
+### Production Mode Restrictions
+
+In production mode, `engine.explain()` throws an error:
+
+```typescript
+// This throws in production mode
+const trace = await engine.explain('alice', 'read', {
+  type: 'post', attributes: {},
+})
+// Error: explain() is unavailable in production mode
+```
+
+Hooks are also skipped entirely. If you rely on `afterEvaluate` for audit logging or
+`onDeny` for security monitoring, keep development mode or move that logic outside the
+engine (e.g., log in your middleware after calling `engine.can()`).
+
+### evaluateFast() for Maximum Throughput
+
+When you do not need the Engine class at all -- no caching, no hooks, no subject
+resolution -- use `evaluateFast()` as a pure function. It takes policies and a fully
+resolved request, and returns a boolean directly:
+
+```typescript
+import { evaluateFast } from '@gentleduck/iam'
+
+const allowed = evaluateFast(
+  [ownerPolicy, rbacPolicy],
+  {
+    subject: { id: 'bob', roles: ['editor'], attributes: {} },
+    action: 'update',
+    resource: { type: 'post', id: 'post-1', attributes: { ownerId: 'bob' } },
+  }
+)
+// allowed: boolean
+```
+
+`evaluateFast()` is the fastest option because it bypasses the entire Engine lifecycle:
+no adapter calls, no caching, no hooks, no Decision construction. Use it in hot paths
+like serverless functions or edge middleware where you have already resolved the subject
+and loaded the policies yourself.
+
+### Performance Summary
+
+| Method | Relative Speed | Returns | Needs Engine |
+| --- | --- | --- | --- |
+| `engine.can()` (development) | 1x | `boolean` | Yes |
+| `engine.can()` (production) | ~2x | `boolean` | Yes |
+| `evaluateFast()` | Fastest | `boolean` | No |
+
 ## Testing Strategies
 
 <Steps>
@@ -1520,6 +1604,7 @@ segments) apply.
 
 Before shipping BlogDuck:
 
+- [ ] Set `mode: 'production'` on high-traffic production servers
 - [ ] Use `createAccessConfig` with `as const` for type safety
 - [ ] Replace `MemoryAdapter` with `PrismaAdapter` or `DrizzleAdapter`
 - [ ] Call `validateRoles()` and `validatePolicy()` at startup
@@ -1741,6 +1826,18 @@ export const appChecks = access.checks([
       'Bearer ' + await getServiceToken() })`. The function is called on every request, so
       token rotation works automatically. On the server side, protect the admin router endpoints
       with your own auth middleware before mounting them.
+    </AccordionContent>
+  </AccordionItem>
+
+  <AccordionItem value="c8-mode-selection">
+    <AccordionTrigger>Should I use production mode or development mode?</AccordionTrigger>
+    <AccordionContent className="text-muted-foreground">
+      Use `mode: 'development'` (the default) during local development, staging, and anywhere
+      you need `explain()` or hooks for debugging and audit logging. Use `mode: 'production'`
+      on high-traffic production servers where you need maximum throughput and have already
+      validated your policies. Production mode is roughly 2x faster because it skips Decision
+      object construction, timing, and all hooks. If you need audit logging in production,
+      move it to your middleware layer instead of relying on engine hooks.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
