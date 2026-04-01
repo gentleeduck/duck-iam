@@ -97,6 +97,17 @@ When you call `engine.can()` or `engine.authorize()`, here is what happens:
    the winning `effect`, which `rule` and `policy` made the decision, a human-readable
    `reason`, and timing information.
 
+### Dev vs Production Mode
+
+The engine supports a `mode` option that controls the evaluation path:
+
+- **`"development"` (default)** -- full `Decision` objects with timing, matched rule/policy
+  references, and human-readable reasons. Best for debugging and `explain()` traces.
+- **`"production"`** -- uses `evaluateFast()`, which skips `Decision` construction and
+  timing. Rules are indexed via a `WeakMap`/`Map` structure so that action + resource
+  lookups are O(1) instead of linear scans. Use this for maximum throughput in deployed
+  services.
+
 ## Key Concepts
 
 The building blocks of every authorization check:
