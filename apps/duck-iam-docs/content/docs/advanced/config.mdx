@@ -236,7 +236,7 @@ The typed context system uses several TypeScript utility types that work togethe
 | `PathValue<T, P>` | Resolves the value type at path `P` within `T` |
 | `FieldValue<T, P>` | Like `PathValue` but wraps the result in `ConditionValue` to add `$`-reference support |
 | `ConditionValue<T, V>` | Adapts a value type for condition builders. Non-string values pass through unchanged; string values add `DollarPaths<T>` for `$`-reference autocomplete. Prevents type widening so `env('hour', 'lt', '')` correctly errors when `hour` is `number`. |
-| `FlexibleDollarPaths<T>` | `DollarPaths<T> \| (string & {})` — added directly to method value signatures so the IDE shows `$`-prefixed autocomplete suggestions (e.g. `$subject.id`) alongside a flexible string input. |
+| `FlexibleDollarPaths<T>` | `DollarPaths<T> \| (string & {})` -- added directly to method value signatures so the IDE shows `$`-prefixed autocomplete suggestions (e.g. `$subject.id`) alongside a flexible string input. |
 | `SubjectAttrs<T>` | Extracts `T['subject']['attributes']` |
 | `ResourceAttrs<T>` | Extracts `T['resource']['attributes']` |
 | `EnvAttrs<T>` | Extracts `T['environment']` |
@@ -301,8 +301,8 @@ and `$`-references (e.g. `'$subject.id'`) in a single union type.
 Value parameters use `ConditionValue` internally plus `FlexibleDollarPaths` at the method
 signature level. Non-string types (like `number` for `env('hour', ...)`) pass through
 unchanged, so passing a string where a number is expected is a compile error. The
-`FlexibleDollarPaths<TContext>` union is added directly to each method signature — not
-nested inside computed types — so the IDE can see and suggest the `$`-prefixed literals.
+`FlexibleDollarPaths<TContext>` union is added directly to each method signature -- not
+nested inside computed types -- so the IDE can see and suggest the `$`-prefixed literals.
 Optional properties (e.g. `yearsExperience?: number`) are handled correctly by stripping
 `undefined` before type resolution.
 </Callout>

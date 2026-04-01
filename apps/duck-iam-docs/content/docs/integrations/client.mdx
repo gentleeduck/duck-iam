@@ -522,8 +522,8 @@ Recommended architecture:
     S->>S: 2. engine.permissions(userId, checks)
     S->>C: 3. Return PermissionMap
     C->>C: 4. Hydrate AccessProvider / plugin / AccessClient
-    C->>C: 5. can("delete", "post") — instant boolean lookup
-    C->>C: 6. <Can action="manage" resource="team"> — render gate`} />
+    C->>C: 5. can("delete", "post") -- instant boolean lookup
+    C->>C: 6. <Can action="manage" resource="team"> -- render gate`} />
 
 - **Security**: Permission logic runs on the server where policies and roles are stored. The client only sees the final boolean results.
 - **Performance**: Client-side checks are instant object lookups. No async operations, no network requests, no engine evaluation.
@@ -669,7 +669,7 @@ access.update(newPerms) // subscribers are notified automatically
     <AccordionTrigger>What happens if I forget the scope or resourceId when the map only contains a scoped or instance key?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       The lookup misses and returns <code className="rounded bg-muted px-2 py-1">false</code>. The client does not try to
-      “best guess” a broader permission from a narrower key, so the shape of your
+      "best guess" a broader permission from a narrower key, so the shape of your
       <code className="rounded bg-muted px-2 py-1">can(...)</code> call needs to match the shape of the key the server generated.
     </AccordionContent>
   </AccordionItem>

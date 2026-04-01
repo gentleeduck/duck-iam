@@ -140,7 +140,7 @@ interface PolicyTrace {
 }
 ```
 
-When `targetMatch` is `false`, the policy's target filter (actions, resources, or roles) did not match the request and its rules were not evaluated — `rules` will be empty. In the current trace format, `result` still mirrors the engine's default effect, so use `targetMatch` as the signal that the policy was bypassed.
+When `targetMatch` is `false`, the policy's target filter (actions, resources, or roles) did not match the request and its rules were not evaluated -- `rules` will be empty. In the current trace format, `result` still mirrors the engine's default effect, so use `targetMatch` as the signal that the policy was bypassed.
 
 ```typescript
 for (const pt of result.policies) {
