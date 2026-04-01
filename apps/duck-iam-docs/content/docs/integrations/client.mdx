@@ -5,7 +5,9 @@ description: Client-side access control for React, Vue, and vanilla JavaScript w
 
 ## Overview
 
-duck-iam provides client libraries that let you check permissions instantly in the browser. The recommended pattern is server-driven: generate a `PermissionMap` on the server, send it to the client, and use it for all UI decisions.
+duck-iam provides client libraries for checking permissions in the browser. The recommended
+pattern is server-driven: generate a `PermissionMap` on the server, send it to the client,
+and use it for all UI decisions.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Server["Server Side"]
@@ -32,7 +34,7 @@ Every client library supports the same core operations:
 - `can(action, resource, resourceId?, scope?)` -- returns `true` if the permission is granted
 - `cannot(action, resource, resourceId?, scope?)` -- returns `true` if the permission is denied
 
-No network requests happen during these checks. They are synchronous lookups against the pre-computed permission map.
+Client-side checks are synchronous lookups against the pre-computed permission map. No network requests happen during these checks.
 
 ### The PermissionMap
 
@@ -73,9 +75,7 @@ buildPermissionKey('update', 'post', 'post-42', 'org-1')
 // "org-1:update:post:post-42"
 ```
 
-You usually do not need to call `buildPermissionKey()` yourself because the React, Vue,
-and vanilla clients do it internally. It is useful when you generate or inspect
-`PermissionMap` objects manually in tests, server endpoints, or custom client helpers.
+You rarely need to call `buildPermissionKey()` directly -- the React, Vue, and vanilla clients call it internally. It is useful when generating or inspecting `PermissionMap` objects in tests, server endpoints, or custom client helpers.
 
 ---
 
@@ -161,7 +161,7 @@ The hook returns:
 
 ### Can and Cannot components
 
-Declarative permission gates for your JSX.
+Declarative permission gates for JSX.
 
 ```tsx
 import { Can, Cannot } from '@/lib/access'
@@ -185,7 +185,7 @@ function Dashboard() {
 }
 ```
 
-**Can props:**
+`Can` props:
 
 | Prop | Type | Required | Description |
 | --- | --- | --- | --- |
@@ -196,11 +196,11 @@ function Dashboard() {
 | `children` | `ReactNode` | yes | Rendered when allowed |
 | `fallback` | `ReactNode` | no | Rendered when denied (defaults to null) |
 
-**Cannot** has the same props except `fallback`. It renders `children` when the permission is denied.
+`Cannot` has the same props except `fallback`. It renders `children` when the permission is denied.
 
 ### usePermissions hook
 
-Fetch permissions from a server endpoint on the client side. Useful for SPAs that do not have server-side rendering.
+Fetch permissions from a server endpoint on the client side. Useful for SPAs without server-side rendering.
 
 ```tsx
 import { usePermissions } from '@/lib/access'
@@ -236,7 +236,7 @@ array changes before the fetch completes, stale results are discarded.
 
 ### Standalone checker
 
-For code outside of React components (utilities, event handlers, tests), use `createPermissionChecker`. It takes a `PermissionMap` and returns a checker object with `can`, `cannot`, and the raw `permissions`.
+For code outside React components (utilities, event handlers, tests), use `createPermissionChecker`. It takes a `PermissionMap` and returns a checker object with `can`, `cannot`, and the raw `permissions`.
 
 ```typescript
 import { createPermissionChecker } from '@gentleduck/iam/client/react'
@@ -246,8 +246,6 @@ checker.can('delete', 'post')         // boolean
 checker.cannot('manage', 'team')      // boolean
 checker.permissions                    // the original PermissionMap
 ```
-
-This is useful in server-side utilities, test helpers, or anywhere you need permission checks without React context.
 
 ---
 
@@ -259,7 +257,7 @@ import { createVueAccess, ACCESS_INJECTION_KEY } from '@gentleduck/iam/client/vu
 
 ### Setup
 
-Create the Vue access control system by passing Vue's reactive utilities. This avoids a hard dependency on a specific Vue version.
+Create the Vue access control system by passing Vue's reactive utilities. This avoids a hard Vue version dependency.
 
 ```typescript
 // lib/access.ts
@@ -277,7 +275,7 @@ export const {
 
 ### Plugin installation
 
-Install the access control plugin in your Vue app. This makes permissions available to all components.
+Install the plugin in your Vue app to make permissions available to all components.
 
 ```typescript
 // main.ts
@@ -293,7 +291,7 @@ app.use(createAccessPlugin(permissions))
 app.mount('#app')
 ```
 
-The plugin also registers `$can` and `$cannot` as global properties, so you can use them directly in templates:
+The plugin also registers `$can` and `$cannot` as global properties for direct template use:
 
 ```html
 <button v-if="$can('delete', 'post')">Delete</button>
@@ -301,7 +299,7 @@ The plugin also registers `$can` and `$cannot` as global properties, so you can 
 
 ### Composable
 
-Use the `useAccess` composable in any component within the provider tree.
+Use `useAccess` in any component within the provider tree.
 
 ```vue
 <script setup lang="ts">
@@ -353,12 +351,12 @@ Declarative permission gates using slots.
 </template>
 ```
 
-The `Can` component renders the default slot when the permission is granted. If denied, it renders the `fallback` slot (if provided). The `Cannot` component renders its default slot when the permission is denied.
+`Can` renders the default slot when allowed, or the `fallback` slot when denied. `Cannot` renders its default slot when denied.
 
 ### Manual provide/inject
 
-If you prefer not to use the plugin, call `provideAccess` in a parent component. This is
-useful in SSR setups where you hydrate permissions per-request instead of at app startup.
+If you prefer not to use the plugin, call `provideAccess` in a parent component. Useful in
+SSR setups where you hydrate permissions per-request instead of at app startup.
 
 ```vue
 <script setup lang="ts">
@@ -374,8 +372,7 @@ Child components can then call `useAccess()` as usual.
 
 ### createAccessState (low-level)
 
-If you need full control without provide/inject, use `createAccessState` directly. It
-returns a reactive state object without registering it in the injection system.
+For full control without provide/inject, use `createAccessState` directly. It returns a reactive state object without registering it in the injection system.
 
 ```typescript
 import { createAccessState } from '@/lib/access'
@@ -398,7 +395,7 @@ import { AccessClient } from '@gentleduck/iam/client/vanilla'
 
 ### Basic usage
 
-Create an `AccessClient` from a server-provided permission map.
+Create an `AccessClient` from a permission map.
 
 ```typescript
 import { AccessClient } from '@gentleduck/iam/client/vanilla'
@@ -412,9 +409,7 @@ access.can('manage', 'user', undefined, 'admin')  // scoped check
 
 ### Fetch from server
 
-Create a client that fetches its permissions from an API endpoint. The `fromServer` static
-method sends a GET request, parses the JSON response as a `PermissionMap`, and returns a
-new `AccessClient`. It throws an error if the response is not OK (non-2xx status).
+`fromServer` sends a GET request, parses the JSON response as a `PermissionMap`, and returns a new `AccessClient`. It throws if the response is not OK (non-2xx status).
 
 ```typescript
 const access = await AccessClient.fromServer('/api/me/permissions', {
@@ -424,15 +419,11 @@ const access = await AccessClient.fromServer('/api/me/permissions', {
 access.can('delete', 'post') // boolean
 ```
 
-The second argument is a standard `RequestInit` -- you can pass headers, credentials, signal
-for abort, etc. A `Content-Type: application/json` header is added automatically.
+The second argument is a standard `RequestInit`. A `Content-Type: application/json` header is added automatically.
 
 ### Allowed actions
 
-Query all actions the user can perform on a given resource. `allowedActions` scans the
-permission map and returns a deduplicated array of action strings where the value is `true`.
-`hasAnyOn` is a faster short-circuit check that returns as soon as it finds any allowed
-permission.
+`allowedActions` scans the permission map and returns a deduplicated array of action strings where the value is `true`. `hasAnyOn` short-circuits and returns as soon as it finds any allowed permission.
 
 ```typescript
 access.allowedActions('post')  // ['read', 'create', 'update']
@@ -443,9 +434,9 @@ access.hasAnyOn('post')        // true
 Both methods handle all four key formats. For a 3-part key like `"org-1:read:post"`, the
 method correctly identifies `"post"` as the resource and `"read"` as the action.
 
-These helpers are best for UI summarization such as navigation menus, toolbar groups, or
-"does this user have anything on posts at all?" checks. They scan the existing
-`PermissionMap`; they do not replace a fresh instance-level permission evaluation on the server.
+These helpers suit UI summarization -- navigation menus, toolbar groups, or coarse "does
+this user have anything on posts?" checks. They scan the existing `PermissionMap` and do
+not replace server-side permission evaluation.
 
 ### Reactive updates
 
@@ -469,7 +460,7 @@ unsubscribe()
 
 ### Integration with other frameworks
 
-The vanilla client works as the foundation for any framework.
+The vanilla client works as a foundation for any framework.
 
 **Svelte:**
 
@@ -521,7 +512,7 @@ export const can = (action: string, resource: string) =>
 
 ## Server-driven pattern
 
-The recommended architecture for production applications:
+Recommended architecture:
 
 <MermaidDiagram chart={`sequenceDiagram
     participant S as Server
@@ -534,16 +525,14 @@ The recommended architecture for production applications:
     C->>C: 5. can("delete", "post") — instant boolean lookup
     C->>C: 6. <Can action="manage" resource="team"> — render gate`} />
 
-This pattern has several advantages:
-
-- **Security**: Permission logic runs on the server where policies and roles are stored. The client never sees the rules or conditions -- only the final boolean results.
+- **Security**: Permission logic runs on the server where policies and roles are stored. The client only sees the final boolean results.
 - **Performance**: Client-side checks are instant object lookups. No async operations, no network requests, no engine evaluation.
 - **Consistency**: The server is the single source of truth. The client reflects exactly what the server decided.
-- **Simplicity**: The client libraries are thin wrappers around a flat object. There is no complex state to manage.
+- **Simplicity**: The client libraries are thin wrappers around a flat object.
 
 ### Refreshing permissions
 
-When a user's role changes (e.g. they are promoted, join an org, or a feature flag flips), fetch a new permission map from the server and update the client.
+When a user's role changes (promoted, joined an org, feature flag flips), fetch a new permission map from the server and update the client.
 
 **React:**
 
@@ -609,8 +598,8 @@ access.update(newPerms) // subscribers are notified automatically
   <AccordionItem value="vue-useaccess-throws">
     <AccordionTrigger>Why does Vue useAccess() throw instead of returning an empty state?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The Vue integration assumes permission state must be provided explicitly. Throwing early helps you catch missing
-      provider or plugin setup immediately instead of silently rendering a locked-down UI with no explanation.
+      The Vue integration assumes permission state must be provided explicitly. Throwing early catches missing
+      provider or plugin setup immediately instead of silently rendering a locked-down UI.
     </AccordionContent>
   </AccordionItem>
 
