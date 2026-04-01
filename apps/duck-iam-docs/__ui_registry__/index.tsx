@@ -1,3 +1,5 @@
+'use client'
+
 import dynamic from 'next/dynamic'
 
 const _ChartBenchmarkIam = dynamic(() => import('~/components/charts/chart-benchmark-iam'), { ssr: false })

@@ -1,7 +1,7 @@
 import { evalConditionGroup } from '../conditions'
 import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
 import type { AccessRequest, Decision, Effect, Policy, Rule } from '../types'
-import { type IndexedRule, combiners, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
+import { combiners, type IndexedRule, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
 
 /**
  * Inline candidate matching — checks resource + conditions without allocating.
@@ -18,7 +18,10 @@ function matchCandidate(
   if (!entry.hasWildcardAction && !entry.actions.has(action)) {
     let ok = false
     for (const a of entry.rule.actions) {
-      if (matchesAction(a, action)) { ok = true; break }
+      if (matchesAction(a, action)) {
+        ok = true
+        break
+      }
     }
     if (!ok) return false
   }
@@ -28,9 +31,15 @@ function matchCandidate(
     let ok = false
     for (const r of entry.rule.resources) {
       if (resHasDot || r.includes('.')) {
-        if (matchesResourceHierarchical(r, resType)) { ok = true; break }
+        if (matchesResourceHierarchical(r, resType)) {
+          ok = true
+          break
+        }
       } else {
-        if (matchesResource(r, resType)) { ok = true; break }
+        if (matchesResource(r, resType)) {
+          ok = true
+          break
+        }
       }
     }
     if (!ok) return false
