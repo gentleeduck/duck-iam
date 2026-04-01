@@ -82,6 +82,10 @@ export const docsConfig = {
           href: '/docs/advanced/config',
           title: 'Type-Safe Config',
         },
+        {
+          href: '/docs/advanced/utilities',
+          title: 'Utilities',
+        },
       ],
       title: 'Advanced',
     },
