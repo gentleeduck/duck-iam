@@ -5,6 +5,12 @@ description: Use engine.explain() to trace every policy, rule, and condition eva
 
 ## Overview
 
+<Callout type="warning" title="Development mode only">
+  `engine.explain()` is only available when the engine is created with `mode: 'development'` (the default).
+  Calling `explain()` on a production-mode engine throws an error at runtime, and TypeScript will
+  flag the call at compile time. Use development mode for debugging and production mode for speed.
+</Callout>
+
 When a permission check returns an unexpected result, you need to understand why. duck-iam
 provides two categories of debugging tools:
 
@@ -59,6 +65,9 @@ or `onError`. One caveat matters: if `beforeEvaluate` throws, the explain call r
 that hook still runs on the main explain path.
 
 ```typescript
+// Engine must be in development mode (the default)
+const engine = createEngine({ mode: 'development', /* ... */ })
+
 const result = await engine.explain('user-1', 'delete', {
   type: 'post',
   id: 'post-1',
@@ -498,11 +507,13 @@ Common mistakes in dynamic policies:
   </AccordionItem>
 
   <AccordionItem value="explain-prod-usage">
-    <AccordionTrigger>Can I use explain() in production troubleshooting?</AccordionTrigger>
+    <AccordionTrigger>Can I use explain() in production?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes, but treat it as a debugging tool. It evaluates the real request path and returns rich traces, which is great for
-      audits and support cases, but you should still control who can access those traces because they may expose policy and
-      condition details.
+      No. Calling <code className="rounded bg-muted px-2 py-1">explain()</code> on a production-mode engine throws
+      <em>"explain() is not available in production mode. Use mode: 'development' to enable debug tools."</em>{" "}
+      TypeScript also prevents the call at compile time because <code className="rounded bg-muted px-2 py-1">explain()</code>
+      requires <code className="rounded bg-muted px-2 py-1">Engine&lt;..., 'development'&gt;</code>. Use development mode
+      for debugging and investigation; use production mode for speed and a smaller API surface.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
