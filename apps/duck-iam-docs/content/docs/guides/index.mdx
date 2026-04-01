@@ -5,8 +5,6 @@ description: End-to-end guide covering role definitions, ABAC policies, server m
 
 ## What You Will Build
 
-This guide walks you through the full duck-iam workflow:
-
 <MermaidDiagram chart={`flowchart TD
     S1["Step 1: Define Access Config\n(actions, resources, scopes)"]
     S2["Step 2: Define Roles\n(viewer -> editor -> admin)"]
@@ -22,21 +20,9 @@ This guide walks you through the full duck-iam workflow:
     S3 --> S6
     S3 --> S7 --> S8`} />
 
-1. Define typed roles with inheritance.
-2. Create the engine and check permissions.
-3. Add an ABAC policy with attribute conditions.
-4. Protect server routes with middleware.
-5. Use the React client provider for UI-level access control.
-6. Set up multi-tenant scoped roles.
-7. Implement owner-only resource conditions.
-
-By the end, you will have a complete authorization system that spans from your database
-layer to your UI components.
-
 ## Step 1: Define Your Access Config
 
-Start by declaring the actions, resources, and scopes your application uses. This creates
-a typed factory that constrains all subsequent builders:
+Declare the actions, resources, and scopes your application uses. This creates a typed factory that constrains all subsequent builders:
 
 ```typescript title="src/lib/access.ts"
 import { createAccessConfig } from "@gentleduck/iam";
@@ -48,13 +34,9 @@ export const access = createAccessConfig({
 } as const);
 ```
 
-The `as const` assertion is critical -- it tells TypeScript to infer literal types rather
-than `string[]`. After this, calling `access.defineRole("x").grant("craete", "post")` will
-produce a compile error because `"craete"` is not in the actions list.
+The `as const` assertion tells TypeScript to infer literal types rather than `string[]`. After this, calling `access.defineRole("x").grant("craete", "post")` produces a compile error because `"craete"` is not in the actions list.
 
 ## Step 2: Define Roles with Inheritance
-
-Use the typed builders to define your role hierarchy:
 
 ```typescript title="src/lib/roles.ts"
 import { access } from "./access";
@@ -95,13 +77,9 @@ export const admin = access
 export const allRoles = [viewer, editor, moderator, admin];
 ```
 
-The inheritance chain works as follows: `admin` inherits from `moderator`, which inherits
-from `editor`, which inherits from `viewer`. An admin automatically has every permission
-from all three parent roles, plus its own direct grants.
+`admin` inherits from `moderator` → `editor` → `viewer`. Each role automatically has all permissions from its ancestors plus its own direct grants.
 
 ## Step 3: Create the Engine
-
-Wire the roles into an adapter and create the engine:
 
 ```typescript title="src/lib/engine.ts"
 import { MemoryAdapter } from "@gentleduck/iam";
@@ -117,16 +95,8 @@ const adapter = new MemoryAdapter({
   },
 });
 
-// mode defaults to 'development' — verbose logging & validation.
-// For production: access.createEngine({ adapter, mode: 'production' })
 export const engine = access.createEngine({ adapter });
 ```
-
-> The engine runs in **development** mode by default, which enables extra
-> validation and detailed logging. Set `mode: 'production'` when deploying to
-> disable the overhead.
-
-Now run permission checks:
 
 ```typescript
 // Alice is an admin -- she can do everything
@@ -150,8 +120,7 @@ await engine.can("user-carol", "create", { type: "post", attributes: {} });
 
 ## Step 4: Add an ABAC Policy
 
-RBAC handles the common cases. For more granular control, add ABAC policies. Here is
-a policy that denies access outside of business hours:
+A policy that denies access outside of business hours:
 
 ```typescript title="src/lib/policies.ts"
 import { access } from "./access";
@@ -179,20 +148,15 @@ export const businessHoursPolicy = access
   .build();
 ```
 
-Save the policy to the adapter:
-
 ```typescript
 await engine.admin.savePolicy(businessHoursPolicy);
 ```
 
-Now write operations are denied outside business hours, while reads remain allowed at
-any time. The `first-match` algorithm evaluates rules in order: the deny rule fires first
-for writes outside 9-18 UTC, and the catch-all allow rule handles everything else.
+The `first-match` algorithm evaluates rules in order: the deny rule fires for writes outside 9–18 UTC, and the catch-all allow rule handles everything else.
 
 ## Step 5: Owner-Only Conditions
 
-A common pattern is allowing users to edit only resources they own. Use the `$subject.id`
-variable reference to compare the requesting user against the resource owner:
+Use `$subject.id` to compare the requesting user against the resource owner:
 
 ```typescript title="src/lib/roles.ts"
 export const author = access
@@ -205,7 +169,7 @@ export const author = access
   .build();
 ```
 
-When checking permissions, pass the resource attributes:
+Pass resource attributes when checking:
 
 ```typescript
 // Bob owns this post
@@ -225,14 +189,9 @@ await engine.can("user-carol", "update", {
 // -> false
 ```
 
-The `isOwner()` helper generates a condition that checks
-`resource.attributes.ownerId eq $subject.id`. At evaluation time, `$subject.id` is resolved
-to the actual subject ID from the request.
+`isOwner()` generates a condition that checks `resource.attributes.ownerId eq $subject.id`. At evaluation time, `$subject.id` resolves to the actual subject ID from the request.
 
 ## Step 6: Multi-Tenant Scoped Roles
-
-In multi-tenant applications, users often have different roles in different organizations.
-duck-iam supports this with scoped role assignments:
 
 ```typescript title="src/lib/scoped-engine.ts"
 import { MemoryAdapter } from "@gentleduck/iam";
@@ -245,7 +204,7 @@ const adapter = new MemoryAdapter({
 
 const engine = access.createEngine({ adapter });
 
-// Assign scoped roles -- Alice is admin in org-1 but viewer in org-2
+// Alice is admin in org-1 but viewer in org-2
 await engine.admin.assignRole("user-alice", "admin", "org-1");
 await engine.admin.assignRole("user-alice", "viewer", "org-2");
 
@@ -254,7 +213,7 @@ await engine.admin.assignRole("user-bob", "editor", "org-1");
 await engine.admin.assignRole("user-bob", "editor", "org-2");
 ```
 
-When checking permissions, pass the scope to constrain the evaluation:
+Pass the scope to constrain evaluation:
 
 ```typescript
 // Alice in org-1 -- admin
@@ -279,13 +238,9 @@ await engine.can(
 // -> true
 ```
 
-The engine resolves scoped roles by matching the request scope against the user's scoped
-role assignments. Only roles assigned to the matching scope (plus any global roles) are
-considered during evaluation.
+The engine matches the request scope against scoped role assignments. Only roles assigned to the matching scope (plus global roles) are considered.
 
 ## Step 7: Server Middleware
-
-Protect your API routes by adding duck-iam middleware to your server framework.
 
 ### Express
 
@@ -415,8 +370,6 @@ export default async function Layout({ children }) {
 
 ## Step 8: React Client Provider
 
-On the client side, use the React integration to check permissions in components:
-
 ```typescript title="src/lib/access-client.tsx"
 "use client";
 
@@ -430,8 +383,6 @@ export const {
   Cannot,
 } = createAccessControl(React);
 ```
-
-Use the provider and hooks in your components:
 
 ```tsx title="src/components/post-actions.tsx"
 "use client";
@@ -462,13 +413,11 @@ export function PostActions({ postId }: { postId: string }) {
 }
 ```
 
-The `AccessProvider` receives the `PermissionMap` generated on the server (from Step 7).
-Permission checks on the client are synchronous lookups -- no network requests, no latency.
+`AccessProvider` receives the `PermissionMap` generated on the server (from Step 7). Client permission checks are synchronous lookups -- no network requests.
 
 ## Debugging with explain()
 
-When a permission check produces unexpected results, use `engine.explain()` to get a full
-trace of the evaluation:
+When a permission check produces unexpected results, use `engine.explain()` for a full trace:
 
 ```typescript
 const trace = await engine.explain(
@@ -487,9 +436,6 @@ console.log(trace.policies);
 //    - which conditions passed or failed
 //    - actual vs expected values for each condition
 ```
-
-This is invaluable during development and when troubleshooting production authorization
-issues.
 
 ## Next Steps
 

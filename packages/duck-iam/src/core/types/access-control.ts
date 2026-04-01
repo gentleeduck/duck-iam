@@ -1,3 +1,4 @@
+import type { PermissionMap } from './client'
 import type { Attributes, AttributeValue } from './primitives'
 
 /**
@@ -254,3 +255,38 @@ export interface Decision {
   /** Unix timestamp (ms) when the decision was made. */
   readonly timestamp: number
 }
+
+// ---------------------------------------------------------------------------
+// Engine mode — controls return types and performance characteristics
+// ---------------------------------------------------------------------------
+
+/**
+ * Engine execution mode.
+ *
+ * - `'development'` — returns rich {@link Decision} objects with timing, reasons,
+ *   rule references, and full explain/debug API. Default.
+ * - `'production'` — returns plain booleans. No timing overhead, no object
+ *   allocation, no reason strings. Enables dead-code elimination of debug paths.
+ */
+export type Mode = 'development' | 'production'
+
+/**
+ * Conditional return type based on engine mode.
+ *
+ * In `'production'` mode, authorization checks return a plain `boolean`.
+ * In `'development'` mode, they return a full {@link Decision} with diagnostics.
+ */
+export type ModeResult<M extends Mode> = M extends 'production' ? boolean : Decision
+
+/**
+ * Conditional permission map type based on engine mode.
+ *
+ * In `'production'` mode, `permissions()` returns `Record<string, boolean>`.
+ * In `'development'` mode, it returns the full typed `PermissionMap`.
+ */
+export type ModePermissionMap<
+  M extends Mode,
+  TAction extends string = string,
+  TResource extends string = string,
+  TScope extends string = string,
+> = M extends 'production' ? Record<string, boolean> : PermissionMap<TAction, TResource, TScope>

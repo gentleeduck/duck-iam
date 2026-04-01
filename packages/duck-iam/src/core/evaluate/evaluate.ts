@@ -1,5 +1,5 @@
 import type { AccessRequest, Decision, Effect, Policy, Rule } from '../types'
-import { combiners, policyApplies, ruleApplies } from './evaluate.libs'
+import { combiners, getIndexedMatches, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
 
 /**
  * Evaluates a single policy against an access request.
@@ -95,4 +95,70 @@ export function evaluate(policies: Policy[], request: AccessRequest, defaultEffe
     }),
     duration: performance.now() - start,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fast (production-mode) evaluation — returns plain booleans, no allocations
+// ---------------------------------------------------------------------------
+
+/** Boolean-only combiners for production mode. No reason strings, no Rule refs. */
+const fastCombiners: Record<string, (matched: Array<{ effect: Effect }>) => boolean | null> = {
+  'deny-overrides': (matched) => {
+    let hasAllow = false
+    for (const m of matched) {
+      if (m.effect === 'deny') return false
+      if (m.effect === 'allow') hasAllow = true
+    }
+    return hasAllow ? true : null
+  },
+  'allow-overrides': (matched) => {
+    let hasDeny = false
+    for (const m of matched) {
+      if (m.effect === 'allow') return true
+      if (m.effect === 'deny') hasDeny = true
+    }
+    return hasDeny ? false : null
+  },
+  'first-match': (matched) => {
+    if (matched.length > 0) return matched[0]?.effect === 'allow'
+    return null
+  },
+  'highest-priority': (matched) => {
+    if (matched.length === 0) return null
+    const top = (matched as Array<{ rule: Rule; effect: Effect }>).reduce((best, cur) =>
+      cur.rule.priority > best.rule.priority ? cur : best,
+    )
+    return top.effect === 'allow'
+  },
+}
+
+/**
+ * Fast single-policy evaluation — returns a plain boolean.
+ * Uses the rule index for candidate lookup. No timing, no Decision allocation.
+ */
+export function evaluatePolicyFast(policy: Policy, request: AccessRequest, defaultEffect: Effect = 'deny'): boolean {
+  if (!policyApplies(policy, request)) return defaultEffect === 'allow'
+
+  const idx = indexPolicy(policy)
+  const matched = getIndexedMatches(idx, request)
+
+  const combiner = fastCombiners[policy.algorithm]
+  if (!combiner) return defaultEffect === 'allow'
+
+  const result = combiner(matched)
+  return result ?? defaultEffect === 'allow'
+}
+
+/**
+ * Fast multi-policy evaluation — AND-combines policies, returns plain boolean.
+ * Short-circuits on first deny.
+ */
+export function evaluateFast(policies: Policy[], request: AccessRequest, defaultEffect: Effect = 'deny'): boolean {
+  if (policies.length === 0) return defaultEffect === 'allow'
+
+  for (const policy of policies) {
+    if (!evaluatePolicyFast(policy, request, defaultEffect)) return false
+  }
+
+  return true
 }

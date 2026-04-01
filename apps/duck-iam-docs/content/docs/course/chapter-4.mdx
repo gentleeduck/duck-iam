@@ -1,7 +1,12 @@
 ---
 title: "chapter 4: the engine in depth"
-description: Engine methods, hooks, caching, batch permissions, explain/debug, and the Admin API.
+description: Master the engine's methods, hooks, caching, batch permissions, explain/debug, and Admin API to build a complete authorization backend.
 ---
+
+## Goal
+
+The engine is more than `engine.can()`. This chapter covers every engine method, hooks for
+enrichment and logging, caching, batch permission checks, the explain API, and the Admin API.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Engine["Engine Features"]
@@ -15,13 +20,13 @@ description: Engine methods, hooks, caching, batch permissions, explain/debug, a
 
 ## Engine Methods Overview
 
-| Method | Returns | Description |
-| --- | --- | --- |
-| `engine.can(subjectId, action, resource, env?, scope?)` | `boolean` | Simple yes/no permission check |
-| `engine.check(subjectId, action, resource, env?, scope?)` | `Decision` | Full decision with reason, timing |
-| `engine.authorize(request)` | `Decision` | Low-level: takes a full `AccessRequest` |
-| `engine.permissions(subjectId, checks, env?)` | `PermissionMap` | Batch check multiple permissions |
-| `engine.explain(subjectId, action, resource, env?, scope?)` | `ExplainResult` | Debug trace showing every evaluation step |
+| Method | Returns (dev) | Returns (prod) | Description |
+| --- | --- | --- | --- |
+| `engine.can(subjectId, action, resource, env?, scope?)` | `boolean` | `boolean` | Simple yes/no permission check |
+| `engine.check(subjectId, action, resource, env?, scope?)` | `Decision` | `boolean` | Full decision in dev, fast boolean in prod |
+| `engine.authorize(request)` | `Decision` | `Decision` | Low-level: takes a full `AccessRequest` |
+| `engine.permissions(subjectId, checks, env?)` | `PermissionMap` | `Record<string, boolean>` | Batch check multiple permissions |
+| `engine.explain(subjectId, action, resource, env?, scope?)` | `ExplainResult` | n/a (dev only) | Debug trace showing every evaluation step |
 
 ### engine.can() and engine.check()
 
@@ -81,8 +86,120 @@ const decision = await engine.authorize(request)
 
 When you call `can()` or `check()`, the engine internally resolves the subject
 from the adapter (loading roles, scoped roles, and attributes), then calls `authorize()`.
-Use `authorize()` directly when you already have a fully resolved subject object
-and want to skip the adapter lookup.
+Use `authorize()` directly when you already have a fully resolved subject and want to skip
+the adapter lookup.
+
+## Dev vs Prod Mode
+
+The engine supports two modes controlling what `check()` and `permissions()` return.
+Development mode (default) returns rich `Decision` objects and enables `explain()`.
+Production mode strips that overhead and returns booleans.
+
+```typescript
+import { Engine } from '@gentleduck/iam'
+
+// Development mode (default) -- rich Decision objects, explain() available
+const devEngine = new Engine({ adapter })
+
+// Production mode -- fast booleans, no explain()
+const prodEngine = new Engine({ adapter, mode: 'production' })
+```
+
+### What Changes Between Modes
+
+| Method | Development (default) | Production |
+| --- | --- | --- |
+| `can()` | `boolean` | `boolean` |
+| `check()` | `Decision` (with reason, timing, effect) | `boolean` |
+| `permissions()` | `PermissionMap` (values are `Decision`) | `Record<string, boolean>` |
+| `explain()` | `ExplainResult` | not available |
+
+`can()` always returns a plain `boolean` regardless of mode.
+
+`check()` is mode-dependent. Its return type is `ModeResult<TMode>` -- in development
+mode that resolves to `Decision`, in production mode it resolves to `boolean`. Switch to
+production mode for zero-overhead boolean checks without changing call sites.
+
+`explain()` is only available in development mode. It evaluates all rules without
+short-circuiting and returns a full debug trace.
+
+### Development Mode
+
+```typescript
+const engine = new Engine({ adapter })
+
+// check() returns a full Decision
+const decision = await engine.check('bob', 'update', {
+  type: 'post',
+  id: 'post-1',
+  attributes: { ownerId: 'bob' },
+})
+// { allowed: true, effect: 'allow', reason: '...', duration: 0.5, timestamp: 1708300000000 }
+
+// permissions() returns a PermissionMap with Decision values
+const perms = await engine.permissions('bob', [
+  { action: 'create', resource: 'post' },
+  { action: 'delete', resource: 'post', resourceId: 'post-1' },
+])
+// { 'create:post': { allowed: true, effect: 'allow', ... }, 'delete:post:post-1': { allowed: false, ... } }
+
+// explain() is available
+const trace = await engine.explain('bob', 'update', {
+  type: 'post',
+  id: 'post-1',
+  attributes: { ownerId: 'bob' },
+})
+console.log(trace.summary)
+```
+
+### Production Mode
+
+```typescript
+const engine = new Engine({ adapter, mode: 'production' })
+
+// can() still returns boolean (same as dev)
+const allowed = await engine.can('bob', 'update', {
+  type: 'post',
+  id: 'post-1',
+  attributes: { ownerId: 'bob' },
+})
+// true
+
+// check() now returns boolean instead of Decision
+const result = await engine.check('bob', 'update', {
+  type: 'post',
+  id: 'post-1',
+  attributes: { ownerId: 'bob' },
+})
+// true (not a Decision object)
+
+// permissions() returns Record<string, boolean>
+const perms = await engine.permissions('bob', [
+  { action: 'create', resource: 'post' },
+  { action: 'delete', resource: 'post', resourceId: 'post-1' },
+])
+// { 'create:post': true, 'delete:post:post-1': false }
+
+// explain() is NOT available in production mode
+```
+
+Production mode is ~2x faster because it skips: `performance.now()` timing, `Date.now()` timestamps, Decision object allocation, reason string generation, and `afterEvaluate`/`onDeny`/`onError` hooks. It also uses rule indexing (`Map` lookup by `action:resource`) instead of iterating all rules.
+
+### Choosing a Mode
+
+Use development mode when you need to:
+- Debug why a permission was denied (inspect `Decision.reason`)
+- Trace evaluation across policies and rules (`explain()`)
+- Measure evaluation performance (`Decision.duration`)
+- Write tests that assert on decision details
+
+Use production mode when you need to:
+- Minimize overhead in deployed services
+- Return simple booleans to API consumers
+- Avoid exposing internal policy details
+
+You can run both modes side by side -- for example, a production engine for your hot path
+and a development engine for an admin debug endpoint.
 
 ## Hooks
 
@@ -140,6 +257,8 @@ interface EngineHooks {
   <Step>
     **beforeEvaluate -- enrich the request**
 
+    Fetch resource data from a database before evaluation runs:
+
     ```typescript title="src/access.ts"
     export const engine = new Engine({
       adapter,
@@ -167,11 +286,12 @@ interface EngineHooks {
     })
     ```
 
-    The hook receives the full `AccessRequest` and returns the (possibly modified) request.
-    Any field is fair game: subject attributes, resource attributes, environment.
+    Callers don't need to pass `ownerId` -- the hook fetches it automatically. The hook
+    receives the full `AccessRequest` and returns a (potentially modified) request. You can
+    modify any part: subject attributes, resource attributes, environment, etc.
 
-    If `beforeEvaluate` throws, evaluation is skipped, the result is deny (fail closed), and
-    `onError` is called.
+    If `beforeEvaluate` throws, evaluation is skipped and the result is deny (fail closed).
+    The `onError` hook is called.
   </Step>
 
   <Step>
@@ -208,7 +328,7 @@ interface EngineHooks {
     }
     ```
 
-    `onDeny` runs only when the decision is deny. It runs after `afterEvaluate`.
+    `onDeny` runs only when the decision is deny, after `afterEvaluate`.
   </Step>
 
   <Step>
@@ -306,7 +426,7 @@ roles. If role definitions change, all cached subject data becomes stale.
 
 ## Batch Permissions
 
-To check multiple permissions in one call, use `engine.permissions()`:
+For UIs checking 10-20 permissions at once, use `engine.permissions()`:
 
 ```typescript
 const checks = [
@@ -366,7 +486,7 @@ const perms = await engine.permissions('bob', checks, {
 
 ## Explain and Debug
 
-Use `engine.explain()` to trace why a permission was allowed or denied:
+When a permission check returns an unexpected result, use `engine.explain()`:
 
 ```typescript
 const result = await engine.explain('bob', 'update', {
@@ -509,7 +629,9 @@ const attrs = await engine.admin.getAttributes('user-1')
 | `setAttributes(subjectId, attrs)` | Set subject attributes | clears that subject's cache |
 | `getAttributes(subjectId)` | Get subject attributes | none |
 
-Every mutation automatically invalidates the relevant cache — no manual invalidation needed after admin operations.
+Every mutation automatically invalidates the relevant cache. When you call
+`admin.assignRole('user-1', 'editor')`, the user-1 subject cache is cleared so the next
+check picks up the new role. No manual invalidation needed after admin operations.
 
 ## Checkpoint: Complete Engine Setup
 
@@ -616,7 +738,7 @@ export const engine = new Engine({
   <AccordionItem value="c4-permissions-scoped">
     <AccordionTrigger>Can engine.permissions() use scopes?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. Each check can include an optional `scope` field:
+      Yes. Each check in the array can include an optional `scope` field:
       `{ action: 'manage', resource: 'user', scope: 'acme' }`. The key in the returned map
       includes the scope: `'acme:manage:user': true`. You can mix scoped and unscoped checks
       in the same batch.

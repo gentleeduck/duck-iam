@@ -1,6 +1,6 @@
 import { evalConditionGroup } from '../conditions'
 import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
-import type { AccessRequest, CombiningAlgorithm, Policy, Rule } from '../types'
+import type { AccessRequest, CombiningAlgorithm, Effect, Policy, Rule } from '../types'
 import type { Combiner } from './evaluate.types'
 
 /**
@@ -18,9 +18,12 @@ export function ruleApplies(rule: Rule, req: AccessRequest): boolean {
   const actionMatch = rule.actions.some((a) => matchesAction(a, req.action))
   if (!actionMatch) return false
 
+  // Hoist the dot check — compute once before the .some() loop
+  const resourceHasDot = req.resource.type.includes('.')
+
   const resourceMatch = rule.resources.some((r) => {
     // Use dot-based matching if either pattern or resource type contains a dot
-    if (r.includes('.') || req.resource.type.includes('.')) {
+    if (resourceHasDot || r.includes('.')) {
       return matchesResourceHierarchical(r, req.resource.type)
     }
     return matchesResource(r, req.resource.type)
@@ -127,8 +130,7 @@ export const combiners: Record<CombiningAlgorithm, Combiner> = {
 
   'highest-priority': (matched, defaultEffect) => {
     if (matched.length > 0) {
-      const sorted = [...matched].sort((a, b) => b.rule.priority - a.rule.priority)
-      const top = sorted[0] as (typeof sorted)[0]
+      const top = matched.reduce((best, cur) => (cur.rule.priority > best.rule.priority ? cur : best))
       return {
         rule: top.rule,
         effect: top.effect,
@@ -137,4 +139,114 @@ export const combiners: Record<CombiningAlgorithm, Combiner> = {
     }
     return { effect: defaultEffect, reason: `No matching rules -> ${defaultEffect}` }
   },
+}
+
+// ---------------------------------------------------------------------------
+// Rule indexing — pre-index rules by action for fast lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * A single rule entry within a {@link PolicyRuleIndex}.
+ */
+export interface IndexedRule {
+  readonly rule: Rule
+  readonly actions: Set<string>
+  readonly resources: Set<string>
+  readonly hasWildcardAction: boolean
+  readonly hasWildcardResource: boolean
+}
+
+/**
+ * Pre-computed index over a policy's rules for O(1) candidate lookup.
+ */
+export interface PolicyRuleIndex {
+  readonly byAction: Map<string, IndexedRule[]>
+  readonly wildcardRules: IndexedRule[]
+}
+
+/** WeakMap so indexes are GC'd when the policy is no longer referenced. */
+const indexCache = new WeakMap<Policy, PolicyRuleIndex>()
+
+/**
+ * Build (or retrieve from cache) a rule index for a policy.
+ */
+export function indexPolicy(policy: Policy): PolicyRuleIndex {
+  const cached = indexCache.get(policy)
+  if (cached) return cached
+
+  const byAction = new Map<string, IndexedRule[]>()
+  const wildcardRules: IndexedRule[] = []
+
+  for (const rule of policy.rules) {
+    const actions = new Set(rule.actions as string[])
+    const resources = new Set(rule.resources as string[])
+    const hasWildcardAction = actions.has('*')
+    const hasWildcardResource = resources.has('*')
+
+    const entry: IndexedRule = { rule, actions, resources, hasWildcardAction, hasWildcardResource }
+
+    if (hasWildcardAction) {
+      wildcardRules.push(entry)
+    } else {
+      for (const a of actions) {
+        let bucket = byAction.get(a)
+        if (!bucket) {
+          bucket = []
+          byAction.set(a, bucket)
+        }
+        bucket.push(entry)
+      }
+    }
+  }
+
+  const idx: PolicyRuleIndex = { byAction, wildcardRules }
+  indexCache.set(policy, idx)
+  return idx
+}
+
+/**
+ * Get candidate indexed rules that could match a given action.
+ */
+export function getIndexedCandidates(idx: PolicyRuleIndex, action: string): IndexedRule[] {
+  const exact = idx.byAction.get(action)
+  if (exact) {
+    return idx.wildcardRules.length > 0 ? [...exact, ...idx.wildcardRules] : exact
+  }
+  return idx.wildcardRules
+}
+
+/**
+ * Get all indexed rules that fully match a request (action + resource + conditions).
+ */
+export function getIndexedMatches(idx: PolicyRuleIndex, req: AccessRequest): Array<{ rule: Rule; effect: Effect }> {
+  const candidates = getIndexedCandidates(idx, req.action)
+  const matched: Array<{ rule: Rule; effect: Effect }> = []
+  const resourceHasDot = req.resource.type.includes('.')
+
+  for (const entry of candidates) {
+    // Action match — already narrowed by index, but check prefix patterns
+    if (!entry.hasWildcardAction && !entry.actions.has(req.action)) {
+      // Could be a prefix pattern like "posts:*"
+      const actionMatch = entry.rule.actions.some((a) => matchesAction(a, req.action))
+      if (!actionMatch) continue
+    }
+
+    // Resource match
+    if (!entry.hasWildcardResource) {
+      const resourceMatch = entry.rule.resources.some((r) => {
+        if (resourceHasDot || r.includes('.')) {
+          return matchesResourceHierarchical(r, req.resource.type)
+        }
+        return matchesResource(r, req.resource.type)
+      })
+      if (!resourceMatch) continue
+    }
+
+    // Condition match
+    if (!evalConditionGroup(req, entry.rule.conditions)) continue
+
+    matched.push({ rule: entry.rule, effect: entry.rule.effect })
+  }
+
+  return matched
 }

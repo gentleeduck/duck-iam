@@ -5,7 +5,7 @@ description: Define roles with the builder API, set up inheritance chains, scope
 
 ## Defining Roles
 
-Roles are the RBAC side of duck-iam. You define them with the `defineRole()` builder,
+Roles are the RBAC side of duck-iam. Define them with the `defineRole()` builder,
 granting permissions as action/resource pairs. At evaluation time, roles are converted
 into ABAC policies automatically, so they flow through the same engine as hand-written
 policies.
@@ -21,13 +21,9 @@ const viewer = defineRole('viewer')
   .build()
 ```
 
-The `defineRole()` function returns a `RoleBuilder`. Each method returns `this`, so
-you can chain calls fluently. Call `.build()` at the end to produce a plain `Role`
-object.
+`defineRole()` returns a `RoleBuilder`. Call `.build()` to produce a plain `Role` object.
 
 ### Role object structure
-
-After calling `.build()`, you get a plain object matching the `Role` interface:
 
 ```typescript
 interface Role {
@@ -200,8 +196,8 @@ When this role is converted to policy rules, each rule gets an additional condit
 
 ### Permission-level scope
 
-You can scope individual permissions within a role by passing an optional third
-argument to `grant()`:
+Scope individual permissions within a role by passing an optional third argument to
+`grant()`:
 
 ```typescript
 const hybridRole = defineRole('hybrid')
@@ -212,17 +208,13 @@ const hybridRole = defineRole('hybrid')
   .build()
 ```
 
-This creates a role with mixed global and scoped permissions. The `read` permission
-works everywhere, but `update` only works in `org-1` and `create` only in `org-2`.
-
-The `grantScoped(scope, action, resource)` method is also available as an
-alternative with scope as the first argument.
+The `read` permission works everywhere; `update` only in `org-1`, `create` only in
+`org-2`. The `grantScoped(scope, action, resource)` method is also available with
+scope as the first argument.
 
 ### Scoped role assignments
 
-Beyond defining scoped roles, the engine supports **scoped role assignments** per
-subject. A user can have the `editor` role globally and the `admin` role only in
-`org-1`:
+A user can have the `editor` role globally and the `admin` role only in `org-1`:
 
 ```typescript
 // In the adapter / admin API:
@@ -246,8 +238,7 @@ scoped role assignments matching that scope. The `admin` role is only added to
 
 ## Conditional Permissions with grantWhen
 
-Sometimes a role should only grant a permission under certain conditions. Use
-`grantWhen()` to attach conditions to individual permissions:
+Use `grantWhen()` to attach conditions to individual permissions:
 
 ```typescript
 const author = defineRole('author')
@@ -273,8 +264,7 @@ reference resolved at evaluation time.
 
 ### Complex conditional permissions
 
-The `grantWhen()` callback receives a `When` builder, so you can compose any
-condition logic:
+The `grantWhen()` callback receives a `When` builder:
 
 ```typescript
 const teamLead = defineRole('team-lead')
@@ -287,13 +277,10 @@ const teamLead = defineRole('team-lead')
   .build()
 ```
 
-This grants the `approve` permission on expenses only when the subject is in the
-engineering department AND the expense amount is at most 10,000. Both conditions must
-hold (the `When` builder uses AND by default).
+This grants `approve` on expenses only when the subject is in the engineering
+department AND the expense amount is at most 10,000.
 
 ## Shorthand Methods
-
-The role builder provides several convenience methods for common permission patterns.
 
 ### grantAll(resource)
 
@@ -313,8 +300,8 @@ const postAdmin = defineRole('post-admin')
 
 ### grantCRUD(resource)
 
-Grants `create`, `read`, `update`, and `delete` on a resource. This is more explicit
-than `grantAll` -- it does not include custom actions like `publish` or `archive`.
+Grants `create`, `read`, `update`, and `delete` on a resource. Does not include
+custom actions like `publish` or `archive`.
 
 ```typescript
 const contentManager = defineRole('content-manager')
@@ -336,7 +323,7 @@ const contentManager = defineRole('content-manager')
 
 ### grantRead(resources...)
 
-Grants `read` on one or more resources. Takes multiple arguments:
+Grants `read` on one or more resources:
 
 ```typescript
 const auditor = defineRole('auditor')
@@ -366,8 +353,7 @@ const orgViewer = defineRole('org-viewer')
 
 ### meta(metadata)
 
-Attach arbitrary metadata to a role for your own bookkeeping. Metadata is stored on the
-role object but is not used by the engine during evaluation -- it is for your application
+Attaches arbitrary metadata to a role. Not used during evaluation -- for application
 code (admin dashboards, audit logs, UI labels).
 
 ```typescript
@@ -384,8 +370,6 @@ console.log(role.metadata)
 
 ## Edge Cases
 
-A few behaviors to be aware of when working with roles:
-
 - **Empty permissions**: a role with no permissions and no inheritance is valid but will
   not grant any access. `validateRoles()` flags this as a warning.
 - **Deep inheritance chains**: inheritance is resolved by walking the tree recursively.
@@ -399,9 +383,7 @@ A few behaviors to be aware of when working with roles:
 
 ## How Roles Become Policies (rolesToPolicy)
 
-Under the hood, `rolesToPolicy()` converts your role definitions into a single ABAC
-policy. Understanding this conversion helps you reason about how RBAC and ABAC
-interact.
+`rolesToPolicy()` converts role definitions into a single ABAC policy.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Input["Role Definitions"]
@@ -437,7 +419,7 @@ For each role, the function:
    - `priority: 10` (default)
 3. Wraps all rules in a policy with `id: "__rbac__"` and `algorithm: "allow-overrides"`.
 
-Here is what the viewer role looks like after conversion:
+The viewer role after conversion:
 
 ```typescript
 // Input:
@@ -476,14 +458,13 @@ const viewer = defineRole('viewer')
 ```
 
 The `allow-overrides` algorithm means: if any role grants the permission, the subject
-is allowed. This is the natural RBAC behavior -- a user with multiple roles gets the
-union of all their permissions.
+is allowed -- a user with multiple roles gets the union of all their permissions.
 
 ## Type-Safe Roles with createAccessConfig
 
-For full type safety across your role definitions, use `createAccessConfig()` to get
-typed builder functions. When you declare `roles`, the role ID parameter in `defineRole()`
-and the `.role()` / `.roles()` methods in conditions are constrained to your declared values.
+Use `createAccessConfig()` to get typed builder functions. When you declare `roles`,
+the role ID parameter in `defineRole()` and the `.role()` / `.roles()` methods in
+conditions are constrained to your declared values.
 
 ```typescript
 import { createAccessConfig } from '@gentleduck/iam'
@@ -522,7 +503,7 @@ and roles. The type flows through the entire chain -- from `grantWhen()` callbac
 
 ## Validating Roles
 
-Before saving roles to your adapter, you can validate them for common mistakes:
+Before saving roles to your adapter, validate them for common mistakes:
 
 ```typescript
 import { createAccessConfig } from '@gentleduck/iam'
@@ -551,8 +532,6 @@ The validator checks for:
 - Empty permission lists
 
 ## Complete Example
-
-Here is a full multi-tenant role setup:
 
 ```typescript
 import { createAccessConfig } from '@gentleduck/iam'
@@ -661,7 +640,7 @@ for (const role of [viewer, author, editor, orgAdmin, superAdmin]) {
   <AccordionItem value="grantwhen-vs-policy">
     <AccordionTrigger>When should owner-only or attribute checks stay on a role with grantWhen() instead of moving to a policy?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Keep the condition on the role when it is part of the role's natural meaning, such as “authors can edit their own posts.”
+      Keep the condition on the role when it is part of the role's natural meaning, such as "authors can edit their own posts."
       Move it into a standalone policy when the rule cuts across many roles, needs its own lifecycle, or reads more clearly as a
       global restriction than as role-local logic.
     </AccordionContent>
@@ -671,7 +650,7 @@ for (const role of [viewer, author, editor, orgAdmin, superAdmin]) {
     <AccordionTrigger>What happens if one role mixes global permissions and scope-bound permissions?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       The global permissions remain active everywhere. The scoped permissions only activate when the request carries the matching
-      scope. This lets one role express “read everywhere, but update only inside org-1” without splitting into separate role IDs.
+      scope. This lets one role express "read everywhere, but update only inside org-1" without splitting into separate role IDs.
     </AccordionContent>
   </AccordionItem>
 

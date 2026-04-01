@@ -5,14 +5,7 @@ description: Use engine.explain() to trace every policy, rule, and condition eva
 
 ## Overview
 
-<Callout type="warning" title="Development mode only">
-  `engine.explain()` is only available when the engine is created with `mode: 'development'` (the default).
-  Calling `explain()` on a production-mode engine throws an error at runtime, and TypeScript will
-  flag the call at compile time. Use development mode for debugging and production mode for speed.
-</Callout>
-
-When a permission check returns an unexpected result, you need to understand why. duck-iam
-provides two categories of debugging tools:
+When a permission check returns an unexpected result, duck-iam provides two categories of debugging tools:
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Result["ExplainResult"]
@@ -55,19 +48,13 @@ provides two categories of debugging tools:
 
 ## engine.explain()
 
-The `explain()` method runs the same evaluation as `check()` but traces every step without
-short-circuiting. Even if the first policy denies access, the engine still evaluates all
-remaining policies so you can see the complete picture.
+> **Development mode only.** `explain()` is only available when the engine is created with `mode: 'development'` (the default). In production mode, calling `explain()` throws an error. If you need explain in production, create a separate development-mode engine for debug endpoints.
 
-`explain()` is a diagnostic tool. It applies the `beforeEvaluate` hook so the traced request
-matches the real evaluation input, but it does **not** trigger `afterEvaluate`, `onDeny`,
-or `onError`. One caveat matters: if `beforeEvaluate` throws, the explain call rejects because
-that hook still runs on the main explain path.
+`explain()` runs the same evaluation as `check()` but traces every step without short-circuiting. Even if the first policy denies access, the engine still evaluates all remaining policies so you see the complete picture.
+
+`explain()` is a diagnostic tool. It applies the `beforeEvaluate` hook so the traced request matches the real evaluation input, but does **not** trigger `afterEvaluate`, `onDeny`, or `onError`. If `beforeEvaluate` throws, the explain call rejects because that hook still runs on the main explain path.
 
 ```typescript
-// Engine must be in development mode (the default)
-const engine = createEngine({ mode: 'development', /* ... */ })
-
 const result = await engine.explain('user-1', 'delete', {
   type: 'post',
   id: 'post-1',
@@ -99,7 +86,7 @@ interface ExplainResult {
 
 ### The summary string
 
-The quickest way to debug is to print the summary:
+Print the summary first when debugging:
 
 ```typescript
 console.log(result.summary)
@@ -138,10 +125,7 @@ interface PolicyTrace {
 }
 ```
 
-When `targetMatch` is `false`, the policy's rules were not evaluated because its target filter
-(actions, resources, or roles) did not match the request. The `rules` array will be empty. In
-the current trace format, `result` still mirrors the engine's default effect, so use
-`targetMatch` as the signal that the policy was bypassed.
+When `targetMatch` is `false`, the policy's target filter (actions, resources, or roles) did not match the request and its rules were not evaluated — `rules` will be empty. In the current trace format, `result` still mirrors the engine's default effect, so use `targetMatch` as the signal that the policy was bypassed.
 
 ```typescript
 for (const pt of result.policies) {
@@ -174,8 +158,7 @@ interface RuleTrace {
 }
 ```
 
-A rule only `matched` if all three criteria are true: action match, resource match, and
-conditions met.
+A rule only `matched` if all three criteria are true: action match, resource match, and conditions met.
 
 ```typescript
 for (const rule of policyTrace.rules) {
@@ -193,8 +176,7 @@ for (const rule of policyTrace.rules) {
 
 ### Reading ConditionTrace
 
-Conditions form a tree of logical groups (`all`, `any`, `none`) with leaf conditions at
-the bottom. The trace preserves this structure.
+Conditions form a tree of logical groups (`all`, `any`, `none`) with leaf conditions at the bottom. The trace preserves this structure.
 
 ```typescript
 // Group node
@@ -216,7 +198,7 @@ interface ConditionLeafTrace {
 }
 ```
 
-Walk the tree to find exactly which condition failed:
+Walk the tree to find which condition failed:
 
 ```typescript
 function printConditions(trace, indent = '') {
@@ -244,16 +226,13 @@ all (FAIL):
   [FAIL] resource.attributes.ownerId eq "user-1" (actual: "user-2")
 ```
 
-This immediately shows you that the subject has the `editor` role but the `ownerId`
-condition failed because the post belongs to `user-2`, not `user-1`.
+The subject has the `editor` role but the `ownerId` condition failed because the post belongs to `user-2`, not `user-1`.
 
 ## Validation
 
 ### validatePolicy()
 
-Use `validatePolicy()` to validate untrusted policy objects before saving them. This is
-essential when policies come from a database, API, or admin dashboard where the data
-could be malformed.
+Use `validatePolicy()` to validate untrusted policy objects before saving them. This is necessary when policies come from a database, API, or admin dashboard where the data could be malformed.
 
 ```typescript
 import { validatePolicy } from '@gentleduck/iam'
@@ -272,7 +251,7 @@ if (!result.valid) {
 await engine.admin.savePolicy(policyJson)
 ```
 
-**What it checks:**
+What it checks:
 
 - Required fields: `id`, `name`, `algorithm`, `rules`
 - Valid combining algorithm (`deny-overrides`, `allow-overrides`, `first-match`, `highest-priority`)
@@ -302,8 +281,7 @@ interface ValidationIssue {
 
 ### validateRoles()
 
-Use `validateRoles()` to validate your role configuration. This catches structural mistakes
-that would cause silent failures at runtime.
+Use `validateRoles()` to validate your role configuration. This catches structural mistakes that cause silent failures at runtime.
 
 ```typescript
 import { validateRoles } from '@gentleduck/iam'
@@ -319,7 +297,7 @@ if (!result.valid) {
 }
 ```
 
-**What it checks:**
+What it checks:
 
 | Check | Severity | Example |
 | --- | --- | --- |
@@ -328,8 +306,7 @@ if (!result.valid) {
 | Circular inheritance | warning | `admin` inherits `editor`, `editor` inherits `admin` |
 | Empty roles | warning | Role has no permissions and no inheritance |
 
-Circular inheritance is a warning (not an error) because the engine handles it gracefully
-at runtime by tracking visited roles during resolution.
+Circular inheritance is a warning (not an error) because the engine handles it gracefully at runtime by tracking visited roles during resolution.
 
 ### Example: catching a dangling inherit
 
@@ -366,7 +343,7 @@ console.log(result.issues)
 
 ### "Why was my request denied?"
 
-Use `engine.explain()` and check the summary first:
+Use `engine.explain()` and check the summary:
 
 ```typescript
 const result = await engine.explain('user-1', 'update', {
@@ -378,16 +355,13 @@ const result = await engine.explain('user-1', 'update', {
 console.log(result.summary)
 ```
 
-If the summary shows "No matching rules," the subject does not have a role with the
-required permission. Check `result.subject.roles`.
+If the summary shows "No matching rules," the subject does not have a role with the required permission. Check `result.subject.roles`.
 
-If the summary shows a specific deny rule, look at that rule's conditions in the trace
-to see which condition failed.
+If the summary shows a specific deny rule, look at that rule's conditions in the trace to see which condition failed.
 
 ### "Why was my request allowed when it should be denied?"
 
-Check if any policy has `allow-overrides` that is too permissive. Look through the
-policy traces:
+Check if any policy has `allow-overrides` that is too permissive:
 
 ```typescript
 const result = await engine.explain('user-1', 'delete', {
@@ -422,8 +396,7 @@ console.log('Base roles:', result.subject.roles)
 console.log('Scoped roles added:', result.subject.scopedRolesApplied)
 ```
 
-If `scopedRolesApplied` is empty, the adapter either does not have scoped role assignments
-for this subject/scope combination or does not implement `getSubjectScopedRoles()`.
+If `scopedRolesApplied` is empty, the adapter either has no scoped role assignments for this subject/scope combination or does not implement `getSubjectScopedRoles()`.
 
 ### "My conditions reference the wrong field path"
 
@@ -507,13 +480,10 @@ Common mistakes in dynamic policies:
   </AccordionItem>
 
   <AccordionItem value="explain-prod-usage">
-    <AccordionTrigger>Can I use explain() in production?</AccordionTrigger>
+    <AccordionTrigger>Can I use explain() in production troubleshooting?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. Calling <code className="rounded bg-muted px-2 py-1">explain()</code> on a production-mode engine throws
-      <em>"explain() is not available in production mode. Use mode: 'development' to enable debug tools."</em>{" "}
-      TypeScript also prevents the call at compile time because <code className="rounded bg-muted px-2 py-1">explain()</code>
-      requires <code className="rounded bg-muted px-2 py-1">Engine&lt;..., 'development'&gt;</code>. Use development mode
-      for debugging and investigation; use production mode for speed and a smaller API surface.
+      Yes, but treat it as a debugging tool. It evaluates the real request path and returns rich traces, which is useful for
+      audits and support cases, but control who can access those traces because they expose policy and condition details.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
