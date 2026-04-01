@@ -86,6 +86,10 @@ export const docsConfig = {
           href: '/docs/advanced/utilities',
           title: 'Utilities',
         },
+        {
+          href: '/docs/benchmarks',
+          title: 'Benchmarks',
+        },
       ],
       title: 'Advanced',
     },
