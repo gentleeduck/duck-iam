@@ -1,5 +1,11 @@
 # @gentleduck/iam
 
+## 1.6.0
+
+### Minor Changes
+
+- Performance: evaluatePolicyFast now 2x vs CASL (was 5.2x). Inlined hot path, added pre-computed results cache for unconditional rules, fixed empty conditions bug, added combined action+resource index.
+
 ## 1.5.0
 
 ### Minor Changes
