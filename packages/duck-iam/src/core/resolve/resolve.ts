@@ -6,6 +6,38 @@ const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
 /** Property names that must never be traversed */
 const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 
+/** Cache for validated, split path segments. */
+const pathCache = new Map<string, string[] | null>()
+
+/**
+ * Splits and validates a dot-path, caching the result.
+ * Returns `null` for invalid paths (bad root or blocked segments).
+ */
+function getSegments(path: string): string[] | null {
+  let cached = pathCache.get(path)
+  if (cached !== undefined) return cached
+
+  const segments = path.split('.')
+
+  // Validate root path is an allowed prefix
+  if (!segments[0] || !ALLOWED_ROOTS.has(segments[0])) {
+    pathCache.set(path, null)
+    return null
+  }
+
+  // Check for blocked segments once at cache time
+  for (const seg of segments) {
+    if (BLOCKED_SEGMENTS.has(seg)) {
+      pathCache.set(path, null)
+      return null
+    }
+  }
+
+  pathCache.set(path, segments)
+  cached = segments
+  return cached
+}
+
 /**
  * Resolves dot-path field references against an AccessRequest.
  *
@@ -23,15 +55,12 @@ export function resolve(request: AccessRequest, path: string): AttributeValue {
   if (path === 'action') return request.action
   if (path === 'scope') return request.scope ?? null
 
-  const segments = path.split('.')
-
-  // Validate root path is an allowed prefix
-  if (!segments[0] || !ALLOWED_ROOTS.has(segments[0])) return null
+  const segments = getSegments(path)
+  if (!segments) return null
 
   let node: unknown = request
 
   for (const seg of segments) {
-    if (BLOCKED_SEGMENTS.has(seg)) return null
     if (node == null || typeof node !== 'object') return null
     node = (node as Record<string, unknown>)[seg]
   }

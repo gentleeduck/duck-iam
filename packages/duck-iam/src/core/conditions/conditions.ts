@@ -41,7 +41,7 @@ export function evalConditionGroup(req: AccessRequest, group: ConditionGroup, de
   }
 
   if ('none' in group) {
-    return group.none.every((item) => !evalItem(req, item, depth + 1))
+    return !group.none.some((item) => evalItem(req, item, depth + 1))
   }
 
   return false

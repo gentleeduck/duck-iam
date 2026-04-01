@@ -5,13 +5,12 @@ description: How duck-iam combines RBAC and ABAC into a single evaluation pipeli
 
 ## How duck-iam Works
 
-duck-iam is a hybrid access control engine. It lets you define **roles** (RBAC) and
-**policies** (ABAC) side by side. At evaluation time, both systems feed into the same
-pipeline, so you get the simplicity of roles with the precision of attribute-based rules.
+duck-iam is a hybrid access control engine. Define roles (RBAC) and policies (ABAC)
+side by side — both feed into the same evaluation pipeline.
 
-The key insight: roles are converted into ABAC policies internally. This means every
-authorization check goes through one unified evaluator, regardless of whether the
-permission came from a role definition or a hand-written policy.
+Roles are converted into ABAC policies internally. Every authorization check goes
+through one unified evaluator, regardless of whether the permission came from a role
+definition or a hand-written policy.
 
 ### RBAC vs ABAC vs duck-iam
 
@@ -42,7 +41,7 @@ permission came from a role definition or a hand-written policy.
 
 ## The Evaluation Flow
 
-When you call `engine.can()` or `engine.authorize()`, here is what happens:
+When you call `engine.can()` or `engine.authorize()`:
 
 <MermaidDiagram chart={`flowchart TD
     A["engine.can(subjectId, action, resource, env?, scope?)"] --> B["1. Resolve Subject"]
@@ -110,8 +109,6 @@ The engine supports a `mode` option that controls the evaluation path:
 
 ## Key Concepts
 
-The building blocks of every authorization check:
-
 <MermaidDiagram chart={`flowchart LR
     subgraph Request["AccessRequest"]
         direction TB
@@ -162,8 +159,8 @@ interface Subject {
 }
 ```
 
-A subject carries its identity (`id`), the roles assigned to it, and arbitrary
-attributes (department, plan tier, clearance level -- anything your domain needs).
+A subject carries its identity (`id`), assigned roles, and arbitrary attributes
+(department, plan tier, clearance level, or anything else your domain needs).
 
 ### Resource
 
@@ -182,15 +179,15 @@ will also match `"dashboard.users"` and `"dashboard.users.settings"`.
 
 ### Action
 
-A string describing what the subject wants to do: `"read"`, `"create"`, `"update"`,
+A string describing the operation: `"read"`, `"create"`, `"update"`,
 `"delete"`, or any custom action your app defines. Actions support wildcard matching --
 `"*"` matches everything, and `"posts:*"` matches `"posts:read"`, `"posts:write"`, etc.
 
 ### Scope
 
 An optional namespace for multi-tenant isolation. When a request carries
-`scope: "org-1"`, only roles and rules that match that scope apply. Scopes are
-strings -- use whatever fits your domain: org IDs, workspace slugs, project keys.
+`scope: "org-1"`, only roles and rules matching that scope apply. Use any string:
+org IDs, workspace slugs, project keys.
 
 <MermaidDiagram chart={`flowchart LR
     USER["User: alice\nBase: viewer"] --> REQ1["scope: org-1"]
@@ -215,7 +212,7 @@ interface AccessRequest {
 }
 ```
 
-The `environment` field carries request-time context like IP address, user agent,
+The `environment` field carries request-time context: IP address, user agent,
 timestamp, or any custom key-value pairs your conditions need.
 
 ```typescript
@@ -269,8 +266,8 @@ interface Policy {
 }
 ```
 
-Policies can have **targets** that scope them to specific actions, resources, or roles.
-If a request does not match a policy's targets, that policy's rules are not evaluated.
+Policies can have targets that scope them to specific actions, resources, or roles.
+If a request does not match a policy's targets, that policy's rules are skipped.
 
 ### Rule
 
@@ -288,13 +285,12 @@ interface Rule {
 }
 ```
 
-A rule says "allow (or deny) these actions on these resources when these conditions are
-true." Rules are matched against the request -- if the action matches, the resource
-matches, and all conditions pass, the rule fires with its declared effect.
+A rule fires when the action matches, the resource matches, and all conditions pass.
+Its effect (`allow` or `deny`) is applied.
 
 ### How a Rule is Matched
 
-A rule must pass three checks before its effect applies:
+Three checks must pass before a rule's effect applies:
 
 <MermaidDiagram chart={`flowchart LR
     START["Incoming Rule"] --> ACT{"1. Action\nMatch?"}
@@ -307,7 +303,7 @@ A rule must pass three checks before its effect applies:
 
 ### Condition and ConditionGroup
 
-Conditions are the core of ABAC. A single condition checks one field against one value:
+A single condition checks one field against one value:
 
 ```typescript
 interface Condition {
@@ -345,12 +341,12 @@ type ConditionGroup =
         L3["none: every child must be false"]
     end`} />
 
-Groups can be nested up to 10 levels deep. The engine fails closed -- if nesting
-exceeds the limit, the condition evaluates to `false`.
+Groups can be nested up to 10 levels. Exceeding the limit evaluates to `false`
+(fail closed).
 
 ### Field Resolution
 
-Condition `field` values are resolved against the `AccessRequest` using dot-notation paths.
+Condition `field` values are dot-notation paths resolved against the `AccessRequest`.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Subject_Paths["Subject Fields"]
@@ -389,9 +385,8 @@ Fields that do not exist resolve to `null`. The resolver blocks access to `__pro
 
 ### Dynamic References ($-variables)
 
-When a condition value starts with `$`, it is resolved at evaluation time instead of
-being compared as a literal string. This lets you compare two request fields against
-each other.
+When a condition value starts with `$`, it is resolved at evaluation time rather than
+compared as a literal. Use this to compare two fields from the same request.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Static["Static Value Comparison"]
@@ -415,13 +410,13 @@ each other.
 { field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' }
 ```
 
-The `$` prefix is stripped and the remainder is resolved using the same field resolution
-paths. Common uses include ownership checks (`$subject.id`), department matching
-(`$subject.attributes.department`), and scope validation (`$scope`).
+The `$` prefix is stripped and the remainder is resolved using the same field paths.
+Common uses: ownership checks (`$subject.id`), department matching
+(`$subject.attributes.department`), scope validation (`$scope`).
 
 ### Decision
 
-The output of every authorization check:
+The output of an authorization check:
 
 ```typescript
 interface Decision {
@@ -437,8 +432,7 @@ interface Decision {
 
 ## Combining Algorithms
 
-Each policy uses a combining algorithm to resolve conflicts when multiple rules match
-the same request. There are four algorithms.
+Each policy uses a combining algorithm to resolve conflicts when multiple rules match.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph DO["deny-overrides (default, safest)"]
@@ -473,8 +467,7 @@ the same request. There are four algorithms.
 
 ### deny-overrides (default)
 
-If any matching rule says `deny`, the policy result is `deny`. Otherwise, if any rule
-says `allow`, the result is `allow`. This is the safest default -- deny always wins.
+Any `deny` wins over any `allow`. The safest default.
 
 ```typescript
 const strictPolicy = policy('strict')
@@ -493,9 +486,8 @@ const strictPolicy = policy('strict')
 
 ### allow-overrides
 
-If any matching rule says `allow`, the policy result is `allow`. Otherwise, if any rule
-says `deny`, the result is `deny`. Use this when you want permissive policies where a
-single allow rule is enough.
+Any `allow` wins over any `deny`. Use for permissive policies where a single allow rule
+is sufficient.
 
 ```typescript
 const permissivePolicy = policy('permissive')
@@ -512,13 +504,11 @@ const permissivePolicy = policy('permissive')
 // Admin role triggers the allow rule, which overrides the deny.
 ```
 
-This is the algorithm used by the auto-generated RBAC policy. If any role grants
-the permission, the subject is allowed.
+This is the algorithm used by the auto-generated RBAC policy.
 
 ### first-match
 
-The first rule that matches determines the result. Rule order matters. This gives
-you explicit control over evaluation order.
+The first matching rule determines the result. Rule order matters.
 
 ```typescript
 const orderedPolicy = policy('ordered')
@@ -538,9 +528,8 @@ const orderedPolicy = policy('ordered')
 
 ### highest-priority
 
-The matching rule with the highest `priority` value wins. If multiple rules share the
-highest priority, the first one encountered wins. Use this when you want fine-grained
-control without worrying about rule ordering.
+The matching rule with the highest `priority` value wins. Ties go to the first
+encountered.
 
 ```typescript
 const priorityPolicy = policy('priority-based')
@@ -565,9 +554,9 @@ const priorityPolicy = policy('priority-based')
 
 ## Cross-Policy AND-Combination
 
-The combining algorithm works **within** a single policy. **Across** policies, duck-iam
-uses strict AND-combination: every policy must allow the request for the final decision
-to be `allow`.
+The combining algorithm resolves conflicts within a single policy. Across policies,
+duck-iam uses strict AND-combination: every policy must allow for the final result to
+be `allow`.
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Weekday["Weekday Request"]
@@ -598,7 +587,7 @@ to be `allow`.
 // On a weekend: Policy A allows, Policy B denies  -> DENIED
 ```
 
-This means you can layer policies for defense in depth:
+Layer policies for defense in depth:
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Layers["Defense-in-Depth Layers"]
@@ -622,8 +611,8 @@ Each policy is evaluated independently. A deny from any one of them is final.
 
 ## The Default Effect
 
-When no rules match a request within a policy, the engine falls back to the
-`defaultEffect`. This defaults to `"deny"` (fail closed), but you can configure it:
+When no rules match within a policy, the engine falls back to `defaultEffect`. This
+defaults to `"deny"` (fail closed):
 
 ```typescript
 const engine = new Engine({
@@ -632,13 +621,11 @@ const engine = new Engine({
 })
 ```
 
-Keep this set to `"deny"` in production. Fail-closed is the safe default -- if you
-forget to write a rule for something, it is denied rather than accidentally allowed.
+Fail-closed means an unmatched request is denied rather than accidentally allowed.
 
 ## Debugging with explain()
 
-When you need to understand why a request was allowed or denied, use the `explain()`
-method. It returns a full evaluation trace without triggering side-effect hooks:
+`explain()` returns a full evaluation trace without triggering side-effect hooks:
 
 ```typescript
 const trace = await engine.explain(
@@ -655,7 +642,7 @@ console.log(trace.summary)
 ```
 
 The trace includes per-policy breakdowns, per-rule match details, and per-condition
-actual vs. expected values. This is invaluable for debugging complex permission setups.
+actual vs. expected values.
 
 ---
 
@@ -685,8 +672,8 @@ actual vs. expected values. This is invaluable for debugging complex permission 
     <AccordionTrigger>What happens when no rules or targets match?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       The evaluator falls back to the configured default effect, which is usually
-      <code className="rounded bg-muted px-2 py-1">deny</code>. duck-iam treats “policy does not apply” and
-      “no rule matched” as fail-closed outcomes unless you explicitly choose a different default.
+      <code className="rounded bg-muted px-2 py-1">deny</code>. duck-iam treats "policy does not apply" and
+      "no rule matched" as fail-closed outcomes unless you explicitly choose a different default.
     </AccordionContent>
   </AccordionItem>
 
@@ -729,10 +716,10 @@ actual vs. expected values. This is invaluable for debugging complex permission 
   </AccordionItem>
 
   <AccordionItem value="policy-not-apply-vs-no-rule">
-    <AccordionTrigger>What is the practical difference between “policy did not apply” and “no rule matched”?</AccordionTrigger>
+    <AccordionTrigger>What is the practical difference between "policy did not apply" and "no rule matched"?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Both end up flowing into the evaluator's default-effect behavior, but they happen at different layers. A target
-      miss means the whole policy was skipped before rule evaluation. “No rule matched” means the policy applied, but none
+      miss means the whole policy was skipped before rule evaluation. "No rule matched" means the policy applied, but none
       of its rules produced an allow or deny outcome.
     </AccordionContent>
   </AccordionItem>

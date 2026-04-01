@@ -514,9 +514,8 @@ const p = policy('my-policy')
         <li><code className="rounded bg-muted px-2 py-1">{"environment.*"}</code></li>
       </ul>
       <p className="mt-3">
-        If a path does not resolve (the field does not exist), the result is `undefined`. The engine
-        includes prototype pollution protection -- it blocks access to `__proto__`, `constructor`,
-        and `prototype` in field paths.
+        Unresolved paths return `undefined`. `__proto__`, `constructor`, and `prototype` are blocked
+        in all paths to prevent prototype pollution.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -524,12 +523,10 @@ const p = policy('my-policy')
   <AccordionItem value="isowner-shortcut">
     <AccordionTrigger>What does the isOwner() condition shortcut do?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      `isOwner()` is a convenience method on the condition builder that expands to:
+      Expands to:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`{ field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' }`}</code></pre>
       <p className="mt-3">
-        It checks if the resource's `ownerId` attribute equals the requesting subject's ID. You must
-        pass `ownerId` in the resource attributes when calling `engine.can()` or `engine.check()` for
-        this to work.
+        Requires `ownerId` in resource attributes when calling `engine.can()` or `engine.check()`.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -537,28 +534,19 @@ const p = policy('my-policy')
   <AccordionItem value="why-dollar-prefix">
     <AccordionTrigger>Why does duck-iam use the $ prefix for dynamic value references?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The engine needs a way to distinguish between a **literal string** and a **path to resolve at runtime**.
-      Without a marker, a condition value like `'subject.id'` would be compared as the literal string
-      `"subject.id"`, not the actual subject's ID. The `$` prefix tells the engine to strip the `$` and
-      resolve the remaining path against the request context.
+      Without a marker, `'subject.id'` in a condition value is compared as a literal string, not a runtime
+      path. The `$` prefix tells the engine to strip it and resolve the remaining path against the
+      request context.
       <p className="mt-3">
-        Alternative designs (like a separate `rightField` property or a wrapper object `{"{"} $ref: 'subject.id' {"}"}`)
-        would add complexity to the condition type and evaluation logic. The `$` prefix keeps it simple --
-        one `if` statement in `resolveValue()`, no extra types, no schema changes. It is also a widely
-        understood convention (shell variables, MongoDB operators, template strings).
+        Alternative designs (separate `rightField` property, `{"{"} $ref: 'subject.id' {"}"}`) would add
+        type complexity and schema changes. `$` is one `if` in `resolveValue()` and follows a convention
+        already understood from shell variables, MongoDB operators, and template strings.
       </p>
       <p className="mt-3">
-        With the typed API, you also get full IDE autocomplete for <code className="rounded bg-muted px-2 py-1">$</code>-prefixed
-        values. The <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> type generates all valid
-        <code className="rounded bg-muted px-2 py-1">$</code>-prefixed dot-paths from your context type, so when you use
-        <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> with a typed context and type
-        <code className="rounded bg-muted px-2 py-1">'$'</code> in a value position, your IDE suggests paths like
-        <code className="rounded bg-muted px-2 py-1">'$subject.id'</code> or <code className="rounded bg-muted px-2 py-1">'$resource.attributes.ownerId'</code>.
-        No <code className="rounded bg-muted px-2 py-1">as string</code> cast is needed.
-      </p>
-      <p className="mt-3">
-        The only tradeoff is that you cannot use a literal value that starts with `$`, but this never
-        comes up in practice for access control attributes.
+        With <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> and a typed context,
+        <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> generates valid
+        <code className="rounded bg-muted px-2 py-1">$</code>-prefixed paths for IDE autocomplete. No <code className="rounded bg-muted px-2 py-1">as string</code> cast needed.
+        Literal values starting with `$` are not supported, but this never arises in practice.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -591,16 +579,6 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
         If Bob tries the same request, `resolve('subject.id')` returns `'user-bob'`, and
         `eq('user-alice', 'user-bob')` returns `false` -- denied.
       </p>
-      <p className="mt-3">
-        When using <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> with a typed context,
-        all <code className="rounded bg-muted px-2 py-1">$</code>-prefixed values get full IDE autocomplete via the
-        <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> type. Typing
-        <code className="rounded bg-muted px-2 py-1">'$'</code> in a value position shows all valid paths, so you do not
-        need an <code className="rounded bg-muted px-2 py-1">as string</code> cast. Internally, the
-        <code className="rounded bg-muted px-2 py-1">& {"{}"}</code> trick prevents TypeScript from collapsing
-        <code className="rounded bg-muted px-2 py-1">string | '$subject.id'</code> into just
-        <code className="rounded bg-muted px-2 py-1">string</code>.
-      </p>
     </AccordionContent>
   </AccordionItem>
 
@@ -628,10 +606,7 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
 
 // Raw condition group:
 { none: [{ field: 'subject.roles', operator: 'contains', value: 'banned' }] }`}</code></pre>
-      <p className="mt-3">
-        `none` means "none of these conditions may pass" -- it is the logical NOT. If the inner
-        condition is true, the `none` group is false, and vice versa.
-      </p>
+      <p className="mt-3">`none` is logical NOT -- the group passes when all inner conditions fail.</p>
     </AccordionContent>
   </AccordionItem>
 
@@ -640,20 +615,15 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
     <AccordionContent className="text-muted-foreground">
       Yes. Use the `matches` operator:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`.check('resource.attributes.email', 'matches', '^.*@company\\.com$')`}</code></pre>
-      <p className="mt-3">
-        The value is treated as a regex pattern string. The engine creates a `RegExp` from it and
-        tests it against the resolved field value. Be careful with regex complexity to avoid ReDoS.
-      </p>
+      <p className="mt-3">The value is a regex pattern string. Avoid complex patterns to prevent ReDoS.</p>
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="condition-undefined">
     <AccordionTrigger>What happens when a condition field resolves to undefined?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      If a field path does not resolve, the actual value is `undefined`. Most operators will return
-      `false` when comparing against `undefined` (e.g., `eq` with a non-undefined expected value
-      fails). The `exists` operator explicitly checks for non-null/non-undefined, and `not_exists`
-      checks for null/undefined. Use `exists` and `not_exists` to safely handle optional fields.
+      Most operators return `false` when the field resolves to `undefined`. Use `exists` (non-null/non-undefined)
+      and `not_exists` (null/undefined) to handle optional fields explicitly.
     </AccordionContent>
   </AccordionItem>
 
@@ -1029,8 +999,7 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
         <li><code className="rounded bg-muted px-2 py-1">engine.invalidateRoles()</code> -- clears the role and RBAC policy caches</li>
       </ul>
       <p className="mt-3">
-        The admin API automatically invalidates relevant caches when you save/delete policies or
-        assign/remove roles through `engine.admin.*` methods.
+        `engine.admin.*` methods do this automatically on mutation.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1038,12 +1007,10 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
   <AccordionItem value="performance">
     <AccordionTrigger>What is the performance like?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      With cached data, a typical evaluation takes under 1 millisecond. The engine loads policies,
-      roles, and subjects once and caches them. Each check only runs the evaluation logic -- iterating
-      over policies, matching rules, and evaluating conditions. For batch checks, use
-      `engine.permissions()` which loads data once and evaluates many checks against it. The `Decision`
-      object includes a `duration` field (in milliseconds) so you can monitor evaluation times in
-      production.
+      With cached data, a typical evaluation takes under 1 ms. Data is loaded once and cached; each check
+      only runs rule matching and condition evaluation. Use `engine.permissions()` for batch checks --
+      it loads data once and evaluates all checks against it. `Decision.duration` (ms) lets you monitor
+      evaluation times.
     </AccordionContent>
   </AccordionItem>
 
@@ -1106,10 +1073,6 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
         <li><strong>Subject roles:</strong> `assignRole(subjectId, roleId, scope?)`, `revokeRole(subjectId, roleId, scope?)`</li>
         <li><strong>Subject attributes:</strong> `setAttributes(subjectId, attrs)`, `getAttributes(subjectId)`</li>
       </ul>
-      <p className="mt-3">
-        Each mutation method automatically invalidates the appropriate cache (e.g., `savePolicy()`
-        invalidates the policy cache, `assignRole()` invalidates the specific subject's cache).
-      </p>
     </AccordionContent>
   </AccordionItem>
 
@@ -1123,10 +1086,7 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
         <li>`assignRole()` / `revokeRole()` -- invalidates the specific subject's cache</li>
         <li>`setAttributes()` -- invalidates the specific subject's cache</li>
       </ul>
-      <p className="mt-3">
-        This means changes take effect immediately for the next permission check without waiting
-        for the cache TTL to expire.
-      </p>
+      <p className="mt-3">Changes take effect on the next check without waiting for TTL expiry.</p>
     </AccordionContent>
   </AccordionItem>
 </Accordion>
@@ -1181,10 +1141,8 @@ const adapter = new DrizzleAdapter({ db: drizzleInstance })`}</code></pre>
   <AccordionItem value="http-adapter">
     <AccordionTrigger>When should I use the HttpAdapter?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Use HttpAdapter when your authorization data lives in a separate service -- for example, a
-      centralized authorization microservice that multiple applications share. The HttpAdapter
-      fetches policies, roles, and subject data via HTTP requests. Configure the base URL and
-      optional headers (for authentication):
+      Use HttpAdapter when authorization data lives in a separate service. Configure the base URL and
+      optional auth headers:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { HttpAdapter } from '@gentleduck/iam/adapters/http'
 
 const adapter = new HttpAdapter({
@@ -1214,9 +1172,8 @@ const adapter = new HttpAdapter({
   <AccordionItem value="adapter-peer-deps">
     <AccordionTrigger>Do database adapters add dependencies?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. Database adapters use peer dependencies. If you use `PrismaAdapter`, you must already have
-      `@prisma/client` installed in your project. If you use `DrizzleAdapter`, you must already have
-      `drizzle-orm` installed. The duck-iam package itself does not bundle these ORMs.
+      No. Database adapters use peer dependencies -- `@prisma/client` for `PrismaAdapter`,
+      `drizzle-orm` for `DrizzleAdapter`. Neither is bundled by duck-iam.
     </AccordionContent>
   </AccordionItem>
 </Accordion>
@@ -1238,10 +1195,7 @@ const middleware = accessMiddleware(engine, {
 })
 
 app.use('/api/posts', middleware)`}</code></pre>
-      <p className="mt-3">
-        The middleware extracts the subject, action, and resource from the request, runs
-        `engine.can()`, and either calls `next()` or responds with 403.
-      </p>
+      <p className="mt-3">Calls `engine.can()` and either calls `next()` or responds with 403.</p>
     </AccordionContent>
   </AccordionItem>
 
@@ -1370,10 +1324,9 @@ app.use('/api/posts/*', middleware)`}</code></pre>
   <AccordionItem value="client-overview">
     <AccordionTrigger>How do client libraries work?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Client libraries fetch the user's permission map (a `Record&lt;string, boolean&gt;`) from a server
-      endpoint and expose it to your components. Permissions are always evaluated on the server -- the
-      client only receives the boolean results for rendering decisions (show/hide buttons, enable/disable
-      actions). This means the client never sees your policies, roles, or conditions.
+      Client libraries fetch a `Record&lt;string, boolean&gt;` permission map from a server endpoint and
+      expose it to components. Evaluation always happens server-side -- the client only receives boolean
+      results and never sees your policies, roles, or conditions.
     </AccordionContent>
   </AccordionItem>
 
@@ -1429,21 +1382,16 @@ const access = createAccessClient({
 
 await access.load()
 access.can('create:post')  // true or false`}</code></pre>
-      <p className="mt-3">
-        Works with any framework or no framework. Also works with Svelte, Solid, Angular, or plain
-        JavaScript.
-      </p>
+      <p className="mt-3">Works with Svelte, Solid, Angular, or plain JavaScript.</p>
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="client-security">
     <AccordionTrigger>Is it safe to send permissions to the frontend?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes, because the permission map is just a flat map of booleans (`"create:post": true`). It does
-      not expose your policy definitions, conditions, role structures, or any business logic. The
-      client only knows "can this user do this action" -- not why. Always enforce permissions on the
-      server too. Client-side checks are for UI rendering only and should never be your only
-      authorization check.
+      Yes. The permission map is a flat map of booleans -- it exposes no policy definitions,
+      conditions, role structures, or business logic. Always enforce permissions on the server.
+      Client-side checks are for UI rendering only.
     </AccordionContent>
   </AccordionItem>
 
@@ -1457,10 +1405,7 @@ await refresh()  // re-fetches from the server
 
 // Vanilla:
 await access.refresh()`}</code></pre>
-      <p className="mt-3">
-        You should call this after events that change the user's roles or permissions (e.g., after
-        an admin promotes a user, or after the user switches organizations).
-      </p>
+      <p className="mt-3">Call after role changes or organization switches.</p>
     </AccordionContent>
   </AccordionItem>
 </Accordion>
@@ -1481,9 +1426,8 @@ await access.refresh()`}</code></pre>
 })
 console.log(result.summary)`}</code></pre>
       <p className="mt-3">
-        The summary tells you: the final result, the subject's roles, which policies were evaluated,
-        which rules matched or were skipped, and which conditions failed. For each condition, the trace
-        shows the expected value, the actual value, and whether it passed.
+        `result.summary` shows the final result, the subject's roles, which policies were evaluated,
+        which rules matched or were skipped, and per-condition traces with expected vs actual values.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1562,9 +1506,8 @@ console.log(result.summary)`}</code></pre>
 console.log('Base roles:', result.subject.roles)
 console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></pre>
       <p className="mt-3">
-        If `scopedRolesApplied` is empty, either: your adapter does not implement
-        `getSubjectScopedRoles()`, there are no scoped role assignments for this subject/scope
-        combination, or you forgot to pass the scope parameter.
+        If `scopedRolesApplied` is empty: the adapter does not implement `getSubjectScopedRoles()`,
+        there are no scoped assignments for this subject/scope, or the scope parameter was not passed.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1582,9 +1525,8 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
   }
 }`}</code></pre>
       <p className="mt-3">
-        Common causes: a wildcard permission (`grant('*', '*')`) on a role, a policy with
-        `allow-overrides` that is too permissive, or the deny policy's target filter does not
-        match the request so it is skipped.
+        Common causes: a wildcard permission (`grant('*', '*')`), a policy with
+        `allow-overrides` that is too broad, or a deny policy whose target filter does not match the request.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1613,7 +1555,7 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
   <AccordionItem value="fail-closed">
     <AccordionTrigger>What does "fail closed" mean?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Fail closed means that when something goes wrong, the system defaults to deny. In duck-iam:
+      On any error, the system defaults to deny:
       <ul className="mt-2 list-disc pl-5">
         <li>If no rules match, the result is deny (via `defaultEffect: 'deny'`)</li>
         <li>If an adapter call throws an error, the result is deny</li>
@@ -1621,50 +1563,31 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
         <li>If a `beforeEvaluate` hook throws, the result is deny</li>
         <li>If the subject is not found, the result is deny</li>
       </ul>
-      <p className="mt-3">
-        This is the opposite of "fail open" (defaulting to allow), which would be a security risk.
-        An authorization system should never accidentally grant access.
-      </p>
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="prototype-pollution">
     <AccordionTrigger>Is duck-iam protected against prototype pollution?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. The field resolution function blocks access to `__proto__`, `constructor`, and `prototype`
-      in dot-notation paths. A condition with a field like `resource.attributes.__proto__.polluted`
-      will not resolve and the condition will fail safely. This prevents attackers from crafting
-      condition paths that exploit prototype chain traversal.
+      Yes. The field resolver blocks `__proto__`, `constructor`, and `prototype` in all dot-paths.
+      A field like `resource.attributes.__proto__.polluted` fails safely without resolving.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="allowed-blocked-lists">
     <AccordionTrigger>Why does field resolution have an allowed list and a blocked list?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The `resolve()` function uses two safety mechanisms when walking dot-paths:
+      `resolve()` uses two safety mechanisms:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>Allowed list</strong> (`subject`, `resource`, `environment`) -- only these three top-level
-          keys can be traversed. The `AccessRequest` object may have other internal properties, and allowing
-          arbitrary traversal could leak engine internals. `action` and `scope` are handled as special cases
-          before traversal starts, since they are top-level scalars, not nested objects.</li>
-        <li><strong>Blocked list</strong> (`__proto__`, `constructor`, `prototype`) -- these property names are
-          blocked at every level of traversal. Since `resolve()` does dynamic property access on objects,
-          a malicious condition field like `resource.attributes.__proto__.polluted` could access prototype
-          chain properties. Blocking these segments prevents prototype pollution attacks.</li>
+        <li><strong>Allowed list</strong> (`subject`, `resource`, `environment`) -- only these top-level
+          keys can be traversed. `action` and `scope` are handled as scalars before traversal starts.</li>
+        <li><strong>Blocked list</strong> (`__proto__`, `constructor`, `prototype`) -- blocked at every
+          traversal level to prevent prototype chain access.</li>
       </ul>
       <p className="mt-3">
-        Together, these two lists ensure that condition fields can only reach the data you intend to expose
-        (subject attributes, resource attributes, environment values) and cannot escape to engine internals
-        or JavaScript prototype chains. This is especially important when policies come from untrusted sources
-        like databases, admin dashboards, or APIs.
-      </p>
-      <p className="mt-3">
-        With the typed API, the <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> type
-        enforces similar constraints at compile time. It only generates <code className="rounded bg-muted px-2 py-1">$</code>-prefixed
-        paths for the keys present in your context type, so autocomplete only shows valid paths. Combined with
-        the runtime allowed/blocked lists, you get both compile-time and runtime safety. No
-        <code className="rounded bg-muted px-2 py-1">as string</code> cast is needed when using
-        <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> with a typed context.
+        This is especially important when policies come from untrusted sources (databases, APIs). With
+        <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>, <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> enforces
+        the same constraints at compile time -- autocomplete only shows valid paths.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1672,11 +1595,9 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
   <AccordionItem value="defense-in-depth">
     <AccordionTrigger>What is defense-in-depth in the context of duck-iam?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      duck-iam's cross-policy AND-combination provides defense-in-depth. Every policy is an independent
-      security gate. The RBAC policy (from roles) must allow, AND every custom ABAC policy must allow.
-      A deny from any single policy means overall deny. This means you can add new restriction policies
-      without worrying about existing policies overriding them. Each layer adds protection, and no
-      single layer can bypass the others.
+      Cross-policy AND-combination: every policy is an independent security gate. RBAC must allow AND
+      every ABAC policy must allow. A deny from any single policy means overall deny. New restriction
+      policies add protection without risk of existing policies overriding them.
     </AccordionContent>
   </AccordionItem>
 
@@ -1684,50 +1605,41 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
     <AccordionTrigger>Can I rely on client-side permission checks for security?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       No. Client-side checks are for UI rendering only (show/hide buttons, enable/disable actions).
-      A user can always bypass client-side checks by modifying the JavaScript, calling the API directly,
-      or tampering with the permission map. Always enforce permissions on the server using middleware
-      or `engine.can()` in your request handlers. The client library is a convenience for better UX,
-      not a security boundary.
+      Client-side checks are for rendering only. A user can bypass them by modifying JavaScript or
+      calling the API directly. Always enforce permissions on the server.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="no-roles-assigned">
     <AccordionTrigger>What happens when a subject has no roles assigned?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The subject has zero permissions from RBAC. The synthetic `__rbac__` policy will have no matching
-      rules, so it returns the default effect (deny). If no custom ABAC policies explicitly allow
-      anything for roleless subjects, the result is deny for everything. This is the expected
-      secure default -- no roles means no access.
+      The `__rbac__` policy has no matching rules and returns deny. Unless an ABAC policy explicitly
+      allows roleless subjects, every check denies. No roles means no access.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="subject-not-found">
     <AccordionTrigger>What happens when the subject does not exist in the adapter?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      If the adapter returns no data for a subject (no roles, no attributes), the subject is treated
-      as having no roles and no attributes. This means zero RBAC permissions and no subject attributes
-      for conditions to match against. The result will be deny unless an ABAC policy explicitly allows
-      access without any subject-based conditions.
+      The subject is treated as having no roles and no attributes -- zero RBAC permissions, no subject
+      attributes for conditions. Result is deny unless an ABAC policy explicitly allows access without
+      subject-based conditions.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="empty-policy-rules">
     <AccordionTrigger>What happens if a policy has no rules?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      An empty policy (no rules) returns the default effect for the combining algorithm. For
-      `deny-overrides` and `highest-priority`, no matching rules means the default effect (deny).
-      For `allow-overrides`, no matching allow rules means deny. For `first-match`, no matching
-      rules means the default effect. In practice, an empty policy always results in deny with
-      the default configuration.
+      Returns the default effect. With the default configuration (`defaultEffect: 'deny'`), an empty
+      policy always denies regardless of combining algorithm.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="max-conditions-depth">
     <AccordionTrigger>Can deeply nested conditions cause stack overflows?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. The engine enforces a maximum nesting depth of 10 levels for condition groups. Beyond this
-      depth, the condition evaluation stops and returns false (fail closed). This prevents both
-      accidental complexity and deliberate denial-of-service via deeply nested condition trees.
+      No. Condition groups are limited to 10 levels deep. Beyond that, evaluation stops and returns
+      false (fail closed), preventing both accidental complexity and DoS via deeply nested trees.
     </AccordionContent>
   </AccordionItem>
 
@@ -1759,8 +1671,7 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
       Every builder method is constrained to your declared schema. Misspell an action and TypeScript
       catches it before your code runs.
       <br /><br />
-      For production applications, the typed approach is strongly recommended. It prevents an entire
-      class of bugs where a permission check silently fails because of a typo.
+      Use the typed approach in production. It prevents silent failures from typos in action or resource names.
     </AccordionContent>
   </AccordionItem>
 
@@ -1774,9 +1685,8 @@ const actions = ['create', 'read']  // type: string[]
 // With as const:
 const actions = ['create', 'read'] as const  // type: readonly ['create', 'read']`}</code></pre>
       <p className="mt-3">
-        `createAccessConfig()` needs the literal types (`'create' | 'read'`) to constrain builder
-        methods. With `string[]`, it cannot tell the difference between `'create'` and `'craete'`,
-        so there is no compile-time error checking.
+        `createAccessConfig()` needs literal types to constrain builder methods. With `string[]`,
+        typos like `'craete'` are indistinguishable from valid values.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1784,8 +1694,8 @@ const actions = ['create', 'read'] as const  // type: readonly ['create', 'read'
   <AccordionItem value="typed-checks">
     <AccordionTrigger>What does access.checks() do?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      `access.checks()` is a pure typing utility -- it returns the input array unchanged but constrains
-      the types at compile time. Use it with `engine.permissions()` for batch permission checks:
+      `access.checks()` is a compile-time-only utility -- it returns the input unchanged but constrains
+      action/resource types. Use it with `engine.permissions()` for typed batch checks:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const uiChecks = access.checks([
   { action: 'create', resource: 'post' },
   { action: 'manage', resource: 'dashboard' },
@@ -1827,7 +1737,7 @@ const perms = await engine.permissions('user-1', uiChecks)`}</code></pre>
   <AccordionItem value="config-vs-standalone">
     <AccordionTrigger>What is the difference between createAccessConfig() builders and standalone defineRole() / defineRule()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The difference is **compile-time type safety**. Both produce identical output at runtime.
+      The difference is compile-time type safety. Both produce identical output at runtime.
       <br /><br />
       <strong>Standalone builders</strong> default their generics to `string`, so they accept anything:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { defineRole } from '@gentleduck/iam'
@@ -1837,9 +1747,8 @@ const viewer = defineRole('viewer')
   .grant('deletee', 'postt')  // no error -- both are valid strings
   .build()`}</code></pre>
       <p className="mt-3">
-        TypeScript sees `'deletee'` as a perfectly valid `string` and lets it through. The role
-        ends up with a permission that never matches any request -- a silent bug you may not
-        discover until production.
+        TypeScript sees `'deletee'` as a valid `string`. The role ends up with a permission that
+        never matches -- a silent bug you may not discover until production.
       </p>
       <strong>Config-bound builders</strong> lock generics to your declared schema:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessConfig } from '@gentleduck/iam'
@@ -1854,14 +1763,7 @@ const viewer = access
   .grant('read', 'post')      // OK
   .grant('deletee', 'postt')  // compile error on both arguments
   .build()`}</code></pre>
-      <p className="mt-3">
-        Because `as const` produces literal unions, TypeScript knows the only valid actions are
-        `'create' | 'read' | 'update' | 'delete' | '*'` and the only valid resources are
-        `'post' | 'user' | '*'`. The typos are caught before the code runs.
-      </p>
-      <p className="mt-3">
-        This applies to every builder on the config object:
-      </p>
+      <p className="mt-3">Applies to every builder on the config object:</p>
       <ul className="mt-2 list-disc pl-5">
         <li><code className="rounded bg-muted px-2 py-1">access.defineRole()</code> -- constrained <code className="rounded bg-muted px-2 py-1">.grant()</code> and <code className="rounded bg-muted px-2 py-1">.inherits()</code></li>
         <li><code className="rounded bg-muted px-2 py-1">access.defineRule()</code> -- constrained <code className="rounded bg-muted px-2 py-1">.on()</code> and <code className="rounded bg-muted px-2 py-1">.of()</code></li>
@@ -1871,9 +1773,8 @@ const viewer = access
         <li><code className="rounded bg-muted px-2 py-1">access.createEngine()</code> -- engine typed with your schema, so <code className="rounded bg-muted px-2 py-1">engine.can()</code> is also constrained</li>
       </ul>
       <p className="mt-3">
-        The engine does not care which approach was used. Both produce the same <code className="rounded bg-muted px-2 py-1">Role</code> and
-        <code className="rounded bg-muted px-2 py-1">Policy</code> objects at runtime. The only difference is whether
-        TypeScript can help you catch mistakes before they ship.
+        Both approaches produce identical <code className="rounded bg-muted px-2 py-1">Role</code> and
+        <code className="rounded bg-muted px-2 py-1">Policy</code> objects at runtime. The difference is compile-time safety.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1893,10 +1794,7 @@ export type AppAction = (typeof access.actions)[number]
 
 export type AppResource = (typeof access.resources)[number]
 // => 'post' | 'user'`}</code></pre>
-      <p className="mt-3">
-        Then use these types everywhere -- in your NestJS guard, your <code className="rounded bg-muted px-2 py-1">@Authorize</code> decorator,
-        your React components, and your API types:
-      </p>
+      <p className="mt-3">Use these types in guards, decorators, components, and API types:</p>
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// api/access/guard.ts
 import type { Engine } from '@gentleduck/iam'
 import type { AppAction, AppResource } from '@shared/access'
@@ -1909,8 +1807,8 @@ import type { AppAction, AppResource } from '@shared/access'
 
 export const Authorize = createTypedAuthorize<AppAction, AppResource>()`}</code></pre>
       <p className="mt-3">
-        This creates a single source of truth. Add a new action or resource to the config, and
-        TypeScript tells you everywhere it needs to be handled.
+        Single source of truth: add an action or resource to the config and TypeScript surfaces every
+        call site that needs updating.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1918,13 +1816,9 @@ export const Authorize = createTypedAuthorize<AppAction, AppResource>()`}</code>
   <AccordionItem value="can-mix-approaches">
     <AccordionTrigger>Can I mix config-bound and standalone builders?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Technically yes -- both produce the same <code className="rounded bg-muted px-2 py-1">Role</code> and
-      <code className="rounded bg-muted px-2 py-1">Policy</code> objects at runtime. The engine processes them identically.
-      <br /><br />
-      However, there is no reason to mix them. Standalone builders bypass all the type safety that
-      <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code> provides. A single
-      <code className="rounded bg-muted px-2 py-1">defineRole()</code> call with a typo defeats the purpose
-      of constraining everything else. Pick one approach and use it consistently.
+      Yes -- both produce identical <code className="rounded bg-muted px-2 py-1">Role</code> and
+      <code className="rounded bg-muted px-2 py-1">Policy</code> objects at runtime. But mixing them is pointless: a single
+      standalone `defineRole()` with a typo defeats the type safety of `createAccessConfig()`. Pick one.
     </AccordionContent>
   </AccordionItem>
 
@@ -1979,9 +1873,8 @@ export const Authorize = createTypedAuthorize<AppAction, AppResource>()`}</code>
   )
   .build()`}</code></pre>
       <p className="mt-3">
-        The key: `$subject.id` resolves to the actual user's ID at runtime. Combined with `neq`
-        and `deny`, this blocks anyone who is not the owner. The `.not()` makes admins exempt.
-        Make sure you pass `ownerId` in resource attributes.
+        `$subject.id` resolves at runtime. Combined with `neq` and `deny`, this blocks non-owners.
+        `.not()` exempts admins. Pass `ownerId` in resource attributes.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -2019,8 +1912,7 @@ await engine.can('user-1', 'deploy', resource, {
   .not(w => w.role('admin'))  // admin is exempt from this deny
 )`}</code></pre>
       <p className="mt-3">
-        Option 1 gives full RBAC access. Option 2 exempts admins from specific ABAC restrictions.
-        For maximum flexibility, combine both.
+        Option 1: full RBAC bypass. Option 2: targeted ABAC exemption. Combine both for maximum flexibility.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -2073,8 +1965,7 @@ await engine.can('user-1', 'update', {
   <AccordionItem value="feature-flags">
     <AccordionTrigger>Can I use duck-iam for feature flags?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes, though it is not the primary use case. You can model features as resources and access
-      as actions:
+      Yes, though it is not the primary use case. Model features as resources:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const betaTester = defineRole('beta-tester')
   .grant('access', 'feature-dark-mode')
   .grant('access', 'feature-ai-assistant')
@@ -2082,8 +1973,7 @@ await engine.can('user-1', 'update', {
 
 await engine.can('user-1', 'access', { type: 'feature-dark-mode', attributes: {} })`}</code></pre>
       <p className="mt-3">
-        This works for role-based feature flags. For percentage-based rollouts or A/B testing,
-        use a dedicated feature flag service instead.
+        Works for role-based flags. For percentage rollouts or A/B testing, use a dedicated feature flag service.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -2101,9 +1991,8 @@ await engine.can('user-1', 'access', { type: 'feature-dark-mode', attributes: {}
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`await engine.admin.savePolicy(newPolicy)
 await engine.admin.deletePolicy('old-policy-id')`}</code></pre>
       <p className="mt-3">
-        The admin API automatically invalidates the policy cache when you save or delete. Always
-        validate dynamic policies with `validatePolicy()` before saving them, especially if the
-        policy data comes from user input or an external API.
+        Always validate dynamic policies with `validatePolicy()` before saving, especially when policy
+        data comes from user input or external APIs.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -2120,8 +2009,7 @@ await engine.admin.deletePolicy('old-policy-id')`}</code></pre>
         <li>Add ABAC policies later as needed for fine-grained rules</li>
       </ol>
       <p className="mt-3">
-        You can migrate incrementally -- start with RBAC-only and add policies for specific
-        use cases over time. The engine handles both seamlessly.
+        Migrate incrementally -- RBAC-only first, then add policies for specific use cases.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -2141,10 +2029,9 @@ await engine.admin.deletePolicy('old-policy-id')`}</code></pre>
   <AccordionItem value="edge-runtime">
     <AccordionTrigger>Does duck-iam work in edge runtimes (Cloudflare Workers, Vercel Edge)?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. The core engine is pure TypeScript with no Node.js-specific APIs. It works in any
-      JavaScript runtime that supports ES2020+, including Cloudflare Workers, Vercel Edge Functions,
-      Deno Deploy, and Bun. For edge runtimes, use `MemoryAdapter` with policies defined in code,
-      or `HttpAdapter` to fetch from a central authorization service.
+      Yes. The core engine is pure TypeScript with no Node.js-specific APIs. Supports any ES2020+
+      runtime: Cloudflare Workers, Vercel Edge, Deno Deploy, Bun. Use `MemoryAdapter` with
+      code-defined policies, or `HttpAdapter` to fetch from a central service.
     </AccordionContent>
   </AccordionItem>
 
@@ -2167,8 +2054,8 @@ const allowed = await engine.can('test-user', 'update', {
 })
 expect(allowed).toBe(true)`}</code></pre>
       <p className="mt-3">
-        Set `cacheTTL: 0` in tests so you can modify data between assertions without cache issues.
-        Each test can create its own engine instance with its own adapter for full isolation.
+        Use `cacheTTL: 0` to prevent stale cache between assertions. Each test creates its own
+        engine instance for isolation.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -2176,8 +2063,8 @@ expect(allowed).toBe(true)`}</code></pre>
   <AccordionItem value="explain-in-tests">
     <AccordionTrigger>How do I get better test failure messages?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Use `engine.explain()` instead of `engine.can()` in your tests. When an assertion fails,
-      the `result.summary` tells you exactly why:
+      Use `engine.explain()` instead of `engine.can()`. On failure, `result.summary` shows which
+      policy/rule/condition caused the denial:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const result = await engine.explain('test-user', 'delete', resource)
 if (!result.decision.allowed) {
   console.log(result.summary)
@@ -2218,9 +2105,8 @@ expect(result.decision.allowed).toBe(true)`}</code></pre>
         <code className="rounded bg-muted px-2 py-1">https://github.com/gentleeduck/duck-iam</code>
       </div>
       <p className="mt-3">
-        Include: your duck-iam version, the output of `engine.explain()` for the failing check,
-        your role definitions, and the relevant policy. The `explain()` output is the most helpful
-        piece of information for diagnosing issues.
+        Include: duck-iam version, `engine.explain()` output for the failing check, role definitions,
+        and the relevant policy.
       </p>
     </AccordionContent>
   </AccordionItem>

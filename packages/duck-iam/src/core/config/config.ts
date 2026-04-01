@@ -1,7 +1,7 @@
 import { PolicyBuilder, RoleBuilder, RuleBuilder, When } from '../builder'
 import type { EngineConfig } from '../engine'
 import { Engine } from '../engine'
-import type { DefaultContext, PermissionCheck, Role } from '../types'
+import type { DefaultContext, Mode, PermissionCheck, Role } from '../types'
 import { validatePolicy, validateRoles } from '../validate'
 import type { AccessConfig, AccessConfigInput } from './config.types'
 
@@ -57,8 +57,9 @@ export function createAccessConfig<
 
     when: () => new When<TAction, TResource, TRole, TScope, TContext>(),
 
-    createEngine: (config: EngineConfig<TAction, TResource, TRole, TScope>) =>
-      new Engine<TAction, TResource, TRole, TScope>(config),
+    createEngine: <TMode extends Mode = 'development'>(
+      config: EngineConfig<TAction, TResource, TRole, TScope, TMode>,
+    ) => new Engine<TAction, TResource, TRole, TScope, TMode>(config),
 
     checks: <const T extends readonly PermissionCheck<TAction, TResource, TScope>[]>(checks: T) => checks,
 

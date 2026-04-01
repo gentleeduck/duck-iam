@@ -28,7 +28,7 @@ A Bun-based monorepo for the duck-iam access control engine, docs, and related t
 
 | Path | Package | Role | Status |
 | --- | --- | --- | --- |
-| `packages/ui` | `@gentleduck/ui` | Production-ready React UI components built on Gentleduck primitives | Private, active |
+| `packages/ui` | `@gentleduck/ui` | React UI components built on Gentleduck primitives | Private, active |
 
 ### Tooling Packages
 
@@ -79,7 +79,7 @@ bun run ci           # non-mutating repo verification (check, workspace lint, ty
 ```
 
 ## Contributing
-We welcome contributions. Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
 
 ## License
 MIT. See [`LICENSE`](./LICENSE) for more information.

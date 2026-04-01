@@ -5,7 +5,7 @@ description: Install duck-iam, define your first role, create an engine, and run
 
 ## Goal
 
-By the end of this chapter you will have a working authorization check. A user named Alice
+By the end of this chapter you will have a working authorization check. Alice
 will be able to read blog posts but not delete them.
 
 <MermaidDiagram chart={`flowchart LR
@@ -23,8 +23,7 @@ will be able to read blog posts but not delete them.
     npm install @gentleduck/iam
     ```
 
-    duck-iam has zero runtime dependencies. This is the only package you need.
-    It works with npm, yarn, pnpm, and bun.
+    duck-iam has zero runtime dependencies. Works with npm, yarn, pnpm, and bun.
   </Step>
 
   <Step>
@@ -42,16 +41,15 @@ will be able to read blog posts but not delete them.
       .build()
     ```
 
-    `defineRole()` returns a builder. You chain `.grant(action, resource)` calls to add
-    permissions. `.build()` produces a plain `Role` object -- a serializable data structure
-    with no methods or hidden state.
+    `defineRole()` returns a builder. Chain `.grant(action, resource)` to add permissions.
+    `.build()` produces a plain `Role` object -- serializable, no methods, no hidden state.
   </Step>
 
   <Step>
     **Create an adapter and engine**
 
-    The engine needs an **adapter** to load data (roles, policies, user assignments). For now
-    we use `MemoryAdapter` which stores everything in memory:
+    The engine needs an **adapter** to load data (roles, policies, user assignments). `MemoryAdapter`
+    stores everything in memory:
 
     ```typescript title="src/access.ts"
     import { defineRole, Engine } from '@gentleduck/iam'
@@ -72,8 +70,8 @@ will be able to read blog posts but not delete them.
     export const engine = new Engine({ adapter }) // defaults to mode: 'development'
     ```
 
-    The `assignments` object maps **subject IDs** (users) to **role IDs**. Alice has the
-    `viewer` role. A subject can have multiple roles: `'alice': ['viewer', 'commenter']`.
+    `assignments` maps subject IDs to role IDs. A subject can have multiple roles:
+    `'alice': ['viewer', 'commenter']`.
   </Step>
 
   <Step>
@@ -115,31 +113,29 @@ will be able to read blog posts but not delete them.
 
 ## engine.can() vs engine.check()
 
-The engine has two methods for permission checks:
-
 | Method | Returns | Use when |
 | --- | --- | --- |
-| `engine.can()` | `boolean` | You only need yes/no |
-| `engine.check()` | `Decision` object | You need the full decision with reason, timing, etc. |
+| `engine.can()` | `boolean` (always) | You only need yes/no |
+| `engine.check()` | `Decision` in dev, `boolean` in prod | You need the full decision with reason, timing, etc. |
 
 ```typescript
 // Simple boolean -- most common
 const allowed = await engine.can('alice', 'read', { type: 'post', attributes: {} })
 // true
 
-// Full decision object
+// Full decision object (in development mode -- returns boolean in production mode)
 const decision = await engine.check('alice', 'read', { type: 'post', attributes: {} })
 // { allowed: true, effect: 'allow', reason: '...', duration: 0.12, ... }
 ```
 
-Both methods accept the same parameters:
+Both methods share the same signature:
 
 ```typescript
 engine.can(subjectId, action, resource, environment?, scope?)
 engine.check(subjectId, action, resource, environment?, scope?)
 ```
 
-The `environment` and `scope` parameters are optional -- you will use them in later chapters.
+`environment` and `scope` are optional -- covered in later chapters.
 
 ## What Just Happened
 
@@ -166,21 +162,21 @@ The `environment` and `scope` parameters are optional -- you will use them in la
 
 When you call `engine.can('alice', 'read', { type: 'post', attributes: {} })`:
 
-1. **resolveSubject** -- the engine loads Alice's roles from the adapter. She has `['viewer']`.
-   It also resolves inheritance (Chapter 2) and loads her attributes.
-2. **rolesToPolicy** -- the engine converts her roles into a synthetic policy called `__rbac__`
+1. **resolveSubject** -- loads Alice's roles from the adapter. She has `['viewer']`.
+   Also resolves inheritance (Chapter 2) and loads her attributes.
+2. **rolesToPolicy** -- converts her roles into a synthetic policy called `__rbac__`
    with `allow-overrides` combining algorithm. Each permission becomes a rule.
-3. **evaluate** -- the engine evaluates all policies (the `__rbac__` policy plus any custom
-   policies you define in Chapter 3). It checks: does the action `read` and resource type
-   `post` match any rule?
-4. **Decision** -- yes, the `read:post` rule matches. The decision is **allow**.
+3. **evaluate** -- evaluates all policies (the `__rbac__` policy plus any custom
+   policies from Chapter 3). Checks whether action `read` and resource type `post`
+   match any rule.
+4. **Decision** -- the `read:post` rule matches. Effect: allow.
 
-For `delete`, no rule matches, so the engine returns the default effect: **deny**.
+For `delete`, no rule matches, so the engine returns the default effect: deny.
 
 ### The __rbac__ Synthetic Policy
 
-Behind the scenes, your role definitions are not evaluated directly. The engine converts them
-into a standard ABAC policy:
+Role definitions are not evaluated directly. The engine converts them into a standard
+ABAC policy:
 
 ```typescript
 // Your role:
@@ -203,12 +199,11 @@ defineRole('viewer').grant('read', 'post').build()
 }
 ```
 
-This means RBAC and ABAC use the same evaluation pipeline -- roles are just a convenient
-shorthand for writing policies.
+RBAC and ABAC share the same evaluation pipeline -- roles are shorthand for policies.
 
 ## The Decision Object
 
-`engine.check()` returns a `Decision` object with full details:
+`engine.check()` returns a `Decision`:
 
 ```typescript
 interface Decision {
@@ -233,12 +228,10 @@ console.log(decision.duration)   // 0.12 (milliseconds)
 console.log(decision.timestamp)  // 1708300000000
 ```
 
-You can use `decision.duration` for performance monitoring, `decision.reason` for debugging,
-and `decision.policy` / `decision.rule` to trace exactly which rule made the decision.
+Use `decision.duration` for performance monitoring, `decision.reason` for debugging,
+and `decision.policy` / `decision.rule` to trace which rule made the decision.
 
 ## The Resource Object
-
-When checking permissions, you pass a resource object:
 
 ```typescript
 interface Resource {
@@ -267,16 +260,13 @@ interface Resource {
 }
 ```
 
-The `type` field is what the engine matches against role permissions. The `id` identifies a
-specific instance (e.g., a specific blog post). The `attributes` are used by policy conditions
-in Chapter 3 -- for now, pass an empty object `{}`.
+`type` is what the engine matches against role permissions. `id` identifies a specific
+instance. `attributes` are used by policy conditions (Chapter 3) -- pass `{}` for now.
 
 Resource types support **hierarchical matching** with dots: a permission on `dashboard`
-also covers `dashboard.users` and `dashboard.settings`. This is covered in Chapter 5.
+also covers `dashboard.users` and `dashboard.settings`. Covered in Chapter 5.
 
 ## Engine Configuration
-
-The `Engine` constructor accepts a configuration object:
 
 ```typescript
 const engine = new Engine({
@@ -294,11 +284,11 @@ const engine = new Engine({
 | `adapter` | required | Data source for roles, policies, assignments |
 | `mode` | `'development'` | `'development'` or `'production'`. Controls verbosity and debug behavior. |
 | `defaultEffect` | `'deny'` | What to return when no rule matches. Always use `'deny'` for security. |
-| `cacheTTL` | `60` | How long cached data lives, in seconds. Set to `0` for tests. |
-| `maxCacheSize` | `1000` | Maximum number of subjects (users) to cache in memory. Uses LRU eviction. |
+| `cacheTTL` | `60` | Cache lifetime in seconds. Set to `0` for tests. |
+| `maxCacheSize` | `1000` | Max subjects to cache in memory. Uses LRU eviction. |
 | `hooks` | `{}` | Lifecycle hooks for enrichment, logging, and error handling (Chapter 4). |
 
-For now, the defaults are fine. You will tune these in later chapters.
+The defaults are fine for now.
 
 ## Checkpoint
 
@@ -378,91 +368,79 @@ main()
   <AccordionItem value="c1-why-async">
     <AccordionTrigger>Why is engine.can() async?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Because adapters can be databases or HTTP services. Even though `MemoryAdapter` is
-      synchronous, the engine API is async to support all adapter types uniformly. In production,
-      your adapter will likely make database queries. The engine caches aggressively so
-      subsequent calls are fast even with async adapters.
+      Adapters can be databases or HTTP services. Even though `MemoryAdapter` is synchronous,
+      the engine API is async to support all adapter types uniformly. The engine caches
+      aggressively so subsequent calls are fast even with async adapters.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c1-empty-attrs">
     <AccordionTrigger>Why do I need to pass empty attributes?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The `attributes` field is required on the resource object because conditions (Chapter 3)
-      need a place to read resource metadata from. Passing `{}` means "this resource has no
-      extra metadata." You will populate it when you add conditions. If you forget to pass
-      attributes that a policy checks, the condition field resolves to `null` and deny rules
-      fire -- which is the safe default.
+      `attributes` is required because conditions (Chapter 3) read resource metadata from it.
+      Passing `{}` means "no extra metadata." If a policy checks a field that is missing,
+      the condition resolves to `null` and deny rules fire -- the safe default.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c1-deny-default">
     <AccordionTrigger>Why is delete denied? I did not write a deny rule.</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      duck-iam defaults to deny. If no rule explicitly allows an action, the result is deny.
-      This is called "fail closed" and it is the secure default. You never need to write deny
-      rules for basic RBAC -- just do not grant the permission and it is denied automatically.
-      You can change this with `defaultEffect: 'allow'` in the engine config, but this is
-      strongly discouraged for security reasons.
+      duck-iam defaults to deny. If no rule explicitly allows an action, the result is deny
+      ("fail closed"). For basic RBAC, you never write deny rules -- just omit the permission.
+      You can change this with `defaultEffect: 'allow'`, but avoid it for security reasons.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c1-can-vs-check">
     <AccordionTrigger>What is the difference between engine.can() and engine.check()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      `can()` returns a `boolean` -- just `true` or `false`. `check()` returns the full
-      `Decision` object with `allowed`, `effect`, `reason`, `duration`, `timestamp`, and
-      the deciding `policy` and `rule`. Use `can()` for simple permission gates and `check()`
-      when you need debugging information or performance metrics. Both call the same evaluation
-      logic internally.
+      `can()` returns a `boolean`. `check()` returns the full `Decision` object with `allowed`,
+      `effect`, `reason`, `duration`, `timestamp`, and the deciding `policy` and `rule`.
+      Both call the same evaluation logic internally.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c1-subject-id">
     <AccordionTrigger>Can the subject ID be anything?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. It is a string. It can be a UUID, an email, a username, a database ID as a string,
-      or anything else that uniquely identifies a user in your system. Just be consistent --
-      use the same ID format when assigning roles and when checking permissions.
+      Yes -- any string: UUID, email, username, database ID. Use the same format when assigning
+      roles and when checking permissions.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c1-authorize">
     <AccordionTrigger>What is engine.authorize()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      `authorize()` is the low-level evaluation method. It takes a full `AccessRequest` object
-      (with subject, action, resource, environment, scope) and returns a `Decision`. Both
-      `can()` and `check()` call `authorize()` internally after resolving the subject from
-      the adapter. You rarely need to call `authorize()` directly -- it is useful for advanced
-      cases where you manage subject resolution yourself.
+      The low-level evaluation method. It takes a full `AccessRequest` object and returns a
+      `Decision`. Both `can()` and `check()` call `authorize()` internally after resolving
+      the subject. Useful for advanced cases where you manage subject resolution yourself.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c1-unknown-user">
     <AccordionTrigger>What happens if the subject ID does not exist?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The adapter returns an empty role array and empty attributes. The engine evaluates with
-      no roles, so the `__rbac__` policy has no matching rules. The default effect (deny)
-      applies. Unknown users are always denied -- you do not need special handling for them.
+      The adapter returns an empty role array and empty attributes. No rules match, so the
+      default effect (deny) applies. Unknown users are always denied automatically.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c1-multiple-roles">
     <AccordionTrigger>Can a user have multiple roles?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. The assignments map accepts an array of role IDs:
-      `'alice': ['viewer', 'commenter']`. The engine resolves permissions from all assigned
-      roles and their ancestors (inheritance), deduplicates them, and combines them with
-      `allow-overrides`. If any role grants a permission, the RBAC layer allows it.
+      Yes: `'alice': ['viewer', 'commenter']`. The engine resolves permissions from all
+      assigned roles and their ancestors, deduplicates, and combines with `allow-overrides`.
+      If any role grants a permission, the RBAC layer allows it.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="c1-adapters">
     <AccordionTrigger>What other adapters are available besides MemoryAdapter?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      duck-iam ships with four adapters: `MemoryAdapter` (in-memory, for dev/testing),
+      duck-iam ships with four: `MemoryAdapter` (in-memory, for dev/testing),
       `PrismaAdapter` (Prisma ORM), `DrizzleAdapter` (Drizzle ORM), and `HttpAdapter`
-      (remote REST API). You can also write your own by implementing the `Adapter` interface.
+      (remote REST API). You can also implement the `Adapter` interface directly.
       All adapters are covered in Chapter 8.
     </AccordionContent>
   </AccordionItem>

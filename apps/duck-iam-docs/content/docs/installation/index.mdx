@@ -5,16 +5,13 @@ description: Install duck-iam, configure a storage adapter, and run your first p
 
 ## Prerequisites
 
-Before installing, make sure you have:
-
-- **Node.js 18** or newer -- check with `node --version`.
-- **TypeScript 5.0+** -- duck-iam relies on const type parameters and satisfies operator.
-- A package manager: **npm**, **bun**, or **pnpm**.
+- Node.js 18+
+- TypeScript 5.0+ -- duck-iam uses const type parameters and the `satisfies` operator.
+- npm, bun, or pnpm.
 
 ## Install duck-iam
 
-duck-iam is a single package. The core engine, memory adapter, type builders, and all
-integration entry points are included.
+The core engine, memory adapter, type builders, and all integration entry points are in a single package.
 
 <Steps>
 
@@ -32,8 +29,6 @@ pnpm add @gentleduck/iam
 ```
 
 <Step>Basic setup</Step>
-
-Create your access control configuration with roles and an engine:
 
 ```typescript title="src/lib/access.ts"
 import { createAccessConfig, MemoryAdapter } from "@gentleduck/iam";
@@ -119,7 +114,7 @@ const trace = await engine.explain(
 
 <Step>Batch permission checks</Step>
 
-Load many permissions at once for a user -- useful for hydrating client-side UI:
+Batch-load permissions for a user -- useful for hydrating client-side UI:
 
 ```typescript
 const permissions = await engine.permissions("user-2", [
@@ -135,21 +130,17 @@ const permissions = await engine.permissions("user-2", [
 
 ## Optional Peer Dependencies
 
-duck-iam has optional peer dependencies for framework integrations. Install only what you use:
-
 | Integration | Peer dependency | Install |
 | --- | --- | --- |
 | React client | `react >= 18.0.0` | `npm install react` |
 | Vue client | `vue >= 3.3.0` | `npm install vue` |
 | Prisma adapter | `@prisma/client >= 5.0.0` | `npm install @prisma/client` |
 
-The core engine, memory adapter, Drizzle adapter, HTTP adapter, and all server integrations
-(Express, Hono, NestJS, Next.js) have **zero peer dependencies** -- they use minimal type
-interfaces internally instead of importing framework packages.
+The core engine, memory adapter, Drizzle adapter, HTTP adapter, and all server integrations (Express, Hono, NestJS, Next.js) have zero peer dependencies.
 
 ## Import Paths
 
-duck-iam uses subpath exports to keep your bundle lean. Import only what you need:
+duck-iam uses subpath exports:
 
 <MermaidDiagram chart={`flowchart LR
     subgraph Core["@gentleduck/iam (core)"]
@@ -206,9 +197,6 @@ import { HttpAdapter } from "@gentleduck/iam/adapters/http";
 
 ## TypeScript Configuration
 
-duck-iam works out of the box with standard TypeScript settings. For the best experience,
-make sure your `tsconfig.json` includes:
-
 ```json title="tsconfig.json"
 {
   "compilerOptions": {
@@ -218,9 +206,7 @@ make sure your `tsconfig.json` includes:
 }
 ```
 
-The `strict` flag enables the const type parameter inference that powers type-safe role and
-policy builders. The `bundler` module resolution is required for subpath exports to resolve
-correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
+`strict` enables const type parameter inference for type-safe role and policy builders. `bundler` module resolution is required for subpath exports; `"moduleResolution": "nodenext"` also works.
 
 ## Next Steps
 
@@ -245,9 +231,8 @@ correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
   <AccordionItem value="runtime-vs-monorepo-requirements">
     <AccordionTrigger>Why do the package runtime requirements differ from the monorepo tooling requirements?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The published package targets application runtimes, while the monorepo also includes docs, examples,
-      and workspace tooling. In practice, duck-iam itself is designed for Node.js 18+ runtimes, while the
-      monorepo may require newer Node or Bun versions to run the entire workspace.
+      The published package targets Node.js 18+ runtimes. The monorepo also includes docs, examples,
+      and workspace tooling that may require newer Node or Bun versions.
     </AccordionContent>
   </AccordionItem>
 
@@ -263,9 +248,8 @@ correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
   <AccordionItem value="need-create-access-config">
     <AccordionTrigger>Do I have to use createAccessConfig() on day one?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. You can start with the untyped builders and move to <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>
-      when you want compile-time validation for actions, resources, scopes, and roles. The typed path is the
-      better long-term default for production apps, but it is not required to get started.
+      No. You can start with the untyped builders and add <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>
+      when you want compile-time validation for actions, resources, scopes, and roles.
     </AccordionContent>
   </AccordionItem>
 
@@ -273,15 +257,14 @@ correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
     <AccordionTrigger>What should I seed first in a new project?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Start with your stable role definitions, a small set of core policies, and the initial role assignments
-      needed to boot the app. Subject attributes can usually be added later as your domain data becomes
-      available.
+      needed to boot the app. Subject attributes can be added later as your domain data becomes available.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="mix-root-and-subpaths">
     <AccordionTrigger>Can I mix root imports with adapter, server, and client subpaths?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. That is the normal setup. Import builders, types, and the engine from
+      Yes. Import builders, types, and the engine from
       <code className="rounded bg-muted px-2 py-1">@gentleduck/iam</code>, then pull framework-specific pieces from
       their subpaths such as <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code> or
       <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code>.
@@ -291,8 +274,8 @@ correctly. Alternatively, `"moduleResolution": "nodenext"` also works.
   <AccordionItem value="memory-root-vs-subpath">
     <AccordionTrigger>Why is MemoryAdapter available from both the root package and its own subpath?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      It is exported from the root as a convenience because it is the default starting adapter for tests, demos, and
-      quick prototypes. The dedicated subpath still exists for consistency with the other adapters.
+      It is exported from the root as a convenience for tests, demos, and quick prototypes. The dedicated subpath
+      exists for consistency with the other adapters.
     </AccordionContent>
   </AccordionItem>
 

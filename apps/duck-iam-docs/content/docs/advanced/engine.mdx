@@ -48,7 +48,6 @@ The `Engine` constructor accepts an `EngineConfig` object:
 ```typescript
 interface EngineConfig {
   adapter: Adapter           // Required. Storage backend for policies, roles, and subjects.
-  mode?: Mode                // 'development' | 'production'. Default: 'development'.
   defaultEffect?: Effect     // What to return when no rules match. Default: 'deny'.
   cacheTTL?: number          // Cache time-to-live in seconds. Default: 60.
   maxCacheSize?: number      // Maximum entries in the subject cache. Default: 1000.
@@ -59,7 +58,6 @@ interface EngineConfig {
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `adapter` | `Adapter` | -- | The storage backend. Required. |
-| `mode` | `'development' \| 'production'` | `'development'` | Controls return types and feature availability. See [Development vs Production Mode](#development-vs-production-mode). |
 | `defaultEffect` | `'allow' \| 'deny'` | `'deny'` | Decision when no rules match. Use `'deny'` for defense-in-depth. |
 | `cacheTTL` | `number` | `60` | How long cached data lives, in seconds. |
 | `maxCacheSize` | `number` | `1000` | Maximum number of resolved subjects in the LRU cache. |
@@ -70,7 +68,6 @@ interface EngineConfig {
 ```typescript
 const engine = new Engine({
   adapter,
-  mode: 'development', // 'production' for boolean-only fast path
   defaultEffect: 'deny',
   cacheTTL: 120,
   maxCacheSize: 5000,
@@ -105,7 +102,7 @@ const engine = new Engine({
 
 ### engine.can()
 
-The simplest check. Always returns `boolean` regardless of engine mode.
+The simplest check. Returns `true` or `false`.
 
 ```typescript
 const allowed = await engine.can(
@@ -133,13 +130,9 @@ engine.can(
 
 ### engine.check()
 
-Same as `can()` but returns richer data. The return type depends on the engine mode via `ModeResult<TMode>`:
-
-- **Development mode** (default): returns a full `Decision` object with metadata.
-- **Production mode**: returns a `boolean` for maximum speed.
+Same as `can()` but returns the full `Decision` object instead of a boolean.
 
 ```typescript
-// Development mode (default)
 const decision = await engine.check('user-1', 'delete', {
   type: 'post',
   id: 'post-123',
@@ -150,22 +143,12 @@ if (!decision.allowed) {
   console.log('Denied:', decision.reason)
   // "Denied: No matching rules -> deny"
 }
-
-// Production mode
-const engine = new Engine({ adapter, mode: 'production' })
-const allowed = await engine.check('user-1', 'delete', {
-  type: 'post',
-  id: 'post-123',
-  attributes: { ownerId: 'user-2' },
-})
-// allowed is a boolean
 ```
 
 ### engine.authorize()
 
 Takes a complete `AccessRequest` object. This is the low-level method that `can()` and
-`check()` call internally. Use it when you already have a resolved subject. Returns
-`ModeResult<TMode>` -- a `Decision` in development mode, a `boolean` in production mode.
+`check()` call internally. Use it when you already have a resolved subject.
 
 ```typescript
 const subject = await engine.resolveSubject('user-1')
@@ -190,9 +173,7 @@ surrounding `authorize()` / `can()` / `check()` call can reject.
 
 ### engine.permissions()
 
-Batch check multiple permissions at once. Loads data once, evaluates many. Returns
-`ModePermissionMap<TMode>` -- a `PermissionMap` (values are `Decision`) in development mode,
-or a `Record<string, boolean>` in production mode. Keys use one of four forms:
+Batch check multiple permissions at once. Loads data once, evaluates many. In development mode, returns a typed `PermissionMap`. In production mode, returns `Record<string, boolean>`. Both have the same shape at runtime — the difference is only at the type level. Keyed by one of four forms:
 
 - `"action:resource"`
 - `"action:resource:resourceId"`
@@ -239,9 +220,8 @@ const perms = await engine.permissions('user-1', [
 
 ### engine.explain()
 
-Returns a full evaluation trace. **Only available in development mode.** Calling `explain()`
-on a production-mode engine throws an error. See the [Explain and Debug](/docs/advanced/explain)
-page for complete documentation.
+Returns a full evaluation trace. See the [Explain and Debug](/docs/advanced/explain) page
+for complete documentation.
 
 ```typescript
 const result = await engine.explain('user-1', 'delete', {
@@ -324,10 +304,6 @@ can be synchronous or async.
 Note: `engine.explain()` only triggers `beforeEvaluate`. The `afterEvaluate`, `onDeny`, and `onError`
 hooks are not called on the explain path. If `beforeEvaluate`, subject resolution, or policy loading
 throws, the explain call rejects.
-
-In **production mode**, hooks other than `beforeEvaluate` are skipped entirely for maximum
-throughput. If you need auditing or alerting in production, handle it outside the engine
-(e.g., structured logging in your request handler).
 
 ```typescript
 interface EngineHooks {
@@ -705,84 +681,6 @@ await engine.admin.assignRole('user-1', 'admin')
 await engine.can('user-1', 'delete', { type: 'post', attributes: {} })
 // -> true (admin has wildcard)
 ```
-
-## Development vs Production Mode
-
-The `mode` option on `EngineConfig` controls the trade-off between debuggability and raw speed.
-
-| | Development (default) | Production |
-| --- | --- | --- |
-| `engine.can()` | `boolean` | `boolean` |
-| `engine.check()` | `Decision` | `boolean` |
-| `engine.authorize()` | `Decision` | `boolean` |
-| `engine.permissions()` | `PermissionMap` (values are `Decision`) | `Record<string, boolean>` |
-| `engine.explain()` | Full trace | Throws |
-| Hooks (`afterEvaluate`, `onDeny`, `onError`) | Run normally | Skipped |
-
-Development mode is the default. It gives you `Decision` objects with timing, matched rules,
-and human-readable reasons -- everything you need while building and debugging policies. Hooks
-run on every evaluation so you can log, audit, and alert.
-
-Production mode strips all of that away. Methods return plain booleans, hooks other than
-`beforeEvaluate` are skipped, and `explain()` is disabled. The result is a smaller, faster
-evaluation path.
-
-```typescript
-// Development -- full diagnostics
-const devEngine = new Engine({ adapter }) // mode defaults to 'development'
-
-// Production -- booleans only, no hooks overhead
-const prodEngine = new Engine({ adapter, mode: 'production' })
-```
-
-The generic `Mode` type flows through the engine so TypeScript narrows return types
-automatically. The key utility types are:
-
-- `Mode` -- `'development' | 'production'`
-- `ModeResult<M>` -- `Decision` when `M` is `'development'`, `boolean` when `M` is `'production'`
-- `ModePermissionMap<M>` -- `PermissionMap` or `Record<string, boolean>` accordingly
-
-## Pure Evaluation Functions
-
-When you need to evaluate policies without an engine instance -- for example inside a
-serverless edge function or a Web Worker -- two pure functions are available:
-
-```typescript
-import { evaluateFast, evaluatePolicyFast } from '@gentleduck/iam'
-```
-
-### evaluateFast
-
-Evaluates an array of policies against a request and returns a `boolean`. No caching, no
-hooks, no adapter -- just the core matching logic.
-
-```typescript
-import { evaluateFast } from '@gentleduck/iam'
-
-const allowed = evaluateFast(policies, {
-  subject: { id: 'user-1', roles: ['editor'], attributes: {} },
-  action: 'update',
-  resource: { type: 'post', attributes: {} },
-})
-```
-
-### evaluatePolicyFast
-
-Same idea, but evaluates a single policy instead of an array.
-
-```typescript
-import { evaluatePolicyFast } from '@gentleduck/iam'
-
-const allowed = evaluatePolicyFast(officeHoursPolicy, {
-  subject: { id: 'user-1', roles: ['editor'], attributes: {} },
-  action: 'update',
-  resource: { type: 'post', attributes: {} },
-  environment: { hour: 14 },
-})
-```
-
-Both functions are stateless and synchronous. They are a good fit for hot paths where you
-already have the policies in memory and want to avoid the async overhead of the engine.
 
 ---
 

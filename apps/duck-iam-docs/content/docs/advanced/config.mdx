@@ -31,9 +31,8 @@ duck-iam provides two ways to define permissions:
   to your declared schema. Misspell an action, reference a resource that does not exist,
   or pass an invalid role ID, and TypeScript catches it before your code runs.
 
-For production applications, the typed config is strongly recommended. It prevents an
-entire class of bugs where a permission check silently fails because of a typo in an
-action or resource name.
+For production applications, use the typed config. It prevents an entire class of bugs where
+a permission check silently fails because of a typo in an action or resource name.
 
 ## createAccessConfig()
 
@@ -51,8 +50,8 @@ const access = createAccessConfig({
 })
 ```
 
-The `as const` assertion is required. Without it, TypeScript widens the arrays to
-`string[]` and you lose all type checking.
+`as const` is required. Without it, TypeScript widens the arrays to `string[]` and you lose
+all type checking.
 
 ### Input shape
 
@@ -73,7 +72,7 @@ and all builders that reference roles are constrained to the declared role IDs.
 ### Typed context for dot-path intellisense
 
 By default, the `When` condition builder accepts any string for `.attr()`, `.resourceAttr()`,
-`.env()`, and `.check()` field paths. To get full autocompletion and type-checked values,
+`.env()`, and `.check()` field paths. To get autocompletion and type-checked values,
 pass a `context` phantom field with your application's context type:
 
 ```typescript
@@ -113,7 +112,7 @@ const access = createAccessConfig({
 })
 ```
 
-Now every `When` builder created through `access` gets full intellisense:
+Every `When` builder created through `access` gets full intellisense:
 
 ```typescript
 access.policy('banned-users')
@@ -170,7 +169,7 @@ const access = createAccessConfig({
 })
 ```
 
-Now `.resourceAttr()` shows only the keys for the resource specified in `.of()`:
+`.resourceAttr()` shows only the keys for the resource specified in `.of()`:
 
 ```typescript
 // .of('post') -> resourceAttr shows: 'ownerId' | 'status' | 'title'
@@ -310,17 +309,17 @@ Optional properties (e.g. `yearsExperience?: number`) are handled correctly by s
 
 ### Why value autocomplete can still be broad
 
-Field-path autocomplete and value autocomplete are related, but they are not the same thing.
+Field-path autocomplete and value autocomplete are distinct.
 
 - If a field resolves to a narrow literal union such as `'draft' | 'published'`, the value
-  side can stay narrow and still offer `$subject.*` / `$resource.*` / `$environment.*`
+  side stays narrow and still offers `$subject.*` / `$resource.*` / `$environment.*`
   references.
 - If a field resolves to broad `string`, `number`, `boolean`, or a generic `AttributeValue`,
   TypeScript can only offer broad scalar input plus the `$` references.
 - Open-ended attribute bags such as `Record<string, unknown>` or the default `AnyAttributes`
   are the usual reason value suggestions feel looser than expected.
 
-For the best autocomplete, make the parts of your context that matter most explicit:
+For the tightest autocomplete, make the parts of your context that matter most explicit:
 
 ```typescript
 interface AppContext extends DefaultContext {
@@ -335,7 +334,7 @@ interface AppContext extends DefaultContext {
 }
 ```
 
-That gives you better value narrowing in `.check()`, `.eq()`, `.neq()`, `.attr()`,
+This gives better value narrowing in `.check()`, `.eq()`, `.neq()`, `.attr()`,
 `.resourceAttr()`, and `.env()` without changing runtime behavior.
 
 ## AccessConfig Methods
@@ -541,7 +540,7 @@ if (!result.valid) {
 
 ## How const Assertions Work
 
-The key to type safety is TypeScript's `as const` assertion. Without it, arrays are widened:
+TypeScript's `as const` assertion is required for type safety. Without it, arrays are widened:
 
 ```typescript
 // Without as const -- types are string[]
@@ -569,7 +568,7 @@ resources, scopes, and roles.
 
 ## Full Example: Defining Your App's Permission Schema
 
-Here is a complete example showing how to define and use a typed permission schema for a
+A complete example showing how to define and use a typed permission schema for a
 multi-tenant blog application:
 
 ```typescript
@@ -769,7 +768,7 @@ of permissions, this prevents real bugs.
   <AccordionItem value="value-autocomplete-broad">
     <AccordionTrigger>Why do my field names autocomplete, but my condition values still look broad?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Because value typing comes from the resolved field type. If your context says a field is just
+      Value typing comes from the resolved field type. If your context says a field is just
       <code className="rounded bg-muted px-2 py-1">string</code> or an open-ended attribute bag, duck-iam cannot invent a
       narrower literal union. Tighten the context type for that field if you want richer value suggestions.
     </AccordionContent>
