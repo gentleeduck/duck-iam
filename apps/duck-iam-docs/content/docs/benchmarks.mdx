@@ -36,6 +36,8 @@ Run `bun run bench` in `packages/duck-iam` to reproduce every number on this pag
 
 ## Runtime Performance
 
+<ComponentPreview name="chart-benchmark-iam-vs" description="Performance comparison" className="[&_[data-value='preview']>div:last-child]:h-120" />
+
 All numbers are **ops/sec** (higher = faster). Each library solves the **same** authorization problem. CASL condition checks use `subject()` to actually evaluate conditions (not bare strings that skip them). duck-iam has two modes: `[DEV]` returns rich Decision objects with timing and reasons, `[PROD]` returns plain booleans with zero overhead.
 
 ### Simple RBAC: "can viewer read post?"
@@ -216,6 +218,8 @@ import { Engine } from '@gentleduck/iam'
 
 ## Internal Performance
 
+<ComponentPreview name="chart-benchmark-iam" description="IAM internals" className="[&_[data-value='preview']>div:last-child]:h-120" />
+
 Pure evaluation timing — average of 2,000 iterations after 200 warmup rounds.
 
 | Operation | Time |
@@ -299,6 +303,8 @@ Times vary by machine. Run `bun run benchmark` for your hardware.
 | **Batch permissions** | Yes | No | No | No | No | No | No |
 
 ---
+
+<ComponentPreview name="chart-benchmark-iam-compare" description="Library comparisons" className="[&_[data-value='preview']>div:last-child]:h-130" />
 
 ## Where each library wins
 
