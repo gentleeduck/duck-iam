@@ -1,6 +1,6 @@
 ---
 title: "chapter 1: your first permission check"
-description: Install duck-iam, define your first role, create an engine, and run your first permission check -- all in under 20 lines of code.
+description: Install duck-iam, define your first role, create an engine, and run your first permission check, all in under 20 lines of code.
 ---
 
 ## Goal
@@ -42,7 +42,7 @@ will be able to read blog posts but not delete them.
     ```
 
     `defineRole()` returns a builder. Chain `.grant(action, resource)` to add permissions.
-    `.build()` produces a plain `Role` object -- serializable, no methods, no hidden state.
+    `.build()` produces a plain `Role` object: serializable, no methods, no hidden state.
   </Step>
 
   <Step>
@@ -135,7 +135,7 @@ engine.can(subjectId, action, resource, environment?, scope?)
 engine.check(subjectId, action, resource, environment?, scope?)
 ```
 
-`environment` and `scope` are optional -- covered in later chapters.
+`environment` and `scope` are optional, covered in later chapters.
 
 ## What Just Happened
 
@@ -162,14 +162,14 @@ engine.check(subjectId, action, resource, environment?, scope?)
 
 When you call `engine.can('alice', 'read', { type: 'post', attributes: {} })`:
 
-1. **resolveSubject** -- loads Alice's roles from the adapter. She has `['viewer']`.
+1. **resolveSubject**: loads Alice's roles from the adapter. She has `['viewer']`.
    Also resolves inheritance (Chapter 2) and loads her attributes.
-2. **rolesToPolicy** -- converts her roles into a synthetic policy called `__rbac__`
+2. **rolesToPolicy**: converts her roles into a synthetic policy called `__rbac__`
    with `allow-overrides` combining algorithm. Each permission becomes a rule.
-3. **evaluate** -- evaluates all policies (the `__rbac__` policy plus any custom
+3. **evaluate**: evaluates all policies (the `__rbac__` policy plus any custom
    policies from Chapter 3). Checks whether action `read` and resource type `post`
    match any rule.
-4. **Decision** -- the `read:post` rule matches. Effect: allow.
+4. **Decision**: the `read:post` rule matches. Effect: allow.
 
 For `delete`, no rule matches, so the engine returns the default effect: deny.
 
@@ -199,7 +199,7 @@ defineRole('viewer').grant('read', 'post').build()
 }
 ```
 
-RBAC and ABAC share the same evaluation pipeline -- roles are shorthand for policies.
+RBAC and ABAC share the same evaluation pipeline. Roles are shorthand for policies.
 
 ## The Decision Object
 
@@ -404,7 +404,7 @@ main()
   <AccordionItem value="c1-subject-id">
     <AccordionTrigger>Can the subject ID be anything?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes -- any string: UUID, email, username, database ID. Use the same format when assigning
+      Yes, any string: UUID, email, username, database ID. Use the same format when assigning
       roles and when checking permissions.
     </AccordionContent>
   </AccordionItem>

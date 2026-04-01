@@ -1,6 +1,6 @@
 ---
 title: engine api
-description: Complete reference for the duck-iam Engine class -- core methods, configuration options, hooks, caching, admin operations, and the Decision object.
+description: Complete reference for the duck-iam Engine class, covering core methods, configuration options, hooks, caching, admin operations, and the Decision object.
 ---
 
 ## Overview
@@ -173,7 +173,7 @@ surrounding `authorize()` / `can()` / `check()` call can reject.
 
 ### engine.permissions()
 
-Batch check multiple permissions at once. Loads data once, evaluates many. In development mode, returns a typed `PermissionMap`. In production mode, returns `Record<string, boolean>`. Both have the same shape at runtime — the difference is only at the type level. Keyed by one of four forms:
+Batch check multiple permissions at once. Loads data once, evaluates many. In development mode, returns a typed `PermissionMap`. In production mode, returns `Record<string, boolean>`. Both have the same shape at runtime; the difference is only at the type level. Keyed by one of four forms:
 
 - `"action:resource"`
 - `"action:resource:resourceId"`
@@ -504,10 +504,10 @@ The admin API methods automatically invalidate the relevant caches:
     AR["assignRole\nrevokeRole"] --> SUBJ["Invalidates:\nSpecific subject only"]
     SA["setAttributes"] --> SUBJ2["Invalidates:\nSpecific subject only"]`} />
 
-- `admin.savePolicy()` / `admin.deletePolicy()` -- invalidates policies.
-- `admin.saveRole()` / `admin.deleteRole()` -- invalidates roles + subjects.
-- `admin.assignRole()` / `admin.revokeRole()` -- invalidates the specific subject.
-- `admin.setAttributes()` -- invalidates the specific subject.
+- `admin.savePolicy()` / `admin.deletePolicy()`: invalidates policies.
+- `admin.saveRole()` / `admin.deleteRole()`: invalidates roles + subjects.
+- `admin.assignRole()` / `admin.revokeRole()`: invalidates the specific subject.
+- `admin.setAttributes()`: invalidates the specific subject.
 
 You only need to call invalidation methods manually if you modify data outside the admin API
 (e.g., direct database writes).

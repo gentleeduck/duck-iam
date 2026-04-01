@@ -299,8 +299,10 @@ describe('Role + condition: can admin delete post?', () => {
 // ---------------------------------------------------------------------------
 
 describe('Deny path: viewer cannot delete', () => {
+  const denyRequest: AccessRequest = { ...simpleRequest, action: 'delete' }
+
   bench('@gentleduck/iam', () => {
-    for (let i = 0; i < N; i++) evaluate([simplePolicy], { ...simpleRequest, action: 'delete' })
+    for (let i = 0; i < N; i++) evaluate([simplePolicy], denyRequest)
   })
 
   bench('@casl/ability', () => {
@@ -345,13 +347,18 @@ describe('Target optimization (duck-iam only)', () => {
 describe('Batch: 20 permission checks', () => {
   const actions = ['read', 'write', 'update', 'delete'] as const
   const checks = Array.from({ length: 20 }, (_, i) => actions[i % 4] as (typeof actions)[number])
+  // Pre-allocate request objects to avoid spread overhead unfairly penalizing duck-iam
+  const batchRequests = checks.map((action) => ({
+    ...simpleRequest,
+    action,
+  }))
 
   bench('@gentleduck/iam — evaluateFast() x20 [PROD]', () => {
-    for (const action of checks) evaluateFast([simplePolicy], { ...simpleRequest, action })
+    for (let i = 0; i < 20; i++) evaluateFast([simplePolicy], batchRequests[i]!)
   })
 
   bench('@gentleduck/iam — evaluate() x20 [DEV]', () => {
-    for (const action of checks) evaluate([simplePolicy], { ...simpleRequest, action })
+    for (let i = 0; i < 20; i++) evaluate([simplePolicy], batchRequests[i]!)
   })
 
   bench('@casl/ability x20', () => {

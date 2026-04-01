@@ -1,12 +1,12 @@
 ---
 title: core concepts
-description: How duck-iam combines RBAC and ABAC into a single evaluation pipeline -- subjects, resources, policies, rules, conditions, and combining algorithms.
+description: How duck-iam combines RBAC and ABAC into a single evaluation pipeline, covering subjects, resources, policies, rules, conditions, and combining algorithms.
 ---
 
 ## How duck-iam Works
 
 duck-iam is a hybrid access control engine. Define roles (RBAC) and policies (ABAC)
-side by side — both feed into the same evaluation pipeline.
+side by side, and both feed into the same evaluation pipeline.
 
 Roles are converted into ABAC policies internally. Every authorization check goes
 through one unified evaluator, regardless of whether the permission came from a role
@@ -89,7 +89,7 @@ When you call `engine.can()` or `engine.authorize()`:
 
 5. **AND-combine across policies.** The engine walks the policy results in order. If any
    policy returns `deny`, evaluation stops and the request is denied. All policies must
-   allow for the request to be allowed. This is defense in depth -- a restrictive policy
+   allow for the request to be allowed. This is defense in depth: a restrictive policy
    cannot be overridden by a permissive one.
 
 6. **Return the decision.** The `Decision` object includes the boolean `allowed` flag,
@@ -100,9 +100,9 @@ When you call `engine.can()` or `engine.authorize()`:
 
 The engine supports a `mode` option that controls the evaluation path:
 
-- **`"development"` (default)** -- full `Decision` objects with timing, matched rule/policy
+- **`"development"` (default)**: full `Decision` objects with timing, matched rule/policy
   references, and human-readable reasons. Best for debugging and `explain()` traces.
-- **`"production"`** -- uses `evaluateFast()`, which skips `Decision` construction and
+- **`"production"`**: uses `evaluateFast()`, which skips `Decision` construction and
   timing. Rules are indexed via a `WeakMap`/`Map` structure so that action + resource
   lookups are O(1) instead of linear scans. Use this for maximum throughput in deployed
   services.
@@ -148,7 +148,7 @@ The engine supports a `mode` option that controls the evaluation path:
 
 ### Subject
 
-The entity making the request -- typically a user or service account.
+The entity making the request, typically a user or service account.
 
 ```typescript
 interface Subject {
@@ -164,7 +164,7 @@ A subject carries its identity (`id`), assigned roles, and arbitrary attributes
 
 ### Resource
 
-The thing being accessed -- a post, a document, a settings page.
+The thing being accessed: a post, a document, a settings page.
 
 ```typescript
 interface Resource {

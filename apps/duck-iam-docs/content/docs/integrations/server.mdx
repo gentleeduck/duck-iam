@@ -26,7 +26,7 @@ duck-iam ships server integrations for Express, NestJS, Hono, and Next.js. Each 
     CHECK -- "Yes" --> NEXT["next() -- proceed to handler"]
     CHECK -- "No" --> DENY["403 Forbidden"]`} />
 
-Every integration is a thin adapter over `engine.can()`. There is no runtime framework dependency -- duck-iam defines its own minimal type interfaces so you never pull in extra packages.
+Every integration is a thin adapter over `engine.can()`. There is no runtime framework dependency. duck-iam defines its own minimal type interfaces so you never pull in extra packages.
 
 ### HTTP method mapping
 
@@ -235,7 +235,7 @@ const canAccess = nestAccessGuard(engine, {
 // APP_GUARD -> { provide: APP_GUARD, useValue: { canActivate: canAccess } }
 ```
 
-Handlers without an `@Authorize` decorator are allowed by default -- the guard only activates when metadata is present.
+Handlers without an `@Authorize` decorator are allowed by default. The guard only activates when metadata is present.
 
 ### The Authorize decorator
 
@@ -611,13 +611,13 @@ const middleware = accessMiddleware(engine, {
 All server integrations wrap `engine.can()` in try/catch. If the engine throws (adapter
 failure, misconfigured policy, etc.), the default behavior is:
 
-- **Express middleware**: calls `onError(err, req, res, next)` -- defaults to 500 JSON.
+- **Express middleware**: calls `onError(err, req, res, next)`, defaults to 500 JSON.
 - **Express guard**: passes the error to `next(err)` for Express error middleware.
-- **Hono**: returns `onError(err, c)` -- defaults to 500 JSON.
-- **NestJS**: calls `onError(err, req)` -- defaults to returning `false` (deny).
-- **Next.js**: returns `onError(err, req)` -- defaults to 500 JSON.
+- **Hono**: returns `onError(err, c)`, defaults to 500 JSON.
+- **NestJS**: calls `onError(err, req)`, defaults to returning `false` (deny).
+- **Next.js**: returns `onError(err, req)`, defaults to 500 JSON.
 
-The engine itself never throws from `authorize()` -- it catches internal errors, calls the
+The engine itself never throws from `authorize()`. It catches internal errors, calls the
 `onError` hook, and returns a deny decision. The server integration try/catch is an extra
 safety net for edge cases like adapter connection failures during subject resolution.
 
@@ -626,7 +626,7 @@ safety net for edge cases like adapter connection failures during subject resolu
 1. Generate a `PermissionMap` on the server using `getPermissions` or `engine.permissions()`
 2. Pass the map to the client via props, response body, or server-rendered HTML
 3. Hydrate an `AccessProvider` (React), plugin (Vue), or `AccessClient` (vanilla) on the client
-4. Client-side checks are instant lookups -- no additional network requests
+4. Client-side checks are instant lookups with no additional network requests
 
 ```typescript
 // Server: generate the permission map
@@ -723,8 +723,8 @@ const permissions = await engine.permissions(userId, checks)
   <AccordionItem value="middleware-owner-checks">
     <AccordionTrigger>Why can middleware know the route and user, but still not be enough for owner checks?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Ownership depends on resource attributes not present in the raw route shape. Middleware can tell you “this is a delete
-      on post 42,” but it cannot know `ownerId`, status, or tenant metadata until your handler loads the actual record.
+      Ownership depends on resource attributes not present in the raw route shape. Middleware can tell you "this is a delete
+      on post 42," but it cannot know `ownerId`, status, or tenant metadata until your handler loads the actual record.
       Record-level checks belong near the data fetch.
     </AccordionContent>
   </AccordionItem>
