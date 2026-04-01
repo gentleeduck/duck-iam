@@ -1,5 +1,46 @@
+import { evalConditionGroup } from '../conditions'
+import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
 import type { AccessRequest, Decision, Effect, Policy, Rule } from '../types'
-import { combiners, getIndexedMatches, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
+import { type IndexedRule, combiners, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
+
+/**
+ * Inline candidate matching — checks resource + conditions without allocating.
+ * Action is already narrowed by the index lookup.
+ */
+function matchCandidate(
+  entry: IndexedRule,
+  action: string,
+  resType: string,
+  resHasDot: boolean,
+  req: AccessRequest,
+): boolean {
+  // Action — already narrowed by index, but handle prefix patterns
+  if (!entry.hasWildcardAction && !entry.actions.has(action)) {
+    let ok = false
+    for (const a of entry.rule.actions) {
+      if (matchesAction(a, action)) { ok = true; break }
+    }
+    if (!ok) return false
+  }
+
+  // Resource
+  if (!entry.hasWildcardResource) {
+    let ok = false
+    for (const r of entry.rule.resources) {
+      if (resHasDot || r.includes('.')) {
+        if (matchesResourceHierarchical(r, resType)) { ok = true; break }
+      } else {
+        if (matchesResource(r, resType)) { ok = true; break }
+      }
+    }
+    if (!ok) return false
+  }
+
+  // Conditions — skip eval entirely for empty/unconditional rules
+  const cond = entry.rule.conditions
+  if (!('all' in cond) && !('any' in cond) && !('none' in cond)) return true
+  return evalConditionGroup(req, cond)
+}
 
 /**
  * Evaluates a single policy against an access request.
@@ -101,52 +142,128 @@ export function evaluate(policies: Policy[], request: AccessRequest, defaultEffe
 // Fast (production-mode) evaluation — returns plain booleans, no allocations
 // ---------------------------------------------------------------------------
 
-/** Boolean-only combiners for production mode. No reason strings, no Rule refs. */
-const fastCombiners: Record<string, (matched: Array<{ effect: Effect }>) => boolean | null> = {
-  'deny-overrides': (matched) => {
-    let hasAllow = false
-    for (const m of matched) {
-      if (m.effect === 'deny') return false
-      if (m.effect === 'allow') hasAllow = true
-    }
-    return hasAllow ? true : null
-  },
-  'allow-overrides': (matched) => {
-    let hasDeny = false
-    for (const m of matched) {
-      if (m.effect === 'allow') return true
-      if (m.effect === 'deny') hasDeny = true
-    }
-    return hasDeny ? false : null
-  },
-  'first-match': (matched) => {
-    if (matched.length > 0) return matched[0]?.effect === 'allow'
-    return null
-  },
-  'highest-priority': (matched) => {
-    if (matched.length === 0) return null
-    const top = (matched as Array<{ rule: Rule; effect: Effect }>).reduce((best, cur) =>
-      cur.rule.priority > best.rule.priority ? cur : best,
-    )
-    return top.effect === 'allow'
-  },
-}
-
 /**
  * Fast single-policy evaluation — returns a plain boolean.
- * Uses the rule index for candidate lookup. No timing, no Decision allocation.
+ *
+ * Zero-allocation hot path: no matched[] array, no { rule, effect } objects,
+ * no intermediate arrays. Combines index lookup + rule matching + combining
+ * algorithm in a single inlined loop.
  */
 export function evaluatePolicyFast(policy: Policy, request: AccessRequest, defaultEffect: Effect = 'deny'): boolean {
-  if (!policyApplies(policy, request)) return defaultEffect === 'allow'
+  // Inline policyApplies — avoid function call overhead
+  const targets = policy.targets
+  if (targets) {
+    if (targets.actions?.length && !targets.actions.some((a) => matchesAction(a, request.action))) {
+      return defaultEffect === 'allow'
+    }
+    if (targets.resources?.length && !targets.resources.some((r) => matchesResource(r, request.resource.type))) {
+      return defaultEffect === 'allow'
+    }
+    if (targets.roles?.length && !targets.roles.some((role) => request.subject.roles.includes(role))) {
+      return defaultEffect === 'allow'
+    }
+  }
 
   const idx = indexPolicy(policy)
-  const matched = getIndexedMatches(idx, request)
+  const action = request.action
+  const resType = request.resource.type
 
-  const combiner = fastCombiners[policy.algorithm]
-  if (!combiner) return defaultEffect === 'allow'
+  // Primary path: combined action+resource index (O(1) lookup, no resource matching)
+  const exactAR = idx.byActionResource.get(`${action}\0${resType}`)
+  const wildcardAny = idx.wildcardAny
+  const algo = policy.algorithm
 
-  const result = combiner(matched)
-  return result ?? defaultEffect === 'allow'
+  if (algo === 'deny-overrides') {
+    let hasAllow = false
+
+    if (exactAR) {
+      for (let i = 0; i < exactAR.length; i++) {
+        const entry = exactAR[i]!
+        // Action+resource already matched by index — only check conditions
+        const cond = entry.rule.conditions
+        if (('all' in cond || 'any' in cond || 'none' in cond) && !evalConditionGroup(request, cond)) continue
+        if (entry.rule.effect === 'deny') return false
+        hasAllow = true
+      }
+    }
+
+    // Check wildcard rules (action:* or resource:*)
+    for (let i = 0; i < wildcardAny.length; i++) {
+      const entry = wildcardAny[i]!
+      if (!matchCandidate(entry, action, resType, resType.includes('.'), request)) continue
+      if (entry.rule.effect === 'deny') return false
+      hasAllow = true
+    }
+
+    return hasAllow ? true : defaultEffect === 'allow'
+  }
+
+  if (algo === 'allow-overrides') {
+    let hasDeny = false
+
+    if (exactAR) {
+      for (let i = 0; i < exactAR.length; i++) {
+        const entry = exactAR[i]!
+        const cond = entry.rule.conditions
+        if (('all' in cond || 'any' in cond || 'none' in cond) && !evalConditionGroup(request, cond)) continue
+        if (entry.rule.effect === 'allow') return true
+        hasDeny = true
+      }
+    }
+
+    for (let i = 0; i < wildcardAny.length; i++) {
+      const entry = wildcardAny[i]!
+      if (!matchCandidate(entry, action, resType, resType.includes('.'), request)) continue
+      if (entry.rule.effect === 'allow') return true
+      hasDeny = true
+    }
+
+    return hasDeny ? false : defaultEffect === 'allow'
+  }
+
+  if (algo === 'first-match') {
+    if (exactAR) {
+      for (let i = 0; i < exactAR.length; i++) {
+        const entry = exactAR[i]!
+        const cond = entry.rule.conditions
+        if (('all' in cond || 'any' in cond || 'none' in cond) && !evalConditionGroup(request, cond)) continue
+        return entry.rule.effect === 'allow'
+      }
+    }
+    for (let i = 0; i < wildcardAny.length; i++) {
+      const entry = wildcardAny[i]!
+      if (matchCandidate(entry, action, resType, resType.includes('.'), request)) {
+        return entry.rule.effect === 'allow'
+      }
+    }
+    return defaultEffect === 'allow'
+  }
+
+  // highest-priority — need to scan all
+  let bestPriority = -Infinity
+  let bestEffect: Effect | null = null
+
+  if (exactAR) {
+    for (let i = 0; i < exactAR.length; i++) {
+      const entry = exactAR[i]!
+      const cond = entry.rule.conditions
+      if (('all' in cond || 'any' in cond || 'none' in cond) && !evalConditionGroup(request, cond)) continue
+      if (entry.rule.priority > bestPriority) {
+        bestPriority = entry.rule.priority
+        bestEffect = entry.rule.effect
+      }
+    }
+  }
+  for (let i = 0; i < wildcardAny.length; i++) {
+    const entry = wildcardAny[i]!
+    if (!matchCandidate(entry, action, resType, resType.includes('.'), request)) continue
+    if (entry.rule.priority > bestPriority) {
+      bestPriority = entry.rule.priority
+      bestEffect = entry.rule.effect
+    }
+  }
+
+  return bestEffect !== null ? bestEffect === 'allow' : defaultEffect === 'allow'
 }
 
 /**

@@ -11,9 +11,9 @@ Run `bun run bench` in `packages/duck-iam` to reproduce every number on this pag
 
 ## The honest verdict
 
-**CASL is faster than us.** On simple RBAC checks, CASL is ~2x faster in production mode because it pre-compiles rules into a hash-map index at build time. We can't fully match that because duck-iam supports dynamic policies that change at runtime.
+**CASL is faster than us.** On simple RBAC checks, CASL is ~3x faster in production mode because it pre-compiles rules into a hash-map index at build time. We can't fully match that because duck-iam supports dynamic policies that change at runtime.
 
-**We are faster than everyone else.** In production mode, duck-iam is 3-50x faster than casbin, role-acl, accesscontrol, and @rbac/rbac.
+**We are faster than everyone else.** In production mode, duck-iam is faster than easy-rbac, @rbac/rbac, accesscontrol, casbin, and role-acl.
 
 **We ship more features than anyone.** Scoped roles, explain/debug traces, lifecycle hooks, batch permissions, 18 condition operators, 5 server middlewares, 3 client libraries — no competitor bundles all of these together.
 
@@ -44,16 +44,16 @@ All numbers are **ops/sec** (higher = faster). Each library solves the **same** 
 
 | # | Library | ops/sec | vs CASL |
 |---|---|---|---|
-| 1 | **@casl/ability** | 15,420,000 | — |
-| 2 | @gentleduck/iam `evaluatePolicyFast()` [PROD] | 8,060,000 | 1.9x slower |
-| 3 | @gentleduck/iam `evaluateFast()` [PROD] | 7,560,000 | 2x slower |
-| 4 | easy-rbac | 4,050,000 | 3.8x slower |
-| 5 | @rbac/rbac | 2,490,000 | 6.2x slower |
-| 6 | @gentleduck/iam `evaluatePolicy()` [DEV] | 1,180,000 | 13x slower |
-| 7 | @gentleduck/iam `evaluate()` [DEV] | 920,000 | 17x slower |
-| 8 | accesscontrol | 600,000 | 26x slower |
-| 9 | casbin | 118,000 | 131x slower |
-| 10 | role-acl | 104,000 | 148x slower |
+| 1 | **@casl/ability** | 15,838,000 | — |
+| 2 | @gentleduck/iam `evaluatePolicyFast()` [PROD] | 5,066,000 | 3.1x slower |
+| 3 | @gentleduck/iam `evaluateFast()` [PROD] | 5,038,000 | 3.1x slower |
+| 4 | easy-rbac | 4,669,000 | 3.4x slower |
+| 5 | @rbac/rbac | 2,724,000 | 5.8x slower |
+| 6 | @gentleduck/iam `evaluatePolicy()` [DEV] | 1,325,000 | 12x slower |
+| 7 | @gentleduck/iam `evaluate()` [DEV] | 978,000 | 16.2x slower |
+| 8 | accesscontrol | 661,000 | 24x slower |
+| 9 | casbin | 137,000 | 116x slower |
+| 10 | role-acl | 121,000 | 131x slower |
 
 ### ABAC condition check: "can owner update own draft?"
 
@@ -61,9 +61,9 @@ Only libraries with real ABAC condition support. CASL uses `subject()` to actual
 
 | # | Library | ops/sec | vs CASL |
 |---|---|---|---|
-| 1 | **@casl/ability** (with `subject()`) | 3,400,000 | — |
-| 2 | @gentleduck/iam `evaluateFast()` [PROD] | 1,028,000 | 3.3x slower |
-| 3 | @gentleduck/iam `evaluate()` [DEV] | 480,000 | 7.1x slower |
+| 1 | **@casl/ability** (with `subject()`) | 3,956,000 | — |
+| 2 | @gentleduck/iam `evaluateFast()` [PROD] | 1,146,000 | 3.5x slower |
+| 3 | @gentleduck/iam `evaluate()` [DEV] | 601,000 | 6.6x slower |
 
 Others excluded — they don't support attribute-based conditions.
 
@@ -71,49 +71,49 @@ Others excluded — they don't support attribute-based conditions.
 
 | # | Library | ops/sec | vs CASL |
 |---|---|---|---|
-| 1 | **@casl/ability** (with `subject()`) | 5,040,000 | — |
-| 2 | easy-rbac | 3,660,000 | 1.4x slower |
-| 3 | @rbac/rbac | 2,280,000 | 2.2x slower |
-| 4 | @gentleduck/iam [DEV] | 670,000 | 7.5x slower |
-| 5 | accesscontrol | 330,000 | 15x slower |
-| 6 | casbin | 45,000 | 112x slower |
-| 7 | role-acl | 44,000 | 115x slower |
+| 1 | **@casl/ability** (with `subject()`) | 5,687,000 | — |
+| 2 | easy-rbac | 4,236,000 | 1.3x slower |
+| 3 | @rbac/rbac | 2,556,000 | 2.2x slower |
+| 4 | @gentleduck/iam [DEV] | 765,000 | 7.4x slower |
+| 5 | accesscontrol | 379,000 | 15x slower |
+| 6 | casbin | 54,000 | 105x slower |
+| 7 | role-acl | 51,000 | 112x slower |
 
 ### Deny path: "viewer cannot delete"
 
 | # | Library | ops/sec | vs fastest |
 |---|---|---|---|
-| 1 | **easy-rbac** | 2,970,000 | — |
-| 2 | @casl/ability | 1,360,000 | 2.2x slower |
-| 3 | @gentleduck/iam [DEV] | 690,000 | 4.3x slower |
-| 4 | role-acl | 120,000 | 25x slower |
-| 5 | @rbac/rbac | 61,000 | 49x slower |
-| 6 | casbin | 45,000 | 66x slower |
+| 1 | **easy-rbac** | 3,217,000 | — |
+| 2 | @casl/ability | 1,569,000 | 2x slower |
+| 3 | @gentleduck/iam [DEV] | 809,000 | 4x slower |
+| 4 | role-acl | 141,000 | 23x slower |
+| 5 | @rbac/rbac | 69,000 | 47x slower |
+| 6 | casbin | 53,000 | 60x slower |
 
 ### Batch: 20 permission checks
 
 | # | Library | ops/sec | vs CASL |
 |---|---|---|---|
-| 1 | **@casl/ability** | 3,330,000 | — |
-| 2 | easy-rbac | 469,000 | 7.1x slower |
-| 3 | @gentleduck/iam `evaluateFast()` [PROD] | 424,000 | 7.9x slower |
-| 4 | @gentleduck/iam `evaluate()` [DEV] | 121,000 | 27x slower |
-| 5 | accesscontrol | 60,000 | 56x slower |
-| 6 | role-acl | 18,500 | 180x slower |
-| 7 | @rbac/rbac | 12,900 | 258x slower |
-| 8 | casbin | 8,500 | 392x slower |
+| 1 | **@casl/ability** | 3,334,000 | — |
+| 2 | easy-rbac | 503,000 | 6.6x slower |
+| 3 | @gentleduck/iam `evaluateFast()` [PROD] | 473,000 | 7x slower |
+| 4 | @gentleduck/iam `evaluate()` [DEV] | 139,000 | 24x slower |
+| 5 | accesscontrol | 68,000 | 49x slower |
+| 6 | role-acl | 21,000 | 159x slower |
+| 7 | @rbac/rbac | 14,300 | 233x slower |
+| 8 | casbin | 9,700 | 344x slower |
 
 ### Cold start: build everything + first check
 
 | # | Library | ops/sec | vs CASL |
 |---|---|---|---|
-| 1 | **@casl/ability** | 2,950,000 | — |
-| 2 | easy-rbac | 2,730,000 | 1.1x slower |
-| 3 | accesscontrol | 735,000 | 4x slower |
-| 4 | @gentleduck/iam | 285,000 | 10x slower |
-| 5 | role-acl | 262,000 | 11x slower |
-| 6 | @rbac/rbac | 164,000 | 18x slower |
-| 7 | casbin | 54,000 | 55x slower |
+| 1 | **@casl/ability** | 3,412,000 | — |
+| 2 | easy-rbac | 2,943,000 | 1.2x slower |
+| 3 | accesscontrol | 842,000 | 4x slower |
+| 4 | @gentleduck/iam | 316,000 | 10.8x slower |
+| 5 | role-acl | 288,000 | 11.8x slower |
+| 6 | @rbac/rbac | 184,000 | 18.5x slower |
+| 7 | casbin | 63,000 | 54x slower |
 
 ---
 
@@ -125,9 +125,9 @@ CASL and duck-iam solve authorization differently at the engine level:
 
 **CASL: pre-compiled lookup table.** When you call `build()`, CASL iterates all rules once and builds an internal index keyed by `[action, subjectType]`. Every subsequent `can()` call does a single hash-map lookup — O(1), ~0.012 us. The rules are frozen after `build()` and cannot change at runtime.
 
-**duck-iam: dynamic policy engine.** Policies can be loaded from databases, updated at runtime via adapters, and invalidated via the LRU cache. Each evaluation does: WeakMap index lookup → Map.get by `action:resource` → condition evaluation → combining algorithm. Even with our rule index optimization, each check costs ~0.06 us — about 5x more than a single hash lookup.
+**duck-iam: dynamic policy engine.** Policies can be loaded from databases, updated at runtime via adapters, and invalidated via the LRU cache. Each evaluation does: WeakMap index lookup → Map.get by `action:resource` → condition evaluation → combining algorithm. Even with our rule index optimization, each check costs ~0.20 us — about 3x more than a single hash lookup.
 
-### Where the ~2x gap comes from (profiled)
+### Where the ~3x gap comes from (profiled)
 
 Profiled operations in the production fast path:
 
@@ -139,9 +139,9 @@ Profiled operations in the production fast path:
 | for loop (1 rule) | ~0.003 us | Iterate matched rules |
 | Condition check | ~0.003 us | Skip (empty conditions) or evaluate |
 | policyApplies | ~0.003 us | Check policy targets |
-| Function overhead | ~0.030 us | Call stack, argument passing |
-| **Total** | **~0.058 us** | |
-| **CASL total** | **~0.012 us** | Single hash lookup + return |
+| Function overhead | ~0.270 us | Call stack, argument passing, V8 deopt |
+| **Total** | **~0.300 us** | |
+| **CASL total** | **~0.057 us** | Single hash lookup + return |
 
 The gap is not one big bottleneck — it's the sum of many small costs that a policy engine fundamentally requires. CASL avoids all of them by freezing rules at build time.
 
@@ -155,7 +155,7 @@ Every optimization that preserves the dynamic policy model is already applied:
 4. **Path cache** — condition field paths like `subject.attributes.role` are split once and cached forever.
 5. **Production mode** — no `performance.now()`, no `Date.now()`, no Decision object allocation, no reason strings.
 
-To close the remaining ~2x gap, we would need to abandon dynamic policies and pre-compile everything at init time like CASL does. That would break adapters, runtime policy updates, and the LRU cache — the features that make duck-iam a policy engine instead of a lookup table.
+To close the remaining ~3x gap, we would need to abandon dynamic policies and pre-compile everything at init time like CASL does. That would break adapters, runtime policy updates, and the LRU cache — the features that make duck-iam a policy engine instead of a lookup table.
 
 ### Why it doesn't matter in practice
 
@@ -166,10 +166,10 @@ Authorization is never your bottleneck. Here's a typical API request:
 | Network round trip | 5,000–50,000 us |
 | Database query | 500–5,000 us |
 | JSON serialization | 50–500 us |
-| **duck-iam check (prod)** | **0.06 us** |
-| **CASL check** | **0.012 us** |
+| **duck-iam check (prod)** | **0.30 us** |
+| **CASL check** | **0.057 us** |
 
-The gap is 48 nanoseconds. At 100 checks per request that's 4.8 us — 0.0001% of a typical 50 ms request.
+The gap is 243 nanoseconds. At 100 checks per request that's 24.3 us — 0.0005% of a typical 50 ms request.
 
 ---
 
@@ -224,20 +224,21 @@ Pure evaluation timing — average of 2,000 iterations after 200 warmup rounds.
 
 | Operation | Time |
 |---|---|
-| `evaluatePolicyFast()` — simple rule | ~0.06 us |
-| `evaluatePolicyFast()` — with conditions | ~0.10 us |
-| `evaluatePolicy()` [DEV] — simple rule | ~0.17 us |
-| `evaluatePolicy()` [DEV] — with conditions | ~0.33 us |
-| `evaluatePolicy()` — target skip | ~0.24 us |
+| `evaluatePolicyFast()` — simple rule | ~0.87 us |
+| `evaluatePolicyFast()` — with conditions | ~1.61 us |
+| `evaluatePolicy()` [DEV] — target match | ~0.59 us |
+| `evaluatePolicy()` — target skip | ~0.37 us |
+| `evaluate()` — 2 policies | ~0.70 us |
+| `evaluate()` — deny path | ~0.96 us |
 
 ### Engine Performance (with LRU caching)
 
 | Operation | Time |
 |---|---|
-| `engine.can()` — cached | ~7.5 us |
-| `engine.check()` — cached | ~7.5 us |
-| `engine.permissions()` — 20 checks | ~20 us |
-| `engine.explain()` — full trace | ~10 us |
+| `engine.can()` — cached | ~5.5 us |
+| `engine.check()` — cached | ~4.2 us |
+| `engine.permissions()` — 20 checks | ~21 us |
+| `engine.explain()` — full trace | ~5.7 us |
 
 Times vary by machine. Run `bun run benchmark` for your hardware.
 
@@ -320,7 +321,7 @@ Times vary by machine. Run `bun run benchmark` for your hardware.
 
 ### @casl/ability wins on
 
-- **Raw speed** — 2x faster than duck-iam in production mode thanks to pre-compiled ability index
+- **Raw speed** — 3x faster than duck-iam in production mode thanks to pre-compiled ability index
 - **Bundle size** — ~6 KB, 3.5x smaller
 - **Maturity** — production since 2017
 - **Ecosystem** — ~900K downloads/week, extensive docs and community
