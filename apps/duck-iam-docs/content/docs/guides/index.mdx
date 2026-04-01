@@ -117,8 +117,14 @@ const adapter = new MemoryAdapter({
   },
 });
 
+// mode defaults to 'development' — verbose logging & validation.
+// For production: access.createEngine({ adapter, mode: 'production' })
 export const engine = access.createEngine({ adapter });
 ```
+
+> The engine runs in **development** mode by default, which enables extra
+> validation and detailed logging. Set `mode: 'production'` when deploying to
+> disable the overhead.
 
 Now run permission checks:
 
