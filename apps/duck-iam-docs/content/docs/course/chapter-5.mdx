@@ -49,7 +49,7 @@ BlogDuck serves multiple organizations. Alice is an admin in Acme Corp but only 
 
     export const engine = new Engine({
       adapter,
-      // mode: 'production',  // optional — defaults to 'development'
+      // mode: 'production',  // optional -- defaults to 'development'
     })
     ```
 
@@ -219,7 +219,7 @@ const acmeEditor = defineRole('acme-editor')
   .build()
 ```
 
-`.scope('acme')` makes all permissions in this role scoped to `acme` — shorthand for
+`.scope('acme')` makes all permissions in this role scoped to `acme` -- shorthand for
 calling `.grantScoped('acme', ...)` on every permission.
 
 ### When to Use Each Level
@@ -392,7 +392,7 @@ const tenantPolicy = policy('tenant-isolation')
     <AccordionTrigger>What happens if I do not pass a scope?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Only base roles are used. A user who is admin only within a specific org will not have
-      admin permissions without the scope parameter. Scoped permissions are also skipped —
+      admin permissions without the scope parameter. Scoped permissions are also skipped --
       only global (unscoped) permissions are evaluated.
     </AccordionContent>
   </AccordionItem>
@@ -427,7 +427,7 @@ const tenantPolicy = policy('tenant-isolation')
   <AccordionItem value="c5-hierarchical-when">
     <AccordionTrigger>When should I use hierarchical resources?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      When resource types form a natural hierarchy — a dashboard with sub-sections, or a
+      When resource types form a natural hierarchy -- a dashboard with sub-sections, or a
       project with sub-resources. Granting access to the parent covers all children, reducing
       the number of permissions to manage. Dots read better for this: `dashboard.users` vs
       `dashboard:users`.
@@ -439,7 +439,7 @@ const tenantPolicy = policy('tenant-isolation')
     <AccordionContent className="text-muted-foreground">
       Both support hierarchical matching. The engine uses dot-based matching
       (`matchesResourceHierarchical()`) when the pattern or resource type contains a dot,
-      and colon-based (`matchesResource()`) otherwise. They behave the same way — pick one
+      and colon-based (`matchesResource()`) otherwise. They behave the same way. Pick one
       and be consistent.
     </AccordionContent>
   </AccordionItem>
@@ -448,7 +448,7 @@ const tenantPolicy = policy('tenant-isolation')
     <AccordionTrigger>What is the environment parameter used for?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       It carries request context: IP, user agent, timestamp, and custom fields. Use it in
-      conditions to restrict access based on request origin or time —
+      conditions to restrict access based on request origin or time.
       `.env('ip', 'starts_with', '10.')` for VPN-only access, or
       `.env('timestamp', 'lt', cutoff)` for time-based restrictions. Server integrations
       extract it automatically from HTTP request headers.

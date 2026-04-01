@@ -42,9 +42,9 @@ Adapters are the storage layer for duck-iam. They implement the `Adapter` interf
 
     Adapter_Interface --> Implementations`} />
 
-- **PolicyStore** -- CRUD for access policies (rules, conditions, combining algorithms)
-- **RoleStore** -- CRUD for roles (permissions, inheritance, scopes)
-- **SubjectStore** -- role assignments, scoped roles, and subject attributes
+- **PolicyStore**: CRUD for access policies (rules, conditions, combining algorithms)
+- **RoleStore**: CRUD for roles (permissions, inheritance, scopes)
+- **SubjectStore**: role assignments, scoped roles, and subject attributes
 
 Every adapter is fully typed with your application's action, resource, role, and scope types.
 
@@ -175,10 +175,10 @@ const adapter = new MemoryAdapter({
 
 ### When to use
 
-- **Unit tests** -- seed known roles and assignments, assert engine behavior
-- **Development** -- get started without a database
-- **Prototyping** -- explore the policy model before committing to a schema
-- **CI pipelines** -- run integration tests without external dependencies
+- **Unit tests**: seed known roles and assignments, assert engine behavior
+- **Development**: get started without a database
+- **Prototyping**: explore the policy model before committing to a schema
+- **CI pipelines**: run integration tests without external dependencies
 
 ---
 

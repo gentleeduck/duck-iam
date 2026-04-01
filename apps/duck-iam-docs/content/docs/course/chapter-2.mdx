@@ -50,7 +50,7 @@ on the one below it.
       .build()
     ```
 
-    Admin gets viewer + editor + admin permissions -- three levels of inheritance.
+    Admin gets viewer + editor + admin permissions, three levels of inheritance.
   </Step>
 
   <Step>
@@ -349,10 +349,10 @@ interface ValidationIssue {
 | Circular inheritance | `CIRCULAR_INHERIT` | warning | `a` inherits `b`, `b` inherits `a` |
 | Empty roles | `EMPTY_ROLE` | warning | Role with no permissions and no inheritance |
 
-`valid` is `false` only when there are `error`-level issues. Warnings are informational --
+`valid` is `false` only when there are `error`-level issues. Warnings are informational;
 the engine still works (cycles are skipped, empty roles do nothing).
 
-Validate at startup -- it is cheap and prevents silent failures at runtime.
+Validate at startup. It is cheap and prevents silent failures at runtime.
 
 ## Checkpoint
 
@@ -428,7 +428,7 @@ export const engine = new Engine({ adapter }) // mode defaults to 'development'
   <AccordionItem value="c2-override">
     <AccordionTrigger>Can a child role remove a permission from its parent?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. RBAC inheritance is additive -- a child always has at least the parent's permissions
+      No. RBAC inheritance is additive: a child always has at least the parent's permissions
       plus its own. To restrict specific actions, use ABAC policies with deny rules (Chapter 3).
       An editor who cannot delete uses the editor role for grants and a policy for the deny.
     </AccordionContent>

@@ -5,6 +5,7 @@ import { DocsProvider, TailwindIndicator, ThemeProvider } from '@gentleduck/docs
 import { cn } from '@gentleduck/libs/cn'
 import { KeyProvider } from '@gentleduck/vim/react'
 import localFont from 'next/font/local'
+import { Index as registryIndex } from '~/__ui_registry__'
 import { docsConfig } from '~/config/docs'
 import { METADATA } from '~/config/metadata'
 import { META_THEME_COLORS, siteConfig } from '~/config/site'
@@ -227,7 +228,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             disableTransitionOnChange
             enableColorScheme
             enableSystem>
-            <DocsProvider docs={docsEntries} docsConfig={docsConfig} siteConfig={docsSiteConfig}>
+            <DocsProvider docs={docsEntries} docsConfig={docsConfig} registryIndex={registryIndex} siteConfig={docsSiteConfig}>
               <div vaul-drawer-wrapper="">
                 <div className="relative flex min-h-svh flex-col bg-background">{children}</div>
               </div>

@@ -77,7 +77,7 @@ export const admin = access
 export const allRoles = [viewer, editor, moderator, admin];
 ```
 
-`admin` inherits from `moderator` → `editor` → `viewer`. Each role automatically has all permissions from its ancestors plus its own direct grants.
+`admin` inherits from `moderator` -> `editor` -> `viewer`. Each role automatically has all permissions from its ancestors plus its own direct grants.
 
 ## Step 3: Create the Engine
 
@@ -152,7 +152,7 @@ export const businessHoursPolicy = access
 await engine.admin.savePolicy(businessHoursPolicy);
 ```
 
-The `first-match` algorithm evaluates rules in order: the deny rule fires for writes outside 9–18 UTC, and the catch-all allow rule handles everything else.
+The `first-match` algorithm evaluates rules in order: the deny rule fires for writes outside 9--18 UTC, and the catch-all allow rule handles everything else.
 
 ## Step 5: Owner-Only Conditions
 
@@ -413,7 +413,7 @@ export function PostActions({ postId }: { postId: string }) {
 }
 ```
 
-`AccessProvider` receives the `PermissionMap` generated on the server (from Step 7). Client permission checks are synchronous lookups -- no network requests.
+`AccessProvider` receives the `PermissionMap` generated on the server (from Step 7). Client permission checks are synchronous lookups with no network requests.
 
 ## Debugging with explain()
 
@@ -439,7 +439,7 @@ console.log(trace.policies);
 
 ## Next Steps
 
-- [Core Concepts](/docs/core) -- deep dive into policies, rules, conditions, and combining algorithms.
-- [Integrations](/docs/integrations) -- detailed API reference for every server and client integration.
-- [Advanced](/docs/advanced) -- evaluation hooks, custom adapters, caching configuration, and validation.
-- [FAQs](/docs/faqs) -- common questions and troubleshooting tips.
+- [Core Concepts](/docs/core): deep dive into policies, rules, conditions, and combining algorithms.
+- [Integrations](/docs/integrations): detailed API reference for every server and client integration.
+- [Advanced](/docs/advanced): evaluation hooks, custom adapters, caching configuration, and validation.
+- [FAQs](/docs/faqs): common questions and troubleshooting tips.
