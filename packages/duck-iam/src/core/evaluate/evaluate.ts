@@ -177,8 +177,17 @@ export function evaluatePolicyFast(policy: Policy, request: AccessRequest, defau
   const action = request.action
   const resType = request.resource.type
 
-  // Primary path: combined action+resource index (O(1) lookup, no resource matching)
-  const exactAR = idx.byActionResource.get(`${action}\0${resType}`)
+  // Fastest path: pre-computed result for unconditional rules (CASL-like O(1))
+  // Two Map.get calls (action → resource) but no string allocation
+  const actionMap = idx.precomputed.get(action)
+  if (actionMap) {
+    const precomputed = actionMap.get(resType)
+    if (precomputed !== undefined) return precomputed
+  }
+
+  // Primary path: combined action+resource index
+  const key = `${action}\0${resType}`
+  const exactAR = idx.byActionResource.get(key)
   const wildcardAny = idx.wildcardAny
   const algo = policy.algorithm
 
