@@ -253,7 +253,10 @@ export function indexPolicy(policy: Policy): PolicyRuleIndex {
           let allUnconditional = true
           for (const e of entries) {
             const ec = e.rule.conditions
-            if ('all' in ec || 'any' in ec || 'none' in ec) { allUnconditional = false; break }
+            if ('all' in ec || 'any' in ec || 'none' in ec) {
+              allUnconditional = false
+              break
+            }
           }
           if (!allUnconditional) continue
 
@@ -262,14 +265,20 @@ export function indexPolicy(policy: Policy): PolicyRuleIndex {
           if (algo === 'deny-overrides') {
             let hasAllow = false
             for (const e of entries) {
-              if (e.rule.effect === 'deny') { result = false; break }
+              if (e.rule.effect === 'deny') {
+                result = false
+                break
+              }
               if (e.rule.effect === 'allow') hasAllow = true
             }
             if (result === undefined && hasAllow) result = true
           } else if (algo === 'allow-overrides') {
             let hasDeny = false
             for (const e of entries) {
-              if (e.rule.effect === 'allow') { result = true; break }
+              if (e.rule.effect === 'allow') {
+                result = true
+                break
+              }
               if (e.rule.effect === 'deny') hasDeny = true
             }
             if (result === undefined && hasDeny) result = false

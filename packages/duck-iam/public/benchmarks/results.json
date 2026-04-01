@@ -2,45 +2,45 @@
   "corePerformance": [
     {
       "label": "evaluatePolicy (simple rule)",
-      "us": 0.76
+      "us": 0.65
     },
     {
       "label": "evaluatePolicy (conditions)",
-      "us": 0.97
+      "us": 0.87
     },
     {
       "label": "evaluatePolicy (target match)",
-      "us": 0.53
+      "us": 0.51
     },
     {
       "label": "evaluatePolicy (target skip)",
-      "us": 0.26
+      "us": 0.2
     },
     {
       "label": "evaluate (2 policies)",
-      "us": 0.95
+      "us": 0.8
     },
     {
       "label": "evaluate (deny path)",
-      "us": 0.55
+      "us": 0.51
     }
   ],
   "enginePerformance": [
     {
       "label": "engine.can() (cached)",
-      "us": 7
+      "us": 4.52
     },
     {
       "label": "engine.check() (cached)",
-      "us": 4.08
+      "us": 3.44
     },
     {
       "label": "engine.permissions() (20 checks)",
-      "us": 24.15
+      "us": 17.39
     },
     {
       "label": "engine.explain()",
-      "us": 5.84
+      "us": 5.39
     }
   ],
   "moduleSizes": [
@@ -515,5 +515,5 @@
       ]
     }
   ],
-  "generatedAt": "2026-04-01T15:20:36.890Z"
+  "generatedAt": "2026-04-01T15:37:25.280Z"
 }

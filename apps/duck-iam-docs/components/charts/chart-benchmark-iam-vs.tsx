@@ -14,13 +14,13 @@ const tabs = ['Performance', 'Bundle Size'] as const
 type Tab = (typeof tabs)[number]
 
 const perfData = [
-  { name: '@casl/ability', value: 15_838_000, type: 'casl' },
-  { name: '@gentleduck/iam [PROD]', value: 5_066_000, type: 'duck' },
-  { name: 'easy-rbac', value: 4_669_000, type: 'other' },
-  { name: '@rbac/rbac', value: 2_724_000, type: 'other' },
-  { name: '@gentleduck/iam [DEV]', value: 1_325_000, type: 'duck' },
-  { name: 'accesscontrol', value: 661_000, type: 'other' },
-  { name: 'casbin', value: 137_000, type: 'other' },
+  { name: '@casl/ability', value: 16_857_000, type: 'casl' },
+  { name: '@gentleduck/iam [PROD]', value: 8_233_000, type: 'duck' },
+  { name: 'easy-rbac', value: 5_003_000, type: 'other' },
+  { name: '@rbac/rbac', value: 2_884_000, type: 'other' },
+  { name: '@gentleduck/iam [DEV]', value: 1_355_000, type: 'duck' },
+  { name: 'accesscontrol', value: 674_000, type: 'other' },
+  { name: 'casbin', value: 143_000, type: 'other' },
 ]
 
 const perfConfig = {
