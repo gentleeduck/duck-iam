@@ -121,10 +121,10 @@ The engine calls `resolveEffectiveRoles()` when loading a subject. Given a user
 assigned the `editor` role, the function walks the inheritance tree and returns
 `['editor', 'viewer']` -- the full set of effective roles.
 
-When `rolesToPolicy()` converts roles into an ABAC policy, it calls
-`collectPermissions()` which flattens the inheritance chain. The editor role's
-generated rules include both its own permissions and the viewer's permissions, each
-with a condition checking `subject.roles contains "editor"`.
+When `rolesToPolicy()` converts roles into an ABAC policy, it internally flattens
+the inheritance chain. The editor role's generated rules include both its own
+permissions and the viewer's permissions, each with a condition checking
+`subject.roles contains "editor"`.
 
 Cycles are handled safely -- if role A inherits from role B which inherits from role A,
 the visited set prevents infinite recursion.

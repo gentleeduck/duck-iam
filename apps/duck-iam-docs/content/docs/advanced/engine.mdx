@@ -215,6 +215,21 @@ const perms = await engine.permissions('user-1', [
 // }
 ```
 
+Each check in the array is a `PermissionCheck`:
+
+```typescript
+interface PermissionCheck<
+  TAction extends string = string,
+  TResource extends string = string,
+  TScope extends string = string,
+> {
+  readonly action: TAction
+  readonly resource: TResource
+  readonly resourceId?: string
+  readonly scope?: TScope
+}
+```
+
 This is the method you should use when rendering a UI that needs to know many permissions
 at once (e.g., which buttons to show/hide).
 

@@ -97,6 +97,21 @@ interface ExplainResult {
 }
 ```
 
+### ExplainSubjectInfo
+
+The `explainEvaluation()` function accepts an `ExplainSubjectInfo` object that separates base roles from scoped roles. If you are building custom explain tooling, this is the shape you need to provide:
+
+```typescript
+interface ExplainSubjectInfo {
+  /** The subject's unique ID. */
+  subjectId: string
+  /** The subject's base roles (before scope enrichment). */
+  originalRoles: readonly string[]
+  /** Additional roles applied from scoped assignments for this request. */
+  scopedRolesApplied: readonly string[]
+}
+```
+
 ### The summary string
 
 The quickest way to debug is to print the summary:
