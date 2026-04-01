@@ -5,7 +5,7 @@ description: Use permission maps in the browser to show and hide UI elements. In
 
 ## Goal
 
-BlogDuck's server is protected. Now the UI needs to respect permissions too -- hide the
+BlogDuck's server is protected. Now the UI needs to respect permissions too: hide the
 delete button if the user cannot delete, show the edit form only for editors. This chapter
 covers the three client integrations: React, Vue, and vanilla JavaScript.
 
@@ -254,7 +254,7 @@ if (can('delete', 'post', 'post-1')) {
 }
 ```
 
-Works in any environment -- server, client, tests, or Node.js scripts.
+Works in any environment: server, client, tests, or Node.js scripts.
 
 ## Vue 3
 
@@ -570,7 +570,7 @@ Server enforces. Client adapts.
     <AccordionTrigger>Is it safe to send permissions to the client?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Yes, but treat it as a UX optimization, not a security boundary. The server still
-      enforces access on every request -- tampering with the client-side map won't bypass
+      enforces access on every request. Tampering with the client-side map won't bypass
       it. Only include permissions the user needs to know about.
     </AccordionContent>
   </AccordionItem>
@@ -580,7 +580,7 @@ Server enforces. Client adapts.
     <AccordionContent className="text-muted-foreground">
       Re-fetch the permission map from the server. In React, pass a new `permissions` prop
       to `AccessProvider` (or re-render the server component). With the vanilla client, call
-      `access.update(newMap)` -- subscribers are notified automatically. In Vue, call
+      `access.update(newMap)`, and subscribers are notified automatically. In Vue, call
       `update()` from `useAccess()` or `provideAccess()`.
     </AccordionContent>
   </AccordionItem>
@@ -590,7 +590,7 @@ Server enforces. Client adapts.
     <AccordionContent className="text-muted-foreground">
       Yes. Generate the permission map on the server (Server Component, `getServerSideProps`,
       or your SSR data loader) and pass it as props. `AccessProvider` hydrates with the
-      server-generated map -- no flash of unauthorized content, no extra client-side fetch.
+      server-generated map. No flash of unauthorized content, no extra client-side fetch.
     </AccordionContent>
   </AccordionItem>
 
@@ -605,7 +605,7 @@ Server enforces. Client adapts.
   <AccordionItem value="c7-performance">
     <AccordionTrigger>Is the permission check fast enough for rendering?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. `can()` is a synchronous O(1) key lookup -- no network calls, no async operations,
+      Yes. `can()` is a synchronous O(1) key lookup with no network calls, no async operations,
       no engine evaluations. Call it hundreds of times per render without concern. The `can()`
       from `useAccess()` is also memoized.
     </AccordionContent>
@@ -614,7 +614,7 @@ Server enforces. Client adapts.
   <AccordionItem value="c7-usePerms-vs-provider">
     <AccordionTrigger>When should I use usePermissions vs AccessProvider?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Use `AccessProvider` with server-rendered permissions (SSR/RSC) -- no loading state,
+      Use `AccessProvider` with server-rendered permissions (SSR/RSC) for no loading state,
       no flash. Use `usePermissions` in pure SPAs where permissions must be fetched
       client-side. You can combine both: provider for initial permissions, `usePermissions`
       for dynamic refreshes.

@@ -58,7 +58,7 @@ resources, and scopes so the entire stack is type-checked at compile time.
     })
     ```
 
-    The `as const` assertion is critical -- it tells TypeScript to preserve the literal
+    The `as const` assertion is critical. It tells TypeScript to preserve the literal
     string types. Without it, the types widen to `string` and you lose compile-time checking.
     When `roles` is provided, `defineRole()` and `.role()` / `.roles()` in conditions only
     accept the declared role IDs.
@@ -138,7 +138,7 @@ resources, and scopes so the entire stack is type-checked at compile time.
     // access.checks([{ action: 'publish', resource: 'post' }])
     ```
 
-    `checks()` returns the same array -- it is a zero-cost type assertion at runtime.
+    `checks()` returns the same array. It is a zero-cost type assertion at runtime.
     Use this array with `engine.permissions()` to generate client permission maps.
   </Step>
 
@@ -363,7 +363,7 @@ const subject: Subject = { id: subjectId, roles, scopedRoles, attributes }
 
 `resolveEffectiveRoles()` expands the inheritance chain. If Alice has role `editor`, and
 editor inherits `viewer`, the effective roles are `['editor', 'viewer']`. Cycles are handled
-via a visited set -- if role A inherits B and B inherits A, the walk stops at the cycle.
+via a visited set. If role A inherits B and B inherits A, the walk stops at the cycle.
 
 ## Database Adapters
 
@@ -542,7 +542,7 @@ interface DrizzleConfig {
 
 **Key differences from PrismaAdapter:**
 
-- JSON columns may store as `string` -- the adapter handles both `string` (parses with
+- JSON columns may store as `string`. The adapter handles both `string` (parses with
   `JSON.parse`) and object (uses directly) values
 - Uses `onConflictDoUpdate` for upsert and `onConflictDoNothing` for `assignRole`
 - Requires you to pass the `eq` and `and` operators from `drizzle-orm`
@@ -955,7 +955,7 @@ catch (error) {
 }
 ```
 
-The same fail-closed pattern applies to `permissions()` -- each check that throws returns
+The same fail-closed pattern applies to `permissions()`: each check that throws returns
 `false` for that key.
 
 ### Prototype Pollution Prevention
@@ -1052,7 +1052,7 @@ Each operator validates its operand types before comparing:
 | `exists` | (any) | Checks `!= null && != undefined` |
 | `not_exists` | (any) | Checks `== null \|\| == undefined` |
 
-Type mismatches never throw -- they return `false` (fail closed for allow rules) or
+Type mismatches never throw. They return `false` (fail closed for allow rules) or
 `true` where appropriate (fail closed for deny rules depends on the operator).
 
 ### Dynamic Variable Resolution
@@ -1107,7 +1107,7 @@ and hooks give you full visibility into why a request was allowed or denied.
 
 Use **production mode** on high-traffic production servers where throughput matters
 and you have already validated your policies. It skips Decision object construction,
-timing measurement, and all hooks -- returning plain booleans for maximum speed.
+timing measurement, and all hooks, returning plain booleans for maximum speed.
 
 ```typescript title="src/access.ts"
 export const engine = access.createEngine({
@@ -1136,8 +1136,8 @@ engine (e.g., log in your middleware after calling `engine.can()`).
 
 ### evaluateFast() for Maximum Throughput
 
-When you do not need the Engine class at all -- no caching, no hooks, no subject
-resolution -- use `evaluateFast()` as a pure function. It takes policies and a fully
+When you do not need the Engine class at all (no caching, no hooks, no subject
+resolution), use `evaluateFast()` as a pure function. It takes policies and a fully
 resolved request, and returns a boolean directly:
 
 ```typescript
@@ -1724,7 +1724,7 @@ export const appChecks = access.checks([
     <AccordionTrigger>What happens if I forget `as const`?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Without `as const`, TypeScript widens the array types to `string[]`. The config will
-      still work at runtime, but you lose compile-time checking -- any string will be accepted
+      still work at runtime, but you lose compile-time checking. Any string will be accepted
       as an action or resource. Always use `as const` with `createAccessConfig` to get the
       full type safety benefits.
     </AccordionContent>
@@ -1758,7 +1758,7 @@ export const appChecks = access.checks([
       Yes. Implement the `Adapter` interface which extends `PolicyStore`, `RoleStore`, and
       `SubjectStore`. That is 14 methods total (4 for PolicyStore, 4 for RoleStore, 6 for
       SubjectStore). `getSubjectScopedRoles` is optional. See the `MemoryAdapter` source code
-      as a reference implementation -- it is the simplest adapter and shows all required methods.
+      as a reference implementation. It is the simplest adapter and shows all required methods.
       Make sure `getSubjectRoles()` returns only base (unscoped) roles, `savePolicy/saveRole()`
       upserts, and `setSubjectAttributes()` merges rather than replaces.
     </AccordionContent>
@@ -1767,7 +1767,7 @@ export const appChecks = access.checks([
   <AccordionItem value="c8-migrate">
     <AccordionTrigger>How do I migrate from MemoryAdapter to a database?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Replace the adapter in your engine configuration. The engine API does not change -- all
+      Replace the adapter in your engine configuration. The engine API does not change. All
       your roles, policies, and permission checks work exactly the same. Create the database
       tables (using the Prisma schema or Drizzle schema above), seed them with your existing
       role and policy definitions, then swap the adapter. Your application code stays the same.

@@ -116,7 +116,7 @@ const prodEngine = new Engine({ adapter, mode: 'production' })
 
 `can()` always returns a plain `boolean` regardless of mode.
 
-`check()` is mode-dependent. Its return type is `ModeResult<TMode>` -- in development
+`check()` is mode-dependent. Its return type is `ModeResult<TMode>`: in development
 mode that resolves to `Decision`, in production mode it resolves to `boolean`. Switch to
 production mode for zero-overhead boolean checks without changing call sites.
 
@@ -198,7 +198,7 @@ Use production mode when you need to:
 - Return simple booleans to API consumers
 - Avoid exposing internal policy details
 
-You can run both modes side by side -- for example, a production engine for your hot path
+You can run both modes side by side. For example, a production engine for your hot path
 and a development engine for an admin debug endpoint.
 
 ## Hooks
@@ -255,7 +255,7 @@ interface EngineHooks {
 
 <Steps>
   <Step>
-    **beforeEvaluate -- enrich the request**
+    **beforeEvaluate: enrich the request**
 
     Fetch resource data from a database before evaluation runs:
 
@@ -286,7 +286,7 @@ interface EngineHooks {
     })
     ```
 
-    Callers don't need to pass `ownerId` -- the hook fetches it automatically. The hook
+    Callers don't need to pass `ownerId`; the hook fetches it automatically. The hook
     receives the full `AccessRequest` and returns a (potentially modified) request. You can
     modify any part: subject attributes, resource attributes, environment, etc.
 
@@ -295,7 +295,7 @@ interface EngineHooks {
   </Step>
 
   <Step>
-    **afterEvaluate -- audit logging**
+    **afterEvaluate: audit logging**
 
     ```typescript
     hooks: {
@@ -313,7 +313,7 @@ interface EngineHooks {
   </Step>
 
   <Step>
-    **onDeny -- alert on denied access**
+    **onDeny: alert on denied access**
 
     ```typescript
     hooks: {
@@ -332,7 +332,7 @@ interface EngineHooks {
   </Step>
 
   <Step>
-    **onError -- handle evaluation failures**
+    **onError: handle evaluation failures**
 
     ```typescript
     hooks: {
@@ -362,7 +362,7 @@ check goes through `beforeEvaluate`, evaluation, `afterEvaluate`, and `onDeny` (
 
 ### Hooks in Explain
 
-`engine.explain()` only triggers `beforeEvaluate` -- not `afterEvaluate`, `onDeny`, or
+`engine.explain()` only triggers `beforeEvaluate`, not `afterEvaluate`, `onDeny`, or
 `onError`. The hook may modify the request, which affects the evaluation trace. If subject
 resolution, `beforeEvaluate`, or policy loading throws, the `explain()` call rejects.
 
@@ -386,13 +386,13 @@ The engine maintains four LRU caches to avoid hitting the adapter on every check
 
 ### How Caching Works
 
-1. **Policy cache** (1 entry) -- stores the result of `adapter.listPolicies()`. All policies
+1. **Policy cache** (1 entry): stores the result of `adapter.listPolicies()`. All policies
    are loaded once and cached together.
-2. **Role cache** (1 entry) -- stores the result of `adapter.listRoles()`. All roles are
+2. **Role cache** (1 entry): stores the result of `adapter.listRoles()`. All roles are
    loaded once and cached together.
-3. **RBAC policy cache** (1 entry) -- stores the `__rbac__` policy generated from roles.
+3. **RBAC policy cache** (1 entry): stores the `__rbac__` policy generated from roles.
    Regenerated only when the role cache is invalidated.
-4. **Subject cache** (up to `maxCacheSize` entries) -- stores per-user data: resolved roles,
+4. **Subject cache** (up to `maxCacheSize` entries): stores per-user data: resolved roles,
    scoped roles, and attributes. Uses LRU eviction when full.
 
 All caches use TTL. Entries expire after `cacheTTL` seconds and are re-fetched from the
@@ -409,8 +409,8 @@ const engine = new Engine({
 ```
 
 - `cacheTTL: 0` disables caching entirely (useful for tests)
-- The subject cache uses LRU eviction -- least recently used entries are dropped first
-- Policy and role caches are single-entry -- they store all data in one cache slot
+- The subject cache uses LRU eviction: least recently used entries are dropped first
+- Policy and role caches are single-entry, storing all data in one cache slot
 
 ### Manual Invalidation
 
@@ -758,7 +758,7 @@ export const engine = new Engine({
     <AccordionTrigger>Should I ever change defaultEffect from 'deny'?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Almost never. `'deny'` means unmatched requests are denied (fail-closed). Changing to
-      `'allow'` means any request that doesn't match a rule is permitted -- a significant
+      `'allow'` means any request that doesn't match a rule is permitted, a significant
       security risk. The only valid use case is development environments where you want to
       log denials without blocking requests.
     </AccordionContent>

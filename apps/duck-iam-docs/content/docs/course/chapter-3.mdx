@@ -64,17 +64,17 @@ Use both together. Roles handle broad access grants; policies handle fine-graine
       .build()
     ```
 
-    - **`policy('owner-restrictions')`** -- creates a policy with ID `owner-restrictions`
-    - **`.algorithm('deny-overrides')`** -- if any rule denies, the policy denies
-    - **`.rule('deny-non-owner-update', ...)`** -- defines a rule inside the policy
-    - **`.deny()`** -- this rule's effect is deny
-    - **`.on('update', 'delete')`** -- applies to update and delete actions
-    - **`.of('post')`** -- applies to the `post` resource type
-    - **`.priority(100)`** -- higher number = higher priority (relevant for `highest-priority` algorithm)
-    - **`.when(...)`** -- the condition that must be true for this rule to fire
-    - **`'resource.attributes.ownerId'`** -- reads the ownerId from the resource
-    - **`'neq'`** -- "not equal" operator
-    - **`'$subject.id'`** -- resolved at runtime to the requesting user's ID
+    - `policy('owner-restrictions')` creates a policy with ID `owner-restrictions`
+    - `.algorithm('deny-overrides')`: if any rule denies, the policy denies
+    - `.rule('deny-non-owner-update', ...)` defines a rule inside the policy
+    - `.deny()` sets this rule's effect to deny
+    - `.on('update', 'delete')` applies to update and delete actions
+    - `.of('post')` applies to the `post` resource type
+    - `.priority(100)`: higher number = higher priority (relevant for `highest-priority` algorithm)
+    - `.when(...)` is the condition that must be true for this rule to fire
+    - `'resource.attributes.ownerId'` reads the ownerId from the resource
+    - `'neq'` is the "not equal" operator
+    - `'$subject.id'` is resolved at runtime to the requesting user's ID
   </Step>
 
   <Step>
@@ -655,7 +655,7 @@ export const ownerPolicy = policy('owner-restrictions')
 
 <Accordion type="multiple" collapsible className="w-full">
   <AccordionItem value="c3-rbac-abac-order">
-    <AccordionTrigger>Which is evaluated first -- roles or policies?</AccordionTrigger>
+    <AccordionTrigger>Which is evaluated first, roles or policies?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Roles are converted to a synthetic `__rbac__` policy and evaluated first, followed by
       your custom policies. They are AND-combined: all must allow for the final result to be
