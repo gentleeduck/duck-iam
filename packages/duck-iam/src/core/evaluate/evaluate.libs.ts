@@ -162,6 +162,10 @@ export interface IndexedRule {
 export interface PolicyRuleIndex {
   readonly byAction: Map<string, IndexedRule[]>
   readonly wildcardRules: IndexedRule[]
+  /** Combined action\0resource key for O(1) exact-match lookup (fast path). */
+  readonly byActionResource: Map<string, IndexedRule[]>
+  /** Rules with wildcard action OR wildcard resource (need full matching). */
+  readonly wildcardAny: IndexedRule[]
 }
 
 /** WeakMap so indexes are GC'd when the policy is no longer referenced. */
@@ -175,7 +179,9 @@ export function indexPolicy(policy: Policy): PolicyRuleIndex {
   if (cached) return cached
 
   const byAction = new Map<string, IndexedRule[]>()
+  const byActionResource = new Map<string, IndexedRule[]>()
   const wildcardRules: IndexedRule[] = []
+  const wildcardAny: IndexedRule[] = []
 
   for (const rule of policy.rules) {
     const actions = new Set(rule.actions as string[])
@@ -185,9 +191,13 @@ export function indexPolicy(policy: Policy): PolicyRuleIndex {
 
     const entry: IndexedRule = { rule, actions, resources, hasWildcardAction, hasWildcardResource }
 
-    if (hasWildcardAction) {
-      wildcardRules.push(entry)
-    } else {
+    if (hasWildcardAction || hasWildcardResource) {
+      wildcardAny.push(entry)
+      if (hasWildcardAction) wildcardRules.push(entry)
+    }
+
+    // Populate action-only index (existing)
+    if (!hasWildcardAction) {
       for (const a of actions) {
         let bucket = byAction.get(a)
         if (!bucket) {
@@ -197,9 +207,24 @@ export function indexPolicy(policy: Policy): PolicyRuleIndex {
         bucket.push(entry)
       }
     }
+
+    // Populate combined action+resource index (new fast path)
+    if (!hasWildcardAction && !hasWildcardResource) {
+      for (const a of actions) {
+        for (const r of resources) {
+          const key = `${a}\0${r}`
+          let bucket = byActionResource.get(key)
+          if (!bucket) {
+            bucket = []
+            byActionResource.set(key, bucket)
+          }
+          bucket.push(entry)
+        }
+      }
+    }
   }
 
-  const idx: PolicyRuleIndex = { byAction, wildcardRules }
+  const idx: PolicyRuleIndex = { byAction, wildcardRules, byActionResource, wildcardAny }
   indexCache.set(policy, idx)
   return idx
 }

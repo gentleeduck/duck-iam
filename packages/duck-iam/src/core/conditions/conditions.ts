@@ -44,5 +44,6 @@ export function evalConditionGroup(req: AccessRequest, group: ConditionGroup, de
     return !group.none.some((item) => evalItem(req, item, depth + 1))
   }
 
-  return false
+  // Empty object {} = no conditions = unconditionally true
+  return true
 }
