@@ -115,14 +115,14 @@ editor can do (which includes everything a viewer can do), plus unrestricted acc
 
 The engine calls `resolveEffectiveRoles()` when loading a subject. Given a user
 assigned the `editor` role, the function walks the inheritance tree and returns
-`['editor', 'viewer']` -- the full set of effective roles.
+`['editor', 'viewer']`, the full set of effective roles.
 
 When `rolesToPolicy()` converts roles into an ABAC policy, it internally flattens
 the inheritance chain. The editor role's generated rules include both its own
 permissions and the viewer's permissions, each with a condition checking
 `subject.roles contains "editor"`.
 
-Cycles are handled safely -- if role A inherits from role B which inherits from role A,
+Cycles are handled safely. If role A inherits from role B which inherits from role A,
 the visited set prevents infinite recursion.
 
 ### Multiple inheritance
@@ -252,7 +252,7 @@ const author = defineRole('author')
 
 Authors can create and read any post, but can only update or delete posts they own.
 The `isOwner()` shortcut generates a condition checking
-`resource.attributes.ownerId eq $subject.id` -- the `$subject.id` is a variable
+`resource.attributes.ownerId eq $subject.id`. The `$subject.id` is a variable
 reference resolved at evaluation time.
 
 <Callout type="info">
@@ -353,7 +353,7 @@ const orgViewer = defineRole('org-viewer')
 
 ### meta(metadata)
 
-Attaches arbitrary metadata to a role. Not used during evaluation -- for application
+Attaches arbitrary metadata to a role. Not used during evaluation; for application
 code (admin dashboards, audit logs, UI labels).
 
 ```typescript
@@ -374,7 +374,7 @@ console.log(role.metadata)
   not grant any access. `validateRoles()` flags this as a warning.
 - **Deep inheritance chains**: inheritance is resolved by walking the tree recursively.
   The engine uses a visited set to prevent infinite loops on cycles. Performance is linear
-  in the number of roles -- even chains 10 levels deep resolve in microseconds.
+  in the number of roles. Even chains 10 levels deep resolve in microseconds.
 - **Removing inherited permissions**: not supported. If `editor` inherits `viewer`, there is
   no way to remove viewer's `read` permission from the editor. Instead, use ABAC policies
   to deny specific access at a finer grain.
@@ -458,7 +458,7 @@ const viewer = defineRole('viewer')
 ```
 
 The `allow-overrides` algorithm means: if any role grants the permission, the subject
-is allowed -- a user with multiple roles gets the union of all their permissions.
+is allowed. A user with multiple roles gets the union of all their permissions.
 
 ## Type-Safe Roles with createAccessConfig
 
@@ -498,7 +498,7 @@ const ownerPolicy = access.policy('owner-only')
 
 The `access.defineRole()`, `access.policy()`, `access.defineRule()`, and `access.when()`
 functions all return builders constrained to your declared actions, resources, scopes,
-and roles. The type flows through the entire chain -- from `grantWhen()` callbacks to
+and roles. The type flows through the entire chain, from `grantWhen()` callbacks to
 `whenAny()` conditions.
 
 ## Validating Roles

@@ -439,7 +439,7 @@ const tenantPolicy = policy('tenant-isolation')
     <AccordionContent className="text-muted-foreground">
       Both support hierarchical matching. The engine uses dot-based matching
       (`matchesResourceHierarchical()`) when the pattern or resource type contains a dot,
-      and colon-based (`matchesResource()`) otherwise. They behave the same way -- pick one
+      and colon-based (`matchesResource()`) otherwise. They behave the same way. Pick one
       and be consistent.
     </AccordionContent>
   </AccordionItem>
@@ -448,7 +448,7 @@ const tenantPolicy = policy('tenant-isolation')
     <AccordionTrigger>What is the environment parameter used for?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       It carries request context: IP, user agent, timestamp, and custom fields. Use it in
-      conditions to restrict access based on request origin or time --
+      conditions to restrict access based on request origin or time.
       `.env('ip', 'starts_with', '10.')` for VPN-only access, or
       `.env('timestamp', 'lt', cutoff)` for time-based restrictions. Server integrations
       extract it automatically from HTTP request headers.

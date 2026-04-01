@@ -22,11 +22,11 @@ duck-iam provides two ways to define permissions:
     BUILDERS --> OK["grant('read', 'post') -- OK\nwhen().role('admin') -- OK"]
     BUILDERS --> ERR["grant('craete', 'post') -- COMPILE ERROR\ndefineRole('intern') -- COMPILE ERROR"]`} />
 
-- **Untyped builders** -- `defineRole()`, `policy()`, `defineRule()`, `when()` imported
+- **Untyped builders**: `defineRole()`, `policy()`, `defineRule()`, `when()` imported
   directly from `@gentleduck/iam`. These accept any string for actions, resources, and scopes.
   Quick and flexible, but no compile-time validation.
 
-- **Typed config** -- `createAccessConfig()` locks down your actions, resources, scopes,
+- **Typed config**: `createAccessConfig()` locks down your actions, resources, scopes,
   and roles at the type level using `const` assertions. Every builder method is constrained
   to your declared schema. Misspell an action, reference a resource that does not exist,
   or pass an invalid role ID, and TypeScript catches it before your code runs.
@@ -65,7 +65,7 @@ interface AccessConfigInput<TActions, TResources, TScopes, TRoles, TContext> {
 }
 ```
 
-If you omit `scopes` or `roles`, the config still works -- those parameters will accept
+If you omit `scopes` or `roles`, the config still works. Those parameters will accept
 `string` without constraint. When `roles` is provided, `defineRole()`, `when().role()`,
 and all builders that reference roles are constrained to the declared role IDs.
 
@@ -140,7 +140,7 @@ access.policy('maintenance')
   .build()
 ```
 
-The `context` field is a phantom type -- its runtime value is never used. The `{} as unknown as AppContext`
+The `context` field is a phantom type; its runtime value is never used. The `{} as unknown as AppContext`
 cast is safe because the value is discarded; only the type information flows through to the builders.
 
 If you omit `context`, everything still works but `.attr()`, `.env()`, etc. accept any string
@@ -236,12 +236,12 @@ The typed context system uses several TypeScript utility types that work togethe
 | `PathValue<T, P>` | Resolves the value type at path `P` within `T` |
 | `FieldValue<T, P>` | Like `PathValue` but wraps the result in `ConditionValue` to add `$`-reference support |
 | `ConditionValue<T, V>` | Adapts a value type for condition builders. Non-string values pass through unchanged; string values add `DollarPaths<T>` for `$`-reference autocomplete. Prevents type widening so `env('hour', 'lt', '')` correctly errors when `hour` is `number`. |
-| `FlexibleDollarPaths<T>` | `DollarPaths<T> \| (string & {})` -- added directly to method value signatures so the IDE shows `$`-prefixed autocomplete suggestions (e.g. `$subject.id`) alongside a flexible string input. |
+| `FlexibleDollarPaths<T>` | `DollarPaths<T> \| (string & {})`, added directly to method value signatures so the IDE shows `$`-prefixed autocomplete suggestions (e.g. `$subject.id`) alongside a flexible string input. |
 | `SubjectAttrs<T>` | Extracts `T['subject']['attributes']` |
 | `ResourceAttrs<T>` | Extracts `T['resource']['attributes']` |
 | `EnvAttrs<T>` | Extracts `T['environment']` |
 | `ResourceAttrMap<T>` | Extracts `T['resourceAttributes']` (per-resource attribute map) |
-| `ResolvedResourceAttrs<T, R>` | Resolves resource attrs for resource `R` -- specific type for known resources, merged union for `'*'` |
+| `ResolvedResourceAttrs<T, R>` | Resolves resource attrs for resource `R`: specific type for known resources, merged union for `'*'` |
 | `AttrValue<A, K>` | Resolves the value type for key `K` in attribute bag `A`. Strips `undefined` from optional properties so that `yearsExperience?: number` correctly resolves to `number`, not `AttributeValue`. |
 | `DollarPaths<T>` | Generates `$`-prefixed versions of all dot-paths. Used for autocomplete on dynamic cross-references like `'$subject.id'`. |
 
@@ -275,7 +275,7 @@ type DollarPaths<TContext> = `$${DotPaths<TContext>}`
 
 `DollarPaths<TContext>` maps every dot-path in your context into a `$`-prefixed template
 literal. These `$`-references are available on the value parameter of `.check()`, `.eq()`,
-`.neq()`, `.attr()`, `.resourceAttr()`, and `.env()` -- anywhere you can compare against
+`.neq()`, `.attr()`, `.resourceAttr()`, and `.env()`, anywhere you can compare against
 a dynamic value from the request context.
 
 ```typescript
@@ -301,8 +301,8 @@ and `$`-references (e.g. `'$subject.id'`) in a single union type.
 Value parameters use `ConditionValue` internally plus `FlexibleDollarPaths` at the method
 signature level. Non-string types (like `number` for `env('hour', ...)`) pass through
 unchanged, so passing a string where a number is expected is a compile error. The
-`FlexibleDollarPaths<TContext>` union is added directly to each method signature -- not
-nested inside computed types -- so the IDE can see and suggest the `$`-prefixed literals.
+`FlexibleDollarPaths<TContext>` union is added directly to each method signature, not
+nested inside computed types, so the IDE can see and suggest the `$`-prefixed literals.
 Optional properties (e.g. `yearsExperience?: number`) are handled correctly by stripping
 `undefined` before type resolution.
 </Callout>
@@ -493,7 +493,7 @@ await engine.can('user-1', 'read', { type: 'post', attributes: {} })
 
 ### access.checks()
 
-A pure typing utility -- it returns the input array as-is, but constrains the types at
+A pure typing utility that returns the input array as-is but constrains the types at
 compile time. Use this with `engine.permissions()` to batch-check multiple permissions
 with full type safety.
 
@@ -563,7 +563,7 @@ type TRole = (typeof roles)[number]
 // = 'viewer' | 'editor' | 'admin'
 ```
 
-These union types flow through all builders, constraining every parameter -- actions,
+These union types flow through all builders, constraining every parameter: actions,
 resources, scopes, and roles.
 
 ## Full Example: Defining Your App's Permission Schema
@@ -701,11 +701,11 @@ of permissions, this prevents real bugs.
 
 | Scenario | Recommendation |
 | --- | --- |
-| Production application | Use `createAccessConfig()` -- type safety prevents bugs |
+| Production application | Use `createAccessConfig()` for type safety that prevents bugs |
 | Quick prototype or spike | Untyped imports are faster to set up |
 | Dynamic permissions from DB | Use untyped for the dynamic parts, validate with `validatePolicy()` |
 | Library or framework code | Use generic type parameters for maximum flexibility |
-| Testing | Either works -- typed catches config mistakes, untyped is less verbose |
+| Testing | Either works; typed catches config mistakes, untyped is less verbose |
 
 ---
 

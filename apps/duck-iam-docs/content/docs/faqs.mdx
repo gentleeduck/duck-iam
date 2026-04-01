@@ -1,6 +1,6 @@
 ---
 title: faqs
-description: Frequently asked questions about duck-iam -- installation, concepts, roles, policies, conditions, adapters, frameworks, caching, debugging, security, and production usage.
+description: Frequently asked questions about duck-iam covering installation, concepts, roles, policies, conditions, adapters, frameworks, caching, debugging, security, and production usage.
 ---
 
 Common questions about duck-iam organized by topic. If you cannot find what you need, open an
@@ -17,7 +17,7 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
       duck-iam is a TypeScript authorization engine that combines Role-Based Access Control (RBAC) and
       Attribute-Based Access Control (ABAC) into a single evaluation pipeline. You define roles with
       permissions, write policies with conditions, and the engine evaluates them together to produce
-      an allow or deny decision. Everything is type-safe -- actions, resources, scopes, and role IDs
+      an allow or deny decision. Everything is type-safe: actions, resources, scopes, and role IDs
       are checked at compile time when using `createAccessConfig()`.
     </AccordionContent>
   </AccordionItem>
@@ -25,8 +25,8 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
   <AccordionItem value="rbac-vs-abac">
     <AccordionTrigger>How does duck-iam compare to pure RBAC or pure ABAC?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Pure RBAC is simple but rigid -- you cannot express rules like "editors can only update their own
-      posts." Pure ABAC is powerful but verbose -- every permission requires a full policy rule, even
+      Pure RBAC is simple but rigid: you cannot express rules like "editors can only update their own
+      posts." Pure ABAC is powerful but verbose: every permission requires a full policy rule, even
       for basic role checks. duck-iam combines both: roles handle common patterns (viewer, editor, admin)
       and policies handle fine-grained rules (owner-only access, time-based restrictions, IP filtering).
       Roles are internally converted to an ABAC policy via `rolesToPolicy()`, so the same condition
@@ -52,7 +52,7 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
     <AccordionTrigger>Why does duck-iam have zero runtime dependencies?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Zero dependencies means fewer supply-chain risks, smaller bundle sizes, and no version conflicts
-      with your other packages. The core engine is pure TypeScript logic -- it does not need any external
+      with your other packages. The core engine is pure TypeScript logic and does not need any external
       libraries. Database adapters (Prisma, Drizzle) use peer dependencies so the ORM version is yours
       to control.
     </AccordionContent>
@@ -63,17 +63,17 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
     <AccordionContent className="text-muted-foreground">
       Server integrations:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>Express</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/express</code></li>
-        <li><strong>Hono</strong> -- middleware via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/hono</code></li>
-        <li><strong>NestJS</strong> -- guard + decorator via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/nest</code></li>
-        <li><strong>Next.js</strong> -- route wrappers via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code></li>
-        <li><strong>Generic</strong> -- framework-agnostic helpers via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/generic</code></li>
+        <li><strong>Express</strong>: middleware via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/express</code></li>
+        <li><strong>Hono</strong>: middleware via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/hono</code></li>
+        <li><strong>NestJS</strong>: guard + decorator via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/nest</code></li>
+        <li><strong>Next.js</strong>: route wrappers via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code></li>
+        <li><strong>Generic</strong>: framework-agnostic helpers via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/generic</code></li>
       </ul>
       Client libraries:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>React</strong> -- context provider + hooks via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code></li>
-        <li><strong>Vue</strong> -- plugin + composables via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vue</code></li>
-        <li><strong>Vanilla</strong> -- framework-agnostic via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vanilla</code></li>
+        <li><strong>React</strong>: context provider + hooks via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code></li>
+        <li><strong>Vue</strong>: plugin + composables via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vue</code></li>
+        <li><strong>Vanilla</strong>: framework-agnostic via <code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vanilla</code></li>
       </ul>
     </AccordionContent>
   </AccordionItem>
@@ -83,19 +83,19 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
     <AccordionContent className="text-muted-foreground">
       duck-iam uses subpath exports so you only import what you need:
       <ul className="mt-2 list-disc pl-5">
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam</code> -- core engine, builders, validators, types</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/memory</code> -- in-memory adapter</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/prisma</code> -- Prisma ORM adapter</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/drizzle</code> -- Drizzle ORM adapter</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/http</code> -- HTTP/REST adapter</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/express</code> -- Express middleware</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/hono</code> -- Hono middleware</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/nest</code> -- NestJS guard and decorators</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code> -- Next.js route wrappers</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/generic</code> -- framework-agnostic helpers</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code> -- React hooks + provider</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vue</code> -- Vue plugin + composables</li>
-        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vanilla</code> -- vanilla JS/TS client</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam</code>: core engine, builders, validators, types</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/memory</code>: in-memory adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/prisma</code>: Prisma ORM adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/drizzle</code>: Drizzle ORM adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/adapters/http</code>: HTTP/REST adapter</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/express</code>: Express middleware</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/hono</code>: Hono middleware</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/nest</code>: NestJS guard and decorators</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/next</code>: Next.js route wrappers</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/server/generic</code>: framework-agnostic helpers</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/react</code>: React hooks + provider</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vue</code>: Vue plugin + composables</li>
+        <li><code className="rounded bg-muted px-2 py-1">@gentleduck/iam/client/vanilla</code>: vanilla JS/TS client</li>
       </ul>
     </AccordionContent>
   </AccordionItem>
@@ -105,7 +105,7 @@ issue or discussion on GitHub: https://github.com/gentleeduck/duck-iam
     <AccordionContent className="text-muted-foreground">
       Yes. The core engine has comprehensive test coverage (295+ tests), handles edge cases like circular
       role inheritance and deeply nested conditions safely, includes built-in caching with configurable TTL,
-      and validates all inputs. The engine fails closed -- errors default to deny, malformed conditions
+      and validates all inputs. The engine fails closed: errors default to deny, malformed conditions
       default to deny, and the default effect is deny. Always validate your role and policy configurations
       at startup using `validateRoles()` and `validatePolicy()` to catch mistakes early.
     </AccordionContent>
@@ -156,7 +156,7 @@ const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {
     <AccordionContent className="text-muted-foreground">
       Roles can inherit from other roles using the `inherits` property in `defineRole().inherits('parent')`.
       When a subject has the `editor` role, and `editor` inherits from `viewer`, the subject gets all
-      of `viewer`'s permissions automatically. Inheritance chains are resolved transitively -- if `admin`
+      of `viewer`'s permissions automatically. Inheritance chains are resolved transitively. If `admin`
       inherits `editor`, which inherits `viewer`, then `admin` has all three sets of permissions.
       The engine uses a visited-set to prevent infinite loops from circular inheritance.
     </AccordionContent>
@@ -184,7 +184,7 @@ const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {
       The engine handles it safely. During role resolution, it maintains a visited-set of role IDs.
       If a role has already been visited, it is skipped, breaking the cycle. `validateRoles()` will
       report circular inheritance as a warning (not an error) because the engine handles it gracefully
-      at runtime. However, circular inheritance is almost always a configuration mistake -- fix the
+      at runtime. However, circular inheritance is almost always a configuration mistake. Fix the
       cycle when you see the warning.
     </AccordionContent>
   </AccordionItem>
@@ -204,7 +204,7 @@ const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {
     <AccordionContent className="text-muted-foreground">
       The engine calls `rolesToPolicy()` which takes the subject's resolved roles and creates a synthetic
       policy with ID `__rbac__`. Each permission becomes a rule with `effect: 'allow'` and the matching
-      action and resource. This policy uses `allow-overrides` as its combining algorithm -- if any
+      action and resource. This policy uses `allow-overrides` as its combining algorithm. If any
       permission matches, the RBAC layer allows the request. This policy is then evaluated alongside
       your custom ABAC policies.
     </AccordionContent>
@@ -308,10 +308,10 @@ if (!result.valid) {
     <AccordionContent className="text-muted-foreground">
       Each policy has a combining algorithm that determines how its rules produce a single result:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>deny-overrides</strong> -- if any matching rule denies, the policy denies. Safest default for security-sensitive policies.</li>
-        <li><strong>allow-overrides</strong> -- if any matching rule allows, the policy allows. Used internally for the RBAC policy.</li>
-        <li><strong>first-match</strong> -- the first matching rule (by insertion order) wins. Good for ordered rule lists.</li>
-        <li><strong>highest-priority</strong> -- the matching rule with the highest priority number wins. Good for layered overrides.</li>
+        <li><strong>deny-overrides</strong>: if any matching rule denies, the policy denies. Safest default for security-sensitive policies.</li>
+        <li><strong>allow-overrides</strong>: if any matching rule allows, the policy allows. Used internally for the RBAC policy.</li>
+        <li><strong>first-match</strong>: the first matching rule (by insertion order) wins. Good for ordered rule lists.</li>
+        <li><strong>highest-priority</strong>: the matching rule with the highest priority number wins. Good for layered overrides.</li>
       </ul>
     </AccordionContent>
   </AccordionItem>
@@ -359,9 +359,9 @@ if (!result.valid) {
     <AccordionContent className="text-muted-foreground">
       Priority is a number on each rule. Its meaning depends on the combining algorithm:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>highest-priority</strong> -- the matching rule with the highest priority number wins. This is where priority matters most.</li>
-        <li><strong>deny-overrides / allow-overrides</strong> -- priority is ignored; the algorithm only cares about deny or allow.</li>
-        <li><strong>first-match</strong> -- priority is ignored; insertion order determines which rule wins.</li>
+        <li><strong>highest-priority</strong>: the matching rule with the highest priority number wins. This is where priority matters most.</li>
+        <li><strong>deny-overrides / allow-overrides</strong>: priority is ignored; the algorithm only cares about deny or allow.</li>
+        <li><strong>first-match</strong>: priority is ignored; insertion order determines which rule wins.</li>
       </ul>
       <p className="mt-3">
         Higher numbers mean higher priority. A rule with priority 100 beats a rule with priority 10.
@@ -374,9 +374,9 @@ if (!result.valid) {
     <AccordionContent className="text-muted-foreground">
       A rule matches when all three checks pass:
       <ol className="mt-2 list-decimal pl-5">
-        <li><strong>Action match</strong> -- the request action is in the rule's `actions` array, or the rule has `['*']`.</li>
-        <li><strong>Resource match</strong> -- the request resource type is in the rule's `resources` array, or the rule has `['*']`, or a hierarchical match (e.g., rule targets `dashboard` and request is `dashboard.users`).</li>
-        <li><strong>Conditions met</strong> -- all condition groups evaluate to true (or the rule has no conditions).</li>
+        <li><strong>Action match</strong>: the request action is in the rule's `actions` array, or the rule has `['*']`.</li>
+        <li><strong>Resource match</strong>: the request resource type is in the rule's `resources` array, or the rule has `['*']`, or a hierarchical match (e.g., rule targets `dashboard` and request is `dashboard.users`).</li>
+        <li><strong>Conditions met</strong>: all condition groups evaluate to true (or the rule has no conditions).</li>
       </ol>
       <p className="mt-3">
         All three must pass. If the action matches but the resource does not, the rule is skipped.
@@ -446,23 +446,23 @@ const p = policy('my-policy')
     <AccordionTrigger>What operators are available for conditions?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>eq</strong> -- equals (strict equality)</li>
-        <li><strong>neq</strong> -- not equals</li>
-        <li><strong>gt</strong> -- greater than</li>
-        <li><strong>gte</strong> -- greater than or equal</li>
-        <li><strong>lt</strong> -- less than</li>
-        <li><strong>lte</strong> -- less than or equal</li>
-        <li><strong>in</strong> -- value is in an array</li>
-        <li><strong>nin</strong> -- value is not in an array</li>
-        <li><strong>contains</strong> -- array contains the value</li>
-        <li><strong>not_contains</strong> -- array does not contain the value</li>
-        <li><strong>starts_with</strong> -- string starts with the value</li>
-        <li><strong>ends_with</strong> -- string ends with the value</li>
-        <li><strong>matches</strong> -- string matches a regex pattern</li>
-        <li><strong>exists</strong> -- field is not null/undefined</li>
-        <li><strong>not_exists</strong> -- field is null/undefined</li>
-        <li><strong>subset_of</strong> -- array is a subset of the value array</li>
-        <li><strong>superset_of</strong> -- array is a superset of the value array</li>
+        <li><strong>eq</strong>: equals (strict equality)</li>
+        <li><strong>neq</strong>: not equals</li>
+        <li><strong>gt</strong>: greater than</li>
+        <li><strong>gte</strong>: greater than or equal</li>
+        <li><strong>lt</strong>: less than</li>
+        <li><strong>lte</strong>: less than or equal</li>
+        <li><strong>in</strong>: value is in an array</li>
+        <li><strong>nin</strong>: value is not in an array</li>
+        <li><strong>contains</strong>: array contains the value</li>
+        <li><strong>not_contains</strong>: array does not contain the value</li>
+        <li><strong>starts_with</strong>: string starts with the value</li>
+        <li><strong>ends_with</strong>: string ends with the value</li>
+        <li><strong>matches</strong>: string matches a regex pattern</li>
+        <li><strong>exists</strong>: field is not null/undefined</li>
+        <li><strong>not_exists</strong>: field is null/undefined</li>
+        <li><strong>subset_of</strong>: array is a subset of the value array</li>
+        <li><strong>superset_of</strong>: array is a superset of the value array</li>
       </ul>
     </AccordionContent>
   </AccordionItem>
@@ -472,9 +472,9 @@ const p = policy('my-policy')
     <AccordionContent className="text-muted-foreground">
       Conditions are organized into logical groups:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>all</strong> -- AND logic. Every condition in the group must pass.</li>
-        <li><strong>any</strong> -- OR logic. At least one condition must pass.</li>
-        <li><strong>none</strong> -- NOT logic. No condition may pass (all must fail).</li>
+        <li><strong>all</strong>: AND logic. Every condition in the group must pass.</li>
+        <li><strong>any</strong>: OR logic. At least one condition must pass.</li>
+        <li><strong>none</strong>: NOT logic. No condition may pass (all must fail).</li>
       </ul>
       <p className="mt-3">
         Groups can be nested up to 10 levels deep. For example, you can have an `all` group containing
@@ -488,13 +488,13 @@ const p = policy('my-policy')
     <AccordionContent className="text-muted-foreground">
       Values starting with `$` are resolved dynamically at evaluation time from the request context:
       <ul className="mt-2 list-disc pl-5">
-        <li><code className="rounded bg-muted px-2 py-1">$subject.id</code> -- the requesting subject's ID</li>
-        <li><code className="rounded bg-muted px-2 py-1">$subject.roles</code> -- the subject's resolved roles array</li>
-        <li><code className="rounded bg-muted px-2 py-1">$subject.attributes.department</code> -- a subject attribute</li>
-        <li><code className="rounded bg-muted px-2 py-1">$resource.id</code> -- the resource ID</li>
-        <li><code className="rounded bg-muted px-2 py-1">$resource.type</code> -- the resource type</li>
-        <li><code className="rounded bg-muted px-2 py-1">$resource.attributes.ownerId</code> -- a resource attribute</li>
-        <li><code className="rounded bg-muted px-2 py-1">$environment.time</code> -- an environment value</li>
+        <li><code className="rounded bg-muted px-2 py-1">$subject.id</code>: the requesting subject's ID</li>
+        <li><code className="rounded bg-muted px-2 py-1">$subject.roles</code>: the subject's resolved roles array</li>
+        <li><code className="rounded bg-muted px-2 py-1">$subject.attributes.department</code>: a subject attribute</li>
+        <li><code className="rounded bg-muted px-2 py-1">$resource.id</code>: the resource ID</li>
+        <li><code className="rounded bg-muted px-2 py-1">$resource.type</code>: the resource type</li>
+        <li><code className="rounded bg-muted px-2 py-1">$resource.attributes.ownerId</code>: a resource attribute</li>
+        <li><code className="rounded bg-muted px-2 py-1">$environment.time</code>: an environment value</li>
       </ul>
       <p className="mt-3">
         Without the `$` prefix, the value is treated as a static literal. With it, the engine
@@ -556,9 +556,9 @@ const p = policy('my-policy')
     <AccordionContent className="text-muted-foreground">
       When a condition is evaluated, the engine processes both sides of the comparison:
       <ol className="mt-2 list-decimal pl-5">
-        <li><strong>Left side (field)</strong> -- always resolved as a dot-path against the request. For example,
+        <li><strong>Left side (field)</strong>: always resolved as a dot-path against the request. For example,
           `'resource.attributes.ownerId'` walks `request.resource.attributes.ownerId`.</li>
-        <li><strong>Right side (value)</strong> -- if it starts with `$`, the engine strips the `$` and resolves
+        <li><strong>Right side (value)</strong>: if it starts with `$`, the engine strips the `$` and resolves
           it as a dot-path too. Otherwise it is used as-is.</li>
       </ol>
       <p className="mt-3">
@@ -573,11 +573,11 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
       <ol className="mt-2 list-decimal pl-5">
         <li>`resolve('resource.attributes.ownerId')` returns `'user-alice'`</li>
         <li>`resolveValue('$subject.id')` strips `$`, then `resolve('subject.id')` returns `'user-alice'`</li>
-        <li>`eq('user-alice', 'user-alice')` returns `true` -- allowed</li>
+        <li>`eq('user-alice', 'user-alice')` returns `true` (allowed)</li>
       </ol>
       <p className="mt-3">
         If Bob tries the same request, `resolve('subject.id')` returns `'user-bob'`, and
-        `eq('user-alice', 'user-bob')` returns `false` -- denied.
+        `eq('user-alice', 'user-bob')` returns `false` (denied).
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -606,7 +606,7 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
 
 // Raw condition group:
 { none: [{ field: 'subject.roles', operator: 'contains', value: 'banned' }] }`}</code></pre>
-      <p className="mt-3">`none` is logical NOT -- the group passes when all inner conditions fail.</p>
+      <p className="mt-3">`none` is logical NOT: the group passes when all inner conditions fail.</p>
     </AccordionContent>
   </AccordionItem>
 
@@ -658,9 +658,9 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
     <AccordionContent className="text-muted-foreground">
       duck-iam supports scoping at three levels:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>Assignment-level scoping</strong> -- A subject has different roles in different scopes. This is the most common pattern for multi-tenant apps. Handled by `getSubjectScopedRoles()` in the adapter.</li>
-        <li><strong>Permission-level scoping</strong> -- Individual permissions within a role are limited to a scope. Set via `grant('action', 'resource', 'org-1')` or `grantScoped('org-1', 'action', 'resource')` in the role builder.</li>
-        <li><strong>Role-level scoping</strong> -- The entire role definition is constrained to a scope. Set via `defineRole('admin').scope('org-1')`.</li>
+        <li><strong>Assignment-level scoping</strong>: A subject has different roles in different scopes. This is the most common pattern for multi-tenant apps. Handled by `getSubjectScopedRoles()` in the adapter.</li>
+        <li><strong>Permission-level scoping</strong>: Individual permissions within a role are limited to a scope. Set via `grant('action', 'resource', 'org-1')` or `grantScoped('org-1', 'action', 'resource')` in the role builder.</li>
+        <li><strong>Role-level scoping</strong>: The entire role definition is constrained to a scope. Set via `defineRole('admin').scope('org-1')`.</li>
       </ul>
       <p className="mt-3">
         You can combine these levels. Most applications use assignment-level scoping as it is the
@@ -686,7 +686,7 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
     <AccordionTrigger>What if my adapter does not support scoped roles?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       If your adapter does not implement `getSubjectScopedRoles()`, the engine falls back to an empty
-      array -- no extra scoped roles are added. The subject's base roles are still used. You can always
+      array, so no extra scoped roles are added. The subject's base roles are still used. You can always
       add scoping support later by implementing that method on your adapter.
     </AccordionContent>
   </AccordionItem>
@@ -723,7 +723,7 @@ resource: { attributes: { ownerId: 'user-alice' } }`}</code></pre>
   <AccordionItem value="can-vs-check">
     <AccordionTrigger>What is the difference between engine.can() and engine.check()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      `can()` returns a **boolean** -- `true` if allowed, `false` if denied. `check()` returns
+      `can()` returns a **boolean**: `true` if allowed, `false` if denied. `check()` returns
       the full **Decision object** with `allowed`, `effect`, `reason`, `policy`, `rule`, and timing
       information. Use `can()` for simple guards and `check()` when you need to log or explain the decision:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`// Simple boolean:
@@ -759,15 +759,15 @@ const decision = await engine.check('user-1', 'read', { type: 'post', attributes
     <AccordionContent className="text-muted-foreground">
       The engine follows these steps in order:
       <ol className="mt-2 list-decimal pl-5">
-        <li><strong>Load subject</strong> -- get roles and attributes from the adapter (cached)</li>
-        <li><strong>Resolve scoped roles</strong> -- if a scope is passed, merge scoped roles with base roles</li>
-        <li><strong>Run beforeEvaluate hook</strong> -- allows request enrichment</li>
-        <li><strong>Load policies</strong> -- load the cached synthetic `__rbac__` policy plus custom ABAC policies</li>
-        <li><strong>Evaluate all policies</strong> -- iterate through RBAC + ABAC policies, evaluate rules</li>
-        <li><strong>AND-combine results</strong> -- all policies must allow, any deny means overall deny</li>
-        <li><strong>Run afterEvaluate hook</strong> -- for audit logging</li>
-        <li><strong>Run onDeny hook</strong> -- if the result was denied</li>
-        <li><strong>Run onError hook</strong> -- only when an exception occurs; the check then fails closed</li>
+        <li><strong>Load subject</strong>: get roles and attributes from the adapter (cached)</li>
+        <li><strong>Resolve scoped roles</strong>: if a scope is passed, merge scoped roles with base roles</li>
+        <li><strong>Run beforeEvaluate hook</strong>: allows request enrichment</li>
+        <li><strong>Load policies</strong>: load the cached synthetic `__rbac__` policy plus custom ABAC policies</li>
+        <li><strong>Evaluate all policies</strong>: iterate through RBAC + ABAC policies, evaluate rules</li>
+        <li><strong>AND-combine results</strong>: all policies must allow, any deny means overall deny</li>
+        <li><strong>Run afterEvaluate hook</strong>: for audit logging</li>
+        <li><strong>Run onDeny hook</strong>: if the result was denied</li>
+        <li><strong>Run onError hook</strong>: only when an exception occurs; the check then fails closed</li>
       </ol>
     </AccordionContent>
   </AccordionItem>
@@ -798,10 +798,10 @@ const perms = await engine.permissions('user-1', checks)
       The keys in the permission map returned by `engine.permissions()` are formatted as
       one of these forms:
       <ul className="mt-2 list-disc pl-5">
-        <li><code className="rounded bg-muted px-2 py-1">create:post</code> -- action + resource</li>
-        <li><code className="rounded bg-muted px-2 py-1">update:post:post-1</code> -- action + resource + resourceId</li>
-        <li><code className="rounded bg-muted px-2 py-1">org-1:manage:dashboard</code> -- scope + action + resource</li>
-        <li><code className="rounded bg-muted px-2 py-1">org-1:update:post:post-1</code> -- scope + action + resource + resourceId</li>
+        <li><code className="rounded bg-muted px-2 py-1">create:post</code>: action + resource</li>
+        <li><code className="rounded bg-muted px-2 py-1">update:post:post-1</code>: action + resource + resourceId</li>
+        <li><code className="rounded bg-muted px-2 py-1">org-1:manage:dashboard</code>: scope + action + resource</li>
+        <li><code className="rounded bg-muted px-2 py-1">org-1:update:post:post-1</code>: scope + action + resource + resourceId</li>
       </ul>
       <p className="mt-3">
         These keys are generated by the `buildPermissionKey()` utility function. The same format
@@ -868,7 +868,7 @@ const allowed = await engine.check(subject, 'read', resource)
   <AccordionItem value="prod-mode-bundle-size">
     <AccordionTrigger>Does production mode reduce bundle size?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. The `mode` option is a runtime flag -- it does not affect what code is included in your
+      No. The `mode` option is a runtime flag that does not affect what code is included in your
       bundle. However, if you only need fast boolean checks you can import `evaluateFast` directly
       instead of the full `Engine` class. Because `evaluateFast` is a standalone function with no
       dependency on the Engine internals, bundlers can tree-shake the unused Engine code and produce
@@ -897,10 +897,10 @@ const allowed = await engine.check(subject, 'read', resource)
     <AccordionContent className="text-muted-foreground">
       Four lifecycle hooks:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>beforeEvaluate</strong> -- runs before evaluation. Can modify the AccessRequest (e.g., enrich with extra attributes from a database). Return the modified request.</li>
-        <li><strong>afterEvaluate</strong> -- runs after evaluation with the request and decision. Use for audit logging, metrics, or analytics.</li>
-        <li><strong>onDeny</strong> -- runs only when the decision is deny. Use for alerting, rate limiting, or logging denied access attempts.</li>
-        <li><strong>onError</strong> -- runs when an error occurs during evaluation. Use for error tracking and monitoring.</li>
+        <li><strong>beforeEvaluate</strong>: runs before evaluation. Can modify the AccessRequest (e.g., enrich with extra attributes from a database). Return the modified request.</li>
+        <li><strong>afterEvaluate</strong>: runs after evaluation with the request and decision. Use for audit logging, metrics, or analytics.</li>
+        <li><strong>onDeny</strong>: runs only when the decision is deny. Use for alerting, rate limiting, or logging denied access attempts.</li>
+        <li><strong>onError</strong>: runs when an error occurs during evaluation. Use for error tracking and monitoring.</li>
       </ul>
     </AccordionContent>
   </AccordionItem>
@@ -962,10 +962,10 @@ const allowed = await engine.check(subject, 'read', resource)
     <AccordionContent className="text-muted-foreground">
       The engine maintains four LRU caches:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>Policy cache</strong> -- caches the list of policies from the adapter</li>
-        <li><strong>Role cache</strong> -- caches the list of role definitions from the adapter</li>
-        <li><strong>RBAC policy cache</strong> -- caches the synthetic `__rbac__` policy built from roles</li>
-        <li><strong>Subject cache</strong> -- caches per-subject data (roles, attributes, scoped roles)</li>
+        <li><strong>Policy cache</strong>: caches the list of policies from the adapter</li>
+        <li><strong>Role cache</strong>: caches the list of role definitions from the adapter</li>
+        <li><strong>RBAC policy cache</strong>: caches the synthetic `__rbac__` policy built from roles</li>
+        <li><strong>Subject cache</strong>: caches per-subject data (roles, attributes, scoped roles)</li>
       </ul>
       <p className="mt-3">
         All caches have a configurable TTL (default: 60 seconds). The subject cache has a configurable
@@ -982,7 +982,7 @@ const allowed = await engine.check(subject, 'read', resource)
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const engine = new Engine({ adapter, cacheTTL: 120 })  // 2 minutes
 const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</code></pre>
       <p className="mt-3">
-        Setting `cacheTTL: 0` disables caching entirely -- every permission check will hit the adapter.
+        Setting `cacheTTL: 0` disables caching entirely. Every permission check will hit the adapter.
         This is useful for testing but not recommended for production.
       </p>
     </AccordionContent>
@@ -993,10 +993,10 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
     <AccordionContent className="text-muted-foreground">
       The engine provides several invalidation methods:
       <ul className="mt-2 list-disc pl-5">
-        <li><code className="rounded bg-muted px-2 py-1">engine.invalidate()</code> -- clears all four caches</li>
-        <li><code className="rounded bg-muted px-2 py-1">engine.invalidateSubject('user-1')</code> -- clears one subject's cached data</li>
-        <li><code className="rounded bg-muted px-2 py-1">engine.invalidatePolicies()</code> -- clears the policy cache</li>
-        <li><code className="rounded bg-muted px-2 py-1">engine.invalidateRoles()</code> -- clears the role and RBAC policy caches</li>
+        <li><code className="rounded bg-muted px-2 py-1">engine.invalidate()</code>: clears all four caches</li>
+        <li><code className="rounded bg-muted px-2 py-1">engine.invalidateSubject('user-1')</code>: clears one subject's cached data</li>
+        <li><code className="rounded bg-muted px-2 py-1">engine.invalidatePolicies()</code>: clears the policy cache</li>
+        <li><code className="rounded bg-muted px-2 py-1">engine.invalidateRoles()</code>: clears the role and RBAC policy caches</li>
       </ul>
       <p className="mt-3">
         `engine.admin.*` methods do this automatically on mutation.
@@ -1039,7 +1039,7 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
     <AccordionTrigger>How fast is duck-iam compared to CASL?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       CASL is roughly 2x faster on simple permission checks because it uses a pre-compiled ability
-      index -- lookups are essentially hash-map hits. duck-iam runs a dynamic policy engine that
+      index, so lookups are essentially hash-map hits. duck-iam runs a dynamic policy engine that
       evaluates conditions at runtime, which adds overhead per check. That said, duck-iam is faster
       than casbin, accesscontrol, and role-acl in our benchmarks. If raw check speed on simple
       RBAC-only rules is your top priority, CASL wins. If you need conditions, ABAC, scoped roles,
@@ -1081,10 +1081,10 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
     <AccordionContent className="text-muted-foreground">
       Yes. Each admin operation invalidates the relevant cache:
       <ul className="mt-2 list-disc pl-5">
-        <li>`savePolicy()` / `deletePolicy()` -- invalidates policy cache</li>
-        <li>`saveRole()` / `deleteRole()` -- invalidates role cache and RBAC policy cache</li>
-        <li>`assignRole()` / `revokeRole()` -- invalidates the specific subject's cache</li>
-        <li>`setAttributes()` -- invalidates the specific subject's cache</li>
+        <li>`savePolicy()` / `deletePolicy()`: invalidates policy cache</li>
+        <li>`saveRole()` / `deleteRole()`: invalidates role cache and RBAC policy cache</li>
+        <li>`assignRole()` / `revokeRole()`: invalidates the specific subject's cache</li>
+        <li>`setAttributes()`: invalidates the specific subject's cache</li>
       </ul>
       <p className="mt-3">Changes take effect on the next check without waiting for TTL expiry.</p>
     </AccordionContent>
@@ -1102,10 +1102,10 @@ const engine = new Engine({ adapter, cacheTTL: 0 })    // disable caching`}</cod
       An adapter is the data layer interface that the engine uses to load and store authorization data
       (policies, roles, subject assignments). duck-iam provides four built-in adapters:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>MemoryAdapter</strong> -- stores everything in memory. Great for testing and prototyping.</li>
-        <li><strong>PrismaAdapter</strong> -- stores in a database via Prisma ORM.</li>
-        <li><strong>DrizzleAdapter</strong> -- stores in a database via Drizzle ORM.</li>
-        <li><strong>HttpAdapter</strong> -- fetches from a remote authorization service via HTTP.</li>
+        <li><strong>MemoryAdapter</strong>: stores everything in memory. Great for testing and prototyping.</li>
+        <li><strong>PrismaAdapter</strong>: stores in a database via Prisma ORM.</li>
+        <li><strong>DrizzleAdapter</strong>: stores in a database via Drizzle ORM.</li>
+        <li><strong>HttpAdapter</strong>: fetches from a remote authorization service via HTTP.</li>
       </ul>
     </AccordionContent>
   </AccordionItem>
@@ -1163,7 +1163,7 @@ const adapter = new HttpAdapter({
 // SubjectStore: getSubjectRoles, assignRole, revokeRole, getSubjectAttributes,
 //              setSubjectAttributes, getSubjectScopedRoles (optional)`}</code></pre>
       <p className="mt-3">
-        `getSubjectScopedRoles()` is optional -- if your adapter does not support multi-tenant scoping,
+        `getSubjectScopedRoles()` is optional. If your adapter does not support multi-tenant scoping,
         omit it. Use the built-in `MemoryAdapter` source code as a reference implementation.
       </p>
     </AccordionContent>
@@ -1172,7 +1172,7 @@ const adapter = new HttpAdapter({
   <AccordionItem value="adapter-peer-deps">
     <AccordionTrigger>Do database adapters add dependencies?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. Database adapters use peer dependencies -- `@prisma/client` for `PrismaAdapter`,
+      No. Database adapters use peer dependencies: `@prisma/client` for `PrismaAdapter`,
       `drizzle-orm` for `DrizzleAdapter`. Neither is bundled by duck-iam.
     </AccordionContent>
   </AccordionItem>
@@ -1289,7 +1289,7 @@ app.use('/api/posts/*', middleware)`}</code></pre>
     <AccordionContent className="text-muted-foreground">
       Use the generic server helper from `@gentleduck/iam/server/generic`. It provides framework-agnostic
       functions that you can wrap in your framework's middleware pattern. Or call `engine.can()`
-      directly in your request handler -- the engine does not depend on any framework.
+      directly in your request handler. The engine does not depend on any framework.
     </AccordionContent>
   </AccordionItem>
 
@@ -1325,7 +1325,7 @@ app.use('/api/posts/*', middleware)`}</code></pre>
     <AccordionTrigger>How do client libraries work?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Client libraries fetch a `Record&lt;string, boolean&gt;` permission map from a server endpoint and
-      expose it to components. Evaluation always happens server-side -- the client only receives boolean
+      expose it to components. Evaluation always happens server-side. The client only receives boolean
       results and never sees your policies, roles, or conditions.
     </AccordionContent>
   </AccordionItem>
@@ -1389,7 +1389,7 @@ access.can('create:post')  // true or false`}</code></pre>
   <AccordionItem value="client-security">
     <AccordionTrigger>Is it safe to send permissions to the frontend?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. The permission map is a flat map of booleans -- it exposes no policy definitions,
+      Yes. The permission map is a flat map of booleans. It exposes no policy definitions,
       conditions, role structures, or business logic. Always enforce permissions on the server.
       Client-side checks are for UI rendering only.
     </AccordionContent>
@@ -1436,7 +1436,7 @@ console.log(result.summary)`}</code></pre>
     <AccordionTrigger>What is the difference between explain() and check()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       `check()` (and `can()`) run the evaluation and return a `Decision` (boolean + metadata).
-      `explain()` runs the same evaluation but does NOT short-circuit -- it evaluates ALL policies
+      `explain()` runs the same evaluation but does NOT short-circuit. It evaluates ALL policies
       and ALL rules even after a deny, so you get the complete picture. It returns an `ExplainResult`
       with full traces of every policy, rule, and condition. `explain()` still applies
       `beforeEvaluate`, but it does not trigger `afterEvaluate`, `onDeny`, or `onError`.
@@ -1463,12 +1463,12 @@ console.log(result.summary)`}</code></pre>
   </AccordionItem>
 
   <AccordionItem value="no-matching-rules">
-    <AccordionTrigger>The summary says "No matching rules" -- what does that mean?</AccordionTrigger>
+    <AccordionTrigger>The summary says "No matching rules". What does that mean?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       It means no rules in any policy matched the request's action and resource combination. This
       usually means the subject does not have a role that grants that permission. Check:
       <ul className="mt-2 list-disc pl-5">
-        <li>`result.subject.roles` -- does the subject have the expected roles?</li>
+        <li>`result.subject.roles`: does the subject have the expected roles?</li>
         <li>Is the action spelled correctly? ("read" vs "Read")</li>
         <li>Is the resource type spelled correctly? ("post" vs "posts")</li>
         <li>Did you pass the scope parameter if the roles are scoped?</li>
@@ -1481,10 +1481,10 @@ console.log(result.summary)`}</code></pre>
     <AccordionContent className="text-muted-foreground">
       Look at the condition trace in the `ExplainResult`. Each `ConditionLeafTrace` shows:
       <ul className="mt-2 list-disc pl-5">
-        <li><strong>field</strong> -- the path being checked (e.g., `resource.attributes.ownerId`)</li>
-        <li><strong>expected</strong> -- the value from the condition definition</li>
-        <li><strong>actual</strong> -- the value resolved from the request at runtime</li>
-        <li><strong>result</strong> -- true or false</li>
+        <li><strong>field</strong>, the path being checked (e.g., `resource.attributes.ownerId`)</li>
+        <li><strong>expected</strong>, the value from the condition definition</li>
+        <li><strong>actual</strong>, the value resolved from the request at runtime</li>
+        <li><strong>result</strong>, true or false</li>
       </ul>
       <p className="mt-3">
         Common problems: the field path is wrong (`author` vs `ownerId`), the actual value is `null`
@@ -1587,7 +1587,7 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
       <p className="mt-3">
         This is especially important when policies come from untrusted sources (databases, APIs). With
         <code className="rounded bg-muted px-2 py-1">createAccessConfig()</code>, <code className="rounded bg-muted px-2 py-1">DollarPaths&lt;TContext&gt;</code> enforces
-        the same constraints at compile time -- autocomplete only shows valid paths.
+        the same constraints at compile time, and autocomplete only shows valid paths.
       </p>
     </AccordionContent>
   </AccordionItem>
@@ -1621,7 +1621,7 @@ console.log('Scoped roles added:', result.subject.scopedRolesApplied)`}</code></
   <AccordionItem value="subject-not-found">
     <AccordionTrigger>What happens when the subject does not exist in the adapter?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      The subject is treated as having no roles and no attributes -- zero RBAC permissions, no subject
+      The subject is treated as having no roles and no attributes: zero RBAC permissions, no subject
       attributes for conditions. Result is deny unless an ABAC policy explicitly allows access without
       subject-based conditions.
     </AccordionContent>
@@ -1694,7 +1694,7 @@ const actions = ['create', 'read'] as const  // type: readonly ['create', 'read'
   <AccordionItem value="typed-checks">
     <AccordionTrigger>What does access.checks() do?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      `access.checks()` is a compile-time-only utility -- it returns the input unchanged but constrains
+      `access.checks()` is a compile-time-only utility that returns the input unchanged but constrains
       action/resource types. Use it with `engine.permissions()` for typed batch checks:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const uiChecks = access.checks([
   { action: 'create', resource: 'post' },
@@ -1725,7 +1725,7 @@ const perms = await engine.permissions('user-1', uiChecks)`}</code></pre>
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`const access = createAccessConfig({
   actions: ['create', 'read', 'update', 'delete'] as const,
   resources: ['post', 'comment'] as const,
-  // scopes omitted -- scope parameters accept 'string' without constraint
+  // scopes omitted; scope parameters accept 'string' without constraint
 })`}</code></pre>
       <p className="mt-3">
         If you omit scopes, scope parameters in the engine will accept any string. You lose
@@ -1744,11 +1744,11 @@ const perms = await engine.permissions('user-1', uiChecks)`}</code></pre>
 
 const viewer = defineRole('viewer')
   .grant('read', 'post')
-  .grant('deletee', 'postt')  // no error -- both are valid strings
+  .grant('deletee', 'postt')  // no error, both are valid strings
   .build()`}</code></pre>
       <p className="mt-3">
         TypeScript sees `'deletee'` as a valid `string`. The role ends up with a permission that
-        never matches -- a silent bug you may not discover until production.
+        never matches, a silent bug you may not discover until production.
       </p>
       <strong>Config-bound builders</strong> lock generics to your declared schema:
       <pre className="mt-3 rounded bg-muted p-3 text-sm overflow-x-auto"><code>{`import { createAccessConfig } from '@gentleduck/iam'
@@ -1765,12 +1765,12 @@ const viewer = access
   .build()`}</code></pre>
       <p className="mt-3">Applies to every builder on the config object:</p>
       <ul className="mt-2 list-disc pl-5">
-        <li><code className="rounded bg-muted px-2 py-1">access.defineRole()</code> -- constrained <code className="rounded bg-muted px-2 py-1">.grant()</code> and <code className="rounded bg-muted px-2 py-1">.inherits()</code></li>
-        <li><code className="rounded bg-muted px-2 py-1">access.defineRule()</code> -- constrained <code className="rounded bg-muted px-2 py-1">.on()</code> and <code className="rounded bg-muted px-2 py-1">.of()</code></li>
-        <li><code className="rounded bg-muted px-2 py-1">access.policy()</code> -- constrained rule actions and resources</li>
-        <li><code className="rounded bg-muted px-2 py-1">access.when()</code> -- constrained condition builder</li>
-        <li><code className="rounded bg-muted px-2 py-1">access.checks()</code> -- constrained permission check definitions</li>
-        <li><code className="rounded bg-muted px-2 py-1">access.createEngine()</code> -- engine typed with your schema, so <code className="rounded bg-muted px-2 py-1">engine.can()</code> is also constrained</li>
+        <li><code className="rounded bg-muted px-2 py-1">access.defineRole()</code>: constrained <code className="rounded bg-muted px-2 py-1">.grant()</code> and <code className="rounded bg-muted px-2 py-1">.inherits()</code></li>
+        <li><code className="rounded bg-muted px-2 py-1">access.defineRule()</code>: constrained <code className="rounded bg-muted px-2 py-1">.on()</code> and <code className="rounded bg-muted px-2 py-1">.of()</code></li>
+        <li><code className="rounded bg-muted px-2 py-1">access.policy()</code>: constrained rule actions and resources</li>
+        <li><code className="rounded bg-muted px-2 py-1">access.when()</code>: constrained condition builder</li>
+        <li><code className="rounded bg-muted px-2 py-1">access.checks()</code>: constrained permission check definitions</li>
+        <li><code className="rounded bg-muted px-2 py-1">access.createEngine()</code>: engine typed with your schema, so <code className="rounded bg-muted px-2 py-1">engine.can()</code> is also constrained</li>
       </ul>
       <p className="mt-3">
         Both approaches produce identical <code className="rounded bg-muted px-2 py-1">Role</code> and
@@ -1816,7 +1816,7 @@ export const Authorize = createTypedAuthorize<AppAction, AppResource>()`}</code>
   <AccordionItem value="can-mix-approaches">
     <AccordionTrigger>Can I mix config-bound and standalone builders?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes -- both produce identical <code className="rounded bg-muted px-2 py-1">Role</code> and
+      Yes, both produce identical <code className="rounded bg-muted px-2 py-1">Role</code> and
       <code className="rounded bg-muted px-2 py-1">Policy</code> objects at runtime. But mixing them is pointless: a single
       standalone `defineRole()` with a typo defeats the type safety of `createAccessConfig()`. Pick one.
     </AccordionContent>
@@ -2009,7 +2009,7 @@ await engine.admin.deletePolicy('old-policy-id')`}</code></pre>
         <li>Add ABAC policies later as needed for fine-grained rules</li>
       </ol>
       <p className="mt-3">
-        Migrate incrementally -- RBAC-only first, then add policies for specific use cases.
+        Migrate incrementally: RBAC-only first, then add policies for specific use cases.
       </p>
     </AccordionContent>
   </AccordionItem>

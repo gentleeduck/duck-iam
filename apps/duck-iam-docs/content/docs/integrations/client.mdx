@@ -31,8 +31,8 @@ and use it for all UI decisions.
 
 Every client library supports the same core operations:
 
-- `can(action, resource, resourceId?, scope?)` -- returns `true` if the permission is granted
-- `cannot(action, resource, resourceId?, scope?)` -- returns `true` if the permission is denied
+- `can(action, resource, resourceId?, scope?)`: returns `true` if the permission is granted
+- `cannot(action, resource, resourceId?, scope?)`: returns `true` if the permission is denied
 
 Client-side checks are synchronous lookups against the pre-computed permission map. No network requests happen during these checks.
 
@@ -75,7 +75,7 @@ buildPermissionKey('update', 'post', 'post-42', 'org-1')
 // "org-1:update:post:post-42"
 ```
 
-You rarely need to call `buildPermissionKey()` directly -- the React, Vue, and vanilla clients call it internally. It is useful when generating or inspecting `PermissionMap` objects in tests, server endpoints, or custom client helpers.
+You rarely need to call `buildPermissionKey()` directly. The React, Vue, and vanilla clients call it internally. It is useful when generating or inspecting `PermissionMap` objects in tests, server endpoints, or custom client helpers.
 
 ---
 
@@ -434,7 +434,7 @@ access.hasAnyOn('post')        // true
 Both methods handle all four key formats. For a 3-part key like `"org-1:read:post"`, the
 method correctly identifies `"post"` as the resource and `"read"` as the action.
 
-These helpers suit UI summarization -- navigation menus, toolbar groups, or coarse "does
+These helpers suit UI summarization: navigation menus, toolbar groups, or coarse "does
 this user have anything on posts?" checks. They scan the existing `PermissionMap` and do
 not replace server-side permission evaluation.
 
