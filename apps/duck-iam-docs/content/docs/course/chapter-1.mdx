@@ -69,7 +69,7 @@ will be able to read blog posts but not delete them.
       },
     })
 
-    export const engine = new Engine({ adapter })
+    export const engine = new Engine({ adapter }) // defaults to mode: 'development'
     ```
 
     The `assignments` object maps **subject IDs** (users) to **role IDs**. Alice has the
@@ -281,6 +281,7 @@ The `Engine` constructor accepts a configuration object:
 ```typescript
 const engine = new Engine({
   adapter,                    // required: where to load data from
+  mode: 'development',        // optional: 'development' | 'production' (default: 'development')
   defaultEffect: 'deny',     // optional: what to return when no rules match (default: 'deny')
   cacheTTL: 60,              // optional: cache lifetime in seconds (default: 60)
   maxCacheSize: 1000,         // optional: max cached subjects (default: 1000)
@@ -291,6 +292,7 @@ const engine = new Engine({
 | Parameter | Default | Description |
 | --- | --- | --- |
 | `adapter` | required | Data source for roles, policies, assignments |
+| `mode` | `'development'` | `'development'` or `'production'`. Controls verbosity and debug behavior. |
 | `defaultEffect` | `'deny'` | What to return when no rule matches. Always use `'deny'` for security. |
 | `cacheTTL` | `60` | How long cached data lives, in seconds. Set to `0` for tests. |
 | `maxCacheSize` | `1000` | Maximum number of subjects (users) to cache in memory. Uses LRU eviction. |
@@ -332,7 +334,7 @@ const adapter = new MemoryAdapter({
   },
 })
 
-export const engine = new Engine({ adapter })
+export const engine = new Engine({ adapter }) // defaults to mode: 'development'
 ```
 
     </AccordionContent>
