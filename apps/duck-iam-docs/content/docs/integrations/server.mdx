@@ -5,7 +5,7 @@ description: Protect your API routes with duck-iam server integrations for Expre
 
 ## Overview
 
-duck-iam ships server integrations for the most popular Node.js frameworks. Each integration follows the same pattern: wrap your engine around incoming requests, extract the user identity, map the HTTP method to an action, infer the resource from the route, and let the engine decide.
+duck-iam ships server integrations for Express, NestJS, Hono, and Next.js. Each integration follows the same pattern: extract the user identity, map the HTTP method to an action, infer the resource from the route, and call `engine.can()`.
 
 <MermaidDiagram chart={`flowchart LR
     REQ["HTTP Request\nDELETE /posts/42"] --> MW["Middleware / Guard"]
@@ -44,7 +44,7 @@ const METHOD_ACTION_MAP = {
 }
 ```
 
-You can override this per-route or globally through the `getAction` option.
+Override this per-route or globally through the `getAction` option.
 
 ## Generic helpers
 
@@ -57,14 +57,12 @@ import {
 } from '@gentleduck/iam/server/generic'
 ```
 
-Use the generic helpers when the built-in framework wrappers are too opinionated, or when
-you want the same access-control glue across several runtimes.
+Use the generic helpers when the built-in framework wrappers are too opinionated, or when you want the same access-control logic across several runtimes.
 
 - `generatePermissionMap(engine, subjectId, checks, environment?)` is a small wrapper around
   `engine.permissions()` for server-to-client hydration.
 - `createSubjectCan(engine, subjectId, environment?)` returns a subject-bound
-  `can(action, resource, resourceId?, scope?)` function that is convenient in handlers,
-  jobs, and service objects.
+  `can(action, resource, resourceId?, scope?)` function convenient in handlers, jobs, and service objects.
 - `extractEnvironment(req)` builds the default `{ ip, userAgent, timestamp }` environment
   object from common request shapes.
 - `METHOD_ACTION_MAP` is the same CRUD-oriented map the built-in integrations use by default.
@@ -92,7 +90,7 @@ import { accessMiddleware, guard, adminRouter } from '@gentleduck/iam/server/exp
 
 ### Global middleware
 
-Apply access control to every route under a path prefix. The middleware extracts the user ID, action, and resource from each request, then calls `engine.can()`.
+Apply access control to every route under a path prefix.
 
 ```typescript
 import { accessMiddleware } from '@gentleduck/iam/server/express'
@@ -132,7 +130,7 @@ app.use('/api', middleware)
 
 ### Per-route guard
 
-For more granular control, use the `guard` function on individual routes. This is useful when the action and resource are known at definition time.
+Use `guard` on individual routes when the action and resource are known at definition time.
 
 ```typescript
 import { guard } from '@gentleduck/iam/server/express'
@@ -172,7 +170,7 @@ once you have the real resource ID and attributes.
 
 ### Admin router
 
-Mount a pre-built admin API for managing policies, roles, and assignments at runtime.
+Mount a pre-built admin API for managing policies, roles, and assignments.
 
 ```typescript
 import express from 'express'
@@ -221,7 +219,7 @@ import { nestAccessGuard, Authorize, createTypedAuthorize, createEngineProvider 
 
 ### Guard factory
 
-Create a NestJS-compatible guard function. It reads metadata from the `@Authorize` decorator on each handler to determine the required action and resource.
+Create a NestJS-compatible guard function. It reads metadata from the `@Authorize` decorator on each handler.
 
 ```typescript
 import { nestAccessGuard } from '@gentleduck/iam/server/nest'
@@ -241,7 +239,7 @@ Handlers without an `@Authorize` decorator are allowed by default -- the guard o
 
 ### The Authorize decorator
 
-Mark controller methods with their required permissions.
+Annotate controller methods with their required permissions.
 
 ```typescript
 import { Authorize } from '@gentleduck/iam/server/nest'
@@ -271,7 +269,7 @@ export class PostsController {
 
 ### Scoped authorization
 
-Attach a scope to restrict access within a specific context (e.g. a particular organization).
+Attach a scope to restrict access to a specific context.
 
 ```typescript
 @Authorize({ action: 'manage', resource: 'billing', scope: 'admin' })
@@ -282,7 +280,7 @@ If no scope is set on the decorator, the guard falls back to the `getScope` opti
 
 ### Type-safe decorator
 
-Use `createTypedAuthorize` to constrain the decorator to your application's exact action, resource, and scope types. Typos become compile-time errors.
+`createTypedAuthorize` constrains the decorator to your application's exact action, resource, and scope types. Typos become compile-time errors.
 
 ```typescript
 import { createTypedAuthorize } from '@gentleduck/iam/server/nest'
@@ -302,7 +300,7 @@ const Auth = createTypedAuthorize<Action, Resource, Scope>()
 
 ### Engine provider
 
-Register the engine as a NestJS provider for dependency injection.
+Register the engine as a NestJS provider.
 
 ```typescript
 import { createEngineProvider, ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
@@ -340,7 +338,7 @@ import { accessMiddleware, guard } from '@gentleduck/iam/server/hono'
 
 ### Global middleware
 
-Apply access control to all routes under a path pattern.
+Apply access control to all routes under a path pattern. If no user ID is found, the middleware returns 401 immediately.
 
 ```typescript
 import { accessMiddleware } from '@gentleduck/iam/server/hono'
@@ -353,11 +351,10 @@ app.use('/api/*', accessMiddleware(engine, {
 }))
 ```
 
-The middleware reads the user ID from context or headers by default. If no user ID is found, it returns a 401 response immediately.
 
 ### Per-route guard
 
-Guard individual routes with fixed action and resource types.
+Guard individual Hono routes with fixed action and resource types.
 
 ```typescript
 import { guard } from '@gentleduck/iam/server/hono'
@@ -396,7 +393,7 @@ Hono's default environment extractor reads:
 - `user-agent` for the user agent string
 - `Date.now()` for the timestamp
 
-Override with the `getEnvironment` option if you need custom fields.
+Override with `getEnvironment` to add custom fields.
 
 ### Options reference
 
@@ -418,11 +415,11 @@ Override with the `getEnvironment` option if you need custom fields.
 import { withAccess, checkAccess, getPermissions, createNextMiddleware } from '@gentleduck/iam/server/next'
 ```
 
-The Next.js integration covers four use cases: route handler protection, server component checks, permission map generation for client hydration, and edge middleware.
+Covers route handler protection, server component checks, permission map generation for client hydration, and edge middleware.
 
 ### Route handler wrapper
 
-Protect App Router route handlers (the functions exported as GET, POST, DELETE, etc.).
+Wrap App Router route handlers (GET, POST, DELETE, etc.).
 
 ```typescript
 import { withAccess } from '@gentleduck/iam/server/next'
@@ -454,7 +451,7 @@ name, keep the wrapper for coarse route gating and run a deeper `engine.can()` /
 
 ### Server component checks
 
-Check a single permission inside a React Server Component or server action.
+Check a permission inside a React Server Component or server action.
 
 ```typescript
 import { checkAccess } from '@gentleduck/iam/server/next'
@@ -477,7 +474,7 @@ export default async function PostPage({ params }: { params: { id: string } }) {
 
 ### Permission map generation
 
-Generate a `PermissionMap` on the server and pass it to the client. This is the recommended pattern for client-side access control -- evaluate permissions once on the server and hydrate the client with the results.
+Generate a `PermissionMap` on the server and pass it to the client.
 
 ```typescript
 import { getPermissions } from '@gentleduck/iam/server/next'
@@ -511,7 +508,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
 ### Edge middleware
 
-Protect routes at the edge before they reach your application code. Define rules that map URL patterns to required permissions.
+Protect routes at the edge before they reach application code.
 
 ```typescript
 // middleware.ts
@@ -579,7 +576,7 @@ When no rule matches a request path, the middleware returns `null` and the reque
 
 ### Combining global and per-route protection
 
-Use global middleware for broad protection, then layer per-route guards for specific endpoints that need different rules.
+Use global middleware for broad protection, then layer per-route guards for endpoints with different rules.
 
 ```typescript
 // Express example
@@ -594,7 +591,7 @@ app.delete('/api/admin/users/:id',
 
 ### Custom action mapping
 
-Override the default HTTP method mapping when your API uses non-standard patterns.
+Override the default HTTP method mapping for non-standard action patterns.
 
 ```typescript
 const middleware = accessMiddleware(engine, {
@@ -626,12 +623,10 @@ safety net for edge cases like adapter connection failures during subject resolu
 
 ### Server-driven client permissions
 
-The recommended end-to-end pattern:
-
 1. Generate a `PermissionMap` on the server using `getPermissions` or `engine.permissions()`
-2. Pass the map to your client via props, response body, or server-rendered HTML
+2. Pass the map to the client via props, response body, or server-rendered HTML
 3. Hydrate an `AccessProvider` (React), plugin (Vue), or `AccessClient` (vanilla) on the client
-4. All client-side checks are instant lookups -- no additional network requests
+4. Client-side checks are instant lookups -- no additional network requests
 
 ```typescript
 // Server: generate the permission map
@@ -699,8 +694,8 @@ const permissions = await engine.permissions(userId, checks)
   <AccordionItem value="middleware-plus-handler-checks">
     <AccordionTrigger>Can I protect routes in middleware and still do deeper checks later?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Yes. That is the recommended split. Middleware and route wrappers are for coarse-grained gating, while handler-level
-      checks are where you should enforce owner checks, attribute-based restrictions, and other resource-instance rules.
+      Yes. Middleware and route wrappers gate by route shape; handler-level checks enforce owner checks, attribute-based
+      restrictions, and other resource-instance rules.
     </AccordionContent>
   </AccordionItem>
 
@@ -728,18 +723,17 @@ const permissions = await engine.permissions(userId, checks)
   <AccordionItem value="middleware-owner-checks">
     <AccordionTrigger>Why can middleware know the route and user, but still not be enough for owner checks?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      Because ownership usually depends on resource attributes that are not in the raw route shape. Middleware can often
-      tell you “this is a delete on post 42,” but it cannot know `ownerId`, status, or tenant metadata until your handler
-      loads the actual record. That is why record-level checks still belong near the data fetch.
+      Ownership depends on resource attributes not present in the raw route shape. Middleware can tell you “this is a delete
+      on post 42,” but it cannot know `ownerId`, status, or tenant metadata until your handler loads the actual record.
+      Record-level checks belong near the data fetch.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="next-pattern-prefix">
     <AccordionTrigger>Do string patterns in createNextMiddleware() behave like globs?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. String patterns are checked with simple path-prefix matching. If you need stricter matching,
-      optional segments, or glob-like behavior, use a <code className="rounded bg-muted px-2 py-1">RegExp</code>
-      pattern instead of a string.
+      No. String patterns use simple prefix matching. For stricter matching, optional segments, or glob-like behavior,
+      use a <code className="rounded bg-muted px-2 py-1">RegExp</code> instead.
     </AccordionContent>
   </AccordionItem>
 
