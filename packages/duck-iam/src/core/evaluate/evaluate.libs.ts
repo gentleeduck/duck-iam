@@ -166,6 +166,13 @@ export interface PolicyRuleIndex {
   readonly byActionResource: Map<string, IndexedRule[]>
   /** Rules with wildcard action OR wildcard resource (need full matching). */
   readonly wildcardAny: IndexedRule[]
+  /**
+   * Pre-computed results for unconditional rules (CASL-like O(1) path).
+   * Nested map: action → resource → boolean. Avoids string concat per lookup.
+   * Only populated when ALL matching rules for a key have no conditions
+   * and no wildcard rules exist that could interfere.
+   */
+  readonly precomputed: Map<string, Map<string, boolean>>
 }
 
 /** WeakMap so indexes are GC'd when the policy is no longer referenced. */
@@ -224,7 +231,66 @@ export function indexPolicy(policy: Policy): PolicyRuleIndex {
     }
   }
 
-  const idx: PolicyRuleIndex = { byAction, wildcardRules, byActionResource, wildcardAny }
+  // Pre-compute results for unconditional exact-match rules (CASL-like O(1)).
+  // Only when no wildcard rules exist (they could override the result).
+  const precomputed = new Map<string, Map<string, boolean>>()
+  const algo = policy.algorithm
+
+  if (wildcardAny.length === 0 && (algo === 'deny-overrides' || algo === 'allow-overrides' || algo === 'first-match')) {
+    for (const rule of policy.rules) {
+      const c = rule.conditions
+      if ('all' in c || 'any' in c || 'none' in c) continue // skip conditional rules
+      if (rule.actions.includes('*') || rule.resources.includes('*')) continue
+
+      for (const a of rule.actions) {
+        for (const r of rule.resources) {
+          // Get all rules matching this action+resource
+          const arKey = `${a}\0${r}`
+          const entries = byActionResource.get(arKey)
+          if (!entries) continue
+
+          // All entries for this key must be unconditional
+          let allUnconditional = true
+          for (const e of entries) {
+            const ec = e.rule.conditions
+            if ('all' in ec || 'any' in ec || 'none' in ec) { allUnconditional = false; break }
+          }
+          if (!allUnconditional) continue
+
+          // Simulate combining algorithm
+          let result: boolean | undefined
+          if (algo === 'deny-overrides') {
+            let hasAllow = false
+            for (const e of entries) {
+              if (e.rule.effect === 'deny') { result = false; break }
+              if (e.rule.effect === 'allow') hasAllow = true
+            }
+            if (result === undefined && hasAllow) result = true
+          } else if (algo === 'allow-overrides') {
+            let hasDeny = false
+            for (const e of entries) {
+              if (e.rule.effect === 'allow') { result = true; break }
+              if (e.rule.effect === 'deny') hasDeny = true
+            }
+            if (result === undefined && hasDeny) result = false
+          } else if (algo === 'first-match' && entries.length > 0) {
+            result = entries[0]!.rule.effect === 'allow'
+          }
+
+          if (result !== undefined) {
+            let actionMap = precomputed.get(a)
+            if (!actionMap) {
+              actionMap = new Map()
+              precomputed.set(a, actionMap)
+            }
+            actionMap.set(r, result)
+          }
+        }
+      }
+    }
+  }
+
+  const idx: PolicyRuleIndex = { byAction, wildcardRules, byActionResource, wildcardAny, precomputed }
   indexCache.set(policy, idx)
   return idx
 }
