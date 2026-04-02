@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./.github/iam-home.png" alt="duck-iam — type-safe authorization that scales to production" width="800"/>
+  <img src="./.github/iam-home.png" alt="duck-iam - type-safe authorization that scales to production" width="800"/>
 </p>
 
 # gentleduck/iam

@@ -32,10 +32,10 @@ Each skill is a directory containing a `SKILL.md` file with YAML frontmatter:
 
 ```
 skills/{name}/
-├── SKILL.md                # Required: frontmatter + instructions
-└── references/             # Optional: deeper context loaded on demand
-    ├── CODING-STYLE.md
-    └── OTHER-REFERENCE.md
+|-- SKILL.md                # Required: frontmatter + instructions
++-- references/             # Optional: deeper context loaded on demand
+    |-- CODING-STYLE.md
+    +-- OTHER-REFERENCE.md
 ```
 
 ### SKILL.md Structure

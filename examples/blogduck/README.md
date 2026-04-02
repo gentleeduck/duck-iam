@@ -2,7 +2,7 @@
 
 A full-stack example app showing how `@gentleduck/iam` handles authorization across a **NestJS API** and **Next.js frontend** with a shared **SQLite + Drizzle** database.
 
-Three users — Alice (viewer), Bob (editor), Charlie (admin) — each see a different UI based on their permissions. The same access rules are enforced on both the server and the client, defined once in a single shared package.
+Three users - Alice (viewer), Bob (editor), Charlie (admin) - each see a different UI based on their permissions. The same access rules are enforced on both the server and the client, defined once in a single shared package.
 
 ## Quick Start
 
@@ -17,33 +17,33 @@ This builds `@gentleduck/iam`, seeds the database, starts the API on `:3001` and
 
 ```
 blogduck/
-├── run.sh                          # One command to start everything
-├── packages/
-│   ├── shared/                     # Access config, DB schema, seed script
-│   │   └── src/
-│   │       ├── access.ts           # Roles, engine, permission checks
-│   │       ├── db.ts               # Drizzle schema (SQLite)
-│   │       ├── seed.ts             # Create tables + seed data
-│   │       └── index.ts            # Re-exports
-│   ├── api/                        # NestJS backend
-│   │   └── src/
-│   │       ├── main.ts             # Entry point
-│   │       ├── app.module.ts       # Root module with global guard
-│   │       ├── access/
-│   │       │   ├── access.guard.ts # Wraps nestAccessGuard
-│   │       │   ├── access.module.ts# Provides engine globally
-│   │       │   └── authorize.ts    # Typed @Authorize decorator
-│   │       ├── posts/              # CRUD controller + service
-│   │       └── permissions/        # Serves permission map to frontend
-│   └── web/                        # Next.js frontend
-│       └── src/
-│           ├── app/page.tsx        # Server component: fetches data + permissions
-│           ├── lib/
-│           │   ├── access-client.tsx# Creates AccessProvider, Can, Cannot, useAccess
-│           │   └── api.ts          # Fetch helper
-│           └── components/
-│               ├── post-list.tsx   # Posts with permission-gated UI
-│               └── user-switcher.tsx# Switch between Alice/Bob/Charlie
+|-- run.sh                          # One command to start everything
+|-- packages/
+|   |-- shared/                     # Access config, DB schema, seed script
+|   |   +-- src/
+|   |       |-- access.ts           # Roles, engine, permission checks
+|   |       |-- db.ts               # Drizzle schema (SQLite)
+|   |       |-- seed.ts             # Create tables + seed data
+|   |       +-- index.ts            # Re-exports
+|   |-- api/                        # NestJS backend
+|   |   +-- src/
+|   |       |-- main.ts             # Entry point
+|   |       |-- app.module.ts       # Root module with global guard
+|   |       |-- access/
+|   |       |   |-- access.guard.ts # Wraps nestAccessGuard
+|   |       |   |-- access.module.ts# Provides engine globally
+|   |       |   +-- authorize.ts    # Typed @Authorize decorator
+|   |       |-- posts/              # CRUD controller + service
+|   |       +-- permissions/        # Serves permission map to frontend
+|   +-- web/                        # Next.js frontend
+|       +-- src/
+|           |-- app/page.tsx        # Server component: fetches data + permissions
+|           |-- lib/
+|           |   |-- access-client.tsx# Creates AccessProvider, Can, Cannot, useAccess
+|           |   +-- api.ts          # Fetch helper
+|           +-- components/
+|               |-- post-list.tsx   # Posts with permission-gated UI
+|               +-- user-switcher.tsx# Switch between Alice/Bob/Charlie
 ```
 
 ## How It Works
@@ -91,7 +91,7 @@ The `as const` on the config input is what makes everything type-safe. If you wr
 The `DrizzleAdapter` reads and writes roles, policies, and assignments from your database. You define the tables alongside your app's tables:
 
 ```ts
-// duck-iam tables — live next to your app tables
+// duck-iam tables - live next to your app tables
 const accessRoles        = sqliteTable('access_roles', { ... })
 const accessPolicies     = sqliteTable('access_policies', { ... })
 const accessAssignments  = sqliteTable('access_assignments', { ... })
@@ -108,7 +108,7 @@ The seed script inserts roles and assigns them to users. In production, you'd do
 
 ### 3. Protect API routes with a decorator
 
-The NestJS integration gives you `@Authorize` — a typed decorator that checks permissions before the handler runs:
+The NestJS integration gives you `@Authorize` - a typed decorator that checks permissions before the handler runs:
 
 ```ts
 @Post()
@@ -121,11 +121,11 @@ create(@Req() req: Request, @Body() body: { title: string; body: string }) {
 
 Behind the scenes, a global `AccessGuard` extracts the user ID from the `x-user-id` header, looks up their roles in the database, resolves inherited permissions, and evaluates the request. You write one guard, register it once, and every `@Authorize` decorator just works.
 
-Routes without `@Authorize` are public — the guard sees no metadata and lets them through.
+Routes without `@Authorize` are public - the guard sees no metadata and lets them through.
 
 ### 4. Gate UI elements on the frontend
 
-The server component fetches a **permission map** — a flat `{ "create:post": true, "delete:post": false, ... }` object — and passes it to the client through `AccessProvider`:
+The server component fetches a **permission map** - a flat `{ "create:post": true, "delete:post": false, ... }` object - and passes it to the client through `AccessProvider`:
 
 ```tsx
 // Server component (page.tsx)
@@ -158,35 +158,35 @@ if (can('delete', 'post')) { ... }
 
 ### 5. Permissions are enforced on both sides
 
-This is the key architectural point. The frontend gates are cosmetic — they hide buttons and forms. The real enforcement happens on the API. If someone bypasses the UI and sends a `DELETE /posts/1` request, the guard blocks it.
+This is the key architectural point. The frontend gates are cosmetic - they hide buttons and forms. The real enforcement happens on the API. If someone bypasses the UI and sends a `DELETE /posts/1` request, the guard blocks it.
 
 Both sides use the same role definitions from `@blogduck/shared`, so they can never disagree about what a viewer or admin can do.
 
 ## The Data Flow
 
 ```
-                   ┌─────────────────────────────────────┐
-                   │           @blogduck/shared           │
-                   │                                     │
-                   │  access.ts   roles, engine, CHECKS  │
-                   │  db.ts       drizzle schema + conn  │
-                   │  seed.ts     create tables + data   │
-                   └──────────┬──────────┬───────────────┘
-                              │          │
-                    ┌─────────▼──┐  ┌────▼─────────────┐
-                    │  API        │  │  Frontend         │
-                    │  (NestJS)   │  │  (Next.js)        │
-                    │             │  │                   │
-                    │  Guard      │  │  GET /permissions │
-                    │  checks     │◄─┤  on each page     │
-                    │  engine.can │  │  load             │
-                    │  per route  │  │                   │
-                    │             │  │  AccessProvider   │
-                    │  POST/PUT/  │  │  wraps the page   │
-                    │  DELETE     │  │                   │
-                    │  blocked if │  │  <Can>/<Cannot>   │
-                    │  no perm    │  │  gate UI elements │
-                    └─────────────┘  └───────────────────┘
+                   +-------------------------------------+
+                   |           @blogduck/shared           |
+                   |                                     |
+                   |  access.ts   roles, engine, CHECKS  |
+                   |  db.ts       drizzle schema + conn  |
+                   |  seed.ts     create tables + data   |
+                   +----------+----------+---------------+
+                              |          |
+                    +---------v--+  +----v-------------+
+                    |  API        |  |  Frontend         |
+                    |  (NestJS)   |  |  (Next.js)        |
+                    |             |  |                   |
+                    |  Guard      |  |  GET /permissions |
+                    |  checks     |<--|  on each page     |
+                    |  engine.can |  |  load             |
+                    |  per route  |  |                   |
+                    |             |  |  AccessProvider   |
+                    |  POST/PUT/  |  |  wraps the page   |
+                    |  DELETE     |  |                   |
+                    |  blocked if |  |  <Can>/<Cannot>   |
+                    |  no perm    |  |  gate UI elements |
+                    +-------------+  +-------------------+
 ```
 
 1. **Page load**: the Next.js server component calls `GET /permissions` with the user's ID, gets back a permission map
@@ -201,15 +201,15 @@ Both sides use the same role definitions from `@blogduck/shared`, so they can ne
 
 The `as const` config propagates literal types everywhere. Your actions are `'create' | 'read' | 'update' | 'delete'`, not `string`. Your resources are `'post' | 'user'`, not `string`. This means:
 
-- `@Authorize({ action: 'publish', resource: 'post' })` — compile error, `'publish'` is not a valid action
-- `<Can action="read" resource="comment">` — compile error, `'comment'` is not a valid resource
-- `engine.can(userId, 'deletee', { type: 'post' })` — compile error, typo caught
+- `@Authorize({ action: 'publish', resource: 'post' })` - compile error, `'publish'` is not a valid action
+- `<Can action="read" resource="comment">` - compile error, `'comment'` is not a valid resource
+- `engine.can(userId, 'deletee', { type: 'post' })` - compile error, typo caught
 
 You can't ship a permission check that references something that doesn't exist.
 
 ### Role inheritance
 
-`editor` inherits from `viewer`. `admin` inherits from `editor`. You don't repeat permissions — you build a hierarchy. When the engine evaluates `admin`, it resolves the full chain: admin's own grants + editor's grants + viewer's grants.
+`editor` inherits from `viewer`. `admin` inherits from `editor`. You don't repeat permissions - you build a hierarchy. When the engine evaluates `admin`, it resolves the full chain: admin's own grants + editor's grants + viewer's grants.
 
 ### Database-backed roles (not hardcoded)
 
@@ -235,7 +235,7 @@ await engine.can('alice', 'create', { type: 'post' }, undefined, 'org-2')  // fa
 
 ### ABAC policies (beyond RBAC)
 
-The engine also supports attribute-based policies with conditions — time-of-day restrictions, IP allowlists, resource ownership checks. You can combine RBAC and ABAC in the same engine. This example only uses RBAC for simplicity.
+The engine also supports attribute-based policies with conditions - time-of-day restrictions, IP allowlists, resource ownership checks. You can combine RBAC and ABAC in the same engine. This example only uses RBAC for simplicity.
 
 ### Framework integrations that compose
 
