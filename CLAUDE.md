@@ -2,15 +2,15 @@
 
 ## React Grab
 
-This project uses [React Grab](https://github.com/anthropics/react-grab) as a dev tool. When the user references a UI element selected via React Grab, trust the element selection — it includes accurate component names, file paths, and prop details from the running React tree.
+This project uses [React Grab](https://github.com/anthropics/react-grab) as a dev tool. When the user references a UI element selected via React Grab, trust the element selection - it includes accurate component names, file paths, and prop details from the running React tree.
 
 ## Monorepo Structure
 
-- `apps/duck-iam-docs` — Next.js documentation site
-- `packages/duck-iam` — Core duck-iam package
-- `packages/ui` — Shared UI components
-- `tooling/` — Shared tooling configs
-- `examples/` — Example apps
+- `apps/duck-iam-docs` - Next.js documentation site
+- `packages/duck-iam` - Core duck-iam package
+- `packages/ui` - Shared UI components
+- `tooling/` - Shared tooling configs
+- `examples/` - Example apps
 
 ## Build Commands
 
