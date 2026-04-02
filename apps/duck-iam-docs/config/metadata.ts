@@ -45,7 +45,7 @@ export const METADATA: Metadata = {
     'vue permissions',
     'type-safe permissions',
   ],
-  manifest: `${siteConfig.url}/site.webmanifest`,
+  manifest: '/site.webmanifest',
   metadataBase: new URL(
     process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
