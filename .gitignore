@@ -102,3 +102,4 @@ node_modules/
 # tasks.json
 # tasks/ 
 **/.claude/settings.local.json
+.claude/worktrees/
