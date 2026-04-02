@@ -47,7 +47,11 @@ export const METADATA: Metadata = {
   ],
   manifest: `${siteConfig.url}/site.webmanifest`,
   metadataBase: new URL(
-    siteConfig.url.startsWith('http') ? siteConfig.url : `https://${process.env.VERCEL_URL ?? 'localhost:3000'}`,
+    process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : siteConfig.url.startsWith('http')
+        ? siteConfig.url
+        : 'http://localhost:3000',
   ),
   openGraph: {
     description: siteConfig.description,
