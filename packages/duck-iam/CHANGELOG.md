@@ -1,5 +1,11 @@
 # @gentleduck/iam
 
+## 1.6.1
+
+### Patch Changes
+
+- Add package README for npm page. Remove special characters from all documentation.
+
 ## 1.6.0
 
 ### Minor Changes
