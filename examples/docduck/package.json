@@ -23,7 +23,7 @@
     "@gentleduck/primitives": "workspace:*",
     "@gentleduck/variants": "workspace:*",
     "@hocuspocus/provider": "^2.15.0",
-    "@hocuspocus/server": "^2.15.0",
+    "@hocuspocus/server": "^3.4.4",
     "better-auth": "^1.2.8",
     "drizzle-orm": "^0.44.0",
     "jotai": "^2.18.1",
