@@ -195,7 +195,7 @@
     "casbin": "^5.36.0",
     "easy-rbac": "^3.2.0",
     "role-acl": "^4.5.4",
-    "tsdown": "0.21.2",
+    "tsdown": "0.21.7",
     "typescript": "5.9.3",
     "vitest": "^4.0.18"
   },
