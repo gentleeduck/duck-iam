@@ -1,6 +1,7 @@
 import { cn } from '@gentleduck/libs/cn'
 import React from 'react'
 import type { IFlowRecorder } from './lib/flow'
+import { isDevtoolsBlocked } from './lib/guard'
 import { ensureStylesInjected } from './lib/styles'
 import type { IDecisionInput, IDevtoolsEngine, IDevtoolsMetrics, PanelKey } from './lib/types'
 import { DecisionInspector } from './panels/decision'
@@ -29,7 +30,15 @@ const TABS: { key: PanelKey; label: string; dot: string }[] = [
   { key: 'metrics', label: 'Metrics', dot: '#ec4899' },
 ]
 
-export function IamDevtoolsInner({
+// Hard-no in production: admin reads here would leak the full auth model.
+// No prop escape hatch by design — see lib/guard.ts. The guard sits in a thin
+// wrapper so the inner component's hook order stays unconditional.
+export function IamDevtoolsInner(props: IIamDevtoolsInnerProps) {
+  if (isDevtoolsBlocked(props.engine)) return null
+  return <IamDevtoolsInnerImpl {...props} />
+}
+
+function IamDevtoolsInnerImpl({
   engine,
   metrics,
   flow,
