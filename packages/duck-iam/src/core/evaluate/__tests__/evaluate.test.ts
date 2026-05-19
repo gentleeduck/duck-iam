@@ -600,6 +600,66 @@ describe('fast path: literal-only resource patterns (SEC-007)', () => {
   })
 })
 
+describe('policy targets: dot-pattern resources (SEC-036)', () => {
+  // SEC-036 regression: after SEC-007 tightened `matchesResource` to literal-
+  // only for bare patterns, `policyApplies` / `policyTargetsMatch` silently
+  // failed for dot-wildcard targets like `dashboard.*`. The fix teaches
+  // `matchesResource` about both `:*` and `.*` suffixes.
+  const dotTargetPolicy: AccessControl.IPolicy = {
+    id: 'dot-targets',
+    name: 'Dot Targets',
+    algorithm: 'deny-overrides',
+    targets: { resources: ['dashboard.*'] },
+    rules: [{ id: 'r1', effect: 'allow', priority: 10, actions: ['*'], resources: ['*'], conditions: { all: [] } }],
+  }
+
+  it('policy with target "dashboard.*" applies to "dashboard.users"', () => {
+    const decision = evaluatePolicy(
+      dotTargetPolicy,
+      makeReq({ resource: { type: 'dashboard.users', id: 'u1', attributes: {} } }),
+    )
+    // `applicable` is left undefined on the success path; only NotApplicable
+    // decisions set it to `false`.
+    expect(decision.applicable).not.toBe(false)
+    expect(decision.allowed).toBe(true)
+  })
+
+  it('policy with bare target "dashboard" does NOT apply to "dashboard.users"', () => {
+    const policy: AccessControl.IPolicy = {
+      ...dotTargetPolicy,
+      id: 'bare-target',
+      targets: { resources: ['dashboard'] },
+    }
+    const decision = evaluatePolicy(
+      policy,
+      makeReq({ resource: { type: 'dashboard.users', id: 'u1', attributes: {} } }),
+    )
+    expect(decision.applicable).toBe(false)
+  })
+
+  it('policy with target "dashboard.*" still does not apply to bare "dashboard"', () => {
+    const decision = evaluatePolicy(
+      dotTargetPolicy,
+      makeReq({ resource: { type: 'dashboard', id: 'd', attributes: {} } }),
+    )
+    expect(decision.applicable).toBe(false)
+  })
+
+  it('colon-wildcard target continues to work (regression check)', () => {
+    const policy: AccessControl.IPolicy = {
+      ...dotTargetPolicy,
+      id: 'colon-target',
+      targets: { resources: ['org:billing:*'] },
+    }
+    const decision = evaluatePolicy(
+      policy,
+      makeReq({ resource: { type: 'org:billing:invoice', id: 'i', attributes: {} } }),
+    )
+    expect(decision.applicable).not.toBe(false)
+    expect(decision.allowed).toBe(true)
+  })
+})
+
 describe('allowFailOpen enforcement (P0)', () => {
   // Regression: the engine previously refused defaultEffect: 'allow' only in
   // production. Development engines could ship with the same fail-open behavior
