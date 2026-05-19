@@ -106,4 +106,67 @@ describe('FileAdapter', () => {
     const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     expect(await adapter.listPolicies()).toEqual([])
   })
+
+  describe('malformed-row drop (P0)', () => {
+    // Same guarantee the Redis adapter provides: a corrupt row stored on
+    // disk (manual edit, partial migration, etc) must be dropped, not
+    // returned as-is. The engine's safeEval would otherwise treat it as
+    // NotApplicable and silently strip any deny rules it would have carried.
+    it('drops a policy entry that fails validation, keeps valid ones', async () => {
+      const seeded = JSON.stringify({
+        policies: {
+          good: policy,
+          // Missing required `algorithm` and `rules` fields.
+          bad: { id: 'bad', name: 'broken' },
+        },
+        roles: {},
+        assignments: {},
+        attributes: {},
+      })
+      const errors: Array<{ rowId: string }> = []
+      const fs = makeFakeFS(seeded)
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+        path: '/store.json',
+        fs,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      const list = await adapter.listPolicies()
+      expect(list.map((p) => p.id)).toEqual(['p1'])
+      expect(errors[0]?.rowId).toBe('bad')
+    })
+
+    it('drops a role entry that fails validation', async () => {
+      const seeded = JSON.stringify({
+        policies: {},
+        roles: {
+          good: { id: 'good', name: 'g', permissions: [] },
+          bad: { name: 'no-id', permissions: [] },
+        },
+        assignments: {},
+        attributes: {},
+      })
+      const errors: Array<{ rowId: string }> = []
+      const fs = makeFakeFS(seeded)
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+        path: '/store.json',
+        fs,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      const list = await adapter.listRoles()
+      expect(list.map((r) => r.id)).toEqual(['good'])
+      expect(errors[0]?.rowId).toBe('bad')
+    })
+
+    it('reports a malformed JSON file via onPolicyError instead of swallowing it', async () => {
+      const errors: Array<{ rowId: string }> = []
+      const fs = makeFakeFS('not-json{')
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+        path: '/store.json',
+        fs,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      expect(await adapter.listPolicies()).toEqual([])
+      expect(errors[0]?.rowId).toBe('/store.json')
+    })
+  })
 })

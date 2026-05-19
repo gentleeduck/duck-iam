@@ -265,3 +265,68 @@ export function validatePolicy(input: unknown): Validate.IResult {
 
   return { valid: issues.every((i) => i.type !== 'error'), issues }
 }
+
+/**
+ * Validate a single role object from an untrusted source (database, API, admin dashboard).
+ *
+ * Lightweight shape guard for adapter read-paths - confirms `id` is a non-empty
+ * string, `permissions` is an array, and (if present) `inherits` is an array of
+ * strings. Adapters call this after `JSON.parse` to drop tampered rows before
+ * they reach the evaluator.
+ *
+ * @param input - The candidate role object (typically parsed JSON).
+ * @returns A {@link Validate.IResult} with `valid: false` when any error issue was emitted.
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export function validateRole(input: unknown): Validate.IResult {
+  const issues: Validate.IIssue[] = []
+
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    issues.push({ type: 'error', code: 'INVALID_TYPE', message: 'Role must be a non-null object', path: '' })
+    return { valid: false, issues }
+  }
+
+  const r = input as Record<string, unknown>
+
+  if (typeof r.id !== 'string' || !r.id) {
+    issues.push({
+      type: 'error',
+      code: 'MISSING_FIELD',
+      message: 'Role must have a non-empty string "id"',
+      path: 'id',
+    })
+  }
+
+  if (!Array.isArray(r.permissions)) {
+    issues.push({
+      type: 'error',
+      code: 'MISSING_FIELD',
+      message: 'Role must have a "permissions" array',
+      path: 'permissions',
+    })
+  }
+
+  if (r.inherits !== undefined && r.inherits !== null) {
+    if (!Array.isArray(r.inherits)) {
+      issues.push({
+        type: 'error',
+        code: 'INVALID_TYPE',
+        message: '"inherits" must be an array of strings if provided',
+        path: 'inherits',
+      })
+    } else {
+      for (const [i, v] of (r.inherits as unknown[]).entries()) {
+        if (typeof v !== 'string') {
+          issues.push({
+            type: 'error',
+            code: 'INVALID_TYPE',
+            message: `"inherits[${i}]" must be a string`,
+            path: `inherits[${i}]`,
+          })
+        }
+      }
+    }
+  }
+
+  return { valid: issues.every((i) => i.type !== 'error'), issues }
+}

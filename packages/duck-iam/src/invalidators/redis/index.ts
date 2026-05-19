@@ -152,11 +152,23 @@ export function createRedisInvalidator<TRole extends string = string>(
 }
 
 function safeParse<T>(s: string): T | null {
+  let parsed: unknown
   try {
-    return JSON.parse(s) as T
+    parsed = JSON.parse(s)
   } catch {
     return null
   }
+  // Shape guard: drop anything that isn't the expected `{ instanceId, event: { kind } }`
+  // envelope. Without this, a tampered payload could trigger arbitrary handler
+  // calls with malformed events.
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const obj = parsed as Record<string, unknown>
+  if (typeof obj.instanceId !== 'string') return null
+  const ev = obj.event
+  if (typeof ev !== 'object' || ev === null) return null
+  const kind = (ev as { kind?: unknown }).kind
+  if (kind !== 'all' && kind !== 'policies' && kind !== 'roles' && kind !== 'subject') return null
+  return parsed as T
 }
 
 function generateInstanceId(): string {

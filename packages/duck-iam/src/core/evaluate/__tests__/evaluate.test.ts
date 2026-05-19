@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { Engine } from '../../engine'
 import type { AccessControl, Request } from '../../types'
 import { evaluate, evaluateFast, evaluatePolicy, evaluatePolicyFast } from '../evaluate'
 
@@ -594,5 +596,27 @@ describe('fast path: literal-parent resource patterns', () => {
       ],
     }
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
+  })
+})
+
+describe('allowFailOpen enforcement (P0)', () => {
+  // Regression: the engine previously refused defaultEffect: 'allow' only in
+  // production. Development engines could ship with the same fail-open behavior
+  // and silently mask dropped policies. Enforcement is now mode-independent.
+  it("refuses defaultEffect: 'allow' in development without allowFailOpen", () => {
+    const adapter = new MemoryAdapter()
+    expect(() => new Engine({ adapter, mode: 'development', defaultEffect: 'allow' })).toThrow(/fail-open/i)
+  })
+
+  it("refuses defaultEffect: 'allow' in production without allowFailOpen", () => {
+    const adapter = new MemoryAdapter()
+    expect(() => new Engine({ adapter, mode: 'production', defaultEffect: 'allow' } as never)).toThrow(/fail-open/i)
+  })
+
+  it("accepts defaultEffect: 'allow' in any mode with allowFailOpen: true", () => {
+    const adapter = new MemoryAdapter()
+    expect(
+      () => new Engine({ adapter, mode: 'development', defaultEffect: 'allow', allowFailOpen: true }),
+    ).not.toThrow()
   })
 })
