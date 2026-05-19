@@ -10,12 +10,32 @@ export type OpFn = AccessControl.OpFn
 /**
  * Max allowed regex pattern length to mitigate ReDoS.
  *
+ * Tightened from 512 -> 128 as part of P1 hardening: catastrophic
+ * backtracking patterns are tiny (e.g. `(a+)+$`), so 512 chars only
+ * gave attackers more rope. See `audit/audit-issue-P1-redos-matches-operator.md`.
+ *
  * @author wildduck2 <https://github.com/wildduck2>
  */
-export const MAX_REGEX_LENGTH = 512
+export const MAX_REGEX_LENGTH = 128
+
+/**
+ * Hard cap on the candidate input string handed to `RegExp.test()`.
+ *
+ * Even if a catastrophic pattern slips past static detection, capping the
+ * input length bounds worst-case backtracking work. Strings longer than this
+ * cause the `matches` operator to short-circuit to `false` without running
+ * the regex.
+ *
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export const MAX_REGEX_INPUT_LENGTH = 2048
 
 /**
  * LRU cache capacity for compiled regex patterns.
+ *
+ * TODO [P2]: scope `regexCache` and `pathCache` per-`Engine` instance instead
+ * of process-global so a hostile tenant cannot evict another tenant's hot
+ * entries. Tracked in `audit/audit-issue-P1-redos-matches-operator.md`.
  *
  * @author wildduck2 <https://github.com/wildduck2>
  */
@@ -103,6 +123,11 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
   matches: (f, v) => {
     if (typeof f !== 'string' || typeof v !== 'string') return false
     if (v.length > MAX_REGEX_LENGTH) return false
+    // Bound worst-case backtracking work even if a pathological pattern
+    // somehow landed in the store. Inputs longer than MAX_REGEX_INPUT_LENGTH
+    // are refused outright rather than truncated-and-matched, because a
+    // partial match on a truncated string is misleading.
+    if (f.length > MAX_REGEX_INPUT_LENGTH) return false
     const re = getCachedRegex(v)
     return re ? re.test(f) : false
   },

@@ -413,3 +413,47 @@ describe('regex cache LRU (M1)', () => {
     regexCache.clear()
   })
 })
+
+describe('matches operator ReDoS hardening (P1)', () => {
+  it('evaluates a catastrophic pattern + adversarial-length input under 50ms', async () => {
+    const { regexCache } = await import('../conditions.libs')
+    regexCache.clear()
+    // `(a+)+$` is the textbook catastrophic-backtracking pattern. An attacker
+    // would pair it with a long input ending in a character that can't match
+    // (`!`) to force maximum backtracking. The runtime input cap
+    // (MAX_REGEX_INPUT_LENGTH = 2048) short-circuits before the regex engine
+    // ever runs — that's the defense in depth this test pins down.
+    const big = `${'a'.repeat(3000)}!`
+    const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
+    const group: AccessControl.IConditionGroup = {
+      all: [{ field: 'subject.id', operator: 'matches', value: '(a+)+$' }],
+    }
+    const start = performance.now()
+    const result = evalConditionGroup(req, group)
+    const elapsed = performance.now() - start
+    expect(result).toBe(false)
+    expect(elapsed).toBeLessThan(50)
+  })
+
+  it('refuses inputs longer than MAX_REGEX_INPUT_LENGTH without invoking the regex', async () => {
+    const { MAX_REGEX_INPUT_LENGTH, regexCache } = await import('../conditions.libs')
+    regexCache.clear()
+    // A 10k-character input must short-circuit to false. We confirm both the
+    // boolean result and that no compiled regex was cached for the pattern
+    // (the operator returns before reaching getCachedRegex).
+    const big = 'a'.repeat(10_000)
+    expect(big.length).toBeGreaterThan(MAX_REGEX_INPUT_LENGTH)
+    const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
+    const pattern = '^a+$'
+    const group: AccessControl.IConditionGroup = {
+      all: [{ field: 'subject.id', operator: 'matches', value: pattern }],
+    }
+    expect(evalConditionGroup(req, group)).toBe(false)
+    expect(regexCache.has(pattern)).toBe(false)
+  })
+
+  it('exposes MAX_REGEX_LENGTH tightened to 128', async () => {
+    const { MAX_REGEX_LENGTH } = await import('../conditions.libs')
+    expect(MAX_REGEX_LENGTH).toBe(128)
+  })
+})

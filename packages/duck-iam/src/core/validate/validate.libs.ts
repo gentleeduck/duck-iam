@@ -1,7 +1,104 @@
 import type { Engine } from '..'
-import { MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
+import { MAX_CONDITION_DEPTH, MAX_REGEX_LENGTH } from '../conditions/conditions.libs'
 import { ALLOWED_ROOTS } from '../resolve/resolve'
 import type { Validate } from './validate.types'
+
+/**
+ * Maximum number of unbounded quantifiers (`+`, `*`, `{n,}`) allowed in a
+ * single `matches` pattern. Beyond this the surface area for catastrophic
+ * backtracking gets impractical to reason about, so we refuse outright.
+ *
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export const MAX_UNBOUNDED_QUANTIFIERS = 4
+
+/**
+ * Pure-JS heuristic for catastrophic-backtracking regex patterns. Cheap
+ * enough to run at validate-time on every `matches` operator, and tight
+ * enough to refuse the common ReDoS shapes:
+ *   - nested quantifiers: `(a+)+`, `(a*)*`, `(a+)*`, `(a*)+`
+ *   - alternation inside a quantifier: `(a|a)+`, `(foo|bar)*`
+ *   - more than {@link MAX_UNBOUNDED_QUANTIFIERS} unbounded quantifiers in
+ *     a single pattern
+ *
+ * Not a complete safe-regex linter — it deliberately errs on the side of
+ * rejection. Patterns deemed unsafe should not even compile, so the runtime
+ * never sees them.
+ *
+ * @param pattern - Raw regex source.
+ * @returns `{ safe: true }` when the pattern looks benign, otherwise
+ *   `{ safe: false, reason }` with a short human-readable reason.
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
+  if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
+  if (pattern.length > MAX_REGEX_LENGTH) {
+    return { safe: false, reason: `pattern length ${pattern.length} exceeds MAX_REGEX_LENGTH (${MAX_REGEX_LENGTH})` }
+  }
+
+  // Nested quantifiers: a group whose closing `)` is immediately followed by
+  // `+`, `*`, or `{n,}` AND whose body itself contains an unbounded quantifier.
+  // We walk parens with a depth counter so nested groups are inspected too.
+  const stack: number[] = []
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i++
+      continue
+    }
+    if (ch === '(') {
+      stack.push(i)
+      continue
+    }
+    if (ch === ')') {
+      const openIdx = stack.pop()
+      if (openIdx === undefined) continue
+      const next = pattern[i + 1]
+      const isUnboundedQuant = next === '+' || next === '*' || (next === '{' && /^\{\d+,\}?/.test(pattern.slice(i + 1)))
+      if (!isUnboundedQuant) continue
+      const body = pattern.slice(openIdx + 1, i)
+      // Strip escapes from body before scanning so `\+` doesn't trigger.
+      const bodyStripped = body.replace(/\\./g, '')
+      if (/[+*]/.test(bodyStripped) || /\{\d+,\d*\}/.test(bodyStripped)) {
+        return { safe: false, reason: 'nested quantifier (e.g. `(a+)+`) — catastrophic backtracking risk' }
+      }
+      if (bodyStripped.includes('|')) {
+        return { safe: false, reason: 'alternation inside a quantified group — catastrophic backtracking risk' }
+      }
+    }
+  }
+
+  // Count unbounded quantifiers outside of escapes. `+`, `*`, and `{n,}`
+  // each count once.
+  let unbounded = 0
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i++
+      continue
+    }
+    if (ch === '+' || ch === '*') {
+      unbounded++
+      continue
+    }
+    if (ch === '{') {
+      // `{n,}` or `{n,m}` — only `{n,}` (no upper bound) is unbounded.
+      const close = pattern.indexOf('}', i)
+      if (close === -1) continue
+      const inner = pattern.slice(i + 1, close)
+      if (/^\d+,\s*$/.test(inner)) unbounded++
+      i = close
+    }
+  }
+  if (unbounded > MAX_UNBOUNDED_QUANTIFIERS) {
+    return {
+      safe: false,
+      reason: `${unbounded} unbounded quantifiers exceed limit of ${MAX_UNBOUNDED_QUANTIFIERS}`,
+    }
+  }
+
+  return { safe: true }
+}
 
 /**
  * Field paths longer than this are refused. The runtime DotPath resolver
@@ -148,6 +245,20 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
         message: `Condition value "${obj.value}" references an unresolvable path`,
         path: `${path}.value`,
       })
+    }
+    // `matches` is the only operator that compiles its value into a regex.
+    // Refuse catastrophic patterns at validate-time so they never reach the
+    // policy store. Non-string / $-resolved values are caught elsewhere.
+    if (obj.operator === 'matches' && typeof obj.value === 'string' && !obj.value.startsWith('$')) {
+      const result = detectCatastrophicRegex(obj.value)
+      if (!result.safe) {
+        issues.push({
+          type: 'error',
+          code: 'ERR_REGEX_CATASTROPHIC',
+          message: `Condition "matches" pattern rejected: ${result.reason}`,
+          path: `${path}.value`,
+        })
+      }
     }
   } else {
     validateConditionGroup(input, path, issues, depth)
