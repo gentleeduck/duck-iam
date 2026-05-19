@@ -1,3 +1,4 @@
+import * as nodePath from 'node:path'
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
 import { validatePolicy, validateRole } from '../../core/validate'
 
@@ -30,14 +31,27 @@ export namespace File {
      */
     writeFile(path: string, data: string, encoding: 'utf8'): Promise<void>
     /**
-     * Creates a directory recursively.
+     * Creates a directory. **Not recursive** — the immediate parent must
+     * already exist. This is intentional after SEC-003: a typo in `init.path`
+     * must not silently build a deep tree.
      *
      * @param path - Absolute directory to create.
-     * @param options - Recursive create flag.
      * @returns Resolves once the directory exists.
      * @author wildduck2 <https://github.com/wildduck2>
      */
-    mkdir(path: string, options: { recursive: true }): Promise<unknown>
+    mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>
+    /**
+     * Optional: resolve symlinks for a path. When present (e.g. the real
+     * `node:fs/promises` provides it) the adapter uses it during the
+     * `rootDir` containment check to reject symlinks that escape the root.
+     * Test fakes typically omit this; the symlink check is skipped when
+     * unavailable.
+     *
+     * @param path - Path to canonicalise.
+     * @returns The canonical path with all symlinks resolved.
+     * @author wildduck2 <https://github.com/wildduck2>
+     */
+    realpath?(path: string): Promise<string>
   }
 
   /**
@@ -47,11 +61,28 @@ export namespace File {
    */
   export interface IInit {
     /**
-     * Specifies the absolute path of the JSON store file.
+     * Specifies the **absolute** path of the JSON store file.
      *
-     * The adapter creates the file and parent directory on first write.
+     * Rejected at construction when:
+     * - the resolved path is not absolute,
+     * - the normalized path contains a `..` segment, or
+     * - {@link rootDir} is set and the path escapes it.
+     *
+     * The adapter creates the file on first write, but **does not** recursively
+     * create directories — the immediate parent must already exist. This guards
+     * against a typo in `path` accidentally building deep paths (SEC-003).
      */
     path: string
+    /**
+     * Optional containment root. When set, {@link path} must resolve to a
+     * location inside this directory (after symlink resolution if the
+     * filesystem driver exposes `realpath`). Strongly recommended whenever
+     * any part of `path` is derived from caller-controlled input.
+     *
+     * If omitted, the adapter logs a one-shot `console.warn` at construction
+     * and accepts any absolute path. See `audit/MIGRATION.md`.
+     */
+    rootDir?: string
     /**
      * Provides the filesystem driver. Pass `await import('node:fs/promises')`
      * in Node or Bun, or any object implementing {@link IFS} for tests.
@@ -117,21 +148,112 @@ export class FileAdapter<
 > implements Adapter.IAdapter<TAction, TResource, TRole, TScope>
 {
   private readonly _path: string
+  private readonly _parentDir: string
+  private readonly _rootDir: string | null
   private readonly _fs: File.IFS
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
   private _cache: File.IState<TAction, TResource, TRole, TScope> | null = null
   private _loadInFlight: Promise<File.IState<TAction, TResource, TRole, TScope>> | null = null
+  private _rootCheckDone = false
 
   /**
    * Creates a new file-backed adapter.
+   *
+   * Validates `init.path` synchronously (SEC-003):
+   * - resolves to an absolute path via `path.resolve`,
+   * - rejects relative paths and `..` segments after normalization,
+   * - when `init.rootDir` is provided, requires the path to live under it.
+   *
+   * The symlink-escape check happens lazily on first read/write (because it
+   * needs `realpath`, which is async) — see `_assertWithinRoot`.
    *
    * @param init - Provides the store path and filesystem driver.
    * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(init: File.IInit) {
-    this._path = init.path
+    // Reject `..` segments in the raw input. `path.normalize`/`path.resolve`
+    // eagerly collapse `..` against the preceding segment, so a literal
+    // `/var/lib/iam/../../etc/passwd` simplifies silently to `/etc/passwd`.
+    // The user-visible intent of `..` is "escape the parent" - we refuse the
+    // input regardless of where it lands.
+    if (init.path.split(/[\\/]+/).includes('..')) {
+      throw new Error(`duck-iam: FileAdapter path contains a ".." segment: "${init.path}"`)
+    }
+    const resolved = nodePath.resolve(init.path)
+    if (!nodePath.isAbsolute(resolved)) {
+      throw new Error(`duck-iam: FileAdapter path must resolve to an absolute path: "${init.path}"`)
+    }
+    // The pre-resolve form must already have been absolute. `path.resolve`
+    // happily turns `./foo` into an absolute path by joining cwd; we refuse
+    // that quietly-promoted case because relative inputs are exactly the
+    // class of bug SEC-003 is about.
+    if (!nodePath.isAbsolute(init.path)) {
+      throw new Error(`duck-iam: FileAdapter path must be supplied as an absolute path: "${init.path}"`)
+    }
+
+    let rootDir: string | null = null
+    if (init.rootDir !== undefined) {
+      if (!nodePath.isAbsolute(init.rootDir)) {
+        throw new Error(`duck-iam: FileAdapter rootDir must be absolute: "${init.rootDir}"`)
+      }
+      rootDir = nodePath.resolve(init.rootDir)
+      const rel = nodePath.relative(rootDir, resolved)
+      if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
+        throw new Error(`duck-iam: FileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
+      }
+    } else {
+      // No containment configured. Warn once so existing callers do not break
+      // silently, but loudly enough that operators see it in logs.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[duck-iam:file] FileAdapter constructed without rootDir for path "${resolved}". ` +
+          'Any caller deriving the path from request data should set rootDir for defence in depth. ' +
+          'See audit/MIGRATION.md.',
+      )
+    }
+
+    this._path = resolved
+    this._parentDir = nodePath.dirname(resolved)
+    this._rootDir = rootDir
     this._fs = init.fs
     this._onPolicyError = init.onPolicyError
+  }
+
+  /**
+   * Resolves symlinks via `realpath` (when the FS driver exposes one) and
+   * re-checks containment under `_rootDir`. Symlink check is skipped when
+   * `realpath` is unavailable (test fakes, browser bundles) — the constructor
+   * already enforced the textual containment, which is enough for those
+   * environments.
+   *
+   * Runs at most once per adapter instance to keep hot paths cheap.
+   */
+  private async _assertWithinRoot(): Promise<void> {
+    if (this._rootCheckDone) return
+    this._rootCheckDone = true
+    if (!this._rootDir || !this._fs.realpath) return
+    // The store file itself may not exist yet (first run); fall back to the
+    // parent directory's realpath, which must exist by the time we read or
+    // write.
+    let canonical: string
+    try {
+      canonical = await this._fs.realpath(this._path)
+    } catch {
+      try {
+        const canonicalParent = await this._fs.realpath(this._parentDir)
+        canonical = nodePath.join(canonicalParent, nodePath.basename(this._path))
+      } catch {
+        // Parent doesn't exist either - the read path's ENOENT branch handles
+        // it; the write path will surface the missing-parent error explicitly.
+        return
+      }
+    }
+    const rel = nodePath.relative(this._rootDir, canonical)
+    if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
+      throw new Error(
+        `duck-iam: FileAdapter realpath "${canonical}" escapes rootDir "${this._rootDir}" (symlink traversal)`,
+      )
+    }
   }
 
   private _reportPolicyError(err: Error, rowId: string): void {
@@ -147,6 +269,7 @@ export class FileAdapter<
     if (this._cache) return this._cache
     if (this._loadInFlight) return this._loadInFlight
     this._loadInFlight = (async () => {
+      await this._assertWithinRoot()
       let state: File.IState<TAction, TResource, TRole, TScope>
       try {
         const raw = await this._fs.readFile(this._path, 'utf8')
@@ -205,8 +328,23 @@ export class FileAdapter<
 
   private async _flush(): Promise<void> {
     if (!this._cache) return
-    const lastSlash = this._path.lastIndexOf('/')
-    if (lastSlash > 0) await this._fs.mkdir(this._path.slice(0, lastSlash), { recursive: true })
+    await this._assertWithinRoot()
+    // Non-recursive mkdir of the immediate parent only. If a grandparent is
+    // missing the caller's deployment is misconfigured - throwing here is
+    // safer than silently building a deep tree from a typo'd `init.path`.
+    try {
+      await this._fs.mkdir(this._parentDir)
+    } catch (err) {
+      // EEXIST is the happy path - directory already there. Anything else is
+      // a real problem and must surface to the caller.
+      const code = (err as NodeJS.ErrnoException | undefined)?.code
+      if (code !== 'EEXIST') {
+        throw new Error(
+          `duck-iam: FileAdapter parent directory "${this._parentDir}" is not accessible (${code ?? 'unknown'}). ` +
+            'Create it explicitly; the adapter no longer does recursive mkdir.',
+        )
+      }
+    }
     await this._fs.writeFile(this._path, JSON.stringify(this._cache, null, 2), 'utf8')
   }
 
