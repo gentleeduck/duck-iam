@@ -104,17 +104,68 @@ const _UNSIGNED_WARNED = { fired: false }
 const _DROP_WARNED_CHANNELS = new Set<string>()
 
 /**
+ * SEC-031 guard limits applied to incoming wire messages BEFORE the HMAC
+ * verifier (i.e. pre-auth, so they must be cheap and stack-safe).
+ */
+const MAX_WIRE_BYTES = 16 * 1024
+const MAX_PAYLOAD_DEPTH = 8
+const MAX_PAYLOAD_KEYS = 64
+/** Depth-of-defence cap on {@link canonicalJSON} recursion itself. */
+const CANONICAL_MAX_DEPTH = 16
+
+/**
+ * Iterative walker counting nesting depth + total key count of an
+ * already-parsed JSON value. Non-recursive so the guard itself cannot stack-
+ * overflow even on adversarial input. Returns `null` if either cap is
+ * exceeded.
+ */
+function _measurePayload(root: unknown): { depth: number; keys: number } | null {
+  if (root === null || typeof root !== 'object') return { depth: 0, keys: 0 }
+  // Stack entries: [node, depth]. Depth of root container itself is 1.
+  const stack: Array<[unknown, number]> = [[root, 1]]
+  let maxDepth = 0
+  let totalKeys = 0
+  while (stack.length > 0) {
+    const [node, depth] = stack.pop()!
+    if (depth > maxDepth) maxDepth = depth
+    if (depth > MAX_PAYLOAD_DEPTH) return null
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        const child = node[i]
+        if (child !== null && typeof child === 'object') stack.push([child, depth + 1])
+      }
+    } else if (node !== null && typeof node === 'object') {
+      const keys = Object.keys(node as Record<string, unknown>)
+      totalKeys += keys.length
+      if (totalKeys > MAX_PAYLOAD_KEYS) return null
+      const obj = node as Record<string, unknown>
+      for (let i = 0; i < keys.length; i++) {
+        const child = obj[keys[i]!]
+        if (child !== null && typeof child === 'object') stack.push([child, depth + 1])
+      }
+    }
+  }
+  return { depth: maxDepth, keys: totalKeys }
+}
+
+/**
  * Canonical JSON serializer with stable key order. Used as the HMAC pre-image
  * so publisher and verifier agree on the exact byte string regardless of how
  * the host JSON engine orders object keys. Arrays preserve order; objects sort
  * keys lexicographically.
+ *
+ * SEC-031 defence in depth: bounded recursion. Callers in the verify path
+ * additionally enforce a depth/size/key-count guard on the parsed payload
+ * before invoking this function — `_depth` here protects the publish path
+ * and any future caller that bypasses the wire guard.
  */
-function canonicalJSON(v: unknown): string {
+function canonicalJSON(v: unknown, _depth = 0): string {
+  if (_depth > CANONICAL_MAX_DEPTH) throw new Error('canonicalJSON: max depth exceeded')
   if (v === null || typeof v !== 'object') return JSON.stringify(v)
-  if (Array.isArray(v)) return `[${v.map(canonicalJSON).join(',')}]`
+  if (Array.isArray(v)) return `[${v.map((x) => canonicalJSON(x, _depth + 1)).join(',')}]`
   const keys = Object.keys(v as Record<string, unknown>).sort()
   const obj = v as Record<string, unknown>
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJSON(obj[k])}`).join(',')}}`
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJSON(obj[k], _depth + 1)}`).join(',')}}`
 }
 
 /**
@@ -273,6 +324,15 @@ function parseIncoming<TRole extends string>(
   channel: string,
   warnDropOnce: (channel: string, reason: string) => void,
 ): { instanceId: string; event: EngineTypes.IInvalidateEvent<TRole> } | null {
+  // SEC-031: pre-auth size cap. canonicalJSON runs BEFORE the HMAC verify,
+  // so an unauth peer could otherwise crash subscribers with deeply nested
+  // JSON. Reject oversize wire messages before JSON.parse so we never
+  // allocate the parse tree for a hostile blob.
+  if (typeof s !== 'string') return null
+  if (s.length > MAX_WIRE_BYTES) {
+    warnDropOnce(channel, 'oversize wire message')
+    return null
+  }
   let parsed: unknown
   try {
     parsed = JSON.parse(s)
@@ -281,6 +341,14 @@ function parseIncoming<TRole extends string>(
     return null
   }
   if (typeof parsed !== 'object' || parsed === null) return null
+  // SEC-031: depth + key-count cap on the parsed tree, using an iterative
+  // walker that can't stack-overflow itself. Applied to every incoming
+  // envelope (both legacy and v:1) so the canonicalJSON pre-image is always
+  // safe to materialise.
+  if (_measurePayload(parsed) === null) {
+    warnDropOnce(channel, 'payload exceeds depth/key limits')
+    return null
+  }
   const obj = parsed as Record<string, unknown>
 
   // v:1 signed envelope path

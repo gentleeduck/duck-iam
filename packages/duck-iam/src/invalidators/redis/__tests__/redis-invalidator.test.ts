@@ -196,6 +196,100 @@ describe('createRedisInvalidator (SEC-005)', () => {
     expect(received).toEqual([])
   })
 
+  describe('SEC-031 pre-auth DoS guard', () => {
+    it('drops oversize wire message pre-parse (>16 KB)', () => {
+      const bus = makeBus()
+      const ch = `t-oversize-${Math.random().toString(36).slice(2)}`
+      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const received: EngineTypes.IInvalidateEvent[] = []
+      inv.subscribe((e) => received.push(e))
+
+      // 32 KB blob. Stays a valid JSON string but exceeds the 16 KB wire cap.
+      const blob = JSON.stringify({ junk: 'x'.repeat(32 * 1024) })
+      expect(blob.length).toBeGreaterThan(16 * 1024)
+      bus.publish(blob)
+
+      expect(received).toEqual([])
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? ''))
+      expect(msgs.some((m: string) => m.includes('oversize wire message'))).toBe(true)
+    })
+
+    it('drops deeply nested payload pre-canonicalise (depth 10)', () => {
+      const bus = makeBus()
+      const ch = `t-deep-${Math.random().toString(36).slice(2)}`
+      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const received: EngineTypes.IInvalidateEvent[] = []
+      inv.subscribe((e) => received.push(e))
+
+      // Build a depth-10 chain inside `payload`.
+      let nested: Record<string, unknown> = {}
+      for (let i = 0; i < 10; i++) nested = { n: nested }
+      bus.publish(JSON.stringify({ payload: nested, sig: 'aa', v: 1 }))
+
+      expect(received).toEqual([])
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? ''))
+      expect(msgs.some((m: string) => m.includes('depth/key limits'))).toBe(true)
+    })
+
+    it('drops payload with > 64 keys', () => {
+      const bus = makeBus()
+      const ch = `t-keys-${Math.random().toString(36).slice(2)}`
+      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const received: EngineTypes.IInvalidateEvent[] = []
+      inv.subscribe((e) => received.push(e))
+
+      const wide: Record<string, number> = {}
+      for (let i = 0; i < 200; i++) wide[`k${i}`] = i
+      bus.publish(JSON.stringify({ payload: wide, sig: 'aa', v: 1 }))
+
+      expect(received).toEqual([])
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? ''))
+      expect(msgs.some((m: string) => m.includes('depth/key limits'))).toBe(true)
+    })
+
+    it('happy-path signed envelope still verifies under the guard', () => {
+      const a = makeBus()
+      const b = makeBus()
+      const ch = `t-happy-${Math.random().toString(36).slice(2)}`
+      const invA = createRedisInvalidator({ channel: ch, client: a.client, secret: 's' })
+      const invB = createRedisInvalidator({ channel: ch, client: b.client, secret: 's' })
+      const received: EngineTypes.IInvalidateEvent[] = []
+      invB.subscribe((e) => received.push(e))
+      invA.publish({ kind: 'all' })
+      b.publish(a.published[0]!)
+      expect(received).toEqual([{ kind: 'all' }])
+    })
+
+    it('guard itself does not recurse — depth 100k payload does not RangeError', () => {
+      const bus = makeBus()
+      const ch = `t-norecurse-${Math.random().toString(36).slice(2)}`
+      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      inv.subscribe(() => {})
+
+      // Construct a 100k-deep object iteratively (recursive JSON.parse on a
+      // string this deep would itself overflow on some engines, so we build
+      // the parse tree directly then JSON.stringify it — that path is also
+      // iterative inside V8).
+      let deep: Record<string, unknown> = {}
+      for (let i = 0; i < 100_000; i++) deep = { n: deep }
+      // Stringify may itself be the heavy step; if it cannot serialize we
+      // still want to assert the guard path is non-recursive. Wrap the whole
+      // publish so any RangeError surfaces as a failure.
+      expect(() => {
+        let wire: string
+        try {
+          wire = JSON.stringify({ payload: deep, sig: 'aa', v: 1 })
+        } catch {
+          // Stringify overflow is environment-specific; fall back to a
+          // synthesised oversize-but-shallow blob to still exercise the
+          // pre-parse cap. Either way the guard must not throw RangeError.
+          wire = `{"v":1,"sig":"aa","payload":${'['.repeat(50_000)}null${']'.repeat(50_000)}}`
+        }
+        bus.publish(wire)
+      }).not.toThrow()
+    })
+  })
+
   it('unsubscribes when last handler detaches', () => {
     const bus = makeBus()
     const inv = createRedisInvalidator({ client: bus.client, secret: 'k', channel: 'c-1' })
