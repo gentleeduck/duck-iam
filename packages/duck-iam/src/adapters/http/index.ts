@@ -122,6 +122,23 @@ export namespace Http {
 const _ALLOWED_HOSTS_WARNED = { fired: false }
 
 /**
+ * Converts a 32-bit IPv4 tail expressed as two colon-separated hex groups
+ * (e.g. `7f00:1`) into dotted-quad form (`127.0.0.1`). Returns `null` if the
+ * input is not a well-formed 32-bit hex tail. Both groups may be 1–4 hex
+ * digits; the second group may be omitted leading zeros (`7f00:1` ==
+ * `7f00:0001`).
+ */
+function _hexTailToDottedQuad(tail: string): string | null {
+  const m = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail)
+  if (!m) return null
+  const hi = parseInt(m[1]!, 16)
+  const lo = parseInt(m[2]!, 16)
+  if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null
+  if (hi < 0 || hi > 0xffff || lo < 0 || lo > 0xffff) return null
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
+}
+
+/**
  * Returns `true` when the given hostname is an IP literal in a private,
  * loopback, link-local, or unique-local range. DNS names return `false`
  * (caller controls them via `allowedHosts`).
@@ -139,21 +156,40 @@ function _isPrivateHost(hostname: string): boolean {
     if (a === 192 && b === 168) return true // RFC1918
     if (a === 172 && b >= 16 && b <= 31) return true // RFC1918
     if (a === 169 && b === 254) return true // link-local
-    if (a === 0) return true // "this network"
+    if (a === 0) return true // "this network" — includes 0.0.0.0 unspecified
     return false
   }
   // IPv6 literal
   if (h.includes(':')) {
     const lower = h.toLowerCase()
     if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true
+    // SEC-029: IPv6 unspecified `::` (kernel wildcard, often resolves to a
+    // local interface). Block its expanded form too.
+    if (lower === '::' || lower === '0:0:0:0:0:0:0:0') return true
     // fc00::/7 — first byte 0xfc or 0xfd
     if (/^f[cd][0-9a-f]{0,2}:/.test(lower)) return true
     // fe80::/10 — fe8x, fe9x, feax, febx
     if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true
-    // IPv4-mapped 127.x via ::ffff:
-    if (lower.startsWith('::ffff:')) {
-      const tail = lower.slice(7)
-      return _isPrivateHost(tail)
+    // SEC-028: IPv4-mapped IPv6 — `::ffff:a.b.c.d` (dotted-quad tail) or
+    // `::ffff:hhhh:hhhh` (hex tail, canonical form Node's URL parser emits).
+    // Also accept the fully expanded `0:0:0:0:0:ffff:...` form.
+    let mappedTail: string | null = null
+    if (lower.startsWith('::ffff:')) mappedTail = lower.slice(7)
+    else if (lower.startsWith('0:0:0:0:0:ffff:')) mappedTail = lower.slice(15)
+    if (mappedTail !== null) {
+      // Dotted-quad tail (`::ffff:127.0.0.1`).
+      if (mappedTail.includes('.')) return _isPrivateHost(mappedTail)
+      // Hex tail (`::ffff:7f00:1`) — convert to dotted-quad then re-check.
+      const dotted = _hexTailToDottedQuad(mappedTail)
+      if (dotted) return _isPrivateHost(dotted)
+      return false
+    }
+    // SEC-028: IPv4-compatible IPv6 (deprecated RFC4291 §2.5.5.1) —
+    // `::a.b.c.d`. Node canonicalises these to hex too, but cover textual
+    // form for completeness.
+    if (lower.startsWith('::') && lower.includes('.')) {
+      const tail = lower.slice(2)
+      if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(tail)) return _isPrivateHost(tail)
     }
     return false
   }
@@ -238,18 +274,14 @@ export class HttpAdapter<
       throw new Error(`duck-iam HttpAdapter: invalid baseUrl ${JSON.stringify(config.baseUrl)}`)
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error(
-        `duck-iam HttpAdapter: baseUrl scheme must be http: or https:, got ${parsed.protocol}`,
-      )
+      throw new Error(`duck-iam HttpAdapter: baseUrl scheme must be http: or https:, got ${parsed.protocol}`)
     }
     if (parsed.search || parsed.hash) {
       throw new Error('duck-iam HttpAdapter: baseUrl must not contain a query string or fragment')
     }
     if (config.allowedHosts && config.allowedHosts.length > 0) {
       if (!config.allowedHosts.includes(parsed.host)) {
-        throw new Error(
-          `duck-iam HttpAdapter: baseUrl host ${JSON.stringify(parsed.host)} not in allowedHosts`,
-        )
+        throw new Error(`duck-iam HttpAdapter: baseUrl host ${JSON.stringify(parsed.host)} not in allowedHosts`)
       }
     } else if (!_ALLOWED_HOSTS_WARNED.fired) {
       _ALLOWED_HOSTS_WARNED.fired = true
@@ -541,10 +573,9 @@ export class HttpAdapter<
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     const params = scope ? `?scope=${encodeURIComponent(scope)}` : ''
-    await this._request(
-      `/subjects/${encodeURIComponent(subjectId)}/roles/${encodeURIComponent(roleId)}${params}`,
-      { method: 'DELETE' },
-    )
+    await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles/${encodeURIComponent(roleId)}${params}`, {
+      method: 'DELETE',
+    })
   }
   /**
    * Fetches the attribute bag stored for a subject.

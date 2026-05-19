@@ -71,18 +71,18 @@ describe('HttpAdapter', () => {
     })
 
     it('rejects non-http(s) baseUrl scheme (SEC-001)', () => {
-      expect(
-        () => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'ftp://api.example.com/iam' }),
-      ).toThrow(/scheme must be http: or https:/)
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'ftp://api.example.com/iam' })).toThrow(
+        /scheme must be http: or https:/,
+      )
     })
 
     it('rejects baseUrl with query string or fragment (SEC-001)', () => {
-      expect(
-        () => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?x=1' }),
-      ).toThrow(/query string or fragment/)
-      expect(
-        () => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#frag' }),
-      ).toThrow(/query string or fragment/)
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?x=1' })).toThrow(
+        /query string or fragment/,
+      )
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#frag' })).toThrow(
+        /query string or fragment/,
+      )
     })
 
     it('rejects malformed baseUrl (SEC-001)', () => {
@@ -90,24 +90,68 @@ describe('HttpAdapter', () => {
     })
 
     it('rejects private/loopback host by default (SEC-001)', () => {
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://127.0.0.1/iam' })).toThrow(
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://127.0.0.1/iam' })).toThrow(/private\/loopback/)
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://10.0.0.5/iam' })).toThrow(/private\/loopback/)
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://192.168.1.1/iam' })).toThrow(/private\/loopback/)
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://172.16.0.1/iam' })).toThrow(/private\/loopback/)
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://169.254.169.254/iam' })).toThrow(/private\/loopback/)
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::1]/iam' })).toThrow(/private\/loopback/)
+    })
+
+    it('rejects IPv4-mapped IPv6 loopback (SEC-028)', () => {
+      // Node canonicalises `[::ffff:127.0.0.1]` -> `[::ffff:7f00:1]`, which
+      // the bracket-strip + naive `::ffff:` recurse did not catch.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:127.0.0.1]/iam' })).toThrow(
         /private\/loopback/,
       )
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://10.0.0.5/iam' })).toThrow(
+      // Canonical hex tail emitted by `new URL()`.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:7f00:1]/iam' })).toThrow(/private\/loopback/)
+      // RFC1918 mapped via ::ffff:.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:c0a8:1]/iam' })).toThrow(/private\/loopback/)
+      // Fully expanded form.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[0:0:0:0:0:ffff:7f00:1]/iam' })).toThrow(
         /private\/loopback/,
       )
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://192.168.1.1/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://172.16.0.1/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://169.254.169.254/iam' })).toThrow(
-        /private\/loopback/,
-      )
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::1]/iam' })).toThrow(
-        /private\/loopback/,
-      )
+    })
+
+    it('accepts IPv4-mapped IPv6 loopback when allowPrivateHosts: true (SEC-028)', async () => {
+      const { fetch } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        allowPrivateHosts: true,
+        baseUrl: 'http://[::ffff:127.0.0.1]/iam',
+        fetch,
+      })
+      await expect(adapter.listPolicies()).resolves.toEqual([])
+    })
+
+    it('rejects IPv6 unspecified `::` (SEC-029)', () => {
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::]/iam' })).toThrow(/private\/loopback/)
+    })
+
+    it('accepts IPv6 unspecified when allowPrivateHosts: true (SEC-029)', async () => {
+      const { fetch } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        allowPrivateHosts: true,
+        baseUrl: 'http://[::]/iam',
+        fetch,
+      })
+      await expect(adapter.listPolicies()).resolves.toEqual([])
+    })
+
+    it('rejects IPv4 unspecified 0.0.0.0 (SEC-029)', () => {
+      // Already covered by the `a === 0` arm; pin it explicitly so future
+      // refactors can't silently drop the check.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://0.0.0.0/iam' })).toThrow(/private\/loopback/)
+    })
+
+    it('accepts 0.0.0.0 when allowPrivateHosts: true (SEC-029)', async () => {
+      const { fetch } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        allowPrivateHosts: true,
+        baseUrl: 'http://0.0.0.0/iam',
+        fetch,
+      })
+      await expect(adapter.listPolicies()).resolves.toEqual([])
     })
 
     it('accepts private host when allowPrivateHosts: true (SEC-001)', async () => {
@@ -165,9 +209,7 @@ describe('HttpAdapter', () => {
         new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://a.example.com' })
         new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://b.example.com' })
         new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://c.example.com' })
-        const allowedHostsCalls = warn.mock.calls.filter((c) =>
-          String(c[0] ?? '').includes('allowedHosts'),
-        )
+        const allowedHostsCalls = warn.mock.calls.filter((c) => String(c[0] ?? '').includes('allowedHosts'))
         expect(allowedHostsCalls.length).toBeLessThanOrEqual(1)
       } finally {
         warn.mockRestore()
