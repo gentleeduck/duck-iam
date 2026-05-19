@@ -6,6 +6,7 @@ import {
   ACCESS_ENGINE_TOKEN,
   ACCESS_METADATA_KEY,
   Authorize,
+  createAdminOperations,
   createEngineProvider,
   createTypedAuthorize,
   nestAccessGuard,
@@ -252,5 +253,108 @@ describe('createEngineProvider', () => {
 
   it('exports stable engine token', () => {
     expect(ACCESS_ENGINE_TOKEN).toBe('ACCESS_ENGINE')
+  })
+})
+
+// SEC-010: admin mutation audit hook.
+describe('createAdminOperations onAdminMutation (SEC-010)', () => {
+  const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
+
+  function makeAdminReq(method: string, path = '/admin/policies') {
+    return { method, path, route: { path } } as unknown as Parameters<
+      ReturnType<typeof createAdminOperations<Action, ResourceType, RoleId, Scope>>['savePolicy']
+    >[0]
+  }
+
+  it('savePolicy fires with action:replace, target:policy, success:true', async () => {
+    const engine = makeEngine()
+    const events: unknown[] = []
+    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: (() => ({ id: 'admin-1' })) as never,
+      onAdminMutation: (e) => {
+        events.push(e)
+      },
+    })
+    await h.savePolicy(makeAdminReq('PUT'), {
+      id: 'p1',
+      name: 'P',
+      algorithm: 'deny-overrides',
+      rules: [],
+    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+    await flushMicrotasks()
+    expect(events).toHaveLength(1)
+    const ev = events[0] as {
+      action: string
+      target: string
+      targetId?: string
+      success: boolean
+      method: string
+      actor: unknown
+    }
+    expect(ev.action).toBe('replace')
+    expect(ev.target).toBe('policy')
+    expect(ev.targetId).toBe('p1')
+    expect(ev.success).toBe(true)
+    expect(ev.method).toBe('PUT')
+    expect(ev.actor).toEqual({ id: 'admin-1' })
+  })
+
+  it('fires with success:false and error message when handler throws', async () => {
+    const engine = makeEngine()
+    const events: unknown[] = []
+    const original = engine.admin.savePolicy
+    engine.admin.savePolicy = async () => {
+      throw new Error('save-failed')
+    }
+    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: () => true,
+      onAdminMutation: (e) => {
+        events.push(e)
+      },
+    })
+    await expect(
+      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
+    ).rejects.toThrow('save-failed')
+    await flushMicrotasks()
+    engine.admin.savePolicy = original
+    expect(events).toHaveLength(1)
+    const ev = events[0] as { success: boolean; error?: string }
+    expect(ev.success).toBe(false)
+    expect(ev.error).toBe('save-failed')
+  })
+
+  it('does NOT fire on listPolicies / listRoles (reads)', async () => {
+    const engine = makeEngine()
+    const events: unknown[] = []
+    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: () => true,
+      onAdminMutation: (e) => {
+        events.push(e)
+      },
+    })
+    await h.listPolicies(makeAdminReq('GET'))
+    await h.listRoles(makeAdminReq('GET'))
+    await flushMicrotasks()
+    expect(events).toHaveLength(0)
+  })
+
+  it('hook is fire-and-forget — a throwing hook does not affect the response', async () => {
+    const engine = makeEngine()
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: () => true,
+      onAdminMutation: () => {
+        throw new Error('hook-explode')
+      },
+    })
+    const out = await h.savePolicy(makeAdminReq('PUT'), {
+      id: 'p2',
+      name: 'P',
+      algorithm: 'deny-overrides',
+      rules: [],
+    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+    expect(out.ok).toBe(true)
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
   })
 })

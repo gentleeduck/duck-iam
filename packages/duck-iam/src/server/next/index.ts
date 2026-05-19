@@ -10,7 +10,7 @@
 
 import type { Engine } from '../../core'
 import type { AccessControl, Client, Request } from '../../core/types'
-import { METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 /** Next.js route handler context with params. */
 type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
@@ -96,6 +96,13 @@ export namespace Next {
     onUnauthorized?: (req: Request) => Response
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, req: Request) => Response
+    /**
+     * SEC-010: optional audit hook fired AFTER every mutation handler
+     * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
+     * fire-and-forget: a slow or throwing implementation never blocks the
+     * request and can never alter the response. GET handlers do not fire it.
+     */
+    onAdminMutation?: AdminAudit.Hook
   }
 }
 
@@ -368,9 +375,24 @@ export type INextAdminOptions = Next.IAdminOptions
  * @example
  * ```ts
  * // app/api/admin/policies/route.ts
- * const h = createAdminHandlers(engine, { authorize: (req) => isAdminToken(req) })
+ * const h = createAdminHandlers(engine, {
+ *   authorize: (req) => isAdminToken(req),
+ *   onAdminMutation: (e) => auditLog.write(e), // SEC-010 audit trail
+ * })
  * export const GET = h.listPolicies
  * export const PUT = h.savePolicy
+ * ```
+ * @example
+ * Rate limiting is out of scope; compose at the framework layer with the
+ * caller's middleware of choice. Pseudocode:
+ * ```ts
+ * // middleware.ts
+ * export const middleware = async (req: Request) => {
+ *   if (req.nextUrl.pathname.startsWith('/api/admin/')) {
+ *     const blocked = await adminRateLimit(req)
+ *     if (blocked) return blocked
+ *   }
+ * }
  * ```
  * @author wildduck2 <https://github.com/wildduck2>
  */
@@ -383,10 +405,11 @@ export function createAdminHandlers<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] createAdminHandlers requires an `authorize` callback.')
   }
-  const { authorize } = opts
+  const { authorize, onAdminMutation } = opts
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
+  /** Read gate: no audit emission. */
   const gate =
     <P>(fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
@@ -398,30 +421,95 @@ export function createAdminHandlers<
       }
     }
 
+  /**
+   * SEC-010 mutation gate: identical to {@link gate} but emits an
+   * `onAdminMutation` event after the handler resolves or rejects. Uses
+   * try/finally so the hook fires even when the handler throws.
+   */
+  const mutate =
+    <P>(
+      action: AdminAudit.Action,
+      target: AdminAudit.Target,
+      getTargetId: ((req: Request, params: P) => string | undefined) | undefined,
+      fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>,
+    ) =>
+    async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
+      let actor: unknown
+      try {
+        const authzResult = await authorize(req)
+        actor = authzResult
+        if (!authzResult) return onUnauthorized(req)
+      } catch (err) {
+        return onError(err instanceof Error ? err : new Error(String(err)), req)
+      }
+
+      let success = false
+      let errorMessage: string | undefined
+      let response: Response
+      let resolvedParams: P | undefined
+      try {
+        resolvedParams = (ctx.params instanceof Promise ? await ctx.params : ctx.params) as P
+        response = await fn(req, { params: resolvedParams })
+        success = true
+        return response
+      } catch (err) {
+        errorMessage = err instanceof Error ? err.message : String(err)
+        return onError(err instanceof Error ? err : new Error(String(err)), req)
+      } finally {
+        let path = ''
+        try {
+          path = new URL(req.url).pathname
+        } catch {
+          path = req.url
+        }
+        fireAdminMutation(onAdminMutation, {
+          actor,
+          action,
+          target,
+          targetId: resolvedParams !== undefined ? getTargetId?.(req, resolvedParams) : undefined,
+          ts: Date.now(),
+          method: req.method,
+          path,
+          success,
+          error: errorMessage,
+        })
+      }
+    }
+
   return {
     listPolicies: gate(async () => Response.json(await engine.admin.listPolicies())),
     listRoles: gate(async () => Response.json(await engine.admin.listRoles())),
-    savePolicy: gate(async (req) => {
+    savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req) => {
       const body = (await req.json()) as AccessControl.IPolicy<TAction, TResource, TRole>
       await engine.admin.savePolicy(body)
       return Response.json({ ok: true })
     }),
-    saveRole: gate(async (req) => {
+    saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req) => {
       const body = (await req.json()) as AccessControl.IRole<TAction, TResource, TRole, TScope>
       await engine.admin.saveRole(body)
       return Response.json({ ok: true })
     }),
-    assignRole: gate(async (req, ctx) => {
-      const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
-      const body = (await req.json()) as { roleId: TRole; scope?: TScope }
-      await engine.admin.assignRole((params as { id: string }).id, body.roleId, body.scope)
-      return Response.json({ ok: true })
-    }),
-    revokeRole: gate(async (_req, ctx) => {
-      const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
-      const { id, roleId } = params as { id: string; roleId: string }
-      await engine.admin.revokeRole(id, roleId as TRole)
-      return Response.json({ ok: true })
-    }),
+    assignRole: mutate<{ id: string }>(
+      'create',
+      'role-assignment',
+      (_req, params) => params.id,
+      async (req, ctx) => {
+        const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
+        const body = (await req.json()) as { roleId: TRole; scope?: TScope }
+        await engine.admin.assignRole((params as { id: string }).id, body.roleId, body.scope)
+        return Response.json({ ok: true })
+      },
+    ),
+    revokeRole: mutate<{ id: string; roleId: string }>(
+      'delete',
+      'role-assignment',
+      (_req, params) => params.id,
+      async (_req, ctx) => {
+        const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
+        const { id, roleId } = params as { id: string; roleId: string }
+        await engine.admin.revokeRole(id, roleId as TRole)
+        return Response.json({ ok: true })
+      },
+    ),
   }
 }

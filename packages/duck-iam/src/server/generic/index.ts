@@ -1,5 +1,87 @@
 import type { Engine } from '../../core'
 import type { Client, Request } from '../../core/types'
+
+/**
+ * SEC-010: shared admin-mutation audit event shape.
+ *
+ * Every framework adapter (express, hono, next, nest) accepts an optional
+ * `onAdminMutation` callback in its admin-router options. The callback fires
+ * once per mutation (PUT/POST/DELETE/PATCH) after the handler completes,
+ * regardless of success or failure. It is fire-and-forget — adapters never
+ * `await` it inline — so a slow or throwing hook can never block, fail, or
+ * leak timing information back to the caller. Errors inside the hook are
+ * caught and one-line-logged via `console.error`.
+ *
+ * GET (read) handlers never fire the hook.
+ *
+ * Rate-limit-style throttling is intentionally out of scope here — callers
+ * compose their own rate-limit middleware around the admin router (e.g.
+ * `express-rate-limit`, hono `bun-rate-limit`, etc.). See each adapter's
+ * JSDoc for a documented pattern.
+ *
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export namespace AdminAudit {
+  /** Categorical action describing what changed. */
+  export type Action = 'create' | 'update' | 'delete' | 'replace'
+  /** Categorical target describing what kind of object was changed. */
+  export type Target = 'policy' | 'role' | 'assignment' | 'role-assignment' | 'attributes'
+
+  /**
+   * Describes a single admin mutation event.
+   *
+   * @author wildduck2 <https://github.com/wildduck2>
+   */
+  export interface IEvent {
+    /** Whatever the adapter's `authorize` callback returned (often a user/JWT claims object). */
+    actor?: unknown
+    /** Semantic verb. */
+    action: Action
+    /** Semantic noun. */
+    target: Target
+    /** Optional identifier of the target object (e.g. policy id, subject id). */
+    targetId?: string
+    /** Event timestamp from `Date.now()`. */
+    ts: number
+    /** HTTP method that triggered the mutation. */
+    method: string
+    /** HTTP path that triggered the mutation. */
+    path: string
+    /** Whether the handler completed without throwing. */
+    success: boolean
+    /** Stringified error message when `success === false`. */
+    error?: string
+  }
+
+  /**
+   * Audit-hook signature. Sync or async; never awaited by the adapter.
+   *
+   * @author wildduck2 <https://github.com/wildduck2>
+   */
+  export type Hook = (event: IEvent) => void | Promise<void>
+}
+
+/**
+ * SEC-010: fire-and-forget invoker for an {@link AdminAudit.Hook}.
+ *
+ * Resolves any returned promise off the request critical path and routes
+ * thrown errors (sync or async) to `console.error` with a one-line tag. The
+ * hook can never block, fail, or destabilise the response.
+ *
+ * @param hook - Optional caller-supplied hook; no-op when absent.
+ * @param event - Event payload describing the mutation.
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export function fireAdminMutation(hook: AdminAudit.Hook | undefined, event: AdminAudit.IEvent): void {
+  if (!hook) return
+  try {
+    Promise.resolve(hook(event)).catch((err) =>
+      console.error('[duck-iam] onAdminMutation hook threw:', err instanceof Error ? err.message : String(err)),
+    )
+  } catch (err) {
+    console.error('[duck-iam] onAdminMutation hook threw:', err instanceof Error ? err.message : String(err))
+  }
+}
 /**
  * Builds a server-side permission map for a subject and a list of checks.
  *

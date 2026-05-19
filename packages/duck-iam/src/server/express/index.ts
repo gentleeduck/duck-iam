@@ -1,6 +1,6 @@
 import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
-import { extractEnvironment, METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, extractEnvironment, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 /** Minimal Express request shape. */
 interface Req {
@@ -87,6 +87,13 @@ export namespace Express {
     onUnauthorized?: (req: Req, res: Res) => void
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, req: Req, res: Res) => void
+    /**
+     * SEC-010: optional audit hook fired AFTER every mutation handler
+     * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
+     * fire-and-forget: a slow or throwing implementation never blocks the
+     * request and can never alter the response. GET handlers do not fire it.
+     */
+    onAdminMutation?: AdminAudit.Hook
   }
 }
 
@@ -248,7 +255,16 @@ export type IAdminRouterOptions = Express.IAdminRouterOptions
  * import { Router } from 'express'
  * app.use('/api/access-admin', adminRouter(engine, {
  *   authorize: (req) => req.user?.role === 'admin',
+ *   onAdminMutation: (e) => auditLog.write(e), // SEC-010 audit trail
  * })(Router))
+ * ```
+ * @example
+ * Rate limiting is out of scope; compose at the mount point with the
+ * caller's library of choice — `express-rate-limit` is the canonical pick:
+ * ```ts
+ * import rateLimit from 'express-rate-limit'
+ * const adminLimiter = rateLimit({ windowMs: 60_000, max: 30 })
+ * app.use('/api/access-admin', adminLimiter, adminRouter(engine, { authorize })(Router))
  * ```
  * @author wildduck2 <https://github.com/wildduck2>
  */
@@ -266,10 +282,11 @@ export function adminRouter<
       '[duck-iam] adminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
     )
   }
-  const { authorize } = opts
+  const { authorize, onAdminMutation } = opts
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
 
+  /** Read gate: no audit emission. */
   const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
     try {
       if (!(await authorize(req))) {
@@ -281,6 +298,55 @@ export function adminRouter<
       onError(err instanceof Error ? err : new Error(String(err)), req, res)
     }
   }
+
+  /**
+   * SEC-010 mutation gate: identical to {@link gate} but emits an
+   * `onAdminMutation` event after the handler resolves or rejects. Uses
+   * try/finally so the hook fires even when the handler throws.
+   */
+  const mutate =
+    (
+      action: AdminAudit.Action,
+      target: AdminAudit.Target,
+      getTargetId: ((req: Req) => string | undefined) | undefined,
+      handler: (req: Req, res: Res) => Promise<void>,
+    ) =>
+    async (req: Req, res: Res) => {
+      let actor: unknown
+      try {
+        const authzResult = await authorize(req)
+        actor = authzResult
+        if (!authzResult) {
+          onUnauthorized(req, res)
+          return
+        }
+      } catch (err) {
+        onError(err instanceof Error ? err : new Error(String(err)), req, res)
+        return
+      }
+
+      let success = false
+      let errorMessage: string | undefined
+      try {
+        await handler(req, res)
+        success = true
+      } catch (err) {
+        errorMessage = err instanceof Error ? err.message : String(err)
+        onError(err instanceof Error ? err : new Error(String(err)), req, res)
+      } finally {
+        fireAdminMutation(onAdminMutation, {
+          actor,
+          action,
+          target,
+          targetId: getTargetId?.(req),
+          ts: Date.now(),
+          method: req.method ?? '',
+          path: req.path ?? req.url ?? '',
+          success,
+          error: errorMessage,
+        })
+      }
+    }
 
   return (Router: () => ExpressRouterLike) => {
     const router = Router()
@@ -301,35 +367,55 @@ export function adminRouter<
 
     router.put(
       '/policies',
-      gate(async (req, res) => {
-        await engine.admin.savePolicy(req.body as AccessControl.IPolicy<TAction, TResource, TRole>)
-        res.json({ ok: true })
-      }),
+      mutate(
+        'replace',
+        'policy',
+        (req) => (req.body as { id?: string } | undefined)?.id,
+        async (req, res) => {
+          await engine.admin.savePolicy(req.body as AccessControl.IPolicy<TAction, TResource, TRole>)
+          res.json({ ok: true })
+        },
+      ),
     )
 
     router.put(
       '/roles',
-      gate(async (req, res) => {
-        await engine.admin.saveRole(req.body as AccessControl.IRole<TAction, TResource, TRole, TScope>)
-        res.json({ ok: true })
-      }),
+      mutate(
+        'replace',
+        'role',
+        (req) => (req.body as { id?: string } | undefined)?.id,
+        async (req, res) => {
+          await engine.admin.saveRole(req.body as AccessControl.IRole<TAction, TResource, TRole, TScope>)
+          res.json({ ok: true })
+        },
+      ),
     )
 
     router.post(
       '/subjects/:id/roles',
-      gate(async (req, res) => {
-        const body = req.body as Record<string, unknown>
-        await engine.admin.assignRole(req.params?.id as string, body.roleId as TRole, body.scope as TScope)
-        res.json({ ok: true })
-      }),
+      mutate(
+        'create',
+        'role-assignment',
+        (req) => req.params?.id,
+        async (req, res) => {
+          const body = req.body as Record<string, unknown>
+          await engine.admin.assignRole(req.params?.id as string, body.roleId as TRole, body.scope as TScope)
+          res.json({ ok: true })
+        },
+      ),
     )
 
     router.delete(
       '/subjects/:id/roles/:roleId',
-      gate(async (req, res) => {
-        await engine.admin.revokeRole(req.params?.id as string, req.params?.roleId as TRole)
-        res.json({ ok: true })
-      }),
+      mutate(
+        'delete',
+        'role-assignment',
+        (req) => req.params?.id,
+        async (req, res) => {
+          await engine.admin.revokeRole(req.params?.id as string, req.params?.roleId as TRole)
+          res.json({ ok: true })
+        },
+      ),
     )
 
     return router

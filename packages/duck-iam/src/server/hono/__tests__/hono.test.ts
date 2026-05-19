@@ -326,4 +326,134 @@ describe('bindAdminRouter (hono)', () => {
     expect(res.status).toBe(401)
     expect((res.data as { error: string }).error).toBe('Unauthorized')
   })
+
+  // SEC-010: admin mutation audit hook.
+  describe('onAdminMutation (SEC-010)', () => {
+    const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
+
+    type Handler = (c: unknown) => Promise<Response> | Response
+
+    const makeRouterRec = () => {
+      const handlers: Record<string, Handler> = {}
+      const record = (key: string) => (path: string, h: Handler) => {
+        handlers[`${key} ${path}`] = h
+      }
+      return {
+        handlers,
+        router: {
+          get: vi.fn(record('GET')),
+          put: vi.fn(record('PUT')),
+          post: vi.fn(record('POST')),
+          delete: vi.fn(record('DELETE')),
+        },
+      }
+    }
+
+    const makeMutCtx = (opts: { method: string; path: string; body?: unknown; paramId?: string }) => ({
+      req: {
+        method: opts.method,
+        path: opts.path,
+        param: (name: string) => (name === 'id' ? opts.paramId : undefined),
+        json: async () => opts.body ?? {},
+      },
+      json: (data: unknown, status?: number) => ({ data, status: status ?? 200 }) as unknown as Response,
+    })
+
+    it('fires on PUT /policies with action:replace, target:policy, success:true', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouterRec()
+      const events: unknown[] = []
+      bindAdminRouter(router, engine, {
+        authorize: (() => ({ id: 'admin-1' })) as never,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+      })
+      await handlers['PUT /policies']!(
+        makeMutCtx({
+          method: 'PUT',
+          path: '/policies',
+          body: { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] },
+        }),
+      )
+      await flushMicrotasks()
+      expect(events).toHaveLength(1)
+      const ev = events[0] as {
+        action: string
+        target: string
+        success: boolean
+        method: string
+        path: string
+        actor: unknown
+      }
+      expect(ev.action).toBe('replace')
+      expect(ev.target).toBe('policy')
+      expect(ev.success).toBe(true)
+      expect(ev.method).toBe('PUT')
+      expect(ev.path).toBe('/policies')
+      expect(ev.actor).toEqual({ id: 'admin-1' })
+    })
+
+    it('fires with success:false and error message when handler throws', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouterRec()
+      const events: unknown[] = []
+      bindAdminRouter(router, engine, {
+        authorize: () => true,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+      })
+      const original = engine.admin.savePolicy
+      engine.admin.savePolicy = async () => {
+        throw new Error('save-failed')
+      }
+      await handlers['PUT /policies']!(makeMutCtx({ method: 'PUT', path: '/policies', body: {} }))
+      await flushMicrotasks()
+      engine.admin.savePolicy = original
+      expect(events).toHaveLength(1)
+      const ev = events[0] as { success: boolean; error?: string }
+      expect(ev.success).toBe(false)
+      expect(ev.error).toBe('save-failed')
+    })
+
+    it('does NOT fire on GET (read) requests', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouterRec()
+      const events: unknown[] = []
+      bindAdminRouter(router, engine, {
+        authorize: () => true,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+      })
+      await handlers['GET /policies']!(makeMutCtx({ method: 'GET', path: '/policies' }))
+      await handlers['GET /roles']!(makeMutCtx({ method: 'GET', path: '/roles' }))
+      await flushMicrotasks()
+      expect(events).toHaveLength(0)
+    })
+
+    it('hook is fire-and-forget — a throwing hook does not affect the response', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouterRec()
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      bindAdminRouter(router, engine, {
+        authorize: () => true,
+        onAdminMutation: () => {
+          throw new Error('hook-explode')
+        },
+      })
+      const res = (await handlers['PUT /policies']!(
+        makeMutCtx({
+          method: 'PUT',
+          path: '/policies',
+          body: { id: 'p2', name: 'P', algorithm: 'deny-overrides', rules: [] },
+        }),
+      )) as unknown as { status: number; data: { ok?: boolean } }
+      expect(res.status).toBe(200)
+      expect(res.data.ok).toBe(true)
+      expect(errSpy).toHaveBeenCalled()
+      errSpy.mockRestore()
+    })
+  })
 })
