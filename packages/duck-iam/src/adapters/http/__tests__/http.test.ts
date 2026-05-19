@@ -240,6 +240,90 @@ describe('HttpAdapter', () => {
       ).toThrow(/not in allowedHosts/)
     })
 
+    it('rejects 6to4 IPv6 wrapping loopback (SEC-035)', () => {
+      // 2002:7f00:0001:: carries inner 127.0.0.1 via 6to4. Linux ships 6to4
+      // by default; this used to slip past the IPv6 private check.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:0001::]/iam' })).toThrow(
+        /private\/loopback/,
+      )
+      // Compact form Node may emit.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:1::]/iam' })).toThrow(/private\/loopback/)
+    })
+
+    it('rejects 6to4 IPv6 wrapping RFC1918 (SEC-035)', () => {
+      // 2002:c0a8:0001:: carries inner 192.168.0.1.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:c0a8:0001::]/iam' })).toThrow(
+        /private\/loopback/,
+      )
+    })
+
+    it('accepts 6to4 loopback when allowPrivateHosts: true (SEC-035)', async () => {
+      const { fetch } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        allowPrivateHosts: true,
+        baseUrl: 'http://[2002:7f00:1::]/iam',
+        fetch,
+      })
+      await expect(adapter.listPolicies()).resolves.toEqual([])
+    })
+
+    it('rejects NAT64 well-known prefix wrapping loopback (SEC-035)', () => {
+      // 64:ff9b::/96 well-known NAT64 prefix; last 32 bits hold the inner v4.
+      // `64:ff9b::7f00:1` → 127.0.0.1.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
+        /private\/loopback/,
+      )
+      // Dotted-quad tail spelling (also valid input form).
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::127.0.0.1]/iam' })).toThrow(
+        /private\/loopback/,
+      )
+    })
+
+    it('accepts NAT64 loopback when allowPrivateHosts: true (SEC-035)', async () => {
+      const { fetch } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        allowPrivateHosts: true,
+        baseUrl: 'http://[64:ff9b::7f00:1]/iam',
+        fetch,
+      })
+      await expect(adapter.listPolicies()).resolves.toEqual([])
+    })
+
+    it('matches allowedHosts when URL has trailing FQDN dot (SEC-037)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'https://api.example.com./iam',
+        fetch,
+        allowedHosts: ['api.example.com'],
+      })
+      await adapter.listPolicies()
+      expect(calls[0]?.url).toBe('https://api.example.com./iam/policies')
+    })
+
+    it('matches when allowlist entry has trailing dot but URL does not (SEC-037)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'https://api.example.com',
+        fetch,
+        allowedHosts: ['api.example.com.'],
+      })
+      await adapter.listPolicies()
+      expect(calls[0]?.url).toBe('https://api.example.com/policies')
+    })
+
+    it('matches unicode allowlist entry against punycode URL host (SEC-037)', async () => {
+      // Node's URL parser returns the punycode form for Unicode inputs.
+      // An allowlist entry authored in Unicode must still match.
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'https://xn--mnchen-3ya.de/iam',
+        fetch,
+        allowedHosts: ['münchen.de'],
+      })
+      await adapter.listPolicies()
+      expect(calls[0]?.url).toBe('https://xn--mnchen-3ya.de/iam/policies')
+    })
+
     it('encodes subject id path segment to defeat path injection (SEC-001)', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
