@@ -17,7 +17,7 @@
     "vitest-config"
   ],
   "license": "MIT",
-  "main": "index.ts",
+  "main": "index.mjs",
   "name": "@gentleduck/vitest-config",
   "homepage": "https://github.com/gentleeduck/duck-iam/tree/master/tooling/vitest#readme",
   "bugs": {
@@ -37,5 +37,5 @@
     "lint": "biome lint --write ./"
   },
   "type": "module",
-  "types": "index.ts"
+  "types": "index.d.ts"
 }

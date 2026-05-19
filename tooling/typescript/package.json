@@ -7,15 +7,15 @@
     "*.json"
   ],
   "name": "@gentleduck/typescript-config",
-  "author": "@gentleduck contributors",
+  "author": "gentleduck contributors",
   "license": "MIT",
-  "homepage": "https://github.com/gentleeduck/duck-iam/tree/master/tooling/typescript#readme",
+  "homepage": "https://github.com/gentleeduck/gentleduck/tree/master/tooling/typescript#readme",
   "bugs": {
-    "url": "https://github.com/gentleeduck/duck-iam/issues"
+    "url": "https://github.com/gentleeduck/gentleduck/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gentleeduck/duck-iam.git",
+    "url": "git+https://github.com/gentleeduck/gentleduck.git",
     "directory": "tooling/typescript"
   },
   "private": true,

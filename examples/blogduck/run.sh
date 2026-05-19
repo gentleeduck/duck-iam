@@ -1,8 +1,8 @@
-!/usr/bin/env bash
+#!/usr/bin/env bash
 set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/../../../.." && pwd)"
 API_PID=""
 WEB_PID=""
 DB_FILE="$ROOT/packages/shared/data.db"
@@ -38,13 +38,13 @@ sleep 2
 
 # ── 4. Start frontend ──────────────────────────────────────────
 echo "Starting frontend on http://localhost:3000 ..."
-cd "$ROOT/packages/web" && bun --bun next dev --port 3003 &
+cd "$ROOT/packages/web" && bun run dev &
 WEB_PID=$!
 
 echo ""
 echo "════════════════════════════════════════════════"
 echo "  API:      http://localhost:3001"
-echo "  Frontend: http://localhost:3000"
+echo "  Frontend: http://localhost:3003"
 echo ""
 echo "  Users: alice (viewer), bob (editor), charlie (admin)"
 echo ""

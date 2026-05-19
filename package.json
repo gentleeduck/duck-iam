@@ -4,7 +4,7 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.6",
+    "@biomejs/biome": "2.4.15",
     "@changesets/cli": "^2.30.0",
     "husky": "^9.1.7",
     "sherif": "1.10.0",
@@ -52,40 +52,41 @@
     "check-types": "turbo run check-types"
   },
   "resolutions": {
-    "@gentleduck/calendar": "0.2.1",
-    "@gentleduck/hooks": "0.1.13",
-    "@gentleduck/libs": "0.1.16",
-    "@gentleduck/motion": "0.1.18",
-    "@gentleduck/primitives": "0.2.9",
-    "@gentleduck/variants": "0.1.21",
-    "@gentleduck/vim": "0.1.18"
+    "@gentleduck/calendar": "0.3.1",
+    "@gentleduck/hooks": "0.2.1",
+    "@gentleduck/libs": "0.2.1",
+    "@gentleduck/motion": "0.3.3",
+    "@gentleduck/primitives": "0.2.13",
+    "@gentleduck/variants": "0.1.23",
+    "@gentleduck/vim": "0.2.1"
   },
   "overrides": {
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "@gentleduck/calendar": "0.2.1",
-    "@gentleduck/hooks": "0.1.13",
-    "@gentleduck/libs": "0.1.16",
-    "@gentleduck/motion": "0.1.18",
-    "@gentleduck/primitives": "0.2.9",
-    "@gentleduck/variants": "0.1.21",
-    "@gentleduck/vim": "0.1.18"
+    "@gentleduck/calendar": "0.3.1",
+    "@gentleduck/hooks": "0.2.1",
+    "@gentleduck/libs": "0.2.1",
+    "@gentleduck/motion": "0.3.3",
+    "@gentleduck/primitives": "0.2.13",
+    "@gentleduck/variants": "0.1.23",
+    "@gentleduck/vim": "0.2.1"
   },
   "workspaces": {
     "packages": [
       "apps/*",
       "packages/*",
       "tooling/*",
-      "examples/*"
+      "examples/*",
+      "examples/tanstack-start/*"
     ],
     "catalog": {
-      "@gentleduck/calendar": "0.2.1",
-      "@gentleduck/hooks": "0.1.13",
-      "@gentleduck/libs": "0.1.16",
-      "@gentleduck/motion": "0.1.18",
-      "@gentleduck/primitives": "0.2.9",
-      "@gentleduck/variants": "0.1.21",
-      "@gentleduck/vim": "0.1.18",
+      "@gentleduck/calendar": "0.3.1",
+      "@gentleduck/hooks": "0.2.1",
+      "@gentleduck/libs": "0.2.1",
+      "@gentleduck/motion": "0.3.3",
+      "@gentleduck/primitives": "0.2.13",
+      "@gentleduck/variants": "0.1.23",
+      "@gentleduck/vim": "0.2.1",
       "next": "^16.1.1",
       "lucide-react": "0.577.0",
       "@changesets/cli": "^2.29.8",

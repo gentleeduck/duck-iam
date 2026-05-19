@@ -157,7 +157,7 @@ function EditorContent({
     function countWords() {
       const text = fragment.toDOM().textContent ?? ''
       const words = text.trim().split(/\s+/).filter(Boolean)
-      onWordCountChange!(words.length)
+      onWordCountChange?.(words.length)
     }
 
     countWords()
