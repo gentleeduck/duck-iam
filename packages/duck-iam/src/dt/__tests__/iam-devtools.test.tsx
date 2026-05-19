@@ -70,9 +70,9 @@ describe('IamDevtools production guard', () => {
     expect(open).toContain('iam-dt-btn-wrap')
   })
 
-  it('renders in development when `process` is undefined (raw-browser bundle)', () => {
-    // Simulate a browser bundle that did not shim `process`. The guard must
-    // fall through to the engine-mode arm and allow the component to mount.
+  it('renders when `process` is undefined and engine mode is development (raw-browser bundle)', () => {
+    // SEC-021: a positive engine-mode signal is required when `process` is
+    // unshimmed. With `mode === 'development'` the panel mounts.
     vi.stubGlobal('process', undefined)
     const engine = makeMockEngine('development')
     const html = renderToString(React.createElement(IamDevtools, { engine }))
@@ -82,6 +82,32 @@ describe('IamDevtools production guard', () => {
   it('blocks even when `process` is undefined if engine mode is production', () => {
     vi.stubGlobal('process', undefined)
     const engine = makeMockEngine('production')
+    const html = renderToString(React.createElement(IamDevtools, { engine, initialIsOpen: true }))
+    expect(html).toBe('')
+  })
+
+  it('SEC-021: BLOCKS when `process` is undefined AND engine mode is unset (default-block)', () => {
+    // Previous fail-open path: no NODE_ENV + no engine.mode → rendered.
+    // New default-block path: absence of any positive `development` signal
+    // means the panel never mounts.
+    vi.stubGlobal('process', undefined)
+    const engine = makeMockEngine(undefined)
+    const html = renderToString(React.createElement(IamDevtools, { engine, initialIsOpen: true }))
+    expect(html).toBe('')
+  })
+
+  it('SEC-021: renders when NODE_ENV is development even if engine mode is unset', () => {
+    process.env.NODE_ENV = 'development'
+    const engine = makeMockEngine(undefined)
+    const html = renderToString(React.createElement(IamDevtools, { engine }))
+    expect(html).toContain('iam-dt-btn-wrap')
+  })
+
+  it('SEC-021: BLOCKS when NODE_ENV is "test" and engine mode is unset', () => {
+    // Tests deliberately set NODE_ENV=test — without an engine positive
+    // signal the guard must still block.
+    process.env.NODE_ENV = 'test'
+    const engine = makeMockEngine(undefined)
     const html = renderToString(React.createElement(IamDevtools, { engine, initialIsOpen: true }))
     expect(html).toBe('')
   })
