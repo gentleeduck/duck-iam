@@ -185,6 +185,61 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://api.example.com/policies')
     })
 
+    it('matches allowedHosts case-insensitively when entry is uppercase (SEC-030)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'https://api.example.com',
+        fetch,
+        allowedHosts: ['API.EXAMPLE.COM'],
+      })
+      await adapter.listPolicies()
+      expect(calls[0]?.url).toBe('https://api.example.com/policies')
+    })
+
+    it('matches allowedHosts case-insensitively when URL host is mixed case (SEC-030)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'https://API.Example.COM',
+        fetch,
+        allowedHosts: ['api.example.com'],
+      })
+      await adapter.listPolicies()
+      // Adapter preserves the caller's original baseUrl casing in the
+      // request URL; the SEC-030 fix only normalises for the allowlist
+      // comparison.
+      expect(calls[0]?.url).toBe('https://API.Example.COM/policies')
+    })
+
+    it('bare-host allowedHosts entry matches port-bearing URL (SEC-030)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'https://api.example.com:8080',
+        fetch,
+        allowedHosts: ['api.example.com'],
+      })
+      await adapter.listPolicies()
+      expect(calls[0]?.url).toBe('https://api.example.com:8080/policies')
+    })
+
+    it('host:port allowedHosts entry matches only that exact port (SEC-030)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'https://api.example.com:8080',
+        fetch,
+        allowedHosts: ['api.example.com:8080'],
+      })
+      await adapter.listPolicies()
+      expect(calls[0]?.url).toBe('https://api.example.com:8080/policies')
+
+      expect(
+        () =>
+          new HttpAdapter<A, R, Ro, S>({
+            baseUrl: 'https://api.example.com:9090',
+            allowedHosts: ['api.example.com:8080'],
+          }),
+      ).toThrow(/not in allowedHosts/)
+    })
+
     it('encodes subject id path segment to defeat path injection (SEC-001)', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })

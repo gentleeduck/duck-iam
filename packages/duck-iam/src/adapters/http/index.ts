@@ -98,9 +98,22 @@ export namespace Http {
      */
     circuitBreakerCooldownMs?: number
     /**
-     * Restricts the set of acceptable hosts for `baseUrl`. When set, the parsed
-     * URL's `host` (`hostname[:port]`) must appear in the list or construction
-     * throws. Defaults to `undefined` (allow any host); when omitted a one-time
+     * Restricts the set of acceptable hosts for `baseUrl`. When set, the
+     * parsed URL must match an entry in the list or construction throws.
+     *
+     * Matching rules (SEC-030):
+     * - Comparison is case-insensitive on both sides — `Example.COM` in the
+     *   list matches `example.com` in `baseUrl` and vice versa.
+     * - Entries may be bare hostnames (`example.com`) or host:port pairs
+     *   (`example.com:8080`).
+     * - A bare-host entry matches the URL's hostname regardless of port — so
+     *   `allowedHosts: ['example.com']` accepts `example.com`, `example.com:80`,
+     *   and `example.com:8443`.
+     * - A host:port entry matches only that exact port — `example.com:8080`
+     *   rejects `example.com` (no port) and `example.com:9090`.
+     * - Precedence: bare hostname is tried first, then full `host` (with port).
+     *
+     * Defaults to `undefined` (allow any host); when omitted a one-time
      * `console.warn` is emitted at construction recommending a list.
      */
     allowedHosts?: string[]
@@ -280,7 +293,17 @@ export class HttpAdapter<
       throw new Error('duck-iam HttpAdapter: baseUrl must not contain a query string or fragment')
     }
     if (config.allowedHosts && config.allowedHosts.length > 0) {
-      if (!config.allowedHosts.includes(parsed.host)) {
+      // SEC-030: case-insensitive and port-aware match. Two precedence arms:
+      // 1) bare hostname (no port) — matches the URL's hostname regardless of
+      //    the URL's port.
+      // 2) full host (`hostname:port`) — exact port match required.
+      // Entries are normalised lowercase; the URL's hostname and host are
+      // normalised lowercase too.
+      const urlHostname = parsed.hostname.toLowerCase()
+      const urlHost = parsed.host.toLowerCase()
+      const normEntries = config.allowedHosts.map((h) => h.toLowerCase())
+      const matched = normEntries.some((entry) => entry === urlHostname || entry === urlHost)
+      if (!matched) {
         throw new Error(`duck-iam HttpAdapter: baseUrl host ${JSON.stringify(parsed.host)} not in allowedHosts`)
       }
     } else if (!_ALLOWED_HOSTS_WARNED.fired) {
