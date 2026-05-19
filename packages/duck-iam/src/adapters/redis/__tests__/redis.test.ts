@@ -421,4 +421,65 @@ describe('RedisAdapter', () => {
       await expect(adapter.assignRole('user-1', 'viewer' as Ro, 'org\0-1' as S)).rejects.toThrow(/NUL/)
     })
   })
+
+  describe('SEC-019: assignment separator is NUL, not space', () => {
+    // Repro of the original bug: encoded member used a literal space (0x20)
+    // as the role/scope separator despite the comment claiming NUL. Any
+    // role or scope containing whitespace would silently collide on decode.
+    // Fix uses a real NUL byte; tests pin down both encode and decode.
+    it('encodes role+scope with a NUL separator byte (not space)', async () => {
+      const r = new FakeRedis()
+      const adapter = new RedisAdapter<A, R, Ro, S>({ client: r })
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
+      const set = r.rawSet('assignments:user-1')
+      expect(set).toBeDefined()
+      const [member] = Array.from(set!)
+      expect(member).toBeDefined()
+      // Must contain a literal NUL byte, not the previous space separator.
+      expect(member!.includes('\0')).toBe(true)
+      // No raw space-separator fallback for fresh writes.
+      expect(member).toBe(`editor\0org-1`)
+    })
+
+    it('round-trips a role and scope that both contain spaces', async () => {
+      // Before the fix this case silently collapsed:
+      //   `role with space` + `scope:with:colons` -> set member `role with space scope:with:colons`
+      //   -> decoded as { role: 'role', scope: 'with space scope:with:colons' }
+      // After the fix the NUL separator keeps the boundary unambiguous.
+      const r = new FakeRedis()
+      const adapter = new RedisAdapter<string, string, string, string>({ client: r })
+      await adapter.assignRole('user-1', 'role with space', 'scope:with:colons')
+      const scoped = await adapter.getSubjectScopedRoles('user-1')
+      expect(scoped).toEqual([{ role: 'role with space', scope: 'scope:with:colons' }])
+    })
+
+    it('a value containing only a space round-trips correctly (original SEC-019 repro)', async () => {
+      const r = new FakeRedis()
+      const adapter = new RedisAdapter<string, string, string, string>({ client: r })
+      await adapter.assignRole('user-1', 'admin user')
+      expect(await adapter.getSubjectRoles('user-1')).toEqual(['admin user'])
+    })
+
+    it('rejects an assignment where roleId contains a literal NUL', async () => {
+      const adapter = new RedisAdapter<string, string, string, string>({ client: new FakeRedis() })
+      await expect(adapter.assignRole('user-1', 'evil\0role')).rejects.toThrow(/NUL/)
+    })
+
+    it('migrates legacy space-separated entries on first read', async () => {
+      // Seed an entry written by the old (buggy) encoder: literal space.
+      const r = new FakeRedis()
+      await r.sadd('assignments:user-1', 'editor org-1')
+      const adapter = new RedisAdapter<A, R, Ro, S>({ client: r })
+
+      // Reading scoped roles must decode the legacy entry correctly...
+      const scoped = await adapter.getSubjectScopedRoles('user-1')
+      expect(scoped).toEqual([{ role: 'editor', scope: 'org-1' }])
+
+      // ...and the migration must have re-encoded it under the NUL form,
+      // removing the legacy entry from the set.
+      const members = Array.from(r.rawSet('assignments:user-1') ?? [])
+      expect(members).toContain('editor\0org-1')
+      expect(members).not.toContain('editor org-1')
+    })
+  })
 })
