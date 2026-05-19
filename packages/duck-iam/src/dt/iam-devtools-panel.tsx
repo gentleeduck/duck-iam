@@ -3,6 +3,7 @@ import { Button } from '@gentleduck/registry-ui/button'
 import React from 'react'
 import { Close } from './components/icons'
 import { IamDevtoolsInner, type IIamDevtoolsInnerProps } from './iam-devtools'
+import { isDevtoolsBlocked } from './lib/guard'
 import { GENTLEDUCK_LOGO_DATA_URL } from './lib/logo'
 import { ensureStylesInjected } from './lib/styles'
 
@@ -53,7 +54,14 @@ function panelHidden(position: PanelPosition): string {
   return 'translateX(-100%)'
 }
 
-export function IamDevtools({
+// Hard-no in production. No escape hatch — see lib/guard.ts. Guard sits in
+// a thin wrapper so the inner component's hook order stays unconditional.
+export function IamDevtools(props: IIamDevtoolsProps) {
+  if (isDevtoolsBlocked(props.engine)) return null
+  return <IamDevtoolsImpl {...props} />
+}
+
+function IamDevtoolsImpl({
   initialIsOpen = false,
   buttonPosition = 'bottom-right',
   position: positionProp,
