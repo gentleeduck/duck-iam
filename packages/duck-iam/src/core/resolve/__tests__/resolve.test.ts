@@ -146,6 +146,30 @@ describe('matchesResource()', () => {
     expect(matchesResource('org:billing:*', 'org:billing:invoice')).toBe(true)
     expect(matchesResource('org:billing:*', 'org:secrets:invoice')).toBe(false)
   })
+
+  // SEC-036: `matchesResource` is called directly by `policyApplies` /
+  // `policyTargetsMatch`, so dot-pattern targets must match dot-style
+  // request resources here. Colon-pattern behaviour is unchanged.
+  it('dot wildcard: dashboard.* matches dot children (SEC-036)', () => {
+    expect(matchesResource('dashboard.*', 'dashboard.users')).toBe(true)
+    expect(matchesResource('dashboard.*', 'dashboard.users.list')).toBe(true)
+  })
+
+  it('dot wildcard does NOT match bare literal nor sibling-prefix (SEC-036)', () => {
+    expect(matchesResource('dashboard.*', 'dashboard')).toBe(false)
+    expect(matchesResource('dashboard.*', 'dashboard-x')).toBe(false)
+  })
+
+  it('colon wildcard still matches after SEC-036 (regression check)', () => {
+    expect(matchesResource('org:billing:*', 'org:billing:invoice')).toBe(true)
+    expect(matchesResource('org:billing:*', 'org:billing')).toBe(false)
+  })
+
+  it('separator-mismatched prefixes do not cross-match (SEC-036)', () => {
+    // dot pattern must not match colon-separated resource (and vice versa).
+    expect(matchesResource('a.b.*', 'a:b:c')).toBe(false)
+    expect(matchesResource('a:b:*', 'a.b.c')).toBe(false)
+  })
 })
 
 describe('matchesResourceHierarchical()', () => {

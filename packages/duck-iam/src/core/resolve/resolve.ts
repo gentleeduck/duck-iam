@@ -106,17 +106,24 @@ export function matchesAction(pattern: string, action: string): boolean {
 }
 
 /**
- * Tests if a resource type matches a pattern (colon-based hierarchy).
+ * Tests if a resource type matches a pattern. Hierarchical separators are
+ * `:` and `.`, treated symmetrically — the trailing-wildcard arm picks the
+ * separator from the pattern.
  *
- * Matching rules (SEC-007):
+ * Matching rules (SEC-007 + SEC-036):
  * - `"*"` matches every resource.
- * - A bare pattern (no `:*` suffix) matches ONLY the literal resource. So
- *   `"org"` matches `"org"` but NOT `"org:project"` or `"org:project:doc"`.
- *   This closes the over-broad accidental-grant from a typo in `resources`.
- * - A `":*"` suffix matches anything under that prefix recursively. So
- *   `"org:*"` matches `"org:project"` and `"org:project:doc"`.
- * - Nested wildcards apply at the position they appear: `"org:project:*"`
- *   matches `"org:project:doc"` but not `"org:secrets:doc"`.
+ * - A bare pattern (no `:*` / `.*` suffix) matches ONLY the literal resource.
+ *   `"org"` matches `"org"` but NOT `"org:project"`; `"dashboard"` matches
+ *   `"dashboard"` but NOT `"dashboard.users"`.
+ * - A `":*"` suffix matches anything under that colon-prefix recursively:
+ *   `"org:*"` matches `"org:project"` / `"org:project:doc"`.
+ * - A `".*"` suffix matches anything under that dot-prefix recursively:
+ *   `"dashboard.*"` matches `"dashboard.users"` / `"dashboard.users.list"`.
+ * - Separator-mismatched prefixes do NOT match: `"a.b.*"` does NOT match
+ *   `"a:b:c"`, and `"a:b:*"` does NOT match `"a.b.c"`.
+ *
+ * SEC-036: target matchers (`policyApplies`, `policyTargetsMatch`) call this
+ * directly for `targets.resources`, so dot-pattern targets must work here too.
  *
  * @param pattern      - Resource pattern from a rule.
  * @param resourceType - The literal resource type from the request.
@@ -127,9 +134,11 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
   if (pattern === '*') return true
   if (pattern === resourceType) return true
 
-  // SEC-007: only explicit `:*` suffix enables recursive prefix match.
-  if (pattern.endsWith(':*')) {
-    const prefix = pattern.slice(0, -1) // includes trailing ':'
+  // SEC-007 + SEC-036: recognise both `:*` and `.*` as recursive suffixes.
+  // The separator is taken from the pattern, so a dot-pattern only matches
+  // dot-style request resources and vice versa.
+  if (pattern.endsWith(':*') || pattern.endsWith('.*')) {
+    const prefix = pattern.slice(0, -1) // includes the trailing separator
     return resourceType.startsWith(prefix)
   }
 
