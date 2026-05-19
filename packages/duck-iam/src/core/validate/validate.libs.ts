@@ -13,6 +13,15 @@ import type { Validate } from './validate.types'
 export const MAX_UNBOUNDED_QUANTIFIERS = 4
 
 /**
+ * Largest finite upper bound permitted in a `{n,m}` quantifier. The matcher
+ * walks `m` iterations worst-case, so anything above ~1000 starts to look
+ * like a DoS vector even though it isn't technically unbounded. SEC-020.
+ *
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export const MAX_BOUNDED_QUANTIFIER = 1_000
+
+/**
  * Pure-JS heuristic for catastrophic-backtracking regex patterns. Cheap
  * enough to run at validate-time on every `matches` operator, and tight
  * enough to refuse the common ReDoS shapes:
@@ -20,6 +29,10 @@ export const MAX_UNBOUNDED_QUANTIFIERS = 4
  *   - alternation inside a quantifier: `(a|a)+`, `(foo|bar)*`
  *   - more than {@link MAX_UNBOUNDED_QUANTIFIERS} unbounded quantifiers in
  *     a single pattern
+ *   - SEC-020: backreference followed by a quantifier (`(\w+)\1+`,
+ *     `(?<n>\w+)\k<n>+`)
+ *   - SEC-020: bounded quantifier with large upper bound (`a{1,1000000}`)
+ *   - SEC-020: lookaround group containing a quantifier (`(?=(a+)+)`)
  *
  * Not a complete safe-regex linter — it deliberately errs on the side of
  * rejection. Patterns deemed unsafe should not even compile, so the runtime
@@ -34,6 +47,81 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
   if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
   if (pattern.length > MAX_REGEX_LENGTH) {
     return { safe: false, reason: `pattern length ${pattern.length} exceeds MAX_REGEX_LENGTH (${MAX_REGEX_LENGTH})` }
+  }
+
+  // SEC-020 (a): backreference followed by a quantifier. Run before the
+  // nested-quantifier scan so the more specific reason wins for shapes like
+  // `(\w+)\1+`. Numeric (`\1+`, `\3*`, `\2{1,5}`) and named (`\k<name>+`)
+  // forms can drive exponential backtracking when the captured group itself
+  // matches a variable-length pattern. We don't try to prove the inner
+  // group is variable-length — flag any backref+quantifier pair.
+  if (/\\[1-9]\d*\s*[+*?{]/.test(pattern) || /\\k<[^>]+>\s*[+*?{]/.test(pattern)) {
+    return { safe: false, reason: 'backref-quantifier' }
+  }
+
+  // SEC-020 (c): lookaround group whose body contains a quantifier. Run
+  // before the nested-quantifier scan so `(?=(a+)+)` is reported with the
+  // more specific reason. JS supports `(?=...)`, `(?!...)`, `(?<=...)`,
+  // `(?<!...)`. Walk paren depth and inspect the body of any lookaround
+  // for `+`, `*`, or `{...}`.
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i++
+      continue
+    }
+    if (ch !== '(') continue
+    const tail3 = pattern.slice(i, i + 3)
+    const tail4 = pattern.slice(i, i + 4)
+    const isLookahead = tail3 === '(?=' || tail3 === '(?!'
+    const isLookbehind = tail4 === '(?<=' || tail4 === '(?<!'
+    if (!isLookahead && !isLookbehind) continue
+    const bodyStart = i + (isLookahead ? 3 : 4)
+    let depth = 1
+    let j = bodyStart
+    while (j < pattern.length && depth > 0) {
+      const cj = pattern[j]
+      if (cj === '\\') {
+        j += 2
+        continue
+      }
+      if (cj === '(') depth++
+      else if (cj === ')') depth--
+      if (depth === 0) break
+      j++
+    }
+    if (depth !== 0) continue
+    const body = pattern.slice(bodyStart, j)
+    const bodyStripped = body.replace(/\\./g, '')
+    if (/[+*]/.test(bodyStripped) || /\{\d+,?\d*\}/.test(bodyStripped)) {
+      return { safe: false, reason: 'lookaround-with-quantifier' }
+    }
+    i = j
+  }
+
+  // SEC-020 (b): bounded `{n,m}` with very large upper bound, or `{n,}`
+  // with very large lower bound. Scan all `{...}` ranges and check their
+  // bounds. Lone repetitions like `a{5}` are fine; only the comma-form is
+  // a range.
+  {
+    const re = /(?<!\\)\{(\d+)(?:,(\d*))?\}/g
+    let m: RegExpExecArray | null
+    // biome-ignore lint/suspicious/noAssignInExpressions: classic regex iteration
+    while ((m = re.exec(pattern)) !== null) {
+      const low = Number(m[1])
+      const upperStr = m[2]
+      if (upperStr === undefined) continue // `{n}` exact count — not a range.
+      if (upperStr === '') {
+        if (low > MAX_BOUNDED_QUANTIFIER) {
+          return { safe: false, reason: 'bounded-large-quantifier' }
+        }
+        continue
+      }
+      const high = Number(upperStr)
+      if (Number.isFinite(high) && high > MAX_BOUNDED_QUANTIFIER) {
+        return { safe: false, reason: 'bounded-large-quantifier' }
+      }
+    }
   }
 
   // Nested quantifiers: a group whose closing `)` is immediately followed by

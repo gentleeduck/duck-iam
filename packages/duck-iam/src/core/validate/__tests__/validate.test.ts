@@ -574,6 +574,53 @@ describe('detectCatastrophicRegex() (P1)', () => {
     // No real nested quantifier here.
     expect(detectCatastrophicRegex('(\\+)+').safe).toBe(true)
   })
+
+  // SEC-020: backreference + quantifier.
+  it('flags backreference followed by `+` quantifier (SEC-020)', () => {
+    const r = detectCatastrophicRegex('(\\w+)\\1+')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toBe('backref-quantifier')
+  })
+
+  it('flags `(.*)\\1+` backreference + quantifier (SEC-020)', () => {
+    const r = detectCatastrophicRegex('(.*)\\1+')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toBe('backref-quantifier')
+  })
+
+  it('flags named backreference `(?<name>\\w+)\\k<name>+` (SEC-020)', () => {
+    const r = detectCatastrophicRegex('(?<name>\\w+)\\k<name>+')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toBe('backref-quantifier')
+  })
+
+  // SEC-020: bounded-large quantifier.
+  it('flags `a{1,1000000}` bounded-large quantifier (SEC-020)', () => {
+    const r = detectCatastrophicRegex('a{1,1000000}')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toBe('bounded-large-quantifier')
+  })
+
+  it('accepts `a{1,1000}` (at the threshold) (SEC-020)', () => {
+    expect(detectCatastrophicRegex('a{1,1000}').safe).toBe(true)
+  })
+
+  // SEC-020: lookaround containing a quantifier.
+  it('flags `(?=(a+)+)` lookaround containing a quantifier (SEC-020)', () => {
+    const r = detectCatastrophicRegex('(?=(a+)+)')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toBe('lookaround-with-quantifier')
+  })
+
+  it('flags `(?<=(a*)*)` lookbehind containing a quantifier (SEC-020)', () => {
+    const r = detectCatastrophicRegex('(?<=(a*)*)')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toBe('lookaround-with-quantifier')
+  })
+
+  it('accepts `(?<=foo)` lookbehind without inner quantifier (SEC-020)', () => {
+    expect(detectCatastrophicRegex('(?<=foo)').safe).toBe(true)
+  })
 })
 
 describe('validatePolicy() rejects catastrophic matches patterns (P1)', () => {
