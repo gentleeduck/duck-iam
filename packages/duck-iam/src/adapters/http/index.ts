@@ -220,8 +220,14 @@ function _isPrivateHost(hostname: string): boolean {
     // SEC-035: NAT64 well-known prefix `64:ff9b::/96` carries an inner IPv4
     // in the last 32 bits. URL canonicalises leading zeros (`0064:ff9b:` →
     // `64:ff9b:`); accept both spellings defensively.
+    //
+    // SEC-038: the `0064:ff9b:` literal branch is unreachable through WHATWG
+    // URL parsing (leading zeros are normalised away), but keep the branch
+    // with the correct slice length (`0064:ff9b:` is 10 chars, not 13) so
+    // direct callers passing a non-canonical hostname still produce the right
+    // tail rather than a silently mis-aligned one.
     if (lower.startsWith('64:ff9b:') || lower.startsWith('0064:ff9b:')) {
-      const tail = lower.startsWith('0064:') ? lower.slice(13) : lower.slice(8)
+      const tail = lower.startsWith('0064:') ? lower.slice(10) : lower.slice(8)
       // Dotted-quad tail (`64:ff9b::127.0.0.1`).
       if (tail.includes('.')) {
         const v4match = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(tail)
