@@ -5,11 +5,13 @@
     "build": {
       "cache": true,
       "dependsOn": ["^build"],
+      "inputs": ["src/**", "package.json", "tsconfig*.json", "tsdown.config.*"],
       "outputs": [".next/**", "dist/**", ".cache/tsbuildinfo.json"]
     },
     "check-types": {
       "cache": true,
-      "dependsOn": ["^check-types"]
+      "dependsOn": ["^check-types"],
+      "inputs": ["src/**", "package.json", "tsconfig*.json"]
     },
     "dev": {
       "cache": false,
@@ -17,13 +19,15 @@
     },
     "test": {
       "cache": true,
-      "dependsOn": ["^test"]
+      "dependsOn": ["^test"],
+      "inputs": ["src/**", "package.json", "tsconfig*.json", "vitest.config.*", "test/**", "tests/**", "__tests__/**"]
     },
     "format": {
       "outputLogs": "new-only"
     },
     "lint": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "package.json", "biome.json", ".eslintrc*", "eslint.config.*"]
     }
   },
   "remoteCache": { "enabled": false }

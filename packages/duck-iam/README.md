@@ -1,4 +1,27 @@
-# @gentleduck/iam
+<p align="center">
+  <img src="../../public/logo-dark.svg" alt="@gentleduck/iam" width="120"/>
+</p>
+
+<h1 align="center">@gentleduck/iam</h1>
+
+<p align="center">
+  Modern ABAC/RBAC access control engine. Framework-agnostic core with integrations for Express, NestJS, Hono, Next.js, React, and Vue.
+</p>
+
+<p align="center">
+  <a href="../../LICENSE">MIT</a> -
+  <a href="../../CHANGELOG.md">Changelog</a> -
+  <a href="../../CONTRIBUTING.md">Contributing</a> -
+  <a href="https://gentleduck.org/duck-iam">Docs</a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@gentleduck/iam"><img src="https://img.shields.io/npm/v/@gentleduck/iam.svg" alt="npm"/></a>
+  <a href="https://www.npmjs.com/package/@gentleduck/iam"><img src="https://img.shields.io/npm/dm/@gentleduck/iam.svg" alt="downloads"/></a>
+  <a href="../../LICENSE"><img src="https://img.shields.io/npm/l/@gentleduck/iam.svg" alt="MIT"/></a>
+</p>
+
+---
 
 Type-safe authorization engine for TypeScript. RBAC + ABAC with a policy engine, condition evaluation, scoped roles, and integrations for Express, NestJS, Hono, Next.js, React, Vue, and vanilla JS.
 
@@ -164,7 +187,7 @@ app.get('/healthz', async (_, res) => res.json(await engine.healthCheck()))
 app.get('/metrics', (_, res) => res.json(metrics.snapshot()))
 ```
 
-See the [production deployment guide](https://iam.gentleduck.org/duck-iam/guides/production) for cache TTL trade-offs, multi-node invalidation patterns, fail-closed defaults, and SLO targets.
+See the [production deployment guide](https://gentleduck.org/duck-iam/duck-iam/guides/production) for cache TTL trade-offs, multi-node invalidation patterns, fail-closed defaults, and SLO targets.
 
 ## Module sizes (gzipped)
 
@@ -177,7 +200,7 @@ See the [production deployment guide](https://iam.gentleduck.org/duck-iam/guides
 
 ## Documentation
 
-Full docs, course, and API reference: [duck-iam docs](https://iam.gentleduck.org)
+Full docs, course, and API reference: [duck-iam docs](https://gentleduck.org/duck-iam)
 
 ## License
 
