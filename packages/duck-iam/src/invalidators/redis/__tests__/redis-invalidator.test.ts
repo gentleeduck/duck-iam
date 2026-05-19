@@ -214,6 +214,28 @@ describe('createRedisInvalidator (SEC-005)', () => {
       expect(msgs.some((m: string) => m.includes('oversize wire message'))).toBe(true)
     })
 
+    it('drops surrogate-heavy payload that bypasses .length cap (SEC-034)', () => {
+      const bus = makeBus()
+      const ch = `t-utf8-bytes-${Math.random().toString(36).slice(2)}`
+      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const received: EngineTypes.IInvalidateEvent[] = []
+      inv.subscribe((e) => received.push(e))
+
+      // Build a 5000-char payload of 4-byte UTF-8 chars (each character
+      // outside the BMP encodes to 4 bytes UTF-8 but 2 UTF-16 code units).
+      // U+1F600 ("😀") is a canonical 4-byte UTF-8 code point.
+      // `s.length` ≈ 10000 (UTF-16 code units), `Buffer.byteLength` ≈ 20000
+      // bytes — well past the 16 KB cap when wrapped in a JSON string.
+      const fourByteChar = '\u{1F600}'
+      const surrogateBlob = JSON.stringify({ junk: fourByteChar.repeat(5000) })
+      expect(Buffer.byteLength(surrogateBlob, 'utf8')).toBeGreaterThan(16 * 1024)
+      bus.publish(surrogateBlob)
+
+      expect(received).toEqual([])
+      const msgs = warnSpy.mock.calls.map((c: unknown[]) => String(c[0] ?? ''))
+      expect(msgs.some((m: string) => m.includes('oversize wire message'))).toBe(true)
+    })
+
     it('drops deeply nested payload pre-canonicalise (depth 10)', () => {
       const bus = makeBus()
       const ch = `t-deep-${Math.random().toString(36).slice(2)}`
