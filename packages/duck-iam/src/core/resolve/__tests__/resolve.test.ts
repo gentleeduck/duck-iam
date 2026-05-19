@@ -125,10 +125,26 @@ describe('matchesResource()', () => {
     expect(matchesResource('org:*', 'user')).toBe(false)
   })
 
-  it('hierarchical: parent matches children', () => {
-    expect(matchesResource('org', 'org:project')).toBe(true)
-    expect(matchesResource('org', 'org:project:doc')).toBe(true)
+  it('bare pattern does NOT match sub-resources (SEC-007)', () => {
+    // Breaking change vs prior behaviour: a bare "org" no longer implicitly
+    // grants on "org:project". Authors must opt in with "org:*".
+    expect(matchesResource('org', 'org:project')).toBe(false)
+    expect(matchesResource('org', 'org:project:doc')).toBe(false)
     expect(matchesResource('org', 'organization')).toBe(false)
+  })
+
+  it('bare pattern still matches the literal resource (SEC-007)', () => {
+    expect(matchesResource('org', 'org')).toBe(true)
+  })
+
+  it('":*" suffix matches children (SEC-007)', () => {
+    expect(matchesResource('org:*', 'org:billing')).toBe(true)
+    expect(matchesResource('org:*', 'org:project:doc')).toBe(true)
+  })
+
+  it('nested ":*" only matches under the named branch (SEC-007)', () => {
+    expect(matchesResource('org:billing:*', 'org:billing:invoice')).toBe(true)
+    expect(matchesResource('org:billing:*', 'org:secrets:invoice')).toBe(false)
   })
 })
 
@@ -149,10 +165,17 @@ describe('matchesResourceHierarchical()', () => {
     expect(matchesResourceHierarchical('dashboard.*', 'dashboard')).toBe(false)
   })
 
-  it('parent matches dot-children', () => {
-    expect(matchesResourceHierarchical('dashboard', 'dashboard.users')).toBe(true)
-    expect(matchesResourceHierarchical('dashboard', 'dashboard.users.settings')).toBe(true)
+  it('bare pattern does NOT match dot-children (SEC-007)', () => {
+    // Breaking change vs prior behaviour — bare "dashboard" only matches
+    // the literal "dashboard". Authors must use "dashboard.*" for recursion.
+    expect(matchesResourceHierarchical('dashboard', 'dashboard.users')).toBe(false)
+    expect(matchesResourceHierarchical('dashboard', 'dashboard.users.settings')).toBe(false)
     expect(matchesResourceHierarchical('dashboard', 'dashboards')).toBe(false)
+  })
+
+  it('nested ".*" only matches under the named branch (SEC-007)', () => {
+    expect(matchesResourceHierarchical('dashboard.users.*', 'dashboard.users.settings')).toBe(true)
+    expect(matchesResourceHierarchical('dashboard.users.*', 'dashboard.admin.settings')).toBe(false)
   })
 })
 
