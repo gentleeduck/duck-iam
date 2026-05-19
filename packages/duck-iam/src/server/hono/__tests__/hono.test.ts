@@ -414,7 +414,8 @@ describe('bindAdminRouter (hono)', () => {
       expect(events).toHaveLength(1)
       const ev = events[0] as { success: boolean; error?: string }
       expect(ev.success).toBe(false)
-      expect(ev.error).toBe('save-failed')
+      // SEC-041: default `event.error` is the class name, not `err.message`.
+      expect(ev.error).toBe('Error')
     })
 
     it('does NOT fire on GET (read) requests', async () => {
@@ -454,6 +455,113 @@ describe('bindAdminRouter (hono)', () => {
       expect(res.data.ok).toBe(true)
       expect(errSpy).toHaveBeenCalled()
       errSpy.mockRestore()
+    })
+
+    // SEC-039: route params can flow into event.path; redactor must run first.
+    it('SEC-039: redactPath rewrites event.path before the hook is called', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouterRec()
+      const events: Array<{ path: string }> = []
+      bindAdminRouter(router, engine, {
+        authorize: () => true,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+        redactPath: (p) => p.replace(/\/[^/]+$/, '/:id'),
+      })
+      await handlers['DELETE /subjects/:id/roles/:roleId']!(
+        makeMutCtx({
+          method: 'DELETE',
+          path: '/subjects/user-secret-42/roles/role-tenant-acme',
+          paramId: 'user-secret-42',
+        }),
+      )
+      await flushMicrotasks()
+      expect(events).toHaveLength(1)
+      expect(events[0]!.path).toBe('/subjects/user-secret-42/roles/:id')
+      expect(events[0]!.path).not.toMatch(/role-tenant-acme/)
+    })
+
+    // SEC-040: hook rejection routed through caller sink, not console.error.
+    it('SEC-040: onAuditHookError receives thrown error and event', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouterRec()
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const captured: Array<{ err: unknown; event: { action: string; target: string } }> = []
+      const boom = new Error('hook-boom')
+      bindAdminRouter(router, engine, {
+        authorize: () => true,
+        onAdminMutation: () => {
+          throw boom
+        },
+        onAuditHookError: (err, event) => {
+          captured.push({ err, event })
+        },
+      })
+      await handlers['PUT /policies']!(
+        makeMutCtx({
+          method: 'PUT',
+          path: '/policies',
+          body: { id: 'p3', name: 'P', algorithm: 'deny-overrides', rules: [] },
+        }),
+      )
+      await flushMicrotasks()
+      expect(captured).toHaveLength(1)
+      expect(captured[0]!.err).toBe(boom)
+      expect(captured[0]!.event.action).toBe('replace')
+      expect(captured[0]!.event.target).toBe('policy')
+      expect(errSpy).not.toHaveBeenCalled()
+      errSpy.mockRestore()
+    })
+
+    // SEC-041: default error → class name only; opt-in restores the message.
+    it('SEC-041: event.error defaults to the error class name, not err.message', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouterRec()
+      const events: Array<{ success: boolean; error?: string }> = []
+      bindAdminRouter(router, engine, {
+        authorize: () => true,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+      })
+      class PolicyValidationError extends Error {
+        constructor() {
+          super('SELECT * FROM pg_users WHERE password = ...')
+        }
+      }
+      const original = engine.admin.savePolicy
+      engine.admin.savePolicy = async () => {
+        throw new PolicyValidationError()
+      }
+      await handlers['PUT /policies']!(makeMutCtx({ method: 'PUT', path: '/policies', body: {} }))
+      await flushMicrotasks()
+      engine.admin.savePolicy = original
+      expect(events).toHaveLength(1)
+      expect(events[0]!.success).toBe(false)
+      expect(events[0]!.error).toBe('PolicyValidationError')
+      expect(events[0]!.error).not.toMatch(/password/)
+    })
+
+    it('SEC-041: includeErrorMessage:true restores err.message', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouterRec()
+      const events: Array<{ error?: string }> = []
+      bindAdminRouter(router, engine, {
+        authorize: () => true,
+        includeErrorMessage: true,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+      })
+      const original = engine.admin.savePolicy
+      engine.admin.savePolicy = async () => {
+        throw new Error('full-detailed-message')
+      }
+      await handlers['PUT /policies']!(makeMutCtx({ method: 'PUT', path: '/policies', body: {} }))
+      await flushMicrotasks()
+      engine.admin.savePolicy = original
+      expect(events[0]!.error).toBe('full-detailed-message')
     })
   })
 })

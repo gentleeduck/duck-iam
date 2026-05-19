@@ -30,6 +30,21 @@ export namespace AdminAudit {
   /**
    * Describes a single admin mutation event.
    *
+   * Field-level semantics worth calling out:
+   *
+   * - `path` — By default carries the request URL **including any expanded
+   *   route parameters** (e.g. `/admin/policies/policy-123/tenant-acme`).
+   *   That string therefore can contain tenant IDs, subject IDs, role IDs,
+   *   and other potentially sensitive identifiers. To redact, pass
+   *   {@link IOptions.redactPath} on the adapter's admin options. See
+   *   SEC-039.
+   * - `error` — By default this is the **error class name only** (e.g.
+   *   `'TypeError'`, `'PolicyValidationError'`), NOT `err.message`. The
+   *   message can leak credentials, query fragments, or SQL when the
+   *   downstream throw originates in a DB driver. To restore the full
+   *   message, pass {@link IOptions.includeErrorMessage} `true` on the
+   *   adapter's admin options. See SEC-041.
+   *
    * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IEvent {
@@ -45,11 +60,21 @@ export namespace AdminAudit {
     ts: number
     /** HTTP method that triggered the mutation. */
     method: string
-    /** HTTP path that triggered the mutation. */
+    /**
+     * HTTP path that triggered the mutation. By default this is the raw
+     * request path with route parameters already expanded (so it may include
+     * tenant IDs, subject IDs, etc.). Use {@link IOptions.redactPath} to
+     * strip or rewrite identifiers before the hook sees the value.
+     */
     path: string
     /** Whether the handler completed without throwing. */
     success: boolean
-    /** Stringified error message when `success === false`. */
+    /**
+     * Stringified error indicator when `success === false`. Defaults to the
+     * thrown value's class name (e.g. `'TypeError'`). Set
+     * {@link IOptions.includeErrorMessage} `true` on the adapter options to
+     * write `err.message` instead.
+     */
     error?: string
   }
 
@@ -59,27 +84,161 @@ export namespace AdminAudit {
    * @author wildduck2 <https://github.com/wildduck2>
    */
   export type Hook = (event: IEvent) => void | Promise<void>
+
+  /**
+   * SEC-039 / SEC-040 / SEC-041: shared audit-hook hardening options.
+   *
+   * Every framework adapter's admin-router options interface composes this
+   * shape, so the hardening surface is identical across express/hono/next/
+   * nest. All fields are optional and additive — the legacy hook behaviour
+   * is preserved when none are supplied.
+   *
+   * @author wildduck2 <https://github.com/wildduck2>
+   */
+  export interface IOptions {
+    /**
+     * SEC-039: optional redactor applied to {@link IEvent.path} before the
+     * hook receives the event.
+     *
+     * The default `event.path` carries the request URL including expanded
+     * route parameters — e.g. `/admin/policies/policy-123/tenant-acme` —
+     * which means tenant IDs, subject IDs and role IDs can flow into audit
+     * sinks unredacted. Supply a redactor when your audit sink lives outside
+     * your trust boundary.
+     *
+     * @example
+     * ```ts
+     * // Replace the last segment with `:id`.
+     * redactPath: (p) => p.replace(/\/[^/]+$/, '/:id')
+     * ```
+     */
+    redactPath?: (path: string) => string
+    /**
+     * SEC-040: invoked when the hook itself throws (sync or async). The
+     * default sink is `console.error`; supply this to route hook failures
+     * into your logger or metrics pipeline. Errors thrown by
+     * `onAuditHookError` itself are caught and last-resort-logged via
+     * `console.error` — they never propagate.
+     */
+    onAuditHookError?: (err: unknown, event: IEvent) => void
+    /**
+     * SEC-041: when `true`, populate {@link IEvent.error} with
+     * `err.message`. The default is the error **class name** because
+     * downstream DB-driver errors can carry credentials, query fragments, or
+     * SQL inside their message. Only enable this if you control the throw
+     * sites and the audit sink.
+     */
+    includeErrorMessage?: boolean
+  }
 }
 
 /**
- * SEC-010: fire-and-forget invoker for an {@link AdminAudit.Hook}.
+ * SEC-041: derive an audit-friendly string from an unknown thrown value.
  *
- * Resolves any returned promise off the request critical path and routes
- * thrown errors (sync or async) to `console.error` with a one-line tag. The
- * hook can never block, fail, or destabilise the response.
+ * By default returns the constructor name of the thrown value (e.g.
+ * `'Error'`, `'TypeError'`, `'PolicyValidationError'`) so credential-bearing
+ * `err.message` strings never leak into audit sinks. When
+ * `includeMessage === true`, returns `err.message` for `Error` instances and
+ * `String(err)` otherwise. Non-Error throws (`undefined`, strings, numbers)
+ * are handled defensively.
+ *
+ * @param err - The thrown value; may not be an `Error` instance.
+ * @param includeMessage - When `true`, return the full message instead of the class name.
+ * @returns A stable string suitable for {@link AdminAudit.IEvent.error}.
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export function errorToAuditString(err: unknown, includeMessage?: boolean): string {
+  if (includeMessage) {
+    if (err instanceof Error) return err.message
+    if (err === undefined) return 'undefined'
+    if (err === null) return 'null'
+    return String(err)
+  }
+  if (err instanceof Error) {
+    return err.constructor?.name ?? 'Error'
+  }
+  if (err === undefined) return 'undefined'
+  if (err === null) return 'null'
+  // Primitive throw: report its JS typeof so the sink still sees something
+  // categorical (e.g. 'string', 'number') rather than the value itself.
+  return typeof err
+}
+
+/**
+ * SEC-010 / SEC-039 / SEC-040: fire-and-forget invoker for an
+ * {@link AdminAudit.Hook}.
+ *
+ * Resolves any returned promise off the request critical path. Applies
+ * {@link AdminAudit.IOptions.redactPath} to `event.path` before invoking the
+ * hook so route parameters never reach the sink. Routes thrown errors (sync
+ * or async) to {@link AdminAudit.IOptions.onAuditHookError} when configured,
+ * falling back to `console.error` with a one-line tag. The hook can never
+ * block, fail, or destabilise the response.
  *
  * @param hook - Optional caller-supplied hook; no-op when absent.
  * @param event - Event payload describing the mutation.
+ * @param opts - Optional hardening options (path redaction, hook-error sink).
  * @author wildduck2 <https://github.com/wildduck2>
  */
-export function fireAdminMutation(hook: AdminAudit.Hook | undefined, event: AdminAudit.IEvent): void {
+export function fireAdminMutation(
+  hook: AdminAudit.Hook | undefined,
+  event: AdminAudit.IEvent,
+  opts?: Pick<AdminAudit.IOptions, 'redactPath' | 'onAuditHookError'>,
+): void {
   if (!hook) return
+
+  // SEC-039: redact path before the hook ever sees it.
+  if (opts?.redactPath) {
+    try {
+      event.path = opts.redactPath(event.path)
+    } catch (err) {
+      // Redactor itself blew up — treat as a hook error.
+      reportAuditHookError(err, event, opts.onAuditHookError)
+      return
+    }
+  }
+
   try {
-    Promise.resolve(hook(event)).catch((err) =>
-      console.error('[duck-iam] onAdminMutation hook threw:', err instanceof Error ? err.message : String(err)),
-    )
+    Promise.resolve(hook(event)).catch((err) => reportAuditHookError(err, event, opts?.onAuditHookError))
   } catch (err) {
+    reportAuditHookError(err, event, opts?.onAuditHookError)
+  }
+}
+
+/**
+ * SEC-040: routes a hook failure to the caller-supplied
+ * {@link AdminAudit.IOptions.onAuditHookError} when configured, otherwise to
+ * `console.error`. Errors from `onAuditHookError` itself never propagate;
+ * they fall through to a last-resort `console.error`.
+ *
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+function reportAuditHookError(
+  err: unknown,
+  event: AdminAudit.IEvent,
+  sink: AdminAudit.IOptions['onAuditHookError'],
+): void {
+  if (sink) {
+    try {
+      sink(err, event)
+      return
+    } catch (sinkErr) {
+      // Sink itself threw — last-resort log, then stop.
+      try {
+        console.error(
+          '[duck-iam] onAuditHookError sink threw:',
+          sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
+        )
+      } catch {
+        // console.error itself failed (extremely unusual) — give up silently.
+      }
+      return
+    }
+  }
+  try {
     console.error('[duck-iam] onAdminMutation hook threw:', err instanceof Error ? err.message : String(err))
+  } catch {
+    // ignore
   }
 }
 /**

@@ -1,6 +1,6 @@
 import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
-import { type AdminAudit, extractEnvironment, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, errorToAuditString, extractEnvironment, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 /** Minimal Express request shape. */
 interface Req {
@@ -80,7 +80,7 @@ export namespace Express {
    *
    * @author wildduck2 <https://github.com/wildduck2>
    */
-  export interface IAdminRouterOptions {
+  export interface IAdminRouterOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
@@ -92,6 +92,10 @@ export namespace Express {
      * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
+     *
+     * See {@link AdminAudit.IOptions} (extended) for additional hardening
+     * knobs: `redactPath` (SEC-039), `onAuditHookError` (SEC-040), and
+     * `includeErrorMessage` (SEC-041).
      */
     onAdminMutation?: AdminAudit.Hook
   }
@@ -282,7 +286,7 @@ export function adminRouter<
       '[duck-iam] adminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
     )
   }
-  const { authorize, onAdminMutation } = opts
+  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage } = opts
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
 
@@ -331,20 +335,24 @@ export function adminRouter<
         await handler(req, res)
         success = true
       } catch (err) {
-        errorMessage = err instanceof Error ? err.message : String(err)
+        errorMessage = errorToAuditString(err, includeErrorMessage)
         onError(err instanceof Error ? err : new Error(String(err)), req, res)
       } finally {
-        fireAdminMutation(onAdminMutation, {
-          actor,
-          action,
-          target,
-          targetId: getTargetId?.(req),
-          ts: Date.now(),
-          method: req.method ?? '',
-          path: req.path ?? req.url ?? '',
-          success,
-          error: errorMessage,
-        })
+        fireAdminMutation(
+          onAdminMutation,
+          {
+            actor,
+            action,
+            target,
+            targetId: getTargetId?.(req),
+            ts: Date.now(),
+            method: req.method ?? '',
+            path: req.path ?? req.url ?? '',
+            success,
+            error: errorMessage,
+          },
+          { redactPath, onAuditHookError },
+        )
       }
     }
 

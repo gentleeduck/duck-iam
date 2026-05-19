@@ -1,6 +1,6 @@
 import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
-import { type AdminAudit, extractEnvironment, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, errorToAuditString, extractEnvironment, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 // Reflect.defineMetadata/getMetadata come from reflect-metadata (used by NestJS)
 declare namespace Reflect {
@@ -94,7 +94,7 @@ export namespace Nest {
    *
    * @author wildduck2 <https://github.com/wildduck2>
    */
-  export interface IAdminOptions {
+  export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin operation. */
     authorize: IAdminAuthorize
     /**
@@ -103,6 +103,10 @@ export namespace Nest {
      * failure. The hook is fire-and-forget: a slow or throwing implementation
      * never blocks the request and can never alter the response.
      * `listPolicies`/`listRoles` (reads) do not fire it.
+     *
+     * See {@link AdminAudit.IOptions} (extended) for additional hardening
+     * knobs: `redactPath` (SEC-039), `onAuditHookError` (SEC-040), and
+     * `includeErrorMessage` (SEC-041).
      */
     onAdminMutation?: AdminAudit.Hook
   }
@@ -353,7 +357,7 @@ export function createAdminOperations<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] createAdminOperations requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation } = opts
+  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage } = opts
 
   /**
    * Gate that returns whatever {@link IAdminAuthorize} returned so the value
@@ -395,20 +399,24 @@ export function createAdminOperations<
       success = true
       return out
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err)
+      errorMessage = errorToAuditString(err, includeErrorMessage)
       throw err
     } finally {
-      fireAdminMutation(onAdminMutation, {
-        actor,
-        action,
-        target,
-        targetId,
-        ts: Date.now(),
-        method: req.method,
-        path: req.route?.path ?? req.path ?? '',
-        success,
-        error: errorMessage,
-      })
+      fireAdminMutation(
+        onAdminMutation,
+        {
+          actor,
+          action,
+          target,
+          targetId,
+          ts: Date.now(),
+          method: req.method,
+          path: req.route?.path ?? req.path ?? '',
+          success,
+          error: errorMessage,
+        },
+        { redactPath, onAuditHookError },
+      )
     }
   }
 

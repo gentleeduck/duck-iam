@@ -1,6 +1,6 @@
 import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
-import { type AdminAudit, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, errorToAuditString, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 /** Minimal Hono context shape. */
 interface HonoContext {
@@ -66,7 +66,7 @@ export namespace Hono {
    *
    * @author wildduck2 <https://github.com/wildduck2>
    */
-  export interface IAdminOptions {
+  export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
@@ -78,6 +78,10 @@ export namespace Hono {
      * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
+     *
+     * See {@link AdminAudit.IOptions} (extended) for additional hardening
+     * knobs: `redactPath` (SEC-039), `onAuditHookError` (SEC-040), and
+     * `includeErrorMessage` (SEC-041).
      */
     onAdminMutation?: AdminAudit.Hook
   }
@@ -236,7 +240,7 @@ export function bindAdminRouter<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] bindAdminRouter requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation } = opts
+  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage } = opts
   const onUnauthorized = opts.onUnauthorized ?? ((c) => c.json({ error: 'Unauthorized' }, 401))
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
@@ -282,20 +286,24 @@ export function bindAdminRouter<
         success = true
         return response
       } catch (err) {
-        errorMessage = err instanceof Error ? err.message : String(err)
+        errorMessage = errorToAuditString(err, includeErrorMessage)
         return onError(err instanceof Error ? err : new Error(String(err)), c)
       } finally {
-        fireAdminMutation(onAdminMutation, {
-          actor,
-          action,
-          target,
-          targetId: getTargetId?.(c),
-          ts: Date.now(),
-          method: c.req.method,
-          path: c.req.path,
-          success,
-          error: errorMessage,
-        })
+        fireAdminMutation(
+          onAdminMutation,
+          {
+            actor,
+            action,
+            target,
+            targetId: getTargetId?.(c),
+            ts: Date.now(),
+            method: c.req.method,
+            path: c.req.path,
+            success,
+            error: errorMessage,
+          },
+          { redactPath, onAuditHookError },
+        )
       }
     }
 
