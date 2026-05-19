@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./.github/iam-home.png" alt="@gentleduck/iam - type-safe authorization that scales to production" width="800"/>
+  <img src="./public/logo-dark.svg" alt="@gentleduck/iam" width="120"/>
 </p>
 
 <h1 align="center">@gentleduck/iam</h1>
@@ -12,7 +12,7 @@
   <a href="./LICENSE">MIT</a> -
   <a href="./CHANGELOG.md">Changelog</a> -
   <a href="./CONTRIBUTING.md">Contributing</a> -
-  <a href="https://iam.gentleduck.org">Docs</a>
+  <a href="https://gentleduck.org/duck-iam">Docs</a>
 </p>
 
 <p align="center">
@@ -94,7 +94,7 @@ bunx turbo run check-types --filter='./packages/*'
 
 ## Docs
 
-- Site: [iam.gentleduck.org](https://iam.gentleduck.org)
+- Site: [gentleduck.org/duck-iam](https://gentleduck.org/duck-iam)
 - Devtools: import `@gentleduck/iam/dt` to inspect policy evaluation in your app
 - Sibling repos: [`@gentleduck/ui`](https://github.com/gentleeduck/duck-ui), [`@gentleduck/upload`](https://github.com/gentleeduck/duck-upload), [`@gentleduck/md`](https://github.com/gentleeduck/duck-md)
 

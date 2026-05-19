@@ -19,7 +19,7 @@
   "license": "MIT",
   "main": "index.mjs",
   "name": "@gentleduck/vitest-config",
-  "homepage": "https://github.com/gentleeduck/duck-iam/tree/master/tooling/vitest#readme",
+  "homepage": "https://gentleduck.org/duck-iam",
   "bugs": {
     "url": "https://github.com/gentleeduck/duck-iam/issues"
   },

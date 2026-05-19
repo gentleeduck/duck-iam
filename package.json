@@ -17,7 +17,7 @@
   "description": "The main website and monorepo for the Gentleduck organization — UI components, developer tools, Linux utilities, and docs.",
   "author": "gentleduck contributors",
   "license": "MIT",
-  "homepage": "https://gentleduck.org",
+  "homepage": "https://gentleduck.org/duck-iam",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gentleeduck/duck-iam.git"

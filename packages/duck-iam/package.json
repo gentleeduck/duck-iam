@@ -293,6 +293,7 @@
     "role-acl": "^4.5.4",
     "tsdown": "catalog:",
     "typescript": "catalog:",
+    "unrun": "^0.3.0",
     "vitest": "catalog:"
   },
   "engines": {
@@ -300,7 +301,7 @@
   },
   "author": "GentleDuck (https://www.gentleduck.org)",
   "license": "MIT",
-  "homepage": "https://github.com/gentleeduck/duck-iam#readme",
+  "homepage": "https://gentleduck.org/duck-iam",
   "bugs": {
     "url": "https://github.com/gentleeduck/duck-iam/issues"
   },
