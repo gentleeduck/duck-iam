@@ -10,7 +10,7 @@
 
 import type { Engine } from '../../core'
 import type { AccessControl, Client, Request } from '../../core/types'
-import { type AdminAudit, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, errorToAuditString, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 /** Next.js route handler context with params. */
 type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
@@ -89,7 +89,7 @@ export namespace Next {
    *
    * @author wildduck2 <https://github.com/wildduck2>
    */
-  export interface IAdminOptions {
+  export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
@@ -101,6 +101,10 @@ export namespace Next {
      * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
+     *
+     * See {@link AdminAudit.IOptions} (extended) for additional hardening
+     * knobs: `redactPath` (SEC-039), `onAuditHookError` (SEC-040), and
+     * `includeErrorMessage` (SEC-041).
      */
     onAdminMutation?: AdminAudit.Hook
   }
@@ -405,7 +409,7 @@ export function createAdminHandlers<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] createAdminHandlers requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation } = opts
+  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage } = opts
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
@@ -453,7 +457,7 @@ export function createAdminHandlers<
         success = true
         return response
       } catch (err) {
-        errorMessage = err instanceof Error ? err.message : String(err)
+        errorMessage = errorToAuditString(err, includeErrorMessage)
         return onError(err instanceof Error ? err : new Error(String(err)), req)
       } finally {
         let path = ''
@@ -462,17 +466,21 @@ export function createAdminHandlers<
         } catch {
           path = req.url
         }
-        fireAdminMutation(onAdminMutation, {
-          actor,
-          action,
-          target,
-          targetId: resolvedParams !== undefined ? getTargetId?.(req, resolvedParams) : undefined,
-          ts: Date.now(),
-          method: req.method,
-          path,
-          success,
-          error: errorMessage,
-        })
+        fireAdminMutation(
+          onAdminMutation,
+          {
+            actor,
+            action,
+            target,
+            targetId: resolvedParams !== undefined ? getTargetId?.(req, resolvedParams) : undefined,
+            ts: Date.now(),
+            method: req.method,
+            path,
+            success,
+            error: errorMessage,
+          },
+          { redactPath, onAuditHookError },
+        )
       }
     }
 
