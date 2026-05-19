@@ -329,7 +329,10 @@ function parseIncoming<TRole extends string>(
   // JSON. Reject oversize wire messages before JSON.parse so we never
   // allocate the parse tree for a hostile blob.
   if (typeof s !== 'string') return null
-  if (s.length > MAX_WIRE_BYTES) {
+  // SEC-034: cap by UTF-8 byte length, not `s.length` (which counts UTF-16
+  // code units). A surrogate-heavy string would otherwise sneak ~4x past the
+  // 16KB cap and force the JSON parser to materialise a much larger tree.
+  if (Buffer.byteLength(s, 'utf8') > MAX_WIRE_BYTES) {
     warnDropOnce(channel, 'oversize wire message')
     return null
   }
