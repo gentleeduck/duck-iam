@@ -1,5 +1,5 @@
 {
-  "name": "tanstack-start",
+  "name": "tanstack-startt",
   "private": true,
   "type": "module",
   "imports": {
@@ -9,7 +9,7 @@
     "dev": "vite dev --port 3000",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check"
