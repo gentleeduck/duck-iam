@@ -289,6 +289,15 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).resolves.toEqual([])
     })
 
+    it('canonical NAT64 form `[64:ff9b::7f00:1]` still rejects loopback (SEC-038)', () => {
+      // SEC-038 regression: the `0064:ff9b:` literal branch had an off-by-one
+      // slice; verify the canonical WHATWG form (which is what `new URL`
+      // actually emits) continues to reject correctly.
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
+        /private\/loopback/,
+      )
+    })
+
     it('matches allowedHosts when URL has trailing FQDN dot (SEC-037)', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
