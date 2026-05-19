@@ -1,6 +1,6 @@
 import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
-import { extractEnvironment, METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, extractEnvironment, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 // Reflect.defineMetadata/getMetadata come from reflect-metadata (used by NestJS)
 declare namespace Reflect {
@@ -97,6 +97,14 @@ export namespace Nest {
   export interface IAdminOptions {
     /** Required. Runs before every admin operation. */
     authorize: IAdminAuthorize
+    /**
+     * SEC-010: optional audit hook fired AFTER every mutation handler
+     * (savePolicy/saveRole/assignRole/revokeRole) completes — success or
+     * failure. The hook is fire-and-forget: a slow or throwing implementation
+     * never blocks the request and can never alter the response.
+     * `listPolicies`/`listRoles` (reads) do not fire it.
+     */
+    onAdminMutation?: AdminAudit.Hook
   }
 }
 
@@ -319,9 +327,20 @@ export type INestAdminOptions = Nest.IAdminOptions
  * ```ts
  * @Controller('admin')
  * class IamAdminController {
- *   private h = createAdminOperations(engine, { authorize: (req) => isAdmin(req.user) })
+ *   private h = createAdminOperations(engine, {
+ *     authorize: (req) => isAdmin(req.user),
+ *     onAdminMutation: (e) => auditLog.write(e), // SEC-010 audit trail
+ *   })
  *   @Get('policies') listPolicies(@Req() req) { return this.h.listPolicies(req) }
  * }
+ * ```
+ * @example
+ * Rate limiting is out of scope; compose with Nest's `@nestjs/throttler` or a
+ * global guard. Pseudocode:
+ * ```ts
+ * @UseGuards(ThrottlerGuard)
+ * @Throttle({ default: { limit: 30, ttl: 60_000 } })
+ * @Controller('admin') class IamAdminController { ... }
  * ```
  * @author wildduck2 <https://github.com/wildduck2>
  */
@@ -334,14 +353,67 @@ export function createAdminOperations<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] createAdminOperations requires an `authorize` callback.')
   }
-  const { authorize } = opts
+  const { authorize, onAdminMutation } = opts
 
-  const gate = async (req: NestRequest): Promise<void> => {
-    if (!(await authorize(req))) {
+  /**
+   * Gate that returns whatever {@link IAdminAuthorize} returned so the value
+   * can be forwarded into the audit event as `actor`. Throws a 401-flavoured
+   * Error on denial so the calling controller surfaces a NestJS exception.
+   */
+  const gateWithActor = async (req: NestRequest): Promise<unknown> => {
+    const result = await authorize(req)
+    if (!result) {
       const err = new Error('Unauthorized') as Error & { status?: number }
       err.status = 401
       throw err
     }
+    return result
+  }
+
+  /**
+   * SEC-010 wrapper: run a mutation, fire `onAdminMutation` in a finally
+   * block so the audit event lands even when the handler throws.
+   */
+  const runMutation = async <T>(
+    req: NestRequest,
+    action: AdminAudit.Action,
+    target: AdminAudit.Target,
+    targetId: string | undefined,
+    handler: () => Promise<T>,
+  ): Promise<T> => {
+    let actor: unknown
+    let success = false
+    let errorMessage: string | undefined
+    try {
+      actor = await gateWithActor(req)
+    } catch (err) {
+      // Authorize denial or throw — do NOT emit audit (mutation never started).
+      throw err
+    }
+    try {
+      const out = await handler()
+      success = true
+      return out
+    } catch (err) {
+      errorMessage = err instanceof Error ? err.message : String(err)
+      throw err
+    } finally {
+      fireAdminMutation(onAdminMutation, {
+        actor,
+        action,
+        target,
+        targetId,
+        ts: Date.now(),
+        method: req.method,
+        path: req.route?.path ?? req.path ?? '',
+        success,
+        error: errorMessage,
+      })
+    }
+  }
+
+  const gate = async (req: NestRequest): Promise<void> => {
+    await gateWithActor(req)
   }
 
   return {
@@ -354,24 +426,28 @@ export function createAdminOperations<
       return engine.admin.listRoles()
     },
     async savePolicy(req: NestRequest, body: AccessControl.IPolicy<TAction, TResource, TRole>) {
-      await gate(req)
-      await engine.admin.savePolicy(body)
-      return { ok: true }
+      return runMutation(req, 'replace', 'policy', (body as { id?: string } | undefined)?.id, async () => {
+        await engine.admin.savePolicy(body)
+        return { ok: true as const }
+      })
     },
     async saveRole(req: NestRequest, body: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
-      await gate(req)
-      await engine.admin.saveRole(body)
-      return { ok: true }
+      return runMutation(req, 'replace', 'role', (body as { id?: string } | undefined)?.id, async () => {
+        await engine.admin.saveRole(body)
+        return { ok: true as const }
+      })
     },
     async assignRole(req: NestRequest, subjectId: string, body: { roleId: TRole; scope?: TScope }) {
-      await gate(req)
-      await engine.admin.assignRole(subjectId, body.roleId, body.scope)
-      return { ok: true }
+      return runMutation(req, 'create', 'role-assignment', subjectId, async () => {
+        await engine.admin.assignRole(subjectId, body.roleId, body.scope)
+        return { ok: true as const }
+      })
     },
     async revokeRole(req: NestRequest, subjectId: string, roleId: TRole) {
-      await gate(req)
-      await engine.admin.revokeRole(subjectId, roleId)
-      return { ok: true }
+      return runMutation(req, 'delete', 'role-assignment', subjectId, async () => {
+        await engine.admin.revokeRole(subjectId, roleId)
+        return { ok: true as const }
+      })
     },
   }
 }

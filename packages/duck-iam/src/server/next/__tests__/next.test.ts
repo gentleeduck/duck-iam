@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Engine } from '../../../core/engine'
 import type { AccessControl } from '../../../core/types'
-import { checkAccess, createNextMiddleware, getPermissions, withAccess } from '../index'
+import { checkAccess, createAdminHandlers, createNextMiddleware, getPermissions, withAccess } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
 type ResourceType = 'post' | 'comment'
@@ -246,5 +246,117 @@ describe('createNextMiddleware', () => {
     })
     const res = await mw(makeRequest({ url: 'https://x.com/post' }))
     expect(res?.status).toBe(599)
+  })
+})
+
+// SEC-010: admin mutation audit hook.
+describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
+  const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
+
+  function makeAdminReq(opts: { method: string; url?: string; body?: unknown }): Request {
+    const url = opts.url ?? 'https://example.com/api/admin/policies'
+    const init: RequestInit = { method: opts.method }
+    if (opts.body !== undefined) {
+      init.headers = { 'content-type': 'application/json' }
+      init.body = JSON.stringify(opts.body)
+    }
+    return new Request(url, init)
+  }
+
+  it('savePolicy fires with action:replace, target:policy, success:true', async () => {
+    const engine = makeEngine()
+    const events: unknown[] = []
+    const h = createAdminHandlers(engine, {
+      authorize: (() => ({ id: 'admin-1' })) as never,
+      onAdminMutation: (e) => {
+        events.push(e)
+      },
+    })
+    const res = await h.savePolicy(
+      makeAdminReq({
+        method: 'PUT',
+        url: 'https://example.com/api/admin/policies',
+        body: { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] },
+      }),
+      { params: {} },
+    )
+    await flushMicrotasks()
+    expect(res.status).toBe(200)
+    expect(events).toHaveLength(1)
+    const ev = events[0] as {
+      action: string
+      target: string
+      success: boolean
+      method: string
+      path: string
+      actor: unknown
+    }
+    expect(ev.action).toBe('replace')
+    expect(ev.target).toBe('policy')
+    expect(ev.success).toBe(true)
+    expect(ev.method).toBe('PUT')
+    expect(ev.path).toBe('/api/admin/policies')
+    expect(ev.actor).toEqual({ id: 'admin-1' })
+  })
+
+  it('fires with success:false and error message when handler throws', async () => {
+    const engine = makeEngine()
+    const events: unknown[] = []
+    const original = engine.admin.savePolicy
+    engine.admin.savePolicy = async () => {
+      throw new Error('save-failed')
+    }
+    const h = createAdminHandlers(engine, {
+      authorize: () => true,
+      onAdminMutation: (e) => {
+        events.push(e)
+      },
+    })
+    const res = await h.savePolicy(makeAdminReq({ method: 'PUT', body: {} }), { params: {} })
+    await flushMicrotasks()
+    engine.admin.savePolicy = original
+    expect(res.status).toBe(500)
+    expect(events).toHaveLength(1)
+    const ev = events[0] as { success: boolean; error?: string }
+    expect(ev.success).toBe(false)
+    expect(ev.error).toBe('save-failed')
+  })
+
+  it('does NOT fire on GET (read) handlers', async () => {
+    const engine = makeEngine()
+    const events: unknown[] = []
+    const h = createAdminHandlers(engine, {
+      authorize: () => true,
+      onAdminMutation: (e) => {
+        events.push(e)
+      },
+    })
+    await h.listPolicies(makeAdminReq({ method: 'GET' }), { params: {} })
+    await h.listRoles(makeAdminReq({ method: 'GET' }), { params: {} })
+    await flushMicrotasks()
+    expect(events).toHaveLength(0)
+  })
+
+  it('hook is fire-and-forget — a throwing hook does not affect the response', async () => {
+    const engine = makeEngine()
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const h = createAdminHandlers(engine, {
+      authorize: () => true,
+      onAdminMutation: () => {
+        throw new Error('hook-explode')
+      },
+    })
+    const res = await h.savePolicy(
+      makeAdminReq({
+        method: 'PUT',
+        body: { id: 'p2', name: 'P', algorithm: 'deny-overrides', rules: [] },
+      }),
+      { params: {} },
+    )
+    const body = (await res.json()) as { ok?: boolean }
+    expect(res.status).toBe(200)
+    expect(body.ok).toBe(true)
+    expect(errSpy).toHaveBeenCalled()
+    errSpy.mockRestore()
   })
 })
