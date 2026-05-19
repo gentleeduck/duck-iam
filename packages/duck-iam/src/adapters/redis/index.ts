@@ -68,7 +68,7 @@ export type RedisAdapterConfig = Redis.IConfig
  * Storage layout (with optional `keyPrefix`):
  * - `${prefix}policies` hash: policyId -> JSON(policy)
  * - `${prefix}roles` hash: roleId -> JSON(role)
- * - `${prefix}assignments:${id}` set: members are `roleId\0scope`
+ * - `${prefix}assignments:${id}` set: members are `roleId\x00scope` (NUL byte separator)
  * - `${prefix}attrs:${subjectId}` string: JSON(attributes)
  *
  * Suited to distributed deployments needing shared state. Pair with the
@@ -176,23 +176,84 @@ export class RedisAdapter<
     return `${this._prefix}attrs:${subjectId}`
   }
 
-  // Separator below is a literal NUL byte (\0), not a space. Read tools render NUL as space.
-  // NUL was chosen because it cannot appear in valid `TRole` / `TScope` strings; the runtime
-  // guard catches any caller that smuggles one in past the type constraint.
+  /**
+   * Separator between role and scope in an encoded assignment set member.
+   *
+   * Must be a NUL byte (`0x00`). NUL was chosen because it cannot appear in
+   * any reasonable `TRole` / `TScope` string and is rejected at encode time
+   * for defence in depth (SEC-019). The earlier implementation literally used
+   * a space here despite a comment claiming NUL, which let any role or scope
+   * containing whitespace silently collide on decode and drift privileges -
+   * e.g. `encode('admin user', '')` would round-trip as `('admin', 'user ')`.
+   */
+  private static readonly _SEP = '\0'
+
+  /**
+   * Detects entries written by versions of this adapter that used a literal
+   * space as separator. Format: exactly one `0x20`, no `0x00` byte. On read,
+   * such entries are transparently re-encoded with the NUL separator and the
+   * legacy form is removed from the set. See `audit/MIGRATION.md`.
+   *
+   * False positives are scoped to subjects whose role/scope strings happened
+   * to contain spaces - exactly the cases that were silently broken before -
+   * so the migration corrects rather than corrupts them.
+   */
+  private _isLegacyEncoded(member: string): boolean {
+    if (member.includes(RedisAdapter._SEP)) return false
+    const first = member.indexOf(' ')
+    if (first === -1) return false
+    return member.indexOf(' ', first + 1) === -1
+  }
+
   private _encodeAssignment(roleId: TRole, scope?: TScope | null): string {
     const r = roleId as string
     const s = (scope ?? '') as string
-    if (r.includes('\0') || s.includes('\0')) {
+    if (r.includes(RedisAdapter._SEP) || s.includes(RedisAdapter._SEP)) {
       throw new Error('duck-iam: role / scope must not contain NUL bytes')
     }
-    return `${r} ${s}`
+    return `${r}${RedisAdapter._SEP}${s}`
   }
   private _decodeAssignment(member: string): { role: TRole; scope?: TScope } {
-    const sep = member.indexOf(' ')
-    if (sep === -1) return { role: member as TRole }
+    const sep = member.indexOf(RedisAdapter._SEP)
+    if (sep === -1) {
+      // Legacy-format fallback for SEC-019 migration: older versions used a
+      // space separator. We accept exactly-one-space entries here; the caller
+      // (`_migrateLegacyAssignment`) re-encodes them on first read.
+      if (this._isLegacyEncoded(member)) {
+        const legacySep = member.indexOf(' ')
+        const role = member.slice(0, legacySep) as TRole
+        const scope = member.slice(legacySep + 1)
+        return scope === '' ? { role } : { role, scope: scope as TScope }
+      }
+      return { role: member as TRole }
+    }
     const role = member.slice(0, sep) as TRole
     const scope = member.slice(sep + 1)
     return scope === '' ? { role } : { role, scope: scope as TScope }
+  }
+
+  /**
+   * One-shot migration: convert any legacy space-separated assignment members
+   * for `subjectId` to the NUL-separated form. Idempotent and best-effort -
+   * a migration failure must not block authorization, so any errors are
+   * surfaced through `_reportPolicyError` and the original entries left in
+   * place to be retried on the next read.
+   */
+  private async _migrateLegacyAssignment(subjectId: string, members: string[]): Promise<void> {
+    const legacy = members.filter((m) => this._isLegacyEncoded(m))
+    if (legacy.length === 0) return
+    try {
+      const key = this._assignmentsKey(subjectId)
+      const reEncoded: string[] = []
+      for (const m of legacy) {
+        const decoded = this._decodeAssignment(m)
+        reEncoded.push(this._encodeAssignment(decoded.role, decoded.scope))
+      }
+      await this._client.sadd(key, ...reEncoded)
+      await this._client.srem(key, ...legacy)
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), `assignments:${subjectId}`)
+    }
   }
 
   /**
@@ -317,6 +378,7 @@ export class RedisAdapter<
     const members = await this._client.smembers(this._assignmentsKey(subjectId))
     const roles = new Set<TRole>()
     for (const m of members) roles.add(this._decodeAssignment(m).role)
+    await this._migrateLegacyAssignment(subjectId, members)
     return Array.from(roles)
   }
 
@@ -338,6 +400,7 @@ export class RedisAdapter<
       const decoded = this._decodeAssignment(m)
       if (decoded.scope !== undefined) out.push({ role: decoded.role, scope: decoded.scope })
     }
+    await this._migrateLegacyAssignment(subjectId, members)
     return out
   }
 
