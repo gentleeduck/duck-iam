@@ -189,7 +189,9 @@ describe('DrizzleAdapter', () => {
         description: null,
         version: 1,
         algorithm: 'allow-overrides',
-        rules: [{ id: 'r1', actions: ['read'], resources: ['post'], effect: 'allow', conditions: {}, priority: 0 }],
+        rules: [
+          { id: 'r1', actions: ['read'], resources: ['post'], effect: 'allow', conditions: { all: [] }, priority: 0 },
+        ],
         targets: null,
       })
       const got = await adapter.getPolicy('pre')
@@ -350,6 +352,115 @@ describe('DrizzleAdapter', () => {
     it('getSubjectAttributes accepts object blob', async () => {
       mock.tables.attrs.push({ subjectId: 'pre', data: { x: 2 } })
       expect(await adapter.getSubjectAttributes('pre')).toEqual({ x: 2 })
+    })
+  })
+
+  describe('malformed-row drop (P0)', () => {
+    // Drizzle's JSON-stringified columns can desync from the row shape via
+    // partial migrations or manual SQL edits. The adapter must validate +
+    // drop instead of letting a corrupt row escape into the evaluator.
+    it('drops a policy row whose rules column is unparseable', async () => {
+      const errors: Array<{ rowId: string }> = []
+      const mock = makeDrizzleMock()
+      const adapter = new DrizzleAdapter<A, R, Ro, S>({
+        ...mock.config,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      // Seed one good row + one with a corrupt JSON column.
+      mock.tables.policies.push({
+        id: 'good',
+        name: 'good',
+        description: null,
+        version: 1,
+        algorithm: 'deny-overrides',
+        rules: '[]',
+        targets: null,
+      })
+      mock.tables.policies.push({
+        id: 'bad',
+        name: 'bad',
+        description: null,
+        version: 1,
+        algorithm: 'deny-overrides',
+        rules: '{not json',
+        targets: null,
+      })
+
+      const list = await adapter.listPolicies()
+      expect(list.map((p) => p.id)).toEqual(['good'])
+      expect(errors[0]?.rowId).toBe('bad')
+    })
+
+    it('drops a policy row that parses but fails shape validation', async () => {
+      const errors: Array<{ rowId: string }> = []
+      const mock = makeDrizzleMock()
+      const adapter = new DrizzleAdapter<A, R, Ro, S>({
+        ...mock.config,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      // Invalid algorithm => shape validation rejects.
+      mock.tables.policies.push({
+        id: 'bad-algo',
+        name: 'bad',
+        description: null,
+        version: 1,
+        algorithm: 'not-an-algorithm',
+        rules: '[]',
+        targets: null,
+      })
+      const list = await adapter.listPolicies()
+      expect(list).toEqual([])
+      expect(errors[0]?.rowId).toBe('bad-algo')
+    })
+
+    it('drops a role row whose permissions column is unparseable', async () => {
+      const errors: Array<{ rowId: string }> = []
+      const mock = makeDrizzleMock()
+      const adapter = new DrizzleAdapter<A, R, Ro, S>({
+        ...mock.config,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      mock.tables.roles.push({
+        id: 'good',
+        name: 'g',
+        description: null,
+        permissions: '[]',
+        inherits: '[]',
+        scope: null,
+        metadata: null,
+      })
+      mock.tables.roles.push({
+        id: 'bad',
+        name: 'b',
+        description: null,
+        permissions: '{not json',
+        inherits: '[]',
+        scope: null,
+        metadata: null,
+      })
+      const list = await adapter.listRoles()
+      expect(list.map((r) => r.id)).toEqual(['good'])
+      expect(errors[0]?.rowId).toBe('bad')
+    })
+
+    it('getPolicy returns null when row fails validation', async () => {
+      const errors: Array<{ rowId: string }> = []
+      const mock = makeDrizzleMock()
+      const adapter = new DrizzleAdapter<A, R, Ro, S>({
+        ...mock.config,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      mock.tables.policies.push({
+        id: 'bad',
+        name: 'bad',
+        description: null,
+        version: 1,
+        algorithm: 'deny-overrides',
+        rules: '{not json',
+        targets: null,
+      })
+      expect(await adapter.getPolicy('bad')).toBeNull()
+      expect(errors[0]?.rowId).toBe('bad')
     })
   })
 })
