@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { MAX_INHERITANCE_DEPTH } from '../..'
 import type { AccessControl } from '../../types'
 import { validatePolicy, validateRole, validateRoles } from '../validate'
+import { detectCatastrophicRegex } from '../validate.libs'
 
 describe('validateRoles()', () => {
   it('valid roles return valid=true', () => {
@@ -523,5 +524,101 @@ describe('validateRole() - single-row guard (P0)', () => {
   it('rejects non-array inherits', () => {
     const r = validateRole({ id: 'r', permissions: [], inherits: 'viewer' })
     expect(r.valid).toBe(false)
+  })
+})
+
+describe('detectCatastrophicRegex() (P1)', () => {
+  it('flags nested quantifier `(a+)+$`', () => {
+    const r = detectCatastrophicRegex('(a+)+$')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toMatch(/nested quantifier/i)
+  })
+
+  it('flags nested quantifier variants `(a*)*`, `(a+)*`, `(a*)+`', () => {
+    for (const pat of ['(a*)*', '(a+)*', '(a*)+']) {
+      expect(detectCatastrophicRegex(pat).safe).toBe(false)
+    }
+  })
+
+  it('flags alternation inside a quantified group', () => {
+    const r = detectCatastrophicRegex('(foo|bar)+')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toMatch(/alternation/i)
+  })
+
+  it('flags patterns with more than 4 unbounded quantifiers', () => {
+    const r = detectCatastrophicRegex('a+b+c+d+e+f+')
+    expect(r.safe).toBe(false)
+    expect(r.reason).toMatch(/unbounded quantifiers/i)
+  })
+
+  it('accepts safe anchored literals', () => {
+    expect(detectCatastrophicRegex('^hello$').safe).toBe(true)
+    expect(detectCatastrophicRegex('^[a-z0-9_-]+$').safe).toBe(true)
+    expect(detectCatastrophicRegex('^user-\\d{1,8}$').safe).toBe(true)
+  })
+
+  it('accepts simple character-class patterns under quantifier limit', () => {
+    // 3 unbounded quantifiers — under the limit of 4.
+    expect(detectCatastrophicRegex('[a-z]+@[a-z]+\\.[a-z]+').safe).toBe(true)
+  })
+
+  it('rejects patterns exceeding MAX_REGEX_LENGTH', () => {
+    const r = detectCatastrophicRegex('a'.repeat(200))
+    expect(r.safe).toBe(false)
+    expect(r.reason).toMatch(/MAX_REGEX_LENGTH/)
+  })
+
+  it('does not mistake escaped quantifiers in a group body for nested quantifiers', () => {
+    // The body `\+` is a literal plus; the outer `+` quantifies the group.
+    // No real nested quantifier here.
+    expect(detectCatastrophicRegex('(\\+)+').safe).toBe(true)
+  })
+})
+
+describe('validatePolicy() rejects catastrophic matches patterns (P1)', () => {
+  it('flags a rule whose `matches` condition is catastrophic', () => {
+    const policy = {
+      id: 'p-redos',
+      name: 'ReDoS',
+      algorithm: 'deny-overrides',
+      rules: [
+        {
+          id: 'r1',
+          effect: 'allow',
+          priority: 10,
+          actions: ['read'],
+          resources: ['post'],
+          conditions: {
+            all: [{ field: 'subject.id', operator: 'matches', value: '(a+)+$' }],
+          },
+        },
+      ],
+    }
+    const result = validatePolicy(policy)
+    expect(result.valid).toBe(false)
+    expect(result.issues.some((i) => i.code === 'ERR_REGEX_CATASTROPHIC')).toBe(true)
+  })
+
+  it('accepts a rule whose `matches` condition is a safe anchored literal', () => {
+    const policy = {
+      id: 'p-safe',
+      name: 'Safe',
+      algorithm: 'deny-overrides',
+      rules: [
+        {
+          id: 'r1',
+          effect: 'allow',
+          priority: 10,
+          actions: ['read'],
+          resources: ['post'],
+          conditions: {
+            all: [{ field: 'subject.id', operator: 'matches', value: '^user-[a-z0-9]+$' }],
+          },
+        },
+      ],
+    }
+    const result = validatePolicy(policy)
+    expect(result.issues.filter((i) => i.code === 'ERR_REGEX_CATASTROPHIC')).toHaveLength(0)
   })
 })
