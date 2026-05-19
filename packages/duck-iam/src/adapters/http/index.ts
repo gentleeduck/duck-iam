@@ -157,8 +157,11 @@ function _hexTailToDottedQuad(tail: string): string | null {
  * (caller controls them via `allowedHosts`).
  */
 function _isPrivateHost(hostname: string): boolean {
-  // Strip surrounding brackets from IPv6 literals.
-  const h = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
+  // Strip surrounding brackets from IPv6 literals. SEC-037: also strip a
+  // single trailing FQDN dot so `127.0.0.1.` / `example.com.` normalise to
+  // their bare form before the rest of the checks fire.
+  let h = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
+  if (h.endsWith('.')) h = h.slice(0, -1)
   // IPv4 dotted-quad
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
   if (v4) {
@@ -204,9 +207,63 @@ function _isPrivateHost(hostname: string): boolean {
       const tail = lower.slice(2)
       if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(tail)) return _isPrivateHost(tail)
     }
+    // SEC-035: 6to4 prefix `2002::/16` carries an inner IPv4 in the next two
+    // 16-bit groups (`2002:AABB:CCDD::` → `A.B.C.D` with bytes AA,BB,CC,DD).
+    // Linux ships 6to4 by default — `2002:7f00:1::` carries `127.0.0.1`.
+    if (lower.startsWith('2002:')) {
+      const m = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/.exec(lower)
+      if (m) {
+        const dotted = _hexTailToDottedQuad(`${m[1]}:${m[2]}`)
+        if (dotted) return _isPrivateHost(dotted)
+      }
+    }
+    // SEC-035: NAT64 well-known prefix `64:ff9b::/96` carries an inner IPv4
+    // in the last 32 bits. URL canonicalises leading zeros (`0064:ff9b:` →
+    // `64:ff9b:`); accept both spellings defensively.
+    if (lower.startsWith('64:ff9b:') || lower.startsWith('0064:ff9b:')) {
+      const tail = lower.startsWith('0064:') ? lower.slice(13) : lower.slice(8)
+      // Dotted-quad tail (`64:ff9b::127.0.0.1`).
+      if (tail.includes('.')) {
+        const v4match = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(tail)
+        if (v4match) return _isPrivateHost(v4match[1]!)
+      }
+      // Hex tail — last two non-empty hex groups form the 32-bit v4.
+      const groups = tail.split(':').filter((g) => g.length > 0)
+      if (groups.length >= 2) {
+        const dotted = _hexTailToDottedQuad(`${groups[groups.length - 2]}:${groups[groups.length - 1]}`)
+        if (dotted) return _isPrivateHost(dotted)
+      }
+    }
     return false
   }
   return false
+}
+
+/**
+ * SEC-037: normalise a hostname for allowlist comparison.
+ *
+ * - Lower-cases.
+ * - Strips a single trailing FQDN dot (`example.com.` → `example.com`).
+ * - Converts a Unicode hostname (anything outside ASCII) to its WHATWG-URL
+ *   punycode form by round-tripping through `new URL`. Node's `URL` parser
+ *   already returns the `xn--` form for `parsed.hostname`, so this only
+ *   matters when an `allowedHosts` entry was authored in Unicode (e.g.
+ *   `münchen.de`) while the URL host is `xn--mnchen-3ya.de`.
+ *
+ * Invalid input falls back to the lowercased + dot-stripped string so a
+ * malformed allowlist entry never silently widens the match.
+ */
+function _normaliseHostForAllowlist(host: string): string {
+  let h = host.toLowerCase()
+  if (h.endsWith('.')) h = h.slice(0, -1)
+  // Fast path: pure ASCII needs no IDN conversion.
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: explicit ASCII range check.
+  if (/^[\x00-\x7f]*$/.test(h)) return h
+  try {
+    return new URL(`http://${h}`).hostname
+  } catch {
+    return h
+  }
 }
 
 /**
@@ -293,15 +350,29 @@ export class HttpAdapter<
       throw new Error('duck-iam HttpAdapter: baseUrl must not contain a query string or fragment')
     }
     if (config.allowedHosts && config.allowedHosts.length > 0) {
-      // SEC-030: case-insensitive and port-aware match. Two precedence arms:
+      // SEC-030 + SEC-037: case-insensitive, port-aware, trailing-dot tolerant,
+      // IDN-aware match. Two precedence arms:
       // 1) bare hostname (no port) — matches the URL's hostname regardless of
       //    the URL's port.
       // 2) full host (`hostname:port`) — exact port match required.
-      // Entries are normalised lowercase; the URL's hostname and host are
-      // normalised lowercase too.
-      const urlHostname = parsed.hostname.toLowerCase()
-      const urlHost = parsed.host.toLowerCase()
-      const normEntries = config.allowedHosts.map((h) => h.toLowerCase())
+      // Both sides are normalised: lower-cased, FQDN trailing dot stripped,
+      // and Unicode entries punycoded via the WHATWG URL parser.
+      const urlHostname = _normaliseHostForAllowlist(parsed.hostname)
+      // For host (with port) we split, normalise host, then re-attach port.
+      const rawHost = parsed.host.toLowerCase()
+      const colonIdx = rawHost.lastIndexOf(':')
+      const urlHost =
+        colonIdx > 0 && !rawHost.startsWith('[')
+          ? `${_normaliseHostForAllowlist(rawHost.slice(0, colonIdx))}:${rawHost.slice(colonIdx + 1)}`
+          : _normaliseHostForAllowlist(rawHost)
+      const normEntries = config.allowedHosts.map((h) => {
+        const lower = h.toLowerCase()
+        const ci = lower.lastIndexOf(':')
+        if (ci > 0 && !lower.startsWith('[') && /^\d+$/.test(lower.slice(ci + 1))) {
+          return `${_normaliseHostForAllowlist(lower.slice(0, ci))}:${lower.slice(ci + 1)}`
+        }
+        return _normaliseHostForAllowlist(lower)
+      })
       const matched = normEntries.some((entry) => entry === urlHostname || entry === urlHost)
       if (!matched) {
         throw new Error(`duck-iam HttpAdapter: baseUrl host ${JSON.stringify(parsed.host)} not in allowedHosts`)
