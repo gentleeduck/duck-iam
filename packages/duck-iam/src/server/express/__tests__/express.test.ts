@@ -364,4 +364,117 @@ describe('adminRouter (express)', () => {
     expect((res.body as { error: string }).error).toBe('boom')
     engine.admin.savePolicy = original
   })
+
+  // SEC-010: admin mutation audit hook.
+  describe('onAdminMutation (SEC-010)', () => {
+    const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
+
+    it('fires on PUT /policies with action:replace, target:policy, success:true', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouter()
+      const events: unknown[] = []
+      adminRouter(engine, {
+        authorize: (() => ({ id: 'admin-1' })) as never,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+      })(() => router as never)
+      const res = makeRes()
+      await handlers['PUT /policies']!(
+        {
+          method: 'PUT',
+          path: '/policies',
+          body: { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] },
+        } as never,
+        res as never,
+      )
+      await flushMicrotasks()
+      expect(events).toHaveLength(1)
+      const ev = events[0] as {
+        action: string
+        target: string
+        targetId?: string
+        success: boolean
+        method: string
+        path: string
+        ts: number
+        actor: unknown
+      }
+      expect(ev.action).toBe('replace')
+      expect(ev.target).toBe('policy')
+      expect(ev.targetId).toBe('p1')
+      expect(ev.success).toBe(true)
+      expect(ev.method).toBe('PUT')
+      expect(ev.path).toBe('/policies')
+      expect(typeof ev.ts).toBe('number')
+      expect(ev.actor).toEqual({ id: 'admin-1' })
+    })
+
+    it('fires with success:false and error message when handler throws', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouter()
+      const events: unknown[] = []
+      adminRouter(engine, {
+        authorize: () => true,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+      })(() => router as never)
+      const original = engine.admin.savePolicy
+      engine.admin.savePolicy = async () => {
+        throw new Error('save-failed')
+      }
+      const res = makeRes()
+      await handlers['PUT /policies']!({ method: 'PUT', path: '/policies', body: {} } as never, res as never)
+      await flushMicrotasks()
+      engine.admin.savePolicy = original
+      expect(events).toHaveLength(1)
+      const ev = events[0] as { success: boolean; error?: string }
+      expect(ev.success).toBe(false)
+      expect(ev.error).toBe('save-failed')
+    })
+
+    it('does NOT fire on GET (read) requests', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouter()
+      const events: unknown[] = []
+      adminRouter(engine, {
+        authorize: () => true,
+        onAdminMutation: (e) => {
+          events.push(e)
+        },
+      })(() => router as never)
+      const res = makeRes()
+      await handlers['GET /policies']!({ method: 'GET', path: '/policies' } as never, res as never)
+      await handlers['GET /roles']!({ method: 'GET', path: '/roles' } as never, res as never)
+      await flushMicrotasks()
+      expect(events).toHaveLength(0)
+    })
+
+    it('hook is fire-and-forget — a throwing hook does not affect the response', async () => {
+      const engine = makeEngine()
+      const { router, handlers } = makeRouter()
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      adminRouter(engine, {
+        authorize: () => true,
+        onAdminMutation: () => {
+          throw new Error('hook-explode')
+        },
+      })(() => router as never)
+      const res = makeRes()
+      await handlers['PUT /policies']!(
+        {
+          method: 'PUT',
+          path: '/policies',
+          body: { id: 'p2', name: 'P', algorithm: 'deny-overrides', rules: [] },
+        } as never,
+        res as never,
+      )
+      // Response is still the successful payload.
+      expect((res.body as { ok: boolean }).ok).toBe(true)
+      // Error was caught and routed to console.error.
+      expect(errSpy).toHaveBeenCalled()
+      errSpy.mockRestore()
+    })
+  })
 })

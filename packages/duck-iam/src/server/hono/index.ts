@@ -1,6 +1,6 @@
 import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
-import { METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 /** Minimal Hono context shape. */
 interface HonoContext {
@@ -73,6 +73,13 @@ export namespace Hono {
     onUnauthorized?: (c: HonoContext) => Response
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, c: HonoContext) => Response
+    /**
+     * SEC-010: optional audit hook fired AFTER every mutation handler
+     * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
+     * fire-and-forget: a slow or throwing implementation never blocks the
+     * request and can never alter the response. GET handlers do not fire it.
+     */
+    onAdminMutation?: AdminAudit.Hook
   }
 
   /**
@@ -200,7 +207,18 @@ export type IHonoRouterLike = Hono.IRouterLike
  * ```ts
  * import { Hono } from 'hono'
  * const admin = new Hono()
- * bindAdminRouter(admin, engine, { authorize: (c) => isAdmin(c) })
+ * bindAdminRouter(admin, engine, {
+ *   authorize: (c) => isAdmin(c),
+ *   onAdminMutation: (e) => auditLog.write(e), // SEC-010 audit trail
+ * })
+ * app.route('/admin', admin)
+ * ```
+ * @example
+ * Rate limiting is out of scope; compose at the mount point with a Hono
+ * middleware before the admin sub-app. Pseudocode:
+ * ```ts
+ * import { rateLimit } from 'some-hono-rate-limit'
+ * app.use('/admin/*', rateLimit({ windowMs: 60_000, max: 30 }))
  * app.route('/admin', admin)
  * ```
  * @author wildduck2 <https://github.com/wildduck2>
@@ -218,10 +236,11 @@ export function bindAdminRouter<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] bindAdminRouter requires an `authorize` callback.')
   }
-  const { authorize } = opts
+  const { authorize, onAdminMutation } = opts
   const onUnauthorized = opts.onUnauthorized ?? ((c) => c.json({ error: 'Unauthorized' }, 401))
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
+  /** Read gate: no audit emission. */
   const gate =
     (handler: (c: HonoContext) => Promise<Response> | Response) =>
     async (c: HonoContext): Promise<Response> => {
@@ -230,6 +249,53 @@ export function bindAdminRouter<
         return await handler(c)
       } catch (err) {
         return onError(err instanceof Error ? err : new Error(String(err)), c)
+      }
+    }
+
+  /**
+   * SEC-010 mutation gate: identical to {@link gate} but emits an
+   * `onAdminMutation` event after the handler resolves or rejects. Uses
+   * try/finally so the hook fires even when the handler throws.
+   */
+  const mutate =
+    (
+      action: AdminAudit.Action,
+      target: AdminAudit.Target,
+      getTargetId: ((c: HonoContext) => string | undefined) | undefined,
+      handler: (c: HonoContext) => Promise<Response> | Response,
+    ) =>
+    async (c: HonoContext): Promise<Response> => {
+      let actor: unknown
+      try {
+        const authzResult = await authorize(c)
+        actor = authzResult
+        if (!authzResult) return onUnauthorized(c)
+      } catch (err) {
+        return onError(err instanceof Error ? err : new Error(String(err)), c)
+      }
+
+      let success = false
+      let errorMessage: string | undefined
+      let response: Response
+      try {
+        response = await handler(c)
+        success = true
+        return response
+      } catch (err) {
+        errorMessage = err instanceof Error ? err.message : String(err)
+        return onError(err instanceof Error ? err : new Error(String(err)), c)
+      } finally {
+        fireAdminMutation(onAdminMutation, {
+          actor,
+          action,
+          target,
+          targetId: getTargetId?.(c),
+          ts: Date.now(),
+          method: c.req.method,
+          path: c.req.path,
+          success,
+          error: errorMessage,
+        })
       }
     }
 
@@ -243,7 +309,7 @@ export function bindAdminRouter<
   )
   router.put(
     '/policies',
-    gate(async (c) => {
+    mutate('replace', 'policy', undefined, async (c) => {
       const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as AccessControl.IPolicy<
         TAction,
         TResource,
@@ -255,7 +321,7 @@ export function bindAdminRouter<
   )
   router.put(
     '/roles',
-    gate(async (c) => {
+    mutate('replace', 'role', undefined, async (c) => {
       const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as AccessControl.IRole<
         TAction,
         TResource,
@@ -268,21 +334,31 @@ export function bindAdminRouter<
   )
   router.post(
     '/subjects/:id/roles',
-    gate(async (c) => {
-      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as {
-        roleId: TRole
-        scope?: TScope
-      }
-      await engine.admin.assignRole(c.req.param('id') as string, body.roleId, body.scope)
-      return c.json({ ok: true })
-    }),
+    mutate(
+      'create',
+      'role-assignment',
+      (c) => c.req.param('id'),
+      async (c) => {
+        const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as {
+          roleId: TRole
+          scope?: TScope
+        }
+        await engine.admin.assignRole(c.req.param('id') as string, body.roleId, body.scope)
+        return c.json({ ok: true })
+      },
+    ),
   )
   router.delete(
     '/subjects/:id/roles/:roleId',
-    gate(async (c) => {
-      await engine.admin.revokeRole(c.req.param('id') as string, c.req.param('roleId') as TRole)
-      return c.json({ ok: true })
-    }),
+    mutate(
+      'delete',
+      'role-assignment',
+      (c) => c.req.param('id'),
+      async (c) => {
+        await engine.admin.revokeRole(c.req.param('id') as string, c.req.param('roleId') as TRole)
+        return c.json({ ok: true })
+      },
+    ),
   )
 
   return router
