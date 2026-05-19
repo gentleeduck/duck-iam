@@ -1,25 +1,95 @@
+# https://docs.coderabbit.ai/guides/configure-coderabbit
+# Schema: https://coderabbit.ai/integrations/schema.v2.json
 language: en-US
+early_access: false
+tone_instructions: |
+  Terse, technical. Drop filler and hedging. Fragments OK.
+  Code blocks unchanged. Errors quoted exact. No AI slop phrases.
 
 reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_placeholder: '@coderabbitai summary'
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+  abort_on_close: true
   auto_review:
     enabled: true
     drafts: false
     base_branches:
       - master
+      - main
   path_filters:
-    - "!**/_oldstuff_refactor/**"
-    - "!**/___/**"
-    - "!**/dist/**"
-    - "!**/build/**"
-    - "!**/.next/**"
-    - "!**/__snapshots__/**"
-    - "!**/__ui_registry__/**"
-    - "!**/node_modules/**"
-    - "!**/bun.lock"
-    - "!**/public/sitemap-0.xml"
+    - '!**/node_modules/**'
+    - '!**/dist/**'
+    - '!**/build/**'
+    - '!**/.next/**'
+    - '!**/.turbo/**'
+    - '!**/.velite/**'
+    - '!**/.cache/**'
+    - '!**/coverage/**'
+    - '!**/__snapshots__/**'
+    - '!**/__ui_registry__/**'
+    - '!**/_oldstuff_refactor/**'
+    - '!**/*.lock'
+    - '!**/bun.lock'
+    - '!**/pnpm-lock.yaml'
+    - '!**/package-lock.json'
+    - '!**/tmp/**'
+    - '!packages/duck-iam/tmp/**'
+  path_instructions:
+    - path: 'packages/duck-iam/src/**/*.ts'
+      instructions: |
+        Core IAM engine. Security-critical. Validate every input.
+        Never log secrets. Constant-time compare for tokens.
+        Authorization decisions must be explicit (no implicit allow).
+        Document every public type with a usage example.
+        No any without justification.
+    - path: 'packages/duck-iam/src/adapters/**/*.ts'
+      instructions: |
+        Storage adapter. Parameterized queries only. No string
+        interpolation in SQL. Handle connection errors gracefully.
+        Schema migrations must be reversible.
+    - path: 'packages/duck-iam/src/server/**/*.ts'
+      instructions: |
+        Framework adapter. Validate the request body before policy
+        evaluation. Return safe error messages (no internal details).
+        Set proper HTTP status codes. Rate limit endpoints.
+    - path: 'packages/duck-iam/test/**/*.ts'
+      instructions: |
+        Tests. Cover deny + allow paths, edge cases (empty, null,
+        unicode), and timing. expect.unreachable() and non-null
+        assertions are OK in tests.
+    - path: 'examples/**/*.{ts,tsx}'
+      instructions: |
+        Example app. Focus on showing correct IAM usage. Reject
+        antipatterns (hardcoded roles, missing checks).
   tools:
     biome:
+      enabled: true
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
       enabled: true
 
 chat:
   auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto
