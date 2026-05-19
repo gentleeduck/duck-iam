@@ -23,12 +23,41 @@ export const MAX_REGEX_LENGTH = 128
  *
  * Even if a catastrophic pattern slips past static detection, capping the
  * input length bounds worst-case backtracking work. Strings longer than this
- * cause the `matches` operator to short-circuit to `false` without running
- * the regex.
+ * cause the `matches` operator to throw {@link RegexInputTooLargeError}, which
+ * the evaluator catches and treats as a policy error (NotApplicable). Returning
+ * `false` instead would flip `deny`-when-`matches` rules to allow on
+ * adversarially-long input.
  *
  * @author wildduck2 <https://github.com/wildduck2>
  */
 export const MAX_REGEX_INPUT_LENGTH = 2048
+
+/**
+ * Thrown by the `matches` operator when the candidate string exceeds
+ * {@link MAX_REGEX_INPUT_LENGTH}.
+ *
+ * Carried as a tagged error so the evaluator's `safeEval` can route it through
+ * `onPolicyError` and mark the entire policy as NotApplicable. Critically, we
+ * do NOT silently return `false`: a `false` result from a `matches` operator
+ * inside a `deny` rule would flip the rule's effect to "condition not met →
+ * allow". By throwing, the whole policy drops out of the decision instead of
+ * silently becoming permissive.
+ *
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export class RegexInputTooLargeError extends Error {
+  readonly name = 'RegexInputTooLargeError'
+  readonly tag = 'duck-iam/regex-input-too-large'
+  readonly field: string
+  readonly length: number
+  constructor(field: string, length: number) {
+    super(
+      `duck-iam: matches input on field "${field}" is ${length} bytes (> MAX_REGEX_INPUT_LENGTH=${MAX_REGEX_INPUT_LENGTH}); policy dropped as NotApplicable.`,
+    )
+    this.field = field
+    this.length = length
+  }
+}
 
 /**
  * LRU cache capacity for compiled regex patterns.
@@ -125,9 +154,14 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
     if (v.length > MAX_REGEX_LENGTH) return false
     // Bound worst-case backtracking work even if a pathological pattern
     // somehow landed in the store. Inputs longer than MAX_REGEX_INPUT_LENGTH
-    // are refused outright rather than truncated-and-matched, because a
-    // partial match on a truncated string is misleading.
-    if (f.length > MAX_REGEX_INPUT_LENGTH) return false
+    // throw RegexInputTooLargeError instead of returning false, because a
+    // silent false would flip `deny`-when-`matches` rules to allow on
+    // adversarial input. The thrown error is caught by the evaluator's
+    // policy-error path and the whole policy is dropped as NotApplicable.
+    // Field name is unknown at this layer; evalCondition() handles the throw.
+    if (f.length > MAX_REGEX_INPUT_LENGTH) {
+      throw new RegexInputTooLargeError('<unknown>', f.length)
+    }
     const re = getCachedRegex(v)
     return re ? re.test(f) : false
   },
@@ -208,5 +242,15 @@ export function evalCondition(req: Request.IAccessRequest, cond: AccessControl.I
   if (cond.operator === 'matches' && isUserSourcedValue(cond.value ?? null)) return false
   const fieldVal = resolve(req, cond.field)
   const condVal = resolveValue(req, cond.value ?? null)
-  return ops[cond.operator](fieldVal, condVal)
+  try {
+    return ops[cond.operator](fieldVal, condVal)
+  } catch (err) {
+    // Re-throw RegexInputTooLargeError with the real field name so observability
+    // can attribute the drop. All other throws propagate untouched - the
+    // evaluator's safeEval still catches them and routes through onPolicyError.
+    if (err instanceof RegexInputTooLargeError && err.field === '<unknown>') {
+      throw new RegexInputTooLargeError(cond.field, err.length)
+    }
+    throw err
+  }
 }
