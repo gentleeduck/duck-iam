@@ -1,4 +1,8 @@
 import type { Primitives, Request } from '../types'
+// SEC-007: bare resource patterns (no `:*` / `.*` suffix) now match ONLY
+// the literal resource; recursive matching requires explicit `:*` / `.*`.
+// Breaking change for `matchesResource` and `matchesResourceHierarchical`.
+// See audit/MIGRATION.md (SEC-007) for upgrade instructions.
 /**
  * Top-level path prefixes accepted by {@link resolve}.
  *
@@ -103,7 +107,16 @@ export function matchesAction(pattern: string, action: string): boolean {
 
 /**
  * Tests if a resource type matches a pattern (colon-based hierarchy).
- * Supports hierarchical matching: "org:*" matches "org:project", "org:project:doc"
+ *
+ * Matching rules (SEC-007):
+ * - `"*"` matches every resource.
+ * - A bare pattern (no `:*` suffix) matches ONLY the literal resource. So
+ *   `"org"` matches `"org"` but NOT `"org:project"` or `"org:project:doc"`.
+ *   This closes the over-broad accidental-grant from a typo in `resources`.
+ * - A `":*"` suffix matches anything under that prefix recursively. So
+ *   `"org:*"` matches `"org:project"` and `"org:project:doc"`.
+ * - Nested wildcards apply at the position they appear: `"org:project:*"`
+ *   matches `"org:project:doc"` but not `"org:secrets:doc"`.
  *
  * @param pattern      - Resource pattern from a rule.
  * @param resourceType - The literal resource type from the request.
@@ -114,13 +127,11 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
   if (pattern === '*') return true
   if (pattern === resourceType) return true
 
+  // SEC-007: only explicit `:*` suffix enables recursive prefix match.
   if (pattern.endsWith(':*')) {
-    const prefix = pattern.slice(0, -1)
+    const prefix = pattern.slice(0, -1) // includes trailing ':'
     return resourceType.startsWith(prefix)
   }
-
-  // Hierarchical: "org" matches "org:project:doc"
-  if (resourceType.startsWith(`${pattern}:`)) return true
 
   return false
 }
@@ -128,10 +139,15 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
 /**
  * Tests if a resource type matches a pattern using dot-notation hierarchy.
  *
- * - "*" matches everything
- * - "dashboard" matches "dashboard", "dashboard.users", "dashboard.users.settings"
- * - "dashboard.*" matches any child: "dashboard.users", "dashboard.users.settings" (NOT "dashboard" itself)
- * - "dashboard.users" matches "dashboard.users", "dashboard.users.settings"
+ * Matching rules (SEC-007):
+ * - `"*"` matches everything.
+ * - A bare pattern (no `.*` suffix) matches ONLY the literal resource —
+ *   `"dashboard"` matches `"dashboard"` but NOT `"dashboard.users"`.
+ * - A `".*"` suffix matches anything under that prefix recursively —
+ *   `"dashboard.*"` matches `"dashboard.users"` and
+ *   `"dashboard.users.settings"` but NOT `"dashboard"` itself.
+ * - Wildcards apply at the position they appear: `"dashboard.users.*"`
+ *   matches `"dashboard.users.settings"` but not `"dashboard.admin.x"`.
  *
  * @param pattern      - Resource pattern from a rule (dot-notation).
  * @param resourceType - The literal resource type from the request.
@@ -142,13 +158,11 @@ export function matchesResourceHierarchical(pattern: string, resourceType: strin
   if (pattern === '*') return true
   if (pattern === resourceType) return true
 
+  // SEC-007: only explicit `.*` suffix enables recursive prefix match.
   if (pattern.endsWith('.*')) {
-    const prefix = pattern.slice(0, -1) // "dashboard."
+    const prefix = pattern.slice(0, -1) // includes trailing '.'
     return resourceType.startsWith(prefix)
   }
-
-  // Parent matches children: "dashboard" matches "dashboard.users.settings"
-  if (resourceType.startsWith(`${pattern}.`)) return true
 
   return false
 }
