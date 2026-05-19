@@ -1,85 +1,108 @@
 <p align="center">
-  <img src="./.github/iam-home.png" alt="duck-iam - type-safe authorization that scales to production" width="800"/>
+  <img src="./.github/iam-home.png" alt="@gentleduck/iam - type-safe authorization that scales to production" width="800"/>
 </p>
 
-# gentleduck/iam
+<h1 align="center">@gentleduck/iam</h1>
 
-A Bun-based monorepo for the duck-iam access control engine, docs, and related tooling.
+<p align="center">
+  Type-safe RBAC + ABAC + ReBAC authorization engine with policy explain, devtools, and framework adapters.
+</p>
 
-## Documentation
-- Docs app: `apps/duck-iam-docs`
-- GitHub: https://github.com/gentleeduck/duck-iam
+<p align="center">
+  <a href="./LICENSE">MIT</a> -
+  <a href="./CHANGELOG.md">Changelog</a> -
+  <a href="./CONTRIBUTING.md">Contributing</a> -
+  <a href="https://iam.gentleduck.org">Docs</a>
+</p>
 
-## Workspace Matrix
+<p align="center">
+  <a href="https://www.npmjs.com/package/@gentleduck/iam"><img src="https://img.shields.io/npm/v/@gentleduck/iam.svg" alt="npm"/></a>
+  <a href="https://www.npmjs.com/package/@gentleduck/iam"><img src="https://img.shields.io/npm/dm/@gentleduck/iam.svg" alt="downloads"/></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/@gentleduck/iam.svg" alt="MIT"/></a>
+</p>
 
-### Apps
+---
 
-| Path | Package | Role | Status |
-| --- | --- | --- | --- |
-| `apps/duck-iam-docs` | `@gentleduck/iam-docs` | Public docs site for duck-iam | Active |
+## Install
 
-### Published Packages
+```sh
+bun add @gentleduck/iam
+```
 
-| Path | Package | Role | Status |
-| --- | --- | --- | --- |
-| `packages/duck-iam` | `@gentleduck/iam` | Type-safe RBAC + ABAC access control engine for TypeScript | Active |
+## Quick start
 
-### Private / Internal Packages
+```ts
+import { iam } from '@gentleduck/iam'
 
-| Path | Package | Role | Status |
-| --- | --- | --- | --- |
-| `packages/ui` | `@gentleduck/ui` | React UI components built on Gentleduck primitives | Private, active |
+const engine = iam({
+  roles: {
+    owner: ['*'],
+    editor: ['post:read', 'post:write'],
+    reader: ['post:read'],
+  },
+})
 
-### Tooling Packages
+const result = engine.can({ user: { roles: ['editor'] }, action: 'post:write' })
+// { allowed: true, reason: 'role:editor grants post:write' }
+```
 
-| Path | Package | Role | Status |
-| --- | --- | --- | --- |
-| `tooling/biome` | `@gentleduck/biome-config` | Shared Biome config | Internal |
-| `tooling/github` | `@gentleduck/github` | GitHub/project automation support | Internal |
-| `tooling/tailwind` | `@gentleduck/tailwind-config` | Shared Tailwind config | Internal |
-| `tooling/tsdown` | `@gentleduck/tsdown-config` | Shared `tsdown` config | Internal |
-| `tooling/typescript` | `@gentleduck/typescript-config` | Shared TypeScript config | Internal |
-| `tooling/vitest` | `@gentleduck/vitest-config` | Shared Vitest config | Internal |
-| `tooling/bash` | `bash` | Shell utilities and misc scripts | Internal |
+## Workspace
 
-### Examples
-
-| Path | Role | Status |
+| Path | Package | Role |
 | --- | --- | --- |
-| `examples/blogduck` | Example app using duck-iam | Active |
+| [`packages/duck-iam`](packages/duck-iam) | [`@gentleduck/iam`](https://www.npmjs.com/package/@gentleduck/iam) | Core policy engine, RBAC + ABAC + ReBAC, devtools (`@gentleduck/iam/dt`) |
 
-## Workspace Policy
+### Adapters (subpath exports of `@gentleduck/iam`)
 
-- Root quality scripts target the active workspace graph only.
-- Published packages are released to npm via changesets.
+| Subpath | Target |
+| --- | --- |
+| `@gentleduck/iam/server/next` | Next.js App Router |
+| `@gentleduck/iam/server/express` | Express |
+| `@gentleduck/iam/server/nest` | NestJS |
+| `@gentleduck/iam/server/hono` | Hono |
+| `@gentleduck/iam/server/generic` | Framework-agnostic |
+| `@gentleduck/iam/client/react` | React hooks |
+| `@gentleduck/iam/client/vue` | Vue composables |
+| `@gentleduck/iam/client/vanilla` | DOM-free client |
+| `@gentleduck/iam/adapters/memory` | In-memory store |
+| `@gentleduck/iam/adapters/file` | File-backed store |
+| `@gentleduck/iam/adapters/prisma` | Prisma |
+| `@gentleduck/iam/adapters/drizzle` | Drizzle (pg / mysql / sqlite) |
+| `@gentleduck/iam/adapters/redis` | Redis |
+| `@gentleduck/iam/adapters/http` | Remote PDP over HTTP |
+| `@gentleduck/iam/invalidators/redis` | Redis pub/sub invalidator |
+| `@gentleduck/iam/observability/metrics` | Prometheus / OTel metrics |
+| `@gentleduck/iam/dt` | Devtools UI panel |
 
-## Getting Started
+## Examples
 
-> Requires **Node >= 22** and **Bun >= 1.3**.
+| Path | Stack |
+| --- | --- |
+| [`examples/blogduck`](examples/blogduck) | Next.js + Prisma blog with editor/reader roles |
+| [`examples/docduck`](examples/docduck) | Next.js + Hocuspocus collaborative docs |
+| [`examples/tanstack-start`](examples/tanstack-start) | TanStack Start app w/ posthog + iam |
+| [`examples/vite`](examples/vite) | Vite + React minimal demo |
 
-```bash
-git clone https://github.com/gentleeduck/duck-iam.git
-cd duck-iam
+## Build
+
+```sh
 bun install
+bunx turbo run build --filter='./packages/*'
+bunx turbo run test --filter='./packages/*'
+bunx turbo run check-types --filter='./packages/*'
 ```
 
-## Run a Single App
-```bash
-bun --filter @gentleduck/iam-docs dev
-```
+## Docs
 
-## Common Workspace Commands
-```bash
-bun run dev          # run all workspace dev tasks
-bun run build        # build all packages/apps
-bun run test         # run tests across workspaces
-bun run check        # biome checks
-bun run check-types  # TypeScript type checks
-bun run ci           # non-mutating repo verification (check, workspace lint, types, tests, build)
-```
+- Site: [iam.gentleduck.org](https://iam.gentleduck.org)
+- Devtools: import `@gentleduck/iam/dt` to inspect policy evaluation in your app
+- Sibling repos: [`@gentleduck/ui`](https://github.com/gentleeduck/duck-ui), [`@gentleduck/upload`](https://github.com/gentleeduck/duck-upload), [`@gentleduck/md`](https://github.com/gentleeduck/duck-md)
 
 ## Contributing
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
+
+PR checklist + style notes in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Security: [`SECURITY.md`](SECURITY.md). Behaviour: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 
 ## License
-MIT. See [`LICENSE`](./LICENSE) for more information.
+
+MIT. See [`LICENSE`](LICENSE).
