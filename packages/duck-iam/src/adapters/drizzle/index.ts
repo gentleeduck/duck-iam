@@ -211,8 +211,7 @@ export class DrizzleAdapter<
         typeof row.permissions === 'string'
           ? JSON.parse(row.permissions)
           : (row.permissions as AccessControl.IRole['permissions'])
-      inherits =
-        typeof row.inherits === 'string' ? JSON.parse(row.inherits) : ((row.inherits as string[] | null) ?? [])
+      inherits = typeof row.inherits === 'string' ? JSON.parse(row.inherits) : ((row.inherits as string[] | null) ?? [])
       metadata = row.metadata
         ? typeof row.metadata === 'string'
           ? JSON.parse(row.metadata)

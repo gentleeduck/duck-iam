@@ -334,12 +334,16 @@ describe('RedisAdapter', () => {
         onPolicyError: (err, ctx) => errors.push({ msg: err.message, ctx }),
       })
       // Seed one valid row + one corrupt row directly into the fake store.
-      await redis.hset('policies', 'good', JSON.stringify({
-        id: 'good',
-        name: 'good',
-        algorithm: 'deny-overrides',
-        rules: [],
-      }))
+      await redis.hset(
+        'policies',
+        'good',
+        JSON.stringify({
+          id: 'good',
+          name: 'good',
+          algorithm: 'deny-overrides',
+          rules: [],
+        }),
+      )
       await redis.hset('policies', 'bad', '{not valid json')
 
       const list = await adapter.listPolicies()
