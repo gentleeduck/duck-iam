@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { EngineTypes } from '../../core/engine/engine.types'
 
 /**
@@ -63,6 +64,16 @@ export namespace RedisInvalidator {
      * cross-invalidate.
      */
     channel?: string
+    /**
+     * Shared HMAC secret. When set, every published envelope is signed with
+     * `HMAC-SHA256(secret, canonicalJSON(payload))` and incoming envelopes
+     * without a verifying signature are dropped (silent — one `console.warn`
+     * per channel on the first rejection). When `null` or omitted (default),
+     * the invalidator falls back to legacy unsigned envelopes and warns once
+     * at construction. Any party with PUBLISH rights to the channel can wipe
+     * caches in that mode; set a secret in production.
+     */
+    secret?: string | null
   }
 }
 
@@ -80,6 +91,67 @@ export type IRedisInvalidatorConfig = RedisInvalidator.IConfig
 
 const DEFAULT_CHANNEL = 'duck-iam:invalidate'
 
+/** Replay window in milliseconds. Signed envelopes older than this are dropped. */
+const REPLAY_WINDOW_MS = 30_000
+
+/** Wire-format version. Bump when the envelope shape changes incompatibly. */
+const ENVELOPE_V = 1
+
+/** Module-level latch for the unsigned-mode warning. Fires at most once per process. */
+const _UNSIGNED_WARNED = { fired: false }
+
+/** Module-level set keyed by channel for per-channel "dropped" warnings. */
+const _DROP_WARNED_CHANNELS = new Set<string>()
+
+/**
+ * Canonical JSON serializer with stable key order. Used as the HMAC pre-image
+ * so publisher and verifier agree on the exact byte string regardless of how
+ * the host JSON engine orders object keys. Arrays preserve order; objects sort
+ * keys lexicographically.
+ */
+function canonicalJSON(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v)
+  if (Array.isArray(v)) return `[${v.map(canonicalJSON).join(',')}]`
+  const keys = Object.keys(v as Record<string, unknown>).sort()
+  const obj = v as Record<string, unknown>
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJSON(obj[k])}`).join(',')}}`
+}
+
+/**
+ * Internal envelope produced by the publisher. Wire layout:
+ *   { v: 1, sig: <hex>, payload: { instanceId, event, ts } }
+ * For unsigned mode, the legacy shape `{ instanceId, event }` is used.
+ */
+interface SignedEnvelope<TRole extends string> {
+  readonly v: 1
+  readonly sig: string
+  readonly payload: {
+    readonly instanceId: string
+    readonly event: EngineTypes.IInvalidateEvent<TRole>
+    readonly ts: number
+  }
+}
+
+/**
+ * Constant-time hex string compare. Wraps Buffer construction so callers don't
+ * have to handle length mismatch (which would short-circuit `timingSafeEqual`
+ * and leak a timing oracle on signature length).
+ */
+function safeHexEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false
+  if (a.length !== b.length) return false
+  let ab: Buffer
+  let bb: Buffer
+  try {
+    ab = Buffer.from(a, 'hex')
+    bb = Buffer.from(b, 'hex')
+  } catch {
+    return false
+  }
+  if (ab.length !== bb.length || ab.length === 0) return false
+  return timingSafeEqual(ab, bb)
+}
+
 /**
  * Creates a cross-instance cache-invalidation broadcaster backed by Redis pub/sub.
  *
@@ -88,6 +160,12 @@ const DEFAULT_CHANNEL = 'duck-iam:invalidate'
  * events via an instance UUID embedded in the payload - without this guard
  * every local invalidate would echo back through the subscriber and re-clear
  * caches we just rebuilt.
+ *
+ * When `init.secret` is set, envelopes are signed with HMAC-SHA256 and
+ * verified on receive with a 30-second replay window keyed off `payload.ts`.
+ * Without a secret the invalidator falls back to legacy unsigned envelopes
+ * (logged once); anyone with PUBLISH rights on the channel can then wipe
+ * caches → set a secret in production.
  *
  * @template TRole - Role identifier union the engine is parameterised over.
  * @param config - Supplies the client and optional channel; see {@link RedisInvalidator.IConfig}.
@@ -98,7 +176,10 @@ const DEFAULT_CHANNEL = 'duck-iam:invalidate'
  *
  * const engine = new Engine({
  *   adapter,
- *   invalidator: createRedisInvalidator({ client: redisPubSub }),
+ *   invalidator: createRedisInvalidator({
+ *     client: redisPubSub,
+ *     secret: process.env.IAM_INVALIDATE_SECRET,
+ *   }),
  * })
  * ```
  * @author wildduck2 <https://github.com/wildduck2>
@@ -109,6 +190,22 @@ export function createRedisInvalidator<TRole extends string = string>(
   const channel = config.channel ?? DEFAULT_CHANNEL
   const instanceId = generateInstanceId()
   const handlers = new Set<(event: EngineTypes.IInvalidateEvent<TRole>) => void>()
+  const secret = config.secret ?? null
+
+  if (secret === null && !_UNSIGNED_WARNED.fired) {
+    _UNSIGNED_WARNED.fired = true
+    console.warn(
+      'duck-iam createRedisInvalidator: `secret` not set — accepting unsigned pub/sub. Anyone with PUBLISH rights on the channel can wipe caches. Pass `secret` to require HMAC-SHA256.',
+    )
+  }
+
+  function warnDropOnce(channelName: string, reason: string): void {
+    if (_DROP_WARNED_CHANNELS.has(channelName)) return
+    _DROP_WARNED_CHANNELS.add(channelName)
+    console.warn(
+      `duck-iam createRedisInvalidator: dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). Further drops on this channel silenced.`,
+    )
+  }
 
   let subscribed = false
   const ensureSubscribed = () => {
@@ -116,7 +213,7 @@ export function createRedisInvalidator<TRole extends string = string>(
     subscribed = true
     void Promise.resolve(
       config.client.subscribe(channel, (message) => {
-        const parsed = safeParse<{ instanceId: string; event: EngineTypes.IInvalidateEvent<TRole> }>(message)
+        const parsed = parseIncoming<TRole>(message, secret, channel, warnDropOnce)
         // Drop messages that originated on this instance - local mutations
         // already cleared local caches; replaying would just double the work
         // and risk an invalidation storm under high write QPS.
@@ -128,7 +225,15 @@ export function createRedisInvalidator<TRole extends string = string>(
 
   return {
     publish(event) {
-      const payload = JSON.stringify({ instanceId, event })
+      let payload: string
+      if (secret !== null) {
+        const inner = { event, instanceId, ts: Date.now() }
+        const sig = createHmac('sha256', secret).update(canonicalJSON(inner)).digest('hex')
+        const envelope: SignedEnvelope<TRole> = { payload: inner, sig, v: ENVELOPE_V }
+        payload = JSON.stringify(envelope)
+      } else {
+        payload = JSON.stringify({ event, instanceId })
+      }
       try {
         config.client.publish(channel, payload)
       } catch {
@@ -151,24 +256,88 @@ export function createRedisInvalidator<TRole extends string = string>(
   }
 }
 
-function safeParse<T>(s: string): T | null {
+/**
+ * Decodes and validates an incoming wire message.
+ *
+ * When `secret` is `null` we accept both legacy `{instanceId, event}` and v:1
+ * envelopes (unwrapping the latter). When `secret` is set we require a v:1
+ * envelope, verify the HMAC, and enforce the replay window. Anything else is
+ * dropped silently after a one-shot warn per channel.
+ *
+ * Returned shape is normalized to `{instanceId, event}` so the caller doesn't
+ * branch on wire format.
+ */
+function parseIncoming<TRole extends string>(
+  s: string,
+  secret: string | null,
+  channel: string,
+  warnDropOnce: (channel: string, reason: string) => void,
+): { instanceId: string; event: EngineTypes.IInvalidateEvent<TRole> } | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(s)
   } catch {
+    if (secret !== null) warnDropOnce(channel, 'invalid JSON')
     return null
   }
-  // Shape guard: drop anything that isn't the expected `{ instanceId, event: { kind } }`
-  // envelope. Without this, a tampered payload could trigger arbitrary handler
-  // calls with malformed events.
   if (typeof parsed !== 'object' || parsed === null) return null
   const obj = parsed as Record<string, unknown>
+
+  // v:1 signed envelope path
+  if (obj.v === ENVELOPE_V) {
+    const sig = obj.sig
+    const payload = obj.payload
+    if (typeof sig !== 'string' || typeof payload !== 'object' || payload === null) {
+      if (secret !== null) warnDropOnce(channel, 'malformed envelope')
+      return null
+    }
+    if (secret !== null) {
+      // Verify signature against canonical pre-image. Use constant-time compare.
+      const expected = createHmac('sha256', secret).update(canonicalJSON(payload)).digest('hex')
+      if (!safeHexEqual(sig, expected)) {
+        warnDropOnce(channel, 'signature mismatch')
+        return null
+      }
+      // Replay window check.
+      const ts = (payload as { ts?: unknown }).ts
+      if (typeof ts !== 'number' || !Number.isFinite(ts)) {
+        warnDropOnce(channel, 'missing or invalid ts')
+        return null
+      }
+      const age = Date.now() - ts
+      if (age > REPLAY_WINDOW_MS || age < -REPLAY_WINDOW_MS) {
+        warnDropOnce(channel, 'replay window exceeded')
+        return null
+      }
+    }
+    // Shape-check inner payload.
+    const inner = payload as Record<string, unknown>
+    if (typeof inner.instanceId !== 'string') return null
+    const ev = inner.event
+    if (!_isValidEvent(ev)) return null
+    return { event: ev as EngineTypes.IInvalidateEvent<TRole>, instanceId: inner.instanceId }
+  }
+
+  // Legacy unsigned envelope: only allowed when no secret is configured.
+  if (secret !== null) {
+    warnDropOnce(channel, 'unsigned message with secret configured')
+    return null
+  }
   if (typeof obj.instanceId !== 'string') return null
   const ev = obj.event
-  if (typeof ev !== 'object' || ev === null) return null
+  if (!_isValidEvent(ev)) return null
+  return { event: ev as EngineTypes.IInvalidateEvent<TRole>, instanceId: obj.instanceId }
+}
+
+/**
+ * Returns `true` when `ev` matches the {@link EngineTypes.IInvalidateEvent}
+ * discriminated union. Tighter than a bare `typeof === 'object'` check so a
+ * tampered payload can't trigger arbitrary handler calls.
+ */
+function _isValidEvent(ev: unknown): boolean {
+  if (typeof ev !== 'object' || ev === null) return false
   const kind = (ev as { kind?: unknown }).kind
-  if (kind !== 'all' && kind !== 'policies' && kind !== 'roles' && kind !== 'subject') return null
-  return parsed as T
+  return kind === 'all' || kind === 'policies' || kind === 'roles' || kind === 'subject'
 }
 
 function generateInstanceId(): string {
