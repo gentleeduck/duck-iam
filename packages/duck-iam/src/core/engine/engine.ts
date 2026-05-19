@@ -85,11 +85,22 @@ export class Engine<
       )
     }
 
-    // Fail-open guard: `defaultEffect: 'allow'` in production is almost always
-    // a misconfiguration. Refuse it unless the operator explicitly opts in.
-    if (this._mode === 'production' && this._defaultEffect === 'allow' && !config.allowFailOpen) {
+    // Fail-open guard: `defaultEffect: 'allow'` is almost always a misconfig
+    // regardless of mode - a buggy condition or an adapter blip silently flips
+    // deny to allow. Refuse it unless the operator explicitly opts in via
+    // `allowFailOpen: true`. We previously enforced this only in production,
+    // which let dev/staging engines ship with the same footgun.
+    if (this._defaultEffect === 'allow' && !config.allowFailOpen) {
       throw new Error(
-        "duck-iam: defaultEffect 'allow' in production mode is a fail-open footgun. Pass `allowFailOpen: true` to confirm intent.",
+        "duck-iam: defaultEffect 'allow' is a fail-open footgun. Pass `allowFailOpen: true` to confirm intent.",
+      )
+    }
+    // Even with the opt-in, emit a loud startup warning so an operator
+    // grep'ing logs for fail-open configurations always finds it.
+    if (this._defaultEffect === 'allow') {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "duck-iam: engine configured with defaultEffect: 'allow' (fail-open). Every request with no applicable policy will be allowed.",
       )
     }
 

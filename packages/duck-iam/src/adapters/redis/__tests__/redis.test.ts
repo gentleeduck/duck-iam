@@ -322,6 +322,87 @@ describe('RedisAdapter', () => {
     })
   })
 
+  describe('malformed-row drop (P0)', () => {
+    // Round-trip guard: corrupt rows must NOT reach the engine. Adapter drops
+    // them and routes the failure through onPolicyError. Without this, a
+    // tampered Redis hash entry would parse as garbage and silently strip
+    // deny rules from the decision pipeline.
+    it('listPolicies drops a row whose JSON cannot be parsed', async () => {
+      const errors: Array<{ msg: string; ctx: { adapter: string; rowId: string } }> = []
+      const adapter = new RedisAdapter<A, R, Ro, S>({
+        client: redis,
+        onPolicyError: (err, ctx) => errors.push({ msg: err.message, ctx }),
+      })
+      // Seed one valid row + one corrupt row directly into the fake store.
+      await redis.hset('policies', 'good', JSON.stringify({
+        id: 'good',
+        name: 'good',
+        algorithm: 'deny-overrides',
+        rules: [],
+      }))
+      await redis.hset('policies', 'bad', '{not valid json')
+
+      const list = await adapter.listPolicies()
+      expect(list.map((p) => p.id)).toEqual(['good'])
+      expect(errors).toHaveLength(1)
+      expect(errors[0]?.ctx.rowId).toBe('bad')
+    })
+
+    it('listPolicies drops a row that parses but fails shape validation', async () => {
+      const errors: Array<{ rowId: string }> = []
+      const adapter = new RedisAdapter<A, R, Ro, S>({
+        client: redis,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      // Missing required fields (no `rules`, no `algorithm`).
+      await redis.hset('policies', 'shape-bad', JSON.stringify({ id: 'shape-bad', name: 'x' }))
+
+      const list = await adapter.listPolicies()
+      expect(list).toEqual([])
+      expect(errors[0]?.rowId).toBe('shape-bad')
+    })
+
+    it('getPolicy returns null and calls onPolicyError on malformed row', async () => {
+      const errors: Array<{ rowId: string }> = []
+      const adapter = new RedisAdapter<A, R, Ro, S>({
+        client: redis,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      await redis.hset('policies', 'bad', 'definitely not json')
+      const got = await adapter.getPolicy('bad')
+      expect(got).toBeNull()
+      expect(errors[0]?.rowId).toBe('bad')
+    })
+
+    it('listRoles drops malformed rows and continues', async () => {
+      const errors: Array<{ rowId: string }> = []
+      const adapter = new RedisAdapter<A, R, Ro, S>({
+        client: redis,
+        onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
+      })
+      await redis.hset('roles', 'good', JSON.stringify({ id: 'good', name: 'g', permissions: [] }))
+      await redis.hset('roles', 'bad', JSON.stringify({ name: 'no id' }))
+      const list = await adapter.listRoles()
+      expect(list.map((r) => r.id)).toEqual(['good'])
+      expect(errors[0]?.rowId).toBe('bad')
+    })
+
+    it('falls back to console.warn when no onPolicyError is configured', async () => {
+      const adapter = new RedisAdapter<A, R, Ro, S>({ client: redis })
+      await redis.hset('policies', 'bad', '{not json')
+      const warnings: string[] = []
+      const orig = console.warn
+      console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(' '))
+      try {
+        const list = await adapter.listPolicies()
+        expect(list).toEqual([])
+      } finally {
+        console.warn = orig
+      }
+      expect(warnings.some((w) => /duck-iam:redis/.test(w) && /bad/.test(w))).toBe(true)
+    })
+  })
+
   describe('NUL byte guard on role/scope', () => {
     // The encoded set member uses `\0` as separator. A caller smuggling a NUL
     // through `as TRole` would corrupt the assignment silently - the guard

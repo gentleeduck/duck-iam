@@ -1,4 +1,5 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
+import { validatePolicy, validateRole } from '../../core/validate'
 
 /**
  * Redis adapter integration types. Type-only namespace - zero bundle cost.
@@ -39,6 +40,13 @@ export namespace Redis {
     client: ILike
     /** Optional key prefix that namespaces every duck-iam key. */
     keyPrefix?: string
+    /**
+     * Invoked when a stored row fails JSON parse or shape validation. The
+     * malformed row is dropped from the result set; the rest are returned
+     * intact. Wire this to your alerting pipeline so corrupt rows do not
+     * silently vanish from authorization decisions.
+     */
+    onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
   }
 }
 
@@ -87,6 +95,7 @@ export class RedisAdapter<
 {
   private _client: Redis.ILike
   private _prefix: string
+  private _onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
 
   /**
    * Creates a new Redis-backed adapter.
@@ -97,6 +106,59 @@ export class RedisAdapter<
   constructor(config: Redis.IConfig) {
     this._client = config.client
     this._prefix = config.keyPrefix ?? ''
+    this._onPolicyError = config.onPolicyError
+  }
+
+  /**
+   * Parse + validate a stored JSON blob. Returns `null` on parse error or
+   * shape mismatch and routes the failure through `onPolicyError` (or the
+   * console as a last resort) so the malformed row never reaches the engine.
+   */
+  private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
+      return null
+    }
+    const result = validatePolicy(parsed)
+    if (!result.valid) {
+      this._reportPolicyError(
+        new Error(`Invalid policy "${rowId}": ${result.issues.map((i) => i.message).join('; ')}`),
+        rowId,
+      )
+      return null
+    }
+    return parsed as AccessControl.IPolicy<TAction, TResource, TRole>
+  }
+
+  private _safeParseRole(raw: string, rowId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
+      return null
+    }
+    const result = validateRole(parsed)
+    if (!result.valid) {
+      this._reportPolicyError(
+        new Error(`Invalid role "${rowId}": ${result.issues.map((i) => i.message).join('; ')}`),
+        rowId,
+      )
+      return null
+    }
+    return parsed as AccessControl.IRole<TAction, TResource, TRole, TScope>
+  }
+
+  private _reportPolicyError(err: Error, rowId: string): void {
+    if (this._onPolicyError) {
+      this._onPolicyError(err, { adapter: 'redis', rowId })
+      return
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[duck-iam:redis] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   // -- key helpers --
@@ -141,8 +203,13 @@ export class RedisAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    const values = await this._client.hvals(this._policiesKey())
-    return values.map((v) => JSON.parse(v) as AccessControl.IPolicy<TAction, TResource, TRole>)
+    const entries = await this._client.hgetall(this._policiesKey())
+    const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
+    for (const [rowId, raw] of Object.entries(entries)) {
+      const parsed = this._safeParsePolicy(raw, rowId)
+      if (parsed) out.push(parsed)
+    }
+    return out
   }
 
   /**
@@ -158,7 +225,7 @@ export class RedisAdapter<
     _opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const value = await this._client.hget(this._policiesKey(), id)
-    return value ? (JSON.parse(value) as AccessControl.IPolicy<TAction, TResource, TRole>) : null
+    return value ? this._safeParsePolicy(value, id) : null
   }
 
   /**
@@ -191,8 +258,13 @@ export class RedisAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    const values = await this._client.hvals(this._rolesKey())
-    return values.map((v) => JSON.parse(v) as AccessControl.IRole<TAction, TResource, TRole, TScope>)
+    const entries = await this._client.hgetall(this._rolesKey())
+    const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
+    for (const [rowId, raw] of Object.entries(entries)) {
+      const parsed = this._safeParseRole(raw, rowId)
+      if (parsed) out.push(parsed)
+    }
+    return out
   }
 
   /**
@@ -208,7 +280,7 @@ export class RedisAdapter<
     _opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const value = await this._client.hget(this._rolesKey(), id)
-    return value ? (JSON.parse(value) as AccessControl.IRole<TAction, TResource, TRole, TScope>) : null
+    return value ? this._safeParseRole(value, id) : null
   }
 
   /**
@@ -317,7 +389,18 @@ export class RedisAdapter<
    */
   async getSubjectAttributes(subjectId: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
     const value = await this._client.get(this._attrsKey(subjectId))
-    return value ? (JSON.parse(value) as Primitives.Attributes) : {}
+    if (!value) return {}
+    try {
+      const parsed = JSON.parse(value)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
+        return {}
+      }
+      return parsed as Primitives.Attributes
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
+      return {}
+    }
   }
 
   /**

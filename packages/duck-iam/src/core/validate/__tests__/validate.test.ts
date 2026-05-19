@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MAX_INHERITANCE_DEPTH } from '../..'
 import type { AccessControl } from '../../types'
-import { validatePolicy, validateRoles } from '../validate'
+import { validatePolicy, validateRole, validateRoles } from '../validate'
 
 describe('validateRoles()', () => {
   it('valid roles return valid=true', () => {
@@ -480,5 +480,48 @@ describe('condition validator bounds (H1, H2)', () => {
     }
     const result = validatePolicy(policy)
     expect(result.issues.some((i) => i.code === 'LIMIT_EXCEEDED' && i.message.includes('nesting'))).toBe(false)
+  })
+})
+
+describe('validateRole() - single-row guard (P0)', () => {
+  it('accepts a minimal valid role', () => {
+    const result = validateRole({ id: 'viewer', name: 'Viewer', permissions: [] })
+    expect(result.valid).toBe(true)
+    expect(result.issues).toHaveLength(0)
+  })
+
+  it('accepts a role with inherits as an array of strings', () => {
+    const result = validateRole({ id: 'editor', name: 'E', permissions: [], inherits: ['viewer'] })
+    expect(result.valid).toBe(true)
+  })
+
+  it('rejects non-object input', () => {
+    expect(validateRole(null).valid).toBe(false)
+    expect(validateRole(42).valid).toBe(false)
+    expect(validateRole([]).valid).toBe(false)
+    expect(validateRole('string').valid).toBe(false)
+  })
+
+  it('rejects missing or empty id', () => {
+    expect(validateRole({ permissions: [] }).valid).toBe(false)
+    expect(validateRole({ id: '', permissions: [] }).valid).toBe(false)
+    expect(validateRole({ id: 7, permissions: [] }).valid).toBe(false)
+  })
+
+  it('rejects missing permissions array', () => {
+    const r = validateRole({ id: 'r' })
+    expect(r.valid).toBe(false)
+    expect(r.issues.some((i) => i.path === 'permissions')).toBe(true)
+  })
+
+  it('rejects non-string entries in inherits', () => {
+    const r = validateRole({ id: 'r', permissions: [], inherits: ['ok', 5] })
+    expect(r.valid).toBe(false)
+    expect(r.issues.some((i) => i.path === 'inherits[1]')).toBe(true)
+  })
+
+  it('rejects non-array inherits', () => {
+    const r = validateRole({ id: 'r', permissions: [], inherits: 'viewer' })
+    expect(r.valid).toBe(false)
   })
 })

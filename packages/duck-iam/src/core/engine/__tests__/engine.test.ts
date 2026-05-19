@@ -794,9 +794,36 @@ describe('Engine - construction guards', () => {
     ).not.toThrow()
   })
 
-  it("accepts defaultEffect='allow' in development without opt-in", () => {
+  it("refuses defaultEffect='allow' in development without opt-in (P0)", () => {
+    // Fail-open is just as dangerous in dev/staging as in prod - a dev
+    // engine that ships with allow-by-default lets corrupt policies vanish
+    // silently. Same opt-in required in every mode.
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
-    expect(() => new Engine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow' })).not.toThrow()
+    expect(() => new Engine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow' })).toThrow(
+      /fail-open/i,
+    )
+  })
+
+  it("accepts defaultEffect='allow' in development with allowFailOpen: true", () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    expect(
+      () => new Engine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow', allowFailOpen: true }),
+    ).not.toThrow()
+  })
+
+  it("warns at construction when defaultEffect: 'allow' is opted in", () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const warnings: string[] = []
+    const originalWarn = console.warn
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '))
+    }
+    try {
+      new Engine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow', allowFailOpen: true })
+    } finally {
+      console.warn = originalWarn
+    }
+    expect(warnings.some((w) => /fail-open/i.test(w))).toBe(true)
   })
 })
 

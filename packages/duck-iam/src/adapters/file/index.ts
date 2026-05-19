@@ -1,4 +1,5 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
+import { validatePolicy, validateRole } from '../../core/validate'
 
 export namespace File {
   /**
@@ -56,6 +57,13 @@ export namespace File {
      * in Node or Bun, or any object implementing {@link IFS} for tests.
      */
     fs: IFS
+    /**
+     * Invoked when a stored row fails JSON parse or shape validation. The
+     * malformed row is dropped from the loaded state; the rest are returned
+     * intact. Wire this to your alerting pipeline so corrupt rows do not
+     * silently vanish from authorization decisions.
+     */
+    onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
   }
 
   /**
@@ -110,6 +118,7 @@ export class FileAdapter<
 {
   private readonly _path: string
   private readonly _fs: File.IFS
+  private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
   private _cache: File.IState<TAction, TResource, TRole, TScope> | null = null
   private _loadInFlight: Promise<File.IState<TAction, TResource, TRole, TScope>> | null = null
 
@@ -122,6 +131,16 @@ export class FileAdapter<
   constructor(init: File.IInit) {
     this._path = init.path
     this._fs = init.fs
+    this._onPolicyError = init.onPolicyError
+  }
+
+  private _reportPolicyError(err: Error, rowId: string): void {
+    if (this._onPolicyError) {
+      this._onPolicyError(err, { adapter: 'file', rowId })
+      return
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[duck-iam:file] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   private async _loadState(): Promise<File.IState<TAction, TResource, TRole, TScope>> {
@@ -131,15 +150,50 @@ export class FileAdapter<
       let state: File.IState<TAction, TResource, TRole, TScope>
       try {
         const raw = await this._fs.readFile(this._path, 'utf8')
-        const parsed = JSON.parse(raw) as Partial<File.IState<TAction, TResource, TRole, TScope>>
+        let parsed: Partial<File.IState<TAction, TResource, TRole, TScope>>
+        try {
+          parsed = JSON.parse(raw) as Partial<File.IState<TAction, TResource, TRole, TScope>>
+        } catch (err) {
+          this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), this._path)
+          this._cache = { policies: {}, roles: {}, assignments: {}, attributes: {} }
+          this._loadInFlight = null
+          return this._cache
+        }
+
+        // Validate each row; drop malformed entries instead of returning them.
+        const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = {}
+        for (const [rowId, p] of Object.entries(parsed.policies ?? {})) {
+          const result = validatePolicy(p)
+          if (result.valid) {
+            policies[rowId] = p as AccessControl.IPolicy<TAction, TResource, TRole>
+          } else {
+            this._reportPolicyError(
+              new Error(`Invalid policy "${rowId}": ${result.issues.map((i) => i.message).join('; ')}`),
+              rowId,
+            )
+          }
+        }
+        const roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>> = {}
+        for (const [rowId, r] of Object.entries(parsed.roles ?? {})) {
+          const result = validateRole(r)
+          if (result.valid) {
+            roles[rowId] = r as AccessControl.IRole<TAction, TResource, TRole, TScope>
+          } else {
+            this._reportPolicyError(
+              new Error(`Invalid role "${rowId}": ${result.issues.map((i) => i.message).join('; ')}`),
+              rowId,
+            )
+          }
+        }
+
         state = {
-          policies: parsed.policies ?? {},
-          roles: parsed.roles ?? {},
+          policies,
+          roles,
           assignments: parsed.assignments ?? {},
           attributes: parsed.attributes ?? {},
         }
       } catch {
-        // Missing file or malformed JSON, start empty.
+        // Missing file - start empty without error (matches prior behavior for ENOENT).
         state = { policies: {}, roles: {}, assignments: {}, attributes: {} }
       }
       this._cache = state

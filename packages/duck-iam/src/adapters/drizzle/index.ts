@@ -1,4 +1,5 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
+import { validatePolicy, validateRole } from '../../core/validate'
 
 /**
  * Row shapes returned by Drizzle queries.
@@ -67,6 +68,13 @@ export namespace Drizzle {
       eq: (col: unknown, val: unknown) => unknown
       and: (...conditions: unknown[]) => unknown
     }
+    /**
+     * Invoked when a stored row fails JSON parse or shape validation. The
+     * malformed row is dropped from the result set; the rest are returned
+     * intact. Wire this to your alerting pipeline so corrupt rows do not
+     * silently vanish from authorization decisions.
+     */
+    onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
   }
 }
 
@@ -129,6 +137,7 @@ export class DrizzleAdapter<
   private _t: Drizzle.IConfig['tables']
   private _eq: Drizzle.IConfig['ops']['eq']
   private _and: Drizzle.IConfig['ops']['and']
+  private _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
 
   /**
    * Creates a new Drizzle adapter.
@@ -141,6 +150,97 @@ export class DrizzleAdapter<
     this._t = config.tables
     this._eq = config.ops.eq
     this._and = config.ops.and
+    this._onPolicyError = config.onPolicyError
+  }
+
+  private _reportPolicyError(err: Error, rowId: string): void {
+    if (this._onPolicyError) {
+      this._onPolicyError(err, { adapter: 'drizzle', rowId })
+      return
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[duck-iam:drizzle] dropped malformed row "${rowId}": ${err.message}`)
+  }
+
+  /**
+   * Parse a row's JSON columns + validate the policy shape. Returns `null` on
+   * any failure (parse error or invalid shape) so the caller can drop the row.
+   */
+  private _safeParsePolicy(row: PolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+    let parsedRules: unknown
+    let parsedTargets: unknown
+    try {
+      parsedRules =
+        typeof row.rules === 'string' ? JSON.parse(row.rules) : (row.rules as AccessControl.IPolicy['rules'])
+      parsedTargets = row.targets
+        ? typeof row.targets === 'string'
+          ? JSON.parse(row.targets)
+          : (row.targets as AccessControl.IPolicy['targets'])
+        : undefined
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
+      return null
+    }
+
+    const candidate = {
+      id: row.id,
+      name: row.name,
+      description: row.description ?? undefined,
+      version: row.version,
+      algorithm: row.algorithm as AccessControl.IPolicy['algorithm'],
+      rules: parsedRules,
+      targets: parsedTargets,
+    }
+    const result = validatePolicy(candidate)
+    if (!result.valid) {
+      this._reportPolicyError(
+        new Error(`Invalid policy "${row.id}": ${result.issues.map((i) => i.message).join('; ')}`),
+        row.id,
+      )
+      return null
+    }
+    return candidate as AccessControl.IPolicy<TAction, TResource, TRole>
+  }
+
+  private _safeParseRole(row: RoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+    let permissions: unknown
+    let inherits: unknown
+    let metadata: unknown
+    try {
+      permissions =
+        typeof row.permissions === 'string'
+          ? JSON.parse(row.permissions)
+          : (row.permissions as AccessControl.IRole['permissions'])
+      inherits =
+        typeof row.inherits === 'string' ? JSON.parse(row.inherits) : ((row.inherits as string[] | null) ?? [])
+      metadata = row.metadata
+        ? typeof row.metadata === 'string'
+          ? JSON.parse(row.metadata)
+          : (row.metadata as AccessControl.IRole['metadata'])
+        : undefined
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
+      return null
+    }
+
+    const candidate = {
+      id: row.id,
+      name: row.name,
+      description: row.description ?? undefined,
+      permissions,
+      inherits,
+      scope: row.scope ?? undefined,
+      metadata,
+    }
+    const result = validateRole(candidate)
+    if (!result.valid) {
+      this._reportPolicyError(
+        new Error(`Invalid role "${row.id}": ${result.issues.map((i) => i.message).join('; ')}`),
+        row.id,
+      )
+      return null
+    }
+    return candidate as AccessControl.IRole<TAction, TResource, TRole, TScope>
   }
 
   /**
@@ -152,7 +252,12 @@ export class DrizzleAdapter<
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = (await this._db.select().from(this._t.policies)) as unknown as PolicyRow[]
-    return rows.map(parsePolicy) as AccessControl.IPolicy<TAction, TResource, TRole>[]
+    const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
+    for (const row of rows) {
+      const parsed = this._safeParsePolicy(row)
+      if (parsed) out.push(parsed)
+    }
+    return out
   }
 
   /**
@@ -172,7 +277,7 @@ export class DrizzleAdapter<
       .from(this._t.policies)
       .where(this._eq(this._t.policies.id, id))
       .limit(1)) as unknown as PolicyRow[]
-    return rows[0] ? (parsePolicy(rows[0]) as AccessControl.IPolicy<TAction, TResource, TRole>) : null
+    return rows[0] ? this._safeParsePolicy(rows[0]) : null
   }
 
   /**
@@ -207,7 +312,12 @@ export class DrizzleAdapter<
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = (await this._db.select().from(this._t.roles)) as unknown as RoleRow[]
-    return rows.map(parseRole) as AccessControl.IRole<TAction, TResource, TRole, TScope>[]
+    const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
+    for (const row of rows) {
+      const parsed = this._safeParseRole(row)
+      if (parsed) out.push(parsed)
+    }
+    return out
   }
 
   /**
@@ -227,7 +337,7 @@ export class DrizzleAdapter<
       .from(this._t.roles)
       .where(this._eq(this._t.roles.id, id))
       .limit(1)) as unknown as RoleRow[]
-    return rows[0] ? (parseRole(rows[0]) as AccessControl.IRole<TAction, TResource, TRole, TScope>) : null
+    return rows[0] ? this._safeParseRole(rows[0]) : null
   }
 
   /**
@@ -340,7 +450,18 @@ export class DrizzleAdapter<
       .limit(1)) as unknown as AttrRow[]
     if (!rows[0]) return {}
     const data = rows[0].data
-    return typeof data === 'string' ? JSON.parse(data) : ((data as Primitives.Attributes) ?? {})
+    if (typeof data !== 'string') return (data as Primitives.Attributes) ?? {}
+    try {
+      const parsed = JSON.parse(data)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
+        return {}
+      }
+      return parsed as Primitives.Attributes
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
+      return {}
+    }
   }
 
   /**
@@ -361,23 +482,6 @@ export class DrizzleAdapter<
   }
 }
 
-/** Converts a database row into a Policy object, deserializing JSON columns. */
-function parsePolicy(row: PolicyRow): AccessControl.IPolicy {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description ?? undefined,
-    version: row.version,
-    algorithm: row.algorithm as AccessControl.IPolicy['algorithm'],
-    rules: typeof row.rules === 'string' ? JSON.parse(row.rules) : (row.rules as AccessControl.IPolicy['rules']),
-    targets: row.targets
-      ? typeof row.targets === 'string'
-        ? JSON.parse(row.targets)
-        : (row.targets as AccessControl.IPolicy['targets'])
-      : undefined,
-  }
-}
-
 /** Converts a Policy object into a flat record with JSON-stringified columns for storage. */
 function serializePolicy(p: AccessControl.IPolicy): Record<string, unknown> {
   return {
@@ -388,26 +492,6 @@ function serializePolicy(p: AccessControl.IPolicy): Record<string, unknown> {
     algorithm: p.algorithm,
     rules: JSON.stringify(p.rules),
     targets: p.targets ? JSON.stringify(p.targets) : null,
-  }
-}
-
-/** Converts a database row into a Role object, deserializing JSON columns. */
-function parseRole(row: RoleRow): AccessControl.IRole {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description ?? undefined,
-    permissions:
-      typeof row.permissions === 'string'
-        ? JSON.parse(row.permissions)
-        : (row.permissions as AccessControl.IRole['permissions']),
-    inherits: typeof row.inherits === 'string' ? JSON.parse(row.inherits) : ((row.inherits as string[]) ?? []),
-    scope: row.scope ?? undefined,
-    metadata: row.metadata
-      ? typeof row.metadata === 'string'
-        ? JSON.parse(row.metadata)
-        : (row.metadata as AccessControl.IRole['metadata'])
-      : undefined,
   }
 }
 
