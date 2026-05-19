@@ -2,7 +2,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/../../../.." && pwd)"
 NEXT_PID=""
 HOCUS_PID=""
 
@@ -51,7 +51,7 @@ sleep 1
 
 # ── 5. Start Next.js ─────────────────────────────────────────────
 echo "Starting Next.js on http://localhost:3005 ..."
-cd "$ROOT" && bun --bun next dev --port 3005 &
+cd "$ROOT" && bun run dev &
 NEXT_PID=$!
 
 echo ""

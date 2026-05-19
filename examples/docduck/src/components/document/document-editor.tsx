@@ -92,8 +92,8 @@ const CONNECTION_CONFIG: Record<ConnectionStatus, { label: string; dotClass: str
 }
 
 export function DocumentEditor({ document: doc, workspace, user, canEdit }: Props) {
-  const [title, setTitle] = useState(doc.title)
-  const [titleSaving, setTitleSaving] = useState(false)
+  const [title, _setTitle] = useState(doc.title)
+  const [_titleSaving, setTitleSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const [lastSavedDisplay, setLastSavedDisplay] = useState<string>('')
   const [wordCount, setWordCount] = useState(0)

@@ -1,5 +1,5 @@
 echo "[husky] pre-commit checks starting..."
 
-bunx biome check --write packages/ tooling/
+bunx biome check --write .
 
 echo "[husky] pre-commit checks passed"

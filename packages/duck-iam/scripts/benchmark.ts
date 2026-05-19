@@ -16,13 +16,9 @@ import { evaluate, evaluatePolicy } from '../src/core/evaluate'
 import type { AccessRequest, Policy } from '../src/core/types'
 
 const OUT_DIR = join(import.meta.dirname, '..', 'public', 'benchmarks')
-const DOCS_DIR = join(import.meta.dirname, '..', '..', '..', 'apps', 'duck-iam-docs', 'public', 'data', 'benchmarks')
+const DOCS_DIR = join(import.meta.dirname, '..', '..', '..', 'apps', 'duck', 'public', 'data', 'benchmarks')
 mkdirSync(OUT_DIR, { recursive: true })
 mkdirSync(DOCS_DIR, { recursive: true })
-
-// ---------------------------------------------------------------------------
-// Benchmark runner
-// ---------------------------------------------------------------------------
 
 function bench(fn: () => void, warmup = 200, iterations = 2000): number {
   for (let i = 0; i < warmup; i++) fn()
@@ -37,10 +33,6 @@ async function benchAsync(fn: () => Promise<void>, warmup = 100, iterations = 10
   for (let i = 0; i < iterations; i++) await fn()
   return (performance.now() - start) / iterations
 }
-
-// ---------------------------------------------------------------------------
-// 1. Test fixtures
-// ---------------------------------------------------------------------------
 
 const simplePolicy: Policy = {
   id: 'simple',
@@ -121,10 +113,6 @@ const denyRequest: AccessRequest = {
   resource: { type: 'post', attributes: {} },
 }
 
-// ---------------------------------------------------------------------------
-// 2. Core performance benchmarks
-// ---------------------------------------------------------------------------
-
 const corePerformance = {
   evaluatePolicySimple: {
     label: 'evaluatePolicy (simple rule)',
@@ -151,10 +139,6 @@ const corePerformance = {
     us: +(bench(() => evaluate([simplePolicy], denyRequest)) * 1000).toFixed(2),
   },
 }
-
-// ---------------------------------------------------------------------------
-// 3. Engine benchmarks (async, with caching)
-// ---------------------------------------------------------------------------
 
 const adapter = new MemoryAdapter({
   policies: [simplePolicy, conditionPolicy],
@@ -240,10 +224,6 @@ const enginePerformance = {
   },
 }
 
-// ---------------------------------------------------------------------------
-// 4. Bundle size measurements
-// ---------------------------------------------------------------------------
-
 function measureExportSize(entryPath: string): number {
   const distDir = join(import.meta.dirname, '..', 'dist')
   const fullPath = join(distDir, entryPath)
@@ -325,6 +305,11 @@ const moduleSizes = [
     sizeBytes: measureExportSize('adapters/http/index.js'),
   },
   {
+    name: 'Adapter: Redis',
+    entry: 'adapters/redis/index.js',
+    sizeBytes: measureExportSize('adapters/redis/index.js'),
+  },
+  {
     name: 'Server: Express',
     entry: 'server/express/index.js',
     sizeBytes: measureExportSize('server/express/index.js'),
@@ -368,10 +353,6 @@ const moduleSizes = [
 
 const coreSizeBytes = moduleSizes.find((m) => m.name === 'Core (full)')?.sizeBytes ?? 0
 
-// ---------------------------------------------------------------------------
-// 5. Bundle size comparison (verified via bundlephobia API 2026-03-30)
-// ---------------------------------------------------------------------------
-
 const bundleComparison = [
   {
     name: '@gentleduck/iam (full)',
@@ -403,10 +384,6 @@ const bundleComparison = [
   },
 ]
 
-// ---------------------------------------------------------------------------
-// 6. Feature comparison
-// ---------------------------------------------------------------------------
-
 const features = [
   { feature: 'RBAC', gentleduck: true, casl: true, casbin: true, accesscontrol: true },
   { feature: 'ABAC (conditions)', gentleduck: true, casl: true, casbin: true, accesscontrol: false },
@@ -417,7 +394,7 @@ const features = [
   { feature: 'Explain / debug trace', gentleduck: true, casl: false, casbin: false, accesscontrol: false },
   { feature: 'Lifecycle hooks', gentleduck: true, casl: false, casbin: false, accesscontrol: false },
   { feature: 'LRU caching built-in', gentleduck: true, casl: false, casbin: false, accesscontrol: false },
-  { feature: 'Database adapters', gentleduck: '4', casl: '3', casbin: '20+', accesscontrol: '0' },
+  { feature: 'Database adapters', gentleduck: '5', casl: '3', casbin: '20+', accesscontrol: '0' },
   { feature: 'Server middleware', gentleduck: '5', casl: '0', casbin: '2', accesscontrol: '0' },
   { feature: 'React integration', gentleduck: true, casl: true, casbin: false, accesscontrol: false },
   { feature: 'Vue integration', gentleduck: true, casl: true, casbin: false, accesscontrol: false },
@@ -428,10 +405,6 @@ const features = [
   { feature: 'Resource hierarchy', gentleduck: true, casl: false, casbin: true, accesscontrol: true },
   { feature: 'Wildcard patterns', gentleduck: true, casl: true, casbin: true, accesscontrol: true },
 ]
-
-// ---------------------------------------------------------------------------
-// 7. Per-library comparisons
-// ---------------------------------------------------------------------------
 
 const vsCasl = {
   name: '@casl/ability',
@@ -454,7 +427,7 @@ const vsCasl = {
     { metric: 'Server middleware', gentleduck: '5 frameworks', competitor: 'None built-in', winner: 'gentleduck' },
     {
       metric: 'Database adapters',
-      gentleduck: '4 (Memory, Prisma, Drizzle, HTTP)',
+      gentleduck: '5 (Memory, Prisma, Drizzle, Redis, HTTP)',
       competitor: '3 (Prisma, Mongoose, TypeORM)',
       winner: 'tie',
     },
@@ -481,7 +454,7 @@ const vsCasbin = {
       competitor: 'Model file (PERM DSL)',
       winner: 'tie',
     },
-    { metric: 'Database adapters', gentleduck: '4', competitor: '20+', winner: 'competitor' },
+    { metric: 'Database adapters', gentleduck: '5', competitor: '20+', winner: 'competitor' },
     { metric: 'Language support', gentleduck: 'JS/TS only', competitor: '15+ languages', winner: 'competitor' },
     { metric: 'Type safety', gentleduck: 'Full generics', competitor: 'String-based', winner: 'gentleduck' },
     { metric: 'Explain / debug', gentleduck: 'Full trace', competitor: 'None', winner: 'gentleduck' },
@@ -511,7 +484,7 @@ const vsAccesscontrol = {
     { metric: 'Conditions (ABAC)', gentleduck: '18 operators', competitor: 'None', winner: 'gentleduck' },
     { metric: 'Scoped roles', gentleduck: 'Built-in', competitor: 'None', winner: 'gentleduck' },
     { metric: 'Explain / debug', gentleduck: 'Full trace', competitor: 'None', winner: 'gentleduck' },
-    { metric: 'Database adapters', gentleduck: '4', competitor: '0 (in-memory only)', winner: 'gentleduck' },
+    { metric: 'Database adapters', gentleduck: '5', competitor: '0 (in-memory only)', winner: 'gentleduck' },
     { metric: 'Server middleware', gentleduck: '5 frameworks', competitor: 'None', winner: 'gentleduck' },
     { metric: 'API style', gentleduck: 'Engine + policies', competitor: 'Fluent grants', winner: 'tie' },
     { metric: 'Maturity', gentleduck: 'New', competitor: 'Established (2016)', winner: 'competitor' },
@@ -521,10 +494,6 @@ const vsAccesscontrol = {
 }
 
 const libraryComparisons = [vsCasl, vsCasbin, vsAccesscontrol]
-
-// ---------------------------------------------------------------------------
-// Write JSON output
-// ---------------------------------------------------------------------------
 
 const results = {
   corePerformance: Object.values(corePerformance),
@@ -539,10 +508,6 @@ const results = {
 const json = JSON.stringify(results, null, 2)
 writeFileSync(join(OUT_DIR, 'results.json'), json)
 writeFileSync(join(DOCS_DIR, 'iam.json'), json)
-
-// ---------------------------------------------------------------------------
-// Console output
-// ---------------------------------------------------------------------------
 
 console.log('IAM benchmarks generated:')
 console.log(`  ${OUT_DIR}/results.json`)

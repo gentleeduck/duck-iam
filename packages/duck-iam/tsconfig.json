@@ -2,7 +2,12 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "exactOptionalPropertyTypes": false,
+    "noPropertyAccessFromIndexSignature": false,
+    "noImplicitOverride": false,
+    "verbatimModuleSyntax": false,
+    "jsx": "react-jsx"
   },
   "exclude": ["node_modules", "dist", "examples.ts"],
   "extends": "@gentleduck/typescript-config/internal-package.json",

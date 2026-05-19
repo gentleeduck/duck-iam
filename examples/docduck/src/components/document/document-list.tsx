@@ -87,7 +87,7 @@ export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
     })
   }
 
-  function formatTime(dateString: string): string {
+  function _formatTime(dateString: string): string {
     const date = new Date(dateString)
     return date.toLocaleTimeString(undefined, {
       hour: '2-digit',

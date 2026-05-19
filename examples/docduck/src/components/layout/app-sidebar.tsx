@@ -63,7 +63,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
     if (mq.matches) setOpen(false)
-  }, [pathname, setOpen])
+  }, [setOpen])
 
   return (
     <TooltipProvider delayDuration={0}>
