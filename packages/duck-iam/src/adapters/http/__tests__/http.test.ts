@@ -70,6 +70,110 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).rejects.toThrow(/duck-iam HTTP 500: boom/)
     })
 
+    it('rejects non-http(s) baseUrl scheme (SEC-001)', () => {
+      expect(
+        () => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'ftp://api.example.com/iam' }),
+      ).toThrow(/scheme must be http: or https:/)
+    })
+
+    it('rejects baseUrl with query string or fragment (SEC-001)', () => {
+      expect(
+        () => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?x=1' }),
+      ).toThrow(/query string or fragment/)
+      expect(
+        () => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#frag' }),
+      ).toThrow(/query string or fragment/)
+    })
+
+    it('rejects malformed baseUrl (SEC-001)', () => {
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'not a url' })).toThrow(/invalid baseUrl/)
+    })
+
+    it('rejects private/loopback host by default (SEC-001)', () => {
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://127.0.0.1/iam' })).toThrow(
+        /private\/loopback/,
+      )
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://10.0.0.5/iam' })).toThrow(
+        /private\/loopback/,
+      )
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://192.168.1.1/iam' })).toThrow(
+        /private\/loopback/,
+      )
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://172.16.0.1/iam' })).toThrow(
+        /private\/loopback/,
+      )
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://169.254.169.254/iam' })).toThrow(
+        /private\/loopback/,
+      )
+      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::1]/iam' })).toThrow(
+        /private\/loopback/,
+      )
+    })
+
+    it('accepts private host when allowPrivateHosts: true (SEC-001)', async () => {
+      const { fetch } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'http://127.0.0.1/iam',
+        fetch,
+        allowPrivateHosts: true,
+      })
+      await expect(adapter.listPolicies()).resolves.toEqual([])
+    })
+
+    it('rejects baseUrl whose host is not in allowedHosts (SEC-001)', () => {
+      expect(
+        () =>
+          new HttpAdapter<A, R, Ro, S>({
+            baseUrl: 'https://evil.example.com/iam',
+            allowedHosts: ['api.example.com'],
+          }),
+      ).toThrow(/not in allowedHosts/)
+    })
+
+    it('accepts baseUrl whose host is in allowedHosts (SEC-001)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({
+        baseUrl: 'https://api.example.com',
+        fetch,
+        allowedHosts: ['api.example.com'],
+      })
+      await adapter.listPolicies()
+      expect(calls[0]?.url).toBe('https://api.example.com/policies')
+    })
+
+    it('encodes subject id path segment to defeat path injection (SEC-001)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      await adapter.getSubjectRoles('..//etc/passwd')
+      expect(calls[0]?.url).toBe('https://x/subjects/..%2F%2Fetc%2Fpasswd/roles')
+      expect(calls[0]?.url).not.toContain('/etc/passwd')
+    })
+
+    it('encodes policy id path segment (SEC-001)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse(null, false, 404))
+      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      await adapter.getPolicy('..//internal-admin')
+      expect(calls[0]?.url).toBe('https://x/policies/..%2F%2Finternal-admin')
+    })
+
+    it('warns once when allowedHosts is omitted (SEC-001)', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        // Latch is module-level: prior tests in this file may have already
+        // tripped it. Construct several adapters and assert the spy fires at
+        // most once across them.
+        new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://a.example.com' })
+        new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://b.example.com' })
+        new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://c.example.com' })
+        const allowedHostsCalls = warn.mock.calls.filter((c) =>
+          String(c[0] ?? '').includes('allowedHosts'),
+        )
+        expect(allowedHostsCalls.length).toBeLessThanOrEqual(1)
+      } finally {
+        warn.mockRestore()
+      }
+    })
+
     it('uses globalThis.fetch when no fetch supplied', async () => {
       const original = globalThis.fetch
       const stub = vi.fn(async () => jsonResponse([]))

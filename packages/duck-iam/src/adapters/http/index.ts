@@ -97,7 +97,67 @@ export namespace Http {
      * closes the circuit, failure re-opens it. Default `30_000` (30 s).
      */
     circuitBreakerCooldownMs?: number
+    /**
+     * Restricts the set of acceptable hosts for `baseUrl`. When set, the parsed
+     * URL's `host` (`hostname[:port]`) must appear in the list or construction
+     * throws. Defaults to `undefined` (allow any host); when omitted a one-time
+     * `console.warn` is emitted at construction recommending a list.
+     */
+    allowedHosts?: string[]
+    /**
+     * Permits `baseUrl` whose hostname is an IP literal in a private/loopback
+     * range (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`,
+     * `169.254.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`). Defaults to `false`.
+     * DNS names are not resolved (would require sync I/O at init); they pass
+     * through and are only constrained by `allowedHosts`.
+     */
+    allowPrivateHosts?: boolean
   }
+}
+
+/**
+ * One-time warning latch for omitted `allowedHosts`. Module-level so repeated
+ * adapter constructions during tests / per-request scopes don't spam stderr.
+ */
+const _ALLOWED_HOSTS_WARNED = { fired: false }
+
+/**
+ * Returns `true` when the given hostname is an IP literal in a private,
+ * loopback, link-local, or unique-local range. DNS names return `false`
+ * (caller controls them via `allowedHosts`).
+ */
+function _isPrivateHost(hostname: string): boolean {
+  // Strip surrounding brackets from IPv6 literals.
+  const h = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
+  // IPv4 dotted-quad
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
+  if (v4) {
+    const a = Number(v4[1])
+    const b = Number(v4[2])
+    if (a === 127) return true // loopback
+    if (a === 10) return true // RFC1918
+    if (a === 192 && b === 168) return true // RFC1918
+    if (a === 172 && b >= 16 && b <= 31) return true // RFC1918
+    if (a === 169 && b === 254) return true // link-local
+    if (a === 0) return true // "this network"
+    return false
+  }
+  // IPv6 literal
+  if (h.includes(':')) {
+    const lower = h.toLowerCase()
+    if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true
+    // fc00::/7 — first byte 0xfc or 0xfd
+    if (/^f[cd][0-9a-f]{0,2}:/.test(lower)) return true
+    // fe80::/10 — fe8x, fe9x, feax, febx
+    if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true
+    // IPv4-mapped 127.x via ::ffff:
+    if (lower.startsWith('::ffff:')) {
+      const tail = lower.slice(7)
+      return _isPrivateHost(tail)
+    }
+    return false
+  }
+  return false
 }
 
 /**
@@ -153,7 +213,7 @@ export class HttpAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(config: Http.IConfig) {
-    this._baseUrl = config.baseUrl.replace(/\/$/, '')
+    this._baseUrl = HttpAdapter._validateBaseUrl(config)
     this._fetch = config.fetch ?? globalThis.fetch.bind(globalThis)
     this._headers = config.headers
     this._timeoutMs = config.timeoutMs ?? 5_000
@@ -161,6 +221,49 @@ export class HttpAdapter<
     this._backoffMs = config.backoffMs ?? 100
     this._cbThreshold = config.circuitBreakerThreshold ?? 5
     this._cbCooldownMs = config.circuitBreakerCooldownMs ?? 30_000
+  }
+
+  /**
+   * Validates `baseUrl` at construction time. Rejects non-`http(s)` schemes,
+   * trailing query/fragment, hosts not in the allow-list, and private/loopback
+   * IP literals when `allowPrivateHosts` is `false`. Emits a one-time warn
+   * recommending `allowedHosts` when omitted. Returns the canonical base URL
+   * with any trailing `/` stripped (for back-compat with the previous behaviour).
+   */
+  private static _validateBaseUrl(config: Http.IConfig): string {
+    let parsed: URL
+    try {
+      parsed = new URL(config.baseUrl)
+    } catch {
+      throw new Error(`duck-iam HttpAdapter: invalid baseUrl ${JSON.stringify(config.baseUrl)}`)
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(
+        `duck-iam HttpAdapter: baseUrl scheme must be http: or https:, got ${parsed.protocol}`,
+      )
+    }
+    if (parsed.search || parsed.hash) {
+      throw new Error('duck-iam HttpAdapter: baseUrl must not contain a query string or fragment')
+    }
+    if (config.allowedHosts && config.allowedHosts.length > 0) {
+      if (!config.allowedHosts.includes(parsed.host)) {
+        throw new Error(
+          `duck-iam HttpAdapter: baseUrl host ${JSON.stringify(parsed.host)} not in allowedHosts`,
+        )
+      }
+    } else if (!_ALLOWED_HOSTS_WARNED.fired) {
+      _ALLOWED_HOSTS_WARNED.fired = true
+      console.warn(
+        'duck-iam HttpAdapter: `allowedHosts` not set — any host accepted. Pass `init.allowedHosts` for SSRF defense in depth.',
+      )
+    }
+    if (!config.allowPrivateHosts && _isPrivateHost(parsed.hostname)) {
+      throw new Error(
+        `duck-iam HttpAdapter: baseUrl host ${JSON.stringify(parsed.hostname)} resolves to a private/loopback range — set allowPrivateHosts: true to opt in`,
+      )
+    }
+    // Strip a single trailing `/` for back-compat with previous behaviour.
+    return config.baseUrl.replace(/\/$/, '')
   }
 
   /**
@@ -316,7 +419,7 @@ export class HttpAdapter<
     id: string,
     opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
-    return this._requestOrNull(`/policies/${id}`, undefined, opts)
+    return this._requestOrNull(`/policies/${encodeURIComponent(id)}`, undefined, opts)
   }
   /**
    * Stores or overwrites a policy via PUT.
@@ -339,7 +442,7 @@ export class HttpAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async deletePolicy(id: string): Promise<void> {
-    await this._request(`/policies/${id}`, { method: 'DELETE' })
+    await this._request(`/policies/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   /**
@@ -364,7 +467,7 @@ export class HttpAdapter<
     id: string,
     opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
-    return this._requestOrNull(`/roles/${id}`, undefined, opts)
+    return this._requestOrNull(`/roles/${encodeURIComponent(id)}`, undefined, opts)
   }
   /**
    * Stores or overwrites a role via PUT.
@@ -384,7 +487,7 @@ export class HttpAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async deleteRole(id: string): Promise<void> {
-    await this._request(`/roles/${id}`, { method: 'DELETE' })
+    await this._request(`/roles/${encodeURIComponent(id)}`, { method: 'DELETE' })
   }
 
   /**
@@ -396,7 +499,7 @@ export class HttpAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, opts?: Adapter.IReadOptions): Promise<TRole[]> {
-    return this._request(`/subjects/${subjectId}/roles`, undefined, opts)
+    return this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, undefined, opts)
   }
   /**
    * Lists scoped role assignments for a subject.
@@ -410,7 +513,7 @@ export class HttpAdapter<
     subjectId: string,
     opts?: Adapter.IReadOptions,
   ): Promise<Request.IScopedRole<TRole, TScope>[]> {
-    return this._request(`/subjects/${subjectId}/scoped-roles`, undefined, opts)
+    return this._request(`/subjects/${encodeURIComponent(subjectId)}/scoped-roles`, undefined, opts)
   }
   /**
    * Grants a role to a subject, optionally restricted to a scope.
@@ -422,7 +525,7 @@ export class HttpAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    await this._request(`/subjects/${subjectId}/roles`, {
+    await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, {
       method: 'POST',
       body: JSON.stringify({ roleId, scope }),
     })
@@ -438,9 +541,10 @@ export class HttpAdapter<
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     const params = scope ? `?scope=${encodeURIComponent(scope)}` : ''
-    await this._request(`/subjects/${subjectId}/roles/${roleId}${params}`, {
-      method: 'DELETE',
-    })
+    await this._request(
+      `/subjects/${encodeURIComponent(subjectId)}/roles/${encodeURIComponent(roleId)}${params}`,
+      { method: 'DELETE' },
+    )
   }
   /**
    * Fetches the attribute bag stored for a subject.
@@ -451,7 +555,7 @@ export class HttpAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectAttributes(subjectId: string, opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
-    return this._request(`/subjects/${subjectId}/attributes`, undefined, opts)
+    return this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, undefined, opts)
   }
   /**
    * Shallow-merges new attributes into the subject's existing bag via PATCH.
@@ -462,7 +566,7 @@ export class HttpAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
-    await this._request(`/subjects/${subjectId}/attributes`, {
+    await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, {
       method: 'PATCH',
       body: JSON.stringify(attrs),
     })
