@@ -6,28 +6,11 @@ import type { AccessControl, Request } from '../types'
 import { combiners, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
 import type { Evaluate } from './evaluate.types'
 
-/**
- * Yield parent prefixes of a resource type, longest-first.
- *
- * A literal pattern `'org'` parent-matches request type `'org:project:doc'` via
- * `matchesResource` (colon separator) or `'org.users'` via
- * `matchesResourceHierarchical` (dot separator). The fast path's literal index
- * is keyed by the rule's pattern, not the request's, so on miss we look up
- * each parent prefix to find such rules.
- *
- * Separator choice matches `ruleApplies`: dot when either side contains `.`,
- * otherwise colon.
- */
-function parentPrefixes(resType: string): string[] {
-  const sep = resType.includes('.') ? '.' : ':'
-  const out: string[] = []
-  let i = resType.lastIndexOf(sep)
-  while (i > 0) {
-    out.push(resType.slice(0, i))
-    i = resType.lastIndexOf(sep, i - 1)
-  }
-  return out
-}
+// SEC-007: literal resource patterns no longer parent-match deeper requests.
+// The previous `parentPrefixes`-based lookup walked `org` -> `org:project` and
+// granted access to sub-resources from a bare-literal rule. New semantics
+// require the explicit `:*` / `.*` suffix, which is handled by `wildcardAny`.
+// See audit/MIGRATION.md (SEC-007).
 
 /**
  * Inline candidate matching - checks resource + conditions without allocating.
@@ -287,34 +270,21 @@ export function evaluatePolicyFast(
   const action = request.action
   const resType = request.resource.type
 
-  // Fastest path: pre-computed result for unconditional rules (CASL-like O(1))
-  // Walks parent prefixes so a literal pattern `'org'` precomputed result is
-  // returned for a request of `'org:project'`.
+  // Fastest path: pre-computed result for unconditional rules (CASL-like O(1)).
+  // SEC-007: literal resource patterns now match only the exact resource type;
+  // do NOT probe parent prefixes here.
   const actionMap = idx.precomputed.get(action)
   if (actionMap) {
-    let precomputed = actionMap.get(resType)
-    if (precomputed === undefined) {
-      for (const parent of parentPrefixes(resType)) {
-        const v = actionMap.get(parent)
-        if (v !== undefined) {
-          precomputed = v
-          break
-        }
-      }
-    }
+    const precomputed = actionMap.get(resType)
     if (precomputed !== undefined) return precomputed
   }
 
-  // Literal buckets the request matches by either exact key or parent prefix.
-  // Each entry inside has action+resource already matched at index level;
-  // only conditions remain to verify.
+  // Literal buckets the request matches by exact key only (SEC-007).
+  // Rules with `:*` / `.*` suffixes live in `wildcardAny` and are checked
+  // there via `matchCandidate` -> `matchesResource(Hierarchical)`.
   const literalBuckets: Evaluate.IIndexedRule[][] = []
   const exactAR = idx.byActionResource.get(`${action}\0${resType}`)
   if (exactAR) literalBuckets.push(exactAR)
-  for (const parent of parentPrefixes(resType)) {
-    const b = idx.byActionResource.get(`${action}\0${parent}`)
-    if (b) literalBuckets.push(b)
-  }
   const wildcardAny = idx.wildcardAny
   const resHasDot = resType.includes('.')
   const algo = policy.algorithm

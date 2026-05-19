@@ -252,7 +252,7 @@ describe('evaluate() - multi-policy', () => {
 })
 
 describe('hierarchical resources in evaluation', () => {
-  it('dot-based hierarchy: dashboard rule matches dashboard.users', () => {
+  it('SEC-007: bare "dashboard" rule does NOT match dashboard.users (require dashboard.*)', () => {
     const policy: AccessControl.IPolicy = {
       id: 'hierarchy',
       name: 'Hierarchy',
@@ -269,7 +269,10 @@ describe('hierarchical resources in evaluation', () => {
       ],
     }
     const req = makeReq({ resource: { type: 'dashboard.users', attributes: {} } })
-    expect(evaluatePolicy(policy, req).allowed).toBe(true)
+    // Bare literal no longer parent-matches under SEC-007.
+    expect(evaluatePolicy(policy, req).allowed).toBe(false)
+    // Exact literal still matches.
+    expect(evaluatePolicy(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } })).allowed).toBe(true)
   })
 
   it('dot-based hierarchy: dashboard.* rule matches dashboard.users but not dashboard', () => {
@@ -541,12 +544,11 @@ describe('cross-policy combine', () => {
   })
 })
 
-describe('fast path: literal-parent resource patterns', () => {
-  // A literal pattern with no `*` can still parent-match a deeper request type:
-  // `'org'` matches `'org:project'` (colon) and `'dashboard'` matches `'dashboard.users'` (dot).
-  // The fast path indexes by literal key, so parent-prefix lookups must probe each parent.
+describe('fast path: literal-only resource patterns (SEC-007)', () => {
+  // SEC-007: bare literal patterns must NOT match sub-resources. Authors that
+  // want recursive grants are required to use `:*` / `.*` explicitly.
 
-  it('colon parent: literal "org" matches request "org:project"', () => {
+  it('colon: bare "org" only matches request "org" (SEC-007)', () => {
     const policy: AccessControl.IPolicy = {
       id: 'parent-colon',
       name: 'Parent Colon',
@@ -555,15 +557,26 @@ describe('fast path: literal-parent resource patterns', () => {
         { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org'], conditions: { all: [] } },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(true)
-    // The exact literal still matches:
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(false)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(false)
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org', attributes: {} } }))).toBe(true)
-    // Unrelated resource type does not:
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(false)
   })
 
-  it('dot parent: literal "dashboard" matches request "dashboard.users"', () => {
+  it('colon: explicit "org:*" matches sub-resources (SEC-007)', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'wild-colon',
+      name: 'Wild Colon',
+      algorithm: 'deny-overrides',
+      rules: [
+        { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org:*'], conditions: { all: [] } },
+      ],
+    }
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(true)
+  })
+
+  it('dot: bare "dashboard" only matches request "dashboard" (SEC-007)', () => {
     const policy: AccessControl.IPolicy = {
       id: 'parent-dot',
       name: 'Parent Dot',
@@ -579,23 +592,11 @@ describe('fast path: literal-parent resource patterns', () => {
         },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(true)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(false)
     expect(
       evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users.settings', attributes: {} } })),
-    ).toBe(true)
-  })
-
-  it('precomputed cache walks parent prefixes', () => {
-    // No conditions + no wildcards -> precomputed path. Request resource is deeper than rule's literal.
-    const policy: AccessControl.IPolicy = {
-      id: 'precomp-parent',
-      name: 'Precomp Parent',
-      algorithm: 'deny-overrides',
-      rules: [
-        { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org'], conditions: { all: [] } },
-      ],
-    }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
+    ).toBe(false)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } }))).toBe(true)
   })
 })
 
