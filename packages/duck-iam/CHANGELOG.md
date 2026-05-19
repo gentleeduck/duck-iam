@@ -1,5 +1,11 @@
 # @gentleduck/iam
 
+## 2.0.1
+
+### Patch Changes
+
+- 41a45ac: Standardize README header to match the @duck-md template (centered logo, h1, tagline, nav, npm badges). Switch docs links from `iam.gentleduck.org` to path-based `gentleduck.org/duck-iam`. No runtime code changes.
+
 ## 2.0.0
 
 ### Breaking
@@ -98,7 +104,7 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 ### Major refactor: namespaced type API + correctness hardening
 
-13-round audit-driven hardening pass plus a full type-API refactor matching the duck-* monorepo convention.
+13-round audit-driven hardening pass plus a full type-API refactor matching the duck-\* monorepo convention.
 
 **Type API: namespaced + I-prefixed.** Every interface now lives under a per-module namespace (`AccessControl`, `Request`, `Adapter`, `Primitives`, `Client`, `DotPath`, `EngineTypes`, `Evaluate`, `Explain`, `Validate`, `Config`, `Memory`, `File`). Interface names carry an `I` prefix; type aliases stay bare.
 
