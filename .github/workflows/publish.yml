@@ -72,7 +72,7 @@ jobs:
             turbo-${{ runner.os }}-
 
       - name: Install Dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Build
         run: bunx turbo run build --filter='./packages/*'
@@ -127,7 +127,7 @@ jobs:
             turbo-${{ runner.os }}-
 
       - name: Install Dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Build
         run: bunx turbo run build --filter='./packages/*'
