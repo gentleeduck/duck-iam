@@ -126,7 +126,9 @@ function _measurePayload(root: unknown): { depth: number; keys: number } | null 
   let maxDepth = 0
   let totalKeys = 0
   while (stack.length > 0) {
-    const [node, depth] = stack.pop()!
+    const top = stack.pop()
+    if (!top) break
+    const [node, depth] = top
     if (depth > maxDepth) maxDepth = depth
     if (depth > MAX_PAYLOAD_DEPTH) return null
     if (Array.isArray(node)) {
@@ -139,8 +141,8 @@ function _measurePayload(root: unknown): { depth: number; keys: number } | null 
       totalKeys += keys.length
       if (totalKeys > MAX_PAYLOAD_KEYS) return null
       const obj = node as Record<string, unknown>
-      for (let i = 0; i < keys.length; i++) {
-        const child = obj[keys[i]!]
+      for (const key of keys) {
+        const child = obj[key]
         if (child !== null && typeof child === 'object') stack.push([child, depth + 1])
       }
     }

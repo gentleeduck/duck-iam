@@ -143,9 +143,9 @@ const _ALLOWED_HOSTS_WARNED = { fired: false }
  */
 function _hexTailToDottedQuad(tail: string): string | null {
   const m = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail)
-  if (!m) return null
-  const hi = parseInt(m[1]!, 16)
-  const lo = parseInt(m[2]!, 16)
+  if (!m || m[1] === undefined || m[2] === undefined) return null
+  const hi = parseInt(m[1], 16)
+  const lo = parseInt(m[2], 16)
   if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null
   if (hi < 0 || hi > 0xffff || lo < 0 || lo > 0xffff) return null
   return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`
@@ -231,7 +231,7 @@ function _isPrivateHost(hostname: string): boolean {
       // Dotted-quad tail (`64:ff9b::127.0.0.1`).
       if (tail.includes('.')) {
         const v4match = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(tail)
-        if (v4match) return _isPrivateHost(v4match[1]!)
+        if (v4match?.[1]) return _isPrivateHost(v4match[1])
       }
       // Hex tail — last two non-empty hex groups form the 32-bit v4.
       const groups = tail.split(':').filter((g) => g.length > 0)

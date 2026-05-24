@@ -394,12 +394,8 @@ export function createAdminOperations<
     let actor: unknown
     let success = false
     let errorMessage: string | undefined
-    try {
-      actor = await gateWithActor(req)
-    } catch (err) {
-      // Authorize denial or throw — do NOT emit audit (mutation never started).
-      throw err
-    }
+    // Authorize denial or throw — do NOT emit audit (mutation never started).
+    actor = await gateWithActor(req)
     try {
       const out = await handler()
       success = true
