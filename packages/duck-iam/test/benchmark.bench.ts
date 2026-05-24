@@ -297,11 +297,11 @@ describe('Batch: 20 permission checks', () => {
   }))
 
   bench('@gentleduck/iam - evaluateFast() x20 [PROD]', () => {
-    for (let i = 0; i < 20; i++) evaluateFast([simplePolicy], batchRequests[i]!)
+    for (const req of batchRequests) evaluateFast([simplePolicy], req)
   })
 
   bench('@gentleduck/iam - evaluate() x20 [DEV]', () => {
-    for (let i = 0; i < 20; i++) evaluate([simplePolicy], batchRequests[i]!)
+    for (const req of batchRequests) evaluate([simplePolicy], req)
   })
 
   bench('@casl/ability x20', () => {
