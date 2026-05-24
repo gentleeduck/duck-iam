@@ -64,10 +64,10 @@ export function Button({
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5">
       <span className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
       {children}
-    </label>
+    </div>
   )
 }
 

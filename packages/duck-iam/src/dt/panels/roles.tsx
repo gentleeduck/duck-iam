@@ -96,8 +96,8 @@ export function RolesPanel({ engine }: { engine: IDevtoolsEngine }) {
             )}
             <Section title={`Permissions (${current.permissions.length})`}>
               <div className="iam-dt-col">
-                {current.permissions.map((p, i) => (
-                  <PermRow key={i} perm={p} />
+                {current.permissions.map((p) => (
+                  <PermRow key={`${p.action}:${p.resource}:${p.scope ?? ''}`} perm={p} />
                 ))}
               </div>
             </Section>

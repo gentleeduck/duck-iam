@@ -40,11 +40,11 @@ function GroupNode({ group, depth = 0 }: { group: Explain.IGroupTrace; depth?: n
       </button>
       {open && (
         <div className="iam-dt-trace__group-body">
-          {group.children.map((child, i) =>
+          {group.children.map((child) =>
             child.type === 'condition' ? (
-              <LeafNode key={i} leaf={child} />
+              <LeafNode key={`leaf:${child.field}:${child.operator}`} leaf={child} />
             ) : (
-              <GroupNode depth={depth + 1} group={child} key={i} />
+              <GroupNode depth={depth + 1} group={child} key={`group:${child.logic}:${child.children.length}`} />
             ),
           )}
         </div>
