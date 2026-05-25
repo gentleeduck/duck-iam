@@ -593,17 +593,22 @@ describe('HttpAdapter', () => {
       const fetch = vi.fn(async () =>
         nextResponseOk ? jsonResponse([]) : jsonResponse('boom', false, 503),
       ) as unknown as typeof globalThis.fetch
+      // Cooldown must comfortably exceed inter-await wall time on a busy CI
+      // runner; the previous 5 ms / 10 ms pair flaked because the second
+      // `rejects.toThrow` could land after cooldown elapsed, flipping the
+      // state to half-open and surfacing the underlying 503 instead of
+      // "circuit open".
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://x',
         fetch,
         retries: 0,
         timeoutMs: 0,
         circuitBreakerThreshold: 1,
-        circuitBreakerCooldownMs: 5,
+        circuitBreakerCooldownMs: 200,
       })
       await expect(adapter.listPolicies()).rejects.toThrow(/503/) // open
       await expect(adapter.listPolicies()).rejects.toThrow(/circuit open/) // still open
-      await new Promise((r) => setTimeout(r, 10)) // cooldown elapses
+      await new Promise((r) => setTimeout(r, 250)) // cooldown elapses
       nextResponseOk = true
       const out = await adapter.listPolicies() // half-open probe succeeds -> closed
       expect(out).toEqual([])
