@@ -628,6 +628,10 @@ export class Engine<
 
     for (const c of checks) {
       const key = buildPermissionKey(c.action, c.resource, c.resourceId, c.scope)
+      // SEC-051: permissions() previously bypassed onMetrics + failOpen signal.
+      // Dashboards charting fail-open rate missed every batch UI gate. Fire
+      // _emitMetrics per check so the aggregator sees a complete picture.
+      const t0 = this._hooks.onMetrics ? performance.now() : 0
 
       try {
         let enrichedSubject = subject
@@ -653,13 +657,31 @@ export class Engine<
           req = await this._hooks.beforeEvaluate(req)
         }
 
+        const signals: { failOpen?: boolean } = {}
+
         // Production fast path
         if (this._mode === 'production') {
-          map[key] = evaluateFast(allPolicies, req as Request.IAccessRequest, this._defaultEffect, this._policyCombine)
+          const allowed = evaluateFast(
+            allPolicies,
+            req as Request.IAccessRequest,
+            this._defaultEffect,
+            this._policyCombine,
+            undefined,
+            signals,
+          )
+          map[key] = allowed
+          this._emitMetrics(req, allowed, t0, signals.failOpen === true)
           continue
         }
 
-        const decision = evaluate(allPolicies, req as Request.IAccessRequest, this._defaultEffect, this._policyCombine)
+        const decision = evaluate(
+          allPolicies,
+          req as Request.IAccessRequest,
+          this._defaultEffect,
+          this._policyCombine,
+          undefined,
+          signals,
+        )
 
         if (this._hooks.afterEvaluate) {
           await this._hooks.afterEvaluate(req, decision)
@@ -669,17 +691,18 @@ export class Engine<
         }
 
         map[key] = decision.allowed
+        this._emitMetrics(req, decision.allowed, t0, signals.failOpen === true)
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
-        if (this._hooks.onError) {
-          await this._hooks.onError(err, {
-            subject,
-            action: c.action,
-            resource: { type: c.resource, id: c.resourceId, attributes: {} },
-            environment,
-            scope: c.scope,
-          })
+        const errReq: Request.IAccessRequest<TAction, TResource, TScope> = {
+          subject,
+          action: c.action,
+          resource: { type: c.resource, id: c.resourceId, attributes: {} },
+          environment,
+          scope: c.scope,
         }
+        if (this._hooks.onError) await this._hooks.onError(err, errReq)
+        this._emitMetrics(errReq, false, t0, false)
         map[key] = false
       }
     }
