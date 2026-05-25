@@ -107,6 +107,25 @@ export class FlowsFacet<Profile = unknown> {
     }
   }
 
+  /**
+   * Dispatch the `begin` phase of a provider. Wraps the same context
+   * construction as `signIn` so callers (framework adapters, tests) don't
+   * have to build it themselves.
+   */
+  async beginProvider(
+    providerId: string,
+    input: unknown,
+    opts: { tenantId?: string } = {},
+  ): Promise<Provider.Intent[]> {
+    if (!this._providers.has(providerId)) {
+      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        providerId,
+        detail: 'unknown provider id',
+      })
+    }
+    return this._providers.begin(providerId, this._ctxFactory(opts.tenantId), input)
+  }
+
   /** Revoke the current session and emit Transport.revoke intents. */
   async signOut(sid: string): Promise<{ intents: Provider.Intent[] }> {
     // revoke() is a no-op when the SID doesn't exist; safe to call unconditionally.

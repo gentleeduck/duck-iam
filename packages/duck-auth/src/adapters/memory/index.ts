@@ -203,6 +203,12 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         }
         return null
       },
+      findByHashedSecret: async (secretHash, kind) => {
+        for (const c of store.values()) {
+          if (c.kind === kind && c.secret === secretHash) return c
+        }
+        return null
+      },
       upsert: async (input) => {
         const id = randomToken(16)
         const now = Date.now()

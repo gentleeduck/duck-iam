@@ -1,6 +1,8 @@
+export type { Channel } from './channel'
 export type { TenantContext } from './context'
 export type { Credential } from './credential'
 export type { Events } from './events'
+export type { Hasher } from './hasher'
 export type { Identity } from './identity'
 export type { Limiter } from './limiter'
 export type { Org } from './org'

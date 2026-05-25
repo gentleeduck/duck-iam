@@ -28,6 +28,12 @@ export namespace Credential {
     findById(id: string, ctx: TenantContext): Promise<ICredential | null>
     listByIdentity(identityId: string, kind: Kind | undefined, ctx: TenantContext): Promise<ICredential[]>
     findByProviderSub(provider: string, sub: string, ctx: TenantContext): Promise<ICredential | null>
+    /**
+     * Lookup by the **hashed** secret + kind. Used by magic-link / recovery
+     * code / passwordless flows that issue an opaque token and need a
+     * single-call resolution. Adapters index `(kind, secret)` for O(1) lookup.
+     */
+    findByHashedSecret(secretHash: string, kind: Kind, ctx: TenantContext): Promise<ICredential | null>
     upsert(input: Omit<ICredential, 'id' | 'version' | 'createdAt'>, ctx: TenantContext): Promise<ICredential>
     rotate(id: string, newSecret: string, expectedVersion: number, ctx: TenantContext): Promise<ICredential>
     revoke(id: string, ctx: TenantContext): Promise<void>
