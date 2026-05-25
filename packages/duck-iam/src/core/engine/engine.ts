@@ -7,7 +7,13 @@ import { explainEvaluation } from '../explain'
 import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, Adapter, Client, Request } from '../types'
-import { createAdmin, deepFreezePolicy, enrichSubjectWithScopedRoles } from './engine.libs'
+import {
+  createAdmin,
+  deepFreezePolicy,
+  enrichSubjectWithScopedRoles,
+  runSingleFlight,
+  runSingleFlightKeyed,
+} from './engine.libs'
 import type { EngineTypes } from './engine.types'
 
 /**
@@ -225,12 +231,12 @@ export class Engine<
     const cached = this._policyCache.get('all')
     if (cached) return cached
     if (this._policiesInFlight) return this._policiesInFlight
-
-    // Sentinel-compare on resolve: if invalidate() happened while we were
-    // awaiting, our slot was nulled - don't overwrite the freshly-cleared cache.
-    let pending!: Promise<AccessControl.IPolicy[]>
-    pending = (async () => {
-      try {
+    return runSingleFlight(
+      () => this._policiesInFlight,
+      (p) => {
+        this._policiesInFlight = p
+      },
+      async () => {
         const policies = (await this._withTimeout(
           (opts) => this._adapter.listPolicies(opts),
           'listPolicies',
@@ -240,16 +246,12 @@ export class Engine<
             `duck-iam: adapter returned ${policies.length} policies; maxPolicies is ${this._maxPolicies}. Raise the limit or fix the adapter.`,
           )
         }
-        if (this._policiesInFlight === pending) {
-          this._policyCache.set('all', policies)
-        }
         return policies
-      } finally {
-        if (this._policiesInFlight === pending) this._policiesInFlight = null
-      }
-    })()
-    this._policiesInFlight = pending
-    return pending
+      },
+      (policies) => {
+        this._policyCache.set('all', policies)
+      },
+    )
   }
 
   /** Load all roles from the adapter, using the cache if available. */
@@ -257,10 +259,12 @@ export class Engine<
     const cached = this._roleCache.get('all')
     if (cached) return cached
     if (this._rolesInFlight) return this._rolesInFlight
-
-    let pending!: Promise<AccessControl.IRole[]>
-    pending = (async () => {
-      try {
+    return runSingleFlight(
+      () => this._rolesInFlight,
+      (p) => {
+        this._rolesInFlight = p
+      },
+      async () => {
         const roles = (await this._withTimeout(
           (opts) => this._adapter.listRoles(opts),
           'listRoles',
@@ -270,16 +274,12 @@ export class Engine<
             `duck-iam: adapter returned ${roles.length} roles; maxRoles is ${this._maxRoles}. Raise the limit or fix the adapter.`,
           )
         }
-        if (this._rolesInFlight === pending) {
-          this._roleCache.set('all', roles)
-        }
         return roles
-      } finally {
-        if (this._rolesInFlight === pending) this._rolesInFlight = null
-      }
-    })()
-    this._rolesInFlight = pending
-    return pending
+      },
+      (roles) => {
+        this._roleCache.set('all', roles)
+      },
+    )
   }
 
   /** Resolve a subject's roles, scoped roles, and attributes, using the cache if available. */
@@ -288,18 +288,16 @@ export class Engine<
     if (cached) return cached
     const inFlight = this._subjectsInFlight.get(subjectId)
     if (inFlight) return inFlight
-
-    let pending!: Promise<Request.ISubject>
-    pending = (async () => {
-      try {
+    return runSingleFlightKeyed(
+      this._subjectsInFlight,
+      subjectId,
+      async () => {
         const [assignedRoles, attributes, allRoles] = await Promise.all([
           this._withTimeout((opts) => this._adapter.getSubjectRoles(subjectId, opts), 'getSubjectRoles'),
           this._withTimeout((opts) => this._adapter.getSubjectAttributes(subjectId, opts), 'getSubjectAttributes'),
           this._loadRoles(),
         ])
-
         const roles = resolveEffectiveRoles(assignedRoles, allRoles)
-
         const scopedRolesFn = this._adapter.getSubjectScopedRoles
         const scopedRoles = scopedRolesFn
           ? await this._withTimeout(
@@ -307,20 +305,13 @@ export class Engine<
               'getSubjectScopedRoles',
             )
           : undefined
-
         const subject: Request.ISubject = { id: subjectId, roles, scopedRoles, attributes }
-        if (this._subjectsInFlight.get(subjectId) === pending) {
-          this._subjectCache.set(subjectId, subject)
-        }
         return subject
-      } finally {
-        if (this._subjectsInFlight.get(subjectId) === pending) {
-          this._subjectsInFlight.delete(subjectId)
-        }
-      }
-    })()
-    this._subjectsInFlight.set(subjectId, pending)
-    return pending
+      },
+      (subject) => {
+        this._subjectCache.set(subjectId, subject)
+      },
+    )
   }
 
   /**
@@ -333,27 +324,23 @@ export class Engine<
     const cached = this._mergedPolicyCache.get('merged')
     if (cached) return cached
     if (this._mergedInFlight) return this._mergedInFlight
-
-    // SEC-045: sentinel-compare on resolve so that an invalidate() landing
-    // mid-await does not repopulate the merged cache with stale rules. Without
-    // this the underlying _loadPolicies/_loadRbacPolicy guards drop their own
-    // entries on invalidate, but the merger here would set them anyway.
-    let pending!: Promise<AccessControl.IPolicy[]>
-    pending = (async () => {
-      try {
+    // SEC-045: runSingleFlight handles sentinel-compare so an invalidate()
+    // mid-await cannot repopulate the merged cache with stale rules.
+    return runSingleFlight(
+      () => this._mergedInFlight,
+      (p) => {
+        this._mergedInFlight = p
+      },
+      async () => {
         const [policies, rbacPolicy] = await Promise.all([this._loadPolicies(), this._loadRbacPolicy()])
-        // Skip the RBAC policy entirely when it has no rules - including it would
-        // contribute a default-effect deny under AND combine and short-circuit
-        // every request, even when explicit ABAC policies allow.
-        const merged = rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
-        if (this._mergedInFlight === pending) this._mergedPolicyCache.set('merged', merged)
-        return merged
-      } finally {
-        if (this._mergedInFlight === pending) this._mergedInFlight = null
-      }
-    })()
-    this._mergedInFlight = pending
-    return pending
+        // Skip the RBAC policy when it has no rules — including it would
+        // contribute a default-effect deny under AND combine.
+        return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
+      },
+      (merged) => {
+        this._mergedPolicyCache.set('merged', merged)
+      },
+    )
   }
 
   /**
@@ -372,20 +359,19 @@ export class Engine<
     const cached = this._rbacPolicyCache.get('rbac')
     if (cached) return cached
     if (this._rbacInFlight) return this._rbacInFlight
-
-    let pending!: Promise<AccessControl.IPolicy>
-    pending = (async () => {
-      try {
+    return runSingleFlight(
+      () => this._rbacInFlight,
+      (p) => {
+        this._rbacInFlight = p
+      },
+      async () => {
         const roles = await this._loadRoles()
-        const built = deepFreezePolicy(rolesToPolicy(roles))
-        if (this._rbacInFlight === pending) this._rbacPolicyCache.set('rbac', built)
-        return built
-      } finally {
-        if (this._rbacInFlight === pending) this._rbacInFlight = null
-      }
-    })()
-    this._rbacInFlight = pending
-    return pending
+        return deepFreezePolicy(rolesToPolicy(roles))
+      },
+      (built) => {
+        this._rbacPolicyCache.set('rbac', built)
+      },
+    )
   }
 
   /**
