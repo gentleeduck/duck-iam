@@ -476,7 +476,15 @@ export class DrizzleAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
-    const existing = await this.getSubjectAttributes(subjectId)
+    // SEC-067: see redis adapter — admin overwrite must recover from corrupt
+    // existing data instead of locking the operator out.
+    let existing: Primitives.Attributes
+    try {
+      existing = await this.getSubjectAttributes(subjectId)
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
+      existing = {}
+    }
     const merged = JSON.stringify({ ...existing, ...attrs })
     await this._db
       .insert(this._t.attrs)

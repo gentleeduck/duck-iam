@@ -283,6 +283,16 @@ describe('RedisAdapter', () => {
       await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
     })
 
+    it('setSubjectAttributes recovers from corrupt existing blob (SEC-067)', async () => {
+      // Admin overwrite is the only path to recover; SEC-058 made the read
+      // throw, which would have locked the operator out forever. Setter now
+      // catches the throw, logs, and proceeds with `{}` as the merge base.
+      await redis.set('attrs:user-1', 'not-json{')
+      await adapter.setSubjectAttributes('user-1', { team: 'A' })
+      // Read now returns the freshly-written value (no longer corrupt).
+      expect(await adapter.getSubjectAttributes('user-1')).toEqual({ team: 'A' })
+    })
+
     it('throws on non-object attributes JSON (SEC-058)', async () => {
       await redis.set('attrs:user-1', '"a-string"')
       await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)

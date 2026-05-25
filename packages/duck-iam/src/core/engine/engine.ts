@@ -462,8 +462,15 @@ export class Engine<
     try {
       await fn()
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error(`duck-iam: ${hookName} hook threw — swallowed to preserve decision`, err)
+      // SEC-066: console.error itself can throw (closed stdout in a daemon,
+      // broken pipe, user-replaced Console with a buggy override). A throw
+      // here would escape _safeHookCall and resurrect SEC-055.
+      try {
+        // eslint-disable-next-line no-console
+        console.error(`duck-iam: ${hookName} hook threw — swallowed to preserve decision`, err)
+      } catch {
+        /* last-resort: give up logging; decision is more important than diagnostics */
+      }
     }
   }
 
@@ -494,8 +501,13 @@ export class Engine<
         failOpen,
       })
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('duck-iam: onMetrics hook threw — swallowed to preserve decision', err)
+      // SEC-066: defensive — see _safeHookCall.
+      try {
+        // eslint-disable-next-line no-console
+        console.error('duck-iam: onMetrics hook threw — swallowed to preserve decision', err)
+      } catch {
+        /* last-resort: give up logging */
+      }
     }
   }
 
@@ -527,13 +539,21 @@ export class Engine<
       // authorize()'s try/catch. Translate to a fail-closed deny so callers
       // never see an unhandled rejection from the entry-point methods.
       const err = error instanceof Error ? error : new Error(String(error))
-      await this._hooks.onError?.(err, {
-        subject: { id: subjectId, roles: [], attributes: {} },
-        action,
-        resource,
-        environment,
-        scope,
-      } as Request.IAccessRequest<TAction, TResource, TScope>)
+      // SEC-065: wrap onError via _safeHookCall — same contract as
+      // authorize()'s catch. A throwing operator onError here would
+      // otherwise propagate as an unhandled rejection, bypassing the
+      // documented fail-closed `return false` directly below.
+      await this._safeHookCall(
+        () =>
+          this._hooks.onError?.(err, {
+            subject: { id: subjectId, roles: [], attributes: {} },
+            action,
+            resource,
+            environment,
+            scope,
+          } as Request.IAccessRequest<TAction, TResource, TScope>),
+        'onError',
+      )
       return false
     }
   }
@@ -569,7 +589,9 @@ export class Engine<
         environment,
         scope,
       } as Request.IAccessRequest<TAction, TResource, TScope>
-      await this._hooks.onError?.(err, req)
+      // SEC-065: wrap so a throwing operator onError cannot escape the
+      // documented fail-closed contract.
+      await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
         allowed: false,
