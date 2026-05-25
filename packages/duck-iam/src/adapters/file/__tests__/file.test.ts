@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl } from '../../../core/types'
+import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { File, FileAdapter } from '../index'
 
 type Action = 'read' | 'write'
@@ -53,6 +54,13 @@ beforeEach(() => {
 afterEach(() => {
   _warnSpy?.mockRestore()
 })
+
+// DEBT-2: adapter compliance — fresh in-memory fake FS per call so each
+// scenario runs against an empty store.
+runAdapterCompliance(
+  'FileAdapter',
+  () => new FileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never,
+)
 
 const policy: AccessControl.IPolicy<Action, Resource, Role> = {
   id: 'p1',

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl, Adapter } from '../../../core/types'
+import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { PrismaAdapter } from '../index'
 
 type A = 'read' | 'write'
@@ -69,8 +70,13 @@ function makePrismaMock() {
       }),
     },
     accessAssignment: {
-      findMany: vi.fn(async ({ where }: { where: { subjectId: string } }) =>
-        assignments.filter((a) => a.subjectId === where.subjectId),
+      findMany: vi.fn(async ({ where }: { where: { subjectId: string; scope?: string | null } }) =>
+        assignments.filter((a) => {
+          if (a.subjectId !== where.subjectId) return false
+          // Mirror Prisma: `scope: null` filter matches NULL rows only.
+          if ('scope' in where) return a.scope === where.scope
+          return true
+        }),
       ),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const row = data as unknown as AssignmentRow
@@ -117,6 +123,9 @@ function makePrismaMock() {
     },
   }
 }
+
+// DEBT-2: adapter compliance — fresh prisma mock per call.
+runAdapterCompliance('PrismaAdapter', () => new PrismaAdapter(makePrismaMock() as never) as never)
 
 describe('PrismaAdapter', () => {
   let prisma: ReturnType<typeof makePrismaMock>

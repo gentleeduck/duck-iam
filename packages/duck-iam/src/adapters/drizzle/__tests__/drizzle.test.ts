@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl, Adapter } from '../../../core/types'
+import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { type Drizzle, DrizzleAdapter } from '../index'
 
 type A = 'read' | 'write'
@@ -141,6 +142,9 @@ function makeDrizzleMock(): {
 
   return { config, tables }
 }
+
+// DEBT-2: adapter compliance — fresh mock per call.
+runAdapterCompliance('DrizzleAdapter', () => new DrizzleAdapter(makeDrizzleMock().config) as never)
 
 describe('DrizzleAdapter', () => {
   let mock: ReturnType<typeof makeDrizzleMock>
