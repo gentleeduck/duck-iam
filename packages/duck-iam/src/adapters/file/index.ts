@@ -342,8 +342,22 @@ export class FileAdapter<
           assignments: parsed.assignments ?? {},
           attributes: parsed.attributes ?? {},
         }
-      } catch {
-        // Missing file - start empty without error (matches prior behavior for ENOENT).
+      } catch (err) {
+        // SEC-054: only a genuinely-missing file is recoverable as "empty store".
+        // EACCES (permissions drift), EISDIR (path overwritten), EIO (disk
+        // corruption), and unexpected throws from the validator loop must
+        // surface to the caller — silently returning {} here means the
+        // engine sees zero policies and `defaultEffect` decides every
+        // request, which is a total fail-open with `defaultEffect: 'allow'`
+        // or total fail-closed with `defaultEffect: 'deny'`. Either is a
+        // production outage the operator must see immediately.
+        const code = (err as NodeJS.ErrnoException | undefined)?.code
+        if (code !== 'ENOENT') {
+          this._loadInFlight = null
+          throw new Error(
+            `duck-iam FileAdapter: load failed (${code ?? 'unknown'}): ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
         state = { policies: {}, roles: {}, assignments: {}, attributes: {} }
       }
       this._cache = state
