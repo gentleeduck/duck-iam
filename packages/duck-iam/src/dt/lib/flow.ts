@@ -40,7 +40,13 @@ export function createFlowRecorder(options: IFlowRecorderOptions = {}): IFlowRec
     for (const fn of listeners) {
       try {
         fn()
-      } catch {}
+      } catch (err) {
+        // SEC-069: surface listener errors via console.error rather than
+        // total silence. Devtools only, so a console.error is enough — no
+        // operator-facing callback needed.
+        // eslint-disable-next-line no-console
+        console.error('[duck-iam:dt:flow] listener threw — continuing', err)
+      }
     }
   }
 

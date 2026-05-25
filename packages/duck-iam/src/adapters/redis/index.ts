@@ -544,7 +544,18 @@ export class RedisAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
-    const existing = await this.getSubjectAttributes(subjectId)
+    // SEC-067: the admin write path is the ONE place an overwrite is
+    // intentional, so a corrupt existing blob must not lock the operator
+    // out of recovering. SEC-058's getSubjectAttributes throws on
+    // corruption; here we recover by treating corrupt as `{}` and logging
+    // through _reportPolicyError so the operator still sees the signal.
+    let existing: Primitives.Attributes
+    try {
+      existing = await this.getSubjectAttributes(subjectId)
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
+      existing = {}
+    }
     const merged = { ...existing, ...attrs }
     await this._client.set(this._attrsKey(subjectId), JSON.stringify(merged))
   }

@@ -630,9 +630,19 @@ export class HttpAdapter<
   /**
    * Lists role IDs assigned to a subject.
    *
+   * **Contract (SEC-059 / SEC-068):** the response MUST contain GLOBAL
+   * (unscoped) role IDs only. Scoped role assignments must be returned
+   * from `GET /subjects/{id}/scoped-roles` (see {@link getSubjectScopedRoles}).
+   * The HTTP adapter cannot enforce this — it forwards whatever the server
+   * returns — so the operator's API server is responsible for filtering
+   * out scoped roles. A server that collapses scoped+unscoped into one list
+   * will cause subjects to evaluate with MORE permissions than they would
+   * against any other adapter (memory, file, redis, drizzle, prisma),
+   * silently breaking authorization parity across backends.
+   *
    * @param subjectId - Identifies the subject whose roles are read.
    * @param opts - Optional read options forwarded to fetch.
-   * @returns Array of role IDs returned by `GET /subjects/{id}/roles`.
+   * @returns Array of UNSCOPED role IDs returned by `GET /subjects/{id}/roles`.
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, opts?: Adapter.IReadOptions): Promise<TRole[]> {
