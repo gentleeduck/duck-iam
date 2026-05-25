@@ -21,8 +21,8 @@ export class CompositeTransport implements Transport.ITransport {
     return null
   }
 
-  issue(session: Session.ISession, opts: Transport.IssueOpts): Provider.Intent[] {
-    return this._transports.flatMap((t) => t.issue(session, opts))
+  issue(sid: string, session: Session.ISession, opts: Transport.IssueOpts): Provider.Intent[] {
+    return this._transports.flatMap((t) => t.issue(sid, session, opts))
   }
 
   revoke(): Provider.Intent[] {

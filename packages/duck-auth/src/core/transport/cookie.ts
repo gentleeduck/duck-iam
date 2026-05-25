@@ -52,14 +52,14 @@ export class CookieTransport implements Transport.ITransport {
     return parseCookie(header, this._name)
   }
 
-  issue(session: Session.ISession, opts: Transport.IssueOpts): Provider.Intent[] {
+  issue(sid: string, session: Session.ISession, _opts: Transport.IssueOpts): Provider.Intent[] {
     const expiresInMs = Math.max(0, session.expiresAt - Date.now())
     const maxAge = Math.min(this._options.maxAge ?? 0, Math.floor(expiresInMs / 1000))
     return [
       {
         type: 'setCookie',
         name: this._name,
-        value: session.id,
+        value: sid,
         options: { ...this._options, maxAge },
       },
     ]

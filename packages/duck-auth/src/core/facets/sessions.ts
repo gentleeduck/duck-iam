@@ -65,8 +65,16 @@ export class SessionsFacet {
     private readonly _cfg: SessionsFacetConfig = DEFAULT_SESSION_CONFIG,
   ) {}
 
-  /** Build a fresh session record + persist it. Caller passes the SID via Transport.issue() afterwards. */
-  async create(input: CreateSessionInput): Promise<Session.ISession> {
+  /**
+   * Build a fresh session record + persist it.
+   *
+   * Returns `{ session, sid }` where `session.id` is the **hashed** row key
+   * (used internally + as the audit-log identifier) and `sid` is the
+   * **plaintext** session identifier — the value the caller passes to
+   * `Transport.issue()` to put on the wire. The plaintext sid never appears
+   * on the persisted row; only its sha-256 hash does.
+   */
+  async create(input: CreateSessionInput): Promise<{ session: Session.ISession; sid: string }> {
     const sid = randomToken(32)
     const now = Date.now()
     const session: Session.ISession = {
@@ -90,9 +98,7 @@ export class SessionsFacet {
 
     await this._store.create(session)
     await this._events.emit('session.created', { session, identity: null })
-    // Return the session with the *plaintext* SID for transport issuance.
-    // Hashed form is what's persisted; the caller never persists the plain.
-    return { ...session, id: sid }
+    return { session, sid }
   }
 
   /**
@@ -101,7 +107,7 @@ export class SessionsFacet {
    * flow handlers always route through this method so fixation is structurally
    * impossible to forget.
    */
-  async rotateOrCreate(input: RotateOrCreateInput): Promise<Session.ISession> {
+  async rotateOrCreate(input: RotateOrCreateInput): Promise<{ session: Session.ISession; sid: string }> {
     const fresh = await this.create(input)
     if (input.previousSid !== undefined) {
       const prevHash = sha256(input.previousSid)
@@ -132,7 +138,7 @@ export class SessionsFacet {
           if (input.identityId) {
             const all = await this._store.listByIdentity(input.identityId)
             for (const s of all) {
-              if (s.id === fresh.id) continue
+              if (s.id === fresh.session.id) continue
               await this._store.delete(s.id)
               await this._events.emit('session.revoked', {
                 sessionId: s.id,
@@ -146,7 +152,7 @@ export class SessionsFacet {
           break
       }
     }
-    await this._events.emit('session.rotated', { session: fresh })
+    await this._events.emit('session.rotated', { session: fresh.session })
     return fresh
   }
 
@@ -200,7 +206,9 @@ export class SessionsFacet {
   }
 
   /** Create a guest session — no identity, AAL=1, kind='guest'. Promotable on signin. */
-  async createGuest(opts: { tenantId?: string; ip?: string; userAgent?: string } = {}): Promise<Session.ISession> {
+  async createGuest(
+    opts: { tenantId?: string; ip?: string; userAgent?: string } = {},
+  ): Promise<{ session: Session.ISession; sid: string }> {
     return this.create({
       identityId: null,
       kind: 'guest',
@@ -221,7 +229,7 @@ export class SessionsFacet {
     tenantId?: string
     ip?: string
     userAgent?: string
-  }): Promise<Session.ISession> {
+  }): Promise<{ session: Session.ISession; sid: string }> {
     return this.rotateOrCreate({
       purpose: 'guest-promotion',
       previousSid: input.guestSid,

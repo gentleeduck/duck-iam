@@ -30,12 +30,12 @@ export class BearerTransport implements Transport.ITransport {
     return raw.slice(expected.length).trim() || null
   }
 
-  issue(session: Session.ISession): Provider.Intent[] {
+  issue(sid: string, session: Session.ISession): Provider.Intent[] {
     return [
       {
         type: 'json',
         status: 200,
-        body: { token: session.id, expiresAt: session.expiresAt },
+        body: { token: sid, expiresAt: session.expiresAt },
       },
     ]
   }

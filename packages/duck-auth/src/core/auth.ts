@@ -1,15 +1,17 @@
-import { sha256 } from './crypto'
+import { randomToken, sha256, timingSafeEqual } from './crypto'
 import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
+import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
+import { ProvidersFacet } from './facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
 import { ScryptHasher } from './password/scrypt'
 import type { Credential } from './types/credential'
 import type { Events } from './types/events'
 import type { Hasher } from './types/hasher'
 import type { Identity } from './types/identity'
-import type { Limiter } from './types/limiter'
+import type { Limiter, Limiter as LimiterNs } from './types/limiter'
 import type { Org } from './types/org'
 import type { Provider } from './types/provider'
 import type { Session } from './types/session'
@@ -57,11 +59,15 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly sessions: SessionsFacet
   readonly identities: IdentitiesFacet<Profile>
   readonly passwords: PasswordsFacet
+  readonly providers: ProvidersFacet<Profile>
+  readonly flows: FlowsFacet<Profile>
+  readonly limiter: LimiterNs.ILimiter
 
   constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
     this.events = config.events ?? new InMemoryEvents()
     this.transport = config.transport
+    this.limiter = config.limiter ?? new NoopLimiter()
     this.sessions = new SessionsFacet(config.stores.sessions, this.events, {
       ttlMs: config.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
       absoluteTtlMs: config.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
@@ -75,6 +81,27 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
       rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
     })
+    this.providers = new ProvidersFacet<Profile>(config.providers ?? [])
+    this.flows = new FlowsFacet<Profile>(
+      this.sessions,
+      this.identities,
+      this.providers,
+      this.transport,
+      this.events,
+      (tenantId) => ({
+        stores: config.stores,
+        tenant: tenantId !== undefined ? { tenantId } : {},
+        baseUrl: config.baseUrl,
+        limiter: this.limiter,
+        events: this.events,
+        crypto: {
+          randomToken: (bytes) => randomToken(bytes),
+          sha256: (s) => sha256(s),
+          timingSafeEqual,
+        },
+      }),
+      DEFAULT_FLOWS_CONFIG,
+    )
   }
 
   /**
@@ -129,3 +156,15 @@ export { SessionsFacet } from './facets/sessions'
 
 // Used by other facets that need the hashing scheme. Kept private to the package.
 export const __hashSid = sha256
+
+/**
+ * No-op limiter used when no Limiter adapter is configured. Always allows.
+ * `strict({ env: 'production' })` rejects this — production must supply a real
+ * Limiter (redis/upstash) for brute-force protection.
+ */
+export class NoopLimiter implements LimiterNs.ILimiter {
+  async consume(_key: string, _weight = 1): Promise<LimiterNs.IResult> {
+    return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: Date.now() + 60_000 }
+  }
+  async reset(_key: string): Promise<void> {}
+}
