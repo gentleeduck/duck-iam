@@ -89,7 +89,16 @@
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules"
   },
+  "peerDependencies": {
+    "@gentleduck/iam": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@gentleduck/iam": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@gentleduck/iam": "workspace:*",
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",
