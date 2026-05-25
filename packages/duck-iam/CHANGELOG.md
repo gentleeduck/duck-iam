@@ -2,12 +2,12 @@
 
 ## 3.0.0
 
-### Breaking — Engine facet split
+### Breaking - Engine facet split
 
 The flat cache + stats methods on `Engine` move onto two facets. The
 evaluation surface (`authorize`, `can`, `check`, `explain`, `permissions`)
 and lifecycle (`constructor`, `dispose`, `preload`, `healthCheck`) stay
-flat — they are the hot path and benefit from a single noun.
+flat - they are the hot path and benefit from a single noun.
 
 #### Migration
 
@@ -35,7 +35,7 @@ facet handles, which reads cleaner and gives room for future facet
 growth (e.g. `engine.cache.prewarm()`, `engine.stats.subscribe()`)
 without polluting the root.
 
-The `flushSharedCaches` instance method was misleading — it wiped
+The `flushSharedCaches` instance method was misleading - it wiped
 process-globals, so calling it on one engine affected every other engine
 in the process. Removed; module-level export is the honest surface and
 has been the documented one since 2.1.
@@ -103,7 +103,7 @@ longer the only number.
 
 - **`flushSharedCaches`** module-level export (`@gentleduck/iam` and
   `@gentleduck/iam/core`). The instance method `Engine#flushSharedCaches`
-  is deprecated — it wiped process-globals despite being instance-bound.
+  is deprecated - it wiped process-globals despite being instance-bound.
 - **`engine.preload({ validator: true })`** eagerly loads the lazy
   validator chunk at boot for operators who want every cost up front.
 - **`engine.permissions(..., { telemetry: false })`** opt-out of per-check
@@ -138,10 +138,10 @@ Measured baselines (2.0.1 from `git worktree` clean build, not eyeballed):
 | `engine.can()` cached | 4.86 µs | 5.85 µs | 5.18 µs |
 | `engine.permissions()` x20 | 20.06 µs | 42.71 µs | 48.08 µs |
 | Bundle "import everything" | **38.4 KB** | 44.8 KB | **41.3 KB** |
-| Bundle realistic profile | n/a | n/a | **15–25 KB** |
+| Bundle realistic profile | n/a | n/a | **15-25 KB** |
 
 Net 2.0.1 → 2.2.0 bundle delta: **+2.9 KB (+7.5%)**. Earlier docs cited
-a ~21 KB pre-cycle number — that was estimated from a partial dist, not
+a ~21 KB pre-cycle number - that was estimated from a partial dist, not
 a clean build. The full security cycle cost ~6 KB raw; the bundle slim
 cycle recovered ~3 KB; net is +2.9 KB for fail-closed hook contracts,
 per-Engine caches, default-on CSRF, and lazy validator scaffolding.
@@ -166,23 +166,23 @@ The change set is **mostly backward compatible** with two notable defaults:
 
 #### CRITICAL (1)
 
-- **SEC-054** `FileAdapter._loadState` swallowed every `readFile` error and silently fell back to an empty store. EACCES (permissions drift), EISDIR (path overwritten), EIO (disk corruption) became `{policies:{},roles:{},…}`. With `defaultEffect:'allow'+allowFailOpen` this is total silent fail-open; with `'deny'` it's total silent outage. Only `ENOENT` now recovers as empty; everything else throws a wrapped Error.
+- **SEC-054** `FileAdapter._loadState` swallowed every `readFile` error and silently fell back to an empty store. EACCES (permissions drift), EISDIR (path overwritten), EIO (disk corruption) became `{policies:{},roles:{},...}`. With `defaultEffect:'allow'+allowFailOpen` this is total silent fail-open; with `'deny'` it's total silent outage. Only `ENOENT` now recovers as empty; everything else throws a wrapped Error.
 
 #### HIGH (7)
 
 - **SEC-042** HTTP adapter followed fetch redirects without re-validation. A 302 to `169.254.169.254` or `10.0.0.5:6379` bypassed the construction-time `allowedHosts` / private-IP guard. `_fetchOnce` now passes `redirect: 'error'`.
 - **SEC-055** `_emitMetrics` invoked `onMetrics` without a try/catch. A throwing operator hook escaped `authorize`'s catch arm and replaced the documented fail-closed deny with a raw error. Wrapped via `_safeHookCall`; double-wrapped around `console.error` itself.
 - **SEC-056** `afterEvaluate` / `onDeny` ran inside `authorize`'s main try block; throws caught by the evaluation catch silently rewrote an allow verdict into a fail-closed deny. Trailing hooks now run outside the evaluation try; throws routed to console.error without reshaping the decision.
-- **SEC-057** `engine.permissions()` passed `undefined` for `onPolicyError` to evaluator — per-policy throws vanished. UI gates silently allowed under `defaultEffect:'allow'`. Now forwards the same shim `authorize()` uses.
+- **SEC-057** `engine.permissions()` passed `undefined` for `onPolicyError` to evaluator - per-policy throws vanished. UI gates silently allowed under `defaultEffect:'allow'`. Now forwards the same shim `authorize()` uses.
 - **SEC-058** Redis + Drizzle `getSubjectAttributes` returned `{}` on JSON.parse failure or non-object root. ABAC conditions silently flipped to deny. Now throws; engine routes through `onError` + fail-closed deny.
-- **SEC-064** `FileAdapter` JSON parse failure silently populated `_cache = {}`. Next `_flush()` overwrote the recoverable-but-corrupt file. **Permanent data destruction triggered by a single transient parse error.** Now throws "store corrupt — refusing to load; restore from backup before retrying".
-- **SEC-065** `can()` / `check()` invoked `this._hooks.onError?.()` unwrapped — SEC-055/058 throws routed through these catches; a throwing operator `onError` propagated as unhandled rejection. Now `_safeHookCall`.
+- **SEC-064** `FileAdapter` JSON parse failure silently populated `_cache = {}`. Next `_flush()` overwrote the recoverable-but-corrupt file. **Permanent data destruction triggered by a single transient parse error.** Now throws "store corrupt - refusing to load; restore from backup before retrying".
+- **SEC-065** `can()` / `check()` invoked `this._hooks.onError?.()` unwrapped - SEC-055/058 throws routed through these catches; a throwing operator `onError` propagated as unhandled rejection. Now `_safeHookCall`.
 - **SEC-101** Hono / Next default `getUserId` trusted spoofable `x-user-id` header. **Trivial auth bypass via curl.** Hono: no header fallback. Next: required option, throws on construction without it.
 
 #### Medium (11)
 
 - **SEC-043** Admin write path skipped validation. Hostile admin (or buggy UI) could persist a policy that adapter read-side validator silently drops → tenant ends up with zero policies → `defaultEffect` decides every request. `createAdmin.savePolicy / saveRole / import` now call `validatePolicy / validateRole` and throw on error.
-- **SEC-052** `assertValidOrThrow` echoed attacker-controlled values (`Invalid algorithm "<value>"`). Operator who opted into `includeErrorMessage:true` + HTTP body echo got a probe oracle. Now emits `INVALID_ALGORITHM at "algorithm"` — structural codes only.
+- **SEC-052** `assertValidOrThrow` echoed attacker-controlled values (`Invalid algorithm "<value>"`). Operator who opted into `includeErrorMessage:true` + HTTP body echo got a probe oracle. Now emits `INVALID_ALGORITHM at "algorithm"` - structural codes only.
 - **SEC-024** Redis migration vs `revokeRole` race. `_migrateLegacyAssignment`'s SADD-then-SREM let migrator resurrect a just-revoked assignment. `_runSerialised` per-key chain orders writes; revoke now SREMs both encodings.
 - **SEC-025** File `_assertWithinRoot` ran once per adapter; attacker swapping the file for a symlink after first I/O steered subsequent writes. Drops latch; realpath re-checks every read/write.
 - **SEC-063** `_assertWithinRoot` outside the load try; rejected promise stuck forever in `_loadInFlight`. Restructure clears in-flight via finally on any throw.
@@ -196,16 +196,16 @@ The change set is **mostly backward compatible** with two notable defaults:
 #### Low (12)
 
 - **SEC-044** No way to chart fail-open rate. Added `failOpen: boolean` to `IMetricsEvent` + counter to `createMetricsAggregator`. Threaded through `evaluate`/`evaluateFast` via optional `IEvalSignals`.
-- **SEC-046** Redis invalidator v:1 envelope was unwrapped without HMAC verification when `secret: null` — attacker chose `instanceId`, silenced legitimate cross-instance invalidates. v:1 in unsigned mode now dropped + warned.
+- **SEC-046** Redis invalidator v:1 envelope was unwrapped without HMAC verification when `secret: null` - attacker chose `instanceId`, silenced legitimate cross-instance invalidates. v:1 in unsigned mode now dropped + warned.
 - **SEC-051** `permissions()` bypassed `_emitMetrics` entirely; dashboards charting fail-open missed every batch UI gate. Now emits per check.
 - **SEC-026** File `rootDir` warn fired every construction → log spam → operators filter the warning. Module-global latch fires once per process.
 - **SEC-027** File warn echoed resolved path → path-existence oracle via log scraping. Path stripped from message.
 - **SEC-032** Redis invalidator one-shot per-channel warn latch let attacker burn the first warn on a benign reason then silently flood. Replaced with 60s rate-limit + suppressed-count surfacing.
-- **SEC-047** `errorToAuditString(includeMessage=true)` returned raw `String(err)` for non-Error throws — unbounded leak. Now tagged `<non-Error <typeof>>` + capped at 256 chars + `JSON.stringify` fallback.
+- **SEC-047** `errorToAuditString(includeMessage=true)` returned raw `String(err)` for non-Error throws - unbounded leak. Now tagged `<non-Error <typeof>>` + capped at 256 chars + `JSON.stringify` fallback.
 - **SEC-048** Devtools `localStorage` prefix `__IAM_DEVTOOLS` → vendor-namespaced `__GENTLEDUCK_IAM_DEVTOOLS_V1`.
 - **SEC-053** `_assertWithinRoot` parent-realpath fallback fired on ANY error; ELOOP / EACCES bypassed symlink check via reconstructed path. Now gated on `code === 'ENOENT'`.
 - **SEC-060** Vanilla client listener-throw was totally silent. `console.error` surfacing.
-- **SEC-061** Invalidator dropped shape-mismatched inner payloads without `warnDropOnce` — operators saw nothing on sustained schema drift. Routed through warn.
+- **SEC-061** Invalidator dropped shape-mismatched inner payloads without `warnDropOnce` - operators saw nothing on sustained schema drift. Routed through warn.
 - **SEC-062** Invalidator `publish()` failure silently swallowed. Added optional `onPublishError(err, channel)` hook + rate-limited console fallback.
 - **SEC-066** `_safeHookCall` / `_emitMetrics` called `console.error` unwrapped; throwing logger (closed stdout, broken pipe) would resurrect SEC-055. Defensive double-wrap.
 - **SEC-069** `dt/lib/flow.ts` listener `catch{}` silent. console.error added.
@@ -227,15 +227,15 @@ The change set is **mostly backward compatible** with two notable defaults:
 
 #### New APIs (additive)
 
-- `Engine.flushSharedCaches()` — wipe process-wide regex + path caches.
-- `defaultCsrfCheck(req)` — exported from `server/generic`; built-in Sec-Fetch-Site predicate.
+- `Engine.flushSharedCaches()` - wipe process-wide regex + path caches.
+- `defaultCsrfCheck(req)` - exported from `server/generic`; built-in Sec-Fetch-Site predicate.
 - `AdminAudit.IOptions.csrfCheck?: ((req) => boolean) | false`.
 - `RedisInvalidator.IConfig.tenantId?: string`.
 - `RedisInvalidator.IConfig.onPublishError?: (err, channel) => void`.
 - `IMetricsEvent.failOpen: boolean`.
 - `Metrics.ISnapshot.failOpen: number`.
-- `splitPermissionKey(key)` — exported from `shared/keys`; escape-aware split.
-- `clearRegexCache()` / `clearPathCache()` — process-wide cache flush.
+- `splitPermissionKey(key)` - exported from `shared/keys`; escape-aware split.
+- `clearRegexCache()` / `clearPathCache()` - process-wide cache flush.
 - `Validate.ValidationCode` extended with `'ERR_REGEX_CATASTROPHIC'`.
 
 #### Behaviour changes

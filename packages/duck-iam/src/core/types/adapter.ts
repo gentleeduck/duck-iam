@@ -67,7 +67,7 @@ export namespace Adapter {
     /**
      * Returns the flat list of GLOBAL (unscoped) role IDs assigned to a
      * subject. Scoped role assignments must NOT be collapsed into this list
-     * — surface those through {@link getSubjectScopedRoles}. The file,
+     * - surface those through {@link getSubjectScopedRoles}. The file,
      * memory, redis, drizzle, and prisma adapters all honour this contract;
      * the HTTP adapter delegates to the operator's server, which must also.
      */

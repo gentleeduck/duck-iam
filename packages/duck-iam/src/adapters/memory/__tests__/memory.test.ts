@@ -3,7 +3,7 @@ import type { AccessControl, Adapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { MemoryAdapter } from '../index'
 
-// Shared adapter compliance suite — every adapter must pass.
+// Shared adapter compliance suite - every adapter must pass.
 runAdapterCompliance('MemoryAdapter', () => new MemoryAdapter())
 
 type A = 'read' | 'write'

@@ -190,7 +190,7 @@ describe('matchesResourceHierarchical()', () => {
   })
 
   it('bare pattern does NOT match dot-children (SEC-007)', () => {
-    // Breaking change vs prior behaviour — bare "dashboard" only matches
+    // Breaking change vs prior behaviour - bare "dashboard" only matches
     // the literal "dashboard". Authors must use "dashboard.*" for recursion.
     expect(matchesResourceHierarchical('dashboard', 'dashboard.users')).toBe(false)
     expect(matchesResourceHierarchical('dashboard', 'dashboard.users.settings')).toBe(false)

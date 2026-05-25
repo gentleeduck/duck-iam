@@ -20,7 +20,7 @@ import type { EngineTypes } from './engine.types'
  * Module-level flush of process-wide compiled-regex and resolved-path caches
  * (the `matches`-operator regex cache and dot-path segment cache).
  *
- * These caches are globals — every Engine in the process shares them. Multi-
+ * These caches are globals - every Engine in the process shares them. Multi-
  * tenant operators schedule this periodically to bound any single tenant's
  * eviction influence. Costs: the next request pays one compile per
  * matches-pattern and one segment-split per dot-path.
@@ -155,7 +155,7 @@ export class Engine<
     // different decisions in production vs development.
     if (this._mode === 'production' && this._policyCombine === 'first-applicable') {
       throw new Error(
-        "duck-iam: policyCombine 'first-applicable' requires mode 'development'; the production fast path cannot represent it correctly.",
+        "[@gentleduck/iam:engine] policyCombine 'first-applicable' requires mode 'development'; the production fast path cannot represent it correctly.",
       )
     }
 
@@ -166,7 +166,7 @@ export class Engine<
     // which let dev/staging engines ship with the same footgun.
     if (this._defaultEffect === 'allow' && !config.allowFailOpen) {
       throw new Error(
-        "duck-iam: defaultEffect 'allow' is a fail-open footgun. Pass `allowFailOpen: true` to confirm intent.",
+        "[@gentleduck/iam:engine] defaultEffect 'allow' is a fail-open footgun. Pass `allowFailOpen: true` to confirm intent.",
       )
     }
     // Even with the opt-in, emit a loud startup warning so an operator
@@ -174,7 +174,7 @@ export class Engine<
     if (this._defaultEffect === 'allow') {
       // eslint-disable-next-line no-console
       console.warn(
-        "duck-iam: engine configured with defaultEffect: 'allow' (fail-open). Every request with no applicable policy will be allowed.",
+        "[@gentleduck/iam:engine] engine configured with defaultEffect: 'allow' (fail-open). Every request with no applicable policy will be allowed.",
       )
     }
 
@@ -188,13 +188,13 @@ export class Engine<
     // so the operator sees the typo immediately instead of debugging an
     // adapter that "never trips the limit".
     if (!Number.isFinite(this._maxPolicies) || this._maxPolicies < 1) {
-      throw new RangeError('duck-iam Engine: maxPolicies must be a finite number >= 1')
+      throw new RangeError('[@gentleduck/iam:engine] maxPolicies must be a finite number >= 1')
     }
     if (!Number.isFinite(this._maxRoles) || this._maxRoles < 1) {
-      throw new RangeError('duck-iam Engine: maxRoles must be a finite number >= 1')
+      throw new RangeError('[@gentleduck/iam:engine] maxRoles must be a finite number >= 1')
     }
     if (!Number.isFinite(this._adapterTimeoutMs) || this._adapterTimeoutMs < 0) {
-      throw new RangeError('duck-iam Engine: adapterTimeoutMs must be a finite number >= 0')
+      throw new RangeError('[@gentleduck/iam:engine] adapterTimeoutMs must be a finite number >= 0')
     }
 
     const ttl = (config.cacheTTL ?? 60) * 1000
@@ -231,7 +231,7 @@ export class Engine<
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         ctrl.abort()
-        reject(new Error(`duck-iam: ${label} timed out after ${this._adapterTimeoutMs}ms`))
+        reject(new Error(`[@gentleduck/iam:engine] ${label} timed out after ${this._adapterTimeoutMs}ms`))
       }, this._adapterTimeoutMs)
     })
     return Promise.race([fn({ signal: ctrl.signal }), timeout]).finally(() => {
@@ -281,7 +281,7 @@ export class Engine<
         )) as AccessControl.IPolicy[]
         if (policies.length > this._maxPolicies) {
           throw new Error(
-            `duck-iam: adapter returned ${policies.length} policies; maxPolicies is ${this._maxPolicies}. Raise the limit or fix the adapter.`,
+            `[@gentleduck/iam:engine] adapter returned ${policies.length} policies; maxPolicies is ${this._maxPolicies}. Raise the limit or fix the adapter.`,
           )
         }
         return policies
@@ -309,7 +309,7 @@ export class Engine<
         )) as AccessControl.IRole[]
         if (roles.length > this._maxRoles) {
           throw new Error(
-            `duck-iam: adapter returned ${roles.length} roles; maxRoles is ${this._maxRoles}. Raise the limit or fix the adapter.`,
+            `[@gentleduck/iam:engine] adapter returned ${roles.length} roles; maxRoles is ${this._maxRoles}. Raise the limit or fix the adapter.`,
           )
         }
         return roles
@@ -371,7 +371,7 @@ export class Engine<
       },
       async () => {
         const [policies, rbacPolicy] = await Promise.all([this._loadPolicies(), this._loadRbacPolicy()])
-        // Skip the RBAC policy when it has no rules — including it would
+        // Skip the RBAC policy when it has no rules - including it would
         // contribute a default-effect deny under AND combine.
         return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
       },
@@ -506,7 +506,7 @@ export class Engine<
       })
     }
 
-    // Trailing hook block — runs OUTSIDE the evaluation try so a hook throw
+    // Trailing hook block - runs OUTSIDE the evaluation try so a hook throw
     // cannot rewrite the decision. Each hook is individually wrapped so a
     // bug in one doesn't suppress the others.
     if (decisionForHooks !== null) {
@@ -523,7 +523,7 @@ export class Engine<
   /**
    * Invoke a hook safely. Sync or async throws are caught and routed to
    * console.error so a buggy operator hook cannot escape into the caller's
-   * path or rewrite a finalised decision. Returning void is intentional —
+   * path or rewrite a finalised decision. Returning void is intentional -
    * the engine never surfaces hook bugs as authz failures.
    */
   private async _safeHookCall(fn: () => unknown, hookName: string): Promise<void> {
@@ -535,7 +535,7 @@ export class Engine<
       // would escape _safeHookCall and re-expose the original hook throw.
       try {
         // eslint-disable-next-line no-console
-        console.error(`duck-iam: ${hookName} hook threw — swallowed to preserve decision`, err)
+        console.error(`[@gentleduck/iam:engine] ${hookName} hook threw - swallowed to preserve decision`, err)
       } catch {
         /* last-resort: give up logging; decision is more important than diagnostics */
       }
@@ -555,7 +555,7 @@ export class Engine<
   ): void {
     const hook = this._hooks.onMetrics
     if (!hook) return
-    // Hook throws must not escape — _emitMetrics is called from catch arms
+    // Hook throws must not escape - _emitMetrics is called from catch arms
     // whose entire purpose is producing a fail-closed deny. A throwing
     // onMetrics there would replace the deny with a raw error.
     try {
@@ -569,10 +569,10 @@ export class Engine<
         failOpen,
       })
     } catch (err) {
-      // Defensive — see _safeHookCall.
+      // Defensive - see _safeHookCall.
       try {
         // eslint-disable-next-line no-console
-        console.error('duck-iam: onMetrics hook threw — swallowed to preserve decision', err)
+        console.error('[@gentleduck/iam:engine] onMetrics hook threw - swallowed to preserve decision', err)
       } catch {
         /* last-resort: give up logging */
       }
@@ -606,7 +606,7 @@ export class Engine<
       // authorize()'s try/catch. Translate to a fail-closed deny so callers
       // never see an unhandled rejection from the entry-point methods.
       const err = error instanceof Error ? error : new Error(String(error))
-      // Wrap onError via _safeHookCall — same contract as authorize()'s
+      // Wrap onError via _safeHookCall - same contract as authorize()'s
       // catch. A throwing operator onError here would otherwise propagate
       // as an unhandled rejection, bypassing the fail-closed `return false`
       // below.
@@ -756,7 +756,7 @@ export class Engine<
     // already chart fail-open via authorize() metrics and don't need
     // per-check telemetry for permissions().
     const telemetry = opts.telemetry !== false
-    // Outer try mirrors check()/can() — adapter rejections from
+    // Outer try mirrors check()/can() - adapter rejections from
     // _resolveSubject or _loadAllPolicies happen BEFORE the per-check try,
     // so without this catch the entire batch would reject with no onError
     // signal and no fail-closed map. Synthesise an all-deny map matching
@@ -880,7 +880,7 @@ export class Engine<
         continue
       }
 
-      // Trailing-hooks block (outside try) — keeps hook throws from
+      // Trailing-hooks block (outside try) - keeps hook throws from
       // rewriting the per-check verdict; mirrors authorize().
       if (decisionForHooks !== null && evalReq !== null) {
         const d = decisionForHooks

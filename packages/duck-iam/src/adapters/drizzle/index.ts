@@ -163,7 +163,7 @@ export class DrizzleAdapter<
       return
     }
     // eslint-disable-next-line no-console
-    console.warn(`[duck-iam:drizzle] dropped malformed row "${rowId}": ${err.message}`)
+    console.warn(`[@gentleduck/iam:drizzle] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   /**
@@ -359,7 +359,7 @@ export class DrizzleAdapter<
    */
   async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
     const rows = await this._selectWhere<AssignmentRow>(this._t.assignments, this._t.assignments.subjectId, subjectId)
-    // Unscoped (global) roles only — mirrors file/memory/redis adapters.
+    // Unscoped (global) roles only - mirrors file/memory/redis adapters.
     return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
   }
 
@@ -428,13 +428,13 @@ export class DrizzleAdapter<
     try {
       parsed = JSON.parse(data)
     } catch (err) {
-      // Corruption is not "no attributes" — surface so the engine fails closed.
+      // Corruption is not "no attributes" - surface so the engine fails closed.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      throw new Error(`duck-iam DrizzleAdapter: corrupted attributes for "${subjectId}" (JSON parse failed)`)
+      throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (JSON parse failed)`)
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
-      throw new Error(`duck-iam DrizzleAdapter: corrupted attributes for "${subjectId}" (not a JSON object)`)
+      throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (not a JSON object)`)
     }
     return parsed as Primitives.Attributes
   }

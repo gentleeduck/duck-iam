@@ -113,7 +113,7 @@ export function createVueAccess<
     const state = inject(ACCESS_INJECTION_KEY)
     if (!state) {
       throw new Error(
-        'duck-iam: useAccess() called without provideAccess(). ' +
+        '[@gentleduck/iam:vue] useAccess() called without provideAccess(). ' +
           'Use provideAccess() in a parent component or install the plugin.',
       )
     }

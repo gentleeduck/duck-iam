@@ -90,7 +90,7 @@ export namespace Express {
     onError?: (err: Error, req: Req, res: Res) => void
     /**
      * Optional audit hook fired AFTER every mutation handler (PUT/POST/
-     * DELETE/PATCH) completes — success or failure. The hook is
+     * DELETE/PATCH) completes - success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
@@ -244,7 +244,7 @@ export function guard<
  * ```
  * @example
  * Rate limiting is out of scope; compose at the mount point with the
- * caller's library of choice — `express-rate-limit` is the canonical pick:
+ * caller's library of choice - `express-rate-limit` is the canonical pick:
  * ```ts
  * import rateLimit from 'express-rate-limit'
  * const adminLimiter = rateLimit({ windowMs: 60_000, max: 30 })
@@ -262,7 +262,7 @@ export function adminRouter<
 ): (Router: () => ExpressRouterLike) => ExpressRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error(
-      '[duck-iam] adminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
+      '[@gentleduck/iam] adminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
     )
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts

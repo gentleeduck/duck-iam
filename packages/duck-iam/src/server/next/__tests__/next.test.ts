@@ -360,7 +360,7 @@ describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
     expect(events).toHaveLength(0)
   })
 
-  it('hook is fire-and-forget — a throwing hook does not affect the response', async () => {
+  it('hook is fire-and-forget - a throwing hook does not affect the response', async () => {
     const engine = makeEngine()
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const h = createAdminHandlers(engine, {

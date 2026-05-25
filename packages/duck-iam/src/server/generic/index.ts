@@ -7,8 +7,8 @@ import type { Client, Request } from '../../core/types'
  * Every framework adapter (express, hono, next, nest) accepts an optional
  * `onAdminMutation` callback in its admin-router options. The callback fires
  * once per mutation (PUT/POST/DELETE/PATCH) after the handler completes,
- * regardless of success or failure. It is fire-and-forget — adapters never
- * `await` it inline — so a slow or throwing hook can never block, fail, or
+ * regardless of success or failure. It is fire-and-forget - adapters never
+ * `await` it inline - so a slow or throwing hook can never block, fail, or
  * leak timing information back to the caller. Errors inside the hook are
  * caught and one-line-logged via `console.error`.
  *
@@ -28,12 +28,12 @@ export namespace AdminAudit {
    *
    * Field-level semantics worth calling out:
    *
-   * - `path` — By default carries the request URL **including any expanded
+   * - `path` - By default carries the request URL **including any expanded
    *   route parameters** (e.g. `/admin/policies/policy-123/tenant-acme`).
    *   That string therefore can contain tenant IDs, subject IDs, role IDs,
    *   and other potentially sensitive identifiers. To redact, pass
    *   {@link IOptions.redactPath} on the adapter's admin options.
-   * - `error` — By default this is the **error class name only** (e.g.
+   * - `error` - By default this is the **error class name only** (e.g.
    *   `'TypeError'`, `'PolicyValidationError'`), NOT `err.message`. The
    *   message can leak credentials, query fragments, or SQL when the
    *   downstream throw originates in a DB driver. To restore the full
@@ -79,7 +79,7 @@ export namespace AdminAudit {
    *
    * Every framework adapter's admin-router options interface composes this
    * shape, so the hardening surface is identical across express/hono/next/
-   * nest. All fields are optional and additive — the legacy hook behaviour
+   * nest. All fields are optional and additive - the legacy hook behaviour
    * is preserved when none are supplied.
    */
   export interface IOptions {
@@ -88,7 +88,7 @@ export namespace AdminAudit {
      * receives the event.
      *
      * The default `event.path` carries the request URL including expanded
-     * route parameters — e.g. `/admin/policies/policy-123/tenant-acme` —
+     * route parameters - e.g. `/admin/policies/policy-123/tenant-acme` -
      * which means tenant IDs, subject IDs and role IDs can flow into audit
      * sinks unredacted. Supply a redactor when your audit sink lives outside
      * your trust boundary.
@@ -104,7 +104,7 @@ export namespace AdminAudit {
      * Invoked when the hook itself throws (sync or async). The default sink
      * is `console.error`; supply this to route hook failures into your
      * logger or metrics pipeline. Errors thrown by `onAuditHookError` itself
-     * are caught and last-resort-logged via `console.error` — they never
+     * are caught and last-resort-logged via `console.error` - they never
      * propagate.
      */
     onAuditHookError?: (err: unknown, event: IEvent) => void
@@ -120,7 +120,7 @@ export namespace AdminAudit {
      * CSRF guard for state-changing admin mutations.
      *
      * Default (`undefined`): a built-in `Sec-Fetch-Site` check rejects
-     * cross-site browser requests — browsers populate the header
+     * cross-site browser requests - browsers populate the header
      * automatically; its absence indicates a non-browser caller (curl,
      * server-to-server, native app) and is allowed. This default closes
      * the most common cookie-auth admin-CSRF vector without operator
@@ -128,11 +128,11 @@ export namespace AdminAudit {
      *
      * Pass `false` to disable entirely (server-to-server with bearer
      * tokens / mTLS that intentionally posts cross-site). Pass a function
-     * to supply a stricter check — e.g. an Origin allowlist:
+     * to supply a stricter check - e.g. an Origin allowlist:
      *
      * @example
      * ```ts
-     * // Default — uses built-in Sec-Fetch-Site check
+     * // Default - uses built-in Sec-Fetch-Site check
      * adminRouter(engine, { authorize })
      *
      * // Disable (bearer-token API, no browser involved)
@@ -165,7 +165,7 @@ export function noticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
   _CSRF_DEFAULT_NOTICED = true
   // eslint-disable-next-line no-console
   console.info(
-    '[duck-iam] admin router: default CSRF check enabled — ' +
+    '[@gentleduck/iam] admin router: default CSRF check enabled - ' +
       'rejecting browser requests with Sec-Fetch-Site: cross-site|cross-origin. ' +
       'Pass `csrfCheck: false` for bearer-token/mTLS APIs, or supply a custom ' +
       'predicate. See SECURITY.md "Admin router CSRF" section. (2.1.0 behavior change)',
@@ -316,7 +316,7 @@ export function errorToAuditString(err: unknown, includeMessage?: boolean): stri
     // Tag non-Error throws and cap length so audit sinks never receive an
     // unbounded raw value (e.g. a thrown secret string).
     const raw = typeof err === 'string' ? err : safeStringify(err)
-    const capped = raw.length > NON_ERROR_MESSAGE_CAP ? `${raw.slice(0, NON_ERROR_MESSAGE_CAP)}…` : raw
+    const capped = raw.length > NON_ERROR_MESSAGE_CAP ? `${raw.slice(0, NON_ERROR_MESSAGE_CAP)}...` : raw
     return `<non-Error ${typeof err}> ${capped}`
   }
   if (err instanceof Error) {
@@ -371,7 +371,7 @@ export function fireAdminMutation(
     try {
       event.path = opts.redactPath(event.path)
     } catch (err) {
-      // Redactor itself blew up — treat as a hook error.
+      // Redactor itself blew up - treat as a hook error.
       reportAuditHookError(err, event, opts.onAuditHookError)
       return
     }
@@ -400,20 +400,20 @@ function reportAuditHookError(
       sink(err, event)
       return
     } catch (sinkErr) {
-      // Sink itself threw — last-resort log, then stop.
+      // Sink itself threw - last-resort log, then stop.
       try {
         console.error(
-          '[duck-iam] onAuditHookError sink threw:',
+          '[@gentleduck/iam] onAuditHookError sink threw:',
           sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
         )
       } catch {
-        // console.error itself failed (extremely unusual) — give up silently.
+        // console.error itself failed (extremely unusual) - give up silently.
       }
       return
     }
   }
   try {
-    console.error('[duck-iam] onAdminMutation hook threw:', err instanceof Error ? err.message : String(err))
+    console.error('[@gentleduck/iam] onAdminMutation hook threw:', err instanceof Error ? err.message : String(err))
   } catch {
     // ignore
   }

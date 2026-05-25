@@ -94,11 +94,11 @@ import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 import { adminRouter } from '@gentleduck/iam/server/express'
 import { useAccess } from '@gentleduck/iam/client/react'
 
-// Validator (12 KB) — lazy-loaded by engine.admin.savePolicy on first
+// Validator (12 KB) - lazy-loaded by engine.admin.savePolicy on first
 // call, or imported directly for standalone validation tooling
 import { validatePolicy } from '@gentleduck/iam/core/validate'
 
-// Fluent builder (9 KB) — config-time only, separate subpath
+// Fluent builder (9 KB) - config-time only, separate subpath
 import { policy, defineRole } from '@gentleduck/iam/core/builder'
 ```
 
@@ -219,7 +219,7 @@ See the [production deployment guide](https://gentleduck.org/duck-iam/duck-iam/g
 | Each client library | 1.2 - 2.0 KB |
 
 The "full" bundle headline in benchmarks (~41 KB) is the worst-case
-"import everything" number — what `import * from '@gentleduck/iam'`
+"import everything" number - what `import * from '@gentleduck/iam'`
 would pull. Realistic deployments end up at 15-25 KB because adapters,
 server middleware, and clients live behind subpath imports and the
 validator is lazy-loaded only when admin write paths run. See the

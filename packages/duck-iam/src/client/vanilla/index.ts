@@ -147,7 +147,7 @@ export class AccessClient<
         // propagation. Surface via console.error so the developer sees the
         // stack; production callers can supply onListenerError to redirect.
         // eslint-disable-next-line no-console
-        console.error('[duck-iam:client] listener threw — continuing to notify others', err)
+        console.error('[@gentleduck/iam:client] listener threw - continuing to notify others', err)
       }
     }
   }

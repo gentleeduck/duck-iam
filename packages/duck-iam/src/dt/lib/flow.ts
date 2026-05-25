@@ -44,7 +44,7 @@ export function createFlowRecorder(options: IFlowRecorderOptions = {}): IFlowRec
         // Surface listener errors via console.error. Devtools only, so no
         // operator-facing callback is needed.
         // eslint-disable-next-line no-console
-        console.error('[duck-iam:dt:flow] listener threw — continuing', err)
+        console.error('[@gentleduck/iam:dt:flow] listener threw - continuing', err)
       }
     }
   }

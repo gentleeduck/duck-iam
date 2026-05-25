@@ -75,7 +75,7 @@ export namespace Hono {
     onError?: (err: Error, c: HonoContext) => Response
     /**
      * Optional audit hook fired AFTER every mutation handler (PUT/POST/
-     * DELETE/PATCH) completes — success or failure. The hook is
+     * DELETE/PATCH) completes - success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
@@ -131,7 +131,7 @@ export function accessMiddleware<
   TScope extends string = string,
 >(engine: Engine<TAction, TResource, TRole, TScope>, opts: Hono.IOptions<TScope> = {}): HonoMiddleware {
   const {
-    // Never default to `c.req.header('x-user-id')` — any unauthenticated
+    // Never default to `c.req.header('x-user-id')` - any unauthenticated
     // client can spoof that header. The default reads ONLY from
     // `c.set('userId', ...)` populated by upstream auth middleware. Operators
     // wiring header-based identity must opt in via `getUserId`.
@@ -213,7 +213,7 @@ export function bindAdminRouter<
   opts: Hono.IAdminOptions,
 ): Hono.IRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[duck-iam] bindAdminRouter requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam] bindAdminRouter requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
@@ -369,7 +369,7 @@ export function guard<
   opts: Pick<Hono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & { scope?: TScope } = {},
 ): HonoMiddleware {
   const {
-    // Never default to `c.req.header('x-user-id')` — any unauthenticated
+    // Never default to `c.req.header('x-user-id')` - any unauthenticated
     // client can spoof that header. The default reads ONLY from
     // `c.set('userId', ...)` populated by upstream auth middleware. Operators
     // wiring header-based identity must opt in via `getUserId`.

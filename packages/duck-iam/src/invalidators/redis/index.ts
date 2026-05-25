@@ -59,7 +59,7 @@ export namespace RedisInvalidator {
      * CAVEAT-1: convenience helper for multi-tenant deployments. When set,
      * the effective channel becomes `duck-iam:invalidate:tenant:${tenantId}`
      * (or `${channel}:tenant:${tenantId}` if `channel` is also given). This
-     * guarantees tenant isolation on a shared Redis instance — tenant A's
+     * guarantees tenant isolation on a shared Redis instance - tenant A's
      * revoke cannot wipe tenant B's cache.
      *
      * Validates against `/^[A-Za-z0-9_-]{1,64}$/` to keep channel names
@@ -75,7 +75,7 @@ export namespace RedisInvalidator {
     /**
      * Shared HMAC secret. When set, every published envelope is signed with
      * `HMAC-SHA256(secret, canonicalJSON(payload))` and incoming envelopes
-     * without a verifying signature are dropped (silent — one `console.warn`
+     * without a verifying signature are dropped (silent - one `console.warn`
      * per channel on the first rejection). When `null` or omitted (default),
      * the invalidator falls back to legacy unsigned envelopes and warns once
      * at construction. Any party with PUBLISH rights to the channel can wipe
@@ -85,7 +85,7 @@ export namespace RedisInvalidator {
     /**
      * Invoked when the underlying `client.publish(...)` throws. The publish
      * failure is non-fatal for the local engine (it already applied the
-     * invalidation), but cross-instance invalidations are lost — wire this
+     * invalidation), but cross-instance invalidations are lost - wire this
      * to your alerting pipeline so a long-lived Redis outage does not
      * silently desync caches across nodes.
      */
@@ -115,7 +115,7 @@ const DROP_WARN_WINDOW_MS = 60_000
 
 /**
  * Guard limits applied to incoming wire messages BEFORE the HMAC verifier
- * (pre-auth — must be cheap and stack-safe).
+ * (pre-auth - must be cheap and stack-safe).
  */
 const MAX_WIRE_BYTES = 16 * 1024
 const MAX_PAYLOAD_DEPTH = 8
@@ -168,7 +168,7 @@ function _measurePayload(root: unknown): { depth: number; keys: number } | null 
  *
  * Defence in depth: bounded recursion. Callers in the verify path
  * additionally enforce a depth/size/key-count guard on the parsed payload
- * before invoking this function — `_depth` here protects the publish path
+ * before invoking this function - `_depth` here protects the publish path
  * and any future caller that bypasses the wire guard.
  */
 function canonicalJSON(v: unknown, _depth = 0): string {
@@ -250,7 +250,7 @@ export function createRedisInvalidator<TRole extends string = string>(
   config: RedisInvalidator.IConfig,
 ): EngineTypes.IInvalidator<TRole> {
   const baseChannel = config.channel ?? DEFAULT_CHANNEL
-  // CAVEAT-1: tenantId convenience — guarantees per-tenant channel isolation
+  // CAVEAT-1: tenantId convenience - guarantees per-tenant channel isolation
   // on a shared Redis instance. Reject anything outside a safe identifier
   // shape so an attacker-controlled tenant slug cannot inject pub/sub
   // wildcards (`*`) or whitespace that would confuse downstream subscribers.
@@ -258,7 +258,7 @@ export function createRedisInvalidator<TRole extends string = string>(
   if (config.tenantId !== undefined) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(config.tenantId)) {
       throw new Error(
-        'duck-iam createRedisInvalidator: tenantId must match /^[A-Za-z0-9_-]{1,64}$/ (got ' +
+        '[@gentleduck/iam:invalidator:redis] tenantId must match /^[A-Za-z0-9_-]{1,64}$/ (got ' +
           JSON.stringify(config.tenantId) +
           ')',
       )
@@ -272,7 +272,7 @@ export function createRedisInvalidator<TRole extends string = string>(
   if (secret === null && !_UNSIGNED_WARNED.fired) {
     _UNSIGNED_WARNED.fired = true
     console.warn(
-      'duck-iam createRedisInvalidator: `secret` not set — accepting unsigned pub/sub. Anyone with PUBLISH rights on the channel can wipe caches. Pass `secret` to require HMAC-SHA256.',
+      '[@gentleduck/iam:invalidator:redis] `secret` not set - accepting unsigned pub/sub. Anyone with PUBLISH rights on the channel can wipe caches. Pass `secret` to require HMAC-SHA256.',
     )
   }
 
@@ -282,7 +282,7 @@ export function createRedisInvalidator<TRole extends string = string>(
     if (!state) {
       _DROP_WARN_STATE.set(channelName, { lastWarn: now, suppressed: 0 })
       console.warn(
-        `duck-iam createRedisInvalidator: dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). Further drops within ${DROP_WARN_WINDOW_MS}ms are coalesced.`,
+        `[@gentleduck/iam:invalidator:redis] dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). Further drops within ${DROP_WARN_WINDOW_MS}ms are coalesced.`,
       )
       return
     }
@@ -295,7 +295,7 @@ export function createRedisInvalidator<TRole extends string = string>(
     state.lastWarn = now
     state.suppressed = 0
     console.warn(
-      `duck-iam createRedisInvalidator: dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). ${suppressed} prior drops coalesced.`,
+      `[@gentleduck/iam:invalidator:redis] dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). ${suppressed} prior drops coalesced.`,
     )
   }
 
@@ -338,7 +338,7 @@ export function createRedisInvalidator<TRole extends string = string>(
         try {
           config.onPublishError?.(error, channel)
         } catch {
-          /* operator hook itself threw — preserve fail-soft contract */
+          /* operator hook itself threw - preserve fail-soft contract */
         }
         if (!config.onPublishError) {
           warnDropOnce(channel, `publish failed (${error.message})`)
@@ -363,7 +363,7 @@ export function createRedisInvalidator<TRole extends string = string>(
  * Decodes and validates an incoming wire message.
  *
  * When `secret` is `null` we accept legacy `{instanceId, event}` only. v:1
- * envelopes are dropped in unsigned mode — accepting them without verifying
+ * envelopes are dropped in unsigned mode - accepting them without verifying
  * the HMAC would let an attacker forge the `instanceId` field, which the
  * self-filter uses to ignore own-process replays. A forged match would
  * suppress legitimate cross-instance invalidations. When `secret` is set we

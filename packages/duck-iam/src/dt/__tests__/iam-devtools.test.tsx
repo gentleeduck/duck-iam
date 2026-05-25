@@ -104,7 +104,7 @@ describe('IamDevtools production guard', () => {
   })
 
   it('SEC-021: BLOCKS when NODE_ENV is "test" and engine mode is unset', () => {
-    // Tests deliberately set NODE_ENV=test — without an engine positive
+    // Tests deliberately set NODE_ENV=test - without an engine positive
     // signal the guard must still block.
     process.env.NODE_ENV = 'test'
     const engine = makeMockEngine(undefined)

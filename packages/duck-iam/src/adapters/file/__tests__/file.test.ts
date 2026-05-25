@@ -55,7 +55,7 @@ afterEach(() => {
   _warnSpy?.mockRestore()
 })
 
-// Adapter compliance — fresh in-memory fake FS per call so each scenario
+// Adapter compliance - fresh in-memory fake FS per call so each scenario
 // runs against an empty store.
 runAdapterCompliance('FileAdapter', () => new FileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never)
 
@@ -333,7 +333,7 @@ describe('FileAdapter', () => {
 
     it('still falls back to parent realpath when file is ENOENT', async () => {
       // ENOENT (file genuinely missing on first run) keeps the legitimate
-      // fallback alive — containment is asserted via the parent + basename.
+      // fallback alive - containment is asserted via the parent + basename.
       const fs: File.IFS = {
         async readFile() {
           throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
@@ -355,7 +355,7 @@ describe('FileAdapter', () => {
         rootDir: '/srv/iam',
         fs,
       })
-      // Empty result, no throw — containment satisfied via parent fallback.
+      // Empty result, no throw - containment satisfied via parent fallback.
       expect(await adapter.listPolicies()).toEqual([])
     })
 
@@ -382,7 +382,7 @@ describe('FileAdapter', () => {
         fs,
       })
       await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
-      // Fix the underlying FS state and retry — the in-flight slot must
+      // Fix the underlying FS state and retry - the in-flight slot must
       // have cleared so a fresh load is attempted.
       escapingSymlink = false
       expect(await adapter.listPolicies()).toEqual([])
@@ -417,7 +417,7 @@ describe('FileAdapter', () => {
 
     it('re-checks realpath on every I/O, not just the first (SEC-025)', async () => {
       // After the first successful read, the file is swapped for a symlink to
-      // /etc/passwd. The second I/O must re-run realpath and reject — the
+      // /etc/passwd. The second I/O must re-run realpath and reject - the
       // one-shot _rootCheckDone latch would have let the symlink through.
       let realpathCalls = 0
       let swapped = false

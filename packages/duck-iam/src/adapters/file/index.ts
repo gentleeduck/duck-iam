@@ -27,7 +27,7 @@ export namespace File {
      */
     writeFile(path: string, data: string, encoding: 'utf8'): Promise<void>
     /**
-     * Creates a directory. **Not recursive** — the immediate parent must
+     * Creates a directory. **Not recursive** - the immediate parent must
      * already exist, so a typo in `init.path` cannot silently build a deep
      * tree.
      *
@@ -61,7 +61,7 @@ export namespace File {
      * - {@link rootDir} is set and the path escapes it.
      *
      * The adapter creates the file on first write, but **does not** recursively
-     * create directories — the immediate parent must already exist, guarding
+     * create directories - the immediate parent must already exist, guarding
      * against a typo in `path` accidentally building deep paths.
      */
     path: string
@@ -164,7 +164,7 @@ export class FileAdapter<
    * - when `init.rootDir` is provided, requires the path to live under it.
    *
    * The symlink-escape check happens lazily on first read/write (because it
-   * needs `realpath`, which is async) — see `_assertWithinRoot`.
+   * needs `realpath`, which is async) - see `_assertWithinRoot`.
    *
    * @param init - Provides the store path and filesystem driver.
    */
@@ -175,39 +175,39 @@ export class FileAdapter<
     // The user-visible intent of `..` is "escape the parent" - we refuse the
     // input regardless of where it lands.
     if (init.path.split(/[\\/]+/).includes('..')) {
-      throw new Error(`duck-iam: FileAdapter path contains a ".." segment: "${init.path}"`)
+      throw new Error(`[@gentleduck/iam:file] FileAdapter path contains a ".." segment: "${init.path}"`)
     }
     const resolved = nodePath.resolve(init.path)
     if (!nodePath.isAbsolute(resolved)) {
-      throw new Error(`duck-iam: FileAdapter path must resolve to an absolute path: "${init.path}"`)
+      throw new Error(`[@gentleduck/iam:file] FileAdapter path must resolve to an absolute path: "${init.path}"`)
     }
     // The pre-resolve form must already have been absolute. `path.resolve`
     // happily turns `./foo` into an absolute path by joining cwd; refuse
     // that quietly-promoted case because relative inputs are exactly the
     // class of bug this constructor exists to prevent.
     if (!nodePath.isAbsolute(init.path)) {
-      throw new Error(`duck-iam: FileAdapter path must be supplied as an absolute path: "${init.path}"`)
+      throw new Error(`[@gentleduck/iam:file] FileAdapter path must be supplied as an absolute path: "${init.path}"`)
     }
 
     let rootDir: string | null = null
     if (init.rootDir !== undefined) {
       if (!nodePath.isAbsolute(init.rootDir)) {
-        throw new Error(`duck-iam: FileAdapter rootDir must be absolute: "${init.rootDir}"`)
+        throw new Error(`[@gentleduck/iam:file] FileAdapter rootDir must be absolute: "${init.rootDir}"`)
       }
       rootDir = nodePath.resolve(init.rootDir)
       const rel = nodePath.relative(rootDir, resolved)
       if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
-        throw new Error(`duck-iam: FileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
+        throw new Error(`[@gentleduck/iam:file] FileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
       }
     } else if (!_ROOTDIR_WARNED_FIRED) {
-      // Fire at most once per process — a multi-tenant host instantiating
+      // Fire at most once per process - a multi-tenant host instantiating
       // many FileAdapters would otherwise drown its log stream. Do not
       // echo the resolved path: it may derive from request data and
       // reflecting it would expose a path-existence oracle via log scraping.
       _ROOTDIR_WARNED_FIRED = true
       // eslint-disable-next-line no-console
       console.warn(
-        '[duck-iam:file] FileAdapter constructed without rootDir. ' +
+        '[@gentleduck/iam:file] FileAdapter constructed without rootDir. ' +
           'Any caller deriving the path from request data should set rootDir for defence in depth.',
       )
     }
@@ -224,7 +224,7 @@ export class FileAdapter<
    * re-checks containment under `_rootDir`. Runs on every read AND every
    * write so an attacker cannot swap the file for a symlink after the first
    * I/O and steer later writes elsewhere. Symlink check is skipped when
-   * `realpath` is unavailable (test fakes, browser bundles) — the
+   * `realpath` is unavailable (test fakes, browser bundles) - the
    * constructor already enforced textual containment.
    */
   private async _assertWithinRoot(): Promise<void> {
@@ -238,7 +238,7 @@ export class FileAdapter<
     } catch (err) {
       // Only fall back to the parent-realpath shortcut when the file is
       // genuinely absent (ENOENT). Other errors (symlink loops, permission
-      // denied, filesystem busy) must propagate — otherwise an attacker who
+      // denied, filesystem busy) must propagate - otherwise an attacker who
       // can induce a non-ENOENT failure on a hostile symlink could bypass
       // the containment check.
       const code = (err as NodeJS.ErrnoException | undefined)?.code
@@ -257,7 +257,7 @@ export class FileAdapter<
     const rel = nodePath.relative(this._rootDir, canonical)
     if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
       throw new Error(
-        `duck-iam: FileAdapter realpath "${canonical}" escapes rootDir "${this._rootDir}" (symlink traversal)`,
+        `[@gentleduck/iam:file] FileAdapter realpath "${canonical}" escapes rootDir "${this._rootDir}" (symlink traversal)`,
       )
     }
   }
@@ -268,14 +268,14 @@ export class FileAdapter<
       return
     }
     // eslint-disable-next-line no-console
-    console.warn(`[duck-iam:file] dropped malformed row "${rowId}": ${err.message}`)
+    console.warn(`[@gentleduck/iam:file] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   private async _loadState(): Promise<File.IState<TAction, TResource, TRole, TScope>> {
     if (this._cache) return this._cache
     if (this._loadInFlight) return this._loadInFlight
     // Clear in-flight on ANY throw (including _assertWithinRoot
-    // symlink-escape) — a stuck rejected promise would otherwise pin the
+    // symlink-escape) - a stuck rejected promise would otherwise pin the
     // adapter in a permanent failure state until process restart.
     const pending = (async () => {
       try {
@@ -288,7 +288,7 @@ export class FileAdapter<
           const code = (err as NodeJS.ErrnoException | undefined)?.code
           if (code !== 'ENOENT') {
             throw new Error(
-              `duck-iam FileAdapter: load failed (${code ?? 'unknown'}): ${err instanceof Error ? err.message : String(err)}`,
+              `[@gentleduck/iam:file] load failed (${code ?? 'unknown'}): ${err instanceof Error ? err.message : String(err)}`,
             )
           }
           const empty: File.IState<TAction, TResource, TRole, TScope> = {
@@ -311,7 +311,7 @@ export class FileAdapter<
           // before any write lands.
           this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), this._path)
           throw new Error(
-            `duck-iam FileAdapter: store at "${this._path}" is corrupt (JSON parse failed) — refusing to load; restore from backup before retrying`,
+            `[@gentleduck/iam:file] store at "${this._path}" is corrupt (JSON parse failed) - refusing to load; restore from backup before retrying`,
           )
         }
 
@@ -375,7 +375,7 @@ export class FileAdapter<
       const code = (err as NodeJS.ErrnoException | undefined)?.code
       if (code !== 'EEXIST') {
         throw new Error(
-          `duck-iam: FileAdapter parent directory "${this._parentDir}" is not accessible (${code ?? 'unknown'}). ` +
+          `[@gentleduck/iam:file] FileAdapter parent directory "${this._parentDir}" is not accessible (${code ?? 'unknown'}). ` +
             'Create it explicitly; the adapter no longer does recursive mkdir.',
         )
       }
@@ -545,7 +545,7 @@ export class FileAdapter<
     const s = await this._loadState()
     const entries = s.assignments[id]
     if (!entries) return
-    // scope-undefined removes ALL matching role assignments — matches the
+    // scope-undefined removes ALL matching role assignments - matches the
     // redis/drizzle/prisma contract.
     s.assignments[id] =
       scope === undefined

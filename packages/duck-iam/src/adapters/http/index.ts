@@ -98,14 +98,14 @@ export namespace Http {
      * parsed URL must match an entry in the list or construction throws.
      *
      * Matching rules:
-     * - Comparison is case-insensitive on both sides — `Example.COM` in the
+     * - Comparison is case-insensitive on both sides - `Example.COM` in the
      *   list matches `example.com` in `baseUrl` and vice versa.
      * - Entries may be bare hostnames (`example.com`) or host:port pairs
      *   (`example.com:8080`).
-     * - A bare-host entry matches the URL's hostname regardless of port — so
+     * - A bare-host entry matches the URL's hostname regardless of port - so
      *   `allowedHosts: ['example.com']` accepts `example.com`, `example.com:80`,
      *   and `example.com:8443`.
-     * - A host:port entry matches only that exact port — `example.com:8080`
+     * - A host:port entry matches only that exact port - `example.com:8080`
      *   rejects `example.com` (no port) and `example.com:9090`.
      * - Precedence: bare hostname is tried first, then full `host` (with port).
      *
@@ -133,7 +133,7 @@ const _ALLOWED_HOSTS_WARNED = { fired: false }
 /**
  * Converts a 32-bit IPv4 tail expressed as two colon-separated hex groups
  * (e.g. `7f00:1`) into dotted-quad form (`127.0.0.1`). Returns `null` if the
- * input is not a well-formed 32-bit hex tail. Both groups may be 1–4 hex
+ * input is not a well-formed 32-bit hex tail. Both groups may be 1-4 hex
  * digits; the second group may be omitted leading zeros (`7f00:1` ==
  * `7f00:0001`).
  */
@@ -168,7 +168,7 @@ function _isPrivateHost(hostname: string): boolean {
     if (a === 192 && b === 168) return true // RFC1918
     if (a === 172 && b >= 16 && b <= 31) return true // RFC1918
     if (a === 169 && b === 254) return true // link-local
-    if (a === 0) return true // "this network" — includes 0.0.0.0 unspecified
+    if (a === 0) return true // "this network" - includes 0.0.0.0 unspecified
     return false
   }
   // IPv6 literal
@@ -178,11 +178,11 @@ function _isPrivateHost(hostname: string): boolean {
     // IPv6 unspecified `::` (kernel wildcard, often resolves to a local
     // interface). Block its expanded form too.
     if (lower === '::' || lower === '0:0:0:0:0:0:0:0') return true
-    // fc00::/7 — first byte 0xfc or 0xfd
+    // fc00::/7 - first byte 0xfc or 0xfd
     if (/^f[cd][0-9a-f]{0,2}:/.test(lower)) return true
-    // fe80::/10 — fe8x, fe9x, feax, febx
+    // fe80::/10 - fe8x, fe9x, feax, febx
     if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true
-    // IPv4-mapped IPv6 — `::ffff:a.b.c.d` (dotted-quad tail) or
+    // IPv4-mapped IPv6 - `::ffff:a.b.c.d` (dotted-quad tail) or
     // `::ffff:hhhh:hhhh` (hex tail, canonical form Node's URL parser emits).
     // Also accept the fully expanded `0:0:0:0:0:ffff:...` form.
     let mappedTail: string | null = null
@@ -191,12 +191,12 @@ function _isPrivateHost(hostname: string): boolean {
     if (mappedTail !== null) {
       // Dotted-quad tail (`::ffff:127.0.0.1`).
       if (mappedTail.includes('.')) return _isPrivateHost(mappedTail)
-      // Hex tail (`::ffff:7f00:1`) — convert to dotted-quad then re-check.
+      // Hex tail (`::ffff:7f00:1`) - convert to dotted-quad then re-check.
       const dotted = _hexTailToDottedQuad(mappedTail)
       if (dotted) return _isPrivateHost(dotted)
       return false
     }
-    // IPv4-compatible IPv6 (deprecated RFC4291 §2.5.5.1) — `::a.b.c.d`.
+    // IPv4-compatible IPv6 (deprecated RFC4291 §2.5.5.1) - `::a.b.c.d`.
     // Node canonicalises these to hex too, but cover textual form for
     // completeness.
     if (lower.startsWith('::') && lower.includes('.')) {
@@ -205,7 +205,7 @@ function _isPrivateHost(hostname: string): boolean {
     }
     // 6to4 prefix `2002::/16` carries an inner IPv4 in the next two 16-bit
     // groups (`2002:AABB:CCDD::` → `A.B.C.D` with bytes AA,BB,CC,DD). Linux
-    // ships 6to4 by default — `2002:7f00:1::` carries `127.0.0.1`.
+    // ships 6to4 by default - `2002:7f00:1::` carries `127.0.0.1`.
     if (lower.startsWith('2002:')) {
       const m = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/.exec(lower)
       if (m) {
@@ -225,7 +225,7 @@ function _isPrivateHost(hostname: string): boolean {
         const v4match = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(tail)
         if (v4match?.[1]) return _isPrivateHost(v4match[1])
       }
-      // Hex tail — last two non-empty hex groups form the 32-bit v4.
+      // Hex tail - last two non-empty hex groups form the 32-bit v4.
       const groups = tail.split(':').filter((g) => g.length > 0)
       if (groups.length >= 2) {
         const dotted = _hexTailToDottedQuad(`${groups[groups.length - 2]}:${groups[groups.length - 1]}`)
@@ -265,7 +265,7 @@ function _normaliseHostForAllowlist(host: string): string {
 }
 
 /**
- * Backs the access store with a remote duck-iam HTTP API.
+ * Backs the access store with a remote [@gentleduck/iam:http] HTTP API.
  *
  * Useful for client-side engines that delegate storage to a backend service.
  * Adds per-request timeout, exponential-backoff retry, and a circuit breaker.
@@ -331,20 +331,20 @@ export class HttpAdapter<
     try {
       parsed = new URL(config.baseUrl)
     } catch {
-      throw new Error(`duck-iam HttpAdapter: invalid baseUrl ${JSON.stringify(config.baseUrl)}`)
+      throw new Error(`[@gentleduck/iam:http] invalid baseUrl ${JSON.stringify(config.baseUrl)}`)
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error(`duck-iam HttpAdapter: baseUrl scheme must be http: or https:, got ${parsed.protocol}`)
+      throw new Error(`[@gentleduck/iam:http] baseUrl scheme must be http: or https:, got ${parsed.protocol}`)
     }
     if (parsed.search || parsed.hash) {
-      throw new Error('duck-iam HttpAdapter: baseUrl must not contain a query string or fragment')
+      throw new Error('[@gentleduck/iam:http] baseUrl must not contain a query string or fragment')
     }
     if (config.allowedHosts && config.allowedHosts.length > 0) {
       // Case-insensitive, port-aware, trailing-dot tolerant, IDN-aware
       // match. Two precedence arms:
-      // 1) bare hostname (no port) — matches the URL's hostname regardless of
+      // 1) bare hostname (no port) - matches the URL's hostname regardless of
       //    the URL's port.
-      // 2) full host (`hostname:port`) — exact port match required.
+      // 2) full host (`hostname:port`) - exact port match required.
       // Both sides are normalised: lower-cased, FQDN trailing dot stripped,
       // and Unicode entries punycoded via the WHATWG URL parser.
       const urlHostname = _normaliseHostForAllowlist(parsed.hostname)
@@ -365,17 +365,17 @@ export class HttpAdapter<
       })
       const matched = normEntries.some((entry) => entry === urlHostname || entry === urlHost)
       if (!matched) {
-        throw new Error(`duck-iam HttpAdapter: baseUrl host ${JSON.stringify(parsed.host)} not in allowedHosts`)
+        throw new Error(`[@gentleduck/iam:http] baseUrl host ${JSON.stringify(parsed.host)} not in allowedHosts`)
       }
     } else if (!_ALLOWED_HOSTS_WARNED.fired) {
       _ALLOWED_HOSTS_WARNED.fired = true
       console.warn(
-        'duck-iam HttpAdapter: `allowedHosts` not set — any host accepted. Pass `init.allowedHosts` for SSRF defense in depth.',
+        '[@gentleduck/iam:http] `allowedHosts` not set - any host accepted. Pass `init.allowedHosts` for SSRF defense in depth.',
       )
     }
     if (!config.allowPrivateHosts && _isPrivateHost(parsed.hostname)) {
       throw new Error(
-        `duck-iam HttpAdapter: baseUrl host ${JSON.stringify(parsed.hostname)} resolves to a private/loopback range — set allowPrivateHosts: true to opt in`,
+        `[@gentleduck/iam:http] baseUrl host ${JSON.stringify(parsed.hostname)} resolves to a private/loopback range - set allowPrivateHosts: true to opt in`,
       )
     }
     // Strip a single trailing `/` for back-compat with previous behaviour.
@@ -413,7 +413,7 @@ export class HttpAdapter<
   private async _request<T>(path: string, init?: RequestInit, readOpts?: Adapter.IReadOptions): Promise<T> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (!res.ok) {
-      throw new Error(`duck-iam HTTP ${res.status}: ${await res.text()}`)
+      throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await res.text()}`)
     }
     return res.json()
   }
@@ -433,7 +433,7 @@ export class HttpAdapter<
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (res.status === 404) return null
     if (!res.ok) {
-      throw new Error(`duck-iam HTTP ${res.status}: ${await res.text()}`)
+      throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await res.text()}`)
     }
     return res.json()
   }
@@ -452,11 +452,11 @@ export class HttpAdapter<
   ): Promise<Response> {
     const state = this._circuitState()
     if (state === 'open') {
-      throw new Error('duck-iam HttpAdapter: circuit open - refusing request')
+      throw new Error('[@gentleduck/iam:http] circuit open - refusing request')
     }
     if (state === 'half-open') {
       if (this._cbHalfOpenInFlight) {
-        throw new Error('duck-iam HttpAdapter: circuit half-open probe in flight')
+        throw new Error('[@gentleduck/iam:http] circuit half-open probe in flight')
       }
       this._cbHalfOpenInFlight = true
     }
@@ -503,7 +503,7 @@ export class HttpAdapter<
     const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal, redirect: 'error' })
     if (res.status >= 500) {
       const body = await res.text().catch(() => '')
-      throw makeTransient(new Error(`duck-iam HTTP ${res.status}: ${body}`))
+      throw makeTransient(new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${body}`))
     }
     return res
   }
@@ -609,8 +609,8 @@ export class HttpAdapter<
    * **Contract:** the response MUST contain GLOBAL (unscoped) role IDs
    * only. Scoped role assignments must be returned
    * from `GET /subjects/{id}/scoped-roles` (see {@link getSubjectScopedRoles}).
-   * The HTTP adapter cannot enforce this — it forwards whatever the server
-   * returns — so the operator's API server is responsible for filtering
+   * The HTTP adapter cannot enforce this - it forwards whatever the server
+   * returns - so the operator's API server is responsible for filtering
    * out scoped roles. A server that collapses scoped+unscoped into one list
    * will cause subjects to evaluate with MORE permissions than they would
    * against any other adapter (memory, file, redis, drizzle, prisma),

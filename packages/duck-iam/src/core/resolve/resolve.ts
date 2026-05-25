@@ -121,7 +121,7 @@ export function matchesAction(pattern: string, action: string): boolean {
 
 /**
  * Tests if a resource type matches a pattern. Hierarchical separators are
- * `:` and `.`, treated symmetrically — the trailing-wildcard arm picks the
+ * `:` and `.`, treated symmetrically - the trailing-wildcard arm picks the
  * separator from the pattern.
  *
  * Matching rules:
@@ -163,9 +163,9 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
  *
  * Matching rules:
  * - `"*"` matches everything.
- * - A bare pattern (no `.*` suffix) matches ONLY the literal resource —
+ * - A bare pattern (no `.*` suffix) matches ONLY the literal resource -
  *   `"dashboard"` matches `"dashboard"` but NOT `"dashboard.users"`.
- * - A `".*"` suffix matches anything under that prefix recursively —
+ * - A `".*"` suffix matches anything under that prefix recursively -
  *   `"dashboard.*"` matches `"dashboard.users"` and
  *   `"dashboard.users.settings"` but NOT `"dashboard"` itself.
  * - Wildcards apply at the position they appear: `"dashboard.users.*"`

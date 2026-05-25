@@ -4,7 +4,7 @@ import type { AccessControl, Primitives, Request } from '../types'
 /**
  * Max allowed regex pattern length to mitigate ReDoS. Catastrophic
  * backtracking patterns are tiny (e.g. `(a+)+$`), so a tight bound here is
- * appropriate — larger patterns only give attackers more rope.
+ * appropriate - larger patterns only give attackers more rope.
  */
 export const MAX_REGEX_LENGTH = 128
 
@@ -38,7 +38,7 @@ export class RegexInputTooLargeError extends Error {
   readonly length: number
   constructor(field: string, length: number) {
     super(
-      `duck-iam: matches input on field "${field}" is ${length} bytes (> MAX_REGEX_INPUT_LENGTH=${MAX_REGEX_INPUT_LENGTH}); policy dropped as NotApplicable.`,
+      `[@gentleduck/iam:conditions] matches input on field "${field}" is ${length} bytes (> MAX_REGEX_INPUT_LENGTH=${MAX_REGEX_INPUT_LENGTH}); policy dropped as NotApplicable.`,
     )
     this.field = field
     this.length = length

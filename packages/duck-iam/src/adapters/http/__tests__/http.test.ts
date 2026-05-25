@@ -67,7 +67,7 @@ describe('HttpAdapter', () => {
     it('throws on non-ok response with status + body', async () => {
       const { fetch } = makeFetch(() => jsonResponse('boom', false, 500))
       const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch })
-      await expect(adapter.listPolicies()).rejects.toThrow(/duck-iam HTTP 500: boom/)
+      await expect(adapter.listPolicies()).rejects.toThrow(/\[@gentleduck\/iam:http\] HTTP 500: boom/)
     })
 
     it('rejects non-http(s) baseUrl scheme (SEC-001)', () => {
@@ -412,7 +412,7 @@ describe('HttpAdapter', () => {
     it('getPolicy still throws on 5xx', async () => {
       const { fetch } = makeFetch(() => jsonResponse('boom', false, 503))
       const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
-      await expect(adapter.getPolicy('p1')).rejects.toThrow(/duck-iam HTTP 503/)
+      await expect(adapter.getPolicy('p1')).rejects.toThrow(/\[@gentleduck\/iam:http\] HTTP 503/)
     })
 
     it('savePolicy PUT /policies', async () => {

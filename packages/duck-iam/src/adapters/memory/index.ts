@@ -219,7 +219,7 @@ export class MemoryAdapter<
     const entries = this._assignments.get(id)
     if (!entries) return
     // Omitting `scope` removes EVERY assignment for the role across all
-    // scopes — matches the redis/drizzle/prisma contract.
+    // scopes - matches the redis/drizzle/prisma contract.
     const filtered =
       scope === undefined
         ? entries.filter((e) => e.role !== roleId)

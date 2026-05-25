@@ -101,7 +101,7 @@ function assertValidOrThrow(kind: 'policy' | 'role', result: Validate.IResult): 
   const errs = result.issues
     .filter((i) => i.type === 'error')
     .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
-  throw new Error(`duck-iam: ${kind} rejected by validator — ${errs.join('; ')}`)
+  throw new Error(`[@gentleduck/iam:engine] ${kind} rejected by validator - ${errs.join('; ')}`)
 }
 
 /**
@@ -263,7 +263,7 @@ export function createAdmin<
     ): Promise<EngineTypes.IImportResult> {
       if (snapshot?.schemaVersion !== 1) {
         throw new Error(
-          `duck-iam: unsupported snapshot schemaVersion ${(snapshot as { schemaVersion?: unknown })?.schemaVersion}; expected 1`,
+          `[@gentleduck/iam:engine] unsupported snapshot schemaVersion ${(snapshot as { schemaVersion?: unknown })?.schemaVersion}; expected 1`,
         )
       }
       const mode = options.mode ?? 'merge'

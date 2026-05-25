@@ -286,7 +286,7 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('returns fail-closed all-deny map when adapter rejects (SEC-070)', async () => {
-    // Adapter rejects on listPolicies — without the outer try permissions()
+    // Adapter rejects on listPolicies - without the outer try permissions()
     // would reject the whole batch and callers that don't .catch() lose the
     // fail-closed behaviour. With the catch: every requested check is keyed
     // false and onError fires once.
@@ -343,7 +343,7 @@ describe('Engine.permissions() - batch check', () => {
         } as never,
       ],
       attributes: {
-        // 3KB > MAX_REGEX_INPUT_LENGTH (2048) — evaluator throws.
+        // 3KB > MAX_REGEX_INPUT_LENGTH (2048) - evaluator throws.
         'user-1': { bigField: 'x'.repeat(3000) },
       },
     })
@@ -1321,7 +1321,7 @@ describe('Engine - cache invalidation', () => {
     expect(a).not.toBe(b)
     expect(a.regex).not.toBe(b.regex)
     expect(a.path).not.toBe(b.path)
-    // Eval against both — populate path caches.
+    // Eval against both - populate path caches.
     await engineA.can('user-1', 'read', { type: 'post', attributes: {} })
     await engineB.can('user-1', 'read', { type: 'post', attributes: {} })
     // Each engine's path cache populated with its own segments.

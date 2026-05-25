@@ -275,7 +275,7 @@ export function evaluatePolicyFast(
   const resType = request.resource.type
 
   // Fastest path: pre-computed result for unconditional rules (CASL-like O(1)).
-  // Literal resource patterns match only the exact resource type — do NOT
+  // Literal resource patterns match only the exact resource type - do NOT
   // probe parent prefixes here.
   const actionMap = idx.precomputed.get(action)
   if (actionMap) {
@@ -443,7 +443,7 @@ export function evaluateFast(
 export interface IEvalSignals {
   /**
    * Set to `true` only when the engine returned `allow` because the
-   * `defaultEffect` fallback was triggered — i.e. no applicable policy fired.
+   * `defaultEffect` fallback was triggered - i.e. no applicable policy fired.
    * Never set when an explicit allow rule matched. Operators chart this to
    * detect silent failures of the policy set (broken adapter, mass deletion,
    * etc.) that the boolean verdict alone hides.

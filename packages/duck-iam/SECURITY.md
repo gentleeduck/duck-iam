@@ -85,7 +85,7 @@ sourcing, CSRF protection, and multi-tenant isolation are the operator's
 responsibility. The library ships safe defaults where it can; the items below
 are choices only the operator can make.
 
-### 1. Identity sourcing — never trust client-supplied headers
+### 1. Identity sourcing - never trust client-supplied headers
 
 `accessMiddleware` / `withAccess` / `guard` derive a `subjectId` from a
 `getUserId(req)` callback. Always derive identity from a **server-verified**
@@ -105,15 +105,15 @@ const guard = accessMiddleware(engine, {
   getUserId: (req) => req.user?.sub ?? null,
 })
 
-// ❌ Client-supplied header — anyone with curl spoofs admin
+// ❌ Client-supplied header - anyone with curl spoofs admin
 getUserId: (req) => req.headers['x-user-id']
-// ❌ Request body — attacker-controlled
+// ❌ Request body - attacker-controlled
 getUserId: (req) => req.body?.userId
 ```
 
 The Express/Nest defaults already read from `req.user?.id` (populated by
 common auth middleware). The Hono default reads `c.get('userId')` only
-(no header fallback — SEC-101). The Next `withAccess` requires
+(no header fallback - SEC-101). The Next `withAccess` requires
 `getUserId` to be supplied explicitly.
 
 ### 2. Admin router CSRF
@@ -125,10 +125,10 @@ header is `cross-site` or `cross-origin`. This closes the most common
 cookie-auth CSRF vector without operator action.
 
 ```ts
-// ✅ Default — Sec-Fetch-Site check applied automatically
+// ✅ Default - Sec-Fetch-Site check applied automatically
 adminRouter(engine, { authorize: (req) => req.user?.role === 'admin' })
 
-// ✅ Bearer-token / mTLS API (no browser) — disable
+// ✅ Bearer-token / mTLS API (no browser) - disable
 adminRouter(engine, { authorize, csrfCheck: false })
 
 // ✅ Stricter: Origin allowlist
@@ -164,11 +164,11 @@ the rotation window.
 
 The `matches`-operator regex cache and dot-path segment cache are
 process-globals (SEC-050). A hostile tenant flooding distinct
-patterns can evict another tenant's hot entries — availability
+patterns can evict another tenant's hot entries - availability
 degradation, not auth bypass. Two mitigations:
 
 - **One Node process per tenant** (recommended): each process gets
-  its own globals — no cross-talk.
+  its own globals - no cross-talk.
 - **Periodic flush** via `engine.flushSharedCaches()`. Tune the
   interval against your request volume.
 
@@ -180,7 +180,7 @@ setInterval(() => engine.flushSharedCaches(), 5 * 60 * 1000)
 ### 5. `defaultEffect: 'allow'`
 
 Almost always wrong. `defaultEffect: 'allow'` means a request that
-matches no policy is allowed — silent fail-open on adapter outages,
+matches no policy is allowed - silent fail-open on adapter outages,
 mass policy deletion, or any other source of "no applicable rule".
 The engine refuses this configuration unless you pass
 `allowFailOpen: true` and emits a startup warning. Operators who
@@ -220,7 +220,7 @@ once at construction.
 
 ### 10. Observability
 
-Wire `onPolicyError`, `onError`, and `onMetrics` on the engine —
+Wire `onPolicyError`, `onError`, and `onMetrics` on the engine -
 silent failures in an authorization path either deny everything or
 allow everything, both customer-visible outages. Use
 `createMetricsAggregator()` to chart `failOpen` rate as a
@@ -280,6 +280,6 @@ fix commit.
 | SEC-103 | CSRF | Admin router default-on `defaultCsrfCheck` (Sec-Fetch-Site) |
 | SEC-104 | Key parser | Vanilla `extractAction` escape-aware via `splitPermissionKey` |
 
-`SEC-002 / 004 / 005 / 006 / 008 / 009 / 011..018 / 023 / 033 / 042 (covered above)` —
+`SEC-002 / 004 / 005 / 006 / 008 / 009 / 011..018 / 023 / 033 / 042 (covered above)` -
 P0/P1 work from 2.0.0; see CHANGELOG.md 2.0.0 section + the `audit/`
 directory in the repo (gitignored; per-commit detail in git log).

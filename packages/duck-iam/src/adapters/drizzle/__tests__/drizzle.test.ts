@@ -143,7 +143,7 @@ function makeDrizzleMock(): {
   return { config, tables }
 }
 
-// Adapter compliance — fresh mock per call.
+// Adapter compliance - fresh mock per call.
 runAdapterCompliance('DrizzleAdapter', () => new DrizzleAdapter(makeDrizzleMock().config) as never)
 
 describe('DrizzleAdapter', () => {

@@ -54,7 +54,7 @@ function panelHidden(position: PanelPosition): string {
   return 'translateX(-100%)'
 }
 
-// Hard-no in production. No escape hatch — see lib/guard.ts. Guard sits in
+// Hard-no in production. No escape hatch - see lib/guard.ts. Guard sits in
 // a thin wrapper so the inner component's hook order stays unconditional.
 export function IamDevtools(props: IIamDevtoolsProps) {
   if (isDevtoolsBlocked(props.engine)) return null

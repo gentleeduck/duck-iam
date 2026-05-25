@@ -95,7 +95,7 @@ export class RedisAdapter<
    * just-deleted assignment. Without `EVAL`/`MULTI` in the minimal
    * `Redis.ILike` interface, the soundest in-process fix is to serialise
    * writes against a single assignments key behind a chained promise.
-   * Cross-process races remain — operators running multiple writer
+   * Cross-process races remain - operators running multiple writer
    * processes should rely on the Lua `eval` path when available.
    */
   private _assignmentWriteLocks = new Map<string, Promise<unknown>>()
@@ -160,7 +160,7 @@ export class RedisAdapter<
       return
     }
     // eslint-disable-next-line no-console
-    console.warn(`[duck-iam:redis] dropped malformed row "${rowId}": ${err.message}`)
+    console.warn(`[@gentleduck/iam:redis] dropped malformed row "${rowId}": ${err.message}`)
   }
 
   // -- key helpers --
@@ -195,7 +195,7 @@ export class RedisAdapter<
    * legacy form is removed from the set.
    *
    * False positives are scoped to subjects whose role/scope strings happened
-   * to contain spaces — exactly the cases that were silently broken before —
+   * to contain spaces - exactly the cases that were silently broken before -
    * so the migration corrects rather than corrupts them.
    */
   private _isLegacyEncoded(member: string): boolean {
@@ -209,7 +209,7 @@ export class RedisAdapter<
     const r = roleId as string
     const s = (scope ?? '') as string
     if (r.includes(RedisAdapter._SEP) || s.includes(RedisAdapter._SEP)) {
-      throw new Error('duck-iam: role / scope must not contain NUL bytes')
+      throw new Error('[@gentleduck/iam:redis] role / scope must not contain NUL bytes')
     }
     return `${r}${RedisAdapter._SEP}${s}`
   }
@@ -294,7 +294,7 @@ export class RedisAdapter<
 
   /**
    * Cross-process atomic migration via Redis EVAL. Lua scripts run
-   * atomically in Redis — no other command interleaves between the SADD
+   * atomically in Redis - no other command interleaves between the SADD
    * and SREM, so a concurrent `revokeRole` from a sibling process cannot
    * resurrect an assignment. Requires `client.eval` (ioredis, node-redis
    * v4+); falls back to single-process serialisation when absent.
@@ -445,7 +445,7 @@ export class RedisAdapter<
     const roles = new Set<TRole>()
     for (const m of members) {
       const decoded = this._decodeAssignment(m)
-      // Contract: unscoped (global) roles only — same as file/memory
+      // Contract: unscoped (global) roles only - same as file/memory
       // adapters. Scoped assignments are surfaced via getSubjectScopedRoles.
       if (decoded.scope !== undefined) continue
       roles.add(decoded.role)
@@ -540,11 +540,11 @@ export class RedisAdapter<
       // policies that previously allowed with no visible change. Surface
       // through _reportPolicyError and throw so the engine fails closed.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      throw new Error(`duck-iam RedisAdapter: corrupted attributes for "${subjectId}" (JSON parse failed)`)
+      throw new Error(`[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (JSON parse failed)`)
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
-      throw new Error(`duck-iam RedisAdapter: corrupted attributes for "${subjectId}" (not a JSON object)`)
+      throw new Error(`[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (not a JSON object)`)
     }
     return parsed as Primitives.Attributes
   }

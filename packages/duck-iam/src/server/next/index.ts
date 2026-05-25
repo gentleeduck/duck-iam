@@ -97,7 +97,7 @@ export namespace Next {
     onError?: (err: Error, req: Request) => Response
     /**
      * Optional audit hook fired AFTER every mutation handler (PUT/POST/
-     * DELETE/PATCH) completes — success or failure. The hook is
+     * DELETE/PATCH) completes - success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
@@ -150,7 +150,7 @@ export function withAccess<
   // JWT, etc.).
   if (!opts.getUserId) {
     throw new Error(
-      'duck-iam withAccess: opts.getUserId is required — deriving identity from request headers is unsafe. ' +
+      '[@gentleduck/iam:next] opts.getUserId is required - deriving identity from request headers is unsafe. ' +
         'Wire it from your auth middleware (cookie session, JWT, etc.).',
     )
   }
@@ -387,7 +387,7 @@ export function createAdminHandlers<
   TScope extends string = string,
 >(engine: Engine<TAction, TResource, TRole, TScope>, opts: Next.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[duck-iam] createAdminHandlers requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam] createAdminHandlers requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.

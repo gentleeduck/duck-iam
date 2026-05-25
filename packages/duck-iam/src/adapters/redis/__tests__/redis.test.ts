@@ -90,7 +90,7 @@ class FakeRedis implements Redis.ILike {
   }
 }
 
-// Adapter compliance — fresh FakeRedis per call.
+// Adapter compliance - fresh FakeRedis per call.
 runAdapterCompliance('RedisAdapter', () => new RedisAdapter({ client: new FakeRedis() }) as never)
 
 describe('RedisAdapter', () => {
@@ -436,7 +436,7 @@ describe('RedisAdapter', () => {
       } finally {
         console.warn = orig
       }
-      expect(warnings.some((w) => /duck-iam:redis/.test(w) && /bad/.test(w))).toBe(true)
+      expect(warnings.some((w) => /\[@gentleduck\/iam:redis\]/.test(w) && /bad/.test(w))).toBe(true)
     })
   })
 

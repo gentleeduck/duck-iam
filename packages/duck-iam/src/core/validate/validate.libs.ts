@@ -29,7 +29,7 @@ export const MAX_BOUNDED_QUANTIFIER = 1_000
  *   - bounded quantifier with large upper bound (`a{1,1000000}`)
  *   - lookaround group containing a quantifier (`(?=(a+)+)`)
  *
- * Not a complete safe-regex linter — it deliberately errs on the side of
+ * Not a complete safe-regex linter - it deliberately errs on the side of
  * rejection. Patterns deemed unsafe should not even compile, so the runtime
  * never sees them.
  *
@@ -43,7 +43,7 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     return { safe: false, reason: `pattern length ${pattern.length} exceeds MAX_REGEX_LENGTH (${MAX_REGEX_LENGTH})` }
   }
 
-  // Backreference followed by a quantifier — run before the nested-quantifier
+  // Backreference followed by a quantifier - run before the nested-quantifier
   // scan so the more specific reason wins for shapes like `(\w+)\1+`. Numeric
   // (`\1+`, `\3*`, `\2{1,5}`) and named (`\k<name>+`) forms can drive
   // exponential backtracking when the captured group matches a variable-length
@@ -102,7 +102,7 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     while ((m = re.exec(pattern)) !== null) {
       const low = Number(m[1])
       const upperStr = m[2]
-      if (upperStr === undefined) continue // `{n}` exact count — not a range.
+      if (upperStr === undefined) continue // `{n}` exact count - not a range.
       if (upperStr === '') {
         if (low > MAX_BOUNDED_QUANTIFIER) {
           return { safe: false, reason: 'bounded-large-quantifier' }
@@ -140,10 +140,10 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
       // Strip escapes from body before scanning so `\+` doesn't trigger.
       const bodyStripped = body.replace(/\\./g, '')
       if (/[+*]/.test(bodyStripped) || /\{\d+,\d*\}/.test(bodyStripped)) {
-        return { safe: false, reason: 'nested quantifier (e.g. `(a+)+`) — catastrophic backtracking risk' }
+        return { safe: false, reason: 'nested quantifier (e.g. `(a+)+`) - catastrophic backtracking risk' }
       }
       if (bodyStripped.includes('|')) {
-        return { safe: false, reason: 'alternation inside a quantified group — catastrophic backtracking risk' }
+        return { safe: false, reason: 'alternation inside a quantified group - catastrophic backtracking risk' }
       }
     }
   }
@@ -162,7 +162,7 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
       continue
     }
     if (ch === '{') {
-      // `{n,}` or `{n,m}` — only `{n,}` (no upper bound) is unbounded.
+      // `{n,}` or `{n,m}` - only `{n,}` (no upper bound) is unbounded.
       const close = pattern.indexOf('}', i)
       if (close === -1) continue
       const inner = pattern.slice(i + 1, close)

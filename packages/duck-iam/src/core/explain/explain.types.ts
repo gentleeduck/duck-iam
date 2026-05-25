@@ -79,7 +79,7 @@ export namespace Explain {
     readonly policies: readonly IPolicyTrace[]
     /**
      * Plain-text human-readable summary. INFO-B: contains policy IDs, subject
-     * IDs, role IDs verbatim — values may be operator-controlled (admin-supplied
+     * IDs, role IDs verbatim - values may be operator-controlled (admin-supplied
      * policy names) or attacker-influenced (subject IDs from request paths).
      * Downstream consumers that render this into HTML must HTML-escape it
      * themselves; the explain pipeline never escapes for any specific

@@ -2,10 +2,10 @@ import type { AccessControl } from '../../core/types'
 import type { IDevtoolsEngine } from './types'
 
 /**
- * Hard production guard for the IAM devtools — default-block.
+ * Hard production guard for the IAM devtools - default-block.
  *
  * Returns `true` ONLY when an explicit positive `development` signal is
- * present — either the bundler set `NODE_ENV=development` or the engine was
+ * present - either the bundler set `NODE_ENV=development` or the engine was
  * constructed in `'development'` mode. Absence of any signal blocks the
  * panel so the policy/role/subject readers cannot leak into raw-browser
  * bundles that don't shim `process` or into engines that don't surface
@@ -26,7 +26,7 @@ export function isDevtoolsAllowed(engine: IDevtoolsEngine): boolean {
   // A bundler-set production signal always blocks, regardless of engine mode.
   if (nodeEnv === 'production') return false
 
-  // Positive development signals — either side is sufficient.
+  // Positive development signals - either side is sufficient.
   if (nodeEnv === 'development') return true
 
   const mode = readEngineMode(engine)
@@ -38,7 +38,7 @@ export function isDevtoolsAllowed(engine: IDevtoolsEngine): boolean {
 
 /**
  * Back-compat name kept for any external callers. Inverse of
- * {@link isDevtoolsAllowed} — `true` means "do NOT mount".
+ * {@link isDevtoolsAllowed} - `true` means "do NOT mount".
  *
  * @deprecated Prefer {@link isDevtoolsAllowed} for clarity.
  */

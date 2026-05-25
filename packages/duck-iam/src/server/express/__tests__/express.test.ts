@@ -319,7 +319,7 @@ describe('adminRouter (express)', () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
     let authorizeCalled = false
-    // No csrfCheck supplied — defaultCsrfCheck is applied.
+    // No csrfCheck supplied - defaultCsrfCheck is applied.
     adminRouter(engine, {
       authorize: () => {
         authorizeCalled = true
@@ -510,7 +510,7 @@ describe('adminRouter (express)', () => {
       expect(events).toHaveLength(0)
     })
 
-    it('hook is fire-and-forget — a throwing hook does not affect the response', async () => {
+    it('hook is fire-and-forget - a throwing hook does not affect the response', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -591,7 +591,7 @@ describe('adminRouter (express)', () => {
       expect(captured[0]!.err).toBe(boom)
       expect(captured[0]!.event.action).toBe('replace')
       expect(captured[0]!.event.target).toBe('policy')
-      // Caller sink replaces console.error — no fallback log.
+      // Caller sink replaces console.error - no fallback log.
       expect(errSpy).not.toHaveBeenCalled()
       errSpy.mockRestore()
     })

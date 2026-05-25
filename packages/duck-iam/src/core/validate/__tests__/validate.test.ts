@@ -559,7 +559,7 @@ describe('detectCatastrophicRegex() (P1)', () => {
   })
 
   it('accepts simple character-class patterns under quantifier limit', () => {
-    // 3 unbounded quantifiers — under the limit of 4.
+    // 3 unbounded quantifiers - under the limit of 4.
     expect(detectCatastrophicRegex('[a-z]+@[a-z]+\\.[a-z]+').safe).toBe(true)
   })
 

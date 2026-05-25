@@ -31,7 +31,7 @@ const TABS: { key: PanelKey; label: string; dot: string }[] = [
 ]
 
 // Hard-no in production: admin reads here would leak the full auth model.
-// No prop escape hatch by design — see lib/guard.ts. The guard sits in a thin
+// No prop escape hatch by design - see lib/guard.ts. The guard sits in a thin
 // wrapper so the inner component's hook order stays unconditional.
 export function IamDevtoolsInner(props: IIamDevtoolsInnerProps) {
   if (isDevtoolsBlocked(props.engine)) return null

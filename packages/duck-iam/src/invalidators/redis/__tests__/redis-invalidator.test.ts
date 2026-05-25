@@ -159,7 +159,7 @@ describe('createRedisInvalidator (SEC-005)', () => {
 
   it('tenantId option auto-namespaces channel (CAVEAT-1)', () => {
     // Capture the channel name used for subscribe/publish by spying on the
-    // bus methods directly — real Redis enforces channel routing; this test
+    // bus methods directly - real Redis enforces channel routing; this test
     // pins the per-tenant channel-name contract that makes the isolation real.
     const subscribedChannels: string[] = []
     const publishedChannels: string[] = []
@@ -295,7 +295,7 @@ describe('createRedisInvalidator (SEC-005)', () => {
       // outside the BMP encodes to 4 bytes UTF-8 but 2 UTF-16 code units).
       // U+1F600 ("😀") is a canonical 4-byte UTF-8 code point.
       // `s.length` ≈ 10000 (UTF-16 code units), `Buffer.byteLength` ≈ 20000
-      // bytes — well past the 16 KB cap when wrapped in a JSON string.
+      // bytes - well past the 16 KB cap when wrapped in a JSON string.
       const fourByteChar = '\u{1F600}'
       const surrogateBlob = JSON.stringify({ junk: fourByteChar.repeat(5000) })
       expect(Buffer.byteLength(surrogateBlob, 'utf8')).toBeGreaterThan(16 * 1024)
@@ -352,7 +352,7 @@ describe('createRedisInvalidator (SEC-005)', () => {
       expect(received).toEqual([{ kind: 'all' }])
     })
 
-    it('guard itself does not recurse — depth 100k payload does not RangeError', () => {
+    it('guard itself does not recurse - depth 100k payload does not RangeError', () => {
       const bus = makeBus()
       const ch = `t-norecurse-${Math.random().toString(36).slice(2)}`
       const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
@@ -360,7 +360,7 @@ describe('createRedisInvalidator (SEC-005)', () => {
 
       // Construct a 100k-deep object iteratively (recursive JSON.parse on a
       // string this deep would itself overflow on some engines, so we build
-      // the parse tree directly then JSON.stringify it — that path is also
+      // the parse tree directly then JSON.stringify it - that path is also
       // iterative inside V8).
       let deep: Record<string, unknown> = {}
       for (let i = 0; i < 100_000; i++) deep = { n: deep }

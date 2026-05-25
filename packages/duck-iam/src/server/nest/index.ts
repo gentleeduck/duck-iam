@@ -98,7 +98,7 @@ export namespace Nest {
     authorize: IAdminAuthorize
     /**
      * Optional audit hook fired AFTER every mutation handler (savePolicy/
-     * saveRole/assignRole/revokeRole) completes — success or failure. The
+     * saveRole/assignRole/revokeRole) completes - success or failure. The
      * hook is fire-and-forget: a slow or throwing implementation never
      * blocks the request and can never alter the response. `listPolicies` /
      * `listRoles` (reads) do not fire it.
@@ -320,7 +320,7 @@ export function createAdminOperations<
   TScope extends string = string,
 >(engine: Engine<TAction, TResource, TRole, TScope>, opts: Nest.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[duck-iam] createAdminOperations requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam] createAdminOperations requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
@@ -360,7 +360,7 @@ export function createAdminOperations<
     targetId: string | undefined,
     handler: () => Promise<T>,
   ): Promise<T> => {
-    // Authorize denial or throw — do NOT emit audit (mutation never started).
+    // Authorize denial or throw - do NOT emit audit (mutation never started).
     const actor = await gateWithActor(req)
     // Shared audit wrapper.
     return withAdminAudit(

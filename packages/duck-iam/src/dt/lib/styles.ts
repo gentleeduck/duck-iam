@@ -35,7 +35,7 @@ const CSS = `
 @keyframes iam-dt-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .iam-dt-spin { animation: iam-dt-spin 0.9s linear infinite; }
 
-/* Panel utility classes — use design tokens from the host's Tailwind theme. */
+/* Panel utility classes - use design tokens from the host's Tailwind theme. */
 .iam-dt-detail { flex: 1 1 auto; overflow: auto; min-height: 0; }
 .iam-dt-detail__head {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
