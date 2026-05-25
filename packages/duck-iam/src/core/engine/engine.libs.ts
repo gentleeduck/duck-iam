@@ -10,10 +10,18 @@ import type { EngineTypes } from './engine.types'
  * UI cannot store a policy that the read-side validators (`_safeParsePolicy`
  * in file/redis/drizzle) would silently drop, leaving the tenant with zero
  * policies and the `defaultEffect` in charge of every request.
+ *
+ * SEC-052: the throw text intentionally omits attacker-controlled values
+ * (e.g. `algorithm`, `operator`). Only the validator code enum + dot-path are
+ * reflected, so an operator who echoes `err.message` to an HTTP body or audit
+ * sink cannot leak submitted payload back to the caller. The full structured
+ * issues remain available to admins on the validator result itself.
  */
 function assertValidOrThrow(kind: 'policy' | 'role', result: Validate.IResult): void {
   if (result.valid) return
-  const errs = result.issues.filter((i) => i.type === 'error').map((i) => i.message)
+  const errs = result.issues
+    .filter((i) => i.type === 'error')
+    .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
   throw new Error(`duck-iam: ${kind} rejected by validator — ${errs.join('; ')}`)
 }
 
