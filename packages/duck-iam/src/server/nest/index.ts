@@ -3,11 +3,10 @@ import type { AccessControl, Request } from '../../core/types'
 import {
   type AdminAudit,
   defaultCsrfCheck,
-  errorToAuditString,
   extractEnvironment,
-  fireAdminMutation,
   METHOD_ACTION_MAP,
   noticeCsrfDefaultIfNeeded,
+  withAdminAudit,
 } from '../generic'
 
 // Reflect.defineMetadata/getMetadata come from reflect-metadata (used by NestJS)
@@ -403,35 +402,24 @@ export function createAdminOperations<
     targetId: string | undefined,
     handler: () => Promise<T>,
   ): Promise<T> => {
-    let actor: unknown
-    let success = false
-    let errorMessage: string | undefined
     // Authorize denial or throw — do NOT emit audit (mutation never started).
-    actor = await gateWithActor(req)
-    try {
-      const out = await handler()
-      success = true
-      return out
-    } catch (err) {
-      errorMessage = errorToAuditString(err, includeErrorMessage)
-      throw err
-    } finally {
-      fireAdminMutation(
+    const actor = await gateWithActor(req)
+    // DEBT-4: shared audit wrapper.
+    return withAdminAudit(
+      {
+        actor,
+        action,
+        target,
+        targetId,
+        method: req.method,
+        path: req.route?.path ?? req.path ?? '',
         onAdminMutation,
-        {
-          actor,
-          action,
-          target,
-          targetId,
-          ts: Date.now(),
-          method: req.method,
-          path: req.route?.path ?? req.path ?? '',
-          success,
-          error: errorMessage,
-        },
-        { redactPath, onAuditHookError },
-      )
-    }
+        redactPath,
+        onAuditHookError,
+        includeErrorMessage,
+      },
+      handler,
+    )
   }
 
   const gate = async (req: NestRequest): Promise<void> => {

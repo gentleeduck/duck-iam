@@ -13,10 +13,10 @@ import type { AccessControl, Client, Request } from '../../core/types'
 import {
   type AdminAudit,
   defaultCsrfCheck,
-  errorToAuditString,
-  fireAdminMutation,
   METHOD_ACTION_MAP,
   noticeCsrfDefaultIfNeeded,
+  runAdminAuthz,
+  withAdminAudit,
 } from '../generic'
 
 /** Next.js route handler context with params. */
@@ -464,53 +464,41 @@ export function createAdminHandlers<
       fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
-      // SEC-103: CSRF guard runs before authorize.
-      if (effectiveCsrfCheck && !effectiveCsrfCheck(req)) {
-        return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
-      }
-      let actor: unknown
-      try {
-        const authzResult = await authorize(req)
-        actor = authzResult
-        if (!authzResult) return onUnauthorized(req)
-      } catch (err) {
-        return onError(err instanceof Error ? err : new Error(String(err)), req)
-      }
-
-      let success = false
-      let errorMessage: string | undefined
-      let response: Response
+      // DEBT-4: shared CSRF + authorize phase.
+      const authz = await runAdminAuthz(req, effectiveCsrfCheck, authorize)
+      if (authz.phase === 'forbidden') return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
+      if (authz.phase === 'unauthorized') return onUnauthorized(req)
+      if (authz.phase === 'error') return onError(authz.error, req)
       let resolvedParams: P | undefined
       try {
         resolvedParams = (ctx.params instanceof Promise ? await ctx.params : ctx.params) as P
-        response = await fn(req, { params: resolvedParams })
-        success = true
-        return response
       } catch (err) {
-        errorMessage = errorToAuditString(err, includeErrorMessage)
         return onError(err instanceof Error ? err : new Error(String(err)), req)
-      } finally {
-        let path = ''
-        try {
-          path = new URL(req.url).pathname
-        } catch {
-          path = req.url
-        }
-        fireAdminMutation(
-          onAdminMutation,
+      }
+      let path = ''
+      try {
+        path = new URL(req.url).pathname
+      } catch {
+        path = req.url
+      }
+      try {
+        return await withAdminAudit(
           {
-            actor,
+            actor: authz.actor,
             action,
             target,
             targetId: resolvedParams !== undefined ? getTargetId?.(req, resolvedParams) : undefined,
-            ts: Date.now(),
             method: req.method,
             path,
-            success,
-            error: errorMessage,
+            onAdminMutation,
+            redactPath,
+            onAuditHookError,
+            includeErrorMessage,
           },
-          { redactPath, onAuditHookError },
+          () => fn(req, { params: resolvedParams as P }),
         )
+      } catch (err) {
+        return onError(err instanceof Error ? err : new Error(String(err)), req)
       }
     }
 
