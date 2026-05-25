@@ -7,6 +7,7 @@ import {
   extractEnvironment,
   fireAdminMutation,
   METHOD_ACTION_MAP,
+  noticeCsrfDefaultIfNeeded,
 } from '../generic'
 
 /** Minimal Express request shape. */
@@ -299,6 +300,7 @@ export function adminRouter<
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
   // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
+  noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
   /** Read gate: no audit emission. */
   const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {

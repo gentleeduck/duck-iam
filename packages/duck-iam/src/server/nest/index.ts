@@ -7,6 +7,7 @@ import {
   extractEnvironment,
   fireAdminMutation,
   METHOD_ACTION_MAP,
+  noticeCsrfDefaultIfNeeded,
 } from '../generic'
 
 // Reflect.defineMetadata/getMetadata come from reflect-metadata (used by NestJS)
@@ -367,6 +368,7 @@ export function createAdminOperations<
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
+  noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
   /**
    * Gate that returns whatever {@link IAdminAuthorize} returned so the value
