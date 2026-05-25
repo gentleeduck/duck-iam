@@ -64,7 +64,7 @@ interface PrismaLike {
     delete: (args: { where: { id: string } }) => Promise<RoleRow>
   }
   accessAssignment: {
-    findMany: (args: { where: { subjectId: string } }) => Promise<AssignmentRow[]>
+    findMany: (args: { where: { subjectId: string; scope?: string | null } }) => Promise<AssignmentRow[]>
     create: (args: { data: Record<string, unknown> }) => Promise<AssignmentRow>
     deleteMany: (args: { where: Record<string, unknown> }) => Promise<{ count: number }>
   }

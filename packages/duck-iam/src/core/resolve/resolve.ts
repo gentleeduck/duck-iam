@@ -14,19 +14,34 @@ export const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
 const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 
 /**
- * Hard cap for {@link pathCache}. Each entry is at most ~200 bytes
+ * Hard cap for path-segment caches. Each entry is at most ~200 bytes
  * (path string + segment array), so 10k entries ~ 2 MB worst case.
  * Insertion-order eviction (FIFO) when the cap is hit.
  */
-const PATH_CACHE_MAX = 10_000
-const pathCache = new Map<string, string[] | null>()
+export const PATH_CACHE_MAX = 10_000
 
-function rememberPath(path: string, value: string[] | null): string[] | null {
-  if (pathCache.size >= PATH_CACHE_MAX) {
-    const oldest = pathCache.keys().next().value
-    if (oldest !== undefined) pathCache.delete(oldest)
+/**
+ * Process-wide default path-segment cache. Used when a caller does not pass
+ * a per-instance cache. SEC-050: prefer per-Engine caches in multi-tenant
+ * deployments to prevent cross-tenant eviction.
+ */
+export const pathCache = new Map<string, string[] | null>()
+
+/**
+ * SEC-050: drop every entry in the process-wide path cache. Intended for
+ * multi-tenant operators who want to flush periodically to bound any single
+ * tenant's eviction influence.
+ */
+export function clearPathCache(): void {
+  pathCache.clear()
+}
+
+function rememberPath(cache: Map<string, string[] | null>, path: string, value: string[] | null): string[] | null {
+  if (cache.size >= PATH_CACHE_MAX) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
   }
-  pathCache.set(path, value)
+  cache.set(path, value)
   return value
 }
 
@@ -34,19 +49,19 @@ function rememberPath(path: string, value: string[] | null): string[] | null {
  * Splits and validates a dot-path, memoizing the result.
  * Returns `null` for paths with an unknown root or a blocked segment.
  */
-function getSegments(path: string): string[] | null {
-  const cached = pathCache.get(path)
+function getSegments(path: string, cache: Map<string, string[] | null> = pathCache): string[] | null {
+  const cached = cache.get(path)
   if (cached !== undefined) return cached
 
   const segments = path.split('.')
 
-  if (!segments[0] || !ALLOWED_ROOTS.has(segments[0])) return rememberPath(path, null)
+  if (!segments[0] || !ALLOWED_ROOTS.has(segments[0])) return rememberPath(cache, path, null)
 
   for (const seg of segments) {
-    if (BLOCKED_SEGMENTS.has(seg)) return rememberPath(path, null)
+    if (BLOCKED_SEGMENTS.has(seg)) return rememberPath(cache, path, null)
   }
 
-  return rememberPath(path, segments)
+  return rememberPath(cache, path, segments)
 }
 
 /**

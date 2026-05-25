@@ -1,9 +1,11 @@
 import { LRUCache } from '../../shared/cache'
 import { buildPermissionKey } from '../../shared/keys'
+import { clearRegexCache } from '../conditions/conditions.libs'
 import { evaluate, evaluateFast } from '../evaluate'
 import type { Explain } from '../explain'
 import { explainEvaluation } from '../explain'
 import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
+import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, Adapter, Client, Request } from '../types'
 import { createAdmin, deepFreezePolicy, enrichSubjectWithScopedRoles } from './engine.libs'
 import type { EngineTypes } from './engine.types'
@@ -908,6 +910,31 @@ export class Engine<
     if (opts.broadcast !== false && this._invalidator) {
       void this._invalidator.publish({ kind: 'all' })
     }
+  }
+
+  /**
+   * SEC-050: flush process-wide compiled-regex and resolved-path caches.
+   *
+   * The matches-operator regex cache and dot-path segment cache are
+   * module-globals shared across every Engine instance in the process. In
+   * multi-tenant deployments, periodic flushing bounds any single tenant's
+   * eviction influence (a hostile tenant flooding distinct patterns evicts
+   * neighbours' hot entries; a periodic flush wipes the slate).
+   *
+   * Costs: the next request from every tenant pays one compile per
+   * matches-pattern and one segment-split per dot-path. Tune the flush
+   * interval against your request volume and pattern variety.
+   *
+   * @example
+   * ```ts
+   * setInterval(() => engine.flushSharedCaches(), 5 * 60 * 1000)
+   * ```
+   * @author wildduck2 <https://github.com/wildduck2>
+   */
+  // biome-ignore lint/complexity/noThisInStatic: instance-bound for ergonomic operator API
+  flushSharedCaches(): void {
+    clearRegexCache()
+    clearPathCache()
   }
 
   /**

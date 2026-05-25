@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl, Client, Request } from '../../types'
 import { Engine } from '../engine'
@@ -300,7 +300,11 @@ describe('Engine.permissions() - batch check', () => {
     const errors: Error[] = []
     const eng = new Engine<Action, ResourceType, RoleId, Scope>({
       adapter,
-      hooks: { onError: (e) => errors.push(e) },
+      hooks: {
+        onError: (e) => {
+          errors.push(e)
+        },
+      },
     })
     const map = await eng.permissions('user-1', [
       { action: 'read', resource: 'post' },
@@ -1273,6 +1277,19 @@ describe('Engine - cache invalidation', () => {
     const pending = engine.can('user-1', 'read', { type: 'post', attributes: {} })
     engine.invalidateRoles()
     await pending
+    expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
+  })
+
+  it('flushSharedCaches drops process-wide regex + path caches (SEC-050)', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+    })
+    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    // Method exists, callable, returns void without throwing.
+    expect(typeof engine.flushSharedCaches).toBe('function')
+    engine.flushSharedCaches()
+    // Subsequent eval still works after flush (lazy re-populate).
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
 

@@ -60,18 +60,17 @@ export class RegexInputTooLargeError extends Error {
 }
 
 /**
- * LRU cache capacity for compiled regex patterns.
- *
- * TODO [P2]: scope `regexCache` and `pathCache` per-`Engine` instance instead
- * of process-global so a hostile tenant cannot evict another tenant's hot
- * entries. Tracked in `audit/audit-issue-P1-redos-matches-operator.md`.
+ * LRU cache capacity for compiled regex patterns. Shared by both the
+ * process-wide default cache and per-instance caches an engine may pass in.
  *
  * @author wildduck2 <https://github.com/wildduck2>
  */
 export const REGEX_CACHE_MAX = 256
 
 /**
- * LRU cache for compiled regex patterns to avoid recompilation on every evaluation.
+ * Default process-wide LRU cache for compiled regex patterns. Used when a
+ * caller does not pass a per-instance cache. SEC-050: prefer per-Engine
+ * caches in multi-tenant deployments to prevent cross-tenant eviction.
  *
  * @author wildduck2 <https://github.com/wildduck2>
  */
@@ -87,23 +86,36 @@ export const regexCache = new Map<string, RegExp>()
  * evicted as soon as REGEX_CACHE_MAX cold patterns roll through.
  *
  * @param pattern - Regex source string.
+ * @param cache - Optional per-instance Map (SEC-050). Falls back to the
+ *   module-global `regexCache` when omitted. Engine instances pass their
+ *   own cache to prevent cross-tenant eviction.
  * @returns The compiled `RegExp`, or `null` when the pattern fails to compile.
  * @author wildduck2 <https://github.com/wildduck2>
  */
-export function getCachedRegex(pattern: string): RegExp | null {
-  const cached = regexCache.get(pattern)
+/**
+ * SEC-050: drop every entry in the process-wide regex cache. Intended for
+ * multi-tenant operators who want to flush periodically to bound any single
+ * tenant's eviction influence. Per-instance caches passed via the optional
+ * `cache` argument to {@link getCachedRegex} are NOT affected.
+ */
+export function clearRegexCache(): void {
+  regexCache.clear()
+}
+
+export function getCachedRegex(pattern: string, cache: Map<string, RegExp> = regexCache): RegExp | null {
+  const cached = cache.get(pattern)
   if (cached) {
-    regexCache.delete(pattern)
-    regexCache.set(pattern, cached)
+    cache.delete(pattern)
+    cache.set(pattern, cached)
     return cached
   }
   try {
     const re = new RegExp(pattern)
-    if (regexCache.size >= REGEX_CACHE_MAX) {
-      const first = regexCache.keys().next().value
-      if (first !== undefined) regexCache.delete(first)
+    if (cache.size >= REGEX_CACHE_MAX) {
+      const first = cache.keys().next().value
+      if (first !== undefined) cache.delete(first)
     }
-    regexCache.set(pattern, re)
+    cache.set(pattern, re)
     return re
   } catch {
     return null

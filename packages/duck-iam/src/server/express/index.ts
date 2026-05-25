@@ -2,6 +2,7 @@ import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
 import {
   type AdminAudit,
+  defaultCsrfCheck,
   errorToAuditString,
   extractEnvironment,
   fireAdminMutation,
@@ -296,6 +297,8 @@ export function adminRouter<
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
+  // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
+  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
 
   /** Read gate: no audit emission. */
   const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
@@ -324,8 +327,8 @@ export function adminRouter<
     ) =>
     async (req: Req, res: Res) => {
       // SEC-103: CSRF guard runs BEFORE authorize so a cookie-based authorize
-      // cannot be tricked by a cross-origin POST. No-op when csrfCheck omitted.
-      if (csrfCheck && !csrfCheck(req)) {
+      // cannot be tricked by a cross-origin POST.
+      if (effectiveCsrfCheck && !effectiveCsrfCheck(req)) {
         onForbidden(res)
         return
       }

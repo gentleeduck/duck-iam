@@ -10,7 +10,7 @@
 
 import type { Engine } from '../../core'
 import type { AccessControl, Client, Request } from '../../core/types'
-import { type AdminAudit, errorToAuditString, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, defaultCsrfCheck, errorToAuditString, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 /** Next.js route handler context with params. */
 type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
@@ -426,6 +426,8 @@ export function createAdminHandlers<
     throw new Error('[duck-iam] createAdminHandlers requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
+  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
@@ -454,8 +456,8 @@ export function createAdminHandlers<
       fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
-      // SEC-103: CSRF guard runs before authorize. No-op when csrfCheck omitted.
-      if (csrfCheck && !csrfCheck(req)) {
+      // SEC-103: CSRF guard runs before authorize.
+      if (effectiveCsrfCheck && !effectiveCsrfCheck(req)) {
         return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
       }
       let actor: unknown

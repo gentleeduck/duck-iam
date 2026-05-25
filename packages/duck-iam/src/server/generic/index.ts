@@ -130,37 +130,75 @@ export namespace AdminAudit {
      */
     includeErrorMessage?: boolean
     /**
-     * SEC-103: optional CSRF guard for state-changing admin mutations.
+     * SEC-103: CSRF guard for state-changing admin mutations.
      *
-     * The admin router relies on the consumer's `authorize` to decide whether
-     * the caller is allowed to mutate. If `authorize` derives identity from
-     * a cookie session (the most common pattern), the router is exposed to
-     * CSRF — an attacker hosting `<form action="https://target/admin/policies"
-     * method="PUT">` could trigger a privileged write when an authenticated
-     * admin loads the page.
+     * Default (`undefined`): a built-in `Sec-Fetch-Site` check rejects
+     * cross-site browser requests — browsers populate the header
+     * automatically; its absence indicates a non-browser caller (curl,
+     * server-to-server, native app) and is allowed. This default closes
+     * the most common cookie-auth admin-CSRF vector without operator
+     * action.
      *
-     * When supplied, this predicate runs BEFORE `authorize` on every
-     * mutation request. Return `false` to reject (the adapter responds with
-     * a 403 and skips the mutation). Two cheap defaults that work for most
-     * cookie-auth setups:
-     *
-     * - **`Sec-Fetch-Site`**: reject when this header is `'cross-site'` or
-     *   `'cross-origin'`. Browsers set it automatically; absence indicates a
-     *   non-browser caller (curl, server-to-server, native app) which is the
-     *   safe direction to allow.
-     * - **`Origin` allowlist**: reject when `Origin` is missing or not in
-     *   your known list of admin-UI origins.
-     *
-     * Server-to-server callers that use bearer tokens / mTLS should skip
-     * this entirely; the safe default for cookie-auth is to enforce it.
+     * Pass `false` to disable entirely (server-to-server with bearer
+     * tokens / mTLS that intentionally posts cross-site). Pass a function
+     * to supply a stricter check — e.g. an Origin allowlist:
      *
      * @example
      * ```ts
-     * csrfCheck: (req) => req.headers['sec-fetch-site'] !== 'cross-site',
+     * // Default — uses built-in Sec-Fetch-Site check
+     * adminRouter(engine, { authorize })
+     *
+     * // Disable (bearer-token API, no browser involved)
+     * adminRouter(engine, { authorize, csrfCheck: false })
+     *
+     * // Stricter: Origin allowlist
+     * const ADMIN_ORIGINS = new Set(['https://admin.example.com'])
+     * adminRouter(engine, {
+     *   authorize,
+     *   csrfCheck: (req) => ADMIN_ORIGINS.has(req.headers.origin),
+     * })
      * ```
      */
-    csrfCheck?: (req: unknown) => boolean
+    csrfCheck?: ((req: unknown) => boolean) | false
   }
+}
+
+/**
+ * SEC-103 default CSRF predicate: reject browser requests whose
+ * `Sec-Fetch-Site` header is `'cross-site'` or `'cross-origin'`. Same-origin
+ * and same-site requests pass; non-browser callers (no header set) pass.
+ *
+ * Used by every framework adapter when the operator did not pass `csrfCheck`
+ * explicitly. Pass `csrfCheck: false` to disable.
+ *
+ * @param req - Any object the adapter can extract a header from.
+ * @returns `true` to allow, `false` to reject (403).
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export function defaultCsrfCheck(req: unknown): boolean {
+  const r = req as
+    | {
+        headers?: Record<string, string | string[] | undefined> | { get?: (n: string) => string | null }
+        req?: { header?: (n: string) => string | undefined }
+      }
+    | undefined
+  let site: string | undefined
+  // Express/Nest-style: req.headers is a Record.
+  const recordHeaders = r?.headers
+  if (recordHeaders && typeof (recordHeaders as { get?: unknown }).get !== 'function') {
+    const v = (recordHeaders as Record<string, string | string[] | undefined>)['sec-fetch-site']
+    site = Array.isArray(v) ? v[0] : v
+  }
+  // Next/fetch-API style: req.headers.get(...).
+  if (!site && recordHeaders && typeof (recordHeaders as { get?: unknown }).get === 'function') {
+    site = (recordHeaders as { get: (n: string) => string | null }).get('sec-fetch-site') ?? undefined
+  }
+  // Hono style: c.req.header(...).
+  if (!site && r?.req?.header) {
+    site = r.req.header('sec-fetch-site')
+  }
+  if (!site) return true // non-browser caller; let bearer/mTLS auth decide
+  return site !== 'cross-site' && site !== 'cross-origin'
 }
 
 /**
