@@ -131,6 +131,16 @@
         "types": "./dist/server/next/index.d.cts",
         "default": "./dist/server/next/index.cjs"
       }
+    },
+    "./client/vanilla": {
+      "import": {
+        "types": "./dist/client/vanilla/index.d.ts",
+        "default": "./dist/client/vanilla/index.js"
+      },
+      "require": {
+        "types": "./dist/client/vanilla/index.d.cts",
+        "default": "./dist/client/vanilla/index.cjs"
+      }
     }
   },
   "files": [
