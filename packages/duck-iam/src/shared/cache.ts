@@ -12,7 +12,6 @@ import type { Engine } from '../core'
  * cache.set('user:42', 'admin')
  * cache.get('user:42') // 'admin'
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class LRUCache<V> {
   private _map = new Map<string, { value: V; expiresAt: number }>()
@@ -31,7 +30,6 @@ export class LRUCache<V> {
    * ```ts
    * const cache = new LRUCache<Policy>(500, 30_000)
    * ```
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(maxSize: number, ttlMs: number) {
     // INFO-A: reject non-finite (NaN/Infinity) inputs. `NaN < 1` is false so
@@ -49,7 +47,6 @@ export class LRUCache<V> {
    *
    * @param key - Looks up the entry under this cache key.
    * @returns The stored value, or `undefined` when missing or expired.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   get(key: string): V | undefined {
     const entry = this._map.get(key)
@@ -73,7 +70,6 @@ export class LRUCache<V> {
    * Returns hit/miss counters and current size since the last reset.
    *
    * @returns Object exposing `hits`, `misses`, and `size` fields.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   get stats(): { hits: number; misses: number; size: number } {
     return { hits: this._hits, misses: this._misses, size: this._map.size }
@@ -81,8 +77,6 @@ export class LRUCache<V> {
 
   /**
    * Zeroes the hit and miss counters without clearing stored entries.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   resetStats(): void {
     this._hits = 0
@@ -94,7 +88,6 @@ export class LRUCache<V> {
    *
    * @param key - Stores the entry under this cache key.
    * @param value - Associates this value with the key.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   set(key: string, value: V): void {
     this._map.delete(key)
@@ -111,7 +104,6 @@ export class LRUCache<V> {
    *
    * @param key - Removes the entry stored under this cache key.
    * @returns `true` when the entry existed and was deleted.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   delete(key: string): boolean {
     return this._map.delete(key)
@@ -119,8 +111,6 @@ export class LRUCache<V> {
 
   /**
    * Removes all entries from the cache. Does not reset stat counters.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   clear(): void {
     this._map.clear()
@@ -130,7 +120,6 @@ export class LRUCache<V> {
    * Returns the current number of entries in the cache.
    *
    * @returns Current entry count.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   get size(): number {
     return this._map.size
@@ -141,7 +130,6 @@ export class LRUCache<V> {
    * Use for targeted invalidation, not as a primary read path.
    *
    * @returns Generator yielding `[key, value]` tuples for live entries.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   *entries(): IterableIterator<[string, V]> {
     const now = Date.now()

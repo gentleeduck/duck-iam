@@ -148,7 +148,6 @@ function policyTargetsMatch(policy: AccessControl.IPolicy, req: Request.IAccessR
  * @param req           - The access request being evaluated.
  * @param defaultEffect - Effect to record when no rule fires.
  * @returns An {@link Explain.IPolicyTrace} describing the policy's outcome.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function tracePolicy(
   policy: AccessControl.IPolicy,

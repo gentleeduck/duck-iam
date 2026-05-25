@@ -58,8 +58,6 @@ interface ReactLike {
  *
  * Named `ReactClient` (rather than `React`) to avoid clashing with the React
  * package namespace when consumers import this module alongside React.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace ReactClient {
   /**
@@ -68,7 +66,6 @@ export namespace ReactClient {
    * @template TAction - Constrains valid action strings.
    * @template TResource - Constrains valid resource strings.
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IContextValue<
     TAction extends string = string,
@@ -86,7 +83,6 @@ export namespace ReactClient {
 
 /**
  * @deprecated Use {@link ReactClient.IContextValue}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IContextValue<
   TAction extends string = string,
@@ -112,7 +108,6 @@ export type IContextValue<
  *
  * export const { AccessProvider, useAccess, Can, Cannot } = createAccessControl(React)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createAccessControl<
   TAction extends string = string,
@@ -255,7 +250,6 @@ export function createAccessControl<
  * @template TScope - Constrains valid scope strings.
  * @param permissions - Provides the permission map (typically from `engine.permissions(...)`).
  * @returns `{ can, cannot, permissions }`.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createPermissionChecker<
   TAction extends string = string,

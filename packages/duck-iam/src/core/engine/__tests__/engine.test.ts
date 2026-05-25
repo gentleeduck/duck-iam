@@ -288,8 +288,8 @@ describe('Engine.permissions() - batch check', () => {
   it('returns fail-closed all-deny map when adapter rejects (SEC-070)', async () => {
     // Adapter rejects on listPolicies — without the outer try permissions()
     // would reject the whole batch and callers that don't .catch() lose the
-    // fail-closed contract. Now: every requested check is keyed false +
-    // onError fires once.
+    // fail-closed behaviour. With the catch: every requested check is keyed
+    // false and onError fires once.
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -1281,8 +1281,8 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('per-Engine caches isolate matches/path cache from other engines (DEBT-6)', async () => {
-    // DEBT-6: two engines, two requests, each engine has its own caches.
-    // Tenant A flooding its regex pool cannot evict tenant B's hot entries.
+    // Two engines, two requests, each with its own caches. Tenant A
+    // flooding its regex pool cannot evict tenant B's hot entries.
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },

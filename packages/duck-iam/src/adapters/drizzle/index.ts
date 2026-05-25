@@ -40,14 +40,10 @@ interface AttrRow {
 
 /**
  * Drizzle adapter integration types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace Drizzle {
   /**
    * Describes the wiring required to instantiate a {@link DrizzleAdapter}.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IConfig {
     /** Provides the Drizzle database instance with select/insert/delete builders. */
@@ -80,7 +76,6 @@ export namespace Drizzle {
 
 /**
  * @deprecated Use {@link Drizzle.IConfig}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IDrizzleConfig = Drizzle.IConfig
 
@@ -124,7 +119,6 @@ interface DrizzleInsert {
  * import { eq, and } from 'drizzle-orm'
  * const adapter = new DrizzleAdapter({ db: drizzle(pool), tables, ops: { eq, and } })
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class DrizzleAdapter<
   TAction extends string = string,
@@ -143,7 +137,6 @@ export class DrizzleAdapter<
    * Creates a new Drizzle adapter.
    *
    * @param config - Provides the Drizzle db, tables, and operator functions.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(config: Drizzle.IConfig) {
     this._db = config.db
@@ -154,8 +147,8 @@ export class DrizzleAdapter<
   }
 
   /**
-   * DEBT-5: typed SELECT helpers consolidate the 7 `as unknown as RowType[]`
-   * casts at module-edge into one place. Drizzle's `select().from()` returns
+   * Typed SELECT helpers consolidate the `as unknown as RowType[]` casts at
+   * the module edge into one place. Drizzle's `select().from()` returns
    * untyped rows; row shapes are pinned at the boundary here.
    */
   private async _selectAll<T>(table: unknown): Promise<T[]> {
@@ -263,7 +256,6 @@ export class DrizzleAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies parsed from the policies table.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = await this._selectAll<PolicyRow>(this._t.policies)
@@ -281,7 +273,6 @@ export class DrizzleAdapter<
    * @param id - Identifies the policy to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching policy or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getPolicy(
     id: string,
@@ -296,7 +287,6 @@ export class DrizzleAdapter<
    *
    * @param p - Provides the policy to persist.
    * @returns Resolves once the upsert completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const data = serializePolicy(p)
@@ -308,7 +298,6 @@ export class DrizzleAdapter<
    *
    * @param id - Identifies the policy to delete.
    * @returns Resolves once the delete completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deletePolicy(id: string): Promise<void> {
     await this._db.delete(this._t.policies).where(this._eq(this._t.policies.id, id))
@@ -319,7 +308,6 @@ export class DrizzleAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles parsed from the roles table.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this._selectAll<RoleRow>(this._t.roles)
@@ -337,7 +325,6 @@ export class DrizzleAdapter<
    * @param id - Identifies the role to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching role or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getRole(
     id: string,
@@ -352,7 +339,6 @@ export class DrizzleAdapter<
    *
    * @param r - Provides the role to persist.
    * @returns Resolves once the upsert completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = serializeRole(r)
@@ -364,7 +350,6 @@ export class DrizzleAdapter<
    *
    * @param id - Identifies the role to delete.
    * @returns Resolves once the delete completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deleteRole(id: string): Promise<void> {
     await this._db.delete(this._t.roles).where(this._eq(this._t.roles.id, id))
@@ -376,11 +361,10 @@ export class DrizzleAdapter<
    * @param subjectId - Identifies the subject whose roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
     const rows = await this._selectWhere<AssignmentRow>(this._t.assignments, this._t.assignments.subjectId, subjectId)
-    // SEC-059: unscoped (global) roles only — mirrors file/memory adapters.
+    // Unscoped (global) roles only — mirrors file/memory/redis adapters.
     return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
   }
 
@@ -390,7 +374,6 @@ export class DrizzleAdapter<
    * @param subjectId - Identifies the subject whose scoped roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectScopedRoles(
     subjectId: string,
@@ -409,7 +392,6 @@ export class DrizzleAdapter<
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the insert completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     await this._db
@@ -425,7 +407,6 @@ export class DrizzleAdapter<
    * @param roleId - Specifies the role being revoked.
    * @param scope - Optional scope filter to narrow the delete.
    * @returns Resolves once the delete completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     const conditions = [
@@ -442,7 +423,6 @@ export class DrizzleAdapter<
    * @param subjectId - Identifies the subject whose attributes are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectAttributes(subjectId: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
     const row = await this._selectFirst<AttrRow>(this._t.attrs, this._t.attrs.subjectId, subjectId)
@@ -453,7 +433,7 @@ export class DrizzleAdapter<
     try {
       parsed = JSON.parse(data)
     } catch (err) {
-      // SEC-058: see redis adapter — corruption is not 'no attributes'.
+      // Corruption is not "no attributes" — surface so the engine fails closed.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
       throw new Error(`duck-iam DrizzleAdapter: corrupted attributes for "${subjectId}" (JSON parse failed)`)
     }
@@ -470,11 +450,10 @@ export class DrizzleAdapter<
    * @param subjectId - Identifies the subject whose attributes are written.
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the upsert completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
-    // SEC-067: see redis adapter — admin overwrite must recover from corrupt
-    // existing data instead of locking the operator out.
+    // Admin overwrite must recover from corrupt existing data instead of
+    // locking the operator out.
     let existing: Primitives.Attributes
     try {
       existing = await this.getSubjectAttributes(subjectId)

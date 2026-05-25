@@ -34,7 +34,6 @@ import type { Config } from './config.types'
  * access.defineRole('viewer').grant('read', 'post')   // OK
  * access.defineRole('viewer').grant('raed', 'post')   // compile error
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createAccessConfig<
   const TActions extends readonly string[],

@@ -8,7 +8,6 @@ export namespace Memory {
    * @template TResource - Constrains valid resource strings.
    * @template TRole - Constrains valid role strings.
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IInit<
     TAction extends string = string,
@@ -45,7 +44,6 @@ export namespace Memory {
  *   assignments: { 'user-1': ['admin'] },
  * })
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class MemoryAdapter<
   TAction extends string = string,
@@ -63,7 +61,6 @@ export class MemoryAdapter<
    * Creates a new in-memory adapter, optionally seeded with initial data.
    *
    * @param init - Provides optional seed policies, roles, assignments, and attributes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(init?: Memory.IInit<TAction, TResource, TRole, TScope>) {
     for (const p of init?.policies ?? []) this._policies.set(p.id, p)
@@ -84,7 +81,6 @@ export class MemoryAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies currently held in memory.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     return [...this._policies.values()]
@@ -96,7 +92,6 @@ export class MemoryAdapter<
    * @param id - Identifies the policy to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching policy or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getPolicy(
     id: string,
@@ -110,7 +105,6 @@ export class MemoryAdapter<
    *
    * @param p - Provides the policy to persist.
    * @returns Resolves once the write completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     this._policies.set(p.id, p)
@@ -121,7 +115,6 @@ export class MemoryAdapter<
    *
    * @param id - Identifies the policy to delete.
    * @returns Resolves once the entry is removed (no-op when absent).
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deletePolicy(id: string): Promise<void> {
     this._policies.delete(id)
@@ -132,7 +125,6 @@ export class MemoryAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles currently held in memory.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     return [...this._roles.values()]
@@ -144,7 +136,6 @@ export class MemoryAdapter<
    * @param id - Identifies the role to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching role or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getRole(
     id: string,
@@ -158,7 +149,6 @@ export class MemoryAdapter<
    *
    * @param r - Provides the role to persist.
    * @returns Resolves once the write completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     this._roles.set(r.id, r)
@@ -169,7 +159,6 @@ export class MemoryAdapter<
    *
    * @param id - Identifies the role to delete.
    * @returns Resolves once the entry is removed (no-op when absent).
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deleteRole(id: string): Promise<void> {
     this._roles.delete(id)
@@ -181,7 +170,6 @@ export class MemoryAdapter<
    * @param id - Identifies the subject whose global roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs without any scope binding.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(id: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
     const entries = this._assignments.get(id) ?? []
@@ -194,7 +182,6 @@ export class MemoryAdapter<
    * @param id - Identifies the subject whose scoped roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs for scoped assignments only.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectScopedRoles(id: string, _opts?: Adapter.IReadOptions): Promise<Request.IScopedRole<TRole, TScope>[]> {
     return (this._assignments.get(id) ?? [])
@@ -211,7 +198,6 @@ export class MemoryAdapter<
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the assignment is recorded.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async assignRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
     if (!this._assignments.has(id)) this._assignments.set(id, [])
@@ -228,15 +214,12 @@ export class MemoryAdapter<
    * @param roleId - Specifies the role being revoked.
    * @param scope - Optional scope to match; omit to revoke unscoped only.
    * @returns Resolves once the assignment is removed.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
     const entries = this._assignments.get(id)
     if (!entries) return
-    // DEBT-2: omitting `scope` removes EVERY assignment for the role across
-    // all scopes — matches redis/drizzle/prisma contract. Previous behaviour
-    // only removed the exact-`undefined`-scope row, drift caught by the
-    // shared adapter compliance suite.
+    // Omitting `scope` removes EVERY assignment for the role across all
+    // scopes — matches the redis/drizzle/prisma contract.
     const filtered =
       scope === undefined
         ? entries.filter((e) => e.role !== roleId)
@@ -250,7 +233,6 @@ export class MemoryAdapter<
    * @param id - Identifies the subject whose attributes are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectAttributes(id: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
     return this._attributes.get(id) ?? {}
@@ -262,7 +244,6 @@ export class MemoryAdapter<
    * @param id - Identifies the subject whose attributes are written.
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the merge completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(id: string, attrs: Primitives.Attributes): Promise<void> {
     this._attributes.set(id, { ...(this._attributes.get(id) ?? {}), ...attrs })

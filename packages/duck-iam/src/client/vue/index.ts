@@ -23,8 +23,6 @@ import { buildPermissionKey } from '../../shared/keys'
 
 /**
  * Vue injection key for the access control state.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const ACCESS_INJECTION_KEY = Symbol('duck-iam')
 
@@ -75,7 +73,6 @@ interface VueApp {
  *   ref, computed, inject, provide, defineComponent, h,
  * })
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createVueAccess<
   TAction extends string = string,

@@ -147,7 +147,7 @@ describe('matchesResource()', () => {
     expect(matchesResource('org:billing:*', 'org:secrets:invoice')).toBe(false)
   })
 
-  // SEC-036: `matchesResource` is called directly by `policyApplies` /
+  // `matchesResource` is called directly by `policyApplies` /
   // `policyTargetsMatch`, so dot-pattern targets must match dot-style
   // request resources here. Colon-pattern behaviour is unchanged.
   it('dot wildcard: dashboard.* matches dot children (SEC-036)', () => {

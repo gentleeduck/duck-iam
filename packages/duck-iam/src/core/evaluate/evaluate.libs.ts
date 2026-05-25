@@ -13,7 +13,6 @@ import type { Evaluate } from './evaluate.types'
  * @param rule - The rule to test
  * @param req  - The incoming access request
  * @returns `true` if the rule matches the request
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function ruleApplies(
   rule: AccessControl.IRule,
@@ -48,7 +47,6 @@ export function ruleApplies(
  * @param policy - The policy whose targets to check
  * @param req    - The incoming access request
  * @returns `true` if the policy should be evaluated for this request
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function policyApplies(policy: AccessControl.IPolicy, req: Request.IAccessRequest): boolean {
   if (!policy.targets) return true
@@ -77,8 +75,6 @@ export function policyApplies(policy: AccessControl.IPolicy, req: Request.IAcces
  * - `allow-overrides`  - any allow wins; otherwise first deny wins.
  * - `first-match`      - highest-priority match wins; ties resolved by source order.
  * - `highest-priority` - highest-priority match wins (alias of `first-match` once ties tie-break by priority alone).
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combiner> = {
   'deny-overrides': (matched, defaultEffect) => {
@@ -168,7 +164,6 @@ const indexCache = new WeakMap<AccessControl.IPolicy, Evaluate.IPolicyRuleIndex>
  *
  * @param policy - The policy whose rules should be indexed.
  * @returns The cached or freshly built {@link Evaluate.IPolicyRuleIndex}.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRuleIndex {
   const cached = indexCache.get(policy)

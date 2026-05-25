@@ -1,5 +1,5 @@
 /**
- * DEBT-6 / SEC-050: per-Engine evaluation caches.
+ * Per-Engine evaluation caches.
  *
  * Threaded through every evaluator function so an Engine instance can own
  * its own regex + path caches instead of sharing module-globals with every
@@ -8,11 +8,7 @@
  * Backward compatibility: every consumer accepts `caches?` as the last
  * optional parameter. When omitted, the evaluator falls back to the
  * process-wide default caches (`regexCache` and `pathCache` exported from
- * `core/conditions/conditions.libs` and `core/resolve/resolve`). Existing
- * code paths that called `evaluate(...)`, `resolve(...)`, etc. directly
- * keep working unchanged.
- *
- * @author wildduck2 <https://github.com/wildduck2>
+ * `core/conditions/conditions.libs` and `core/resolve/resolve`).
  */
 export interface IEvalCaches {
   /** Compiled-regex LRU shared by the `matches` operator. */

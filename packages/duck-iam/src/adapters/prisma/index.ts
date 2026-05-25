@@ -94,7 +94,6 @@ interface PrismaLike {
  * const adapter = new PrismaAdapter(new PrismaClient())
  * await adapter.savePolicy(policy)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class PrismaAdapter<
   TAction extends string = string,
@@ -107,7 +106,6 @@ export class PrismaAdapter<
    * Creates a new Prisma adapter.
    *
    * @param prisma - Provides the Prisma client instance with required models.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(private prisma: PrismaLike) {}
 
@@ -116,7 +114,6 @@ export class PrismaAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies parsed from `accessPolicy` rows.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = await this.prisma.accessPolicy.findMany()
@@ -129,7 +126,6 @@ export class PrismaAdapter<
    * @param id - Identifies the policy to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching policy or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getPolicy(
     id: string,
@@ -144,7 +140,6 @@ export class PrismaAdapter<
    *
    * @param p - Provides the policy to persist.
    * @returns Resolves once the upsert completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const data = fromPolicy(p)
@@ -160,7 +155,6 @@ export class PrismaAdapter<
    *
    * @param id - Identifies the policy to delete.
    * @returns Resolves once the delete completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deletePolicy(id: string): Promise<void> {
     await this.prisma.accessPolicy.delete({ where: { id } })
@@ -171,7 +165,6 @@ export class PrismaAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles parsed from `accessRole` rows.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this.prisma.accessRole.findMany()
@@ -184,7 +177,6 @@ export class PrismaAdapter<
    * @param id - Identifies the role to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching role or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getRole(
     id: string,
@@ -199,7 +191,6 @@ export class PrismaAdapter<
    *
    * @param r - Provides the role to persist.
    * @returns Resolves once the upsert completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = fromRole(r)
@@ -215,7 +206,6 @@ export class PrismaAdapter<
    *
    * @param id - Identifies the role to delete.
    * @returns Resolves once the delete completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deleteRole(id: string): Promise<void> {
     await this.prisma.accessRole.delete({ where: { id } })
@@ -227,13 +217,10 @@ export class PrismaAdapter<
    * @param subjectId - Identifies the subject whose roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
-    // SEC-059: unscoped (global) roles only. Scoped assignments are
-    // surfaced separately via getSubjectScopedRoles; collapsing them here
-    // drifted from file/memory adapters and produced different subject
-    // resolutions across storage backends.
+    // Unscoped (global) roles only. Scoped assignments are surfaced
+    // separately via getSubjectScopedRoles.
     const rows = await this.prisma.accessAssignment.findMany({
       where: { subjectId, scope: null },
     })
@@ -246,7 +233,6 @@ export class PrismaAdapter<
    * @param subjectId - Identifies the subject whose scoped roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs for scoped assignments only.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectScopedRoles(
     subjectId: string,
@@ -265,7 +251,6 @@ export class PrismaAdapter<
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the row is inserted.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     await this.prisma.accessAssignment.create({
@@ -280,7 +265,6 @@ export class PrismaAdapter<
    * @param roleId - Specifies the role being revoked.
    * @param scope - Optional scope filter to narrow the delete.
    * @returns Resolves once the delete completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     await this.prisma.accessAssignment.deleteMany({
@@ -294,7 +278,6 @@ export class PrismaAdapter<
    * @param subjectId - Identifies the subject whose attributes are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectAttributes(subjectId: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
     const row = await this.prisma.accessSubjectAttr.findUnique({
@@ -309,7 +292,6 @@ export class PrismaAdapter<
    * @param subjectId - Identifies the subject whose attributes are written.
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the upsert completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
     const existing = await this.getSubjectAttributes(subjectId)

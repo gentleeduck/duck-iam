@@ -5,8 +5,6 @@
  * and shared utilities (LRU cache, permission-key builder). Subpath imports
  * remain available for tree-shakable consumers (for example
  * `@gentleduck/iam/invalidators/redis`).
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type { File } from './adapters/file'
 export { FileAdapter } from './adapters/file'

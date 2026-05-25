@@ -18,7 +18,6 @@ import type { Validate } from './validate.types'
  * const result = validateRoles(roles)
  * if (!result.valid) console.error(result.issues)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function validateRoles(roles: readonly AccessControl.IRole[]): Validate.IResult {
   const issues: Validate.IIssue[] = []
@@ -160,7 +159,6 @@ function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessCon
  * const result = validatePolicy(jsonFromDatabase)
  * if (!result.valid) throw new Error(result.issues.map(i => i.message).join(', '))
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function validatePolicy(input: unknown): Validate.IResult {
   const issues: Validate.IIssue[] = []
@@ -276,7 +274,6 @@ export function validatePolicy(input: unknown): Validate.IResult {
  *
  * @param input - The candidate role object (typically parsed JSON).
  * @returns A {@link Validate.IResult} with `valid: false` when any error issue was emitted.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function validateRole(input: unknown): Validate.IResult {
   const issues: Validate.IIssue[] = []

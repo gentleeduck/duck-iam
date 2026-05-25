@@ -7,8 +7,6 @@ export namespace File {
    * Describes the minimal `node:fs/promises`-compatible surface used by {@link FileAdapter}.
    *
    * Tests inject an in-memory fake; production passes the real Node module.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IFS {
     /**
@@ -17,7 +15,6 @@ export namespace File {
      * @param path - Absolute path to read.
      * @param encoding - Must be `'utf8'`.
      * @returns The file contents as a string.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     readFile(path: string, encoding: 'utf8'): Promise<string>
     /**
@@ -27,17 +24,15 @@ export namespace File {
      * @param data - String contents to persist.
      * @param encoding - Must be `'utf8'`.
      * @returns Resolves once the write completes.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     writeFile(path: string, data: string, encoding: 'utf8'): Promise<void>
     /**
      * Creates a directory. **Not recursive** — the immediate parent must
-     * already exist. This is intentional after SEC-003: a typo in `init.path`
-     * must not silently build a deep tree.
+     * already exist, so a typo in `init.path` cannot silently build a deep
+     * tree.
      *
      * @param path - Absolute directory to create.
      * @returns Resolves once the directory exists.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>
     /**
@@ -49,15 +44,12 @@ export namespace File {
      *
      * @param path - Path to canonicalise.
      * @returns The canonical path with all symlinks resolved.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     realpath?(path: string): Promise<string>
   }
 
   /**
    * Describes initialization options for {@link FileAdapter}.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IInit {
     /**
@@ -69,8 +61,8 @@ export namespace File {
      * - {@link rootDir} is set and the path escapes it.
      *
      * The adapter creates the file on first write, but **does not** recursively
-     * create directories — the immediate parent must already exist. This guards
-     * against a typo in `path` accidentally building deep paths (SEC-003).
+     * create directories — the immediate parent must already exist, guarding
+     * against a typo in `path` accidentally building deep paths.
      */
     path: string
     /**
@@ -80,7 +72,7 @@ export namespace File {
      * any part of `path` is derived from caller-controlled input.
      *
      * If omitted, the adapter logs a one-shot `console.warn` at construction
-     * and accepts any absolute path. See `audit/MIGRATION.md`.
+     * and accepts any absolute path.
      */
     rootDir?: string
     /**
@@ -106,7 +98,6 @@ export namespace File {
    * @template TResource - Constrains valid resource strings.
    * @template TRole - Constrains valid role strings.
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IState<
     TAction extends string,
@@ -138,13 +129,12 @@ export namespace File {
  * const adapter = new FileAdapter({ path: '/var/lib/iam/store.json', fs })
  * await adapter.savePolicy(policy)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 /**
- * Process-wide latch for the missing-rootDir warning (SEC-026).
- * A single-shot Set keyed by nothing is fine — the warning text is the same
- * regardless of which adapter triggered it, and we deliberately don't include
- * the path (SEC-027) so there is nothing to key on either.
+ * Process-wide latch for the missing-rootDir warning. The warning text is the
+ * same regardless of which adapter triggered it, and the resolved path is
+ * deliberately omitted so log scrapers cannot use it as a path-existence
+ * oracle.
  */
 let _ROOTDIR_WARNED_FIRED = false
 
@@ -162,14 +152,13 @@ export class FileAdapter<
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
   private _cache: File.IState<TAction, TResource, TRole, TScope> | null = null
   private _loadInFlight: Promise<File.IState<TAction, TResource, TRole, TScope>> | null = null
-  // SEC-025: re-check realpath on every I/O. A one-shot latch meant an
-  // attacker who swapped the file for a symlink after the first read could
-  // make subsequent writes target the symlink's destination.
+  // realpath is re-checked on every I/O so an attacker cannot swap the file
+  // for a symlink after first read and redirect subsequent writes.
 
   /**
    * Creates a new file-backed adapter.
    *
-   * Validates `init.path` synchronously (SEC-003):
+   * Validates `init.path` synchronously:
    * - resolves to an absolute path via `path.resolve`,
    * - rejects relative paths and `..` segments after normalization,
    * - when `init.rootDir` is provided, requires the path to live under it.
@@ -178,7 +167,6 @@ export class FileAdapter<
    * needs `realpath`, which is async) — see `_assertWithinRoot`.
    *
    * @param init - Provides the store path and filesystem driver.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(init: File.IInit) {
     // Reject `..` segments in the raw input. `path.normalize`/`path.resolve`
@@ -194,9 +182,9 @@ export class FileAdapter<
       throw new Error(`duck-iam: FileAdapter path must resolve to an absolute path: "${init.path}"`)
     }
     // The pre-resolve form must already have been absolute. `path.resolve`
-    // happily turns `./foo` into an absolute path by joining cwd; we refuse
+    // happily turns `./foo` into an absolute path by joining cwd; refuse
     // that quietly-promoted case because relative inputs are exactly the
-    // class of bug SEC-003 is about.
+    // class of bug this constructor exists to prevent.
     if (!nodePath.isAbsolute(init.path)) {
       throw new Error(`duck-iam: FileAdapter path must be supplied as an absolute path: "${init.path}"`)
     }
@@ -212,19 +200,15 @@ export class FileAdapter<
         throw new Error(`duck-iam: FileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
       }
     } else if (!_ROOTDIR_WARNED_FIRED) {
-      // SEC-026: fire the missing-rootDir warning at most once per process,
-      // not per construction — a multi-tenant host that instantiates many
-      // FileAdapters would otherwise drown its log stream and operators
-      // start filtering the warning out, masking real misconfigurations.
-      // SEC-027: do not echo the resolved path. The path may be derived
-      // from request data; reflecting it back into stderr would let an
-      // attacker confirm a path-existence oracle via log scraping.
+      // Fire at most once per process — a multi-tenant host instantiating
+      // many FileAdapters would otherwise drown its log stream. Do not
+      // echo the resolved path: it may derive from request data and
+      // reflecting it would expose a path-existence oracle via log scraping.
       _ROOTDIR_WARNED_FIRED = true
       // eslint-disable-next-line no-console
       console.warn(
         '[duck-iam:file] FileAdapter constructed without rootDir. ' +
-          'Any caller deriving the path from request data should set rootDir for defence in depth. ' +
-          'See audit/MIGRATION.md.',
+          'Any caller deriving the path from request data should set rootDir for defence in depth.',
       )
     }
 
@@ -237,14 +221,11 @@ export class FileAdapter<
 
   /**
    * Resolves symlinks via `realpath` (when the FS driver exposes one) and
-   * re-checks containment under `_rootDir`. Symlink check is skipped when
-   * `realpath` is unavailable (test fakes, browser bundles) — the constructor
-   * already enforced the textual containment, which is enough for those
-   * environments.
-   *
-   * SEC-025: runs on every read AND every write. A one-shot latch let an
-   * attacker swap the file for a symlink after the first I/O and steer
-   * later writes to anywhere the process can reach.
+   * re-checks containment under `_rootDir`. Runs on every read AND every
+   * write so an attacker cannot swap the file for a symlink after the first
+   * I/O and steer later writes elsewhere. Symlink check is skipped when
+   * `realpath` is unavailable (test fakes, browser bundles) — the
+   * constructor already enforced textual containment.
    */
   private async _assertWithinRoot(): Promise<void> {
     if (!this._rootDir || !this._fs.realpath) return
@@ -255,13 +236,11 @@ export class FileAdapter<
     try {
       canonical = await this._fs.realpath(this._path)
     } catch (err) {
-      // SEC-053: only fall back to the parent-realpath shortcut when the
-      // file is genuinely absent (ENOENT). Other errors — symlink loops
-      // (ELOOP), permission denied (EACCES), filesystem busy (EBUSY) —
-      // must propagate. Falling through on those errors would let an
-      // attacker who can induce a non-ENOENT failure on a hostile symlink
-      // bypass the containment check by reconstructing the canonical path
-      // from the parent + the unverified basename.
+      // Only fall back to the parent-realpath shortcut when the file is
+      // genuinely absent (ENOENT). Other errors (symlink loops, permission
+      // denied, filesystem busy) must propagate — otherwise an attacker who
+      // can induce a non-ENOENT failure on a hostile symlink could bypass
+      // the containment check.
       const code = (err as NodeJS.ErrnoException | undefined)?.code
       if (code && code !== 'ENOENT') throw err
       try {
@@ -295,7 +274,7 @@ export class FileAdapter<
   private async _loadState(): Promise<File.IState<TAction, TResource, TRole, TScope>> {
     if (this._cache) return this._cache
     if (this._loadInFlight) return this._loadInFlight
-    // SEC-063: clear in-flight on ANY throw (including _assertWithinRoot
+    // Clear in-flight on ANY throw (including _assertWithinRoot
     // symlink-escape) — a stuck rejected promise would otherwise pin the
     // adapter in a permanent failure state until process restart.
     const pending = (async () => {
@@ -305,7 +284,7 @@ export class FileAdapter<
         try {
           raw = await this._fs.readFile(this._path, 'utf8')
         } catch (err) {
-          // SEC-054: only ENOENT is recoverable; anything else surfaces.
+          // Only ENOENT is recoverable; anything else must surface.
           const code = (err as NodeJS.ErrnoException | undefined)?.code
           if (code !== 'ENOENT') {
             throw new Error(
@@ -325,11 +304,11 @@ export class FileAdapter<
         try {
           parsed = JSON.parse(raw) as Partial<File.IState<TAction, TResource, TRole, TScope>>
         } catch (err) {
-          // SEC-064: do NOT populate _cache with {} here. A subsequent
-          // _flush() would serialise the empty cache and overwrite the
-          // recoverable-but-corrupt file, permanently destroying the
-          // operator's data. Throw the corruption so the operator restores
-          // from backup before any write lands.
+          // Do NOT populate _cache with {} here. A subsequent _flush()
+          // would serialise the empty cache and overwrite the
+          // recoverable-but-corrupt file, permanently destroying data.
+          // Throw the corruption so the operator restores from backup
+          // before any write lands.
           this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), this._path)
           throw new Error(
             `duck-iam FileAdapter: store at "${this._path}" is corrupt (JSON parse failed) — refusing to load; restore from backup before retrying`,
@@ -371,7 +350,7 @@ export class FileAdapter<
         this._cache = state
         return state
       } finally {
-        // SEC-063: always clear in-flight, even on throw.
+        // Always clear in-flight, even on throw.
         this._loadInFlight = null
       }
     })()
@@ -409,7 +388,6 @@ export class FileAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All stored policies.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const s = await this._loadState()
@@ -422,7 +400,6 @@ export class FileAdapter<
    * @param id - Identifies the policy to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching policy or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getPolicy(
     id: string,
@@ -437,7 +414,6 @@ export class FileAdapter<
    *
    * @param p - Provides the policy to persist.
    * @returns Resolves once the file is rewritten.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const s = await this._loadState()
@@ -450,7 +426,6 @@ export class FileAdapter<
    *
    * @param id - Identifies the policy to delete.
    * @returns Resolves once the file is rewritten.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deletePolicy(id: string): Promise<void> {
     const s = await this._loadState()
@@ -463,7 +438,6 @@ export class FileAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All stored roles.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const s = await this._loadState()
@@ -476,7 +450,6 @@ export class FileAdapter<
    * @param id - Identifies the role to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching role or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getRole(
     id: string,
@@ -491,7 +464,6 @@ export class FileAdapter<
    *
    * @param r - Provides the role to persist.
    * @returns Resolves once the file is rewritten.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const s = await this._loadState()
@@ -504,7 +476,6 @@ export class FileAdapter<
    *
    * @param id - Identifies the role to delete.
    * @returns Resolves once the file is rewritten.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deleteRole(id: string): Promise<void> {
     const s = await this._loadState()
@@ -518,7 +489,6 @@ export class FileAdapter<
    * @param id - Identifies the subject whose global roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs without scope.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(id: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
     const s = await this._loadState()
@@ -532,7 +502,6 @@ export class FileAdapter<
    * @param id - Identifies the subject whose scoped roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs for scoped assignments only.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectScopedRoles(id: string, _opts?: Adapter.IReadOptions): Promise<Request.IScopedRole<TRole, TScope>[]> {
     const s = await this._loadState()
@@ -550,7 +519,6 @@ export class FileAdapter<
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the file is rewritten.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async assignRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
     const s = await this._loadState()
@@ -572,14 +540,13 @@ export class FileAdapter<
    * @param roleId - Specifies the role being revoked.
    * @param scope - Optional scope to match; omit to revoke unscoped only.
    * @returns Resolves once the file is rewritten.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
     const s = await this._loadState()
     const entries = s.assignments[id]
     if (!entries) return
-    // DEBT-2: scope-undefined removes ALL matching role assignments —
-    // matches redis/drizzle/prisma contract.
+    // scope-undefined removes ALL matching role assignments — matches the
+    // redis/drizzle/prisma contract.
     s.assignments[id] =
       scope === undefined
         ? entries.filter((e) => e.role !== roleId)
@@ -593,7 +560,6 @@ export class FileAdapter<
    * @param id - Identifies the subject whose attributes are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectAttributes(id: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
     const s = await this._loadState()
@@ -606,7 +572,6 @@ export class FileAdapter<
    * @param id - Identifies the subject whose attributes are written.
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the file is rewritten.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(id: string, attrs: Primitives.Attributes): Promise<void> {
     const s = await this._loadState()

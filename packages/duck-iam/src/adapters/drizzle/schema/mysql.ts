@@ -11,8 +11,6 @@ import { datetime, index, int, json, mysqlTable, uniqueIndex, varchar } from 'dr
  * Defines the Drizzle MySQL table for stored policies.
  *
  * JSON columns (`rules`, `targets`) carry the policy payload.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessPolicies = mysqlTable('access_policies', {
   id: varchar('id', { length: 191 }).primaryKey(),
@@ -33,8 +31,6 @@ export const accessPolicies = mysqlTable('access_policies', {
  * Defines the Drizzle MySQL table for stored roles.
  *
  * `inherits` is JSON since MySQL has no native array type.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessRoles = mysqlTable('access_roles', {
   id: varchar('id', { length: 191 }).primaryKey(),
@@ -55,8 +51,6 @@ export const accessRoles = mysqlTable('access_roles', {
  * Defines the Drizzle MySQL table for subject-to-role assignments.
  *
  * Unique on `(subject_id, role_id, scope)`.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessAssignments = mysqlTable(
   'access_assignments',
@@ -79,8 +73,6 @@ export const accessAssignments = mysqlTable(
  * Defines the Drizzle MySQL table for per-subject attribute bags.
  *
  * One row per subject.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessSubjectAttrs = mysqlTable('access_subject_attrs', {
   subjectId: varchar('subject_id', { length: 191 }).primaryKey(),

@@ -45,16 +45,12 @@ function anySignal(signals: AbortSignal[]): AbortSignal | undefined {
 }
 /**
  * HTTP adapter integration types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace Http {
   /**
    * Describes the configuration for {@link HttpAdapter}.
    *
    * Covers endpoint, fetch overrides, retry, and circuit-breaker tuning.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IConfig {
     /** Specifies the base URL of the duck-iam API (e.g. `https://api.example.com/access`). */
@@ -101,7 +97,7 @@ export namespace Http {
      * Restricts the set of acceptable hosts for `baseUrl`. When set, the
      * parsed URL must match an entry in the list or construction throws.
      *
-     * Matching rules (SEC-030):
+     * Matching rules:
      * - Comparison is case-insensitive on both sides — `Example.COM` in the
      *   list matches `example.com` in `baseUrl` and vice versa.
      * - Entries may be bare hostnames (`example.com`) or host:port pairs
@@ -157,9 +153,9 @@ function _hexTailToDottedQuad(tail: string): string | null {
  * (caller controls them via `allowedHosts`).
  */
 function _isPrivateHost(hostname: string): boolean {
-  // Strip surrounding brackets from IPv6 literals. SEC-037: also strip a
-  // single trailing FQDN dot so `127.0.0.1.` / `example.com.` normalise to
-  // their bare form before the rest of the checks fire.
+  // Strip surrounding brackets from IPv6 literals and a single trailing FQDN
+  // dot so `127.0.0.1.` / `example.com.` normalise to their bare form before
+  // the rest of the checks fire.
   let h = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
   if (h.endsWith('.')) h = h.slice(0, -1)
   // IPv4 dotted-quad
@@ -179,14 +175,14 @@ function _isPrivateHost(hostname: string): boolean {
   if (h.includes(':')) {
     const lower = h.toLowerCase()
     if (lower === '::1' || lower === '0:0:0:0:0:0:0:1') return true
-    // SEC-029: IPv6 unspecified `::` (kernel wildcard, often resolves to a
-    // local interface). Block its expanded form too.
+    // IPv6 unspecified `::` (kernel wildcard, often resolves to a local
+    // interface). Block its expanded form too.
     if (lower === '::' || lower === '0:0:0:0:0:0:0:0') return true
     // fc00::/7 — first byte 0xfc or 0xfd
     if (/^f[cd][0-9a-f]{0,2}:/.test(lower)) return true
     // fe80::/10 — fe8x, fe9x, feax, febx
     if (/^fe[89ab][0-9a-f]?:/.test(lower)) return true
-    // SEC-028: IPv4-mapped IPv6 — `::ffff:a.b.c.d` (dotted-quad tail) or
+    // IPv4-mapped IPv6 — `::ffff:a.b.c.d` (dotted-quad tail) or
     // `::ffff:hhhh:hhhh` (hex tail, canonical form Node's URL parser emits).
     // Also accept the fully expanded `0:0:0:0:0:ffff:...` form.
     let mappedTail: string | null = null
@@ -200,16 +196,16 @@ function _isPrivateHost(hostname: string): boolean {
       if (dotted) return _isPrivateHost(dotted)
       return false
     }
-    // SEC-028: IPv4-compatible IPv6 (deprecated RFC4291 §2.5.5.1) —
-    // `::a.b.c.d`. Node canonicalises these to hex too, but cover textual
-    // form for completeness.
+    // IPv4-compatible IPv6 (deprecated RFC4291 §2.5.5.1) — `::a.b.c.d`.
+    // Node canonicalises these to hex too, but cover textual form for
+    // completeness.
     if (lower.startsWith('::') && lower.includes('.')) {
       const tail = lower.slice(2)
       if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(tail)) return _isPrivateHost(tail)
     }
-    // SEC-035: 6to4 prefix `2002::/16` carries an inner IPv4 in the next two
-    // 16-bit groups (`2002:AABB:CCDD::` → `A.B.C.D` with bytes AA,BB,CC,DD).
-    // Linux ships 6to4 by default — `2002:7f00:1::` carries `127.0.0.1`.
+    // 6to4 prefix `2002::/16` carries an inner IPv4 in the next two 16-bit
+    // groups (`2002:AABB:CCDD::` → `A.B.C.D` with bytes AA,BB,CC,DD). Linux
+    // ships 6to4 by default — `2002:7f00:1::` carries `127.0.0.1`.
     if (lower.startsWith('2002:')) {
       const m = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/.exec(lower)
       if (m) {
@@ -217,15 +213,11 @@ function _isPrivateHost(hostname: string): boolean {
         if (dotted) return _isPrivateHost(dotted)
       }
     }
-    // SEC-035: NAT64 well-known prefix `64:ff9b::/96` carries an inner IPv4
-    // in the last 32 bits. URL canonicalises leading zeros (`0064:ff9b:` →
-    // `64:ff9b:`); accept both spellings defensively.
-    //
-    // SEC-038: the `0064:ff9b:` literal branch is unreachable through WHATWG
-    // URL parsing (leading zeros are normalised away), but keep the branch
-    // with the correct slice length (`0064:ff9b:` is 10 chars, not 13) so
-    // direct callers passing a non-canonical hostname still produce the right
-    // tail rather than a silently mis-aligned one.
+    // NAT64 well-known prefix `64:ff9b::/96` carries an inner IPv4 in the
+    // last 32 bits. URL parsing canonicalises leading zeros (`0064:ff9b:` →
+    // `64:ff9b:`); accept both spellings defensively. The `0064:ff9b:`
+    // branch uses a slice length of 10 (not 13) so direct callers passing
+    // a non-canonical hostname still produce the right tail.
     if (lower.startsWith('64:ff9b:') || lower.startsWith('0064:ff9b:')) {
       const tail = lower.startsWith('0064:') ? lower.slice(10) : lower.slice(8)
       // Dotted-quad tail (`64:ff9b::127.0.0.1`).
@@ -246,7 +238,7 @@ function _isPrivateHost(hostname: string): boolean {
 }
 
 /**
- * SEC-037: normalise a hostname for allowlist comparison.
+ * Normalise a hostname for allowlist comparison.
  *
  * - Lower-cases.
  * - Strips a single trailing FQDN dot (`example.com.` → `example.com`).
@@ -274,7 +266,6 @@ function _normaliseHostForAllowlist(host: string): string {
 
 /**
  * @deprecated Use {@link Http.IConfig}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IHttpAdapterConfig = Http.IConfig
 
@@ -295,7 +286,6 @@ export type IHttpAdapterConfig = Http.IConfig
  *   headers: { Authorization: 'Bearer ...' },
  * })
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class HttpAdapter<
   TAction extends string = string,
@@ -322,7 +312,6 @@ export class HttpAdapter<
    * Creates a new HTTP adapter.
    *
    * @param config - Provides endpoint, fetch overrides, retry, and breaker tuning.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(config: Http.IConfig) {
     this._baseUrl = HttpAdapter._validateBaseUrl(config)
@@ -356,8 +345,8 @@ export class HttpAdapter<
       throw new Error('duck-iam HttpAdapter: baseUrl must not contain a query string or fragment')
     }
     if (config.allowedHosts && config.allowedHosts.length > 0) {
-      // SEC-030 + SEC-037: case-insensitive, port-aware, trailing-dot tolerant,
-      // IDN-aware match. Two precedence arms:
+      // Case-insensitive, port-aware, trailing-dot tolerant, IDN-aware
+      // match. Two precedence arms:
       // 1) bare hostname (no port) — matches the URL's hostname regardless of
       //    the URL's port.
       // 2) full host (`hostname:port`) — exact port match required.
@@ -539,7 +528,6 @@ export class HttpAdapter<
    *
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of policies returned by `GET /policies`.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listPolicies(opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     return this._request('/policies', undefined, opts)
@@ -550,7 +538,6 @@ export class HttpAdapter<
    * @param id - Identifies the policy to look up.
    * @param opts - Optional read options forwarded to fetch.
    * @returns The matching policy or `null` when the API returns 404.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getPolicy(
     id: string,
@@ -563,7 +550,6 @@ export class HttpAdapter<
    *
    * @param p - Provides the policy to persist.
    * @returns Resolves once the API acknowledges the write.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     await this._request('/policies', {
@@ -576,7 +562,6 @@ export class HttpAdapter<
    *
    * @param id - Identifies the policy to delete.
    * @returns Resolves once the API acknowledges the delete.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deletePolicy(id: string): Promise<void> {
     await this._request(`/policies/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -587,7 +572,6 @@ export class HttpAdapter<
    *
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of roles returned by `GET /roles`.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listRoles(opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     return this._request('/roles', undefined, opts)
@@ -598,7 +582,6 @@ export class HttpAdapter<
    * @param id - Identifies the role to look up.
    * @param opts - Optional read options forwarded to fetch.
    * @returns The matching role or `null` when the API returns 404.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getRole(
     id: string,
@@ -611,7 +594,6 @@ export class HttpAdapter<
    *
    * @param r - Provides the role to persist.
    * @returns Resolves once the API acknowledges the write.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     await this._request('/roles', { method: 'PUT', body: JSON.stringify(r) })
@@ -621,7 +603,6 @@ export class HttpAdapter<
    *
    * @param id - Identifies the role to delete.
    * @returns Resolves once the API acknowledges the delete.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deleteRole(id: string): Promise<void> {
     await this._request(`/roles/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -630,8 +611,8 @@ export class HttpAdapter<
   /**
    * Lists role IDs assigned to a subject.
    *
-   * **Contract (SEC-059 / SEC-068):** the response MUST contain GLOBAL
-   * (unscoped) role IDs only. Scoped role assignments must be returned
+   * **Contract:** the response MUST contain GLOBAL (unscoped) role IDs
+   * only. Scoped role assignments must be returned
    * from `GET /subjects/{id}/scoped-roles` (see {@link getSubjectScopedRoles}).
    * The HTTP adapter cannot enforce this — it forwards whatever the server
    * returns — so the operator's API server is responsible for filtering
@@ -643,7 +624,6 @@ export class HttpAdapter<
    * @param subjectId - Identifies the subject whose roles are read.
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of UNSCOPED role IDs returned by `GET /subjects/{id}/roles`.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, opts?: Adapter.IReadOptions): Promise<TRole[]> {
     return this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, undefined, opts)
@@ -654,7 +634,6 @@ export class HttpAdapter<
    * @param subjectId - Identifies the subject whose scoped roles are read.
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of `(role, scope)` pairs.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectScopedRoles(
     subjectId: string,
@@ -669,7 +648,6 @@ export class HttpAdapter<
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the API acknowledges the write.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, {
@@ -684,7 +662,6 @@ export class HttpAdapter<
    * @param roleId - Specifies the role being revoked.
    * @param scope - Optional scope filter passed as a query param.
    * @returns Resolves once the API acknowledges the delete.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     const params = scope ? `?scope=${encodeURIComponent(scope)}` : ''
@@ -698,7 +675,6 @@ export class HttpAdapter<
    * @param subjectId - Identifies the subject whose attributes are read.
    * @param opts - Optional read options forwarded to fetch.
    * @returns The subject's attribute map.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectAttributes(subjectId: string, opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
     return this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, undefined, opts)
@@ -709,7 +685,6 @@ export class HttpAdapter<
    * @param subjectId - Identifies the subject whose attributes are written.
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the API acknowledges the write.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
     await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, {

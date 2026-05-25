@@ -21,7 +21,6 @@ export namespace Config {
    *   resources: ['post'] as const,
    * }
    * ```
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAccessConfigInput<
     TActions extends readonly string[],
@@ -58,7 +57,6 @@ export namespace Config {
    * @template TScope    - Union of valid scope strings.
    * @template TRole     - Union of valid role ID strings.
    * @template TContext  - Shape of the evaluation context for typed dot-paths.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAccessConfig<
     TAction extends string,
@@ -113,7 +111,6 @@ export namespace Config {
    * Extracts the union of action strings from a config input.
    *
    * @template S - Config input shape with an `actions` tuple.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type InferAction<S extends { actions: readonly string[] }> = S['actions'][number]
 
@@ -121,7 +118,6 @@ export namespace Config {
    * Extracts the union of resource strings from a config input.
    *
    * @template S - Config input shape with a `resources` tuple.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type InferResource<S extends { resources: readonly string[] }> = S['resources'][number]
 
@@ -129,7 +125,6 @@ export namespace Config {
    * Extracts the union of scope strings from a config input.
    *
    * @template S - Config input shape with a `scopes` tuple.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type InferScope<S extends { scopes: readonly string[] }> = S['scopes'][number]
 
@@ -137,7 +132,6 @@ export namespace Config {
    * Extracts the union of role strings from a config input.
    *
    * @template S - Config input shape with a `roles` tuple.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type InferRole<S extends { roles: readonly string[] }> = S['roles'][number]
 }

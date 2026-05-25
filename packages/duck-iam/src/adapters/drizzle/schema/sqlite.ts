@@ -13,8 +13,6 @@ import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqli
  * Defines the Drizzle SQLite table for stored policies.
  *
  * JSON payloads are TEXT and parsed by the adapter.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessPolicies = sqliteTable('access_policies', {
   id: text('id').primaryKey(),
@@ -35,8 +33,6 @@ export const accessPolicies = sqliteTable('access_policies', {
  * Defines the Drizzle SQLite table for stored roles.
  *
  * `inherits` is JSON TEXT defaulting to `'[]'`.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessRoles = sqliteTable('access_roles', {
   id: text('id').primaryKey(),
@@ -57,8 +53,6 @@ export const accessRoles = sqliteTable('access_roles', {
  * Defines the Drizzle SQLite table for subject-to-role assignments.
  *
  * Unique on `(subject_id, role_id, scope)`.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessAssignments = sqliteTable(
   'access_assignments',
@@ -83,8 +77,6 @@ export const accessAssignments = sqliteTable(
  * Defines the Drizzle SQLite table for per-subject attribute bags.
  *
  * JSON TEXT stored under `data`.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessSubjectAttrs = sqliteTable('access_subject_attrs', {
   subjectId: text('subject_id').primaryKey(),

@@ -6,11 +6,9 @@ import type { AccessControl, Request } from '../types'
 import { combiners, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
 import type { Evaluate } from './evaluate.types'
 
-// SEC-007: literal resource patterns no longer parent-match deeper requests.
-// The previous `parentPrefixes`-based lookup walked `org` -> `org:project` and
-// granted access to sub-resources from a bare-literal rule. New semantics
-// require the explicit `:*` / `.*` suffix, which is handled by `wildcardAny`.
-// See audit/MIGRATION.md (SEC-007).
+// Literal resource patterns match only the exact resource type; recursive
+// grants require the explicit `:*` / `.*` suffix and are handled by
+// `wildcardAny`.
 
 /**
  * Inline candidate matching - checks resource + conditions without allocating.
@@ -69,7 +67,6 @@ function matchCandidate(
  * @param request       - The access request to evaluate against
  * @param defaultEffect - Effect to use when no rules match (defaults to `'deny'`)
  * @returns An {@link AccessControl.IDecision} with the evaluation result
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function evaluatePolicy(
   policy: AccessControl.IPolicy,
@@ -135,7 +132,6 @@ export function evaluatePolicy(
  * const decision = evaluate(policies, request, 'deny', 'and')
  * if (!decision.allowed) console.warn(decision.reason)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function evaluate(
   policies: AccessControl.IPolicy[],
@@ -257,7 +253,6 @@ export function evaluate(
  * @param defaultEffect Effect to use when no rules match (defaults to `'deny'`).
  * @returns `true` / `false` for an applicable allow / deny, `null` when the
  *   policy is NotApplicable for this request.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function evaluatePolicyFast(
   policy: AccessControl.IPolicy,
@@ -280,17 +275,17 @@ export function evaluatePolicyFast(
   const resType = request.resource.type
 
   // Fastest path: pre-computed result for unconditional rules (CASL-like O(1)).
-  // SEC-007: literal resource patterns now match only the exact resource type;
-  // do NOT probe parent prefixes here.
+  // Literal resource patterns match only the exact resource type — do NOT
+  // probe parent prefixes here.
   const actionMap = idx.precomputed.get(action)
   if (actionMap) {
     const precomputed = actionMap.get(resType)
     if (precomputed !== undefined) return precomputed
   }
 
-  // Literal buckets the request matches by exact key only (SEC-007).
-  // Rules with `:*` / `.*` suffixes live in `wildcardAny` and are checked
-  // there via `matchCandidate` -> `matchesResource(Hierarchical)`.
+  // Literal buckets are matched by exact key only. Rules with `:*` / `.*`
+  // suffixes live in `wildcardAny` and are checked there via `matchCandidate`
+  // -> `matchesResource(Hierarchical)`.
   const literalBuckets: Evaluate.IIndexedRule[][] = []
   const exactAR = idx.byActionResource.get(`${action}\0${resType}`)
   if (exactAR) literalBuckets.push(exactAR)
@@ -378,7 +373,6 @@ export function evaluatePolicyFast(
  * @param onPolicyError Invoked when a single policy throws; the offending policy
  *   is treated as NotApplicable so the rest still evaluate.
  * @returns `true` when the final verdict is allow, `false` otherwise.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function evaluateFast(
   policies: AccessControl.IPolicy[],
@@ -444,7 +438,7 @@ export function evaluateFast(
 /**
  * Out-parameter shape for {@link evaluateFast}. Callers pass an empty object;
  * the evaluator mutates fields as side-effects are observed. Useful for
- * metrics that need details the boolean return cannot carry (SEC-044).
+ * metrics that need details the boolean return cannot carry.
  */
 export interface IEvalSignals {
   /**

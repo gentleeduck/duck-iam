@@ -36,7 +36,6 @@ import { RuleBuilder } from './rule'
  *   )
  *   .build()
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class PolicyBuilder<
   TAction extends string = string,
@@ -65,7 +64,6 @@ export class PolicyBuilder<
    *
    * @param n - Display name.
    * @returns `this` for chaining.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   name(n: string): this {
     this._name = n
@@ -77,7 +75,6 @@ export class PolicyBuilder<
    *
    * @param d - Description text.
    * @returns `this` for chaining.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   desc(d: string): this {
     this._description = d
@@ -89,7 +86,6 @@ export class PolicyBuilder<
    *
    * @param v - Version number.
    * @returns `this` for chaining.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   version(v: number): this {
     this._version = v
@@ -111,7 +107,6 @@ export class PolicyBuilder<
    *
    * @param a - Combining algorithm.
    * @returns `this` for chaining.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   algorithm(a: AccessControl.CombiningAlgorithm): this {
     this._algorithm = a
@@ -136,7 +131,6 @@ export class PolicyBuilder<
    *   })
    * ```
    * @returns `this` for chaining.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   target(t: NonNullable<AccessControl.IPolicy<TAction, TResource, TRole>['targets']>): this {
     this._targets = t
@@ -164,7 +158,6 @@ export class PolicyBuilder<
    *   )
    * ```
    * @returns `this` for chaining.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   rule(
     id: string,
@@ -201,7 +194,6 @@ export class PolicyBuilder<
    * policy('post-access').addRule(denyDrafts)
    * ```
    * @returns `this` for chaining.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   addRule(rule: AccessControl.IRule<TAction, TResource>): this {
     this._rules.push(rule)
@@ -215,7 +207,6 @@ export class PolicyBuilder<
    * can be passed to an adapter or registered with the engine directly.
    *
    * @returns The constructed `Policy`.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   build(): AccessControl.IPolicy<TAction, TResource, TRole> {
     const policy: AccessControl.IPolicy<TAction, TResource, TRole> = {
@@ -227,9 +218,9 @@ export class PolicyBuilder<
       rules: this._rules,
       targets: this._targets,
     }
-    // DEBT-8: validate at build time so a power-user wiring the adapter
-    // directly (bypassing engine.admin.savePolicy's SEC-043 check) still
-    // sees the failure where the bug was introduced.
+    // Validate at build time so callers wiring the adapter directly
+    // (bypassing engine.admin.savePolicy's validator) still see the
+    // failure where the bug was introduced.
     const result = validatePolicy(policy)
     if (!result.valid) {
       const errs = result.issues
@@ -272,7 +263,6 @@ export class PolicyBuilder<
  *   )
  *   .build()
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const policy = <
   TAction extends string = string,

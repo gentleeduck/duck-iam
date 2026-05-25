@@ -50,7 +50,6 @@ type Listener<TAction extends string = string, TResource extends string = string
  * if (access.can('delete', 'post')) deleteIt()
  * const unsub = access.subscribe(() => rerender())
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class AccessClient<
   TAction extends string = string,
@@ -64,7 +63,6 @@ export class AccessClient<
    * Creates a new client wrapping the given permission map.
    *
    * @param permissions - Optional initial permission map (set later via `update`).
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(permissions?: Client.PermissionMap<TAction, TResource, TScope>) {
     this._permissions = permissions ?? ({} as Client.PermissionMap<TAction, TResource, TScope>)
@@ -80,7 +78,6 @@ export class AccessClient<
    * @param init - Optional `fetch` init (auth headers, signal, etc.).
    * @returns A populated {@link AccessClient}.
    * @throws Error when the response status is non-2xx.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   static async fromServer<TA extends string = string, TR extends string = string, TS extends string = string>(
     url: string,
@@ -99,7 +96,6 @@ export class AccessClient<
    * Returns a readonly view of the current permission map.
    *
    * @returns Readonly map of action/resource keys to boolean grants.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   get permissions(): Readonly<Client.PermissionMap<TAction, TResource, TScope>> {
     return this._permissions
@@ -113,7 +109,6 @@ export class AccessClient<
    * @param resourceId - Optional resource instance ID.
    * @param scope - Optional scope binding the check.
    * @returns `true` when the permission map grants the combination.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   can(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
     const key = buildPermissionKey(action, resource, resourceId, scope)
@@ -128,7 +123,6 @@ export class AccessClient<
    * @param resourceId - Optional resource instance ID.
    * @param scope - Optional scope binding the check.
    * @returns `true` when the permission map does not grant the combination.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   cannot(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
     return !this.can(action, resource, resourceId, scope)
@@ -141,7 +135,6 @@ export class AccessClient<
    *
    * @param permissions - Provides the new permission map.
    * @returns Nothing.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   update(permissions: Client.PermissionMap<TAction, TResource, TScope>): void {
     this._permissions = permissions
@@ -164,7 +157,6 @@ export class AccessClient<
    *
    * @param permissions - Provides the partial permission patch.
    * @returns Nothing.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   merge(permissions: Client.PermissionMap<TAction, TResource, TScope>): void {
     this.update({ ...this._permissions, ...permissions })
@@ -175,7 +167,6 @@ export class AccessClient<
    *
    * @param fn - Listener invoked with the new permission map.
    * @returns An unsubscribe function.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   subscribe(fn: Listener<TAction, TResource, TScope>): () => void {
     this._listeners.add(fn)
@@ -191,7 +182,6 @@ export class AccessClient<
    *
    * @param resource - Specifies the resource type to filter by.
    * @returns Deduplicated array of actions allowed on `resource`.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   allowedActions(resource: TResource): TAction[] {
     const actions: TAction[] = []
@@ -208,7 +198,6 @@ export class AccessClient<
    *
    * @param resource - Specifies the resource type to probe.
    * @returns `true` when any granted key targets the resource.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   hasAnyOn(resource: TResource): boolean {
     return Object.entries(this._permissions).some(([key, allowed]) => {
@@ -231,10 +220,10 @@ export class AccessClient<
  * we check if the resource appears at the expected position for each format.
  */
 function extractAction(key: string, resource: string): string | null {
-  // SEC-104: honour the `\:` / `\\` escape sequences emitted by
-  // buildPermissionKey. Naive `.split(':')` mis-tokenises any resource (or
-  // resourceId / scope) containing a literal `:`, causing
-  // client.allowedActions(...) to under- or over-report.
+  // Honour the `\:` / `\\` escape sequences emitted by buildPermissionKey.
+  // Naive `.split(':')` mis-tokenises any resource / resourceId / scope
+  // containing a literal `:`, causing client.allowedActions(...) to under-
+  // or over-report.
   const parts = splitPermissionKey(key)
 
   switch (parts.length) {

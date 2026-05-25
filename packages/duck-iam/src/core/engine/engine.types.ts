@@ -8,7 +8,6 @@ export namespace EngineTypes {
    * @template TResource - Union of valid resource strings.
    * @template TRole     - Union of valid role IDs.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAdmin<
     TAction extends string = string,
@@ -68,7 +67,6 @@ export namespace EngineTypes {
    * @template TResource - Union of valid resource strings.
    * @template TRole     - Union of valid role IDs.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ISnapshot<
     TAction extends string = string,
@@ -84,8 +82,6 @@ export namespace EngineTypes {
 
   /**
    * Options for {@link IAdmin.import}.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IImportOptions {
     readonly mode?: 'merge' | 'replace'
@@ -94,8 +90,6 @@ export namespace EngineTypes {
   /**
    * Counts returned from {@link IAdmin.import} reporting how many policies and
    * roles were added or deleted.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IImportResult {
     readonly policiesAdded: number
@@ -111,7 +105,6 @@ export namespace EngineTypes {
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IMetricsEvent<TAction extends string = string, TResource extends string = string> {
     /** The subject ID the check ran against. */
@@ -132,7 +125,7 @@ export namespace EngineTypes {
      * `false` when an explicit allow rule matched, or when the verdict was
      * deny. Operators chart this to detect silent policy-set breakage
      * (broken adapter, mass deletion, ReDoS-dropped rules) that the boolean
-     * verdict alone hides. SEC-044.
+     * verdict alone hides.
      */
     readonly failOpen: boolean
   }
@@ -152,7 +145,6 @@ export namespace EngineTypes {
    *   onDeny: (req, decision) => console.warn('denied', req, decision.reason),
    * }
    * ```
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IHooks<
     TAction extends string = string,
@@ -206,7 +198,6 @@ export namespace EngineTypes {
    *   mode: 'development',
    * }
    * ```
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IConfig<
     TAction extends string = string,
@@ -280,7 +271,6 @@ export namespace EngineTypes {
    * (the engine's invalidate methods are idempotent).
    *
    * @template TRole - Union of valid role IDs.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IInvalidator<TRole extends string = string> {
     /** Publish an invalidation event. Engine calls this after a local admin write. */
@@ -293,7 +283,6 @@ export namespace EngineTypes {
    * Discriminated union of invalidation event kinds.
    *
    * @template TRole - Union of valid role IDs.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type IInvalidateEvent<TRole extends string = string> =
     | { readonly kind: 'all' }
@@ -303,8 +292,6 @@ export namespace EngineTypes {
 
   /**
    * Output of `engine.healthCheck()`. Wire to your `/healthz` route.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IHealth {
     /** Overall result; `false` means the orchestrator should pull this instance. */

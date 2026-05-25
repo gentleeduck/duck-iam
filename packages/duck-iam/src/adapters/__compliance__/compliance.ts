@@ -2,14 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { AccessControl, Adapter } from '../../core/types'
 
 /**
- * DEBT-2: shared adapter compliance suite.
+ * Shared adapter compliance suite.
  *
  * Every shipped adapter (`MemoryAdapter`, `FileAdapter`, `RedisAdapter`,
  * `DrizzleAdapter`, `PrismaAdapter`, `HttpAdapter`) and every third-party
- * adapter must pass this matrix. The suite pins the cross-backend contract:
- * same scenarios must produce identical results regardless of storage. SEC-059
- * (file/memory returned unscoped-only; redis/drizzle/prisma returned all
- * collapsed) was a symptom of NOT having this.
+ * adapter must pass this matrix. The suite pins the cross-backend contract
+ * so the same scenarios produce identical results regardless of storage.
  *
  * Usage in an adapter test file:
  * ```ts

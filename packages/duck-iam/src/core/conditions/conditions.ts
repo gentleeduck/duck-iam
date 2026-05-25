@@ -8,7 +8,6 @@ import { evalCondition, isCondition, MAX_CONDITION_DEPTH, ops, resolveValue } fr
  * @param fieldValue - Left-hand side resolved from the request.
  * @param condValue  - Right-hand side from the condition.
  * @returns `true` when the operator predicate holds.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function evaluateOperator(
   op: AccessControl.Operator,
@@ -24,7 +23,6 @@ export function evaluateOperator(
  * @param req   - The access request providing resolution roots.
  * @param value - Raw condition value (possibly `$`-prefixed reference).
  * @returns The resolved value, or `value` unchanged when no resolution applies.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function resolveConditionValue(
   req: Request.IAccessRequest,
@@ -53,7 +51,6 @@ function evalItem(
  * @param group - The condition group to evaluate
  * @param depth - Current recursion depth (internal, do not set)
  * @returns Whether the condition group is satisfied
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function evalConditionGroup(
   req: Request.IAccessRequest,

@@ -269,7 +269,7 @@ describe('hierarchical resources in evaluation', () => {
       ],
     }
     const req = makeReq({ resource: { type: 'dashboard.users', attributes: {} } })
-    // Bare literal no longer parent-matches under SEC-007.
+    // Bare literal patterns do not parent-match sub-resources.
     expect(evaluatePolicy(policy, req).allowed).toBe(false)
     // Exact literal still matches.
     expect(evaluatePolicy(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } })).allowed).toBe(true)
@@ -545,8 +545,8 @@ describe('cross-policy combine', () => {
 })
 
 describe('fast path: literal-only resource patterns (SEC-007)', () => {
-  // SEC-007: bare literal patterns must NOT match sub-resources. Authors that
-  // want recursive grants are required to use `:*` / `.*` explicitly.
+  // Bare literal patterns must NOT match sub-resources. Authors that want
+  // recursive grants must use `:*` / `.*` explicitly.
 
   it('colon: bare "org" only matches request "org" (SEC-007)', () => {
     const policy: AccessControl.IPolicy = {
@@ -601,10 +601,10 @@ describe('fast path: literal-only resource patterns (SEC-007)', () => {
 })
 
 describe('policy targets: dot-pattern resources (SEC-036)', () => {
-  // SEC-036 regression: after SEC-007 tightened `matchesResource` to literal-
-  // only for bare patterns, `policyApplies` / `policyTargetsMatch` silently
-  // failed for dot-wildcard targets like `dashboard.*`. The fix teaches
-  // `matchesResource` about both `:*` and `.*` suffixes.
+  // Regression: when `matchesResource` was tightened to literal-only for
+  // bare patterns, `policyApplies` / `policyTargetsMatch` silently failed
+  // for dot-wildcard targets like `dashboard.*`. `matchesResource` must
+  // handle both `:*` and `.*` suffixes.
   const dotTargetPolicy: AccessControl.IPolicy = {
     id: 'dot-targets',
     name: 'Dot Targets',

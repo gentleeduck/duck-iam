@@ -12,7 +12,6 @@ export namespace Client {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type PermissionKey<
     TAction extends string = string,
@@ -31,7 +30,6 @@ export namespace Client {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type PermissionMap<
     TAction extends string = string,
@@ -46,7 +44,6 @@ export namespace Client {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IPermissionCheck<
     TAction extends string = string,

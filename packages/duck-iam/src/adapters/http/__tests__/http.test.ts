@@ -205,8 +205,7 @@ describe('HttpAdapter', () => {
       })
       await adapter.listPolicies()
       // Adapter preserves the caller's original baseUrl casing in the
-      // request URL; the SEC-030 fix only normalises for the allowlist
-      // comparison.
+      // request URL; only the allowlist comparison is normalised.
       expect(calls[0]?.url).toBe('https://API.Example.COM/policies')
     })
 
@@ -290,9 +289,9 @@ describe('HttpAdapter', () => {
     })
 
     it('canonical NAT64 form `[64:ff9b::7f00:1]` still rejects loopback (SEC-038)', () => {
-      // SEC-038 regression: the `0064:ff9b:` literal branch had an off-by-one
-      // slice; verify the canonical WHATWG form (which is what `new URL`
-      // actually emits) continues to reject correctly.
+      // Regression: the `0064:ff9b:` literal branch had an off-by-one
+      // slice. Verify the canonical WHATWG form (what `new URL` emits)
+      // continues to reject correctly.
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
         /private\/loopback/,
       )

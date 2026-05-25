@@ -4,7 +4,7 @@ import type { Validate } from '../validate/validate.types'
 import type { EngineTypes } from './engine.types'
 
 /**
- * DEBT-3: single-flight helper for single-slot in-flight promises.
+ * Single-flight helper for single-slot in-flight promises.
  *
  * Encapsulates the sentinel-compare pattern used by `_loadPolicies`,
  * `_loadRoles`, `_loadRbacPolicy`, `_loadAllPolicies`. A concurrent caller
@@ -41,7 +41,7 @@ export function runSingleFlight<T>(
 }
 
 /**
- * DEBT-3: keyed single-flight for per-key in-flight maps (subjects).
+ * Keyed single-flight for per-key in-flight maps (subjects).
  *
  * Same shape as {@link runSingleFlight} but keyed on a Map entry. Identity
  * equality on the Promise reference disambiguates concurrent callers.
@@ -74,11 +74,11 @@ export function runSingleFlightKeyed<K, T>(
  * in file/redis/drizzle) would silently drop, leaving the tenant with zero
  * policies and the `defaultEffect` in charge of every request.
  *
- * SEC-052: the throw text intentionally omits attacker-controlled values
- * (e.g. `algorithm`, `operator`). Only the validator code enum + dot-path are
- * reflected, so an operator who echoes `err.message` to an HTTP body or audit
- * sink cannot leak submitted payload back to the caller. The full structured
- * issues remain available to admins on the validator result itself.
+ * The throw text omits attacker-controlled values (e.g. `algorithm`,
+ * `operator`); only the validator code enum + dot-path are reflected, so an
+ * operator who echoes `err.message` to an HTTP body or audit sink cannot
+ * leak the submitted payload. Full structured issues remain available on
+ * the validator result itself.
  */
 function assertValidOrThrow(kind: 'policy' | 'role', result: Validate.IResult): void {
   if (result.valid) return
@@ -101,7 +101,6 @@ function assertValidOrThrow(kind: 'policy' | 'role', result: Validate.IResult): 
  *
  * @param policy - The policy to freeze in place.
  * @returns The same policy reference, frozen at every level.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function deepFreezePolicy<TPolicy extends AccessControl.IPolicy>(policy: TPolicy): TPolicy {
   for (const rule of policy.rules) {
@@ -142,7 +141,6 @@ function freezeConditionGroup(group: AccessControl.IConditionGroup): void {
  * @param subject - The resolved subject with potential scoped role assignments
  * @param scope   - The scope to match against scoped role assignments
  * @returns A new subject with merged roles, or the original subject if no matches
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function enrichSubjectWithScopedRoles<TScope extends string = string>(
   subject: Request.ISubject,
@@ -170,7 +168,6 @@ export function enrichSubjectWithScopedRoles<TScope extends string = string>(
  * @param adapter - The storage adapter for policies, roles, and subject data
  * @param engine  - The engine instance whose caches should be invalidated on writes
  * @returns An {@link EngineTypes.IAdmin} object wired to the adapter and engine
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createAdmin<
   TAction extends string = string,

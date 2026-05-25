@@ -3,8 +3,6 @@ import { validatePolicy, validateRole } from '../../core/validate'
 
 /**
  * Redis adapter integration types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace Redis {
   /**
@@ -12,8 +10,6 @@ export namespace Redis {
    *
    * Both ioredis and node-redis (v4+) implement these methods, so consumers can
    * pass either without a hard dependency.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ILike {
     get(key: string): Promise<string | null>
@@ -29,16 +25,14 @@ export namespace Redis {
     srem(key: string, ...members: string[]): Promise<number>
     smembers(key: string): Promise<string[]>
     /**
-     * DEBT-10: optional Lua EVAL surface for cross-process atomic
-     * read-modify-write on assignments (`_migrateLegacyAssignment` race vs
-     * `revokeRole`). When present, the adapter switches to the Lua path
-     * for migration; when absent, falls back to the single-process
-     * `_runSerialised` chain (still correct for single-process deployments).
+     * Optional Lua EVAL surface for cross-process atomic read-modify-write
+     * on assignments. When present, the adapter uses Lua for migration;
+     * when absent, falls back to the single-process `_runSerialised` chain
+     * (still correct for single-process deployments).
      *
      * Both ioredis (`eval(script, keysLen, ...keysAndArgs)`) and node-redis
-     * v4+ (`eval(script, { keys, arguments })`) implement this signature
-     * shape when the adapter passes a pre-flattened `[script, numkeys,
-     * ...keys, ...args]` invocation. The library targets the ioredis
+     * v4+ implement this signature shape when invoked with a pre-flattened
+     * `[script, numkeys, ...keys, ...args]`. The library targets the ioredis
      * positional shape; node-redis users can wrap with an adapter.
      */
     eval?(script: string, numkeys: number, ...keysAndArgs: string[]): Promise<unknown>
@@ -46,8 +40,6 @@ export namespace Redis {
 
   /**
    * Describes the configuration required to construct a {@link RedisAdapter}.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IConfig {
     /** Provides the Redis client instance (ioredis, node-redis v4+, or compatible). */
@@ -66,13 +58,11 @@ export namespace Redis {
 
 /**
  * @deprecated Use {@link Redis.ILike}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type RedisLike = Redis.ILike
 
 /**
  * @deprecated Use {@link Redis.IConfig}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type RedisAdapterConfig = Redis.IConfig
 
@@ -98,7 +88,6 @@ export type RedisAdapterConfig = Redis.IConfig
  * const adapter = new RedisAdapter({ client: new Redis(), keyPrefix: 'iam:' })
  * await adapter.savePolicy(policy)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class RedisAdapter<
   TAction extends string = string,
@@ -111,13 +100,13 @@ export class RedisAdapter<
   private _prefix: string
   private _onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
   /**
-   * SEC-024: per-assignment-key serialisation. Read-modify-write on the
-   * legacy-migration path can race with concurrent `revokeRole` and resurrect
-   * a just-deleted assignment (migrator's SADD lands after the revoker's
-   * SREM). Without `EVAL`/`MULTI` in the minimal `Redis.ILike` interface,
-   * the soundest in-process fix is to serialise all writes against a single
-   * assignments key behind a chained promise. Cross-process race remains;
-   * document for operators who run multiple writer processes.
+   * Per-assignment-key serialisation. Read-modify-write on the legacy
+   * migration path can race with concurrent `revokeRole` and resurrect a
+   * just-deleted assignment. Without `EVAL`/`MULTI` in the minimal
+   * `Redis.ILike` interface, the soundest in-process fix is to serialise
+   * writes against a single assignments key behind a chained promise.
+   * Cross-process races remain — operators running multiple writer
+   * processes should rely on the Lua `eval` path when available.
    */
   private _assignmentWriteLocks = new Map<string, Promise<unknown>>()
 
@@ -125,7 +114,6 @@ export class RedisAdapter<
    * Creates a new Redis-backed adapter.
    *
    * @param config - Provides the client and optional key prefix.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(config: Redis.IConfig) {
     this._client = config.client
@@ -203,12 +191,10 @@ export class RedisAdapter<
   /**
    * Separator between role and scope in an encoded assignment set member.
    *
-   * Must be a NUL byte (`0x00`). NUL was chosen because it cannot appear in
-   * any reasonable `TRole` / `TScope` string and is rejected at encode time
-   * for defence in depth (SEC-019). The earlier implementation literally used
-   * a space here despite a comment claiming NUL, which let any role or scope
-   * containing whitespace silently collide on decode and drift privileges -
-   * e.g. `encode('admin user', '')` would round-trip as `('admin', 'user ')`.
+   * NUL (`0x00`) is rejected at encode time so it cannot appear in any
+   * `TRole` / `TScope` string, preventing decode collisions that would drift
+   * privileges (e.g. a space-separated `'admin user'` round-tripping as
+   * `('admin', 'user ')`).
    */
   private static readonly _SEP = '\0'
 
@@ -216,10 +202,10 @@ export class RedisAdapter<
    * Detects entries written by versions of this adapter that used a literal
    * space as separator. Format: exactly one `0x20`, no `0x00` byte. On read,
    * such entries are transparently re-encoded with the NUL separator and the
-   * legacy form is removed from the set. See `audit/MIGRATION.md`.
+   * legacy form is removed from the set.
    *
    * False positives are scoped to subjects whose role/scope strings happened
-   * to contain spaces - exactly the cases that were silently broken before -
+   * to contain spaces — exactly the cases that were silently broken before —
    * so the migration corrects rather than corrupts them.
    */
   private _isLegacyEncoded(member: string): boolean {
@@ -240,8 +226,8 @@ export class RedisAdapter<
   private _decodeAssignment(member: string): { role: TRole; scope?: TScope } {
     const sep = member.indexOf(RedisAdapter._SEP)
     if (sep === -1) {
-      // Legacy-format fallback for SEC-019 migration: older versions used a
-      // space separator. We accept exactly-one-space entries here; the caller
+      // Legacy-format fallback: older versions used a space separator.
+      // Accept exactly-one-space entries here; the caller
       // (`_migrateLegacyAssignment`) re-encodes them on first read.
       if (this._isLegacyEncoded(member)) {
         const legacySep = member.indexOf(' ')
@@ -259,7 +245,7 @@ export class RedisAdapter<
   /**
    * Serialise an async task against a specific assignments key. Chains onto
    * any in-flight task for the same key so concurrent callers see a strict
-   * happens-before order, defeating the SEC-024 migrate-vs-revoke race in a
+   * happens-before order, defeating the migrate-vs-revoke race in a
    * single-process deployment.
    */
   private _runSerialised<T>(key: string, task: () => Promise<T>): Promise<T> {
@@ -291,13 +277,13 @@ export class RedisAdapter<
     const legacy = members.filter((m) => this._isLegacyEncoded(m))
     if (legacy.length === 0) return
     const key = this._assignmentsKey(subjectId)
-    // DEBT-10: prefer Lua EVAL for true atomicity (cross-process safe).
+    // Prefer Lua EVAL for true atomicity (cross-process safe).
     // Falls back to in-process serialisation when client lacks eval.
     if (typeof this._client.eval === 'function') {
       await this._migrateLegacyAssignmentLua(key, subjectId, legacy)
       return
     }
-    // SEC-024: single-process serialisation fallback.
+    // Single-process serialisation fallback.
     await this._runSerialised(key, async () => {
       try {
         const current = await this._client.smembers(key)
@@ -317,18 +303,16 @@ export class RedisAdapter<
   }
 
   /**
-   * DEBT-10: cross-process atomic migration via Redis EVAL. Lua scripts
-   * run atomically in Redis — no other command interleaves between the
-   * SADD and SREM, so a concurrent `revokeRole` from a sibling process
-   * cannot resurrect an assignment. Requires `client.eval` (ioredis,
-   * node-redis v4+); adapter falls back to single-process serialisation
-   * when absent.
+   * Cross-process atomic migration via Redis EVAL. Lua scripts run
+   * atomically in Redis — no other command interleaves between the SADD
+   * and SREM, so a concurrent `revokeRole` from a sibling process cannot
+   * resurrect an assignment. Requires `client.eval` (ioredis, node-redis
+   * v4+); falls back to single-process serialisation when absent.
    *
    * Script semantics: for each legacy member in ARGV, decode (split on
-   * space) into role + scope, re-encode (NUL separator), SADD the
-   * migrated form, SREM the legacy form. All atomic. ARGV format is
-   * pairs `[migratedMember, legacyMember]` so the adapter does the
-   * encode/decode in JS (Lua string-manipulation is awkward).
+   * space) into role + scope, re-encode (NUL separator), SADD the migrated
+   * form, SREM the legacy form. ARGV format is pairs `[migratedMember,
+   * legacyMember]` so the adapter does the encode/decode in JS.
    */
   private static readonly _MIGRATE_LUA = `
     local key = KEYS[1]
@@ -362,7 +346,6 @@ export class RedisAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies decoded from the `policies` hash.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const entries = await this._client.hgetall(this._policiesKey())
@@ -380,7 +363,6 @@ export class RedisAdapter<
    * @param id - Identifies the policy to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching policy or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getPolicy(
     id: string,
@@ -395,7 +377,6 @@ export class RedisAdapter<
    *
    * @param p - Provides the policy to persist.
    * @returns Resolves once the HSET completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     await this._client.hset(this._policiesKey(), p.id, JSON.stringify(p))
@@ -406,7 +387,6 @@ export class RedisAdapter<
    *
    * @param id - Identifies the policy to delete.
    * @returns Resolves once the HDEL completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deletePolicy(id: string): Promise<void> {
     await this._client.hdel(this._policiesKey(), id)
@@ -417,7 +397,6 @@ export class RedisAdapter<
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles decoded from the `roles` hash.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const entries = await this._client.hgetall(this._rolesKey())
@@ -435,7 +414,6 @@ export class RedisAdapter<
    * @param id - Identifies the role to look up.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The matching role or `null` when absent.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getRole(
     id: string,
@@ -450,7 +428,6 @@ export class RedisAdapter<
    *
    * @param r - Provides the role to persist.
    * @returns Resolves once the HSET completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     await this._client.hset(this._rolesKey(), r.id, JSON.stringify(r))
@@ -461,7 +438,6 @@ export class RedisAdapter<
    *
    * @param id - Identifies the role to delete.
    * @returns Resolves once the HDEL completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async deleteRole(id: string): Promise<void> {
     await this._client.hdel(this._rolesKey(), id)
@@ -473,18 +449,14 @@ export class RedisAdapter<
    * @param subjectId - Identifies the subject whose roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
     const members = await this._client.smembers(this._assignmentsKey(subjectId))
     const roles = new Set<TRole>()
     for (const m of members) {
       const decoded = this._decodeAssignment(m)
-      // SEC-059: contract is "unscoped (global) roles only" — same as
-      // file/memory adapters. Scoped assignments are surfaced separately
-      // through getSubjectScopedRoles. Collapsing scoped + unscoped here
-      // diverged from the file/memory adapters and made the same subject
-      // resolve to different role sets depending on the storage backend.
+      // Contract: unscoped (global) roles only — same as file/memory
+      // adapters. Scoped assignments are surfaced via getSubjectScopedRoles.
       if (decoded.scope !== undefined) continue
       roles.add(decoded.role)
     }
@@ -498,7 +470,6 @@ export class RedisAdapter<
    * @param subjectId - Identifies the subject whose scoped roles are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectScopedRoles(
     subjectId: string,
@@ -523,11 +494,10 @@ export class RedisAdapter<
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the SADD completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     const key = this._assignmentsKey(subjectId)
-    // SEC-024: serialise against the migration path.
+    // Serialise against the migration path.
     await this._runSerialised(key, () => this._client.sadd(key, this._encodeAssignment(roleId, scope)))
   }
 
@@ -540,11 +510,10 @@ export class RedisAdapter<
    * @param roleId - Specifies the role being revoked.
    * @param scope - Optional scope filter to narrow the delete.
    * @returns Resolves once the SREM completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     const key = this._assignmentsKey(subjectId)
-    // SEC-024: serialise against migration so a racing _migrateLegacyAssignment
+    // Serialise against migration so a racing _migrateLegacyAssignment
     // cannot SADD the migrated form after our SREM lands.
     await this._runSerialised(key, async () => {
       if (scope !== undefined) {
@@ -568,7 +537,6 @@ export class RedisAdapter<
    * @param subjectId - Identifies the subject whose attributes are read.
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectAttributes(subjectId: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
     const value = await this._client.get(this._attrsKey(subjectId))
@@ -577,11 +545,10 @@ export class RedisAdapter<
     try {
       parsed = JSON.parse(value)
     } catch (err) {
-      // SEC-058: corruption is NOT the same shape as "no attributes". Returning
-      // {} on parse failure would silently strip ABAC inputs and the engine
-      // would deny policies that previously allowed with no visible change.
-      // _reportPolicyError surfaces it for the operator, and the throw routes
-      // through the engine to onError + fail-closed deny.
+      // Corruption is NOT the same shape as "no attributes". Returning {}
+      // here would silently strip ABAC inputs and the engine would deny
+      // policies that previously allowed with no visible change. Surface
+      // through _reportPolicyError and throw so the engine fails closed.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
       throw new Error(`duck-iam RedisAdapter: corrupted attributes for "${subjectId}" (JSON parse failed)`)
     }
@@ -598,13 +565,10 @@ export class RedisAdapter<
    * @param subjectId - Identifies the subject whose attributes are written.
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the SET completes.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
-    // SEC-067: the admin write path is the ONE place an overwrite is
-    // intentional, so a corrupt existing blob must not lock the operator
-    // out of recovering. SEC-058's getSubjectAttributes throws on
-    // corruption; here we recover by treating corrupt as `{}` and logging
+    // Admin write path is the one place a corrupt existing blob must NOT
+    // lock the operator out of recovering. Treat corrupt as `{}` and log
     // through _reportPolicyError so the operator still sees the signal.
     let existing: Primitives.Attributes
     try {

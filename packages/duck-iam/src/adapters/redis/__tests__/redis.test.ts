@@ -90,7 +90,7 @@ class FakeRedis implements Redis.ILike {
   }
 }
 
-// DEBT-2: adapter compliance — fresh FakeRedis per call.
+// Adapter compliance — fresh FakeRedis per call.
 runAdapterCompliance('RedisAdapter', () => new RedisAdapter({ client: new FakeRedis() }) as never)
 
 describe('RedisAdapter', () => {
@@ -275,7 +275,7 @@ describe('RedisAdapter', () => {
 
     it('getSubjectRoles returns ONLY unscoped roles, not scoped (SEC-059)', async () => {
       // Aligns redis with file/memory contract: scoped roles go through
-      // getSubjectScopedRoles only. Before SEC-059, redis collapsed both.
+      // getSubjectScopedRoles only.
       await adapter.assignRole('user-1', 'viewer' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
@@ -288,9 +288,9 @@ describe('RedisAdapter', () => {
     })
 
     it('setSubjectAttributes recovers from corrupt existing blob (SEC-067)', async () => {
-      // Admin overwrite is the only path to recover; SEC-058 made the read
-      // throw, which would have locked the operator out forever. Setter now
-      // catches the throw, logs, and proceeds with `{}` as the merge base.
+      // Admin overwrite is the only recovery path: the read throws on
+      // corruption, which would otherwise lock the operator out forever.
+      // Setter catches the throw, logs, and uses `{}` as the merge base.
       await redis.set('attrs:user-1', 'not-json{')
       await adapter.setSubjectAttributes('user-1', { team: 'A' })
       // Read now returns the freshly-written value (no longer corrupt).
@@ -562,8 +562,8 @@ describe('RedisAdapter', () => {
       const adapter = new RedisAdapter<A, R, Ro, S>({ client: r })
 
       // Kick off a read that triggers migration, race-fired with a revoke.
-      // Before SEC-024 the migrator's SADD could land after revoker's SREM,
-      // resurrecting `editor\0org-1`. With per-key serialisation the
+      // Without per-key serialisation the migrator's SADD could land after
+      // the revoker's SREM, resurrecting `editor\0org-1`. Serialised, the
       // operations are ordered and the set ends empty.
       const migration = adapter.getSubjectScopedRoles('user-1')
       const revoke = adapter.revokeRole('user-1', 'editor' as Ro, 'org-1')

@@ -418,12 +418,11 @@ describe('matches operator ReDoS hardening (P1)', () => {
   it('evaluates a catastrophic pattern + adversarial-length input under 50ms', async () => {
     const { regexCache, RegexInputTooLargeError } = await import('../conditions.libs')
     regexCache.clear()
-    // `(a+)+$` is the textbook catastrophic-backtracking pattern. An attacker
-    // would pair it with a long input ending in a character that can't match
-    // (`!`) to force maximum backtracking. The runtime input cap
-    // (MAX_REGEX_INPUT_LENGTH = 2048) throws before the regex engine ever
-    // runs - that's the defense in depth this test pins down. The throw
-    // (rather than a silent `false`) is what prevents the SEC-022 deny-flip.
+    // `(a+)+$` is the textbook catastrophic-backtracking pattern, paired
+    // with a long input ending in a non-matching character (`!`) to force
+    // maximum backtracking. The runtime input cap (MAX_REGEX_INPUT_LENGTH)
+    // throws before the regex engine ever runs. The throw (rather than a
+    // silent `false`) prevents `deny`-when-`matches` rules from flipping.
     const big = `${'a'.repeat(3000)}!`
     const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
     const group: AccessControl.IConditionGroup = {
@@ -444,10 +443,10 @@ describe('matches operator ReDoS hardening (P1)', () => {
   it('throws RegexInputTooLargeError on inputs longer than MAX_REGEX_INPUT_LENGTH instead of returning false', async () => {
     const { MAX_REGEX_INPUT_LENGTH, RegexInputTooLargeError, regexCache } = await import('../conditions.libs')
     regexCache.clear()
-    // SEC-022: a silent `false` would flip `deny`-when-`matches` rules into
-    // "condition not met -> allow". The operator throws a tagged error so the
-    // evaluator's safeEval can route it through onPolicyError and drop the
-    // whole policy as NotApplicable instead.
+    // A silent `false` would flip `deny`-when-`matches` rules into
+    // "condition not met -> allow". The operator throws a tagged error so
+    // safeEval can route it through onPolicyError and drop the whole policy
+    // as NotApplicable instead.
     const big = 'a'.repeat(10_000)
     expect(big.length).toBeGreaterThan(MAX_REGEX_INPUT_LENGTH)
     const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
@@ -470,16 +469,12 @@ describe('matches operator ReDoS hardening (P1)', () => {
   })
 
   it('SEC-022: deny-when-matches over-length input drops policy (decision = deny, not allow)', async () => {
-    // Bug being pinned down: P1 made the matches operator return `false` when
-    // candidate input exceeds MAX_REGEX_INPUT_LENGTH. A policy of shape:
-    //
-    //   effect: deny WHEN subject.id MATCHES '^evil-'
-    //
-    // becomes "condition not met -> deny rule does not fire -> effective allow"
-    // on a 10k-byte subject.id. The fix throws instead; the evaluator catches
-    // and treats the whole policy as NotApplicable. With no other policies the
-    // engine falls through to its `defaultEffect` (deny), so the final decision
-    // stays `deny` even though the deny condition technically "didn't match".
+    // Returning `false` from the matches operator on over-length input would
+    // make a `deny WHEN subject.id MATCHES '^evil-'` rule flip to "condition
+    // not met -> deny does not fire -> effective allow" on a 10k-byte
+    // subject.id. The operator throws instead; the evaluator catches and
+    // treats the whole policy as NotApplicable, so the engine falls through
+    // to its `defaultEffect` (deny).
     const { evaluate } = await import('../../evaluate')
     const policy: AccessControl.IPolicy = {
       id: 'deny-evil',

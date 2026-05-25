@@ -424,7 +424,6 @@ describe('adminRouter (express)', () => {
     engine.admin.savePolicy = original
   })
 
-  // SEC-010: admin mutation audit hook.
   describe('onAdminMutation (SEC-010)', () => {
     const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
 
@@ -490,7 +489,7 @@ describe('adminRouter (express)', () => {
       expect(events).toHaveLength(1)
       const ev = events[0] as { success: boolean; error?: string }
       expect(ev.success).toBe(false)
-      // SEC-041: default `event.error` is the class name, not `err.message`.
+      // Default `event.error` is the class name, not `err.message`.
       expect(ev.error).toBe('Error')
     })
 
@@ -537,7 +536,6 @@ describe('adminRouter (express)', () => {
       errSpy.mockRestore()
     })
 
-    // SEC-039: route params can flow into event.path; redactor must run first.
     it('SEC-039: redactPath rewrites event.path before the hook is called', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
@@ -564,7 +562,6 @@ describe('adminRouter (express)', () => {
       expect(events[0]!.path).not.toMatch(/role-tenant-acme/)
     })
 
-    // SEC-040: hook rejection routed through caller sink, not console.error.
     it('SEC-040: onAuditHookError receives thrown error and event', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
@@ -599,7 +596,6 @@ describe('adminRouter (express)', () => {
       errSpy.mockRestore()
     })
 
-    // SEC-040: an exception inside onAuditHookError must never propagate.
     it('SEC-040: onAuditHookError throwing falls back to console.error and does not crash', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
@@ -628,7 +624,6 @@ describe('adminRouter (express)', () => {
       errSpy.mockRestore()
     })
 
-    // SEC-041: default error → class name only; opt-in restores the message.
     it('SEC-041: event.error defaults to the error class name, not err.message', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()

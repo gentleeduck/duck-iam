@@ -4,8 +4,6 @@ import type { Primitives } from './primitives'
 export namespace AccessControl {
   /**
    * The outcome a rule produces when it matches: grant or block access.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type Effect = 'allow' | 'deny'
 
@@ -22,8 +20,6 @@ export namespace AccessControl {
    * | `matches` | String matches a regex pattern |
    * | `exists` / `not_exists` | Field is / is not defined |
    * | `subset_of` / `superset_of` | Array subset / superset check |
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type Operator =
     | 'eq'
@@ -47,8 +43,6 @@ export namespace AccessControl {
   /**
    * Leaf condition: compares a dot-path field against a value via an
    * {@link Operator}. Building block of {@link IConditionGroup} trees.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ICondition {
     /** Dot-path to the attribute being tested (e.g. `'subject.attributes.status'`). */
@@ -62,8 +56,6 @@ export namespace AccessControl {
   /**
    * Recursive tree of conditions combined with boolean logic. Exactly one key
    * must be present: `all` (AND), `any` (OR), or `none` (NOT / NOR).
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type IConditionGroup =
     | { readonly all: ReadonlyArray<ICondition | IConditionGroup> }
@@ -77,7 +69,6 @@ export namespace AccessControl {
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IRule<TAction extends string = string, TResource extends string = string> {
     readonly id: string
@@ -104,8 +95,6 @@ export namespace AccessControl {
    * | `allow-overrides` | Any allow wins. Best for RBAC / permissive rules. |
    * | `first-match` | Highest-priority match wins; ties resolved by source order. |
    * | `highest-priority` | Rule with the highest priority number wins. |
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type CombiningAlgorithm = 'deny-overrides' | 'allow-overrides' | 'first-match' | 'highest-priority'
 
@@ -117,8 +106,6 @@ export namespace AccessControl {
    * | `and` | Every policy must allow. Any deny is final. Default. |
    * | `allow-overrides` | Any policy that allows wins. |
    * | `first-applicable` | First policy whose targets+rules produce a non-default decision wins. |
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type PolicyCombine = 'and' | 'allow-overrides' | 'first-applicable'
 
@@ -130,7 +117,6 @@ export namespace AccessControl {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TRole     - Union of valid role IDs targeted by `targets.roles`.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IPolicy<
     TAction extends string = string,
@@ -163,7 +149,6 @@ export namespace AccessControl {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IPermission<
     TAction extends string = string,
@@ -189,7 +174,6 @@ export namespace AccessControl {
    * @template TResource - Union of valid resource strings.
    * @template TId       - Literal string type of the role ID.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IRole<
     TAction extends string = string,
@@ -211,8 +195,6 @@ export namespace AccessControl {
   /**
    * Result of an authorization evaluation. Final verdict plus diagnostic info
    * about which rule and policy produced the decision.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IDecision {
     readonly allowed: boolean
@@ -240,8 +222,6 @@ export namespace AccessControl {
    *   reasons, rule references, and the full explain/debug API. Default.
    * - `'production'` returns plain booleans. No timing overhead, no
    *   allocation, no reason strings. Enables dead-code elimination of debug paths.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type Mode = 'development' | 'production'
 
@@ -250,7 +230,6 @@ export namespace AccessControl {
    * development -> {@link IDecision}.
    *
    * @template M - The engine {@link Mode}.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type ModeResult<M extends Mode> = M extends 'production' ? boolean : IDecision
 
@@ -262,7 +241,6 @@ export namespace AccessControl {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type ModePermissionMap<
     M extends Mode,
@@ -274,8 +252,6 @@ export namespace AccessControl {
   /**
    * Function signature for a single operator implementation evaluating a
    * `(field, value)` pair from a condition.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type OpFn = (field: Primitives.AttributeValue, value: Primitives.AttributeValue) => boolean
 }

@@ -124,7 +124,7 @@ function makePrismaMock() {
   }
 }
 
-// DEBT-2: adapter compliance — fresh prisma mock per call.
+// Adapter compliance — fresh prisma mock per call.
 runAdapterCompliance('PrismaAdapter', () => new PrismaAdapter(makePrismaMock() as never) as never)
 
 describe('PrismaAdapter', () => {
