@@ -4,6 +4,69 @@ import type { Validate } from '../validate/validate.types'
 import type { EngineTypes } from './engine.types'
 
 /**
+ * DEBT-3: single-flight helper for single-slot in-flight promises.
+ *
+ * Encapsulates the sentinel-compare pattern used by `_loadPolicies`,
+ * `_loadRoles`, `_loadRbacPolicy`, `_loadAllPolicies`. A concurrent caller
+ * sees the same `pending` promise; an `invalidate*()` mid-await nulls the
+ * slot, and the sentinel check prevents the late resolver from writing
+ * stale data into the now-cleared cache.
+ *
+ * @template T - Resolved value type.
+ * @param getSlot - Reads the current in-flight slot (returns `null` if empty).
+ * @param setSlot - Writes the in-flight slot (`null` clears it).
+ * @param produce - Async producer for the value.
+ * @param onResolve - Called only when the slot still holds the original
+ *   pending promise. Use this to populate the cache.
+ * @returns The pending promise (also stored in the slot until resolved).
+ */
+export function runSingleFlight<T>(
+  getSlot: () => Promise<T> | null,
+  setSlot: (p: Promise<T> | null) => void,
+  produce: () => Promise<T>,
+  onResolve: (value: T) => void,
+): Promise<T> {
+  let pending!: Promise<T>
+  pending = (async () => {
+    try {
+      const value = await produce()
+      if (getSlot() === pending) onResolve(value)
+      return value
+    } finally {
+      if (getSlot() === pending) setSlot(null)
+    }
+  })()
+  setSlot(pending)
+  return pending
+}
+
+/**
+ * DEBT-3: keyed single-flight for per-key in-flight maps (subjects).
+ *
+ * Same shape as {@link runSingleFlight} but keyed on a Map entry. Identity
+ * equality on the Promise reference disambiguates concurrent callers.
+ */
+export function runSingleFlightKeyed<K, T>(
+  map: Map<K, Promise<T>>,
+  key: K,
+  produce: () => Promise<T>,
+  onResolve: (value: T) => void,
+): Promise<T> {
+  let pending!: Promise<T>
+  pending = (async () => {
+    try {
+      const value = await produce()
+      if (map.get(key) === pending) onResolve(value)
+      return value
+    } finally {
+      if (map.get(key) === pending) map.delete(key)
+    }
+  })()
+  map.set(key, pending)
+  return pending
+}
+
+/**
  * Throw if the validate result has any `error`-type issue.
  *
  * Admin write paths run this before persisting so a hostile or buggy admin
