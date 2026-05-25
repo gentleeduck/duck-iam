@@ -364,6 +364,13 @@ describe('HttpAdapter', () => {
       }
     })
 
+    it('passes redirect:"error" to fetch to block redirect-based SSRF (SEC-042)', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      await adapter.listPolicies()
+      expect(calls[0]?.init?.redirect).toBe('error')
+    })
+
     it('uses globalThis.fetch when no fetch supplied', async () => {
       const original = globalThis.fetch
       const stub = vi.fn(async () => jsonResponse([]))
