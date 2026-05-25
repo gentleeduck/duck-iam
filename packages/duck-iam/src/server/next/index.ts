@@ -153,8 +153,19 @@ export function withAccess<
   handler: RouteHandler,
   opts: Next.IWithAccessOptions<TScope> = {},
 ): RouteHandler {
+  // SEC-101: `getUserId` MUST be supplied. The previous default read from
+  // `x-user-id` request header — an unauth client could spoof any identity
+  // with `curl -H 'X-User-Id: admin'` and authorize() would happily run
+  // against the spoofed user. Force operators to wire identity from a
+  // trusted source (cookie session, JWT, etc.).
+  if (!opts.getUserId) {
+    throw new Error(
+      'duck-iam withAccess: opts.getUserId is required — deriving identity from request headers is unsafe. ' +
+        'Wire it from your auth middleware (cookie session, JWT, etc.).',
+    )
+  }
   const {
-    getUserId = (req) => req.headers.get('x-user-id'),
+    getUserId,
     getEnvironment = (req) => ({
       ip: req.headers.get('x-forwarded-for') ?? undefined,
       userAgent: req.headers.get('user-agent') ?? undefined,
