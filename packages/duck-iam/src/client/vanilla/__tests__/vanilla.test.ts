@@ -101,6 +101,17 @@ describe('AccessClient', () => {
     expect(actions).toHaveLength(2)
   })
 
+  it('allowedActions() honours escape sequences for resources containing : (SEC-104)', () => {
+    // Resource 'doc:42' is keyed as 'read:doc\\:42'. Naive split-on-:
+    // would mis-tokenise; splitPermissionKey unescapes correctly.
+    const client = new AccessClient<Action, ResourceType, Scope>(
+      perms({ 'read:doc\\:42': true, 'create:doc\\:42': true }),
+    )
+    const actions = client.allowedActions('doc:42' as never)
+    expect(actions).toEqual(expect.arrayContaining(['read', 'create']))
+    expect(actions).toHaveLength(2)
+  })
+
   it('allowedActions() deduplicates actions', () => {
     const client = new AccessClient<Action, ResourceType, Scope>(perms({ 'read:post': true, 'org-1:read:post': true }))
     const actions = client.allowedActions('post')

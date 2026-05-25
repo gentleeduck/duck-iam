@@ -420,7 +420,7 @@ export function createAdminHandlers<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] createAdminHandlers requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage } = opts
+  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
@@ -449,6 +449,10 @@ export function createAdminHandlers<
       fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
+      // SEC-103: CSRF guard runs before authorize. No-op when csrfCheck omitted.
+      if (csrfCheck && !csrfCheck(req)) {
+        return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
+      }
       let actor: unknown
       try {
         const authzResult = await authorize(req)

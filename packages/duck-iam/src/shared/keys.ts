@@ -39,3 +39,43 @@ function escapeSegment(s: string): string {
   if (!s.includes(':') && !s.includes('\\')) return s
   return s.replace(/\\/g, '\\\\').replace(/:/g, '\\:')
 }
+
+/**
+ * Splits a permission key produced by {@link buildPermissionKey} into its
+ * original segments, honouring the `\:` and `\\` escape sequences. Naive
+ * `.split(':')` would mis-tokenise any segment containing a literal `:` or
+ * `\`. SEC-104.
+ *
+ * @param key - Permission key, e.g. `'read:document'` or `'tenant_a:write:doc\\:42'`.
+ * @returns Array of unescaped segments in declaration order.
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export function splitPermissionKey(key: string): string[] {
+  const out: string[] = []
+  let current = ''
+  let i = 0
+  while (i < key.length) {
+    const ch = key[i] as string
+    if (ch === '\\' && i + 1 < key.length) {
+      const next = key[i + 1] as string
+      // Only the two escape sequences are recognised; anything else is
+      // treated literally so an attacker-crafted `\x` doesn't silently
+      // become `x`.
+      if (next === ':' || next === '\\') {
+        current += next
+        i += 2
+        continue
+      }
+    }
+    if (ch === ':') {
+      out.push(current)
+      current = ''
+      i++
+      continue
+    }
+    current += ch
+    i++
+  }
+  out.push(current)
+  return out
+}

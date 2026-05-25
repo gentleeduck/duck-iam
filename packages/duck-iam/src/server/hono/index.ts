@@ -244,7 +244,7 @@ export function bindAdminRouter<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] bindAdminRouter requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage } = opts
+  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   const onUnauthorized = opts.onUnauthorized ?? ((c) => c.json({ error: 'Unauthorized' }, 401))
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
@@ -273,6 +273,10 @@ export function bindAdminRouter<
       handler: (c: HonoContext) => Promise<Response> | Response,
     ) =>
     async (c: HonoContext): Promise<Response> => {
+      // SEC-103: CSRF guard runs before authorize. No-op when csrfCheck omitted.
+      if (csrfCheck && !csrfCheck(c)) {
+        return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
+      }
       let actor: unknown
       try {
         const authzResult = await authorize(c)

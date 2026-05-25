@@ -129,6 +129,37 @@ export namespace AdminAudit {
      * sites and the audit sink.
      */
     includeErrorMessage?: boolean
+    /**
+     * SEC-103: optional CSRF guard for state-changing admin mutations.
+     *
+     * The admin router relies on the consumer's `authorize` to decide whether
+     * the caller is allowed to mutate. If `authorize` derives identity from
+     * a cookie session (the most common pattern), the router is exposed to
+     * CSRF — an attacker hosting `<form action="https://target/admin/policies"
+     * method="PUT">` could trigger a privileged write when an authenticated
+     * admin loads the page.
+     *
+     * When supplied, this predicate runs BEFORE `authorize` on every
+     * mutation request. Return `false` to reject (the adapter responds with
+     * a 403 and skips the mutation). Two cheap defaults that work for most
+     * cookie-auth setups:
+     *
+     * - **`Sec-Fetch-Site`**: reject when this header is `'cross-site'` or
+     *   `'cross-origin'`. Browsers set it automatically; absence indicates a
+     *   non-browser caller (curl, server-to-server, native app) which is the
+     *   safe direction to allow.
+     * - **`Origin` allowlist**: reject when `Origin` is missing or not in
+     *   your known list of admin-UI origins.
+     *
+     * Server-to-server callers that use bearer tokens / mTLS should skip
+     * this entirely; the safe default for cookie-auth is to enforce it.
+     *
+     * @example
+     * ```ts
+     * csrfCheck: (req) => req.headers['sec-fetch-site'] !== 'cross-site',
+     * ```
+     */
+    csrfCheck?: (req: unknown) => boolean
   }
 }
 

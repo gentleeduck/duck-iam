@@ -292,9 +292,10 @@ export function adminRouter<
       '[duck-iam] adminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
     )
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage } = opts
+  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
+  const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
 
   /** Read gate: no audit emission. */
   const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
@@ -322,6 +323,12 @@ export function adminRouter<
       handler: (req: Req, res: Res) => Promise<void>,
     ) =>
     async (req: Req, res: Res) => {
+      // SEC-103: CSRF guard runs BEFORE authorize so a cookie-based authorize
+      // cannot be tricked by a cross-origin POST. No-op when csrfCheck omitted.
+      if (csrfCheck && !csrfCheck(req)) {
+        onForbidden(res)
+        return
+      }
       let actor: unknown
       try {
         const authzResult = await authorize(req)

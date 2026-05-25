@@ -363,7 +363,7 @@ export function createAdminOperations<
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error('[duck-iam] createAdminOperations requires an `authorize` callback.')
   }
-  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage } = opts
+  const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
 
   /**
    * Gate that returns whatever {@link IAdminAuthorize} returned so the value
@@ -371,6 +371,13 @@ export function createAdminOperations<
    * Error on denial so the calling controller surfaces a NestJS exception.
    */
   const gateWithActor = async (req: NestRequest): Promise<unknown> => {
+    // SEC-103: CSRF guard runs before authorize so a cookie-based authorize
+    // cannot be tricked by a cross-origin POST. No-op when csrfCheck omitted.
+    if (csrfCheck && !csrfCheck(req)) {
+      const err = new Error('Forbidden (CSRF check failed)') as Error & { status?: number }
+      err.status = 403
+      throw err
+    }
     const result = await authorize(req)
     if (!result) {
       const err = new Error('Unauthorized') as Error & { status?: number }
