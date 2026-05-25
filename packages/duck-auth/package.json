@@ -71,6 +71,46 @@
         "types": "./dist/limiters/memory/index.d.cts",
         "default": "./dist/limiters/memory/index.cjs"
       }
+    },
+    "./providers/password": {
+      "import": {
+        "types": "./dist/providers/password/index.d.ts",
+        "default": "./dist/providers/password/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/password/index.d.cts",
+        "default": "./dist/providers/password/index.cjs"
+      }
+    },
+    "./providers/magic-link": {
+      "import": {
+        "types": "./dist/providers/magic-link/index.d.ts",
+        "default": "./dist/providers/magic-link/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/magic-link/index.d.cts",
+        "default": "./dist/providers/magic-link/index.cjs"
+      }
+    },
+    "./server/generic": {
+      "import": {
+        "types": "./dist/server/generic/index.d.ts",
+        "default": "./dist/server/generic/index.js"
+      },
+      "require": {
+        "types": "./dist/server/generic/index.d.cts",
+        "default": "./dist/server/generic/index.cjs"
+      }
+    },
+    "./server/express": {
+      "import": {
+        "types": "./dist/server/express/index.d.ts",
+        "default": "./dist/server/express/index.js"
+      },
+      "require": {
+        "types": "./dist/server/express/index.d.cts",
+        "default": "./dist/server/express/index.cjs"
+      }
     }
   },
   "files": [
