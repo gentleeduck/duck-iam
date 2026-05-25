@@ -2,9 +2,12 @@ import { sha256 } from './crypto'
 import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
+import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
+import { ScryptHasher } from './password/scrypt'
 import type { Credential } from './types/credential'
 import type { Events } from './types/events'
+import type { Hasher } from './types/hasher'
 import type { Identity } from './types/identity'
 import type { Limiter } from './types/limiter'
 import type { Org } from './types/org'
@@ -32,6 +35,13 @@ export interface AuthRootConfig<Profile = unknown, Tenant = string, OrgMeta = un
   identities?: {
     softDeleteGracePeriodMs?: number
   }
+  passwords?: {
+    /** Min length, default 8. Compliance presets bump to 12+. */
+    minLength?: number
+    rejectCommon?: boolean
+    /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
+    hasher?: Hasher.IHasher
+  }
   __tenantBrand?: Tenant
 }
 
@@ -46,6 +56,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly transport: Transport.ITransport
   readonly sessions: SessionsFacet
   readonly identities: IdentitiesFacet<Profile>
+  readonly passwords: PasswordsFacet
 
   constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
@@ -59,6 +70,10 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     this.identities = new IdentitiesFacet<Profile>(config.stores.identities, this.events, {
       softDeleteGracePeriodMs:
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
+    })
+    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
+      minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
+      rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
     })
   }
 
