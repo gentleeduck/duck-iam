@@ -66,7 +66,11 @@ function IamDevtoolsImpl({
   buttonPosition = 'bottom-right',
   position: positionProp,
   hideButton = false,
-  storagePrefix = '__IAM_DEVTOOLS',
+  // SEC-048: vendor-namespaced default to avoid collision with any other
+  // library that happened to pick `__IAM_DEVTOOLS`. Consumers may still
+  // override via the storagePrefix prop. Devtools is prod-blocked, so this
+  // is collision-hygiene only, not a security control.
+  storagePrefix = '__GENTLEDUCK_IAM_DEVTOOLS_V1',
   inset = 0,
   ...inner
 }: IIamDevtoolsProps) {
