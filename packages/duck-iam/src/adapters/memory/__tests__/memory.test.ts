@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { AccessControl, Adapter } from '../../../core/types'
+import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { MemoryAdapter } from '../index'
+
+// DEBT-2: shared adapter compliance suite — every adapter must pass.
+runAdapterCompliance('MemoryAdapter', () => new MemoryAdapter())
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'

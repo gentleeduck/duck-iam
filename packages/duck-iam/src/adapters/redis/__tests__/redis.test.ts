@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Engine } from '../../../core'
 import type { AccessControl, Adapter } from '../../../core/types'
+import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { type Redis, RedisAdapter } from '../index'
 
 type A = 'read' | 'write'
@@ -88,6 +89,9 @@ class FakeRedis implements Redis.ILike {
     return this.sets.get(key)
   }
 }
+
+// DEBT-2: adapter compliance — fresh FakeRedis per call.
+runAdapterCompliance('RedisAdapter', () => new RedisAdapter({ client: new FakeRedis() }) as never)
 
 describe('RedisAdapter', () => {
   let redis: FakeRedis

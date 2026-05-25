@@ -578,7 +578,12 @@ export class FileAdapter<
     const s = await this._loadState()
     const entries = s.assignments[id]
     if (!entries) return
-    s.assignments[id] = entries.filter((e) => !(e.role === roleId && e.scope === scope))
+    // DEBT-2: scope-undefined removes ALL matching role assignments —
+    // matches redis/drizzle/prisma contract.
+    s.assignments[id] =
+      scope === undefined
+        ? entries.filter((e) => e.role !== roleId)
+        : entries.filter((e) => !(e.role === roleId && e.scope === scope))
     await this._flush()
   }
 

@@ -233,7 +233,14 @@ export class MemoryAdapter<
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
     const entries = this._assignments.get(id)
     if (!entries) return
-    const filtered = entries.filter((e) => !(e.role === roleId && e.scope === scope))
+    // DEBT-2: omitting `scope` removes EVERY assignment for the role across
+    // all scopes — matches redis/drizzle/prisma contract. Previous behaviour
+    // only removed the exact-`undefined`-scope row, drift caught by the
+    // shared adapter compliance suite.
+    const filtered =
+      scope === undefined
+        ? entries.filter((e) => e.role !== roleId)
+        : entries.filter((e) => !(e.role === roleId && e.scope === scope))
     this._assignments.set(id, filtered)
   }
 
