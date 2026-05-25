@@ -23,7 +23,11 @@ function makeFakeFS(initial?: string, opts: { storePath?: string; preCreatedDirs
     dirs,
     async readFile(path: string) {
       const v = files.get(path)
-      if (v == null) throw new Error('ENOENT')
+      if (v == null) {
+        const err = new Error('ENOENT') as NodeJS.ErrnoException
+        err.code = 'ENOENT'
+        throw err
+      }
       return v
     },
     async writeFile(path: string, data: string) {
@@ -345,6 +349,33 @@ describe('FileAdapter', () => {
         fs,
       })
       // Empty result, no throw — containment satisfied via parent fallback.
+      expect(await adapter.listPolicies()).toEqual([])
+    })
+
+    it('throws on non-ENOENT load failures instead of fail-opening to empty store (SEC-054)', async () => {
+      // EACCES (permissions drift), EISDIR (path overwritten), etc. must
+      // surface immediately. A silent empty-store fallback would let the
+      // engine see zero policies and let defaultEffect decide every request.
+      const fs: File.IFS = {
+        async readFile() {
+          throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
+        },
+        async writeFile() {},
+        async mkdir() {},
+      }
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+      await expect(adapter.listPolicies()).rejects.toThrow(/load failed \(EACCES\)/)
+    })
+
+    it('still treats genuinely-missing file as empty store (ENOENT)', async () => {
+      const fs: File.IFS = {
+        async readFile() {
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        },
+        async writeFile() {},
+        async mkdir() {},
+      }
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
       expect(await adapter.listPolicies()).toEqual([])
     })
 
