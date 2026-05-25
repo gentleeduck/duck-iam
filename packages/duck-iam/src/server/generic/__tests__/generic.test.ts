@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Engine } from '../../../core/engine'
 import type { AccessControl } from '../../../core/types'
-import { createSubjectCan, extractEnvironment, generatePermissionMap, METHOD_ACTION_MAP } from '../index'
+import {
+  createSubjectCan,
+  errorToAuditString,
+  extractEnvironment,
+  generatePermissionMap,
+  METHOD_ACTION_MAP,
+} from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
 type ResourceType = 'post' | 'comment'
@@ -152,5 +158,42 @@ describe('METHOD_ACTION_MAP', () => {
   it('maps HEAD and OPTIONS to read', () => {
     expect(METHOD_ACTION_MAP.HEAD).toBe('read')
     expect(METHOD_ACTION_MAP.OPTIONS).toBe('read')
+  })
+})
+
+describe('errorToAuditString (SEC-047)', () => {
+  it('returns class name when includeMessage is omitted (default safe)', () => {
+    expect(errorToAuditString(new TypeError('boom'))).toBe('TypeError')
+  })
+
+  it('returns Error.message when includeMessage is true', () => {
+    expect(errorToAuditString(new Error('explicit'), true)).toBe('explicit')
+  })
+
+  it('tags non-Error throws + caps length when includeMessage is true', () => {
+    const longSecret = 'X'.repeat(2000)
+    const out = errorToAuditString(longSecret, true)
+    expect(out.startsWith('<non-Error string>')).toBe(true)
+    expect(out).toContain('XXX')
+    expect(out.length).toBeLessThan(500)
+  })
+
+  it('JSON.stringifies plain object non-Errors when includeMessage is true', () => {
+    expect(errorToAuditString({ kind: 'wrapper' }, true)).toBe('<non-Error object> {"kind":"wrapper"}')
+  })
+
+  it('falls back to String() on circular references', () => {
+    const circ: Record<string, unknown> = {}
+    circ.self = circ
+    const out = errorToAuditString(circ, true)
+    expect(out.startsWith('<non-Error object>')).toBe(true)
+    expect(out).toContain('[object Object]')
+  })
+
+  it('safe defaults for undefined / null', () => {
+    expect(errorToAuditString(undefined)).toBe('undefined')
+    expect(errorToAuditString(null)).toBe('null')
+    expect(errorToAuditString(undefined, true)).toBe('undefined')
+    expect(errorToAuditString(null, true)).toBe('null')
   })
 })
