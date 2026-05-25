@@ -230,6 +230,95 @@ export function defaultCsrfCheck(req: unknown): boolean {
 }
 
 /**
+ * DEBT-4: composable admin-mutation audit wrapper. Runs `handler` inside
+ * try/catch/finally, capturing success/failure for the audit event and
+ * surfacing the operator-friendly error string. Each framework adapter wraps
+ * this with its own request/response handling; the audit-emission shape lives
+ * in exactly one place now.
+ *
+ * Re-throws the original error so the caller's catch can build the
+ * framework-specific error response. The audit always fires (via finally).
+ *
+ * @template T - Handler return type.
+ * @param ctx - Audit payload + hooks shared across all four framework adapters.
+ * @param handler - The actual mutation function (e.g. `engine.admin.savePolicy`).
+ */
+export async function withAdminAudit<T>(
+  ctx: {
+    actor: unknown
+    action: AdminAudit.Action
+    target: AdminAudit.Target
+    targetId?: string
+    method: string
+    path: string
+    onAdminMutation?: AdminAudit.Hook
+    redactPath?: (path: string) => string
+    onAuditHookError?: (err: unknown, event: AdminAudit.IEvent) => void
+    includeErrorMessage?: boolean
+  },
+  handler: () => Promise<T>,
+): Promise<T> {
+  let success = false
+  let errorMessage: string | undefined
+  try {
+    const out = await handler()
+    success = true
+    return out
+  } catch (err) {
+    errorMessage = errorToAuditString(err, ctx.includeErrorMessage)
+    throw err
+  } finally {
+    fireAdminMutation(
+      ctx.onAdminMutation,
+      {
+        actor: ctx.actor,
+        action: ctx.action,
+        target: ctx.target,
+        targetId: ctx.targetId,
+        ts: Date.now(),
+        method: ctx.method,
+        path: ctx.path,
+        success,
+        error: errorMessage,
+      },
+      { redactPath: ctx.redactPath, onAuditHookError: ctx.onAuditHookError },
+    )
+  }
+}
+
+/**
+ * DEBT-4: result of {@link runAdminAuthz}. Discriminated union so the
+ * framework adapter can branch on the phase and produce its own response.
+ */
+export type IAdminAuthzResult =
+  | { phase: 'forbidden' }
+  | { phase: 'unauthorized' }
+  | { phase: 'error'; error: Error }
+  | { phase: 'ok'; actor: unknown }
+
+/**
+ * DEBT-4: run the CSRF + authorize phases shared by every admin route.
+ * Discriminated-union return lets each framework adapter map to its own
+ * response shape (express writes to `res`, hono/next return `Response`, nest
+ * throws). The catch arm wraps thrown values into a normal `Error`.
+ */
+export async function runAdminAuthz<TReq>(
+  req: TReq,
+  csrfCheck: ((req: TReq) => boolean) | null,
+  authorize: (req: TReq) => unknown | Promise<unknown>,
+): Promise<IAdminAuthzResult> {
+  if (csrfCheck && !csrfCheck(req)) return { phase: 'forbidden' }
+  let actor: unknown
+  try {
+    actor = await authorize(req)
+  } catch (err) {
+    return { phase: 'error', error: err instanceof Error ? err : new Error(String(err)) }
+  }
+  if (!actor) return { phase: 'unauthorized' }
+  return { phase: 'ok', actor }
+}
+
+/**
  * SEC-041: derive an audit-friendly string from an unknown thrown value.
  *
  * By default returns the constructor name of the thrown value (e.g.

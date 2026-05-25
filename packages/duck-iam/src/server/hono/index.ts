@@ -3,10 +3,10 @@ import type { AccessControl, Request } from '../../core/types'
 import {
   type AdminAudit,
   defaultCsrfCheck,
-  errorToAuditString,
-  fireAdminMutation,
   METHOD_ACTION_MAP,
   noticeCsrfDefaultIfNeeded,
+  runAdminAuthz,
+  withAdminAudit,
 } from '../generic'
 
 /** Minimal Hono context shape. */
@@ -283,45 +283,29 @@ export function bindAdminRouter<
       handler: (c: HonoContext) => Promise<Response> | Response,
     ) =>
     async (c: HonoContext): Promise<Response> => {
-      // SEC-103: CSRF guard runs before authorize.
-      if (effectiveCsrfCheck && !effectiveCsrfCheck(c)) {
-        return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
-      }
-      let actor: unknown
+      // DEBT-4: shared CSRF + authorize phase.
+      const authz = await runAdminAuthz(c, effectiveCsrfCheck, authorize)
+      if (authz.phase === 'forbidden') return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
+      if (authz.phase === 'unauthorized') return onUnauthorized(c)
+      if (authz.phase === 'error') return onError(authz.error, c)
       try {
-        const authzResult = await authorize(c)
-        actor = authzResult
-        if (!authzResult) return onUnauthorized(c)
-      } catch (err) {
-        return onError(err instanceof Error ? err : new Error(String(err)), c)
-      }
-
-      let success = false
-      let errorMessage: string | undefined
-      let response: Response
-      try {
-        response = await handler(c)
-        success = true
-        return response
-      } catch (err) {
-        errorMessage = errorToAuditString(err, includeErrorMessage)
-        return onError(err instanceof Error ? err : new Error(String(err)), c)
-      } finally {
-        fireAdminMutation(
-          onAdminMutation,
+        return await withAdminAudit(
           {
-            actor,
+            actor: authz.actor,
             action,
             target,
             targetId: getTargetId?.(c),
-            ts: Date.now(),
             method: c.req.method,
             path: c.req.path,
-            success,
-            error: errorMessage,
+            onAdminMutation,
+            redactPath,
+            onAuditHookError,
+            includeErrorMessage,
           },
-          { redactPath, onAuditHookError },
+          () => Promise.resolve(handler(c)),
         )
+      } catch (err) {
+        return onError(err instanceof Error ? err : new Error(String(err)), c)
       }
     }
 

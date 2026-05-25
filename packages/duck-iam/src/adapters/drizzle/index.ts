@@ -379,11 +379,7 @@ export class DrizzleAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
-    const rows = await this._selectWhere<AssignmentRow>(
-      this._t.assignments,
-      this._t.assignments.subjectId,
-      subjectId,
-    )
+    const rows = await this._selectWhere<AssignmentRow>(this._t.assignments, this._t.assignments.subjectId, subjectId)
     // SEC-059: unscoped (global) roles only — mirrors file/memory adapters.
     return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
   }
@@ -400,11 +396,7 @@ export class DrizzleAdapter<
     subjectId: string,
     _opts?: Adapter.IReadOptions,
   ): Promise<Request.IScopedRole<TRole, TScope>[]> {
-    const rows = await this._selectWhere<AssignmentRow>(
-      this._t.assignments,
-      this._t.assignments.subjectId,
-      subjectId,
-    )
+    const rows = await this._selectWhere<AssignmentRow>(this._t.assignments, this._t.assignments.subjectId, subjectId)
     return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
   }
 

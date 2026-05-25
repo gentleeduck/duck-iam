@@ -3,11 +3,11 @@ import type { AccessControl, Request } from '../../core/types'
 import {
   type AdminAudit,
   defaultCsrfCheck,
-  errorToAuditString,
   extractEnvironment,
-  fireAdminMutation,
   METHOD_ACTION_MAP,
   noticeCsrfDefaultIfNeeded,
+  runAdminAuthz,
+  withAdminAudit,
 } from '../generic'
 
 /** Minimal Express request shape. */
@@ -328,49 +328,29 @@ export function adminRouter<
       handler: (req: Req, res: Res) => Promise<void>,
     ) =>
     async (req: Req, res: Res) => {
-      // SEC-103: CSRF guard runs BEFORE authorize so a cookie-based authorize
-      // cannot be tricked by a cross-origin POST.
-      if (effectiveCsrfCheck && !effectiveCsrfCheck(req)) {
-        onForbidden(res)
-        return
-      }
-      let actor: unknown
+      // DEBT-4: shared CSRF + authorize phase.
+      const authz = await runAdminAuthz(req, effectiveCsrfCheck, authorize)
+      if (authz.phase === 'forbidden') return onForbidden(res)
+      if (authz.phase === 'unauthorized') return onUnauthorized(req, res)
+      if (authz.phase === 'error') return onError(authz.error, req, res)
       try {
-        const authzResult = await authorize(req)
-        actor = authzResult
-        if (!authzResult) {
-          onUnauthorized(req, res)
-          return
-        }
-      } catch (err) {
-        onError(err instanceof Error ? err : new Error(String(err)), req, res)
-        return
-      }
-
-      let success = false
-      let errorMessage: string | undefined
-      try {
-        await handler(req, res)
-        success = true
-      } catch (err) {
-        errorMessage = errorToAuditString(err, includeErrorMessage)
-        onError(err instanceof Error ? err : new Error(String(err)), req, res)
-      } finally {
-        fireAdminMutation(
-          onAdminMutation,
+        await withAdminAudit(
           {
-            actor,
+            actor: authz.actor,
             action,
             target,
             targetId: getTargetId?.(req),
-            ts: Date.now(),
             method: req.method ?? '',
             path: req.path ?? req.url ?? '',
-            success,
-            error: errorMessage,
+            onAdminMutation,
+            redactPath,
+            onAuditHookError,
+            includeErrorMessage,
           },
-          { redactPath, onAuditHookError },
+          () => handler(req, res),
         )
+      } catch (err) {
+        onError(err instanceof Error ? err : new Error(String(err)), req, res)
       }
     }
 
