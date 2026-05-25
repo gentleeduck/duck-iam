@@ -193,10 +193,21 @@ See the [production deployment guide](https://gentleduck.org/duck-iam/duck-iam/g
 
 | Module | Size |
 |--------|------|
-| Core (full) | 23.3 KB |
-| Each adapter | 0.9 - 1.7 KB |
-| Each server middleware | 0.8 - 1.3 KB |
-| Each client library | 1.0 - 1.4 KB |
+| Core engine (typical import) | ~15 KB |
+| `core/validate` (admin only, lazy-loaded) | 12 KB |
+| `core/builder` (config-time only) | 9 KB |
+| `core/explain` (dev-mode trace) | separate chunk |
+| Each adapter | 1.7 - 6 KB |
+| Each server middleware | 2.4 - 3.7 KB |
+| Each client library | 1.2 - 2.0 KB |
+
+The "full" bundle headline in benchmarks (~41 KB) is the worst-case
+"import everything" number — what `import * from '@gentleduck/iam'`
+would pull. Realistic deployments end up at 15-25 KB because adapters,
+server middleware, and clients live behind subpath imports and the
+validator is lazy-loaded only when admin write paths run. See the
+[benchmarks page](https://gentleduck.org/duck-iam/duck-iam/benchmarks)
+for per-profile measurements.
 
 ## Documentation
 
