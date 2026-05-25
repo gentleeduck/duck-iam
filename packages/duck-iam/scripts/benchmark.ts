@@ -258,7 +258,8 @@ function measureEntryWithDeps(entryFile: string): number {
     const seen = new Set<string>([fullPath])
     const queue: string[] = [fullPath]
     while (queue.length > 0) {
-      const f = queue.shift()!
+      const f = queue.shift()
+      if (f === undefined) break
       let content: string
       try {
         content = execSync(`cat "${f}"`, { encoding: 'utf-8' })
