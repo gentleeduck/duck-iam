@@ -327,10 +327,7 @@ describe('adminRouter (express)', () => {
       },
     })(() => router as never)
     const res = makeRes()
-    await handlers['PUT /policies']!(
-      { body: {}, headers: { 'sec-fetch-site': 'cross-site' } } as never,
-      res as never,
-    )
+    await handlers['PUT /policies']!({ body: {}, headers: { 'sec-fetch-site': 'cross-site' } } as never, res as never)
     expect(res.statusCode).toBe(403)
     expect(authorizeCalled).toBe(false)
   })
@@ -348,7 +345,10 @@ describe('adminRouter (express)', () => {
     })(() => router as never)
     const res = makeRes()
     await handlers['PUT /policies']!(
-      { body: { id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] }, headers: { 'sec-fetch-site': 'cross-site' } } as never,
+      {
+        body: { id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] },
+        headers: { 'sec-fetch-site': 'cross-site' },
+      } as never,
       res as never,
     )
     expect(authorizeCalled).toBe(true)

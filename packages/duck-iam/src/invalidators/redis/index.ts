@@ -283,9 +283,9 @@ export function createRedisInvalidator<TRole extends string = string>(
   if (config.tenantId !== undefined) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(config.tenantId)) {
       throw new Error(
-        'duck-iam createRedisInvalidator: tenantId must match /^[A-Za-z0-9_-]{1,64}$/ (got '
-          + JSON.stringify(config.tenantId)
-          + ')',
+        'duck-iam createRedisInvalidator: tenantId must match /^[A-Za-z0-9_-]{1,64}$/ (got ' +
+          JSON.stringify(config.tenantId) +
+          ')',
       )
     }
     channel = `${baseChannel}:tenant:${config.tenantId}`
