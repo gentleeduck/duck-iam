@@ -35,7 +35,6 @@ import type { AccessControl, DotPath, Primitives } from '../types'
  * @template TScope          - Union of valid scope strings
  * @template TContext        - Shape of the full evaluation context for typed dot-paths
  * @template TActiveResource - Resource narrowed by the parent `RuleBuilder.of()` (typed `resourceAttr`)
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class When<
   TAction extends string = string,
@@ -65,7 +64,6 @@ export class When<
    * w.check('subject.attributes.age', 'eq', 30)            // ERROR if 'age' not in type
    * ```
    * @returns `this` for chaining.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   check<P extends DotPath.FlexibleDotPaths<TContext>>(
     field: P,
@@ -82,7 +80,6 @@ export class When<
    * @param field - Typed dot-path attribute path
    * @param value - Expected value (inferred from path type)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   eq<P extends DotPath.FlexibleDotPaths<TContext>>(
     field: P,
@@ -98,7 +95,6 @@ export class When<
    * @param field - Typed dot-path attribute path
    * @param value - Value the field must not equal
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   neq<P extends DotPath.FlexibleDotPaths<TContext>>(
     field: P,
@@ -114,7 +110,6 @@ export class When<
    * @param field  - Typed dot-path attribute path
    * @param values - Array of acceptable values
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   in<P extends DotPath.FlexibleDotPaths<TContext>>(
     field: P,
@@ -133,7 +128,6 @@ export class When<
    * @param field - Typed dot-path attribute path pointing to an array
    * @param value - The value that must be present in the array
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   contains<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: string): this {
     this._items.push({ field, operator: 'contains', value })
@@ -145,7 +139,6 @@ export class When<
    *
    * @param field - Typed dot-path attribute path to check for existence
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   exists<P extends DotPath.FlexibleDotPaths<TContext>>(field: P): this {
     this._items.push({ field, operator: 'exists' })
@@ -158,7 +151,6 @@ export class When<
    * @param field - Typed dot-path attribute path
    * @param value - Numeric lower bound (exclusive)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   gt<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'gt', value })
@@ -171,7 +163,6 @@ export class When<
    * @param field - Typed dot-path attribute path
    * @param value - Numeric lower bound (inclusive)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   gte<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'gte', value })
@@ -184,7 +175,6 @@ export class When<
    * @param field - Typed dot-path attribute path
    * @param value - Numeric upper bound (exclusive)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   lt<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'lt', value })
@@ -197,7 +187,6 @@ export class When<
    * @param field - Typed dot-path attribute path
    * @param value - Numeric upper bound (inclusive)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   lte<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'lte', value })
@@ -210,7 +199,6 @@ export class When<
    * @param field - Typed dot-path attribute path
    * @param regex - Regular expression pattern (as a string)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   matches<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, regex: string): this {
     this._items.push({ field, operator: 'matches', value: regex })
@@ -224,7 +212,6 @@ export class When<
    *
    * @param roleId - The role ID that must be present in `subject.roles`
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   role(roleId: TRole): this {
     this._items.push({ field: 'subject.roles', operator: 'contains', value: roleId })
@@ -238,7 +225,6 @@ export class When<
    *
    * @param roleIds - Role IDs to test membership against
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   roles(...roleIds: TRole[]): this {
     this._items.push({ field: 'subject.roles', operator: 'in', value: roleIds as string[] })
@@ -252,7 +238,6 @@ export class When<
    *
    * @param id - The scope the request must be in
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   scope(id: TScope): this {
     this._items.push({ field: 'scope', operator: 'eq', value: id })
@@ -266,7 +251,6 @@ export class When<
    *
    * @param ids - Acceptable scope IDs
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   scopes(...ids: TScope[]): this {
     this._items.push({ field: 'scope', operator: 'in', value: ids as string[] })
@@ -291,7 +275,6 @@ export class When<
    * @param ownerField - Dot-path to the owner attribute on the resource.
    *   Defaults to `'resource.attributes.ownerId'`.
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   isOwner(
     ownerField: DotPath.FlexibleDotPaths<TContext> = 'resource.attributes.ownerId' as DotPath.FlexibleDotPaths<TContext>,
@@ -307,7 +290,6 @@ export class When<
    *
    * @param types - Acceptable resource type strings
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   resourceType(...types: (TResource | '*')[]): this {
     this._items.push({ field: 'resource.type', operator: 'in', value: types as string[] })
@@ -329,7 +311,6 @@ export class When<
    * @param op    - The {@link AccessControl.Operator} to apply
    * @param value - Right-hand side value (inferred from type)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   attr<K extends DotPath.SubjectAttrs<TContext> & string>(
     path: K,
@@ -357,7 +338,6 @@ export class When<
    * @param op    - The {@link AccessControl.Operator} to apply
    * @param value - Right-hand side value (inferred from type)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   resourceAttr<K extends DotPath.ResolvedResourceAttrPaths<TContext, TActiveResource> & string>(
     path: K,
@@ -386,7 +366,6 @@ export class When<
    * @param op    - The {@link AccessControl.Operator} to apply
    * @param value - Right-hand side value (inferred from type)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   env<K extends DotPath.EnvAttrs<TContext> & string>(
     path: K,
@@ -412,7 +391,6 @@ export class When<
    *
    * @param fn - Callback that receives a nested {@link When} and returns it
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   and(
     fn: (
@@ -438,7 +416,6 @@ export class When<
    *
    * @param fn - Callback that receives a nested {@link When} and returns it
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   or(
     fn: (
@@ -465,7 +442,6 @@ export class When<
    *
    * @param fn - Callback that receives a nested {@link When} and returns it
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   not(
     fn: (
@@ -485,7 +461,6 @@ export class When<
    * {@link RuleBuilder.when} and {@link RoleBuilder.grantWhen}.
    *
    * @returns A readonly `all` condition group
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   buildAll(): { readonly all: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
     return { all: this._items }
@@ -498,7 +473,6 @@ export class When<
    * {@link RuleBuilder.whenAny}.
    *
    * @returns A readonly `any` condition group
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   buildAny(): { readonly any: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
     return { any: this._items }
@@ -511,7 +485,6 @@ export class When<
    * nesting helper.
    *
    * @returns A readonly `none` condition group
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   buildNone(): { readonly none: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
     return { none: this._items }
@@ -542,7 +515,6 @@ export class When<
  * @template TScope          - Union of valid scope strings
  * @template TContext        - Shape of the full evaluation context for typed dot-paths
  * @template TActiveResource - Resource narrowed by the parent `RuleBuilder.of()` (typed `resourceAttr`)
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const when = <
   TAction extends string = string,

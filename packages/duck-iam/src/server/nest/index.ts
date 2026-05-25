@@ -41,8 +41,6 @@ export const ACCESS_METADATA_KEY = 'duck-iam:authorize'
 
 /**
  * NestJS server integration types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace Nest {
   /**
@@ -51,7 +49,6 @@ export namespace Nest {
    * @template TAction - Constrains valid action strings.
    * @template TResource - Constrains valid resource strings.
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAuthorizeMeta<
     TAction extends string = string,
@@ -74,7 +71,6 @@ export namespace Nest {
    * Each extractor has a sensible default.
    *
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IGuardOptions<TScope extends string = string> {
     /** Extracts the current user ID from the request. */
@@ -91,29 +87,24 @@ export namespace Nest {
 
   /**
    * Required guard callback for the admin controller methods.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type IAdminAuthorize = (request: NestRequest) => boolean | Promise<boolean>
 
   /**
    * Describes options for {@link createAdminOperations}. `authorize` is required.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin operation. */
     authorize: IAdminAuthorize
     /**
-     * SEC-010: optional audit hook fired AFTER every mutation handler
-     * (savePolicy/saveRole/assignRole/revokeRole) completes — success or
-     * failure. The hook is fire-and-forget: a slow or throwing implementation
-     * never blocks the request and can never alter the response.
-     * `listPolicies`/`listRoles` (reads) do not fire it.
+     * Optional audit hook fired AFTER every mutation handler (savePolicy/
+     * saveRole/assignRole/revokeRole) completes — success or failure. The
+     * hook is fire-and-forget: a slow or throwing implementation never
+     * blocks the request and can never alter the response. `listPolicies` /
+     * `listRoles` (reads) do not fire it.
      *
-     * See {@link AdminAudit.IOptions} (extended) for additional hardening
-     * knobs: `redactPath` (SEC-039), `onAuditHookError` (SEC-040), and
-     * `includeErrorMessage` (SEC-041).
+     * See {@link AdminAudit.IOptions} for additional hardening knobs:
+     * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
      */
     onAdminMutation?: AdminAudit.Hook
   }
@@ -121,7 +112,6 @@ export namespace Nest {
 
 /**
  * @deprecated Use {@link Nest.IAuthorizeMeta}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IAuthorizeMeta<
   TAction extends string = string,
@@ -145,7 +135,6 @@ interface HandlerWithMeta {
  * @template TScope - Constrains valid scope strings.
  * @param meta - Configures the access metadata; defaults to `{ infer: true }`.
  * @returns A NestJS `MethodDecorator`.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function Authorize<
   TAction extends string = string,
@@ -171,7 +160,6 @@ export function Authorize<
 
 /**
  * @deprecated Use {@link Nest.IGuardOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type INestGuardOptions<TScope extends string = string> = Nest.IGuardOptions<TScope>
 
@@ -206,7 +194,6 @@ function getHandlerMeta(handler: object): Nest.IAuthorizeMeta | undefined {
  *   canActivate = nestAccessGuard(engine)
  * }
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function nestAccessGuard<
   TAction extends string = string,
@@ -270,7 +257,6 @@ function inferResource(request: NestRequest): string {
  * @template TResource - Constrains valid resource strings.
  * @template TScope - Constrains valid scope strings.
  * @returns A typed wrapper around {@link Authorize}.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createTypedAuthorize<
   TAction extends string,
@@ -292,7 +278,6 @@ export const ACCESS_ENGINE_TOKEN = 'ACCESS_ENGINE'
  * @template TScope - Constrains valid scope strings.
  * @param factory - Provides the sync or async engine factory.
  * @returns A `{ provide, useFactory }` descriptor for NestJS DI.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createEngineProvider<
   TAction extends string = string,
@@ -308,13 +293,11 @@ export function createEngineProvider<
 
 /**
  * @deprecated Use {@link Nest.IAdminAuthorize}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type INestAdminAuthorize = Nest.IAdminAuthorize
 
 /**
  * @deprecated Use {@link Nest.IAdminOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type INestAdminOptions = Nest.IAdminOptions
 
@@ -340,7 +323,7 @@ export type INestAdminOptions = Nest.IAdminOptions
  * class IamAdminController {
  *   private h = createAdminOperations(engine, {
  *     authorize: (req) => isAdmin(req.user),
- *     onAdminMutation: (e) => auditLog.write(e), // SEC-010 audit trail
+ *     onAdminMutation: (e) => auditLog.write(e),
  *   })
  *   @Get('policies') listPolicies(@Req() req) { return this.h.listPolicies(req) }
  * }
@@ -353,7 +336,6 @@ export type INestAdminOptions = Nest.IAdminOptions
  * @Throttle({ default: { limit: 30, ttl: 60_000 } })
  * @Controller('admin') class IamAdminController { ... }
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createAdminOperations<
   TAction extends string = string,
@@ -365,7 +347,7 @@ export function createAdminOperations<
     throw new Error('[duck-iam] createAdminOperations requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
-  // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
+  // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
   noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
@@ -375,8 +357,8 @@ export function createAdminOperations<
    * Error on denial so the calling controller surfaces a NestJS exception.
    */
   const gateWithActor = async (req: NestRequest): Promise<unknown> => {
-    // SEC-103: CSRF guard runs before authorize so a cookie-based authorize
-    // cannot be tricked by a cross-origin POST. No-op when csrfCheck omitted.
+    // CSRF guard runs before authorize so a cookie-based authorize cannot
+    // be tricked by a cross-origin POST. No-op when csrfCheck is omitted.
     if (effectiveCsrfCheck && !effectiveCsrfCheck(req)) {
       const err = new Error('Forbidden (CSRF check failed)') as Error & { status?: number }
       err.status = 403
@@ -392,8 +374,8 @@ export function createAdminOperations<
   }
 
   /**
-   * SEC-010 wrapper: run a mutation, fire `onAdminMutation` in a finally
-   * block so the audit event lands even when the handler throws.
+   * Run a mutation, firing `onAdminMutation` in a finally block so the
+   * audit event lands even when the handler throws.
    */
   const runMutation = async <T>(
     req: NestRequest,
@@ -404,7 +386,7 @@ export function createAdminOperations<
   ): Promise<T> => {
     // Authorize denial or throw — do NOT emit audit (mutation never started).
     const actor = await gateWithActor(req)
-    // DEBT-4: shared audit wrapper.
+    // Shared audit wrapper.
     return withAdminAudit(
       {
         actor,

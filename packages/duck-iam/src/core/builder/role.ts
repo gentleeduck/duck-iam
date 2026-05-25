@@ -33,7 +33,6 @@ import { When } from './when'
  * @template TRole       - Literal string type of the role ID (inferred by {@link defineRole})
  * @template TScope    - Union of valid scope strings (e.g. `'org-1' | 'org-2'`)
  * @template TContext  - Shape of the full evaluation context for typed dot-paths
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class RoleBuilder<
   TAction extends string = string,
@@ -63,7 +62,6 @@ export class RoleBuilder<
    *
    * @param n - Display name (e.g. `'Content Editor'`)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   name(n: string): this {
     this._name = n
@@ -78,7 +76,6 @@ export class RoleBuilder<
    *
    * @param d - Description text
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   desc(d: string): this {
     this._description = d
@@ -107,7 +104,6 @@ export class RoleBuilder<
    *
    * @param roleIds - IDs of the parent roles to inherit from
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   inherits(...roleIds: (TRole | (string & {}))[]): this {
     this._inherits = roleIds
@@ -135,7 +131,6 @@ export class RoleBuilder<
    *
    * @param s - The scope string to restrict all permissions to
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   scope(s: TScope): this {
     this._scope = s
@@ -166,7 +161,6 @@ export class RoleBuilder<
    * @param resource - The resource to permit, or `'*'` for all resources
    * @param scope    - Optional scope to restrict this permission to
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   grant(action: TAction | '*', resource: TResource | '*', scope?: TScope): this {
     this._permissions.push(scope ? { action, resource, scope } : { action, resource })
@@ -191,7 +185,6 @@ export class RoleBuilder<
    * @param action   - The action to permit, or `'*'` for all actions
    * @param resource - The resource to permit, or `'*'` for all resources
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   grantScoped(scope: TScope, action: TAction | '*', resource: TResource | '*'): this {
     this._permissions.push({ action, resource, scope })
@@ -224,7 +217,6 @@ export class RoleBuilder<
    * @param resource - The resource to permit conditionally
    * @param fn       - Callback that builds the condition using a {@link When} builder
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   grantWhen<R extends TResource | '*'>(
     action: TAction | '*',
@@ -254,7 +246,6 @@ export class RoleBuilder<
    *
    * @param resource - The resource to grant all actions on, or `'*'` for all resources
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   grantAll(resource: TResource | '*'): this {
     return this.grant('*', resource)
@@ -274,7 +265,6 @@ export class RoleBuilder<
    *
    * @param resources - One or more resource strings to grant read access on
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   grantRead(...resources: (TResource | '*')[]): this {
     for (const r of resources) this.grant('read' as TAction | '*', r)
@@ -296,7 +286,6 @@ export class RoleBuilder<
    *
    * @param resource - The resource to grant CRUD access on
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   grantCRUD(resource: TResource | '*'): this {
     for (const a of ['create', 'read', 'update', 'delete'] as (TAction | '*')[]) {
@@ -321,7 +310,6 @@ export class RoleBuilder<
    *
    * @param m - Key-value map of metadata attributes
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   meta(m: Primitives.Attributes): this {
     this._metadata = m
@@ -335,7 +323,6 @@ export class RoleBuilder<
    * Pass it to `engine.admin.saveRole()` or `access.validateRoles()`.
    *
    * @returns A fully constructed {@link AccessControl.IRole}
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   build(): AccessControl.IRole<TAction, TResource, TRole, TScope> {
     const role: AccessControl.IRole<TAction, TResource, TRole, TScope> = {
@@ -347,7 +334,8 @@ export class RoleBuilder<
       scope: this._scope,
       metadata: this._metadata,
     }
-    // DEBT-8: validate at build time (see policy.ts for rationale).
+    // Validate at build time so callers wiring the adapter directly
+    // still see the failure where the bug was introduced.
     const result = validateRole(role)
     if (!result.valid) {
       const errs = result.issues
@@ -389,7 +377,6 @@ export class RoleBuilder<
  * @template TResource - Union of valid resource strings (defaults to `string`)
  * @template TScope    - Union of valid scope strings (defaults to `string`)
  * @template TContext  - Shape of the full evaluation context for typed dot-paths
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const defineRole = <
   const TRole extends string,

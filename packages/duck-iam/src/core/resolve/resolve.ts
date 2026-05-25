@@ -1,12 +1,8 @@
 import type { Primitives, Request } from '../types'
-// SEC-007: bare resource patterns (no `:*` / `.*` suffix) now match ONLY
-// the literal resource; recursive matching requires explicit `:*` / `.*`.
-// Breaking change for `matchesResource` and `matchesResourceHierarchical`.
-// See audit/MIGRATION.md (SEC-007) for upgrade instructions.
+// Bare resource patterns (no `:*` / `.*` suffix) match ONLY the literal
+// resource; recursive matching requires the explicit `:*` / `.*` suffix.
 /**
  * Top-level path prefixes accepted by {@link resolve}.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
 
@@ -22,15 +18,15 @@ export const PATH_CACHE_MAX = 10_000
 
 /**
  * Process-wide default path-segment cache. Used when a caller does not pass
- * a per-instance cache. SEC-050: prefer per-Engine caches in multi-tenant
- * deployments to prevent cross-tenant eviction.
+ * a per-instance cache. Multi-tenant deployments should prefer per-Engine
+ * caches to prevent cross-tenant eviction.
  */
 export const pathCache = new Map<string, string[] | null>()
 
 /**
- * SEC-050: drop every entry in the process-wide path cache. Intended for
- * multi-tenant operators who want to flush periodically to bound any single
- * tenant's eviction influence.
+ * Drop every entry in the process-wide path cache. Intended for multi-tenant
+ * operators who flush periodically to bound any single tenant's eviction
+ * influence.
  */
 export function clearPathCache(): void {
   pathCache.clear()
@@ -80,7 +76,6 @@ function getSegments(path: string, cache: Map<string, string[] | null> = pathCac
  * @param request - The access request providing root data.
  * @param path    - Dot-path string starting with an allowed root or shorthand.
  * @returns The resolved attribute value, or `null` when the path is invalid or missing.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function resolve(
   request: Request.IAccessRequest,
@@ -90,7 +85,7 @@ export function resolve(
   if (path === 'action') return request.action
   if (path === 'scope') return request.scope ?? null
 
-  // DEBT-6: per-Engine path cache when supplied, module-global fallback otherwise.
+  // Per-Engine path cache when supplied, module-global fallback otherwise.
   const segments = getSegments(path, caches?.path)
   if (!segments) return null
 
@@ -111,7 +106,6 @@ export function resolve(
  * @param pattern - Action pattern from a rule (may include `'*'` or `'foo:*'`).
  * @param action  - The literal action from the request.
  * @returns `true` when the request action matches the pattern.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function matchesAction(pattern: string, action: string): boolean {
   if (pattern === '*') return true
@@ -130,7 +124,7 @@ export function matchesAction(pattern: string, action: string): boolean {
  * `:` and `.`, treated symmetrically — the trailing-wildcard arm picks the
  * separator from the pattern.
  *
- * Matching rules (SEC-007 + SEC-036):
+ * Matching rules:
  * - `"*"` matches every resource.
  * - A bare pattern (no `:*` / `.*` suffix) matches ONLY the literal resource.
  *   `"org"` matches `"org"` but NOT `"org:project"`; `"dashboard"` matches
@@ -142,21 +136,20 @@ export function matchesAction(pattern: string, action: string): boolean {
  * - Separator-mismatched prefixes do NOT match: `"a.b.*"` does NOT match
  *   `"a:b:c"`, and `"a:b:*"` does NOT match `"a.b.c"`.
  *
- * SEC-036: target matchers (`policyApplies`, `policyTargetsMatch`) call this
- * directly for `targets.resources`, so dot-pattern targets must work here too.
+ * Also used by target matchers (`policyApplies`, `policyTargetsMatch`) for
+ * `targets.resources`, so dot-pattern targets work here too.
  *
  * @param pattern      - Resource pattern from a rule.
  * @param resourceType - The literal resource type from the request.
  * @returns `true` when the request resource type matches the pattern.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function matchesResource(pattern: string, resourceType: string): boolean {
   if (pattern === '*') return true
   if (pattern === resourceType) return true
 
-  // SEC-007 + SEC-036: recognise both `:*` and `.*` as recursive suffixes.
-  // The separator is taken from the pattern, so a dot-pattern only matches
-  // dot-style request resources and vice versa.
+  // Recognise both `:*` and `.*` as recursive suffixes. The separator is
+  // taken from the pattern, so a dot-pattern only matches dot-style request
+  // resources and vice versa.
   if (pattern.endsWith(':*') || pattern.endsWith('.*')) {
     const prefix = pattern.slice(0, -1) // includes the trailing separator
     return resourceType.startsWith(prefix)
@@ -168,7 +161,7 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
 /**
  * Tests if a resource type matches a pattern using dot-notation hierarchy.
  *
- * Matching rules (SEC-007):
+ * Matching rules:
  * - `"*"` matches everything.
  * - A bare pattern (no `.*` suffix) matches ONLY the literal resource —
  *   `"dashboard"` matches `"dashboard"` but NOT `"dashboard.users"`.
@@ -181,13 +174,12 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
  * @param pattern      - Resource pattern from a rule (dot-notation).
  * @param resourceType - The literal resource type from the request.
  * @returns `true` when the request resource type matches the pattern.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function matchesResourceHierarchical(pattern: string, resourceType: string): boolean {
   if (pattern === '*') return true
   if (pattern === resourceType) return true
 
-  // SEC-007: only explicit `.*` suffix enables recursive prefix match.
+  // Only an explicit `.*` suffix enables recursive prefix match.
   if (pattern.endsWith('.*')) {
     const prefix = pattern.slice(0, -1) // includes trailing '.'
     return resourceType.startsWith(prefix)
@@ -206,7 +198,6 @@ export function matchesResourceHierarchical(pattern: string, resourceType: strin
  * @param pattern - Scope pattern from a rule (may be `undefined`, `null`, or `'*'`).
  * @param scope   - The request's scope (may be `undefined` or `null`).
  * @returns `true` when the request scope matches the pattern.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function matchesScope(pattern: string | undefined | null, scope: string | undefined | null): boolean {
   if (!pattern || pattern === '*') return true

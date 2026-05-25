@@ -26,8 +26,6 @@ type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response>
 
 /**
  * Next.js server integration types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace Next {
   /**
@@ -36,7 +34,6 @@ export namespace Next {
    * Every extractor has a sensible default.
    *
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IWithAccessOptions<TScope extends string = string> {
     /** Extracts the current user ID from the request. */
@@ -57,7 +54,6 @@ export namespace Next {
    * @template TAction - Constrains valid action strings.
    * @template TResource - Constrains valid resource strings.
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IMiddlewareOptions<
     TAction extends string = string,
@@ -86,15 +82,11 @@ export namespace Next {
    *
    * Same threat model as the Express `adminRouter`: any handler that writes
    * policies or roles must be gated.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type IAdminAuthorize = (req: Request) => boolean | Promise<boolean>
 
   /**
    * Describes options for {@link createAdminHandlers}. `authorize` is required.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
@@ -104,14 +96,13 @@ export namespace Next {
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, req: Request) => Response
     /**
-     * SEC-010: optional audit hook fired AFTER every mutation handler
-     * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
+     * Optional audit hook fired AFTER every mutation handler (PUT/POST/
+     * DELETE/PATCH) completes — success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
-     * See {@link AdminAudit.IOptions} (extended) for additional hardening
-     * knobs: `redactPath` (SEC-039), `onAuditHookError` (SEC-040), and
-     * `includeErrorMessage` (SEC-041).
+     * See {@link AdminAudit.IOptions} for additional hardening knobs:
+     * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
      */
     onAdminMutation?: AdminAudit.Hook
   }
@@ -119,7 +110,6 @@ export namespace Next {
 
 /**
  * @deprecated Use {@link Next.IWithAccessOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IWithAccessOptions<TScope extends string = string> = Next.IWithAccessOptions<TScope>
 
@@ -146,7 +136,6 @@ export type IWithAccessOptions<TScope extends string = string> = Next.IWithAcces
  *   return Response.json({ deleted: id })
  * })
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function withAccess<
   TAction extends string = string,
@@ -160,11 +149,10 @@ export function withAccess<
   handler: RouteHandler,
   opts: Next.IWithAccessOptions<TScope> = {},
 ): RouteHandler {
-  // SEC-101: `getUserId` MUST be supplied. The previous default read from
-  // `x-user-id` request header — an unauth client could spoof any identity
-  // with `curl -H 'X-User-Id: admin'` and authorize() would happily run
-  // against the spoofed user. Force operators to wire identity from a
-  // trusted source (cookie session, JWT, etc.).
+  // `getUserId` MUST be supplied. Deriving identity from request headers
+  // (e.g. `x-user-id`) would let an unauthenticated client spoof any user.
+  // Operators must wire identity from a trusted source (cookie session,
+  // JWT, etc.).
   if (!opts.getUserId) {
     throw new Error(
       'duck-iam withAccess: opts.getUserId is required — deriving identity from request headers is unsafe. ' +
@@ -227,7 +215,6 @@ export function withAccess<
  * @param resourceId - Optional resource instance ID.
  * @param scope - Optional scope constraint.
  * @returns Resolves to `true` when allowed and `false` otherwise.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export async function checkAccess<
   TAction extends string = string,
@@ -268,7 +255,6 @@ export async function checkAccess<
  * @param subjectId - Identifies the subject whose permissions are computed.
  * @param checks - Lists the permission tuples to evaluate.
  * @returns A permission map keyed by `(action, resource, scope)` tuple.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export async function getPermissions<
   TAction extends string = string,
@@ -285,7 +271,6 @@ export async function getPermissions<
 
 /**
  * @deprecated Use {@link Next.IMiddlewareOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type INextMiddlewareOptions<
   TAction extends string = string,
@@ -309,8 +294,8 @@ export type INextMiddlewareOptions<
  * @returns An `async (req) => Response | null` suitable for use inside `middleware.ts`.
  * @example
  * ```ts
- * // NEVER trust user-supplied headers for identity (SEC-101). Derive from
- * // a verified source: cookie session, JWT, or your auth library.
+ * // NEVER trust user-supplied headers for identity. Derive from a verified
+ * // source: cookie session, JWT, or your auth library.
  * const mw = createNextMiddleware(engine, {
  *   rules: [{ pattern: '/admin', resource: 'admin' }],
  *   getUserId: async (req) => {
@@ -320,7 +305,6 @@ export type INextMiddlewareOptions<
  * })
  * export const middleware = async (req: Request) => (await mw(req)) ?? NextResponse.next()
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createNextMiddleware<
   TAction extends string = string,
@@ -375,13 +359,11 @@ export function createNextMiddleware<
 
 /**
  * @deprecated Use {@link Next.IAdminAuthorize}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type INextAdminAuthorize = Next.IAdminAuthorize
 
 /**
  * @deprecated Use {@link Next.IAdminOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type INextAdminOptions = Next.IAdminOptions
 
@@ -404,7 +386,7 @@ export type INextAdminOptions = Next.IAdminOptions
  * // app/api/admin/policies/route.ts
  * const h = createAdminHandlers(engine, {
  *   authorize: (req) => isAdminToken(req),
- *   onAdminMutation: (e) => auditLog.write(e), // SEC-010 audit trail
+ *   onAdminMutation: (e) => auditLog.write(e),
  * })
  * export const GET = h.listPolicies
  * export const PUT = h.savePolicy
@@ -421,7 +403,6 @@ export type INextAdminOptions = Next.IAdminOptions
  *   }
  * }
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createAdminHandlers<
   TAction extends string = string,
@@ -433,7 +414,7 @@ export function createAdminHandlers<
     throw new Error('[duck-iam] createAdminHandlers requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
-  // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
+  // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
   noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
@@ -452,9 +433,9 @@ export function createAdminHandlers<
     }
 
   /**
-   * SEC-010 mutation gate: identical to {@link gate} but emits an
-   * `onAdminMutation` event after the handler resolves or rejects. Uses
-   * try/finally so the hook fires even when the handler throws.
+   * Mutation gate: identical to {@link gate} but emits an `onAdminMutation`
+   * event after the handler resolves or rejects. Uses try/finally so the
+   * hook fires even when the handler throws.
    */
   const mutate =
     <P>(
@@ -464,7 +445,7 @@ export function createAdminHandlers<
       fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
-      // DEBT-4: shared CSRF + authorize phase.
+      // Shared CSRF + authorize phase.
       const authz = await runAdminAuthz(req, effectiveCsrfCheck, authorize)
       if (authz.phase === 'forbidden') return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
       if (authz.phase === 'unauthorized') return onUnauthorized(req)

@@ -12,7 +12,6 @@ import type { Explain } from './explain.types'
  * @param subjectInfo   Subject metadata (id, roles, scoped roles applied).
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
  * @returns A full {@link Explain.IResult} describing every policy trace and the final decision.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function explainEvaluation(
   policies: AccessControl.IPolicy[],

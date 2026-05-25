@@ -33,7 +33,6 @@ import { When } from './when'
  * @template TRole           - Union of valid role ID strings (e.g. `'viewer' | 'admin'`)
  * @template TContext        - Shape of the full evaluation context for typed dot-paths
  * @template TActiveResource - The narrowed resource selected via `.of()` (used by typed `resourceAttr`)
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class RuleBuilder<
   TAction extends string = string,
@@ -64,7 +63,6 @@ export class RuleBuilder<
    * overriding a previous `.deny()` call on the same builder instance.
    *
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   allow(): this {
     this._effect = 'allow'
@@ -79,7 +77,6 @@ export class RuleBuilder<
    * rule matches.
    *
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   deny(): this {
     this._effect = 'deny'
@@ -94,7 +91,6 @@ export class RuleBuilder<
    *
    * @param d - Description text
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   desc(d: string): this {
     this._description = d
@@ -110,7 +106,6 @@ export class RuleBuilder<
    *
    * @param p - Priority value (higher = evaluated earlier)
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   priority(p: number): this {
     this._priority = p
@@ -131,7 +126,6 @@ export class RuleBuilder<
    *
    * @param actions - One or more action strings, or `'*'` for all actions
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   on(...actions: (TAction | '*')[]): this {
     this._actions = actions
@@ -152,7 +146,6 @@ export class RuleBuilder<
    *
    * @param resources - One or more resource strings, or `'*'` for all resources
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   of<R extends TResource | '*'>(...resources: R[]): RuleBuilder<TAction, TResource, TScope, TRole, TContext, R> {
     this._resources = resources
@@ -181,7 +174,6 @@ export class RuleBuilder<
    *
    * @param scopes - One or more scope strings to restrict this rule to
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   forScope(...scopes: (TScope | '*')[]): this {
     const nonWild = scopes.filter((s) => s !== '*') as string[]
@@ -214,7 +206,6 @@ export class RuleBuilder<
    *
    * @param fn - Callback that receives a {@link When} builder and returns it after chaining conditions
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   when(
     fn: (
@@ -247,7 +238,6 @@ export class RuleBuilder<
    *
    * @param fn - Callback that receives a {@link When} builder and returns it after chaining conditions
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   whenAny(
     fn: (
@@ -269,7 +259,6 @@ export class RuleBuilder<
    *
    * @param m - Key-value map of metadata attributes
    * @returns `this` for chaining
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   meta(m: Primitives.Attributes): this {
     this._metadata = m
@@ -284,7 +273,6 @@ export class RuleBuilder<
    * compose correctly regardless of call order.
    *
    * @returns A fully constructed, immutable {@link AccessControl.IRule}
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   build(): AccessControl.IRule<TAction, TResource> {
     let conditions = this._conditions
@@ -334,7 +322,6 @@ export class RuleBuilder<
  * @template TScope    - Union of valid scope strings
  * @template TRole     - Union of valid role ID strings
  * @template TContext  - Shape of the full evaluation context for typed dot-paths
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const defineRule = <
   TAction extends string = string,

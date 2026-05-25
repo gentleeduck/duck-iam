@@ -55,8 +55,8 @@ afterEach(() => {
   _warnSpy?.mockRestore()
 })
 
-// DEBT-2: adapter compliance — fresh in-memory fake FS per call so each
-// scenario runs against an empty store.
+// Adapter compliance — fresh in-memory fake FS per call so each scenario
+// runs against an empty store.
 runAdapterCompliance('FileAdapter', () => new FileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never)
 
 const policy: AccessControl.IPolicy<Action, Resource, Role> = {
@@ -360,10 +360,9 @@ describe('FileAdapter', () => {
     })
 
     it('_loadInFlight clears after symlink-escape rejection (SEC-063)', async () => {
-      // Before SEC-063 the rejected promise stayed parked in _loadInFlight;
-      // every subsequent _loadState() returned it forever and the adapter
-      // became permanently unusable. Now the in-flight slot clears on any
-      // throw, so a fixed-up filesystem can be re-tried.
+      // The in-flight slot must clear on any throw so a fixed-up filesystem
+      // can be re-tried; otherwise a rejected promise would pin the adapter
+      // in permanent failure.
       let escapingSymlink = true
       const fs: File.IFS = {
         async readFile() {
@@ -383,8 +382,8 @@ describe('FileAdapter', () => {
         fs,
       })
       await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
-      // Fix the underlying FS state and retry — pre-SEC-063 this would
-      // re-yield the stuck rejected promise.
+      // Fix the underlying FS state and retry — the in-flight slot must
+      // have cleared so a fresh load is attempted.
       escapingSymlink = false
       expect(await adapter.listPolicies()).toEqual([])
     })

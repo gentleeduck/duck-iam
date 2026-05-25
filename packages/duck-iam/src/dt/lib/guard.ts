@@ -2,27 +2,24 @@ import type { AccessControl } from '../../core/types'
 import type { IDevtoolsEngine } from './types'
 
 /**
- * Hard production guard for the IAM devtools (SEC-021: default-block).
+ * Hard production guard for the IAM devtools — default-block.
  *
  * Returns `true` ONLY when an explicit positive `development` signal is
  * present — either the bundler set `NODE_ENV=development` or the engine was
- * constructed in `'development'` mode. Absence of any signal blocks the panel.
+ * constructed in `'development'` mode. Absence of any signal blocks the
+ * panel so the policy/role/subject readers cannot leak into raw-browser
+ * bundles that don't shim `process` or into engines that don't surface
+ * `mode` (CWE-200 / CWE-489).
  *
- * Previous semantics treated "no signal" as non-production and rendered the
- * panel; that fail-open path leaked policy/role/subject readers into raw-
- * browser bundles that don't shim `process` and into engines that don't
- * surface `mode`. CWE-200 / CWE-489 — closed by inverting the default.
- *
- * Intentionally has no escape hatch: if you need devtools in a deployed
- * environment, run a dev build behind an admin-only route — do not paper
- * over this check with a prop.
+ * No escape hatch: to use devtools in a deployed environment, run a dev
+ * build behind an admin-only route.
  *
  * @param engine - The runtime engine the panel would inspect.
  * @returns `true` when devtools MAY render, `false` to block.
  */
 export function isDevtoolsAllowed(engine: IDevtoolsEngine): boolean {
-  // `process` may be undefined in raw-browser bundles that don't shim it.
-  // We do not treat "no process" as a development signal — see SEC-021.
+  // `process` may be undefined in raw-browser bundles that don't shim it;
+  // "no process" is not a development signal.
   const nodeEnv: string | undefined =
     typeof process !== 'undefined' ? (process as { env?: { NODE_ENV?: string } }).env?.NODE_ENV : undefined
 

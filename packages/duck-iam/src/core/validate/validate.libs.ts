@@ -7,17 +7,13 @@ import type { Validate } from './validate.types'
  * Maximum number of unbounded quantifiers (`+`, `*`, `{n,}`) allowed in a
  * single `matches` pattern. Beyond this the surface area for catastrophic
  * backtracking gets impractical to reason about, so we refuse outright.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const MAX_UNBOUNDED_QUANTIFIERS = 4
 
 /**
  * Largest finite upper bound permitted in a `{n,m}` quantifier. The matcher
  * walks `m` iterations worst-case, so anything above ~1000 starts to look
- * like a DoS vector even though it isn't technically unbounded. SEC-020.
- *
- * @author wildduck2 <https://github.com/wildduck2>
+ * like a DoS vector even though it isn't technically unbounded.
  */
 export const MAX_BOUNDED_QUANTIFIER = 1_000
 
@@ -29,10 +25,9 @@ export const MAX_BOUNDED_QUANTIFIER = 1_000
  *   - alternation inside a quantifier: `(a|a)+`, `(foo|bar)*`
  *   - more than {@link MAX_UNBOUNDED_QUANTIFIERS} unbounded quantifiers in
  *     a single pattern
- *   - SEC-020: backreference followed by a quantifier (`(\w+)\1+`,
- *     `(?<n>\w+)\k<n>+`)
- *   - SEC-020: bounded quantifier with large upper bound (`a{1,1000000}`)
- *   - SEC-020: lookaround group containing a quantifier (`(?=(a+)+)`)
+ *   - backreference followed by a quantifier (`(\w+)\1+`, `(?<n>\w+)\k<n>+`)
+ *   - bounded quantifier with large upper bound (`a{1,1000000}`)
+ *   - lookaround group containing a quantifier (`(?=(a+)+)`)
  *
  * Not a complete safe-regex linter — it deliberately errs on the side of
  * rejection. Patterns deemed unsafe should not even compile, so the runtime
@@ -41,7 +36,6 @@ export const MAX_BOUNDED_QUANTIFIER = 1_000
  * @param pattern - Raw regex source.
  * @returns `{ safe: true }` when the pattern looks benign, otherwise
  *   `{ safe: false, reason }` with a short human-readable reason.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
   if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
@@ -49,21 +43,20 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     return { safe: false, reason: `pattern length ${pattern.length} exceeds MAX_REGEX_LENGTH (${MAX_REGEX_LENGTH})` }
   }
 
-  // SEC-020 (a): backreference followed by a quantifier. Run before the
-  // nested-quantifier scan so the more specific reason wins for shapes like
-  // `(\w+)\1+`. Numeric (`\1+`, `\3*`, `\2{1,5}`) and named (`\k<name>+`)
-  // forms can drive exponential backtracking when the captured group itself
-  // matches a variable-length pattern. We don't try to prove the inner
-  // group is variable-length — flag any backref+quantifier pair.
+  // Backreference followed by a quantifier — run before the nested-quantifier
+  // scan so the more specific reason wins for shapes like `(\w+)\1+`. Numeric
+  // (`\1+`, `\3*`, `\2{1,5}`) and named (`\k<name>+`) forms can drive
+  // exponential backtracking when the captured group matches a variable-length
+  // pattern. Flag any backref+quantifier pair.
   if (/\\[1-9]\d*\s*[+*?{]/.test(pattern) || /\\k<[^>]+>\s*[+*?{]/.test(pattern)) {
     return { safe: false, reason: 'backref-quantifier' }
   }
 
-  // SEC-020 (c): lookaround group whose body contains a quantifier. Run
-  // before the nested-quantifier scan so `(?=(a+)+)` is reported with the
-  // more specific reason. JS supports `(?=...)`, `(?!...)`, `(?<=...)`,
-  // `(?<!...)`. Walk paren depth and inspect the body of any lookaround
-  // for `+`, `*`, or `{...}`.
+  // Lookaround group whose body contains a quantifier. Run before the
+  // nested-quantifier scan so `(?=(a+)+)` is reported with the more specific
+  // reason. JS supports `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)`. Walk
+  // paren depth and inspect the body of any lookaround for `+`, `*`, or
+  // `{...}`.
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]
     if (ch === '\\') {
@@ -99,10 +92,9 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     i = j
   }
 
-  // SEC-020 (b): bounded `{n,m}` with very large upper bound, or `{n,}`
-  // with very large lower bound. Scan all `{...}` ranges and check their
-  // bounds. Lone repetitions like `a{5}` are fine; only the comma-form is
-  // a range.
+  // Bounded `{n,m}` with a very large upper bound, or `{n,}` with a very
+  // large lower bound. Lone repetitions like `a{5}` are fine; only the
+  // comma-form is a range.
   {
     const re = /(?<!\\)\{(\d+)(?:,(\d*))?\}/g
     let m: RegExpExecArray | null
@@ -192,21 +184,15 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
  * Field paths longer than this are refused. The runtime DotPath resolver
  * splits on dots, so an enormous field string would cost O(length) work
  * per evaluation with no upside.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const MAX_FIELD_LENGTH = 256
 /**
  * Valid combining algorithm names.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const VALID_ALGORITHMS = new Set(['deny-overrides', 'allow-overrides', 'first-match', 'highest-priority'])
 
 /**
  * Valid rule effect values.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const VALID_EFFECTS = new Set(['allow', 'deny'])
 
@@ -216,8 +202,6 @@ export const VALID_EFFECTS = new Set(['allow', 'deny'])
  * `indexPolicy()` builds an `actions x resources` cartesian per rule, so an
  * unbounded policy can stall the event loop. Limits also cap memory growth
  * in {@link Engine}'s LRU caches.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const POLICY_LIMITS = {
   rulesPerPolicy: 1_000,
@@ -236,7 +220,6 @@ const RESOLVABLE_SHORTHANDS = new Set(['action', 'scope'])
  *
  * @param path - Dot-path string to check.
  * @returns `true` when the path's root is a known resolvable root.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function isResolvablePath(path: string): boolean {
   if (RESOLVABLE_SHORTHANDS.has(path)) return true
@@ -246,8 +229,6 @@ export function isResolvablePath(path: string): boolean {
 
 /**
  * Set of valid condition operator names supported by the condition evaluator.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const VALID_OPERATORS = new Set([
   'eq',
@@ -280,7 +261,6 @@ export const VALID_OPERATORS = new Set([
  * @param path   - Dot-path prefix used in reported issues.
  * @param issues - Array to push validation issues into.
  * @param depth  - Current nesting depth (defaults to `0`; bounded by `MAX_CONDITION_DEPTH`).
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function validateConditionItem(input: unknown, path: string, issues: Validate.IIssue[], depth = 0): void {
   if (typeof input !== 'object' || input === null) {
@@ -363,7 +343,6 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
  * @param path   - Dot-path prefix used in reported issues.
  * @param issues - Array to push validation issues into.
  * @param depth  - Current nesting depth (defaults to `0`; bounded by `MAX_CONDITION_DEPTH`).
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function validateConditionGroup(input: unknown, path: string, issues: Validate.IIssue[], depth = 0): void {
   if (depth > MAX_CONDITION_DEPTH) {
@@ -424,7 +403,6 @@ export function validateConditionGroup(input: unknown, path: string, issues: Val
  * @param input - The rule object to validate.
  * @param path - Dot-path prefix used in reported issues.
  * @param issues - Array to push validation issues into.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function validateRuleShape(input: unknown, path: string, issues: Validate.IIssue[]): void {
   if (typeof input !== 'object' || input === null) {

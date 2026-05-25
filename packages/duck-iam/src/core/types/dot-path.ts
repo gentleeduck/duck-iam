@@ -18,8 +18,6 @@ import type { Primitives } from './primitives'
  * Pair each attribute path with its shape extractor (`SubjectAttrShape`,
  * `ResourceAttrShape`, `EnvAttrShape`) and `AttrValueAt` / `AttrValue` to
  * resolve the value type at a chosen path.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace DotPath {
   // ============================================================
@@ -46,7 +44,6 @@ export namespace DotPath {
    * type Paths = DotPath.DotPaths<Ctx>
    * // = 'subject' | 'subject.id' | 'subject.attributes' | 'subject.attributes.status'
    * ```
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
     ? never
@@ -75,7 +72,6 @@ export namespace DotPath {
    * type V = DotPath.PathValue<Ctx, 'subject.attributes.status'>
    * // = 'active' | 'banned'
    * ```
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type PathValue<T, P extends string> = P extends `${infer K}.${infer Rest}`
     ? K extends keyof T
@@ -96,7 +92,6 @@ export namespace DotPath {
    *   etc. while still allowing arbitrary attribute paths.
    *
    * @template T - The context type to extract paths from.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type FlexibleDotPaths<T> = true extends HasOpenIndex<T> ? DotPaths<T> | (string & {}) : DotPaths<T>
 
@@ -111,7 +106,6 @@ export namespace DotPath {
    * type Refs = DotPath.DollarPaths<Ctx>
    * // = '$subject' | '$subject.id' | '$subject.roles'
    * ```
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
 
@@ -121,7 +115,6 @@ export namespace DotPath {
    * nested in computed types) so the IDE renders the literal suggestions.
    *
    * @template TContext - The full evaluation context type.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type FlexibleDollarPaths<TContext> = DollarPaths<TContext> | (string & {})
 
@@ -137,7 +130,6 @@ export namespace DotPath {
    *
    * @template TContext - The full evaluation context type.
    * @template TValue   - The attribute-compatible value type accepted by the builder.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type ConditionValue<TContext, TValue extends Primitives.AttributeValue> =
     | Exclude<TValue, string>
@@ -152,7 +144,6 @@ export namespace DotPath {
    *
    * @template TContext - The full evaluation context type.
    * @template P        - A dot-separated path string.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type FieldValue<TContext, P extends string> =
     PathValue<TContext, P> extends Primitives.AttributeValue
@@ -170,7 +161,6 @@ export namespace DotPath {
    * Pair with {@link AttrValue} to resolve the value type at a dot-path.
    *
    * @template TContext - The full evaluation context type.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type SubjectAttrShape<TContext> = TContext extends { subject: { attributes: infer A } } ? A : never
 
@@ -181,7 +171,6 @@ export namespace DotPath {
    * Pair with {@link AttrValue} to resolve the value type at a dot-path.
    *
    * @template TContext - The full evaluation context type.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type ResourceAttrShape<TContext> = TContext extends { resource: { attributes: infer A } } ? A : never
 
@@ -192,7 +181,6 @@ export namespace DotPath {
    * Pair with {@link AttrValue} to resolve the value type at a dot-path.
    *
    * @template TContext - The full evaluation context type.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type EnvAttrShape<TContext> = TContext extends { environment: infer E } ? E : never
 
@@ -206,7 +194,6 @@ export namespace DotPath {
    * leaf and intermediate object path inside `TContext.subject.attributes`.
    *
    * @template TContext - The full evaluation context type.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type SubjectAttrs<TContext> = AttrPaths<SubjectAttrShape<TContext>>
 
@@ -216,7 +203,6 @@ export namespace DotPath {
    * {@link ResolvedResourceAttrPaths}; this type covers the simple, single-shape case.
    *
    * @template TContext - The full evaluation context type.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type ResourceAttrs<TContext> = AttrPaths<ResourceAttrShape<TContext>>
 
@@ -225,7 +211,6 @@ export namespace DotPath {
    * on `When.env()`.
    *
    * @template TContext - The full evaluation context type.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type EnvAttrs<TContext> = AttrPaths<EnvAttrShape<TContext>>
 
@@ -249,7 +234,6 @@ export namespace DotPath {
    * type Map = DotPath.ResourceAttrMap<AppContext>
    * // = { post: { ownerId: string; status: ... }; comment: { ownerId: string; body: string } }
    * ```
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   // biome-ignore lint/suspicious/noExplicitAny: infer constraint needs any for broad matching
   export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: infer M extends Record<string, any> }
@@ -267,7 +251,6 @@ export namespace DotPath {
    *
    * @template TContext  - The full evaluation context type.
    * @template TResource - The resource type string (or `'*'` for all resources).
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type ResolvedResourceAttrs<TContext, TResource extends string> =
     ResourceAttrMap<TContext> extends never
@@ -283,7 +266,6 @@ export namespace DotPath {
    *
    * @template TContext  - The full evaluation context type.
    * @template TResource - The resource type string (or `'*'` for all resources).
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type ResolvedResourceAttrPaths<TContext, TResource extends string> = AttrPaths<
     ResolvedResourceAttrs<TContext, TResource>
@@ -299,7 +281,6 @@ export namespace DotPath {
    *
    * @template T - The attribute-bag object type.
    * @template P - The dot-separated path string.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type AttrValueAt<T, P extends string> = P extends `${infer K}.${infer Rest}`
     ? K extends keyof T
@@ -320,7 +301,6 @@ export namespace DotPath {
    *
    * @template T - The attribute-bag object type.
    * @template P - The dot-separated path string.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type AttrValue<T, P extends string> =
     T extends Record<string, unknown>
@@ -341,8 +321,6 @@ export namespace DotPath {
    * from recursing into every possible string key. The index signature
    * returns {@link Primitives.AttributeValue} so `.attr()` / `.env()` infer
    * the correct value type.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAnyAttributes {
     [key: string]: Primitives.AttributeValue
@@ -356,8 +334,6 @@ export namespace DotPath {
    * Extend this interface with your application's attribute shapes and pass
    * it to `createAccessConfig({ context: {} as unknown as YourContext })` for
    * full type-safe IntelliSense.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IDefaultContext {
     /** The action being performed (e.g. `'read'`, `'update'`). */

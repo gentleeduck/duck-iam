@@ -30,8 +30,6 @@ type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | und
 
 /**
  * Hono server integration types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace Hono {
   /**
@@ -40,7 +38,6 @@ export namespace Hono {
    * Every extractor has a sensible default.
    *
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IOptions<TScope extends string = string> {
     /** Extracts the current user ID from the context. */
@@ -63,15 +60,11 @@ export namespace Hono {
    * Required guard callback for the Hono admin router.
    *
    * Returning `false` (or throwing) blocks the request.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type IAdminAuthorize = (c: HonoContext) => boolean | Promise<boolean>
 
   /**
    * Describes options for {@link bindAdminRouter}. `authorize` is required.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
@@ -81,22 +74,19 @@ export namespace Hono {
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, c: HonoContext) => Response
     /**
-     * SEC-010: optional audit hook fired AFTER every mutation handler
-     * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
+     * Optional audit hook fired AFTER every mutation handler (PUT/POST/
+     * DELETE/PATCH) completes — success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
-     * See {@link AdminAudit.IOptions} (extended) for additional hardening
-     * knobs: `redactPath` (SEC-039), `onAuditHookError` (SEC-040), and
-     * `includeErrorMessage` (SEC-041).
+     * See {@link AdminAudit.IOptions} for additional hardening knobs:
+     * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
      */
     onAdminMutation?: AdminAudit.Hook
   }
 
   /**
    * Describes the minimal Hono router surface used by {@link bindAdminRouter}.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IRouterLike {
     get(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
@@ -108,7 +98,6 @@ export namespace Hono {
 
 /**
  * @deprecated Use {@link Hono.IOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IHonoOptions<TScope extends string = string> = Hono.IOptions<TScope>
 
@@ -139,7 +128,6 @@ function defaultEnv(c: HonoContext): Request.IEnvironment {
  *   getUserId: (c) => c.get('userId') as string | null,
  * }))
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function accessMiddleware<
   TAction extends string = string,
@@ -148,10 +136,10 @@ export function accessMiddleware<
   TScope extends string = string,
 >(engine: Engine<TAction, TResource, TRole, TScope>, opts: Hono.IOptions<TScope> = {}): HonoMiddleware {
   const {
-    // SEC-101: never default to `c.req.header('x-user-id')` — any unauth client
-    // can spoof that header. The default reads ONLY from `c.set('userId', ...)`
-    // populated by upstream auth middleware. Operators wiring header-based
-    // identity must opt in explicitly via `getUserId`.
+    // Never default to `c.req.header('x-user-id')` — any unauthenticated
+    // client can spoof that header. The default reads ONLY from
+    // `c.set('userId', ...)` populated by upstream auth middleware. Operators
+    // wiring header-based identity must opt in via `getUserId`.
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
     getResource = (c) => {
       const parts = c.req.path.split('/').filter(Boolean)
@@ -187,19 +175,16 @@ export function accessMiddleware<
 
 /**
  * @deprecated Use {@link Hono.IAdminAuthorize}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IHonoAdminAuthorize = Hono.IAdminAuthorize
 
 /**
  * @deprecated Use {@link Hono.IAdminOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IHonoAdminOptions = Hono.IAdminOptions
 
 /**
  * @deprecated Use {@link Hono.IRouterLike}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IHonoRouterLike = Hono.IRouterLike
 
@@ -224,7 +209,7 @@ export type IHonoRouterLike = Hono.IRouterLike
  * const admin = new Hono()
  * bindAdminRouter(admin, engine, {
  *   authorize: (c) => isAdmin(c),
- *   onAdminMutation: (e) => auditLog.write(e), // SEC-010 audit trail
+ *   onAdminMutation: (e) => auditLog.write(e),
  * })
  * app.route('/admin', admin)
  * ```
@@ -236,7 +221,6 @@ export type IHonoRouterLike = Hono.IRouterLike
  * app.use('/admin/*', rateLimit({ windowMs: 60_000, max: 30 }))
  * app.route('/admin', admin)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function bindAdminRouter<
   TAction extends string = string,
@@ -252,7 +236,7 @@ export function bindAdminRouter<
     throw new Error('[duck-iam] bindAdminRouter requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
-  // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
+  // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
   noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
   const onUnauthorized = opts.onUnauthorized ?? ((c) => c.json({ error: 'Unauthorized' }, 401))
@@ -271,9 +255,9 @@ export function bindAdminRouter<
     }
 
   /**
-   * SEC-010 mutation gate: identical to {@link gate} but emits an
-   * `onAdminMutation` event after the handler resolves or rejects. Uses
-   * try/finally so the hook fires even when the handler throws.
+   * Mutation gate: identical to {@link gate} but emits an `onAdminMutation`
+   * event after the handler resolves or rejects. Uses try/finally so the
+   * hook fires even when the handler throws.
    */
   const mutate =
     (
@@ -283,7 +267,7 @@ export function bindAdminRouter<
       handler: (c: HonoContext) => Promise<Response> | Response,
     ) =>
     async (c: HonoContext): Promise<Response> => {
-      // DEBT-4: shared CSRF + authorize phase.
+      // Shared CSRF + authorize phase.
       const authz = await runAdminAuthz(c, effectiveCsrfCheck, authorize)
       if (authz.phase === 'forbidden') return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
       if (authz.phase === 'unauthorized') return onUnauthorized(c)
@@ -392,7 +376,6 @@ export function bindAdminRouter<
  * app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
  * app.post('/admin/users', guard(engine, 'manage', 'user', { scope: 'admin' }), handler)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function guard<
   TAction extends string = string,
@@ -406,10 +389,10 @@ export function guard<
   opts: Pick<Hono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & { scope?: TScope } = {},
 ): HonoMiddleware {
   const {
-    // SEC-101: never default to `c.req.header('x-user-id')` — any unauth client
-    // can spoof that header. The default reads ONLY from `c.set('userId', ...)`
-    // populated by upstream auth middleware. Operators wiring header-based
-    // identity must opt in explicitly via `getUserId`.
+    // Never default to `c.req.header('x-user-id')` — any unauthenticated
+    // client can spoof that header. The default reads ONLY from
+    // `c.set('userId', ...)` populated by upstream auth middleware. Operators
+    // wiring header-based identity must opt in via `getUserId`.
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
     getEnvironment = defaultEnv,
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),

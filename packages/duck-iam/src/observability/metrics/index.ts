@@ -2,8 +2,6 @@ import type { EngineTypes } from '../../core/engine/engine.types'
 
 /**
  * Metrics observability types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace Metrics {
   /**
@@ -14,36 +12,28 @@ export namespace Metrics {
    * of recent durations to compute p50 / p95 / p99 without pulling in a
    * histogram library. Sample size defaults to `1000`; beyond that the oldest
    * sample is evicted via a fixed-size ring buffer.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAggregator {
     /**
      * Records a single metrics event. Bind directly to {@link EngineTypes.IHooks.onMetrics}.
      *
      * @param event - Receives the metrics event emitted by the engine after every check.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     record(event: EngineTypes.IMetricsEvent): void
     /**
      * Computes the current rolling snapshot. Callers can poll at any interval.
      *
      * @returns Immutable {@link ISnapshot} summarising the rolling window.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     snapshot(): ISnapshot
     /**
      * Resets counters and clears the rolling sample buffer.
-     *
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     reset(): void
   }
 
   /**
    * Immutable snapshot of aggregated metrics over the rolling window.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ISnapshot {
     /** Total events recorded since the last reset. */
@@ -55,7 +45,7 @@ export namespace Metrics {
     /**
      * Number of allow verdicts that were attributable solely to the engine's
      * `defaultEffect: 'allow'` fallback (no applicable policy fired). Subset
-     * of {@link allow}. Chart this to detect silent policy-set breakage. SEC-044.
+     * of {@link allow}. Chart this to detect silent policy-set breakage.
      */
     readonly failOpen: number
     /** p50 latency in milliseconds over the rolling window. */
@@ -72,8 +62,6 @@ export namespace Metrics {
 
   /**
    * Configures {@link createMetricsAggregator}.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IConfig {
     /**
@@ -87,19 +75,16 @@ export namespace Metrics {
 
 /**
  * @deprecated Use {@link Metrics.IAggregator}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IMetricsAggregator = Metrics.IAggregator
 
 /**
  * @deprecated Use {@link Metrics.ISnapshot}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IMetricsSnapshot = Metrics.ISnapshot
 
 /**
  * @deprecated Use {@link Metrics.IConfig}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IMetricsAggregatorConfig = Metrics.IConfig
 
@@ -118,7 +103,6 @@ export type IMetricsAggregatorConfig = Metrics.IConfig
  * const engine = new Engine({ adapter, hooks: { onMetrics: metrics.record } })
  * app.get('/metrics', (_, res) => res.json(metrics.snapshot()))
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createMetricsAggregator(config: Metrics.IConfig = {}): Metrics.IAggregator {
   const cap = config.sampleSize ?? 1000

@@ -3,8 +3,6 @@ import type { EngineTypes } from '../../core/engine/engine.types'
 
 /**
  * Redis invalidator integration types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace RedisInvalidator {
   /**
@@ -13,8 +11,6 @@ export namespace RedisInvalidator {
    * Both ioredis and node-redis v4+ implement this shape; call sites stay
    * intentionally narrow to avoid pulling in either as a hard dependency.
    * Pass two clients - Redis requires a separate connection per subscriber.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IPubSubLike {
     /**
@@ -24,7 +20,6 @@ export namespace RedisInvalidator {
      * @param channel - Names the channel to publish on.
      * @param message - Serialised JSON payload to broadcast.
      * @returns Whatever the underlying client returns; ignored by the invalidator.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     publish(channel: string, message: string): unknown
     /**
@@ -34,7 +29,6 @@ export namespace RedisInvalidator {
      * @param channel - Names the channel to subscribe to.
      * @param handler - Receives each raw message string from the channel.
      * @returns Void synchronously or a promise the caller may await on startup.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     subscribe(channel: string, handler: (message: string) => void): void | Promise<void>
     /**
@@ -44,15 +38,12 @@ export namespace RedisInvalidator {
      *
      * @param channel - Names the channel to detach from.
      * @returns Void synchronously or a promise.
-     * @author wildduck2 <https://github.com/wildduck2>
      */
     unsubscribe?(channel: string): void | Promise<void>
   }
 
   /**
    * Configures {@link createRedisInvalidator}.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IConfig {
     /** Redis pub/sub adapter implementing {@link IPubSubLike}. */
@@ -104,13 +95,11 @@ export namespace RedisInvalidator {
 
 /**
  * @deprecated Use {@link RedisInvalidator.IPubSubLike}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IRedisPubSubLike = RedisInvalidator.IPubSubLike
 
 /**
  * @deprecated Use {@link RedisInvalidator.IConfig}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IRedisInvalidatorConfig = RedisInvalidator.IConfig
 
@@ -126,20 +115,17 @@ const ENVELOPE_V = 1
 const _UNSIGNED_WARNED = { fired: false }
 
 /**
- * SEC-032: per-channel rate-limited warn state. A previous one-shot latch
- * let an attacker burn the first warn on a benign reason (e.g. a stray
- * invalid-JSON probe) and then silently flood the channel with hostile
- * payloads. The current shape rate-limits warns at SEC-032-tunable
- * intervals and surfaces a coalesced suppressed-count so operators see
- * sustained abuse instead of silence.
+ * Per-channel rate-limited warn state. Rate-limits warns at a tunable
+ * interval and surfaces a coalesced suppressed-count so operators see
+ * sustained abuse instead of silence after a single benign first warn.
  */
 const _DROP_WARN_STATE = new Map<string, { lastWarn: number; suppressed: number }>()
 /** Minimum gap between drop warns for a single channel. */
 const DROP_WARN_WINDOW_MS = 60_000
 
 /**
- * SEC-031 guard limits applied to incoming wire messages BEFORE the HMAC
- * verifier (i.e. pre-auth, so they must be cheap and stack-safe).
+ * Guard limits applied to incoming wire messages BEFORE the HMAC verifier
+ * (pre-auth — must be cheap and stack-safe).
  */
 const MAX_WIRE_BYTES = 16 * 1024
 const MAX_PAYLOAD_DEPTH = 8
@@ -190,7 +176,7 @@ function _measurePayload(root: unknown): { depth: number; keys: number } | null 
  * the host JSON engine orders object keys. Arrays preserve order; objects sort
  * keys lexicographically.
  *
- * SEC-031 defence in depth: bounded recursion. Callers in the verify path
+ * Defence in depth: bounded recursion. Callers in the verify path
  * additionally enforce a depth/size/key-count guard on the parsed payload
  * before invoking this function — `_depth` here protects the publish path
  * and any future caller that bypasses the wire guard.
@@ -269,7 +255,6 @@ function safeHexEqual(a: string, b: string): boolean {
  *   }),
  * })
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function createRedisInvalidator<TRole extends string = string>(
   config: RedisInvalidator.IConfig,
@@ -391,9 +376,9 @@ export function createRedisInvalidator<TRole extends string = string>(
  * envelopes are dropped in unsigned mode — accepting them without verifying
  * the HMAC would let an attacker forge the `instanceId` field, which the
  * self-filter uses to ignore own-process replays. A forged match would
- * suppress legitimate cross-instance invalidations (SEC-046). When `secret`
- * is set we require a v:1 envelope, verify the HMAC, and enforce the replay
- * window. Anything else is dropped silently after a one-shot warn per channel.
+ * suppress legitimate cross-instance invalidations. When `secret` is set we
+ * require a v:1 envelope, verify the HMAC, and enforce the replay window.
+ * Anything else is dropped silently after a one-shot warn per channel.
  *
  * Returned shape is normalized to `{instanceId, event}` so the caller doesn't
  * branch on wire format.
@@ -404,13 +389,13 @@ function parseIncoming<TRole extends string>(
   channel: string,
   warnDropOnce: (channel: string, reason: string) => void,
 ): { instanceId: string; event: EngineTypes.IInvalidateEvent<TRole> } | null {
-  // SEC-031: pre-auth size cap. canonicalJSON runs BEFORE the HMAC verify,
-  // so an unauth peer could otherwise crash subscribers with deeply nested
-  // JSON. Reject oversize wire messages before JSON.parse so we never
-  // allocate the parse tree for a hostile blob.
+  // Pre-auth size cap: canonicalJSON runs BEFORE the HMAC verify, so an
+  // unauth peer could otherwise crash subscribers with deeply nested JSON.
+  // Reject oversize wire messages before JSON.parse so we never allocate
+  // the parse tree for a hostile blob.
   if (typeof s !== 'string') return null
-  // SEC-034: cap by UTF-8 byte length, not `s.length` (which counts UTF-16
-  // code units). A surrogate-heavy string would otherwise sneak ~4x past the
+  // Cap by UTF-8 byte length, not `s.length` (which counts UTF-16 code
+  // units). A surrogate-heavy string would otherwise sneak ~4x past the
   // 16KB cap and force the JSON parser to materialise a much larger tree.
   if (Buffer.byteLength(s, 'utf8') > MAX_WIRE_BYTES) {
     warnDropOnce(channel, 'oversize wire message')
@@ -424,10 +409,10 @@ function parseIncoming<TRole extends string>(
     return null
   }
   if (typeof parsed !== 'object' || parsed === null) return null
-  // SEC-031: depth + key-count cap on the parsed tree, using an iterative
-  // walker that can't stack-overflow itself. Applied to every incoming
-  // envelope (both legacy and v:1) so the canonicalJSON pre-image is always
-  // safe to materialise.
+  // Depth + key-count cap on the parsed tree, using an iterative walker
+  // that can't stack-overflow itself. Applied to every incoming envelope
+  // (both legacy and v:1) so the canonicalJSON pre-image is always safe
+  // to materialise.
   if (_measurePayload(parsed) === null) {
     warnDropOnce(channel, 'payload exceeds depth/key limits')
     return null
@@ -436,7 +421,7 @@ function parseIncoming<TRole extends string>(
 
   // v:1 signed envelope path
   if (obj.v === ENVELOPE_V) {
-    // SEC-046: never honour a v:1 envelope without a secret. The signed-mode
+    // Never honour a v:1 envelope without a secret. The signed-mode
     // envelope wraps `instanceId` inside a payload that is supposed to be
     // tamper-evident; unwrapping it without verifying would let an attacker
     // pick any `instanceId` (including a collision with the local instance's

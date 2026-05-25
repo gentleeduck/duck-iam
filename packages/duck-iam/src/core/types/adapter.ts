@@ -6,8 +6,6 @@ export namespace Adapter {
    * cancellation (HttpAdapter via `fetch(url, {signal})`, Redis via `RESET`,
    * etc.) should plumb this through; adapters that can't (in-memory, file)
    * may ignore it - the engine still releases the request thread on timeout.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IReadOptions {
     readonly signal?: AbortSignal
@@ -19,7 +17,6 @@ export namespace Adapter {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TRole     - Union of valid role IDs (target roles).
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IPolicyStore<
     TAction extends string = string,
@@ -43,7 +40,6 @@ export namespace Adapter {
    * @template TResource - Union of valid resource strings.
    * @template TRole     - Union of valid role IDs.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IRoleStore<
     TAction extends string = string,
@@ -66,13 +62,12 @@ export namespace Adapter {
    *
    * @template TRole  - Union of valid role IDs.
    * @template TScope - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ISubjectStore<TRole extends string = string, TScope extends string = string> {
     /**
      * Returns the flat list of GLOBAL (unscoped) role IDs assigned to a
-     * subject. Scoped role assignments must NOT be collapsed into this list —
-     * surface those through {@link getSubjectScopedRoles}. SEC-059 — file,
+     * subject. Scoped role assignments must NOT be collapsed into this list
+     * — surface those through {@link getSubjectScopedRoles}. The file,
      * memory, redis, drizzle, and prisma adapters all honour this contract;
      * the HTTP adapter delegates to the operator's server, which must also.
      */
@@ -101,7 +96,6 @@ export namespace Adapter {
    * @template TResource - Union of valid resource strings.
    * @template TRole     - Union of valid role IDs.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAdapter<
     TAction extends string = string,

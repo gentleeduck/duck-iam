@@ -8,7 +8,6 @@ export namespace Request {
    *
    * @template TRole  - Union of valid role IDs.
    * @template TScope - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IScopedRole<TRole extends string = string, TScope extends string = string> {
     readonly role: TRole
@@ -23,7 +22,6 @@ export namespace Request {
    *
    * @template TRole  - Union of valid role IDs.
    * @template TScope - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ISubject<TRole extends string = string, TScope extends string = string> {
     /** Unique identifier (user ID, service account ID). */
@@ -40,7 +38,6 @@ export namespace Request {
    * Target resource being accessed.
    *
    * @template TResource - Union of valid resource type strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IResource<TResource extends string = string> {
     /** Resource type (e.g. `'post'`, `'comment'`, `'dashboard'`). */
@@ -55,8 +52,6 @@ export namespace Request {
    * Request-level context not specific to subject or resource - client IP,
    * user agent, timestamp, feature flags, etc. Custom keys allowed via the
    * string index signature.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IEnvironment {
     readonly ip?: string
@@ -74,7 +69,6 @@ export namespace Request {
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
    * @template TScope    - Union of valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAccessRequest<
     TAction extends string = string,

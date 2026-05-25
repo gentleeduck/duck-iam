@@ -18,8 +18,6 @@ import type { AccessControl } from '../types'
  * separate - JSON Schema is for external boundaries, `validatePolicy` is for
  * internal call sites that also need semantic checks (resolvable paths,
  * cartesian limits, etc.).
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const POLICY_JSON_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',

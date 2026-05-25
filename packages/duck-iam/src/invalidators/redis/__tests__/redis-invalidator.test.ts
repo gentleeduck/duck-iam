@@ -231,10 +231,9 @@ describe('createRedisInvalidator (SEC-005)', () => {
   })
 
   it('warn-coalesce window: bursts of drops surface a single warn + suppressed count (SEC-032)', () => {
-    // Before SEC-032: first drop per channel warned, all subsequent silent.
-    // After SEC-032: first drop warns + opens a 60s window; further drops in
-    // the window are counted but silent; next drop after the window warns
-    // again with the suppressed count.
+    // First drop warns and opens a 60s window; further drops in the window
+    // are counted but silent; the next drop after the window warns again
+    // with the suppressed count.
     const bus = makeBus()
     const ch = `t-coalesce-${Math.random().toString(36).slice(2)}`
     const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })

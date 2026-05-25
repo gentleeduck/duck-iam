@@ -20,10 +20,9 @@ import type { EngineTypes } from './engine.types'
  * Module-level flush of process-wide compiled-regex and resolved-path caches
  * (the `matches`-operator regex cache and dot-path segment cache).
  *
- * SEC-050 / DEBT-12: these caches are globals; this helper is the honest
- * surface. The instance method `Engine#flushSharedCaches` delegates here
- * and is deprecated — calling it on one engine also affected every other
- * engine in the process.
+ * These caches are globals; this helper is the honest surface. The instance
+ * method `Engine#flushSharedCaches` delegates here and is deprecated —
+ * calling it on one engine also affects every other engine in the process.
  *
  * Multi-tenant operators schedule this periodically to bound any single
  * tenant's eviction influence. Costs: the next request pays one compile
@@ -34,7 +33,6 @@ import type { EngineTypes } from './engine.types'
  * import { flushSharedCaches } from '@gentleduck/iam'
  * setInterval(flushSharedCaches, 5 * 60 * 1000)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function flushSharedCaches(): void {
   clearRegexCache()
@@ -64,7 +62,6 @@ export function flushSharedCaches(): void {
  * const decision = await engine.check('user-1', 'update', post)
  * const trace = await engine.explain('user-1', 'delete', post)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export class Engine<
   TAction extends string = string,
@@ -96,10 +93,9 @@ export class Engine<
   private _mergedInFlight: Promise<AccessControl.IPolicy[]> | null = null
   private _subjectsInFlight = new Map<string, Promise<Request.ISubject>>()
   /**
-   * DEBT-6 / SEC-050: per-instance evaluation caches. Multi-tenant
-   * deployments instantiate one Engine per tenant; each owns its own
-   * regex + path caches and cannot be evicted by hostile-tenant pattern
-   * flooding.
+   * Per-instance evaluation caches. Multi-tenant deployments instantiate
+   * one Engine per tenant; each owns its own regex + path caches and
+   * cannot be evicted by hostile-tenant pattern flooding.
    */
   private _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } = {
     regex: new Map(),
@@ -110,7 +106,6 @@ export class Engine<
    * Constructs a new engine wired to the given adapter and configuration.
    *
    * @param config - Engine configuration (adapter, mode, caches, hooks).
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(config: EngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>) {
     this._adapter = config.adapter
@@ -228,8 +223,6 @@ export class Engine<
 
   /**
    * Release the invalidator subscription. Call when discarding the engine.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   dispose(): void {
     this._invalidatorUnsub?.()
@@ -334,8 +327,8 @@ export class Engine<
     const cached = this._mergedPolicyCache.get('merged')
     if (cached) return cached
     if (this._mergedInFlight) return this._mergedInFlight
-    // SEC-045: runSingleFlight handles sentinel-compare so an invalidate()
-    // mid-await cannot repopulate the merged cache with stale rules.
+    // runSingleFlight handles sentinel-compare so an invalidate() mid-await
+    // cannot repopulate the merged cache with stale rules.
     return runSingleFlight(
       () => this._mergedInFlight,
       (p) => {
@@ -401,7 +394,6 @@ export class Engine<
    *
    * @param request - The access request to evaluate.
    * @returns The decision shape determined by the engine's mode.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async authorize(
     request: Request.IAccessRequest<TAction, TResource, TScope>,
@@ -409,10 +401,10 @@ export class Engine<
     let req = request
     const t0 = this._hooks.onMetrics ? performance.now() : 0
 
-    // SEC-056: the EVALUATION try block stops at the point a decision is
-    // produced. Trailing hooks (afterEvaluate, onDeny, onMetrics) are
-    // invoked in a separate try below so a throwing hook cannot be caught
-    // by the evaluation catch and silently rewrite an allow → deny.
+    // The evaluation try block stops at the point a decision is produced.
+    // Trailing hooks (afterEvaluate, onDeny, onMetrics) run in a separate
+    // try below so a throwing hook cannot be caught by the evaluation
+    // catch and silently rewrite an allow → deny.
     let result: AccessControl.ModeResult<TMode>
     let decisionForHooks: AccessControl.IDecision | null = null
     let allowedForMetrics = false
@@ -465,8 +457,8 @@ export class Engine<
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
-      // SEC-055: onError can itself throw. Don't let an operator's onError
-      // bug propagate over the engine's fail-closed contract.
+      // onError can itself throw. Don't let an operator's onError bug
+      // propagate over the engine's fail-closed behaviour.
       await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
       this._emitMetrics(req, false, t0, false)
       if (this._mode === 'production') return this._asResult(false)
@@ -493,18 +485,18 @@ export class Engine<
   }
 
   /**
-   * SEC-055/056: invoke a hook safely. Sync or async throws are caught and
-   * routed to console.error so a buggy operator hook cannot escape into the
-   * caller's path or rewrite a finalised decision. Returning void here is
-   * intentional — the engine never surfaces hook bugs as authz failures.
+   * Invoke a hook safely. Sync or async throws are caught and routed to
+   * console.error so a buggy operator hook cannot escape into the caller's
+   * path or rewrite a finalised decision. Returning void is intentional —
+   * the engine never surfaces hook bugs as authz failures.
    */
   private async _safeHookCall(fn: () => unknown, hookName: string): Promise<void> {
     try {
       await fn()
     } catch (err) {
-      // SEC-066: console.error itself can throw (closed stdout in a daemon,
-      // broken pipe, user-replaced Console with a buggy override). A throw
-      // here would escape _safeHookCall and resurrect SEC-055.
+      // console.error itself can throw (closed stdout in a daemon, broken
+      // pipe, user-replaced Console with a buggy override). A throw here
+      // would escape _safeHookCall and re-expose the original hook throw.
       try {
         // eslint-disable-next-line no-console
         console.error(`duck-iam: ${hookName} hook threw — swallowed to preserve decision`, err)
@@ -527,9 +519,9 @@ export class Engine<
   ): void {
     const hook = this._hooks.onMetrics
     if (!hook) return
-    // SEC-055: hook throw must not escape — _emitMetrics is called from
-    // catch arms whose entire purpose is producing a fail-closed deny. A
-    // throwing onMetrics there would replace the deny with a raw error.
+    // Hook throws must not escape — _emitMetrics is called from catch arms
+    // whose entire purpose is producing a fail-closed deny. A throwing
+    // onMetrics there would replace the deny with a raw error.
     try {
       hook({
         subjectId: req.subject.id,
@@ -541,7 +533,7 @@ export class Engine<
         failOpen,
       })
     } catch (err) {
-      // SEC-066: defensive — see _safeHookCall.
+      // Defensive — see _safeHookCall.
       try {
         // eslint-disable-next-line no-console
         console.error('duck-iam: onMetrics hook threw — swallowed to preserve decision', err)
@@ -561,7 +553,6 @@ export class Engine<
    * @param environment - Optional request-time environment.
    * @param scope       - Optional scope for multi-tenant checks.
    * @returns `true` when the subject is authorized to perform the action.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async can(
     subjectId: string,
@@ -579,10 +570,10 @@ export class Engine<
       // authorize()'s try/catch. Translate to a fail-closed deny so callers
       // never see an unhandled rejection from the entry-point methods.
       const err = error instanceof Error ? error : new Error(String(error))
-      // SEC-065: wrap onError via _safeHookCall — same contract as
-      // authorize()'s catch. A throwing operator onError here would
-      // otherwise propagate as an unhandled rejection, bypassing the
-      // documented fail-closed `return false` directly below.
+      // Wrap onError via _safeHookCall — same contract as authorize()'s
+      // catch. A throwing operator onError here would otherwise propagate
+      // as an unhandled rejection, bypassing the fail-closed `return false`
+      // below.
       await this._safeHookCall(
         () =>
           this._hooks.onError?.(err, {
@@ -608,7 +599,6 @@ export class Engine<
    * @param environment - Optional request-time environment.
    * @param scope       - Optional scope for multi-tenant checks.
    * @returns Mode-dependent result: `boolean` in production, `IDecision` in development.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async check(
     subjectId: string,
@@ -629,8 +619,8 @@ export class Engine<
         environment,
         scope,
       } as Request.IAccessRequest<TAction, TResource, TScope>
-      // SEC-065: wrap so a throwing operator onError cannot escape the
-      // documented fail-closed contract.
+      // Wrap so a throwing operator onError cannot escape the documented
+      // fail-closed behaviour.
       await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
@@ -659,7 +649,6 @@ export class Engine<
    * @param environment - Optional request-time environment.
    * @param scope       - Optional scope for multi-tenant checks.
    * @returns A full {@link Explain.IResult} describing the evaluation.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async explain(
     this: Engine<TAction, TResource, TRole, TScope, 'development'>,
@@ -719,14 +708,13 @@ export class Engine<
    * @param checks      - Array of {@link Client.IPermissionCheck} descriptors.
    * @param environment - Optional request-time environment shared by all checks.
    * @returns Mode-dependent permission map.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async permissions(
     subjectId: string,
     checks: readonly Client.IPermissionCheck<TAction, TResource, TScope>[],
     environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
   ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
-    // SEC-070: outer try mirrors check()/can() — adapter rejections from
+    // Outer try mirrors check()/can() — adapter rejections from
     // _resolveSubject or _loadAllPolicies happen BEFORE the per-check try,
     // so without this catch the entire batch would reject with no onError
     // signal and no fail-closed map. Synthesise an all-deny map matching
@@ -759,8 +747,8 @@ export class Engine<
     // Memo per scope: N checks sharing a scope must not rebuild the merged role list N times.
     const enrichedByScope = new Map<TScope, Request.ISubject>()
 
-    // SEC-057: forward onPolicyError to evaluate*; previously batch checks
-    // silently dropped per-policy throws because this arg was undefined.
+    // Forward onPolicyError to evaluate* so batch checks surface per-policy
+    // throws instead of silently dropping them.
     const onPolicyErrorHook = this._hooks.onPolicyError
     const onPolicyError = onPolicyErrorHook
       ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
@@ -768,11 +756,11 @@ export class Engine<
 
     for (const c of checks) {
       const key = buildPermissionKey(c.action, c.resource, c.resourceId, c.scope)
-      // SEC-051: permissions() previously bypassed onMetrics + failOpen signal.
+      // Per-check metrics: onMetrics fires once per check with failOpen signal.
       const t0 = this._hooks.onMetrics ? performance.now() : 0
 
-      // SEC-056: trailing-hooks block runs OUTSIDE the evaluation try so a
-      // throwing afterEvaluate/onDeny cannot rewrite the per-check verdict.
+      // Trailing-hooks block runs OUTSIDE the evaluation try so a throwing
+      // afterEvaluate/onDeny cannot rewrite the per-check verdict.
       let decisionForHooks: AccessControl.IDecision | null = null
       let allowedForCheck = false
       let failOpenForCheck = false
@@ -849,7 +837,8 @@ export class Engine<
         continue
       }
 
-      // Trailing-hooks block (outside try) — see SEC-056 in authorize().
+      // Trailing-hooks block (outside try) — keeps hook throws from
+      // rewriting the per-check verdict; mirrors authorize().
       if (decisionForHooks !== null && evalReq !== null) {
         await this._safeHookCall(() => this._hooks.afterEvaluate?.(evalReq!, decisionForHooks!), 'afterEvaluate')
         if (!decisionForHooks.allowed) {
@@ -866,8 +855,6 @@ export class Engine<
 
   /**
    * Lazily-built admin interface for CRUD operations on policies, roles, subjects.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   get admin(): EngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
     this._admin ??= createAdmin<TAction, TResource, TRole, TScope>(this._adapter, this)
@@ -880,7 +867,6 @@ export class Engine<
    * sampling). Use this to alert on hit-rate regressions in production.
    *
    * @returns Per-cache hit/miss/size counters.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   stats(): {
     policies: { hits: number; misses: number; size: number }
@@ -900,8 +886,6 @@ export class Engine<
 
   /**
    * Zero the counters returned by {@link stats}.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   resetStats(): void {
     this._policyCache.resetStats()
@@ -919,7 +903,6 @@ export class Engine<
    * re-populate stale data, defeating the invalidation.
    *
    * @param opts - Optional flags; set `broadcast: false` to suppress invalidator publish.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   invalidate(opts: { broadcast?: boolean } = {}): void {
     this._policyCache.clear()
@@ -938,8 +921,8 @@ export class Engine<
   }
 
   /**
-   * @deprecated DEBT-12: use the module-level {@link flushSharedCaches}
-   * instead. This instance method is misleading — the caches it wipes are
+   * @deprecated Use the module-level {@link flushSharedCaches} instead.
+   * This instance method is misleading — the caches it wipes are
    * process-globals, so calling `engineA.flushSharedCaches()` also affects
    * `engineB`. Kept for backward compatibility; will be removed in 3.0.
    */
@@ -953,7 +936,6 @@ export class Engine<
    *
    * @param subjectId - The subject ID whose cache entry should be dropped.
    * @param opts      - Optional flags; set `broadcast: false` to suppress invalidator publish.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   invalidateSubject(subjectId: string, opts: { broadcast?: boolean } = {}): void {
     this._subjectCache.delete(subjectId)
@@ -967,7 +949,6 @@ export class Engine<
    * Clear cached policies (after policy CRUD).
    *
    * @param opts - Optional flags; set `broadcast: false` to suppress invalidator publish.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
     this._policyCache.clear()
@@ -987,7 +968,6 @@ export class Engine<
    *   scoped roles reference this id are dropped. When omitted, the entire
    *   subject cache is cleared (use for bulk role imports).
    * @param opts - Optional flags; set `broadcast: false` to suppress invalidator publish.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
     this._roleCache.clear()
@@ -1018,8 +998,6 @@ export class Engine<
    * Warm `mergedPolicyCache` so the first request after boot doesn't pay the
    * full load + index cost. Bench shows ~15x speedup on the first call vs
    * cold. Recommended to call once at app startup.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async preload(): Promise<void> {
     await this._loadAllPolicies()
@@ -1033,7 +1011,6 @@ export class Engine<
    * rotation.
    *
    * @returns A {@link EngineTypes.IHealth} snapshot.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   async healthCheck(): Promise<EngineTypes.IHealth> {
     const t0 = performance.now()

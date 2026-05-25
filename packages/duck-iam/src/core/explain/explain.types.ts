@@ -2,8 +2,6 @@ import type { AccessControl, Primitives } from '../types'
 export namespace Explain {
   /**
    * Trace of a single leaf condition: field, operator, expected vs actual, and the result.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ILeafTrace {
     readonly type: 'condition'
@@ -18,8 +16,6 @@ export namespace Explain {
 
   /**
    * Trace of a condition group (`all` / `any` / `none`): child traces + the group result.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IGroupTrace {
     readonly type: 'group'
@@ -30,15 +26,11 @@ export namespace Explain {
 
   /**
    * Union of leaf and group traces - the recursive element type in explain output.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type Trace = ILeafTrace | IGroupTrace
 
   /**
    * Trace of a single rule: action / resource / condition match status, plus the conditions tree.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IRuleTrace {
     readonly ruleId: string
@@ -54,8 +46,6 @@ export namespace Explain {
 
   /**
    * Trace of a single policy evaluation: targets, rule traces, combiner result.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IPolicyTrace {
     readonly policyId: string
@@ -71,8 +61,6 @@ export namespace Explain {
 
   /**
    * Complete trace returned by `engine.explain()`.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IResult {
     readonly decision: AccessControl.IDecision
@@ -102,8 +90,6 @@ export namespace Explain {
 
   /**
    * Subject metadata passed to {@link explainEvaluation} for building the explain trace.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ISubjectInfo {
     subjectId: string

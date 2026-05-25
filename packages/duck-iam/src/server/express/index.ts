@@ -42,8 +42,6 @@ interface ExpressRouterLike {
 
 /**
  * Express server integration types. Type-only namespace - zero bundle cost.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export namespace Express {
   /**
@@ -52,7 +50,6 @@ export namespace Express {
    * Every extractor has a sensible default; override only what your app needs.
    *
    * @template TScope - Constrains valid scope strings.
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IOptions<TScope extends string = string> {
     /** Extracts the current user ID from the request. */
@@ -78,15 +75,11 @@ export namespace Express {
    * proceed. The admin router writes policies, roles, and assignments directly
    * to the adapter; mounting it without auth has historically been the most
    * common foot-gun in authorization systems, so this hook is mandatory.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export type IAdminAuthorize = (req: Req) => boolean | Promise<boolean>
 
   /**
    * Describes options for {@link adminRouter}. `authorize` is required.
-   *
-   * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface IAdminRouterOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
@@ -96,14 +89,13 @@ export namespace Express {
     /** Overrides the 500 internal error response. */
     onError?: (err: Error, req: Req, res: Res) => void
     /**
-     * SEC-010: optional audit hook fired AFTER every mutation handler
-     * (PUT/POST/DELETE/PATCH) completes — success or failure. The hook is
+     * Optional audit hook fired AFTER every mutation handler (PUT/POST/
+     * DELETE/PATCH) completes — success or failure. The hook is
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
-     * See {@link AdminAudit.IOptions} (extended) for additional hardening
-     * knobs: `redactPath` (SEC-039), `onAuditHookError` (SEC-040), and
-     * `includeErrorMessage` (SEC-041).
+     * See {@link AdminAudit.IOptions} for additional hardening knobs:
+     * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
      */
     onAdminMutation?: AdminAudit.Hook
   }
@@ -111,7 +103,6 @@ export namespace Express {
 
 /**
  * @deprecated Use {@link Express.IOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IExpressOptions<TScope extends string = string> = Express.IOptions<TScope>
 
@@ -133,7 +124,6 @@ export type IExpressOptions<TScope extends string = string> = Express.IOptions<T
  *   getUserId: (req) => req.user?.id ?? null,
  * }))
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function accessMiddleware<
   TAction extends string = string,
@@ -194,7 +184,6 @@ export function accessMiddleware<
  * app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
  * app.post('/admin/users', guard(engine, 'manage', 'user', { scope: 'admin' }), handler)
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function guard<
   TAction extends string = string,
@@ -238,13 +227,11 @@ export function guard<
 
 /**
  * @deprecated Use {@link Express.IAdminAuthorize}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IAdminAuthorize = Express.IAdminAuthorize
 
 /**
  * @deprecated Use {@link Express.IAdminRouterOptions}. Will be removed in 3.0.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export type IAdminRouterOptions = Express.IAdminRouterOptions
 
@@ -267,7 +254,7 @@ export type IAdminRouterOptions = Express.IAdminRouterOptions
  * import { Router } from 'express'
  * app.use('/api/access-admin', adminRouter(engine, {
  *   authorize: (req) => req.user?.role === 'admin',
- *   onAdminMutation: (e) => auditLog.write(e), // SEC-010 audit trail
+ *   onAdminMutation: (e) => auditLog.write(e),
  * })(Router))
  * ```
  * @example
@@ -278,7 +265,6 @@ export type IAdminRouterOptions = Express.IAdminRouterOptions
  * const adminLimiter = rateLimit({ windowMs: 60_000, max: 30 })
  * app.use('/api/access-admin', adminLimiter, adminRouter(engine, { authorize })(Router))
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function adminRouter<
   TAction extends string = string,
@@ -298,7 +284,7 @@ export function adminRouter<
   const onUnauthorized = opts.onUnauthorized ?? ((_, res) => res.status(401).json({ error: 'Unauthorized' }))
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
-  // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
+  // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
   noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
@@ -316,9 +302,9 @@ export function adminRouter<
   }
 
   /**
-   * SEC-010 mutation gate: identical to {@link gate} but emits an
-   * `onAdminMutation` event after the handler resolves or rejects. Uses
-   * try/finally so the hook fires even when the handler throws.
+   * Mutation gate: identical to {@link gate} but emits an `onAdminMutation`
+   * event after the handler resolves or rejects. Uses try/finally so the
+   * hook fires even when the handler throws.
    */
   const mutate =
     (
@@ -328,7 +314,7 @@ export function adminRouter<
       handler: (req: Req, res: Res) => Promise<void>,
     ) =>
     async (req: Req, res: Res) => {
-      // DEBT-4: shared CSRF + authorize phase.
+      // Shared CSRF + authorize phase.
       const authz = await runAdminAuthz(req, effectiveCsrfCheck, authorize)
       if (authz.phase === 'forbidden') return onForbidden(res)
       if (authz.phase === 'unauthorized') return onUnauthorized(req, res)

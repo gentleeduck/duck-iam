@@ -23,7 +23,6 @@
  * buildPermissionKey('read', 'doc', 'doc_1', 'tenant_a')
  * // 'tenant_a:read:doc:doc_1'
  * ```
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function buildPermissionKey(action: string, resource: string, resourceId?: string, scope?: string): string {
   const e = escapeSegment
@@ -44,11 +43,10 @@ function escapeSegment(s: string): string {
  * Splits a permission key produced by {@link buildPermissionKey} into its
  * original segments, honouring the `\:` and `\\` escape sequences. Naive
  * `.split(':')` would mis-tokenise any segment containing a literal `:` or
- * `\`. SEC-104.
+ * `\`.
  *
  * @param key - Permission key, e.g. `'read:document'` or `'tenant_a:write:doc\\:42'`.
  * @returns Array of unescaped segments in declaration order.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function splitPermissionKey(key: string): string[] {
   const out: string[] = []

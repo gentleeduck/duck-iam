@@ -27,8 +27,6 @@ import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'dr
  * Defines the Drizzle Postgres table for stored policies.
  *
  * JSON columns (`rules`, `targets`) carry the policy payload.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessPolicies = pgTable('access_policies', {
   id: text('id').primaryKey(),
@@ -49,8 +47,6 @@ export const accessPolicies = pgTable('access_policies', {
  * Defines the Drizzle Postgres table for stored roles.
  *
  * `inherits` is a `text[]` column for fast lookups.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessRoles = pgTable('access_roles', {
   id: text('id').primaryKey(),
@@ -71,8 +67,6 @@ export const accessRoles = pgTable('access_roles', {
  * Defines the Drizzle Postgres table for subject-to-role assignments.
  *
  * Unique on `(subject_id, role_id, scope)`.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessAssignments = pgTable(
   'access_assignments',
@@ -97,8 +91,6 @@ export const accessAssignments = pgTable(
  * Defines the Drizzle Postgres table for per-subject attribute bags.
  *
  * One row per subject.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const accessSubjectAttrs = pgTable('access_subject_attrs', {
   subjectId: text('subject_id').primaryKey(),

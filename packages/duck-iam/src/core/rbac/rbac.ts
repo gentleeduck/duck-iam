@@ -8,8 +8,6 @@ import type { AccessControl } from '../types'
  * Roles past this depth are silently dropped from the resolved set. Override
  * is intentionally not exposed: a single hard limit keeps every adapter and
  * validator in agreement. Bump here if your role graph legitimately exceeds 32.
- *
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export const MAX_INHERITANCE_DEPTH = 32
 
@@ -44,7 +42,6 @@ function collectPermissions(
  *
  * @param roles - Every role definition (resolved separately of subject assignment).
  * @returns A synthetic {@link AccessControl.IPolicy} with one allow rule per permission.
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function rolesToPolicy(roles: AccessControl.IRole[]): AccessControl.IPolicy {
   const rolesMap = new Map(roles.map((r) => [r.id, r]))
@@ -113,7 +110,6 @@ export function rolesToPolicy(roles: AccessControl.IRole[]): AccessControl.IPoli
  * @param assignedRoles Role IDs directly assigned to the subject.
  * @param allRoles      Every role definition, used to resolve `inherits`.
  * @returns Closed set of effective role IDs (assigned + inherited).
- * @author wildduck2 <https://github.com/wildduck2>
  */
 export function resolveEffectiveRoles(assignedRoles: string[], allRoles: AccessControl.IRole[]): string[] {
   const rolesMap = new Map(allRoles.map((r) => [r.id, r]))
