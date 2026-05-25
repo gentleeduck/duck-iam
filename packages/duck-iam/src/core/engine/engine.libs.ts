@@ -1,5 +1,21 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../types'
+import { validatePolicy, validateRole } from '../validate'
+import type { Validate } from '../validate/validate.types'
 import type { EngineTypes } from './engine.types'
+
+/**
+ * Throw if the validate result has any `error`-type issue.
+ *
+ * Admin write paths run this before persisting so a hostile or buggy admin
+ * UI cannot store a policy that the read-side validators (`_safeParsePolicy`
+ * in file/redis/drizzle) would silently drop, leaving the tenant with zero
+ * policies and the `defaultEffect` in charge of every request.
+ */
+function assertValidOrThrow(kind: 'policy' | 'role', result: Validate.IResult): void {
+  if (result.valid) return
+  const errs = result.issues.filter((i) => i.type === 'error').map((i) => i.message)
+  throw new Error(`duck-iam: ${kind} rejected by validator — ${errs.join('; ')}`)
+}
 
 /**
  * Recursively freeze a policy's rules, condition groups, and condition leaves.
@@ -106,6 +122,7 @@ export function createAdmin<
       return adapter.getPolicy(id)
     },
     async savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>) {
+      assertValidOrThrow('policy', validatePolicy(policy))
       await adapter.savePolicy(policy)
       engine.invalidatePolicies()
     },
@@ -120,6 +137,7 @@ export function createAdmin<
       return adapter.getRole(id)
     },
     async saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
+      assertValidOrThrow('role', validateRole(role))
       await adapter.saveRole(role)
       engine.invalidateRoles(role.id)
     },
@@ -180,8 +198,14 @@ export function createAdmin<
           }
         }
       }
-      for (const p of snapshot.policies) await adapter.savePolicy(p)
-      for (const r of snapshot.roles) await adapter.saveRole(r)
+      for (const p of snapshot.policies) {
+        assertValidOrThrow('policy', validatePolicy(p))
+        await adapter.savePolicy(p)
+      }
+      for (const r of snapshot.roles) {
+        assertValidOrThrow('role', validateRole(r))
+        await adapter.saveRole(r)
+      }
       // Bulk write touched every cache; invalidate once instead of per-row.
       engine.invalidatePolicies()
       engine.invalidateRoles()
