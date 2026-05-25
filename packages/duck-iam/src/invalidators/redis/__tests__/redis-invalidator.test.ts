@@ -202,6 +202,29 @@ describe('createRedisInvalidator (SEC-005)', () => {
     expect(src).toMatch(/\btimingSafeEqual\b/)
   })
 
+  it('warn-coalesce window: bursts of drops surface a single warn + suppressed count (SEC-032)', () => {
+    // Before SEC-032: first drop per channel warned, all subsequent silent.
+    // After SEC-032: first drop warns + opens a 60s window; further drops in
+    // the window are counted but silent; next drop after the window warns
+    // again with the suppressed count.
+    const bus = makeBus()
+    const ch = `t-coalesce-${Math.random().toString(36).slice(2)}`
+    const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+    inv.subscribe(() => {})
+
+    const dropMsg = JSON.stringify({ v: 1, sig: 'aa', payload: { instanceId: 'x', event: { kind: 'all' } } })
+    bus.publish(dropMsg)
+    bus.publish(dropMsg)
+    bus.publish(dropMsg)
+    bus.publish(dropMsg)
+    const warns = warnSpy.mock.calls
+      .map((c: unknown[]) => String(c[0] ?? ''))
+      .filter((m: string) => m.includes(JSON.stringify(ch)))
+    // Exactly one warn within the window; subsequent drops coalesced.
+    expect(warns.length).toBe(1)
+    expect(warns[0]).toMatch(/coalesced/)
+  })
+
   it('drops self-published messages (instanceId guard, unchanged from P0)', () => {
     const bus = makeBus()
     const ch = `t-self-${Math.random().toString(36).slice(2)}`

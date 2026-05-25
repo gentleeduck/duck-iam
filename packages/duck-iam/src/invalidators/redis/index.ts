@@ -100,8 +100,17 @@ const ENVELOPE_V = 1
 /** Module-level latch for the unsigned-mode warning. Fires at most once per process. */
 const _UNSIGNED_WARNED = { fired: false }
 
-/** Module-level set keyed by channel for per-channel "dropped" warnings. */
-const _DROP_WARNED_CHANNELS = new Set<string>()
+/**
+ * SEC-032: per-channel rate-limited warn state. A previous one-shot latch
+ * let an attacker burn the first warn on a benign reason (e.g. a stray
+ * invalid-JSON probe) and then silently flood the channel with hostile
+ * payloads. The current shape rate-limits warns at SEC-032-tunable
+ * intervals and surfaces a coalesced suppressed-count so operators see
+ * sustained abuse instead of silence.
+ */
+const _DROP_WARN_STATE = new Map<string, { lastWarn: number; suppressed: number }>()
+/** Minimum gap between drop warns for a single channel. */
+const DROP_WARN_WINDOW_MS = 60_000
 
 /**
  * SEC-031 guard limits applied to incoming wire messages BEFORE the HMAC
@@ -253,10 +262,25 @@ export function createRedisInvalidator<TRole extends string = string>(
   }
 
   function warnDropOnce(channelName: string, reason: string): void {
-    if (_DROP_WARNED_CHANNELS.has(channelName)) return
-    _DROP_WARNED_CHANNELS.add(channelName)
+    const now = Date.now()
+    const state = _DROP_WARN_STATE.get(channelName)
+    if (!state) {
+      _DROP_WARN_STATE.set(channelName, { lastWarn: now, suppressed: 0 })
+      console.warn(
+        `duck-iam createRedisInvalidator: dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). Further drops within ${DROP_WARN_WINDOW_MS}ms are coalesced.`,
+      )
+      return
+    }
+    if (now - state.lastWarn < DROP_WARN_WINDOW_MS) {
+      state.suppressed++
+      return
+    }
+    // Window elapsed; surface the suppressed count so operators see sustained abuse.
+    const suppressed = state.suppressed
+    state.lastWarn = now
+    state.suppressed = 0
     console.warn(
-      `duck-iam createRedisInvalidator: dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). Further drops on this channel silenced.`,
+      `duck-iam createRedisInvalidator: dropping unverifiable message on channel ${JSON.stringify(channelName)} (${reason}). ${suppressed} prior drops coalesced.`,
     )
   }
 
