@@ -16,9 +16,9 @@ import { evaluate, evaluatePolicy } from '../src/core/evaluate'
 import type { AccessRequest, Policy } from '../src/core/types'
 
 const OUT_DIR = join(import.meta.dirname, '..', 'public', 'benchmarks')
-const DOCS_DIR = join(import.meta.dirname, '..', '..', '..', 'apps', 'duck', 'public', 'data', 'benchmarks')
+// const DOCS_DIR = join(import.meta.dirname, '..', '..', '..', 'apps', 'duck', 'public', 'data', 'benchmarks')
 mkdirSync(OUT_DIR, { recursive: true })
-mkdirSync(DOCS_DIR, { recursive: true })
+// mkdirSync(DOCS_DIR, { recursive: true })
 
 function bench(fn: () => void, warmup = 200, iterations = 2000): number {
   for (let i = 0; i < warmup; i++) fn()
@@ -525,11 +525,11 @@ const results = {
 
 const json = JSON.stringify(results, null, 2)
 writeFileSync(join(OUT_DIR, 'results.json'), json)
-writeFileSync(join(DOCS_DIR, 'iam.json'), json)
+// writeFileSync(join(DOCS_DIR, 'iam.json'), json)
 
 console.log('IAM benchmarks generated:')
 console.log(`  ${OUT_DIR}/results.json`)
-console.log(`  ${DOCS_DIR}/iam.json`)
+// console.log(`  ${DOCS_DIR}/iam.json`)
 console.log()
 
 console.log('Core Performance (pure evaluation, no I/O):')

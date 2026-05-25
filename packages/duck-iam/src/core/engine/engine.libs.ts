@@ -193,9 +193,11 @@ export function createAdmin<
 >(
   adapter: Adapter.IAdapter<TAction, TResource, TRole, TScope>,
   engine: {
-    invalidatePolicies(): void
-    invalidateRoles(roleId?: TRole): void
-    invalidateSubject(subjectId: string): void
+    cache: {
+      invalidatePolicies(): void
+      invalidateRoles(roleId?: TRole): void
+      invalidateSubject(subjectId: string): void
+    }
   },
 ): EngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
   return {
@@ -209,11 +211,11 @@ export function createAdmin<
       const { validatePolicy } = await _getValidate()
       assertValidOrThrow('policy', validatePolicy(policy))
       await adapter.savePolicy(policy)
-      engine.invalidatePolicies()
+      engine.cache.invalidatePolicies()
     },
     async deletePolicy(id: string) {
       await adapter.deletePolicy(id)
-      engine.invalidatePolicies()
+      engine.cache.invalidatePolicies()
     },
     async listRoles() {
       return adapter.listRoles()
@@ -225,23 +227,23 @@ export function createAdmin<
       const { validateRole } = await _getValidate()
       assertValidOrThrow('role', validateRole(role))
       await adapter.saveRole(role)
-      engine.invalidateRoles(role.id)
+      engine.cache.invalidateRoles(role.id)
     },
     async deleteRole(id: string) {
       await adapter.deleteRole(id)
-      engine.invalidateRoles(id as TRole)
+      engine.cache.invalidateRoles(id as TRole)
     },
     async assignRole(subjectId: string, roleId: TRole, scope?: TScope) {
       await adapter.assignRole(subjectId, roleId, scope)
-      engine.invalidateSubject(subjectId)
+      engine.cache.invalidateSubject(subjectId)
     },
     async revokeRole(subjectId: string, roleId: TRole, scope?: TScope) {
       await adapter.revokeRole(subjectId, roleId, scope)
-      engine.invalidateSubject(subjectId)
+      engine.cache.invalidateSubject(subjectId)
     },
     async setAttributes(subjectId: string, attrs: Primitives.Attributes) {
       await adapter.setSubjectAttributes(subjectId, attrs)
-      engine.invalidateSubject(subjectId)
+      engine.cache.invalidateSubject(subjectId)
     },
     async getAttributes(subjectId: string) {
       return adapter.getSubjectAttributes(subjectId)
@@ -294,8 +296,8 @@ export function createAdmin<
         await adapter.saveRole(r)
       }
       // Bulk write touched every cache; invalidate once instead of per-row.
-      engine.invalidatePolicies()
-      engine.invalidateRoles()
+      engine.cache.invalidatePolicies()
+      engine.cache.invalidateRoles()
       return {
         policiesAdded: snapshot.policies.length,
         policiesDeleted,

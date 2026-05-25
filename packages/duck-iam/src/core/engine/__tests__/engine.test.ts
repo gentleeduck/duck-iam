@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import type { AccessControl, Client, Request } from '../../types'
-import { Engine } from '../engine'
+import { Engine, flushSharedCaches } from '../engine'
 
 // -- Test setup --
 
@@ -444,7 +444,7 @@ describe('Engine.admin - CRUD operations', () => {
     expect(await engine.can('user-new', 'read', { type: 'post', attributes: {} })).toBe(true)
 
     await engine.admin.revokeRole('user-new', 'viewer')
-    engine.invalidate()
+    engine.cache.invalidate()
     expect(await engine.can('user-new', 'read', { type: 'post', attributes: {} })).toBe(false)
   })
 
@@ -800,7 +800,7 @@ describe('Engine - stats', () => {
 
     // First call: every cache misses then populates.
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    let s = engine.stats()
+    let s = engine.stats.get()
     expect(s.policies.misses).toBeGreaterThan(0)
     expect(s.policies.size).toBe(1)
     expect(s.mergedPolicies.misses).toBeGreaterThan(0)
@@ -808,7 +808,7 @@ describe('Engine - stats', () => {
     // Second call: merged policies + subjects should hit; underlying caches
     // are reached only on merged-miss so their hit counters stay low.
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    s = engine.stats()
+    s = engine.stats.get()
     expect(s.mergedPolicies.hits).toBeGreaterThan(0)
     expect(s.subjects.hits).toBeGreaterThan(0)
   })
@@ -820,8 +820,8 @@ describe('Engine - stats', () => {
     })
     const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    engine.resetStats()
-    const s = engine.stats()
+    engine.stats.reset()
+    const s = engine.stats.get()
     expect(s.policies.hits + s.policies.misses).toBe(0)
     expect(s.subjects.hits + s.subjects.misses).toBe(0)
   })
@@ -1147,7 +1147,7 @@ describe('Engine - cache invalidation', () => {
 
     // Before invalidation: still using cached subject (only has viewer)
     // After invalidation: should pick up the new role
-    engine.invalidate()
+    engine.cache.invalidate()
     expect(await engine.can('user-1', 'create', { type: 'post', attributes: {} })).toBe(true)
   })
 
@@ -1178,7 +1178,7 @@ describe('Engine - cache invalidation', () => {
     }
 
     // Mutate the editor role; only editor-holders should be evicted.
-    engine.invalidateRoles('editor' as RoleId)
+    engine.cache.invalidateRoles('editor' as RoleId)
 
     await engine.can('user-viewer-only', 'read', { type: 'post', attributes: {} })
     await engine.can('user-editor', 'read', { type: 'post', attributes: {} })
@@ -1203,7 +1203,7 @@ describe('Engine - cache invalidation', () => {
       return orig(id)
     }
 
-    engine.invalidateRoles()
+    engine.cache.invalidateRoles()
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
     expect(calls).toBe(1)
   })
@@ -1281,7 +1281,7 @@ describe('Engine - cache invalidation', () => {
       return origPolicies()
     }
     const pending = engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    engine.invalidatePolicies()
+    engine.cache.invalidatePolicies()
     await pending
     // Engine still resolves correctly after the narrow invalidate races the loader.
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
@@ -1299,7 +1299,7 @@ describe('Engine - cache invalidation', () => {
       return origRoles()
     }
     const pending = engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    engine.invalidateRoles()
+    engine.cache.invalidateRoles()
     await pending
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
@@ -1329,15 +1329,14 @@ describe('Engine - cache invalidation', () => {
     expect(b.path.size).toBeGreaterThan(0)
   })
 
-  it('flushSharedCaches drops process-wide regex + path caches (SEC-050)', async () => {
+  it('module-level flushSharedCaches drops process-wide regex + path caches (SEC-050)', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
     const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
-    // Method exists, callable, returns void without throwing.
-    expect(typeof engine.flushSharedCaches).toBe('function')
-    engine.flushSharedCaches()
+    expect(typeof flushSharedCaches).toBe('function')
+    flushSharedCaches()
     // Subsequent eval still works after flush (lazy re-populate).
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
@@ -1357,7 +1356,7 @@ describe('Engine - cache invalidation', () => {
     // the next call (otherwise _resolveSubject's first microtask hides the
     // race window we want to hit).
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    engine.invalidatePolicies()
+    engine.cache.invalidatePolicies()
 
     const origPolicies = adapter.listPolicies.bind(adapter)
     adapter.listPolicies = async () => {
@@ -1369,7 +1368,7 @@ describe('Engine - cache invalidation', () => {
     // Yield once so the merger sets `_mergedInFlight = pending` before invalidate.
     await Promise.resolve()
     await Promise.resolve()
-    engine.invalidatePolicies()
+    engine.cache.invalidatePolicies()
     await pending
 
     const cache = (engine as unknown as { _mergedPolicyCache: { get(k: string): unknown } })._mergedPolicyCache
@@ -1415,7 +1414,7 @@ describe('Engine - cache invalidation', () => {
     }
 
     const pending = engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    engine.invalidate() // mid-flight
+    engine.cache.invalidate() // mid-flight
     await expect(pending).resolves.toBe(true)
     // Post-race: engine remains functional and reflects the live adapter state.
     await adapter.savePolicy({
@@ -1426,7 +1425,7 @@ describe('Engine - cache invalidation', () => {
         { id: 'r-deny', effect: 'deny', priority: 10, actions: ['read'], resources: ['post'], conditions: { all: [] } },
       ],
     })
-    engine.invalidatePolicies()
+    engine.cache.invalidatePolicies()
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(false)
   })
 
@@ -1448,7 +1447,7 @@ describe('Engine - cache invalidation', () => {
       return orig(id)
     }
 
-    engine.invalidateRoles('viewer' as RoleId)
+    engine.cache.invalidateRoles('viewer' as RoleId)
     await engine.can('user-admin', 'read', { type: 'post', attributes: {} })
     expect(calls).toBe(1)
   })
@@ -1587,7 +1586,7 @@ describe('Engine - cross-instance invalidator (B2)', () => {
     }
 
     // A invalidates locally -> publishes -> B drops its caches.
-    engineA.invalidatePolicies()
+    engineA.cache.invalidatePolicies()
 
     await engineB.can('u1', 'read', { type: 'post', attributes: {} })
     expect(listCallsB).toBe(1)
@@ -1611,7 +1610,7 @@ describe('Engine - cross-instance invalidator (B2)', () => {
       return orig(opts)
     }
     await engine.can('u', 'read', { type: 'post', attributes: {} })
-    engine.invalidatePolicies()
+    engine.cache.invalidatePolicies()
     await engine.can('u', 'read', { type: 'post', attributes: {} })
     // The single publish goes to the bus and back into our subscription.
     // Bus-handler applies invalidate with `broadcast: false`. We expect: warm
