@@ -180,6 +180,11 @@ export class SessionsFacet {
     }
   }
 
+  /** Resolve a plaintext SID to its session row (no identity join). */
+  async getBySid(sid: string): Promise<Session.ISession | null> {
+    return this._store.getByHash(sha256(sid))
+  }
+
   /** Refresh expiresAt by ttlMs without rotating the SID. Stops fresh-window slip. */
   async touch(sid: string): Promise<Session.ISession | null> {
     const hash = sha256(sid)

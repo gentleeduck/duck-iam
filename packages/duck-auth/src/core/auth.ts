@@ -113,6 +113,8 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
           timingSafeEqual,
         },
       }),
+      this.passwords,
+      this.mfa,
       DEFAULT_FLOWS_CONFIG,
     )
   }
