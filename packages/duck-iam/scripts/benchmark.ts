@@ -254,25 +254,37 @@ function measureEntryWithDeps(entryFile: string): number {
   }
 
   try {
-    // Read the entry file to find shared chunk imports
-    const content = execSync(`cat "${fullPath}"`, { encoding: 'utf-8' })
-    const importMatches = content.match(/from\s+['"]\.\/([^'"]+)['"]/g) || []
-    const files = [fullPath]
-
-    for (const imp of importMatches) {
-      const match = imp.match(/from\s+['"]\.\/([^'"]+)['"]/)
-      if (match?.[1]) {
-        const depPath = join(distDir, match[1])
+    // BFS through import chain so transitively-included chunks count.
+    const seen = new Set<string>([fullPath])
+    const queue: string[] = [fullPath]
+    while (queue.length > 0) {
+      const f = queue.shift()!
+      let content: string
+      try {
+        content = execSync(`cat "${f}"`, { encoding: 'utf-8' })
+      } catch {
+        continue
+      }
+      const fileDir = f.substring(0, f.lastIndexOf('/'))
+      const importMatches = content.match(/from\s+['"]([^'"]+)['"]/g) || []
+      for (const imp of importMatches) {
+        const m = imp.match(/from\s+['"]([^'"]+)['"]/)
+        if (!m?.[1]) continue
+        const ref = m[1]
+        // Only resolve relative imports against this file's directory.
+        if (!ref.startsWith('./') && !ref.startsWith('../')) continue
+        const resolved = join(fileDir, ref)
+        if (seen.has(resolved)) continue
         try {
-          statSync(depPath)
-          files.push(depPath)
+          statSync(resolved)
+          seen.add(resolved)
+          queue.push(resolved)
         } catch {
-          // skip missing files
+          // skip non-JS or missing
         }
       }
     }
-
-    const gz = execSync(`cat ${files.map((f) => `"${f}"`).join(' ')} | gzip -c | wc -c`, {
+    const gz = execSync(`cat ${Array.from(seen).map((f) => `"${f}"`).join(' ')} | gzip -c | wc -c`, {
       encoding: 'utf-8',
     }).trim()
     return Number.parseInt(gz, 10)
