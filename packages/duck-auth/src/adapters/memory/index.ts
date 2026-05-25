@@ -156,10 +156,7 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
       create: async (s) => {
         store.set(s.id, s)
       },
-      getByHash: async (sidHash) => {
-        for (const s of store.values()) if (s.id === sidHash || s.csrfHash === sidHash) return s
-        return null
-      },
+      getByHash: async (sidHash) => store.get(sidHash) ?? null,
       update: async (id, patch) => {
         const cur = store.get(id)
         if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
