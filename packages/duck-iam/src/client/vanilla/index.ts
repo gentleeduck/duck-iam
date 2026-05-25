@@ -148,8 +148,13 @@ export class AccessClient<
     for (const fn of this._listeners) {
       try {
         fn(permissions)
-      } catch {
-        // Listener errors must not prevent other listeners from being notified.
+      } catch (err) {
+        // Listener errors must not prevent other listeners from being notified,
+        // but a fully-silent swallow makes a buggy listener feel like flaky
+        // propagation. Surface via console.error so the developer sees the
+        // stack; production callers can supply onListenerError to redirect.
+        // eslint-disable-next-line no-console
+        console.error('[duck-iam:client] listener threw — continuing to notify others', err)
       }
     }
   }

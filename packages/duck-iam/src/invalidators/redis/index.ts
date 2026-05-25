@@ -74,6 +74,14 @@ export namespace RedisInvalidator {
      * caches in that mode; set a secret in production.
      */
     secret?: string | null
+    /**
+     * Invoked when the underlying `client.publish(...)` throws. The publish
+     * failure is non-fatal for the local engine (it already applied the
+     * invalidation), but cross-instance invalidations are lost — wire this
+     * to your alerting pipeline so a long-lived Redis outage does not
+     * silently desync caches across nodes.
+     */
+    onPublishError?: (err: Error, channel: string) => void
   }
 }
 
@@ -313,10 +321,21 @@ export function createRedisInvalidator<TRole extends string = string>(
       }
       try {
         config.client.publish(channel, payload)
-      } catch {
+      } catch (err) {
         // Publish failure is non-fatal: local invalidate already applied,
-        // remote nodes will pick up the change on TTL. Swallowing matches
-        // the same fail-soft contract used by `engine.hooks.onError`.
+        // remote nodes will pick up the change on TTL. Route to operator's
+        // onPublishError hook so a long-lived outage doesn't silently
+        // desync caches across nodes; fall back to a single rate-limited
+        // console.warn line so a missing hook is not totally silent.
+        const error = err instanceof Error ? err : new Error(String(err))
+        try {
+          config.onPublishError?.(error, channel)
+        } catch {
+          /* operator hook itself threw — preserve fail-soft contract */
+        }
+        if (!config.onPublishError) {
+          warnDropOnce(channel, `publish failed (${error.message})`)
+        }
       }
     },
     subscribe(handler) {
@@ -419,9 +438,15 @@ function parseIncoming<TRole extends string>(
     }
     // Shape-check inner payload.
     const inner = payload as Record<string, unknown>
-    if (typeof inner.instanceId !== 'string') return null
+    if (typeof inner.instanceId !== 'string') {
+      warnDropOnce(channel, 'malformed inner payload (instanceId)')
+      return null
+    }
     const ev = inner.event
-    if (!_isValidEvent(ev)) return null
+    if (!_isValidEvent(ev)) {
+      warnDropOnce(channel, 'malformed inner payload (event)')
+      return null
+    }
     return { event: ev as EngineTypes.IInvalidateEvent<TRole>, instanceId: inner.instanceId }
   }
 
@@ -430,9 +455,15 @@ function parseIncoming<TRole extends string>(
     warnDropOnce(channel, 'unsigned message with secret configured')
     return null
   }
-  if (typeof obj.instanceId !== 'string') return null
+  if (typeof obj.instanceId !== 'string') {
+    warnDropOnce(channel, 'malformed legacy payload (instanceId)')
+    return null
+  }
   const ev = obj.event
-  if (!_isValidEvent(ev)) return null
+  if (!_isValidEvent(ev)) {
+    warnDropOnce(channel, 'malformed legacy payload (event)')
+    return null
+  }
   return { event: ev as EngineTypes.IInvalidateEvent<TRole>, instanceId: obj.instanceId }
 }
 
