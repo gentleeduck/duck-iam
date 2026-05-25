@@ -52,6 +52,12 @@ export namespace Metrics {
     readonly allow: number
     /** Number of deny verdicts. */
     readonly deny: number
+    /**
+     * Number of allow verdicts that were attributable solely to the engine's
+     * `defaultEffect: 'allow'` fallback (no applicable policy fired). Subset
+     * of {@link allow}. Chart this to detect silent policy-set breakage. SEC-044.
+     */
+    readonly failOpen: number
     /** p50 latency in milliseconds over the rolling window. */
     readonly p50: number
     /** p95 latency in milliseconds over the rolling window. */
@@ -122,19 +128,21 @@ export function createMetricsAggregator(config: Metrics.IConfig = {}): Metrics.I
   let total = 0
   let allow = 0
   let deny = 0
+  let failOpen = 0
 
   return {
     record(event) {
       total++
       if (event.allowed) allow++
       else deny++
+      if (event.failOpen) failOpen++
       buf[head] = event.durationMs
       head = (head + 1) % cap
       if (count < cap) count++
     },
     snapshot() {
       if (count === 0) {
-        return { total, allow, deny, p50: 0, p95: 0, p99: 0, max: 0, samples: 0 }
+        return { total, allow, deny, failOpen, p50: 0, p95: 0, p99: 0, max: 0, samples: 0 }
       }
       // Copy the live region of the ring buffer + sort to compute percentiles.
       // O(n log n) per snapshot; fine at the cap (<= 1000) and avoids a
@@ -145,6 +153,7 @@ export function createMetricsAggregator(config: Metrics.IConfig = {}): Metrics.I
         total,
         allow,
         deny,
+        failOpen,
         p50: percentile(sorted, 0.5),
         p95: percentile(sorted, 0.95),
         p99: percentile(sorted, 0.99),
@@ -158,6 +167,7 @@ export function createMetricsAggregator(config: Metrics.IConfig = {}): Metrics.I
       total = 0
       allow = 0
       deny = 0
+      failOpen = 0
     },
   }
 }

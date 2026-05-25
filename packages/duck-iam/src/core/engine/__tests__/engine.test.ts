@@ -825,6 +825,38 @@ describe('Engine - construction guards', () => {
     }
     expect(warnings.some((w) => /fail-open/i.test(w))).toBe(true)
   })
+
+  it('onMetrics receives failOpen=true when verdict came from defaultEffect fallback (SEC-044)', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [],
+      assignments: { 'user-1': [] as RoleId[] },
+    })
+    const events: Array<{ allowed: boolean; failOpen: boolean }> = []
+    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+      adapter,
+      defaultEffect: 'allow',
+      allowFailOpen: true,
+      hooks: { onMetrics: (e) => events.push({ allowed: e.allowed, failOpen: e.failOpen }) },
+    })
+    await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toEqual({ allowed: true, failOpen: true })
+  })
+
+  it('onMetrics receives failOpen=false when verdict came from an explicit allow rule (SEC-044)', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+    })
+    const events: Array<{ allowed: boolean; failOpen: boolean }> = []
+    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+      adapter,
+      hooks: { onMetrics: (e) => events.push({ allowed: e.allowed, failOpen: e.failOpen }) },
+    })
+    await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+    expect(events).toHaveLength(1)
+    expect(events[0]).toEqual({ allowed: true, failOpen: false })
+  })
 })
 
 describe('Engine - DoS bounds at load time (B5)', () => {

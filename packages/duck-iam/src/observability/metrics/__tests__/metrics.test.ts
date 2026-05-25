@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { EngineTypes } from '../../../core/engine/engine.types'
 import { createMetricsAggregator } from '../index'
 
-function fakeEvent(durationMs: number, allowed = true): EngineTypes.IMetricsEvent {
+function fakeEvent(durationMs: number, allowed = true, failOpen = false): EngineTypes.IMetricsEvent {
   return {
     subjectId: 'u',
     action: 'read',
@@ -10,6 +10,7 @@ function fakeEvent(durationMs: number, allowed = true): EngineTypes.IMetricsEven
     allowed,
     durationMs,
     mode: 'production',
+    failOpen,
   }
 }
 
@@ -63,6 +64,28 @@ describe('createMetricsAggregator', () => {
   it('returns zeros on empty window', () => {
     const m = createMetricsAggregator()
     const s = m.snapshot()
-    expect(s).toEqual({ total: 0, allow: 0, deny: 0, p50: 0, p95: 0, p99: 0, max: 0, samples: 0 })
+    expect(s).toEqual({ total: 0, allow: 0, deny: 0, failOpen: 0, p50: 0, p95: 0, p99: 0, max: 0, samples: 0 })
+  })
+
+  it('counts failOpen as a subset of allow (SEC-044)', () => {
+    const m = createMetricsAggregator()
+    // 5 normal allows
+    for (let i = 0; i < 5; i++) m.record(fakeEvent(1, true, false))
+    // 3 fail-open allows
+    for (let i = 0; i < 3; i++) m.record(fakeEvent(1, true, true))
+    // 2 denies
+    for (let i = 0; i < 2; i++) m.record(fakeEvent(1, false, false))
+    const s = m.snapshot()
+    expect(s.allow).toBe(8)
+    expect(s.deny).toBe(2)
+    expect(s.failOpen).toBe(3)
+    expect(s.total).toBe(10)
+  })
+
+  it('reset zeroes failOpen counter (SEC-044)', () => {
+    const m = createMetricsAggregator()
+    m.record(fakeEvent(1, true, true))
+    m.reset()
+    expect(m.snapshot().failOpen).toBe(0)
   })
 })
