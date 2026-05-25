@@ -225,3 +225,61 @@ silent failures in an authorization path either deny everything or
 allow everything, both customer-visible outages. Use
 `createMetricsAggregator()` to chart `failOpen` rate as a
 silent-policy-breakage alarm.
+
+---
+
+## Code-level Security Annotations (SEC-XXX catalog)
+
+DEBT-9: the source carries `// SEC-XXX:` reference comments at each
+hardened site. This catalog lists every SEC-ID with a one-line summary
+so a reader can browse the catalog without grepping. Full rationale
+lives in CHANGELOG.md (2.0.0 + 2.1.0 sections) plus git blame on the
+fix commit.
+
+| ID | Class | Summary |
+|---|---|---|
+| SEC-001 | SSRF / scheme | HTTP adapter `baseUrl` scheme + private-IP + allowedHosts validation |
+| SEC-003 | Path traversal | File adapter rejects `..` segments + rootDir containment |
+| SEC-007 | Resource match | Literal-only `matchesResource` semantics; `:*` required for hierarchy |
+| SEC-010 | Audit | `onAdminMutation` fires across all server adapters |
+| SEC-019 | Encoding | Redis assignment separator is NUL byte (not space) |
+| SEC-020 / SEC-022 / SEC-034 | ReDoS | `matches` operator regex cap + UTF-8 byte length |
+| SEC-021 | Devtools leak | Devtools default-block when no dev-mode signal |
+| SEC-024 | Race | Redis `_runSerialised` per assignments key (single-process) |
+| SEC-025 | TOCTOU | File `_assertWithinRoot` per-I/O re-check (drops one-shot latch) |
+| SEC-026 | Log spam | File rootDir warn module-global once-per-process latch |
+| SEC-027 | Path exfil | File warn omits resolved path (request-derived oracle) |
+| SEC-028 .. SEC-030 / SEC-035 .. SEC-038 | SSRF v6 | IPv4-mapped, 6to4, NAT64, `::`, `0.0.0.0`, IDN normalisation |
+| SEC-031 / SEC-034 | DoS | Redis invalidator pre-auth size + depth + UTF-8 byte cap |
+| SEC-032 | Warn silencing | Invalidator per-channel rate-limited warn (replaces one-shot latch) |
+| SEC-039 .. SEC-041 | Audit leakage | redactPath / onAuditHookError / err.message sanitisation |
+| SEC-042 | SSRF redirect | HTTP adapter `redirect: 'error'` on fetch |
+| SEC-043 | Validation | Admin write path runs `validatePolicy` / `validateRole` before persist |
+| SEC-044 | Observability | `failOpen` field on `IMetricsEvent` + aggregator counter |
+| SEC-045 | Race | `_mergedInFlight` sentinel on `_loadAllPolicies` |
+| SEC-046 | Auth bypass | Redis invalidator drops v:1 envelope when secret unset |
+| SEC-047 | Audit leakage | `errorToAuditString` non-Error tag + 256-char cap |
+| SEC-048 | Namespacing | Devtools localStorage prefix vendor-namespaced |
+| SEC-050 | Multi-tenant DoS | Regex + path cache flush via `flushSharedCaches()` |
+| SEC-051 | Observability | `permissions()` fires `onMetrics` per check |
+| SEC-052 | Error leakage | Validator throw text uses codes, not user values |
+| SEC-053 | Symlink bypass | File realpath fallback gated on `code === 'ENOENT'` |
+| SEC-054 | Fail-open | File load throws on non-ENOENT instead of silently emptying |
+| SEC-055 / SEC-065 / SEC-066 | Hook escape | `_safeHookCall` wraps every operator hook; double-wrapped `console.error` |
+| SEC-056 | Decision rewrite | Trailing hooks (`afterEvaluate`/`onDeny`) outside evaluation try |
+| SEC-057 | Silent drop | `permissions()` forwards `onPolicyError` to evaluator |
+| SEC-058 | Silent ABAC deny | Redis/Drizzle attrs throw on corruption (not silent `{}`) |
+| SEC-059 | Cross-backend drift | `getSubjectRoles` unscoped-only across all adapters |
+| SEC-063 | Adapter DoS | File `_loadInFlight` cleared on any throw (was stuck-rejection) |
+| SEC-064 | Data destruction | File parse-fail throws (was silent `{}` → overwrite on flush) |
+| SEC-067 | Admin lockout | `setSubjectAttributes` recovers from corrupt existing blob |
+| SEC-068 | HTTP contract | HTTP adapter `getSubjectRoles` documents unscoped-only |
+| SEC-069 | Listener swallow | dt/flow.ts notify() console.error on throw |
+| SEC-070 | Fail-closed batch | `permissions()` outer try → all-deny map + `onError` |
+| SEC-101 | Auth bypass | Hono/Next default `getUserId` no longer trusts `x-user-id` header |
+| SEC-103 | CSRF | Admin router default-on `defaultCsrfCheck` (Sec-Fetch-Site) |
+| SEC-104 | Key parser | Vanilla `extractAction` escape-aware via `splitPermissionKey` |
+
+`SEC-002 / 004 / 005 / 006 / 008 / 009 / 011..018 / 023 / 033 / 042 (covered above)` —
+P0/P1 work from 2.0.0; see CHANGELOG.md 2.0.0 section + the `audit/`
+directory in the repo (gitignored; per-commit detail in git log).
