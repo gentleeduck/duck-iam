@@ -121,7 +121,8 @@ at 15-25 KB.
 
 - **`engine.preload()`** - warm cache at boot
 - **`engine.healthCheck()`** - `/healthz`-ready probe with adapter latency + cache hit rate
-- **`engine.stats()` / `resetStats()`** - cache hit / miss counters per cache
+- **`engine.stats.get()` / `engine.stats.reset()`** - cache hit / miss counters per cache
+- **`engine.cache.invalidate()` / `invalidatePolicies()` / `invalidateRoles(id?)` / `invalidateSubject(id)`** - targeted cache flushes
 - **`engine.admin.export()` / `import(snapshot, { mode })`** - schema-versioned policy + role snapshots for env promotion
 - **`engine.dispose()`** - release the cross-instance invalidator subscription on shutdown
 - **`IConfig.adapterTimeoutMs`** - `AbortController`-driven timeout on every adapter read (default 5 s)

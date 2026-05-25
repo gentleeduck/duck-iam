@@ -20,13 +20,10 @@ import type { EngineTypes } from './engine.types'
  * Module-level flush of process-wide compiled-regex and resolved-path caches
  * (the `matches`-operator regex cache and dot-path segment cache).
  *
- * These caches are globals; this helper is the honest surface. The instance
- * method `Engine#flushSharedCaches` delegates here and is deprecated —
- * calling it on one engine also affects every other engine in the process.
- *
- * Multi-tenant operators schedule this periodically to bound any single
- * tenant's eviction influence. Costs: the next request pays one compile
- * per matches-pattern and one segment-split per dot-path.
+ * These caches are globals — every Engine in the process shares them. Multi-
+ * tenant operators schedule this periodically to bound any single tenant's
+ * eviction influence. Costs: the next request pays one compile per
+ * matches-pattern and one segment-split per dot-path.
  *
  * @example
  * ```ts
@@ -100,6 +97,44 @@ export class Engine<
   private _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } = {
     regex: new Map(),
     path: new Map(),
+  }
+
+  /**
+   * Cache invalidation facet. Groups the five cache-management calls so the
+   * Engine API surface stays focused on evaluation. Use after policy/role/
+   * subject mutations to drop stale entries; pass `{ broadcast: false }`
+   * when applying an event received from another instance.
+   *
+   * @since 3.0.0 - replaces the flat `engine.invalidate*` methods.
+   */
+  readonly cache = {
+    /** Clear every cache + in-flight resolver. */
+    invalidate: (opts: { broadcast?: boolean } = {}): void => this._invalidateAll(opts),
+    /** Clear one subject's cached resolved roles + attributes. */
+    invalidateSubject: (subjectId: string, opts: { broadcast?: boolean } = {}): void =>
+      this._invalidateSubject(subjectId, opts),
+    /** Clear cached policies (after policy CRUD). */
+    invalidatePolicies: (opts: { broadcast?: boolean } = {}): void => this._invalidatePolicies(opts),
+    /** Clear cached roles + RBAC policy; selectively drops affected subjects. */
+    invalidateRoles: (roleId?: TRole, opts: { broadcast?: boolean } = {}): void => this._invalidateRoles(roleId, opts),
+  }
+
+  /**
+   * Observability facet. Cache hit/miss/size counters plus a zero op.
+   *
+   * @since 3.0.0 - replaces the flat `engine.stats()` / `engine.resetStats()`.
+   */
+  readonly stats = {
+    /** Snapshot per-cache counters. Counters accumulate from construction. */
+    get: (): {
+      policies: { hits: number; misses: number; size: number }
+      roles: { hits: number; misses: number; size: number }
+      rbacPolicy: { hits: number; misses: number; size: number }
+      mergedPolicies: { hits: number; misses: number; size: number }
+      subjects: { hits: number; misses: number; size: number }
+    } => this._statsSnapshot(),
+    /** Zero the counters returned by {@link stats.get}. */
+    reset: (): void => this._resetStats(),
   }
 
   /**
@@ -208,16 +243,16 @@ export class Engine<
   private _applyInvalidateEvent(event: EngineTypes.IInvalidateEvent<TRole>): void {
     switch (event.kind) {
       case 'all':
-        this.invalidate({ broadcast: false })
+        this._invalidateAll({ broadcast: false })
         return
       case 'policies':
-        this.invalidatePolicies({ broadcast: false })
+        this._invalidatePolicies({ broadcast: false })
         return
       case 'roles':
-        this.invalidateRoles(event.roleId, { broadcast: false })
+        this._invalidateRoles(event.roleId, { broadcast: false })
         return
       case 'subject':
-        this.invalidateSubject(event.subjectId, { broadcast: false })
+        this._invalidateSubject(event.subjectId, { broadcast: false })
     }
   }
 
@@ -871,14 +906,8 @@ export class Engine<
     return this._admin
   }
 
-  /**
-   * Cache hit / miss counters, segmented by cache. Counters accumulate from
-   * construction; call {@link resetStats} to zero them (e.g. for periodic
-   * sampling). Use this to alert on hit-rate regressions in production.
-   *
-   * @returns Per-cache hit/miss/size counters.
-   */
-  stats(): {
+  /** @internal Snapshot per-cache counters. Reached via {@link stats.get}. */
+  private _statsSnapshot(): {
     policies: { hits: number; misses: number; size: number }
     roles: { hits: number; misses: number; size: number }
     rbacPolicy: { hits: number; misses: number; size: number }
@@ -894,10 +923,8 @@ export class Engine<
     }
   }
 
-  /**
-   * Zero the counters returned by {@link stats}.
-   */
-  resetStats(): void {
+  /** @internal Zero per-cache counters. Reached via {@link stats.reset}. */
+  private _resetStats(): void {
     this._policyCache.resetStats()
     this._roleCache.resetStats()
     this._rbacPolicyCache.resetStats()
@@ -905,16 +932,8 @@ export class Engine<
     this._subjectCache.resetStats()
   }
 
-  /**
-   * Clear all caches.
-   *
-   * Also drops in-flight resolver promises: without this, a load started
-   * before the call could settle after the cache clear and silently
-   * re-populate stale data, defeating the invalidation.
-   *
-   * @param opts - Optional flags; set `broadcast: false` to suppress invalidator publish.
-   */
-  invalidate(opts: { broadcast?: boolean } = {}): void {
+  /** @internal Clear all caches + in-flight resolvers. Reached via {@link cache.invalidate}. */
+  private _invalidateAll(opts: { broadcast?: boolean } = {}): void {
     this._policyCache.clear()
     this._roleCache.clear()
     this._rbacPolicyCache.clear()
@@ -930,23 +949,8 @@ export class Engine<
     }
   }
 
-  /**
-   * @deprecated Use the module-level {@link flushSharedCaches} instead.
-   * This instance method is misleading — the caches it wipes are
-   * process-globals, so calling `engineA.flushSharedCaches()` also affects
-   * `engineB`. Kept for backward compatibility; will be removed in 3.0.
-   */
-  flushSharedCaches(): void {
-    flushSharedCaches()
-  }
-
-  /**
-   * Clear only a specific subject's cached data.
-   *
-   * @param subjectId - The subject ID whose cache entry should be dropped.
-   * @param opts      - Optional flags; set `broadcast: false` to suppress invalidator publish.
-   */
-  invalidateSubject(subjectId: string, opts: { broadcast?: boolean } = {}): void {
+  /** @internal Clear one subject's cached data. Reached via {@link cache.invalidateSubject}. */
+  private _invalidateSubject(subjectId: string, opts: { broadcast?: boolean } = {}): void {
     this._subjectCache.delete(subjectId)
     this._subjectsInFlight.delete(subjectId)
     if (opts.broadcast !== false && this._invalidator) {
@@ -954,12 +958,8 @@ export class Engine<
     }
   }
 
-  /**
-   * Clear cached policies (after policy CRUD).
-   *
-   * @param opts - Optional flags; set `broadcast: false` to suppress invalidator publish.
-   */
-  invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
+  /** @internal Clear cached policies. Reached via {@link cache.invalidatePolicies}. */
+  private _invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
     this._policyCache.clear()
     this._policiesInFlight = null
     this._mergedInFlight = null
@@ -969,16 +969,8 @@ export class Engine<
     }
   }
 
-  /**
-   * Clear cached roles and the derived RBAC policy. Subjects cache resolved
-   * roles, so any subject that touched the changed role is invalidated too.
-   *
-   * @param roleId - When provided, only subjects whose resolved roles or
-   *   scoped roles reference this id are dropped. When omitted, the entire
-   *   subject cache is cleared (use for bulk role imports).
-   * @param opts - Optional flags; set `broadcast: false` to suppress invalidator publish.
-   */
-  invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
+  /** @internal Clear cached roles + selectively drop affected subjects. Reached via {@link cache.invalidateRoles}. */
+  private _invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
     this._roleCache.clear()
     this._rbacPolicyCache.clear()
     this._rolesInFlight = null
@@ -1038,7 +1030,7 @@ export class Engine<
       adapter = 'fail'
       lastError = err instanceof Error ? err.message : String(err)
     }
-    const s = this.stats()
+    const s = this._statsSnapshot()
     const total =
       s.policies.hits +
       s.policies.misses +

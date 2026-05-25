@@ -1,5 +1,45 @@
 # @gentleduck/iam
 
+## 3.0.0
+
+### Breaking — Engine facet split
+
+The flat cache + stats methods on `Engine` move onto two facets. The
+evaluation surface (`authorize`, `can`, `check`, `explain`, `permissions`)
+and lifecycle (`constructor`, `dispose`, `preload`, `healthCheck`) stay
+flat — they are the hot path and benefit from a single noun.
+
+#### Migration
+
+| Before (≤ 2.x)                          | After (3.0)                                  |
+| --------------------------------------- | -------------------------------------------- |
+| `engine.invalidate(opts)`               | `engine.cache.invalidate(opts)`              |
+| `engine.invalidateSubject(id, opts)`    | `engine.cache.invalidateSubject(id, opts)`   |
+| `engine.invalidatePolicies(opts)`       | `engine.cache.invalidatePolicies(opts)`      |
+| `engine.invalidateRoles(id?, opts)`     | `engine.cache.invalidateRoles(id?, opts)`    |
+| `engine.stats()`                        | `engine.stats.get()`                         |
+| `engine.resetStats()`                   | `engine.stats.reset()`                       |
+| `engine.flushSharedCaches()` (removed)  | `import { flushSharedCaches } from ...`      |
+
+Codemod is a five-line `sed`; no behavior change. Reason for cutting now
+instead of waiting: bundling the deprecation with `flushSharedCaches`'s
+already-scheduled 3.0 removal means one major version, one migration
+window.
+
+#### Why
+
+`Engine` had 16 public methods on one class. Four cluster cleanly:
+evaluation, cache invalidation, lifecycle, observability. Folding the
+last two clusters into facets drops the flat surface to 9 methods + 2
+facet handles, which reads cleaner and gives room for future facet
+growth (e.g. `engine.cache.prewarm()`, `engine.stats.subscribe()`)
+without polluting the root.
+
+The `flushSharedCaches` instance method was misleading — it wiped
+process-globals, so calling it on one engine affected every other engine
+in the process. Removed; module-level export is the honest surface and
+has been the documented one since 2.1.
+
 ## 2.2.0
 
 ### Architecture debt cleanup + bundle slim
