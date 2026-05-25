@@ -152,7 +152,13 @@ export function errorToAuditString(err: unknown, includeMessage?: boolean): stri
     if (err instanceof Error) return err.message
     if (err === undefined) return 'undefined'
     if (err === null) return 'null'
-    return String(err)
+    // SEC-047: a non-Error throw with includeMessage opt-in could otherwise
+    // leak an unbounded raw value (e.g. a thrown secret string). Tag it as
+    // a non-Error throw and cap length so audit sinks never see more than a
+    // tracer plus a short fragment.
+    const raw = typeof err === 'string' ? err : safeStringify(err)
+    const capped = raw.length > NON_ERROR_MESSAGE_CAP ? `${raw.slice(0, NON_ERROR_MESSAGE_CAP)}…` : raw
+    return `<non-Error ${typeof err}> ${capped}`
   }
   if (err instanceof Error) {
     return err.constructor?.name ?? 'Error'
@@ -162,6 +168,23 @@ export function errorToAuditString(err: unknown, includeMessage?: boolean): stri
   // Primitive throw: report its JS typeof so the sink still sees something
   // categorical (e.g. 'string', 'number') rather than the value itself.
   return typeof err
+}
+
+/** SEC-047: 256 chars is enough to identify a thrown shape without exfil. */
+const NON_ERROR_MESSAGE_CAP = 256
+
+/**
+ * SEC-047 helper: safely coerce a non-Error throw to string. Plain
+ * `String(obj)` returns `[object Object]` for most objects; we try
+ * `JSON.stringify` first to surface useful detail, but swallow circular-ref
+ * throws and fall back to `String()`.
+ */
+function safeStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v) ?? String(v)
+  } catch {
+    return String(v)
+  }
 }
 
 /**
