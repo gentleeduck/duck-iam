@@ -34,8 +34,11 @@ export class LRUCache<V> {
    * @author wildduck2 <https://github.com/wildduck2>
    */
   constructor(maxSize: number, ttlMs: number) {
-    if (maxSize < 1) throw new RangeError('LRUCache maxSize must be >= 1')
-    if (ttlMs < 0) throw new RangeError('LRUCache ttlMs must be >= 0')
+    // INFO-A: reject non-finite (NaN/Infinity) inputs. `NaN < 1` is false so
+    // the prior check silently accepted NaN, leaving eviction comparisons
+    // permanently NaN and the cache effectively unbounded.
+    if (!Number.isFinite(maxSize) || maxSize < 1) throw new RangeError('LRUCache maxSize must be a finite number >= 1')
+    if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError('LRUCache ttlMs must be a finite number >= 0')
     this._maxSize = maxSize
     this._ttl = ttlMs
   }

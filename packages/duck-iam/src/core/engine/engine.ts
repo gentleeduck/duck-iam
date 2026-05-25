@@ -109,6 +109,21 @@ export class Engine<
     this._maxRoles = config.maxRoles ?? 10_000
     this._adapterTimeoutMs = config.adapterTimeoutMs ?? 5_000
 
+    // INFO-A: reject non-finite caps. `NaN > x` is always false, so a
+    // misconfigured NaN limit silently disabled the bound; Infinity does
+    // too but at least surfaces in metrics. Reject both at construction
+    // so the operator sees the typo immediately instead of debugging an
+    // adapter that "never trips the limit".
+    if (!Number.isFinite(this._maxPolicies) || this._maxPolicies < 1) {
+      throw new RangeError('duck-iam Engine: maxPolicies must be a finite number >= 1')
+    }
+    if (!Number.isFinite(this._maxRoles) || this._maxRoles < 1) {
+      throw new RangeError('duck-iam Engine: maxRoles must be a finite number >= 1')
+    }
+    if (!Number.isFinite(this._adapterTimeoutMs) || this._adapterTimeoutMs < 0) {
+      throw new RangeError('duck-iam Engine: adapterTimeoutMs must be a finite number >= 0')
+    }
+
     const ttl = (config.cacheTTL ?? 60) * 1000
     const maxSize = config.maxCacheSize ?? 1000
 
