@@ -95,6 +95,16 @@ export class Engine<
   private _rbacInFlight: Promise<AccessControl.IPolicy> | null = null
   private _mergedInFlight: Promise<AccessControl.IPolicy[]> | null = null
   private _subjectsInFlight = new Map<string, Promise<Request.ISubject>>()
+  /**
+   * DEBT-6 / SEC-050: per-instance evaluation caches. Multi-tenant
+   * deployments instantiate one Engine per tenant; each owns its own
+   * regex + path caches and cannot be evicted by hostile-tenant pattern
+   * flooding.
+   */
+  private _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } = {
+    regex: new Map(),
+    path: new Map(),
+  }
 
   /**
    * Constructs a new engine wired to the given adapter and configuration.
@@ -433,6 +443,7 @@ export class Engine<
           this._policyCombine,
           onPolicyError,
           signals,
+          this._caches,
         )
         allowedForMetrics = allowed
         failOpenForMetrics = signals.failOpen === true
@@ -445,6 +456,7 @@ export class Engine<
           this._policyCombine,
           onPolicyError,
           signals,
+          this._caches,
         )
         decisionForHooks = decision
         allowedForMetrics = decision.allowed
@@ -800,6 +812,7 @@ export class Engine<
             this._policyCombine,
             onPolicyError,
             signals,
+            this._caches,
           )
           map[key] = allowed
           allowedForCheck = allowed
@@ -813,6 +826,7 @@ export class Engine<
             this._policyCombine,
             onPolicyError,
             signals,
+            this._caches,
           )
           map[key] = decision.allowed
           decisionForHooks = decision

@@ -22,6 +22,7 @@ function matchCandidate(
   resType: string,
   resHasDot: boolean,
   req: Request.IAccessRequest,
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
   // Action - already narrowed by index, but handle prefix patterns
   if (!entry.hasWildcardAction && !entry.actions.has(action)) {
@@ -55,7 +56,7 @@ function matchCandidate(
   }
 
   if (!entry.hasConditions) return true
-  return evalConditionGroup(req, entry.rule.conditions)
+  return evalConditionGroup(req, entry.rule.conditions, 0, caches)
 }
 
 /**
@@ -74,6 +75,7 @@ export function evaluatePolicy(
   policy: AccessControl.IPolicy,
   request: Request.IAccessRequest,
   defaultEffect: AccessControl.Effect = 'deny',
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): AccessControl.IDecision {
   const start = performance.now()
 
@@ -94,7 +96,7 @@ export function evaluatePolicy(
   const matched: Array<{ rule: AccessControl.IRule; effect: AccessControl.Effect }> = []
 
   for (const rule of policy.rules) {
-    if (ruleApplies(rule, request)) {
+    if (ruleApplies(rule, request, caches)) {
       matched.push({ rule, effect: rule.effect })
     }
   }
@@ -142,6 +144,7 @@ export function evaluate(
   combine: AccessControl.PolicyCombine = 'and',
   onPolicyError?: (err: Error, policy: AccessControl.IPolicy) => void,
   signals?: IEvalSignals,
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): AccessControl.IDecision {
   const start = performance.now()
 
@@ -163,7 +166,7 @@ export function evaluate(
    */
   const safeEval = (policy: AccessControl.IPolicy): AccessControl.IDecision => {
     try {
-      return evaluatePolicy(policy, request, defaultEffect)
+      return evaluatePolicy(policy, request, defaultEffect, caches)
     } catch (err) {
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
       return {
@@ -260,6 +263,7 @@ export function evaluatePolicyFast(
   policy: AccessControl.IPolicy,
   request: Request.IAccessRequest,
   defaultEffect: AccessControl.Effect = 'deny',
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean | null {
   // Inline policyApplies - avoid function call overhead
   const targets = policy.targets
@@ -300,14 +304,14 @@ export function evaluatePolicyFast(
       const bucket = literalBuckets[bi]!
       for (let i = 0; i < bucket.length; i++) {
         const entry = bucket[i]!
-        if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions)) continue
+        if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
         if (entry.rule.effect === 'deny') return false
         hasAllow = true
       }
     }
     for (let i = 0; i < wildcardAny.length; i++) {
       const entry = wildcardAny[i]!
-      if (!matchCandidate(entry, action, resType, resHasDot, request)) continue
+      if (!matchCandidate(entry, action, resType, resHasDot, request, caches)) continue
       if (entry.rule.effect === 'deny') return false
       hasAllow = true
     }
@@ -320,14 +324,14 @@ export function evaluatePolicyFast(
       const bucket = literalBuckets[bi]!
       for (let i = 0; i < bucket.length; i++) {
         const entry = bucket[i]!
-        if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions)) continue
+        if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
         if (entry.rule.effect === 'allow') return true
         hasDeny = true
       }
     }
     for (let i = 0; i < wildcardAny.length; i++) {
       const entry = wildcardAny[i]!
-      if (!matchCandidate(entry, action, resType, resHasDot, request)) continue
+      if (!matchCandidate(entry, action, resType, resHasDot, request, caches)) continue
       if (entry.rule.effect === 'allow') return true
       hasDeny = true
     }
@@ -383,6 +387,7 @@ export function evaluateFast(
   combine: AccessControl.PolicyCombine = 'and',
   onPolicyError?: (err: Error, policy: AccessControl.IPolicy) => void,
   signals?: IEvalSignals,
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
   if (policies.length === 0) {
     const allowed = defaultEffect === 'allow'
@@ -397,7 +402,7 @@ export function evaluateFast(
    */
   const safeEval = (policy: AccessControl.IPolicy): boolean | null => {
     try {
-      return evaluatePolicyFast(policy, request, defaultEffect)
+      return evaluatePolicyFast(policy, request, defaultEffect, caches)
     } catch (err) {
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
       return null
