@@ -142,4 +142,60 @@ describe('Integration: config -> engine -> evaluate', () => {
     expect(result.valid).toBe(true)
     expect(result.issues.filter((i) => i.type === 'error')).toHaveLength(0)
   })
+
+  describe('admin write-path validation (SEC-043)', () => {
+    const adapter = () => new MemoryAdapter({ roles: [viewer], assignments: {} })
+
+    it('savePolicy throws when validatePolicy reports errors', async () => {
+      const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
+      await expect(
+        engine.admin.savePolicy({
+          id: '',
+          name: 'bad',
+          algorithm: 'evil' as never,
+          rules: [],
+        } as never),
+      ).rejects.toThrow(/policy rejected by validator/)
+    })
+
+    it('saveRole throws when validateRole reports errors', async () => {
+      const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
+      await expect(engine.admin.saveRole({ id: '', permissions: [] } as never)).rejects.toThrow(
+        /role rejected by validator/,
+      )
+    })
+
+    it('import throws on the first invalid policy and stops bulk write', async () => {
+      const a = adapter()
+      const engine = access.createEngine({ adapter: a, cacheTTL: 0 })
+      const good = {
+        id: 'good-policy',
+        name: 'Good',
+        algorithm: 'deny-overrides',
+        rules: [],
+      } as never
+      const bad = { id: 'bad', name: 'Bad', algorithm: 'nope', rules: [] } as never
+
+      await expect(
+        engine.admin.import({
+          schemaVersion: 1 as const,
+          exportedAt: new Date().toISOString(),
+          policies: [good, bad],
+          roles: [],
+        }),
+      ).rejects.toThrow(/policy rejected by validator/)
+    })
+
+    it('savePolicy still succeeds for valid policies', async () => {
+      const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
+      await expect(
+        engine.admin.savePolicy({
+          id: 'p1',
+          name: 'OK',
+          algorithm: 'deny-overrides',
+          rules: [],
+        } as never),
+      ).resolves.toBeUndefined()
+    })
+  })
 })
