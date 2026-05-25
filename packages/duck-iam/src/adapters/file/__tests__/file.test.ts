@@ -127,10 +127,12 @@ describe('FileAdapter', () => {
     expect(disk.policies).toEqual({})
   })
 
-  it('malformed JSON starts empty instead of throwing', async () => {
+  it('throws on malformed JSON instead of silently emptying the store (SEC-064)', async () => {
+    // Previous behaviour silently populated _cache = {} which the next
+    // flush would persist, permanently destroying recoverable data.
     const fs = makeFakeFS('not-json{')
     const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
-    expect(await adapter.listPolicies()).toEqual([])
+    await expect(adapter.listPolicies()).rejects.toThrow(/corrupt.*refusing to load/)
   })
 
   describe('malformed-row drop (P0)', () => {
@@ -183,7 +185,7 @@ describe('FileAdapter', () => {
       expect(errors[0]?.rowId).toBe('bad')
     })
 
-    it('reports a malformed JSON file via onPolicyError instead of swallowing it', async () => {
+    it('reports a malformed JSON file via onPolicyError + throws (SEC-064)', async () => {
       const errors: Array<{ rowId: string }> = []
       const fs = makeFakeFS('not-json{')
       const adapter = new FileAdapter<Action, Resource, Role, Scope>({
@@ -191,7 +193,7 @@ describe('FileAdapter', () => {
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
-      expect(await adapter.listPolicies()).toEqual([])
+      await expect(adapter.listPolicies()).rejects.toThrow(/corrupt/)
       expect(errors[0]?.rowId).toBe('/store.json')
     })
   })
@@ -349,6 +351,36 @@ describe('FileAdapter', () => {
         fs,
       })
       // Empty result, no throw — containment satisfied via parent fallback.
+      expect(await adapter.listPolicies()).toEqual([])
+    })
+
+    it('_loadInFlight clears after symlink-escape rejection (SEC-063)', async () => {
+      // Before SEC-063 the rejected promise stayed parked in _loadInFlight;
+      // every subsequent _loadState() returned it forever and the adapter
+      // became permanently unusable. Now the in-flight slot clears on any
+      // throw, so a fixed-up filesystem can be re-tried.
+      let escapingSymlink = true
+      const fs: File.IFS = {
+        async readFile() {
+          return JSON.stringify({ policies: {}, roles: {}, assignments: {}, attributes: {} })
+        },
+        async writeFile() {},
+        async mkdir() {},
+        async realpath(p: string): Promise<string> {
+          if (p === '/srv/iam/store.json') return escapingSymlink ? '/etc/passwd' : '/srv/iam/store.json'
+          if (p === '/srv/iam') return '/srv/iam'
+          throw new Error('ENOENT')
+        },
+      }
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+        path: '/srv/iam/store.json',
+        rootDir: '/srv/iam',
+        fs,
+      })
+      await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
+      // Fix the underlying FS state and retry — pre-SEC-063 this would
+      // re-yield the stuck rejected promise.
+      escapingSymlink = false
       expect(await adapter.listPolicies()).toEqual([])
     })
 
