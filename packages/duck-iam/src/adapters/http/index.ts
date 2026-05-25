@@ -511,7 +511,12 @@ export class HttpAdapter<
     }
     const controllers = [readOpts?.signal, this._timeoutSignal()].filter((s): s is AbortSignal => !!s)
     const signal = anySignal(controllers)
-    const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal })
+    // SSRF defence: refuse to follow redirects. The base URL was validated against
+    // `allowedHosts` / private-IP rules at construction time, but `fetch`'s default
+    // `redirect: 'follow'` would let the server steer the next hop to anywhere
+    // (e.g. `169.254.169.254`, `127.0.0.1`, internal services). `'error'` forces
+    // the IAM server to return final URLs directly.
+    const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal, redirect: 'error' })
     if (res.status >= 500) {
       const body = await res.text().catch(() => '')
       throw makeTransient(new Error(`duck-iam HTTP ${res.status}: ${body}`))
