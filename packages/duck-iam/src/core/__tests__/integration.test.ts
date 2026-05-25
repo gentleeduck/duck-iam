@@ -186,6 +186,25 @@ describe('Integration: config -> engine -> evaluate', () => {
       ).rejects.toThrow(/policy rejected by validator/)
     })
 
+    it('throw text contains validator code + path, not attacker-controlled value (SEC-052)', async () => {
+      const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
+      const hostileValue = '<script>alert(1)</script>__SECRET__'
+      try {
+        await engine.admin.savePolicy({
+          id: 'p1',
+          name: 'p',
+          algorithm: hostileValue as never,
+          rules: [],
+        } as never)
+        throw new Error('should have thrown')
+      } catch (err) {
+        const msg = (err as Error).message
+        expect(msg).toContain('INVALID_ALGORITHM')
+        expect(msg).toContain('algorithm')
+        expect(msg).not.toContain(hostileValue)
+      }
+    })
+
     it('savePolicy still succeeds for valid policies', async () => {
       const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
       await expect(
