@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@gentleduck/iam-auth-bridge",
+  "version": "0.1.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Thin glue between @gentleduck/auth and @gentleduck/iam. Lazy-subject middleware + default policies. Optional — neither parent depends on the other.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./policies": {
+      "import": {
+        "types": "./dist/policies/index.d.ts",
+        "default": "./dist/policies/index.js"
+      },
+      "require": {
+        "types": "./dist/policies/index.d.cts",
+        "default": "./dist/policies/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "test": "vitest run",
+    "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
+    "lint": "biome lint --write ./",
+    "format": "biome format --write ./",
+    "clean": "rimraf dist .cache .turbo node_modules"
+  },
+  "peerDependencies": {
+    "@gentleduck/auth": "workspace:*",
+    "@gentleduck/iam": "workspace:*"
+  },
+  "devDependencies": {
+    "@gentleduck/auth": "workspace:*",
+    "@gentleduck/iam": "workspace:*",
+    "@gentleduck/tsdown-config": "workspace:*",
+    "@gentleduck/typescript-config": "workspace:*",
+    "@gentleduck/vitest-config": "workspace:*",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "author": "GentleDuck (https://www.gentleduck.org)",
+  "license": "MIT",
+  "homepage": "https://gentleduck.org/duck-iam",
+  "bugs": {
+    "url": "https://github.com/gentleeduck/duck-iam/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gentleeduck/duck-iam.git",
+    "directory": "packages/iam-auth-bridge"
+  },
+  "keywords": [
+    "iam",
+    "auth",
+    "bridge",
+    "rbac",
+    "abac",
+    "authorization",
+    "authentication"
+  ]
+}
