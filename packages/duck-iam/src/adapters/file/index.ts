@@ -295,19 +295,45 @@ export class FileAdapter<
   private async _loadState(): Promise<File.IState<TAction, TResource, TRole, TScope>> {
     if (this._cache) return this._cache
     if (this._loadInFlight) return this._loadInFlight
-    this._loadInFlight = (async () => {
-      await this._assertWithinRoot()
-      let state: File.IState<TAction, TResource, TRole, TScope>
+    // SEC-063: clear in-flight on ANY throw (including _assertWithinRoot
+    // symlink-escape) — a stuck rejected promise would otherwise pin the
+    // adapter in a permanent failure state until process restart.
+    const pending = (async () => {
       try {
-        const raw = await this._fs.readFile(this._path, 'utf8')
+        await this._assertWithinRoot()
+        let raw: string
+        try {
+          raw = await this._fs.readFile(this._path, 'utf8')
+        } catch (err) {
+          // SEC-054: only ENOENT is recoverable; anything else surfaces.
+          const code = (err as NodeJS.ErrnoException | undefined)?.code
+          if (code !== 'ENOENT') {
+            throw new Error(
+              `duck-iam FileAdapter: load failed (${code ?? 'unknown'}): ${err instanceof Error ? err.message : String(err)}`,
+            )
+          }
+          const empty: File.IState<TAction, TResource, TRole, TScope> = {
+            policies: {},
+            roles: {},
+            assignments: {},
+            attributes: {},
+          }
+          this._cache = empty
+          return empty
+        }
         let parsed: Partial<File.IState<TAction, TResource, TRole, TScope>>
         try {
           parsed = JSON.parse(raw) as Partial<File.IState<TAction, TResource, TRole, TScope>>
         } catch (err) {
+          // SEC-064: do NOT populate _cache with {} here. A subsequent
+          // _flush() would serialise the empty cache and overwrite the
+          // recoverable-but-corrupt file, permanently destroying the
+          // operator's data. Throw the corruption so the operator restores
+          // from backup before any write lands.
           this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), this._path)
-          this._cache = { policies: {}, roles: {}, assignments: {}, attributes: {} }
-          this._loadInFlight = null
-          return this._cache
+          throw new Error(
+            `duck-iam FileAdapter: store at "${this._path}" is corrupt (JSON parse failed) — refusing to load; restore from backup before retrying`,
+          )
         }
 
         // Validate each row; drop malformed entries instead of returning them.
@@ -336,35 +362,24 @@ export class FileAdapter<
           }
         }
 
-        state = {
+        const state: File.IState<TAction, TResource, TRole, TScope> = {
           policies,
           roles,
           assignments: parsed.assignments ?? {},
           attributes: parsed.attributes ?? {},
         }
-      } catch (err) {
-        // SEC-054: only a genuinely-missing file is recoverable as "empty store".
-        // EACCES (permissions drift), EISDIR (path overwritten), EIO (disk
-        // corruption), and unexpected throws from the validator loop must
-        // surface to the caller — silently returning {} here means the
-        // engine sees zero policies and `defaultEffect` decides every
-        // request, which is a total fail-open with `defaultEffect: 'allow'`
-        // or total fail-closed with `defaultEffect: 'deny'`. Either is a
-        // production outage the operator must see immediately.
-        const code = (err as NodeJS.ErrnoException | undefined)?.code
-        if (code !== 'ENOENT') {
-          this._loadInFlight = null
-          throw new Error(
-            `duck-iam FileAdapter: load failed (${code ?? 'unknown'}): ${err instanceof Error ? err.message : String(err)}`,
-          )
-        }
-        state = { policies: {}, roles: {}, assignments: {}, attributes: {} }
+        this._cache = state
+        return state
+      } finally {
+        // SEC-063: always clear in-flight, even on throw.
+        this._loadInFlight = null
       }
-      this._cache = state
-      this._loadInFlight = null
-      return state
     })()
-    return this._loadInFlight
+    this._loadInFlight = pending
+    // Catch-noop on the stored promise so an unawaited rejection elsewhere
+    // doesn't crash Node; the caller still sees the rejection via `pending`.
+    pending.catch(() => undefined)
+    return pending
   }
 
   private async _flush(): Promise<void> {
