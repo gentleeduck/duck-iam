@@ -269,6 +269,15 @@ describe('RedisAdapter', () => {
       expect((await adapter.getSubjectAttributes('user-1')).team).toBe('B')
     })
 
+    it('getSubjectRoles returns ONLY unscoped roles, not scoped (SEC-059)', async () => {
+      // Aligns redis with file/memory contract: scoped roles go through
+      // getSubjectScopedRoles only. Before SEC-059, redis collapsed both.
+      await adapter.assignRole('user-1', 'viewer' as Ro)
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
+      expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
+      expect(await adapter.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+    })
+
     it('throws on corrupted attributes JSON instead of returning {} (SEC-058)', async () => {
       await redis.set('attrs:user-1', '{not-valid-json')
       await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)

@@ -230,8 +230,12 @@ export class PrismaAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
+    // SEC-059: unscoped (global) roles only. Scoped assignments are
+    // surfaced separately via getSubjectScopedRoles; collapsing them here
+    // drifted from file/memory adapters and produced different subject
+    // resolutions across storage backends.
     const rows = await this.prisma.accessAssignment.findMany({
-      where: { subjectId },
+      where: { subjectId, scope: null },
     })
     return [...new Set(rows.map((r) => r.roleId as TRole))]
   }

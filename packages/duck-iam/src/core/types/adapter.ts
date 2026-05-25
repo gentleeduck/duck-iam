@@ -69,7 +69,13 @@ export namespace Adapter {
    * @author wildduck2 <https://github.com/wildduck2>
    */
   export interface ISubjectStore<TRole extends string = string, TScope extends string = string> {
-    /** Returns the flat list of role IDs assigned to a subject. */
+    /**
+     * Returns the flat list of GLOBAL (unscoped) role IDs assigned to a
+     * subject. Scoped role assignments must NOT be collapsed into this list —
+     * surface those through {@link getSubjectScopedRoles}. SEC-059 — file,
+     * memory, redis, drizzle, and prisma adapters all honour this contract;
+     * the HTTP adapter delegates to the operator's server, which must also.
+     */
     getSubjectRoles(subjectId: string, opts?: IReadOptions): Promise<TRole[]>
     /** Scoped role assignments. Optional - only when multi-tenant scoped roles are in use. */
     getSubjectScopedRoles?(subjectId: string, opts?: IReadOptions): Promise<Request.IScopedRole<TRole, TScope>[]>
