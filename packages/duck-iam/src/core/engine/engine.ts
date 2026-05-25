@@ -686,7 +686,34 @@ export class Engine<
     checks: readonly Client.IPermissionCheck<TAction, TResource, TScope>[],
     environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
   ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
-    const [subject, allPolicies] = await Promise.all([this._resolveSubject(subjectId), this._loadAllPolicies()])
+    // SEC-070: outer try mirrors check()/can() — adapter rejections from
+    // _resolveSubject or _loadAllPolicies happen BEFORE the per-check try,
+    // so without this catch the entire batch would reject with no onError
+    // signal and no fail-closed map. Synthesise an all-deny map matching
+    // every requested check so callers cannot accidentally treat a thrown
+    // batch as "no restrictions".
+    let subject: Request.ISubject
+    let allPolicies: AccessControl.IPolicy[]
+    try {
+      ;[subject, allPolicies] = await Promise.all([this._resolveSubject(subjectId), this._loadAllPolicies()])
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      const failClosed = {} as Record<string, boolean>
+      for (const c of checks) {
+        failClosed[buildPermissionKey(c.action, c.resource, c.resourceId, c.scope)] = false
+      }
+      await this._safeHookCall(
+        () =>
+          this._hooks.onError?.(err, {
+            subject: { id: subjectId, roles: [], attributes: {} },
+            action: checks[0]?.action ?? ('' as TAction),
+            resource: { type: checks[0]?.resource ?? ('' as TResource), attributes: {} },
+            environment,
+          } as Request.IAccessRequest<TAction, TResource, TScope>),
+        'onError',
+      )
+      return failClosed as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
+    }
 
     const map = {} as Record<string, boolean>
     // Memo per scope: N checks sharing a scope must not rebuild the merged role list N times.

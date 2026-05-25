@@ -362,6 +362,17 @@ describe('DrizzleAdapter', () => {
       mock.tables.attrs.push({ subjectId: 'pre', data: { x: 2 } })
       expect(await adapter.getSubjectAttributes('pre')).toEqual({ x: 2 })
     })
+
+    it('getSubjectAttributes throws on corrupt JSON string (SEC-058)', async () => {
+      mock.tables.attrs.push({ subjectId: 'corrupt', data: '{not-json' })
+      await expect(adapter.getSubjectAttributes('corrupt')).rejects.toThrow(/corrupted attributes/)
+    })
+
+    it('setSubjectAttributes recovers from corrupt existing blob (SEC-067)', async () => {
+      mock.tables.attrs.push({ subjectId: 'corrupt', data: '{not-json' })
+      await adapter.setSubjectAttributes('corrupt', { team: 'A' })
+      expect(await adapter.getSubjectAttributes('corrupt')).toEqual({ team: 'A' })
+    })
   })
 
   describe('malformed-row drop (P0)', () => {

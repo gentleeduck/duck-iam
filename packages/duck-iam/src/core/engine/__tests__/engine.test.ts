@@ -285,6 +285,33 @@ describe('Engine.permissions() - batch check', () => {
     expect(map['publish:post']).toBe(false)
   })
 
+  it('returns fail-closed all-deny map when adapter rejects (SEC-070)', async () => {
+    // Adapter rejects on listPolicies — without the outer try permissions()
+    // would reject the whole batch and callers that don't .catch() lose the
+    // fail-closed contract. Now: every requested check is keyed false +
+    // onError fires once.
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+    })
+    adapter.listPolicies = async () => {
+      throw new Error('adapter down')
+    }
+    const errors: Error[] = []
+    const eng = new Engine<Action, ResourceType, RoleId, Scope>({
+      adapter,
+      hooks: { onError: (e) => errors.push(e) },
+    })
+    const map = await eng.permissions('user-1', [
+      { action: 'read', resource: 'post' },
+      { action: 'create', resource: 'post' },
+    ])
+    expect(map['read:post']).toBe(false)
+    expect(map['create:post']).toBe(false)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.message).toBe('adapter down')
+  })
+
   it('forwards onPolicyError to evaluator for batch checks (SEC-057)', async () => {
     // A policy whose evaluator throws (RegexInputTooLargeError when matching
     // against an oversize subject attribute) must surface via onPolicyError;
