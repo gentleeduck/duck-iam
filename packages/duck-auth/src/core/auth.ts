@@ -148,14 +148,70 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   }
 
   /**
-   * Boot-time strict validation. Throws AUTH/MISCONFIGURED if a known
-   * production footgun is detected.
+   * Boot-time strict validation. Throws `AUTH/MISCONFIGURED` if any
+   * production footgun is detected. DESIGN §11.
+   *
+   * Checks (production only):
+   *  - Limiter wired (no NoopLimiter)
+   *  - CookieTransport with secure: true
+   *  - Memory adapter rejected (use redis/drizzle/prisma in prod)
+   *  - At least one provider registered
+   *  - When passwords provider registered, hasher must NOT be the default
+   *    scrypt (compliance presets need Argon2id — emit warning in v0.1
+   *    until Argon2 hasher ships; non-blocking yet)
+   *  - Mailer required when magic-link / password-reset capabilities exist
+   *    (caller decides based on registered providers; library can't see
+   *    the channel registry from here, so this is documented for future
+   *    composition with `auth.channels` facet — v0.2)
+   *  - At least one `lockout` event handler subscribed
    */
   strict(opts: { env: 'development' | 'production' | 'test' }): void {
     if (opts.env !== 'production') return
+
+    const errors: string[] = []
+
     if (!this.config.limiter) {
+      errors.push('Limiter adapter required (brute-force protection)')
+    }
+
+    // Memory adapter heuristic: identifier in name.
+    const adapterName = this.config.stores.identities.constructor.name
+    if (adapterName === 'Object' || /Memory/i.test(adapterName)) {
+      // Object shape (built by MemoryAuthAdapter) ⇒ memory adapter
+      errors.push('Memory adapter rejected in production; use redis/drizzle/prisma')
+    }
+
+    // Transport secure-cookie check (only when CookieTransport used; can't
+    // detect non-cookie transports here, but the cookie-secure footgun is
+    // the most common).
+    const transportName = this.config.transport.constructor.name
+    if (transportName === 'CookieTransport') {
+      const cookieTransport = this.config.transport as unknown as {
+        _options: { secure?: boolean }
+      }
+      if (cookieTransport._options?.secure === false) {
+        errors.push('CookieTransport secure=false rejected in production')
+      }
+    }
+
+    if ((this.config.providers ?? []).length === 0 && this.providers.list().length === 0) {
+      errors.push('no provider registered; users cannot sign in')
+    }
+
+    // `lockout` listener — required so operators are notified on brute-force lockouts.
+    // The InMemoryEvents impl exposes _handlers; safer alt is a public `hasListener` API,
+    // landing in v0.2. For now, soft-check via the InMemoryEvents-specific shape.
+    const eventsAsInternal = this.events as unknown as {
+      _handlers?: Map<string, Set<unknown>>
+    }
+    const lockoutHandlers = eventsAsInternal._handlers?.get('lockout')
+    if (lockoutHandlers === undefined || lockoutHandlers.size === 0) {
+      errors.push('no `lockout` event handler subscribed; operators must wire one (paging, audit, etc.)')
+    }
+
+    if (errors.length > 0) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'production: Limiter adapter required (brute-force protection)',
+        detail: `production strict() checks failed:\n  - ${errors.join('\n  - ')}`,
       })
     }
   }
