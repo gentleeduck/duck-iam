@@ -1,6 +1,7 @@
 import { sha256 } from './crypto'
 import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
+import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
 import type { Credential } from './types/credential'
 import type { Events } from './types/events'
@@ -28,6 +29,9 @@ export interface AuthRootConfig<Profile = unknown, Tenant = string, OrgMeta = un
     absoluteTtlMs?: number
     freshnessMs?: number
   }
+  identities?: {
+    softDeleteGracePeriodMs?: number
+  }
   __tenantBrand?: Tenant
 }
 
@@ -41,6 +45,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly events: Events.IBus
   readonly transport: Transport.ITransport
   readonly sessions: SessionsFacet
+  readonly identities: IdentitiesFacet<Profile>
 
   constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
@@ -50,6 +55,10 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       ttlMs: config.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
       absoluteTtlMs: config.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
       freshnessMs: config.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
+    })
+    this.identities = new IdentitiesFacet<Profile>(config.stores.identities, this.events, {
+      softDeleteGracePeriodMs:
+        config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
     })
   }
 
