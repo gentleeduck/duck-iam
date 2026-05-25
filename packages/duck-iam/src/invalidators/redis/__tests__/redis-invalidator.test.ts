@@ -157,6 +157,34 @@ describe('createRedisInvalidator (SEC-005)', () => {
     expect(after - before).toBeLessThanOrEqual(1)
   })
 
+  it('tenantId option auto-namespaces channel (CAVEAT-1)', () => {
+    // Capture the channel name used for subscribe/publish by spying on the
+    // bus methods directly — real Redis enforces channel routing; this test
+    // pins the per-tenant channel-name contract that makes the isolation real.
+    const subscribedChannels: string[] = []
+    const publishedChannels: string[] = []
+    const client: RedisInvalidator.IPubSubLike = {
+      publish(channel, _msg) {
+        publishedChannels.push(channel)
+      },
+      subscribe(channel, _h) {
+        subscribedChannels.push(channel)
+      },
+      unsubscribe() {},
+    }
+    const inv = createRedisInvalidator({ client, secret: 'k', tenantId: 'acme' })
+    inv.subscribe(() => {})
+    inv.publish({ kind: 'all' })
+    expect(subscribedChannels[0]).toBe('duck-iam:invalidate:tenant:acme')
+    expect(publishedChannels[0]).toBe('duck-iam:invalidate:tenant:acme')
+  })
+
+  it('rejects tenantId with unsafe chars (CAVEAT-1)', () => {
+    expect(() => createRedisInvalidator({ client: makeBus().client, tenantId: 'with space' })).toThrow(/tenantId/)
+    expect(() => createRedisInvalidator({ client: makeBus().client, tenantId: 'wild*card' })).toThrow(/tenantId/)
+    expect(() => createRedisInvalidator({ client: makeBus().client, tenantId: '' })).toThrow(/tenantId/)
+  })
+
   it('rejects v:1 envelope in unsigned mode (SEC-046)', () => {
     const bus = makeBus()
     const ch = `t-v1-no-secret-${Math.random().toString(36).slice(2)}`

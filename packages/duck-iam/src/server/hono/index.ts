@@ -1,6 +1,6 @@
 import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
-import { type AdminAudit, errorToAuditString, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
+import { type AdminAudit, defaultCsrfCheck, errorToAuditString, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
 
 /** Minimal Hono context shape. */
 interface HonoContext {
@@ -245,6 +245,8 @@ export function bindAdminRouter<
     throw new Error('[duck-iam] bindAdminRouter requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
+  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
   const onUnauthorized = opts.onUnauthorized ?? ((c) => c.json({ error: 'Unauthorized' }, 401))
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
@@ -273,8 +275,8 @@ export function bindAdminRouter<
       handler: (c: HonoContext) => Promise<Response> | Response,
     ) =>
     async (c: HonoContext): Promise<Response> => {
-      // SEC-103: CSRF guard runs before authorize. No-op when csrfCheck omitted.
-      if (csrfCheck && !csrfCheck(c)) {
+      // SEC-103: CSRF guard runs before authorize.
+      if (effectiveCsrfCheck && !effectiveCsrfCheck(c)) {
         return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
       }
       let actor: unknown

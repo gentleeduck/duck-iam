@@ -75,3 +75,153 @@ Pay extra attention to:
 
 Thank you for helping keep `@gentleduck/iam` and the wider gentleduck ecosystem
 secure.
+
+---
+
+## Deployment Hardening Guide
+
+`@gentleduck/iam` is the authorization **engine**. Authentication, identity
+sourcing, CSRF protection, and multi-tenant isolation are the operator's
+responsibility. The library ships safe defaults where it can; the items below
+are choices only the operator can make.
+
+### 1. Identity sourcing — never trust client-supplied headers
+
+`accessMiddleware` / `withAccess` / `guard` derive a `subjectId` from a
+`getUserId(req)` callback. Always derive identity from a **server-verified**
+source: a cookie session, a JWT verified by upstream middleware, an mTLS
+client certificate, or a session token your auth layer already validated.
+
+```ts
+// ✅ Cookie session verified by app middleware
+app.use(sessionMiddleware)
+const guard = accessMiddleware(engine, {
+  getUserId: (req) => req.session?.userId ?? null,
+})
+
+// ✅ JWT verified by app middleware → req.user
+app.use(jwtMiddleware)
+const guard = accessMiddleware(engine, {
+  getUserId: (req) => req.user?.sub ?? null,
+})
+
+// ❌ Client-supplied header — anyone with curl spoofs admin
+getUserId: (req) => req.headers['x-user-id']
+// ❌ Request body — attacker-controlled
+getUserId: (req) => req.body?.userId
+```
+
+The Express/Nest defaults already read from `req.user?.id` (populated by
+common auth middleware). The Hono default reads `c.get('userId')` only
+(no header fallback — SEC-101). The Next `withAccess` requires
+`getUserId` to be supplied explicitly.
+
+### 2. Admin router CSRF
+
+`adminRouter` / `bindAdminRouter` / `createAdminHandlers` /
+`createAdminOperations` accept `csrfCheck`. The **built-in default**
+(`defaultCsrfCheck`) rejects browser requests whose `Sec-Fetch-Site`
+header is `cross-site` or `cross-origin`. This closes the most common
+cookie-auth CSRF vector without operator action.
+
+```ts
+// ✅ Default — Sec-Fetch-Site check applied automatically
+adminRouter(engine, { authorize: (req) => req.user?.role === 'admin' })
+
+// ✅ Bearer-token / mTLS API (no browser) — disable
+adminRouter(engine, { authorize, csrfCheck: false })
+
+// ✅ Stricter: Origin allowlist
+const ADMIN_ORIGINS = new Set(['https://admin.example.com'])
+adminRouter(engine, {
+  authorize,
+  csrfCheck: (req) => ADMIN_ORIGINS.has(req.headers.origin),
+})
+```
+
+### 3. Redis invalidator: secret + per-tenant channel
+
+`createRedisInvalidator` defaults to an unsigned envelope on the
+default channel `'duck-iam:invalidate'`. Anyone with `PUBLISH` rights
+to that channel can wipe caches. **Production deployments must set
+`secret`**, and multi-tenant deployments should pass `tenantId` so
+tenant A's revoke cannot wipe tenant B's cache.
+
+```ts
+const invalidator = createRedisInvalidator({
+  client: redisPubSub,
+  secret: process.env.IAM_INVALIDATE_SECRET, // HMAC-SHA256
+  tenantId: tenant.slug,                     // per-tenant channel
+  onPublishError: (err, channel) => log.warn({ err, channel }, 'publish failed'),
+})
+```
+
+Rotating `IAM_INVALIDATE_SECRET` is HMAC-key rotation: engines with
+mismatched secrets silently drop each other's messages, so coordinate
+the rotation window.
+
+### 4. Multi-tenant cache scoping
+
+The `matches`-operator regex cache and dot-path segment cache are
+process-globals (SEC-050). A hostile tenant flooding distinct
+patterns can evict another tenant's hot entries — availability
+degradation, not auth bypass. Two mitigations:
+
+- **One Node process per tenant** (recommended): each process gets
+  its own globals — no cross-talk.
+- **Periodic flush** via `engine.flushSharedCaches()`. Tune the
+  interval against your request volume.
+
+```ts
+// Periodic flush at 5min interval
+setInterval(() => engine.flushSharedCaches(), 5 * 60 * 1000)
+```
+
+### 5. `defaultEffect: 'allow'`
+
+Almost always wrong. `defaultEffect: 'allow'` means a request that
+matches no policy is allowed — silent fail-open on adapter outages,
+mass policy deletion, or any other source of "no applicable rule".
+The engine refuses this configuration unless you pass
+`allowFailOpen: true` and emits a startup warning. Operators who
+opt in should chart the `failOpen` field on `IMetricsEvent` to alert
+on silent failures (SEC-044).
+
+### 6. `explain()` output
+
+`engine.explain()` returns full rule contents, condition operands,
+and `subject.attributes` for development debugging. It throws in
+production mode by default. The `summary` string interpolates
+operator- and attacker-influenced IDs verbatim; downstream consumers
+that render it as HTML must escape themselves.
+
+### 7. Adapter trust
+
+The library never validates what the adapter stores or returns
+beyond shape checks (`validatePolicy`/`validateRole`). Policies and
+roles in the store are trusted inputs. Restrict write access to the
+store at the storage layer (DB grants, file permissions, Redis
+ACLs).
+
+### 8. File adapter `rootDir`
+
+Always pass `rootDir` when the file path can be derived from
+request data. The adapter performs textual containment + symlink
+realpath checks (SEC-003, SEC-025) only when `rootDir` is set; an
+adapter without `rootDir` warns once at construction (SEC-026)
+but cannot enforce containment.
+
+### 9. HTTP adapter `allowedHosts`
+
+Set `allowedHosts` to your IAM API hostname allowlist. The default
+rejects private/loopback hosts (SEC-001) and refuses redirects
+(SEC-042), but a permissive `baseUrl` without `allowedHosts` warns
+once at construction.
+
+### 10. Observability
+
+Wire `onPolicyError`, `onError`, and `onMetrics` on the engine —
+silent failures in an authorization path either deny everything or
+allow everything, both customer-visible outages. Use
+`createMetricsAggregator()` to chart `failOpen` rate as a
+silent-policy-breakage alarm.

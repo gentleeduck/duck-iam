@@ -2,6 +2,7 @@ import type { Engine } from '../../core'
 import type { AccessControl, Request } from '../../core/types'
 import {
   type AdminAudit,
+  defaultCsrfCheck,
   errorToAuditString,
   extractEnvironment,
   fireAdminMutation,
@@ -364,6 +365,8 @@ export function createAdminOperations<
     throw new Error('[duck-iam] createAdminOperations requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
+  // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
+  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
 
   /**
    * Gate that returns whatever {@link IAdminAuthorize} returned so the value
@@ -373,7 +376,7 @@ export function createAdminOperations<
   const gateWithActor = async (req: NestRequest): Promise<unknown> => {
     // SEC-103: CSRF guard runs before authorize so a cookie-based authorize
     // cannot be tricked by a cross-origin POST. No-op when csrfCheck omitted.
-    if (csrfCheck && !csrfCheck(req)) {
+    if (effectiveCsrfCheck && !effectiveCsrfCheck(req)) {
       const err = new Error('Forbidden (CSRF check failed)') as Error & { status?: number }
       err.status = 403
       throw err

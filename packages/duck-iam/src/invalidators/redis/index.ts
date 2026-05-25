@@ -59,11 +59,28 @@ export namespace RedisInvalidator {
     client: IPubSubLike
     /**
      * Channel name. Every engine subscribing to the same channel shares an
-     * invalidate broadcast group. Defaults to `'duck-iam:invalidate'`. Use a
-     * tenant-prefixed channel in multi-tenant deployments so tenants don't
-     * cross-invalidate.
+     * invalidate broadcast group. Defaults to `'duck-iam:invalidate'`. Use
+     * {@link tenantId} for the common multi-tenant case instead of building
+     * the channel name yourself.
      */
     channel?: string
+    /**
+     * CAVEAT-1: convenience helper for multi-tenant deployments. When set,
+     * the effective channel becomes `duck-iam:invalidate:tenant:${tenantId}`
+     * (or `${channel}:tenant:${tenantId}` if `channel` is also given). This
+     * guarantees tenant isolation on a shared Redis instance — tenant A's
+     * revoke cannot wipe tenant B's cache.
+     *
+     * Validates against `/^[A-Za-z0-9_-]{1,64}$/` to keep channel names
+     * pub/sub-safe and prevent injection via attacker-controlled tenant
+     * identifiers.
+     *
+     * @example
+     * ```ts
+     * createRedisInvalidator({ client, secret, tenantId: req.tenantSlug })
+     * ```
+     */
+    tenantId?: string
     /**
      * Shared HMAC secret. When set, every published envelope is signed with
      * `HMAC-SHA256(secret, canonicalJSON(payload))` and incoming envelopes
@@ -257,7 +274,22 @@ function safeHexEqual(a: string, b: string): boolean {
 export function createRedisInvalidator<TRole extends string = string>(
   config: RedisInvalidator.IConfig,
 ): EngineTypes.IInvalidator<TRole> {
-  const channel = config.channel ?? DEFAULT_CHANNEL
+  const baseChannel = config.channel ?? DEFAULT_CHANNEL
+  // CAVEAT-1: tenantId convenience — guarantees per-tenant channel isolation
+  // on a shared Redis instance. Reject anything outside a safe identifier
+  // shape so an attacker-controlled tenant slug cannot inject pub/sub
+  // wildcards (`*`) or whitespace that would confuse downstream subscribers.
+  let channel = baseChannel
+  if (config.tenantId !== undefined) {
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(config.tenantId)) {
+      throw new Error(
+        'duck-iam createRedisInvalidator: tenantId must match /^[A-Za-z0-9_-]{1,64}$/ (got '
+          + JSON.stringify(config.tenantId)
+          + ')',
+      )
+    }
+    channel = `${baseChannel}:tenant:${config.tenantId}`
+  }
   const instanceId = generateInstanceId()
   const handlers = new Set<(event: EngineTypes.IInvalidateEvent<TRole>) => void>()
   const secret = config.secret ?? null

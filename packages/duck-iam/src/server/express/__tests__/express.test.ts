@@ -315,6 +315,46 @@ describe('adminRouter (express)', () => {
     expect(() => adminRouter(engine, {} as never)).toThrow(/authorize/)
   })
 
+  it('default csrfCheck rejects Sec-Fetch-Site: cross-site automatically (CAVEAT-2)', async () => {
+    const engine = makeEngine()
+    const { router, handlers } = makeRouter()
+    let authorizeCalled = false
+    // No csrfCheck supplied — defaultCsrfCheck is applied.
+    adminRouter(engine, {
+      authorize: () => {
+        authorizeCalled = true
+        return true
+      },
+    })(() => router as never)
+    const res = makeRes()
+    await handlers['PUT /policies']!(
+      { body: {}, headers: { 'sec-fetch-site': 'cross-site' } } as never,
+      res as never,
+    )
+    expect(res.statusCode).toBe(403)
+    expect(authorizeCalled).toBe(false)
+  })
+
+  it('csrfCheck:false disables default check (CAVEAT-2)', async () => {
+    const engine = makeEngine()
+    const { router, handlers } = makeRouter()
+    let authorizeCalled = false
+    adminRouter(engine, {
+      authorize: () => {
+        authorizeCalled = true
+        return true
+      },
+      csrfCheck: false,
+    })(() => router as never)
+    const res = makeRes()
+    await handlers['PUT /policies']!(
+      { body: { id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] }, headers: { 'sec-fetch-site': 'cross-site' } } as never,
+      res as never,
+    )
+    expect(authorizeCalled).toBe(true)
+    expect(res.statusCode).not.toBe(403)
+  })
+
   it('rejects mutation with 403 when csrfCheck returns false (SEC-103)', async () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
