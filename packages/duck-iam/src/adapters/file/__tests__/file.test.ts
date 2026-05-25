@@ -292,6 +292,62 @@ describe('FileAdapter', () => {
       await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
     })
 
+    it('rethrows non-ENOENT realpath errors instead of falling through to parent (SEC-053)', async () => {
+      // A symlink-loop on the file (ELOOP) was previously silenced by the
+      // parent-realpath fallback, letting a hostile symlink bypass the
+      // containment check.
+      const fs: File.IFS = {
+        async readFile() {
+          return JSON.stringify({ policies: {}, roles: {}, assignments: {}, attributes: {} })
+        },
+        async writeFile() {},
+        async mkdir() {},
+        async realpath(p: string): Promise<string> {
+          if (p === '/srv/iam/store.json') {
+            const err = new Error('ELOOP') as NodeJS.ErrnoException
+            err.code = 'ELOOP'
+            throw err
+          }
+          if (p === '/srv/iam') return '/srv/iam'
+          throw new Error('ENOENT')
+        },
+      }
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+        path: '/srv/iam/store.json',
+        rootDir: '/srv/iam',
+        fs,
+      })
+      await expect(adapter.listPolicies()).rejects.toThrow(/ELOOP/)
+    })
+
+    it('still falls back to parent realpath when file is ENOENT', async () => {
+      // ENOENT (file genuinely missing on first run) keeps the legitimate
+      // fallback alive — containment is asserted via the parent + basename.
+      const fs: File.IFS = {
+        async readFile() {
+          throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+        },
+        async writeFile() {},
+        async mkdir() {},
+        async realpath(p: string): Promise<string> {
+          if (p === '/srv/iam/store.json') {
+            const err = new Error('ENOENT') as NodeJS.ErrnoException
+            err.code = 'ENOENT'
+            throw err
+          }
+          if (p === '/srv/iam') return '/srv/iam'
+          throw new Error('ENOENT')
+        },
+      }
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+        path: '/srv/iam/store.json',
+        rootDir: '/srv/iam',
+        fs,
+      })
+      // Empty result, no throw — containment satisfied via parent fallback.
+      expect(await adapter.listPolicies()).toEqual([])
+    })
+
     it('re-checks realpath on every I/O, not just the first (SEC-025)', async () => {
       // After the first successful read, the file is swapped for a symlink to
       // /etc/passwd. The second I/O must re-run realpath and reject — the
@@ -324,9 +380,9 @@ describe('FileAdapter', () => {
       swapped = true
       // Second op must re-run realpath and reject.
       // savePolicy clears the cache so _loadState will re-invoke _assertWithinRoot.
-      await expect(
-        adapter.savePolicy({ id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] }),
-      ).rejects.toThrow(/symlink traversal/)
+      await expect(adapter.savePolicy({ id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] })).rejects.toThrow(
+        /symlink traversal/,
+      )
       expect(realpathCalls).toBeGreaterThan(callsAfterFirst)
     })
 

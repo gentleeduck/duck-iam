@@ -254,11 +254,22 @@ export class FileAdapter<
     let canonical: string
     try {
       canonical = await this._fs.realpath(this._path)
-    } catch {
+    } catch (err) {
+      // SEC-053: only fall back to the parent-realpath shortcut when the
+      // file is genuinely absent (ENOENT). Other errors — symlink loops
+      // (ELOOP), permission denied (EACCES), filesystem busy (EBUSY) —
+      // must propagate. Falling through on those errors would let an
+      // attacker who can induce a non-ENOENT failure on a hostile symlink
+      // bypass the containment check by reconstructing the canonical path
+      // from the parent + the unverified basename.
+      const code = (err as NodeJS.ErrnoException | undefined)?.code
+      if (code && code !== 'ENOENT') throw err
       try {
         const canonicalParent = await this._fs.realpath(this._parentDir)
         canonical = nodePath.join(canonicalParent, nodePath.basename(this._path))
-      } catch {
+      } catch (parentErr) {
+        const parentCode = (parentErr as NodeJS.ErrnoException | undefined)?.code
+        if (parentCode && parentCode !== 'ENOENT') throw parentErr
         // Parent doesn't exist either - the read path's ENOENT branch handles
         // it; the write path will surface the missing-parent error explicitly.
         return
