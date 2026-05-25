@@ -1,13 +1,16 @@
 import { randomToken, sha256, timingSafeEqual } from './crypto'
 import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
+import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from './facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from './facets/mfa'
+import { OrgsFacet } from './facets/orgs'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
 import { ProvidersFacet } from './facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
 import { ScryptHasher } from './password/scrypt'
+import { type AuthPlugin, PluginRegistry } from './plugin'
 import type { Credential } from './types/credential'
 import type { Events } from './types/events'
 import type { Hasher } from './types/hasher'
@@ -51,6 +54,10 @@ export interface AuthRootConfig<Profile = unknown, Tenant = string, OrgMeta = un
     backupCodeCount?: number
     backupCodeLen?: number
   }
+  apiKeys?: {
+    prefix?: string
+    randomBytes?: number
+  }
   __tenantBrand?: Tenant
 }
 
@@ -68,8 +75,11 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly passwords: PasswordsFacet
   readonly providers: ProvidersFacet<Profile>
   readonly mfa: MfaFacet
+  readonly apiKeys: ApiKeysFacet
+  readonly orgs: OrgsFacet<OrgMeta> | null
   readonly flows: FlowsFacet<Profile>
   readonly limiter: LimiterNs.ILimiter
+  readonly plugins: PluginRegistry
 
   constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
@@ -95,6 +105,17 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       backupCodeCount: config.mfa?.backupCodeCount ?? DEFAULT_MFA_CONFIG.backupCodeCount,
       backupCodeLen: config.mfa?.backupCodeLen ?? DEFAULT_MFA_CONFIG.backupCodeLen,
     })
+    this.apiKeys = new ApiKeysFacet(
+      config.stores.credentials,
+      this.events,
+      { randomToken, sha256 },
+      {
+        prefix: config.apiKeys?.prefix ?? DEFAULT_APIKEYS_CONFIG.prefix,
+        randomBytes: config.apiKeys?.randomBytes ?? DEFAULT_APIKEYS_CONFIG.randomBytes,
+      },
+    )
+    this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
+    this.plugins = new PluginRegistry()
     this.flows = new FlowsFacet<Profile>(
       this.sessions,
       this.identities,
@@ -145,6 +166,11 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     }
 
     return resolveBySid(token, this.config.stores.sessions, this.config.stores.identities, {})
+  }
+
+  /** Install a plugin atomically (providers + events + facets). DESIGN §10. */
+  async use(plugin: AuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
+    await this.plugins.install(this as unknown as AuthRoot, plugin as AuthPlugin)
   }
 
   /**
