@@ -302,9 +302,14 @@ export type INextMiddlewareOptions<
  * @returns An `async (req) => Response | null` suitable for use inside `middleware.ts`.
  * @example
  * ```ts
+ * // NEVER trust user-supplied headers for identity (SEC-101). Derive from
+ * // a verified source: cookie session, JWT, or your auth library.
  * const mw = createNextMiddleware(engine, {
  *   rules: [{ pattern: '/admin', resource: 'admin' }],
- *   getUserId: (req) => req.headers.get('x-user-id'),
+ *   getUserId: async (req) => {
+ *     const session = await getServerSession(req)
+ *     return session?.user?.id ?? null
+ *   },
  * })
  * export const middleware = async (req: Request) => (await mw(req)) ?? NextResponse.next()
  * ```

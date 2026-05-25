@@ -259,6 +259,33 @@ describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
     return new Request(url, init)
   }
 
+  it('csrfCheck rejecting blocks mutation with 403, authorize never called (SEC-103)', async () => {
+    const engine = makeEngine()
+    let authorizeCalled = false
+    let savedPolicy = false
+    const origSave = engine.admin.savePolicy.bind(engine.admin)
+    engine.admin.savePolicy = async (p) => {
+      savedPolicy = true
+      return origSave(p)
+    }
+    const h = createAdminHandlers(engine, {
+      authorize: (() => {
+        authorizeCalled = true
+        return { id: 'admin-1' }
+      }) as never,
+      csrfCheck: (req) => (req as Request).headers.get('sec-fetch-site') !== 'cross-site',
+    })
+    const req = new Request('https://example.com/api/admin/policies', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+      body: JSON.stringify({ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }),
+    })
+    const res = await h.savePolicy(req, { params: {} })
+    expect(res.status).toBe(403)
+    expect(authorizeCalled).toBe(false)
+    expect(savedPolicy).toBe(false)
+  })
+
   it('savePolicy fires with action:replace, target:policy, success:true', async () => {
     const engine = makeEngine()
     const events: unknown[] = []

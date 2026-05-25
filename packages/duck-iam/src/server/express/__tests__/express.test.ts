@@ -329,10 +329,7 @@ describe('adminRouter (express)', () => {
       csrfCheck: (req) => (req as { headers: Record<string, string> }).headers['sec-fetch-site'] !== 'cross-site',
     })(() => router as never)
     const res = makeRes()
-    await handlers['PUT /policies']!(
-      { body: {}, headers: { 'sec-fetch-site': 'cross-site' } } as never,
-      res as never,
-    )
+    await handlers['PUT /policies']!({ body: {}, headers: { 'sec-fetch-site': 'cross-site' } } as never, res as never)
     expect(res.statusCode).toBe(403)
     expect(authorizeCalled).toBe(false)
   })

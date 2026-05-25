@@ -340,6 +340,39 @@ describe('bindAdminRouter (hono)', () => {
     expect((res.data as { error: string }).error).toBe('Unauthorized')
   })
 
+  it('csrfCheck rejecting blocks mutation with 403, authorize never called (SEC-103)', async () => {
+    const engine = makeEngine()
+    let authorizeCalled = false
+    type Handler = (c: unknown) => Promise<Response> | Response
+    const handlers: Record<string, Handler> = {}
+    const router = {
+      get: vi.fn(),
+      put: vi.fn((path: string, h: Handler) => {
+        handlers[`PUT ${path}`] = h
+      }),
+      post: vi.fn(),
+      delete: vi.fn(),
+    }
+    bindAdminRouter(router, engine, {
+      authorize: () => {
+        authorizeCalled = true
+        return true
+      },
+      csrfCheck: (c) => (c as { req: { header: (n: string) => string | undefined } }).req.header('sec-fetch-site') !== 'cross-site',
+    })
+    const ctx = {
+      req: {
+        param: () => undefined,
+        json: async () => ({ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }),
+        header: (n: string) => (n === 'sec-fetch-site' ? 'cross-site' : undefined),
+      },
+      json: (data: unknown, status?: number) => ({ data, status: status ?? 200 }) as unknown as Response,
+    }
+    const res = (await handlers['PUT /policies']!(ctx)) as unknown as { status: number; data: unknown }
+    expect(res.status).toBe(403)
+    expect(authorizeCalled).toBe(false)
+  })
+
   // SEC-010: admin mutation audit hook.
   describe('onAdminMutation (SEC-010)', () => {
     const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
