@@ -57,16 +57,6 @@ export namespace Redis {
 }
 
 /**
- * @deprecated Use {@link Redis.ILike}. Will be removed in 3.0.
- */
-export type RedisLike = Redis.ILike
-
-/**
- * @deprecated Use {@link Redis.IConfig}. Will be removed in 3.0.
- */
-export type RedisAdapterConfig = Redis.IConfig
-
-/**
  * Persists the access store inside Redis using hashes and sets.
  *
  * Storage layout (with optional `keyPrefix`):

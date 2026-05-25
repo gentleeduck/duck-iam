@@ -82,15 +82,6 @@ export namespace ReactClient {
 }
 
 /**
- * @deprecated Use {@link ReactClient.IContextValue}. Will be removed in 3.0.
- */
-export type IContextValue<
-  TAction extends string = string,
-  TResource extends string = string,
-  TScope extends string = string,
-> = ReactClient.IContextValue<TAction, TResource, TScope>
-
-/**
  * Builds the React access control surface (Provider, hook, components).
  *
  * Call once at app init and export the result so the entire app shares a

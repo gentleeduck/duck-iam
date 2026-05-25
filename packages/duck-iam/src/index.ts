@@ -1,15 +1,14 @@
 /**
  * Package entrypoint for `@gentleduck/iam`.
  *
- * Re-exports the core access-control engine, built-in adapters (file, memory),
- * and shared utilities (LRU cache, permission-key builder). Subpath imports
- * remain available for tree-shakable consumers (for example
- * `@gentleduck/iam/invalidators/redis`).
+ * Re-exports the core access-control engine and shared utilities. Adapters,
+ * server middleware, client wrappers, invalidators, and observability live
+ * behind subpath imports so consumers only pay for what they import:
+ *
+ *   import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
+ *   import { adminRouter } from '@gentleduck/iam/server/express'
+ *   import { createRedisInvalidator } from '@gentleduck/iam/invalidators/redis'
  */
-export type { File } from './adapters/file'
-export { FileAdapter } from './adapters/file'
-export type { Memory } from './adapters/memory'
-export { MemoryAdapter } from './adapters/memory'
 export * from './core'
 export { LRUCache } from './shared/cache'
-export { buildPermissionKey } from './shared/keys'
+export { buildPermissionKey, splitPermissionKey } from './shared/keys'

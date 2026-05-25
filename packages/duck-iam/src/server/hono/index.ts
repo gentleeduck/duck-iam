@@ -96,11 +96,6 @@ export namespace Hono {
   }
 }
 
-/**
- * @deprecated Use {@link Hono.IOptions}. Will be removed in 3.0.
- */
-export type IHonoOptions<TScope extends string = string> = Hono.IOptions<TScope>
-
 /** Extract environment from Hono context using common headers. */
 function defaultEnv(c: HonoContext): Request.IEnvironment {
   return {
@@ -172,21 +167,6 @@ export function accessMiddleware<
     }
   }
 }
-
-/**
- * @deprecated Use {@link Hono.IAdminAuthorize}. Will be removed in 3.0.
- */
-export type IHonoAdminAuthorize = Hono.IAdminAuthorize
-
-/**
- * @deprecated Use {@link Hono.IAdminOptions}. Will be removed in 3.0.
- */
-export type IHonoAdminOptions = Hono.IAdminOptions
-
-/**
- * @deprecated Use {@link Hono.IRouterLike}. Will be removed in 3.0.
- */
-export type IHonoRouterLike = Hono.IRouterLike
 
 /**
  * Wires admin CRUD endpoints onto a Hono router.

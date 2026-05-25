@@ -93,16 +93,6 @@ export namespace RedisInvalidator {
   }
 }
 
-/**
- * @deprecated Use {@link RedisInvalidator.IPubSubLike}. Will be removed in 3.0.
- */
-export type IRedisPubSubLike = RedisInvalidator.IPubSubLike
-
-/**
- * @deprecated Use {@link RedisInvalidator.IConfig}. Will be removed in 3.0.
- */
-export type IRedisInvalidatorConfig = RedisInvalidator.IConfig
-
 const DEFAULT_CHANNEL = 'duck-iam:invalidate'
 
 /** Replay window in milliseconds. Signed envelopes older than this are dropped. */

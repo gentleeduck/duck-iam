@@ -102,11 +102,6 @@ export namespace Express {
 }
 
 /**
- * @deprecated Use {@link Express.IOptions}. Will be removed in 3.0.
- */
-export type IExpressOptions<TScope extends string = string> = Express.IOptions<TScope>
-
-/**
  * Builds global Express middleware that runs `engine.can(...)` on every request.
  *
  * Replies 401 when no user is present and 403 when denied.
@@ -224,16 +219,6 @@ export function guard<
     }
   }
 }
-
-/**
- * @deprecated Use {@link Express.IAdminAuthorize}. Will be removed in 3.0.
- */
-export type IAdminAuthorize = Express.IAdminAuthorize
-
-/**
- * @deprecated Use {@link Express.IAdminRouterOptions}. Will be removed in 3.0.
- */
-export type IAdminRouterOptions = Express.IAdminRouterOptions
 
 /**
  * Builds an Express router for the duck-iam admin API.
