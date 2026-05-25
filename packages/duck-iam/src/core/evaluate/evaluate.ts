@@ -141,10 +141,12 @@ export function evaluate(
   defaultEffect: AccessControl.Effect = 'deny',
   combine: AccessControl.PolicyCombine = 'and',
   onPolicyError?: (err: Error, policy: AccessControl.IPolicy) => void,
+  signals?: IEvalSignals,
 ): AccessControl.IDecision {
   const start = performance.now()
 
   if (policies.length === 0) {
+    if (signals && defaultEffect === 'allow') signals.failOpen = true
     return {
       allowed: defaultEffect === 'allow',
       effect: defaultEffect,
@@ -186,6 +188,7 @@ export function evaluate(
       lastAllow = decision
     }
     if (!anyApplicable) {
+      if (signals && defaultEffect === 'allow') signals.failOpen = true
       return {
         allowed: defaultEffect === 'allow',
         effect: defaultEffect,
@@ -208,6 +211,7 @@ export function evaluate(
       lastDeny = decision
     }
     if (!anyApplicable) {
+      if (signals && defaultEffect === 'allow') signals.failOpen = true
       return {
         allowed: defaultEffect === 'allow',
         effect: defaultEffect,
@@ -224,6 +228,7 @@ export function evaluate(
     if (decision.applicable === false) continue
     if (decision.rule !== undefined) return { ...decision, duration: performance.now() - start }
   }
+  if (signals && defaultEffect === 'allow') signals.failOpen = true
   return {
     allowed: defaultEffect === 'allow',
     effect: defaultEffect,
@@ -377,8 +382,13 @@ export function evaluateFast(
   defaultEffect: AccessControl.Effect = 'deny',
   combine: AccessControl.PolicyCombine = 'and',
   onPolicyError?: (err: Error, policy: AccessControl.IPolicy) => void,
+  signals?: IEvalSignals,
 ): boolean {
-  if (policies.length === 0) return defaultEffect === 'allow'
+  if (policies.length === 0) {
+    const allowed = defaultEffect === 'allow'
+    if (signals && allowed) signals.failOpen = true
+    return allowed
+  }
 
   /**
    * A single rotten row (NaN priority, malformed condition, etc.) must not
@@ -402,7 +412,12 @@ export function evaluateFast(
       anyApplicable = true
       if (r) return true
     }
-    return anyApplicable ? false : defaultEffect === 'allow'
+    if (!anyApplicable) {
+      const allowed = defaultEffect === 'allow'
+      if (signals && allowed) signals.failOpen = true
+      return allowed
+    }
+    return false
   }
 
   // 'and' (and 'first-applicable' fall-through, which Engine ctor blocks for prod).
@@ -413,5 +428,26 @@ export function evaluateFast(
     anyApplicable = true
     if (!r) return false
   }
-  return anyApplicable ? true : defaultEffect === 'allow'
+  if (!anyApplicable) {
+    const allowed = defaultEffect === 'allow'
+    if (signals && allowed) signals.failOpen = true
+    return allowed
+  }
+  return true
+}
+
+/**
+ * Out-parameter shape for {@link evaluateFast}. Callers pass an empty object;
+ * the evaluator mutates fields as side-effects are observed. Useful for
+ * metrics that need details the boolean return cannot carry (SEC-044).
+ */
+export interface IEvalSignals {
+  /**
+   * Set to `true` only when the engine returned `allow` because the
+   * `defaultEffect` fallback was triggered — i.e. no applicable policy fired.
+   * Never set when an explicit allow rule matched. Operators chart this to
+   * detect silent failures of the policy set (broken adapter, mass deletion,
+   * etc.) that the boolean verdict alone hides.
+   */
+  failOpen?: boolean
 }

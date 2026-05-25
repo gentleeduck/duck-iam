@@ -388,6 +388,7 @@ export class Engine<
         ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
         : undefined
 
+      const signals: { failOpen?: boolean } = {}
       if (this._mode === 'production') {
         const allowed = evaluateFast(
           allPolicies,
@@ -395,8 +396,9 @@ export class Engine<
           this._defaultEffect,
           this._policyCombine,
           onPolicyError,
+          signals,
         )
-        this._emitMetrics(req, allowed, t0)
+        this._emitMetrics(req, allowed, t0, signals.failOpen === true)
         return this._asResult(allowed)
       }
 
@@ -406,17 +408,18 @@ export class Engine<
         this._defaultEffect,
         this._policyCombine,
         onPolicyError,
+        signals,
       )
 
       if (this._hooks.afterEvaluate) await this._hooks.afterEvaluate(req, decision)
       if (!decision.allowed && this._hooks.onDeny) await this._hooks.onDeny(req, decision)
-      this._emitMetrics(req, decision.allowed, t0)
+      this._emitMetrics(req, decision.allowed, t0, signals.failOpen === true)
 
       return this._asResult(decision)
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
       if (this._hooks.onError) await this._hooks.onError(err, req)
-      this._emitMetrics(req, false, t0)
+      this._emitMetrics(req, false, t0, false)
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
         allowed: false,
@@ -433,7 +436,12 @@ export class Engine<
    * timestamp captured at the top of `authorize` so the caller doesn't pay
    * `performance.now()` cost when no hook is wired.
    */
-  private _emitMetrics(req: Request.IAccessRequest<TAction, TResource, TScope>, allowed: boolean, t0: number): void {
+  private _emitMetrics(
+    req: Request.IAccessRequest<TAction, TResource, TScope>,
+    allowed: boolean,
+    t0: number,
+    failOpen: boolean,
+  ): void {
     const hook = this._hooks.onMetrics
     if (!hook) return
     hook({
@@ -443,6 +451,7 @@ export class Engine<
       allowed,
       durationMs: performance.now() - t0,
       mode: this._mode,
+      failOpen,
     })
   }
 

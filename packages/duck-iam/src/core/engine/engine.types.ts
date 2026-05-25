@@ -126,6 +126,15 @@ export namespace EngineTypes {
     readonly durationMs: number
     /** Engine mode in effect (`'production'` or `'development'`). */
     readonly mode: AccessControl.Mode
+    /**
+     * `true` when the verdict was `allow` solely because the engine's
+     * `defaultEffect: 'allow'` fallback fired (no applicable policy). Always
+     * `false` when an explicit allow rule matched, or when the verdict was
+     * deny. Operators chart this to detect silent policy-set breakage
+     * (broken adapter, mass deletion, ReDoS-dropped rules) that the boolean
+     * verdict alone hides. SEC-044.
+     */
+    readonly failOpen: boolean
   }
 
   /**
