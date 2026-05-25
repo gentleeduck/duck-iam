@@ -1280,6 +1280,31 @@ describe('Engine - cache invalidation', () => {
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
 
+  it('per-Engine caches isolate matches/path cache from other engines (DEBT-6)', async () => {
+    // DEBT-6: two engines, two requests, each engine has its own caches.
+    // Tenant A flooding its regex pool cannot evict tenant B's hot entries.
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+    })
+    const engineA = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engineB = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    // Reach into private caches for assertion only.
+    const a = (engineA as unknown as { _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } })
+      ._caches
+    const b = (engineB as unknown as { _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } })
+      ._caches
+    expect(a).not.toBe(b)
+    expect(a.regex).not.toBe(b.regex)
+    expect(a.path).not.toBe(b.path)
+    // Eval against both — populate path caches.
+    await engineA.can('user-1', 'read', { type: 'post', attributes: {} })
+    await engineB.can('user-1', 'read', { type: 'post', attributes: {} })
+    // Each engine's path cache populated with its own segments.
+    expect(a.path.size).toBeGreaterThan(0)
+    expect(b.path.size).toBeGreaterThan(0)
+  })
+
   it('flushSharedCaches drops process-wide regex + path caches (SEC-050)', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],

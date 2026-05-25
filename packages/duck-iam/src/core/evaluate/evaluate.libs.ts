@@ -15,7 +15,11 @@ import type { Evaluate } from './evaluate.types'
  * @returns `true` if the rule matches the request
  * @author wildduck2 <https://github.com/wildduck2>
  */
-export function ruleApplies(rule: AccessControl.IRule, req: Request.IAccessRequest): boolean {
+export function ruleApplies(
+  rule: AccessControl.IRule,
+  req: Request.IAccessRequest,
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
+): boolean {
   const actionMatch = rule.actions.some((a) => matchesAction(a, req.action))
   if (!actionMatch) return false
 
@@ -31,7 +35,7 @@ export function ruleApplies(rule: AccessControl.IRule, req: Request.IAccessReque
   })
   if (!resourceMatch) return false
 
-  return evalConditionGroup(req, rule.conditions)
+  return evalConditionGroup(req, rule.conditions, 0, caches)
 }
 
 /**

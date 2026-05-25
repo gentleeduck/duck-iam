@@ -38,8 +38,9 @@ function evalItem(
   req: Request.IAccessRequest,
   item: AccessControl.ICondition | AccessControl.IConditionGroup,
   depth: number,
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
-  return isCondition(item) ? evalCondition(req, item) : evalConditionGroup(req, item, depth)
+  return isCondition(item) ? evalCondition(req, item, caches) : evalConditionGroup(req, item, depth, caches)
 }
 
 /**
@@ -58,21 +59,22 @@ export function evalConditionGroup(
   req: Request.IAccessRequest,
   group: AccessControl.IConditionGroup,
   depth = 0,
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
   if (depth >= MAX_CONDITION_DEPTH) {
     return false // Deny when nesting is too deep -- fail closed
   }
 
   if ('all' in group) {
-    return group.all.every((item) => evalItem(req, item, depth + 1))
+    return group.all.every((item) => evalItem(req, item, depth + 1, caches))
   }
 
   if ('any' in group) {
-    return group.any.some((item) => evalItem(req, item, depth + 1))
+    return group.any.some((item) => evalItem(req, item, depth + 1, caches))
   }
 
   if ('none' in group) {
-    return !group.none.some((item) => evalItem(req, item, depth + 1))
+    return !group.none.some((item) => evalItem(req, item, depth + 1, caches))
   }
 
   // Empty object {} = no conditions = unconditionally true

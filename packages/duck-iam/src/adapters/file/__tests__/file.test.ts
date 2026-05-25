@@ -57,10 +57,7 @@ afterEach(() => {
 
 // DEBT-2: adapter compliance — fresh in-memory fake FS per call so each
 // scenario runs against an empty store.
-runAdapterCompliance(
-  'FileAdapter',
-  () => new FileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never,
-)
+runAdapterCompliance('FileAdapter', () => new FileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never)
 
 const policy: AccessControl.IPolicy<Action, Resource, Role> = {
   id: 'p1',

@@ -220,9 +220,13 @@ export function isCondition(
  * @returns The resolved value, or `value` unchanged when no `$` prefix is present.
  * @author wildduck2 <https://github.com/wildduck2>
  */
-export function resolveValue(req: Request.IAccessRequest, value: Primitives.AttributeValue): Primitives.AttributeValue {
+export function resolveValue(
+  req: Request.IAccessRequest,
+  value: Primitives.AttributeValue,
+  caches?: { path?: Map<string, string[] | null> },
+): Primitives.AttributeValue {
   if (typeof value === 'string' && value.startsWith('$')) {
-    return resolve(req, value.slice(1))
+    return resolve(req, value.slice(1), caches)
   }
   return value
 }
@@ -250,19 +254,41 @@ export function isUserSourcedValue(value: Primitives.AttributeValue): boolean {
  * @returns `true` when the operator predicate holds against the resolved field.
  * @author wildduck2 <https://github.com/wildduck2>
  */
-export function evalCondition(req: Request.IAccessRequest, cond: AccessControl.ICondition): boolean {
+export function evalCondition(
+  req: Request.IAccessRequest,
+  cond: AccessControl.ICondition,
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
+): boolean {
   if (cond.operator === 'matches' && isUserSourcedValue(cond.value ?? null)) return false
-  const fieldVal = resolve(req, cond.field)
-  const condVal = resolveValue(req, cond.value ?? null)
+  const fieldVal = resolve(req, cond.field, caches)
+  const condVal = resolveValue(req, cond.value ?? null, caches)
   try {
+    // DEBT-6: per-Engine regex cache when supplied, module-global fallback.
+    if (cond.operator === 'matches') return evalMatchesOp(fieldVal, condVal, caches?.regex)
     return ops[cond.operator](fieldVal, condVal)
   } catch (err) {
-    // Re-throw RegexInputTooLargeError with the real field name so observability
-    // can attribute the drop. All other throws propagate untouched - the
-    // evaluator's safeEval still catches them and routes through onPolicyError.
     if (err instanceof RegexInputTooLargeError && err.field === '<unknown>') {
       throw new RegexInputTooLargeError(cond.field, err.length)
     }
     throw err
   }
+}
+
+/**
+ * DEBT-6: per-instance-cache-aware `matches` operator. Module-global `ops.matches`
+ * uses the process-wide regex cache; this variant accepts an optional cache
+ * override so multi-tenant Engine instances can isolate compile pools.
+ */
+export function evalMatchesOp(
+  f: Primitives.AttributeValue,
+  v: Primitives.AttributeValue,
+  cache?: Map<string, RegExp>,
+): boolean {
+  if (typeof f !== 'string' || typeof v !== 'string') return false
+  if (v.length > MAX_REGEX_LENGTH) return false
+  if (f.length > MAX_REGEX_INPUT_LENGTH) {
+    throw new RegexInputTooLargeError('<unknown>', f.length)
+  }
+  const re = getCachedRegex(v, cache ?? regexCache)
+  return re ? re.test(f) : false
 }

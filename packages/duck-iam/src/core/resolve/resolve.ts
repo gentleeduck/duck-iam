@@ -82,11 +82,16 @@ function getSegments(path: string, cache: Map<string, string[] | null> = pathCac
  * @returns The resolved attribute value, or `null` when the path is invalid or missing.
  * @author wildduck2 <https://github.com/wildduck2>
  */
-export function resolve(request: Request.IAccessRequest, path: string): Primitives.AttributeValue {
+export function resolve(
+  request: Request.IAccessRequest,
+  path: string,
+  caches?: { path?: Map<string, string[] | null> },
+): Primitives.AttributeValue {
   if (path === 'action') return request.action
   if (path === 'scope') return request.scope ?? null
 
-  const segments = getSegments(path)
+  // DEBT-6: per-Engine path cache when supplied, module-global fallback otherwise.
+  const segments = getSegments(path, caches?.path)
   if (!segments) return null
 
   let node: unknown = request
