@@ -269,6 +269,16 @@ describe('RedisAdapter', () => {
       expect((await adapter.getSubjectAttributes('user-1')).team).toBe('B')
     })
 
+    it('throws on corrupted attributes JSON instead of returning {} (SEC-058)', async () => {
+      await redis.set('attrs:user-1', '{not-valid-json')
+      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+    })
+
+    it('throws on non-object attributes JSON (SEC-058)', async () => {
+      await redis.set('attrs:user-1', '"a-string"')
+      await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
+    })
+
     it('keys are isolated per subject', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-2', 'viewer' as Ro)

@@ -507,17 +507,23 @@ export class RedisAdapter<
   async getSubjectAttributes(subjectId: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
     const value = await this._client.get(this._attrsKey(subjectId))
     if (!value) return {}
+    let parsed: unknown
     try {
-      const parsed = JSON.parse(value)
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
-        return {}
-      }
-      return parsed as Primitives.Attributes
+      parsed = JSON.parse(value)
     } catch (err) {
+      // SEC-058: corruption is NOT the same shape as "no attributes". Returning
+      // {} on parse failure would silently strip ABAC inputs and the engine
+      // would deny policies that previously allowed with no visible change.
+      // _reportPolicyError surfaces it for the operator, and the throw routes
+      // through the engine to onError + fail-closed deny.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      return {}
+      throw new Error(`duck-iam RedisAdapter: corrupted attributes for "${subjectId}" (JSON parse failed)`)
     }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
+      throw new Error(`duck-iam RedisAdapter: corrupted attributes for "${subjectId}" (not a JSON object)`)
+    }
+    return parsed as Primitives.Attributes
   }
 
   /**

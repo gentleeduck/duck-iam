@@ -450,17 +450,19 @@ export class DrizzleAdapter<
     if (!rows[0]) return {}
     const data = rows[0].data
     if (typeof data !== 'string') return (data as Primitives.Attributes) ?? {}
+    let parsed: unknown
     try {
-      const parsed = JSON.parse(data)
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
-        return {}
-      }
-      return parsed as Primitives.Attributes
+      parsed = JSON.parse(data)
     } catch (err) {
+      // SEC-058: see redis adapter — corruption is not 'no attributes'.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      return {}
+      throw new Error(`duck-iam DrizzleAdapter: corrupted attributes for "${subjectId}" (JSON parse failed)`)
     }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
+      throw new Error(`duck-iam DrizzleAdapter: corrupted attributes for "${subjectId}" (not a JSON object)`)
+    }
+    return parsed as Primitives.Attributes
   }
 
   /**
