@@ -96,6 +96,16 @@ export class RedisAdapter<
   private _client: Redis.ILike
   private _prefix: string
   private _onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
+  /**
+   * SEC-024: per-assignment-key serialisation. Read-modify-write on the
+   * legacy-migration path can race with concurrent `revokeRole` and resurrect
+   * a just-deleted assignment (migrator's SADD lands after the revoker's
+   * SREM). Without `EVAL`/`MULTI` in the minimal `Redis.ILike` interface,
+   * the soundest in-process fix is to serialise all writes against a single
+   * assignments key behind a chained promise. Cross-process race remains;
+   * document for operators who run multiple writer processes.
+   */
+  private _assignmentWriteLocks = new Map<string, Promise<unknown>>()
 
   /**
    * Creates a new Redis-backed adapter.
@@ -233,6 +243,30 @@ export class RedisAdapter<
   }
 
   /**
+   * Serialise an async task against a specific assignments key. Chains onto
+   * any in-flight task for the same key so concurrent callers see a strict
+   * happens-before order, defeating the SEC-024 migrate-vs-revoke race in a
+   * single-process deployment.
+   */
+  private _runSerialised<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const prev = this._assignmentWriteLocks.get(key) ?? Promise.resolve()
+    const next = prev.then(task, task)
+    // Subsequent serialised callers must wait for this task too, even on
+    // failure. The catch-noop suppresses Node's unhandled-rejection on the
+    // chained tail (the caller already owns `next`'s rejection); we still
+    // keep the chain ordering so a thrown task doesn't reorder later writes.
+    const tail = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    const settled = tail.finally(() => {
+      if (this._assignmentWriteLocks.get(key) === settled) this._assignmentWriteLocks.delete(key)
+    })
+    this._assignmentWriteLocks.set(key, settled)
+    return next
+  }
+
+  /**
    * One-shot migration: convert any legacy space-separated assignment members
    * for `subjectId` to the NUL-separated form. Idempotent and best-effort -
    * a migration failure must not block authorization, so any errors are
@@ -242,18 +276,28 @@ export class RedisAdapter<
   private async _migrateLegacyAssignment(subjectId: string, members: string[]): Promise<void> {
     const legacy = members.filter((m) => this._isLegacyEncoded(m))
     if (legacy.length === 0) return
-    try {
-      const key = this._assignmentsKey(subjectId)
-      const reEncoded: string[] = []
-      for (const m of legacy) {
-        const decoded = this._decodeAssignment(m)
-        reEncoded.push(this._encodeAssignment(decoded.role, decoded.scope))
+    const key = this._assignmentsKey(subjectId)
+    // SEC-024: serialise against the same key so a concurrent revokeRole
+    // cannot interleave between our SADD migrated and SREM legacy.
+    await this._runSerialised(key, async () => {
+      try {
+        // Re-read members under the lock so we don't migrate something that
+        // was just revoked. Snapshot may be stale relative to other writers
+        // in OTHER processes; SEC-024 is documented as single-process scope.
+        const current = await this._client.smembers(key)
+        const stillLegacy = current.filter((m) => this._isLegacyEncoded(m))
+        if (stillLegacy.length === 0) return
+        const reEncoded: string[] = []
+        for (const m of stillLegacy) {
+          const decoded = this._decodeAssignment(m)
+          reEncoded.push(this._encodeAssignment(decoded.role, decoded.scope))
+        }
+        await this._client.sadd(key, ...reEncoded)
+        await this._client.srem(key, ...stillLegacy)
+      } catch (err) {
+        this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), `assignments:${subjectId}`)
       }
-      await this._client.sadd(key, ...reEncoded)
-      await this._client.srem(key, ...legacy)
-    } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), `assignments:${subjectId}`)
-    }
+    })
   }
 
   /**
@@ -416,7 +460,9 @@ export class RedisAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    await this._client.sadd(this._assignmentsKey(subjectId), this._encodeAssignment(roleId, scope))
+    const key = this._assignmentsKey(subjectId)
+    // SEC-024: serialise against the migration path.
+    await this._runSerialised(key, () => this._client.sadd(key, this._encodeAssignment(roleId, scope)))
   }
 
   /**
@@ -431,15 +477,23 @@ export class RedisAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    if (scope !== undefined) {
-      await this._client.srem(this._assignmentsKey(subjectId), this._encodeAssignment(roleId, scope))
-      return
-    }
-    const members = await this._client.smembers(this._assignmentsKey(subjectId))
-    const targets = members.filter((m) => this._decodeAssignment(m).role === roleId)
-    if (targets.length > 0) {
-      await this._client.srem(this._assignmentsKey(subjectId), ...targets)
-    }
+    const key = this._assignmentsKey(subjectId)
+    // SEC-024: serialise against migration so a racing _migrateLegacyAssignment
+    // cannot SADD the migrated form after our SREM lands.
+    await this._runSerialised(key, async () => {
+      if (scope !== undefined) {
+        // Cover BOTH encodings so a partially-migrated set is cleaned in one go.
+        const migrated = this._encodeAssignment(roleId, scope)
+        const legacy = `${roleId} ${scope}`
+        await this._client.srem(key, migrated, legacy)
+        return
+      }
+      const members = await this._client.smembers(key)
+      const targets = members.filter((m) => this._decodeAssignment(m).role === roleId)
+      if (targets.length > 0) {
+        await this._client.srem(key, ...targets)
+      }
+    })
   }
 
   /**

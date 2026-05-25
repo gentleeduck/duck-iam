@@ -482,4 +482,38 @@ describe('RedisAdapter', () => {
       expect(members).not.toContain('editor org-1')
     })
   })
+
+  describe('SEC-024: migrate-vs-revoke serialisation', () => {
+    it('concurrent migration + revoke leaves no resurrected assignment', async () => {
+      // Seed a legacy entry that migration would re-encode.
+      const r = new FakeRedis()
+      await r.sadd('assignments:user-1', 'editor org-1')
+      const adapter = new RedisAdapter<A, R, Ro, S>({ client: r })
+
+      // Kick off a read that triggers migration, race-fired with a revoke.
+      // Before SEC-024 the migrator's SADD could land after revoker's SREM,
+      // resurrecting `editor\0org-1`. With per-key serialisation the
+      // operations are ordered and the set ends empty.
+      const migration = adapter.getSubjectScopedRoles('user-1')
+      const revoke = adapter.revokeRole('user-1', 'editor' as Ro, 'org-1')
+      await Promise.all([migration, revoke])
+
+      const members = Array.from(r.rawSet('assignments:user-1') ?? [])
+      expect(members).not.toContain('editor\0org-1')
+      expect(members).not.toContain('editor org-1')
+    })
+
+    it('revoke with scope clears both encodings in one call', async () => {
+      // Pre-existing partial state: one entry in each encoding for the same
+      // role+scope pair. revoke({scope:...}) must drain both, not just one.
+      const r = new FakeRedis()
+      await r.sadd('assignments:user-1', 'editor org-1', 'editor\0org-1')
+      const adapter = new RedisAdapter<A, R, Ro, S>({ client: r })
+
+      await adapter.revokeRole('user-1', 'editor' as Ro, 'org-1')
+
+      const members = Array.from(r.rawSet('assignments:user-1') ?? [])
+      expect(members).toHaveLength(0)
+    })
+  })
 })
