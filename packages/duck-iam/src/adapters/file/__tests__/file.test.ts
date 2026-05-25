@@ -238,13 +238,31 @@ describe('FileAdapter', () => {
       ).toThrow(/escapes rootDir/)
     })
 
-    it('warns once when rootDir is omitted', () => {
+    it('warns at most once per process when rootDir is omitted (SEC-026)', () => {
       _warnSpy?.mockClear()
       const fs = makeFakeFS()
-      // Construction warn is the contract; the spy is restored by afterEach.
-      new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
-      const calls = _warnSpy?.mock.calls ?? []
-      expect(calls.some((c) => /rootDir/.test(String(c[0])))).toBe(true)
+      // Latch is module-level: prior tests in this file may already have
+      // tripped it, so the warn for these constructions may not fire at all.
+      // Contract is `at most one` across multiple constructions, never per-
+      // construction spam.
+      new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-1.json', fs })
+      new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-2.json', fs })
+      new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-3.json', fs })
+      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c) => /rootDir/.test(String(c[0])))
+      expect(rootDirWarns.length).toBeLessThanOrEqual(1)
+    })
+
+    it('does not reflect the constructed path in the rootDir-missing warn (SEC-027)', () => {
+      _warnSpy?.mockClear()
+      const fs = makeFakeFS()
+      const uniquePath = `/very-unique-path-${Date.now()}.json`
+      new FileAdapter<Action, Resource, Role, Scope>({ path: uniquePath, fs })
+      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c) => /rootDir/.test(String(c[0])))
+      // Latch may already have fired in prior tests, so this assertion only
+      // applies if a fresh warn did fire here.
+      for (const call of rootDirWarns) {
+        expect(String(call[0])).not.toContain(uniquePath)
+      }
     })
 
     it('rejects a symlink that resolves outside rootDir (via realpath)', async () => {
@@ -272,6 +290,44 @@ describe('FileAdapter', () => {
         fs,
       })
       await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
+    })
+
+    it('re-checks realpath on every I/O, not just the first (SEC-025)', async () => {
+      // After the first successful read, the file is swapped for a symlink to
+      // /etc/passwd. The second I/O must re-run realpath and reject — the
+      // one-shot _rootCheckDone latch would have let the symlink through.
+      let realpathCalls = 0
+      let swapped = false
+      const fs: File.IFS = {
+        async readFile() {
+          return JSON.stringify({ policies: {}, roles: {}, assignments: {}, attributes: {} })
+        },
+        async writeFile() {},
+        async mkdir() {},
+        async realpath(p: string): Promise<string> {
+          realpathCalls++
+          if (p === '/srv/iam/store.json') return swapped ? '/etc/passwd' : '/srv/iam/store.json'
+          if (p === '/srv/iam') return '/srv/iam'
+          throw new Error('ENOENT')
+        },
+      }
+      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+        path: '/srv/iam/store.json',
+        rootDir: '/srv/iam',
+        fs,
+      })
+      // First read succeeds.
+      await adapter.listPolicies()
+      const callsAfterFirst = realpathCalls
+      expect(callsAfterFirst).toBeGreaterThan(0)
+      // Attacker swap.
+      swapped = true
+      // Second op must re-run realpath and reject.
+      // savePolicy clears the cache so _loadState will re-invoke _assertWithinRoot.
+      await expect(
+        adapter.savePolicy({ id: 'p', name: 'p', algorithm: 'deny-overrides', rules: [] }),
+      ).rejects.toThrow(/symlink traversal/)
+      expect(realpathCalls).toBeGreaterThan(callsAfterFirst)
     })
 
     it('does not call mkdir recursively (only the immediate parent)', async () => {

@@ -140,6 +140,14 @@ export namespace File {
  * ```
  * @author wildduck2 <https://github.com/wildduck2>
  */
+/**
+ * Process-wide latch for the missing-rootDir warning (SEC-026).
+ * A single-shot Set keyed by nothing is fine — the warning text is the same
+ * regardless of which adapter triggered it, and we deliberately don't include
+ * the path (SEC-027) so there is nothing to key on either.
+ */
+let _ROOTDIR_WARNED_FIRED = false
+
 export class FileAdapter<
   TAction extends string = string,
   TResource extends string = string,
@@ -154,7 +162,9 @@ export class FileAdapter<
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
   private _cache: File.IState<TAction, TResource, TRole, TScope> | null = null
   private _loadInFlight: Promise<File.IState<TAction, TResource, TRole, TScope>> | null = null
-  private _rootCheckDone = false
+  // SEC-025: re-check realpath on every I/O. A one-shot latch meant an
+  // attacker who swapped the file for a symlink after the first read could
+  // make subsequent writes target the symlink's destination.
 
   /**
    * Creates a new file-backed adapter.
@@ -201,12 +211,18 @@ export class FileAdapter<
       if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
         throw new Error(`duck-iam: FileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
       }
-    } else {
-      // No containment configured. Warn once so existing callers do not break
-      // silently, but loudly enough that operators see it in logs.
+    } else if (!_ROOTDIR_WARNED_FIRED) {
+      // SEC-026: fire the missing-rootDir warning at most once per process,
+      // not per construction — a multi-tenant host that instantiates many
+      // FileAdapters would otherwise drown its log stream and operators
+      // start filtering the warning out, masking real misconfigurations.
+      // SEC-027: do not echo the resolved path. The path may be derived
+      // from request data; reflecting it back into stderr would let an
+      // attacker confirm a path-existence oracle via log scraping.
+      _ROOTDIR_WARNED_FIRED = true
       // eslint-disable-next-line no-console
       console.warn(
-        `[duck-iam:file] FileAdapter constructed without rootDir for path "${resolved}". ` +
+        '[duck-iam:file] FileAdapter constructed without rootDir. ' +
           'Any caller deriving the path from request data should set rootDir for defence in depth. ' +
           'See audit/MIGRATION.md.',
       )
@@ -226,11 +242,11 @@ export class FileAdapter<
    * already enforced the textual containment, which is enough for those
    * environments.
    *
-   * Runs at most once per adapter instance to keep hot paths cheap.
+   * SEC-025: runs on every read AND every write. A one-shot latch let an
+   * attacker swap the file for a symlink after the first I/O and steer
+   * later writes to anywhere the process can reach.
    */
   private async _assertWithinRoot(): Promise<void> {
-    if (this._rootCheckDone) return
-    this._rootCheckDone = true
     if (!this._rootDir || !this._fs.realpath) return
     // The store file itself may not exist yet (first run); fall back to the
     // parent directory's realpath, which must exist by the time we read or
