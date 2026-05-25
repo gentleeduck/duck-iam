@@ -1,5 +1,112 @@
 # @gentleduck/iam
 
+## 2.1.0
+
+### Adversarial security audit cycle (SEC-001 .. SEC-106 + CAVEAT-1/2/3)
+
+A second multi-round audit pass after 2.0.0. Spans **21 rescan cycles** across two adversarial security-auditor agents plus a silent-failure hunter and a code-smell scanner. Resulted in **~60 fix commits** addressing 1 CRITICAL, 7 HIGH, 11 Medium, 12 Low, and 4 Info findings on top of the 2.0.0 hardening. Three consecutive clean rescans (Med+ free) declared the source tree exhausted: *"the package is genuinely hard to break."*
+
+The change set is **mostly backward compatible** with two notable defaults:
+
+1. **Hono `accessMiddleware` + `guard` no longer default to `x-user-id` header** (SEC-101). Spoofable. Now reads only `c.get('userId')` populated by upstream auth. Operators relying on the header must wire `getUserId` explicitly.
+2. **Next `withAccess` requires `getUserId`** (SEC-101). Previous default also trusted the header. Throws at construction when omitted.
+3. **Admin routers CSRF-check by default** (CAVEAT-2). New `defaultCsrfCheck` rejects browser requests with `Sec-Fetch-Site: cross-site|cross-origin`. Bearer/mTLS APIs opt out via `csrfCheck: false`. Cookie-auth admin UIs get protection without any opt-in.
+
+#### CRITICAL (1)
+
+- **SEC-054** `FileAdapter._loadState` swallowed every `readFile` error and silently fell back to an empty store. EACCES (permissions drift), EISDIR (path overwritten), EIO (disk corruption) became `{policies:{},roles:{},…}`. With `defaultEffect:'allow'+allowFailOpen` this is total silent fail-open; with `'deny'` it's total silent outage. Only `ENOENT` now recovers as empty; everything else throws a wrapped Error.
+
+#### HIGH (7)
+
+- **SEC-042** HTTP adapter followed fetch redirects without re-validation. A 302 to `169.254.169.254` or `10.0.0.5:6379` bypassed the construction-time `allowedHosts` / private-IP guard. `_fetchOnce` now passes `redirect: 'error'`.
+- **SEC-055** `_emitMetrics` invoked `onMetrics` without a try/catch. A throwing operator hook escaped `authorize`'s catch arm and replaced the documented fail-closed deny with a raw error. Wrapped via `_safeHookCall`; double-wrapped around `console.error` itself.
+- **SEC-056** `afterEvaluate` / `onDeny` ran inside `authorize`'s main try block; throws caught by the evaluation catch silently rewrote an allow verdict into a fail-closed deny. Trailing hooks now run outside the evaluation try; throws routed to console.error without reshaping the decision.
+- **SEC-057** `engine.permissions()` passed `undefined` for `onPolicyError` to evaluator — per-policy throws vanished. UI gates silently allowed under `defaultEffect:'allow'`. Now forwards the same shim `authorize()` uses.
+- **SEC-058** Redis + Drizzle `getSubjectAttributes` returned `{}` on JSON.parse failure or non-object root. ABAC conditions silently flipped to deny. Now throws; engine routes through `onError` + fail-closed deny.
+- **SEC-064** `FileAdapter` JSON parse failure silently populated `_cache = {}`. Next `_flush()` overwrote the recoverable-but-corrupt file. **Permanent data destruction triggered by a single transient parse error.** Now throws "store corrupt — refusing to load; restore from backup before retrying".
+- **SEC-065** `can()` / `check()` invoked `this._hooks.onError?.()` unwrapped — SEC-055/058 throws routed through these catches; a throwing operator `onError` propagated as unhandled rejection. Now `_safeHookCall`.
+- **SEC-101** Hono / Next default `getUserId` trusted spoofable `x-user-id` header. **Trivial auth bypass via curl.** Hono: no header fallback. Next: required option, throws on construction without it.
+
+#### Medium (11)
+
+- **SEC-043** Admin write path skipped validation. Hostile admin (or buggy UI) could persist a policy that adapter read-side validator silently drops → tenant ends up with zero policies → `defaultEffect` decides every request. `createAdmin.savePolicy / saveRole / import` now call `validatePolicy / validateRole` and throw on error.
+- **SEC-052** `assertValidOrThrow` echoed attacker-controlled values (`Invalid algorithm "<value>"`). Operator who opted into `includeErrorMessage:true` + HTTP body echo got a probe oracle. Now emits `INVALID_ALGORITHM at "algorithm"` — structural codes only.
+- **SEC-024** Redis migration vs `revokeRole` race. `_migrateLegacyAssignment`'s SADD-then-SREM let migrator resurrect a just-revoked assignment. `_runSerialised` per-key chain orders writes; revoke now SREMs both encodings.
+- **SEC-025** File `_assertWithinRoot` ran once per adapter; attacker swapping the file for a symlink after first I/O steered subsequent writes. Drops latch; realpath re-checks every read/write.
+- **SEC-063** `_assertWithinRoot` outside the load try; rejected promise stuck forever in `_loadInFlight`. Restructure clears in-flight via finally on any throw.
+- **SEC-067** SEC-058 caused admin lockout: `setSubjectAttributes` called the getter first, getter now throws on corrupt existing data → operator could not overwrite. Setter catches the throw, logs, treats existing as `{}`.
+- **SEC-068** HTTP adapter `getSubjectRoles` forwarded server response verbatim; other adapters enforce unscoped-only (SEC-059). JSDoc now documents operator's contract responsibility.
+- **SEC-103** Admin router shipped without CSRF guidance. Cookie-auth deployments exposed to cross-site forms. Optional `csrfCheck` added to all 4 framework adapters; default-on via `defaultCsrfCheck` (CAVEAT-2).
+- **SEC-070** `engine.permissions()` had no outer try around `Promise.all([_resolveSubject, _loadAllPolicies])`. Adapter rejection crashed the whole batch without `onError` + fail-closed map. Now wraps in try; returns all-deny map keyed by every requested check + invokes `onError`.
+- **SEC-045** `_loadAllPolicies` merger had no in-flight sentinel; concurrent invalidate-mid-load repopulated stale data. Added `_mergedInFlight` sentinel.
+- **SEC-059** `getSubjectRoles` semantic drift: file/memory returned unscoped-only; redis/drizzle/prisma returned all collapsed. Same subject resolved differently across backends. Aligned all to unscoped-only; documented in `Adapter.ISubjectStore`.
+
+#### Low (12)
+
+- **SEC-044** No way to chart fail-open rate. Added `failOpen: boolean` to `IMetricsEvent` + counter to `createMetricsAggregator`. Threaded through `evaluate`/`evaluateFast` via optional `IEvalSignals`.
+- **SEC-046** Redis invalidator v:1 envelope was unwrapped without HMAC verification when `secret: null` — attacker chose `instanceId`, silenced legitimate cross-instance invalidates. v:1 in unsigned mode now dropped + warned.
+- **SEC-051** `permissions()` bypassed `_emitMetrics` entirely; dashboards charting fail-open missed every batch UI gate. Now emits per check.
+- **SEC-026** File `rootDir` warn fired every construction → log spam → operators filter the warning. Module-global latch fires once per process.
+- **SEC-027** File warn echoed resolved path → path-existence oracle via log scraping. Path stripped from message.
+- **SEC-032** Redis invalidator one-shot per-channel warn latch let attacker burn the first warn on a benign reason then silently flood. Replaced with 60s rate-limit + suppressed-count surfacing.
+- **SEC-047** `errorToAuditString(includeMessage=true)` returned raw `String(err)` for non-Error throws — unbounded leak. Now tagged `<non-Error <typeof>>` + capped at 256 chars + `JSON.stringify` fallback.
+- **SEC-048** Devtools `localStorage` prefix `__IAM_DEVTOOLS` → vendor-namespaced `__GENTLEDUCK_IAM_DEVTOOLS_V1`.
+- **SEC-053** `_assertWithinRoot` parent-realpath fallback fired on ANY error; ELOOP / EACCES bypassed symlink check via reconstructed path. Now gated on `code === 'ENOENT'`.
+- **SEC-060** Vanilla client listener-throw was totally silent. `console.error` surfacing.
+- **SEC-061** Invalidator dropped shape-mismatched inner payloads without `warnDropOnce` — operators saw nothing on sustained schema drift. Routed through warn.
+- **SEC-062** Invalidator `publish()` failure silently swallowed. Added optional `onPublishError(err, channel)` hook + rate-limited console fallback.
+- **SEC-066** `_safeHookCall` / `_emitMetrics` called `console.error` unwrapped; throwing logger (closed stdout, broken pipe) would resurrect SEC-055. Defensive double-wrap.
+- **SEC-069** `dt/lib/flow.ts` listener `catch{}` silent. console.error added.
+- **SEC-104** Vanilla `extractAction` split key on `:` naively; resources containing `:` mis-tokenised. Added `splitPermissionKey` that honours `\\:`/`\\\\` escapes from `buildPermissionKey`.
+
+#### Info (4)
+
+- **SEC-105** `createNextMiddleware` JSDoc example demonstrated the SEC-101 unsafe pattern. Replaced with `getServerSession` example + warning.
+- **SEC-106** Only express had a CSRF regression test; hono/next/nest needed parity. Added.
+- **INFO-A** `LRUCache` + Engine `maxPolicies/maxRoles/adapterTimeoutMs` accepted NaN (silently disabled bound). Now `Number.isFinite` required.
+- **INFO-B** `Explain.IResult.summary` is plain text with attacker-influenced values; consumers rendering as HTML must escape. JSDoc added.
+
+#### Deployment hardening (CAVEAT-1/2/3 + SEC-050)
+
+- **CAVEAT-1**: `createRedisInvalidator({ tenantId })` auto-prefixes the channel `'duck-iam:invalidate:tenant:${tenantId}'`. Validates `tenantId` against `/^[A-Za-z0-9_-]{1,64}$/` so attacker-controlled tenant slugs cannot inject pub/sub wildcards.
+- **CAVEAT-2**: Admin routers default-on CSRF via `defaultCsrfCheck` (Sec-Fetch-Site check). `csrfCheck: false` opts out for bearer/mTLS APIs.
+- **CAVEAT-3**: `SECURITY.md` adds a 10-section **Deployment Hardening Guide** covering identity sourcing, admin CSRF, Redis tenancy, cache scoping, `defaultEffect:'allow'`, `explain()` output trust, adapter trust, file `rootDir`, HTTP `allowedHosts`, observability wiring.
+- **SEC-050**: `getCachedRegex` / `getSegments` accept optional per-instance cache override. `clearRegexCache()` / `clearPathCache()` exported. `Engine.flushSharedCaches()` ergonomic operator API for multi-tenant deployments.
+
+#### New APIs (additive)
+
+- `Engine.flushSharedCaches()` — wipe process-wide regex + path caches.
+- `defaultCsrfCheck(req)` — exported from `server/generic`; built-in Sec-Fetch-Site predicate.
+- `AdminAudit.IOptions.csrfCheck?: ((req) => boolean) | false`.
+- `RedisInvalidator.IConfig.tenantId?: string`.
+- `RedisInvalidator.IConfig.onPublishError?: (err, channel) => void`.
+- `IMetricsEvent.failOpen: boolean`.
+- `Metrics.ISnapshot.failOpen: number`.
+- `splitPermissionKey(key)` — exported from `shared/keys`; escape-aware split.
+- `clearRegexCache()` / `clearPathCache()` — process-wide cache flush.
+- `Validate.ValidationCode` extended with `'ERR_REGEX_CATASTROPHIC'`.
+
+#### Behaviour changes
+
+- `adminRouter`/`bindAdminRouter`/`createAdminHandlers`/`createAdminOperations` enforce `defaultCsrfCheck` by default. Pass `csrfCheck: false` to restore old behaviour.
+- Hono `accessMiddleware`/`guard` no longer fall back to `x-user-id` request header.
+- Next `withAccess` requires `getUserId` (throws at construction).
+- `FileAdapter.listPolicies/...` throws on non-ENOENT load failures (was silently empty).
+- `FileAdapter` throws on malformed JSON (was silently empty + permanent file destruction on next flush).
+- Redis/Drizzle `getSubjectAttributes` throws on corrupt blob (was `{}`).
+- All 5 adapters' `getSubjectRoles` return unscoped-only (`getSubjectScopedRoles` still surfaces scoped separately).
+- Engine ctor rejects NaN/Infinity for `maxPolicies`/`maxRoles`/`adapterTimeoutMs`.
+- `LRUCache` ctor rejects NaN/Infinity for `maxSize`/`ttlMs`.
+
+#### Tests
+
+- 785 → **836** tests (+51).
+- 5 consecutive clean rescans (Med+ free): 010, 011, 012, 014, 017, 019, 020, 021 (intermediate Med+ found-and-fixed in 015, 018).
+
+#### Audit hygiene
+
+- `audit/` directory gitignored; per-finding markdown reports + per-cycle `rescan-NNN.md` reports tracked locally in `audit/STATE.md`.
+
 ## 2.0.1
 
 ### Patch Changes
