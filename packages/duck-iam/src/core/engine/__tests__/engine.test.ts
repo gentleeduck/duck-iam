@@ -1078,6 +1078,40 @@ describe('Engine - cache invalidation', () => {
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
 
+  it('_loadAllPolicies mid-flight: invalidatePolicies does not repopulate merged cache (SEC-045)', async () => {
+    // Merger layer sits above _loadPolicies/_loadRbacPolicy. Even though each
+    // underlying loader sentinel-guards its own slot, the merger could still
+    // set the merged cache with stale data after the in-flight underlying
+    // loaders return, because the merger had no sentinel of its own.
+    // After fix: merger uses _mergedInFlight sentinel.
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+    })
+    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    // Warm subject cache so .can() proceeds straight to _loadAllPolicies on
+    // the next call (otherwise _resolveSubject's first microtask hides the
+    // race window we want to hit).
+    await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+    engine.invalidatePolicies()
+
+    const origPolicies = adapter.listPolicies.bind(adapter)
+    adapter.listPolicies = async () => {
+      await new Promise((r) => setTimeout(r, 5))
+      return origPolicies()
+    }
+    // Now _loadAllPolicies is the very next thing .can() will do.
+    const pending = engine.can('user-1', 'read', { type: 'post', attributes: {} })
+    // Yield once so the merger sets `_mergedInFlight = pending` before invalidate.
+    await Promise.resolve()
+    await Promise.resolve()
+    engine.invalidatePolicies()
+    await pending
+
+    const cache = (engine as unknown as { _mergedPolicyCache: { get(k: string): unknown } })._mergedPolicyCache
+    expect(cache.get('merged')).toBeUndefined()
+  })
+
   it('rbac cached policy is frozen - consumer mutation throws in strict mode', async () => {
     // Cached Policy is a shared reference; mutations would corrupt subsequent
     // loadAllPolicies() callers. Strict-mode JS throws on frozen-target writes.

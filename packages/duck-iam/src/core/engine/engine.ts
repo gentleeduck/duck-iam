@@ -60,6 +60,7 @@ export class Engine<
   private _policiesInFlight: Promise<AccessControl.IPolicy[]> | null = null
   private _rolesInFlight: Promise<AccessControl.IRole[]> | null = null
   private _rbacInFlight: Promise<AccessControl.IPolicy> | null = null
+  private _mergedInFlight: Promise<AccessControl.IPolicy[]> | null = null
   private _subjectsInFlight = new Map<string, Promise<Request.ISubject>>()
 
   /**
@@ -289,13 +290,28 @@ export class Engine<
   private async _loadAllPolicies(): Promise<AccessControl.IPolicy[]> {
     const cached = this._mergedPolicyCache.get('merged')
     if (cached) return cached
-    const [policies, rbacPolicy] = await Promise.all([this._loadPolicies(), this._loadRbacPolicy()])
-    // Skip the RBAC policy entirely when it has no rules - including it would
-    // contribute a default-effect deny under AND combine and short-circuit
-    // every request, even when explicit ABAC policies allow.
-    const merged = rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
-    this._mergedPolicyCache.set('merged', merged)
-    return merged
+    if (this._mergedInFlight) return this._mergedInFlight
+
+    // SEC-045: sentinel-compare on resolve so that an invalidate() landing
+    // mid-await does not repopulate the merged cache with stale rules. Without
+    // this the underlying _loadPolicies/_loadRbacPolicy guards drop their own
+    // entries on invalidate, but the merger here would set them anyway.
+    let pending!: Promise<AccessControl.IPolicy[]>
+    pending = (async () => {
+      try {
+        const [policies, rbacPolicy] = await Promise.all([this._loadPolicies(), this._loadRbacPolicy()])
+        // Skip the RBAC policy entirely when it has no rules - including it would
+        // contribute a default-effect deny under AND combine and short-circuit
+        // every request, even when explicit ABAC policies allow.
+        const merged = rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
+        if (this._mergedInFlight === pending) this._mergedPolicyCache.set('merged', merged)
+        return merged
+      } finally {
+        if (this._mergedInFlight === pending) this._mergedInFlight = null
+      }
+    })()
+    this._mergedInFlight = pending
+    return pending
   }
 
   /**
@@ -729,6 +745,7 @@ export class Engine<
     this._policiesInFlight = null
     this._rolesInFlight = null
     this._rbacInFlight = null
+    this._mergedInFlight = null
     this._mergedPolicyCache.clear()
     this._subjectsInFlight.clear()
     if (opts.broadcast !== false && this._invalidator) {
@@ -760,6 +777,7 @@ export class Engine<
   invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
     this._policyCache.clear()
     this._policiesInFlight = null
+    this._mergedInFlight = null
     this._mergedPolicyCache.clear()
     if (opts.broadcast !== false && this._invalidator) {
       void this._invalidator.publish({ kind: 'policies' })
@@ -781,6 +799,7 @@ export class Engine<
     this._rbacPolicyCache.clear()
     this._rolesInFlight = null
     this._rbacInFlight = null
+    this._mergedInFlight = null
     this._mergedPolicyCache.clear()
     if (roleId === undefined) {
       this._subjectCache.clear()
