@@ -12,6 +12,7 @@ export default createTsdownConfig({
     'providers/magic-link/index': 'src/providers/magic-link/index.ts',
     'server/generic/index': 'src/server/generic/index.ts',
     'server/express/index': 'src/server/express/index.ts',
+    'server/hono/index': 'src/server/hono/index.ts',
   },
   external: [...baseExternal],
 })

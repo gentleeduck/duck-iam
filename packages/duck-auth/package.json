@@ -111,6 +111,16 @@
         "types": "./dist/server/express/index.d.cts",
         "default": "./dist/server/express/index.cjs"
       }
+    },
+    "./server/hono": {
+      "import": {
+        "types": "./dist/server/hono/index.d.ts",
+        "default": "./dist/server/hono/index.js"
+      },
+      "require": {
+        "types": "./dist/server/hono/index.d.cts",
+        "default": "./dist/server/hono/index.cjs"
+      }
     }
   },
   "files": [
