@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import type { AccessControl, Request } from '../../types'
-import type { Explain } from '..'
+import { escapeHtml, type Explain } from '..'
 import { explainEvaluation } from '../explain'
+
+describe('escapeHtml', () => {
+  it('escapes & < > " \' to HTML entities', () => {
+    expect(escapeHtml('a & b')).toBe('a &amp; b')
+    expect(escapeHtml('<script>')).toBe('&lt;script&gt;')
+    expect(escapeHtml('"x"')).toBe('&quot;x&quot;')
+    expect(escapeHtml("o'brien")).toBe('o&#39;brien')
+  })
+
+  it('orders replacement so & is escaped first', () => {
+    // If `<` were replaced first, &lt; would be re-escaped to &amp;lt;.
+    expect(escapeHtml('<&>')).toBe('&lt;&amp;&gt;')
+  })
+
+  it('passes through safe strings unchanged', () => {
+    expect(escapeHtml('hello world')).toBe('hello world')
+    expect(escapeHtml('123 abc')).toBe('123 abc')
+  })
+})
 
 function makeReq(overrides: Partial<Request.IAccessRequest> = {}): Request.IAccessRequest {
   return {

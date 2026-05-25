@@ -713,7 +713,13 @@ export class Engine<
     subjectId: string,
     checks: readonly Client.IPermissionCheck<TAction, TResource, TScope>[],
     environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
+    opts: { telemetry?: boolean } = {},
   ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
+    // `telemetry: false` skips per-check onMetrics + signals allocation
+    // (~2x throughput on large batches). Use for hot UI gates where you
+    // already chart fail-open via authorize() metrics and don't need
+    // per-check telemetry for permissions().
+    const telemetry = opts.telemetry !== false
     // Outer try mirrors check()/can() — adapter rejections from
     // _resolveSubject or _loadAllPolicies happen BEFORE the per-check try,
     // so without this catch the entire batch would reject with no onError
@@ -756,8 +762,9 @@ export class Engine<
 
     for (const c of checks) {
       const key = buildPermissionKey(c.action, c.resource, c.resourceId, c.scope)
-      // Per-check metrics: onMetrics fires once per check with failOpen signal.
-      const t0 = this._hooks.onMetrics ? performance.now() : 0
+      // Per-check metrics: onMetrics fires once per check with failOpen signal
+      // (unless `telemetry: false`).
+      const t0 = telemetry && this._hooks.onMetrics ? performance.now() : 0
 
       // Trailing-hooks block runs OUTSIDE the evaluation try so a throwing
       // afterEvaluate/onDeny cannot rewrite the per-check verdict.
@@ -832,7 +839,7 @@ export class Engine<
           scope: c.scope,
         }
         await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
-        this._emitMetrics(errReq, false, t0, false)
+        if (telemetry) this._emitMetrics(errReq, false, t0, false)
         map[key] = false
         continue
       }
@@ -845,7 +852,7 @@ export class Engine<
           await this._safeHookCall(() => this._hooks.onDeny?.(evalReq!, decisionForHooks!), 'onDeny')
         }
       }
-      if (evalReq !== null) this._emitMetrics(evalReq, allowedForCheck, t0, failOpenForCheck)
+      if (telemetry && evalReq !== null) this._emitMetrics(evalReq, allowedForCheck, t0, failOpenForCheck)
     }
 
     return map as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
@@ -998,9 +1005,16 @@ export class Engine<
    * Warm `mergedPolicyCache` so the first request after boot doesn't pay the
    * full load + index cost. Bench shows ~15x speedup on the first call vs
    * cold. Recommended to call once at app startup.
+   *
+   * Pass `{ validator: true }` to also eagerly load the lazy validator
+   * chunk (12 KB gzipped). Useful for operators who want to front-load
+   * every cost at boot instead of paying it on first admin write. Read-only
+   * services can leave it off.
    */
-  async preload(): Promise<void> {
-    await this._loadAllPolicies()
+  async preload(opts: { validator?: boolean } = {}): Promise<void> {
+    const tasks: Array<Promise<unknown>> = [this._loadAllPolicies()]
+    if (opts.validator) tasks.push(import('../validate'))
+    await Promise.all(tasks)
   }
 
   /**
