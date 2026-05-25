@@ -3,6 +3,7 @@ import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
+import { DEFAULT_MFA_CONFIG, MfaFacet } from './facets/mfa'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
 import { ProvidersFacet } from './facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
@@ -44,6 +45,12 @@ export interface AuthRootConfig<Profile = unknown, Tenant = string, OrgMeta = un
     /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
     hasher?: Hasher.IHasher
   }
+  mfa?: {
+    /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */
+    issuer?: string
+    backupCodeCount?: number
+    backupCodeLen?: number
+  }
   __tenantBrand?: Tenant
 }
 
@@ -60,6 +67,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly identities: IdentitiesFacet<Profile>
   readonly passwords: PasswordsFacet
   readonly providers: ProvidersFacet<Profile>
+  readonly mfa: MfaFacet
   readonly flows: FlowsFacet<Profile>
   readonly limiter: LimiterNs.ILimiter
 
@@ -82,6 +90,11 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
     })
     this.providers = new ProvidersFacet<Profile>(config.providers ?? [])
+    this.mfa = new MfaFacet(config.stores.credentials, this.events, {
+      issuer: config.mfa?.issuer ?? DEFAULT_MFA_CONFIG.issuer,
+      backupCodeCount: config.mfa?.backupCodeCount ?? DEFAULT_MFA_CONFIG.backupCodeCount,
+      backupCodeLen: config.mfa?.backupCodeLen ?? DEFAULT_MFA_CONFIG.backupCodeLen,
+    })
     this.flows = new FlowsFacet<Profile>(
       this.sessions,
       this.identities,
