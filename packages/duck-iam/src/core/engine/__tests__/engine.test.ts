@@ -880,6 +880,79 @@ describe('Engine - construction guards', () => {
     expect(events).toHaveLength(1)
     expect(events[0]).toEqual({ allowed: true, failOpen: false })
   })
+
+  it('onMetrics throw does not escape authorize (SEC-055)', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+    })
+    const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+        adapter,
+        hooks: {
+          onMetrics: () => {
+            throw new Error('metrics-client-down')
+          },
+        },
+      })
+      // Must resolve to the underlying allow, not throw the metrics error.
+      await expect(engine.can('user-1', 'read', { type: 'post', attributes: {} })).resolves.toBe(true)
+      // The throw should have been logged via console.error.
+      expect(consoleErr).toHaveBeenCalled()
+    } finally {
+      consoleErr.mockRestore()
+    }
+  })
+
+  it('afterEvaluate throw does not rewrite allow → deny (SEC-056)', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+    })
+    const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+        adapter,
+        mode: 'development',
+        hooks: {
+          afterEvaluate: () => {
+            throw new Error('telemetry-bug')
+          },
+        },
+      })
+      // Decision must remain allow despite hook throw.
+      const decision = await engine.check('user-1', 'read', { type: 'post', attributes: {} })
+      expect(decision.allowed).toBe(true)
+      expect(consoleErr).toHaveBeenCalled()
+    } finally {
+      consoleErr.mockRestore()
+    }
+  })
+
+  it('onDeny throw does not rewrite deny → throw (SEC-056)', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+    })
+    const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+        adapter,
+        mode: 'development',
+        hooks: {
+          onDeny: () => {
+            throw new Error('audit-down')
+          },
+        },
+      })
+      const decision = await engine.check('user-1', 'create', { type: 'post', attributes: {} })
+      expect(decision.allowed).toBe(false)
+      expect(consoleErr).toHaveBeenCalled()
+    } finally {
+      consoleErr.mockRestore()
+    }
+  })
 })
 
 describe('Engine - DoS bounds at load time (B5)', () => {
