@@ -517,6 +517,44 @@ describe('RedisAdapter', () => {
   })
 
   describe('SEC-024: migrate-vs-revoke serialisation', () => {
+    it('uses Lua EVAL when client supports it (DEBT-10)', async () => {
+      // Cross-process atomic migration via EVAL: confirm the adapter
+      // dispatches to the Lua path when client.eval exists.
+      const r = new FakeRedis()
+      await r.sadd('assignments:user-1', 'editor org-1')
+      const evalCalls: Array<[string, number, string[]]> = []
+      const clientWithEval = {
+        ...r,
+        get: r.get.bind(r),
+        set: r.set.bind(r),
+        del: r.del.bind(r),
+        hset: r.hset.bind(r),
+        hget: r.hget.bind(r),
+        hdel: r.hdel.bind(r),
+        hkeys: r.hkeys.bind(r),
+        hvals: r.hvals.bind(r),
+        hgetall: r.hgetall.bind(r),
+        sadd: r.sadd.bind(r),
+        srem: r.srem.bind(r),
+        smembers: r.smembers.bind(r),
+        async eval(script: string, numkeys: number, ...keysAndArgs: string[]): Promise<unknown> {
+          evalCalls.push([script, numkeys, keysAndArgs])
+          // Simulate Lua execution: read ARGV pairs, SADD migrated, SREM legacy.
+          const key = keysAndArgs[0]!
+          for (let i = 1; i < keysAndArgs.length; i += 2) {
+            await r.sadd(key, keysAndArgs[i]!)
+            await r.srem(key, keysAndArgs[i + 1]!)
+          }
+          return 'OK'
+        },
+      }
+      const adapter = new RedisAdapter<A, R, Ro, S>({ client: clientWithEval })
+      await adapter.getSubjectScopedRoles('user-1')
+      expect(evalCalls).toHaveLength(1)
+      expect(evalCalls[0]?.[1]).toBe(1)
+      expect(evalCalls[0]?.[2][0]).toBe('assignments:user-1')
+    })
+
     it('concurrent migration + revoke leaves no resurrected assignment', async () => {
       // Seed a legacy entry that migration would re-encode.
       const r = new FakeRedis()

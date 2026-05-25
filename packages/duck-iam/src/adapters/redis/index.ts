@@ -28,6 +28,20 @@ export namespace Redis {
     sadd(key: string, ...members: string[]): Promise<number>
     srem(key: string, ...members: string[]): Promise<number>
     smembers(key: string): Promise<string[]>
+    /**
+     * DEBT-10: optional Lua EVAL surface for cross-process atomic
+     * read-modify-write on assignments (`_migrateLegacyAssignment` race vs
+     * `revokeRole`). When present, the adapter switches to the Lua path
+     * for migration; when absent, falls back to the single-process
+     * `_runSerialised` chain (still correct for single-process deployments).
+     *
+     * Both ioredis (`eval(script, keysLen, ...keysAndArgs)`) and node-redis
+     * v4+ (`eval(script, { keys, arguments })`) implement this signature
+     * shape when the adapter passes a pre-flattened `[script, numkeys,
+     * ...keys, ...args]` invocation. The library targets the ioredis
+     * positional shape; node-redis users can wrap with an adapter.
+     */
+    eval?(script: string, numkeys: number, ...keysAndArgs: string[]): Promise<unknown>
   }
 
   /**
@@ -277,13 +291,15 @@ export class RedisAdapter<
     const legacy = members.filter((m) => this._isLegacyEncoded(m))
     if (legacy.length === 0) return
     const key = this._assignmentsKey(subjectId)
-    // SEC-024: serialise against the same key so a concurrent revokeRole
-    // cannot interleave between our SADD migrated and SREM legacy.
+    // DEBT-10: prefer Lua EVAL for true atomicity (cross-process safe).
+    // Falls back to in-process serialisation when client lacks eval.
+    if (typeof this._client.eval === 'function') {
+      await this._migrateLegacyAssignmentLua(key, subjectId, legacy)
+      return
+    }
+    // SEC-024: single-process serialisation fallback.
     await this._runSerialised(key, async () => {
       try {
-        // Re-read members under the lock so we don't migrate something that
-        // was just revoked. Snapshot may be stale relative to other writers
-        // in OTHER processes; SEC-024 is documented as single-process scope.
         const current = await this._client.smembers(key)
         const stillLegacy = current.filter((m) => this._isLegacyEncoded(m))
         if (stillLegacy.length === 0) return
@@ -298,6 +314,47 @@ export class RedisAdapter<
         this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), `assignments:${subjectId}`)
       }
     })
+  }
+
+  /**
+   * DEBT-10: cross-process atomic migration via Redis EVAL. Lua scripts
+   * run atomically in Redis — no other command interleaves between the
+   * SADD and SREM, so a concurrent `revokeRole` from a sibling process
+   * cannot resurrect an assignment. Requires `client.eval` (ioredis,
+   * node-redis v4+); adapter falls back to single-process serialisation
+   * when absent.
+   *
+   * Script semantics: for each legacy member in ARGV, decode (split on
+   * space) into role + scope, re-encode (NUL separator), SADD the
+   * migrated form, SREM the legacy form. All atomic. ARGV format is
+   * pairs `[migratedMember, legacyMember]` so the adapter does the
+   * encode/decode in JS (Lua string-manipulation is awkward).
+   */
+  private static readonly _MIGRATE_LUA = `
+    local key = KEYS[1]
+    for i = 1, #ARGV, 2 do
+      local migrated = ARGV[i]
+      local legacy = ARGV[i + 1]
+      redis.call('SADD', key, migrated)
+      redis.call('SREM', key, legacy)
+    end
+    return 'OK'
+  `
+
+  private async _migrateLegacyAssignmentLua(key: string, subjectId: string, legacy: string[]): Promise<void> {
+    try {
+      const args: string[] = []
+      for (const m of legacy) {
+        const decoded = this._decodeAssignment(m)
+        args.push(this._encodeAssignment(decoded.role, decoded.scope))
+        args.push(m)
+      }
+      const evalFn = this._client.eval
+      if (!evalFn) return
+      await evalFn.call(this._client, RedisAdapter._MIGRATE_LUA, 1, key, ...args)
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), `assignments:${subjectId}`)
+    }
   }
 
   /**
