@@ -475,9 +475,10 @@ export class Engine<
     // cannot rewrite the decision. Each hook is individually wrapped so a
     // bug in one doesn't suppress the others.
     if (decisionForHooks !== null) {
-      await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, decisionForHooks!), 'afterEvaluate')
-      if (!decisionForHooks.allowed) {
-        await this._safeHookCall(() => this._hooks.onDeny?.(req, decisionForHooks!), 'onDeny')
+      const d = decisionForHooks
+      await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, d), 'afterEvaluate')
+      if (!d.allowed) {
+        await this._safeHookCall(() => this._hooks.onDeny?.(req, d), 'onDeny')
       }
     }
     this._emitMetrics(req, allowedForMetrics, t0, failOpenForMetrics)
@@ -847,9 +848,11 @@ export class Engine<
       // Trailing-hooks block (outside try) — keeps hook throws from
       // rewriting the per-check verdict; mirrors authorize().
       if (decisionForHooks !== null && evalReq !== null) {
-        await this._safeHookCall(() => this._hooks.afterEvaluate?.(evalReq!, decisionForHooks!), 'afterEvaluate')
-        if (!decisionForHooks.allowed) {
-          await this._safeHookCall(() => this._hooks.onDeny?.(evalReq!, decisionForHooks!), 'onDeny')
+        const d = decisionForHooks
+        const r = evalReq
+        await this._safeHookCall(() => this._hooks.afterEvaluate?.(r, d), 'afterEvaluate')
+        if (!d.allowed) {
+          await this._safeHookCall(() => this._hooks.onDeny?.(r, d), 'onDeny')
         }
       }
       if (telemetry && evalReq !== null) this._emitMetrics(evalReq, allowedForCheck, t0, failOpenForCheck)
@@ -933,7 +936,6 @@ export class Engine<
    * process-globals, so calling `engineA.flushSharedCaches()` also affects
    * `engineB`. Kept for backward compatibility; will be removed in 3.0.
    */
-  // biome-ignore lint/complexity/noThisInStatic: backward-compat shim
   flushSharedCaches(): void {
     flushSharedCaches()
   }

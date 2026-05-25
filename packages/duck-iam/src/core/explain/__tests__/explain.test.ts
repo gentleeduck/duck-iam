@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AccessControl, Request } from '../../types'
-import { escapeHtml, type Explain } from '..'
+import { type Explain, escapeHtml } from '..'
 import { explainEvaluation } from '../explain'
 
 describe('escapeHtml', () => {
