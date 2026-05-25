@@ -670,12 +670,24 @@ export class Engine<
     // Memo per scope: N checks sharing a scope must not rebuild the merged role list N times.
     const enrichedByScope = new Map<TScope, Request.ISubject>()
 
+    // SEC-057: forward onPolicyError to evaluate*; previously batch checks
+    // silently dropped per-policy throws because this arg was undefined.
+    const onPolicyErrorHook = this._hooks.onPolicyError
+    const onPolicyError = onPolicyErrorHook
+      ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
+      : undefined
+
     for (const c of checks) {
       const key = buildPermissionKey(c.action, c.resource, c.resourceId, c.scope)
       // SEC-051: permissions() previously bypassed onMetrics + failOpen signal.
-      // Dashboards charting fail-open rate missed every batch UI gate. Fire
-      // _emitMetrics per check so the aggregator sees a complete picture.
       const t0 = this._hooks.onMetrics ? performance.now() : 0
+
+      // SEC-056: trailing-hooks block runs OUTSIDE the evaluation try so a
+      // throwing afterEvaluate/onDeny cannot rewrite the per-check verdict.
+      let decisionForHooks: AccessControl.IDecision | null = null
+      let allowedForCheck = false
+      let failOpenForCheck = false
+      let evalReq: Request.IAccessRequest<TAction, TResource, TScope> | null = null
 
       try {
         let enrichedSubject = subject
@@ -703,39 +715,34 @@ export class Engine<
 
         const signals: { failOpen?: boolean } = {}
 
-        // Production fast path
         if (this._mode === 'production') {
           const allowed = evaluateFast(
             allPolicies,
             req as Request.IAccessRequest,
             this._defaultEffect,
             this._policyCombine,
-            undefined,
+            onPolicyError,
             signals,
           )
           map[key] = allowed
-          this._emitMetrics(req, allowed, t0, signals.failOpen === true)
-          continue
+          allowedForCheck = allowed
+          failOpenForCheck = signals.failOpen === true
+          evalReq = req
+        } else {
+          const decision = evaluate(
+            allPolicies,
+            req as Request.IAccessRequest,
+            this._defaultEffect,
+            this._policyCombine,
+            onPolicyError,
+            signals,
+          )
+          map[key] = decision.allowed
+          decisionForHooks = decision
+          allowedForCheck = decision.allowed
+          failOpenForCheck = signals.failOpen === true
+          evalReq = req
         }
-
-        const decision = evaluate(
-          allPolicies,
-          req as Request.IAccessRequest,
-          this._defaultEffect,
-          this._policyCombine,
-          undefined,
-          signals,
-        )
-
-        if (this._hooks.afterEvaluate) {
-          await this._hooks.afterEvaluate(req, decision)
-        }
-        if (!decision.allowed && this._hooks.onDeny) {
-          await this._hooks.onDeny(req, decision)
-        }
-
-        map[key] = decision.allowed
-        this._emitMetrics(req, decision.allowed, t0, signals.failOpen === true)
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
         const errReq: Request.IAccessRequest<TAction, TResource, TScope> = {
@@ -745,10 +752,20 @@ export class Engine<
           environment,
           scope: c.scope,
         }
-        if (this._hooks.onError) await this._hooks.onError(err, errReq)
+        await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
         this._emitMetrics(errReq, false, t0, false)
         map[key] = false
+        continue
       }
+
+      // Trailing-hooks block (outside try) — see SEC-056 in authorize().
+      if (decisionForHooks !== null && evalReq !== null) {
+        await this._safeHookCall(() => this._hooks.afterEvaluate?.(evalReq!, decisionForHooks!), 'afterEvaluate')
+        if (!decisionForHooks.allowed) {
+          await this._safeHookCall(() => this._hooks.onDeny?.(evalReq!, decisionForHooks!), 'onDeny')
+        }
+      }
+      if (evalReq !== null) this._emitMetrics(evalReq, allowedForCheck, t0, failOpenForCheck)
     }
 
     return map as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>

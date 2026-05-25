@@ -285,6 +285,49 @@ describe('Engine.permissions() - batch check', () => {
     expect(map['publish:post']).toBe(false)
   })
 
+  it('forwards onPolicyError to evaluator for batch checks (SEC-057)', async () => {
+    // A policy whose evaluator throws (RegexInputTooLargeError when matching
+    // against an oversize subject attribute) must surface via onPolicyError;
+    // permissions() previously passed undefined and the throw was eaten.
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [viewerRole],
+      assignments: { 'user-1': ['viewer'] as RoleId[] },
+      policies: [
+        {
+          id: 'matches-policy',
+          name: 'm',
+          algorithm: 'deny-overrides',
+          rules: [
+            {
+              id: 'r',
+              effect: 'allow',
+              priority: 1,
+              actions: ['read'],
+              resources: ['post'],
+              conditions: {
+                all: [{ field: 'subject.attributes.bigField', operator: 'matches', value: 'safe' } as never],
+              },
+            },
+          ],
+        } as never,
+      ],
+      attributes: {
+        // 3KB > MAX_REGEX_INPUT_LENGTH (2048) — evaluator throws.
+        'user-1': { bigField: 'x'.repeat(3000) },
+      },
+    })
+    const policyErrors: Array<{ id: string }> = []
+    const eng = new Engine<Action, ResourceType, RoleId, Scope>({
+      adapter,
+      hooks: {
+        onPolicyError: (_err, id) => policyErrors.push({ id }),
+      },
+    })
+    await eng.permissions('user-1', [{ action: 'read', resource: 'post' }])
+    expect(policyErrors.length).toBeGreaterThan(0)
+    expect(policyErrors[0]?.id).toBe('matches-policy')
+  })
+
   it('fires onMetrics per check including failOpen signal (SEC-051)', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [],
