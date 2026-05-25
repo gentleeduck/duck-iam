@@ -284,6 +284,29 @@ describe('Engine.permissions() - batch check', () => {
     expect(map['manage:post']).toBe(false)
     expect(map['publish:post']).toBe(false)
   })
+
+  it('fires onMetrics per check including failOpen signal (SEC-051)', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [],
+      assignments: { 'user-1': [] as RoleId[] },
+    })
+    const events: Array<{ action: string; resource: string; allowed: boolean; failOpen: boolean }> = []
+    const eng = new Engine<Action, ResourceType, RoleId, Scope>({
+      adapter,
+      defaultEffect: 'allow',
+      allowFailOpen: true,
+      hooks: {
+        onMetrics: (e) =>
+          events.push({ action: e.action, resource: e.resource, allowed: e.allowed, failOpen: e.failOpen }),
+      },
+    })
+    await eng.permissions('user-1', [
+      { action: 'read', resource: 'post' },
+      { action: 'create', resource: 'post' },
+    ])
+    expect(events).toHaveLength(2)
+    expect(events.every((e) => e.allowed && e.failOpen)).toBe(true)
+  })
 })
 
 describe('Engine.check() - detailed decision', () => {
