@@ -12,6 +12,7 @@ export namespace Validate {
     | 'DUPLICATE_ROLE_ID'
     | 'DUPLICATE_RULE_ID'
     | 'EMPTY_ROLE'
+    | 'ERR_REGEX_CATASTROPHIC'
     | 'INHERITANCE_TOO_DEEP'
     | 'INVALID_ALGORITHM'
     | 'INVALID_CONDITION'

@@ -248,7 +248,7 @@ describe('FileAdapter', () => {
       new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-1.json', fs })
       new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-2.json', fs })
       new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-3.json', fs })
-      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c) => /rootDir/.test(String(c[0])))
+      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c: unknown[]) => /rootDir/.test(String(c[0])))
       expect(rootDirWarns.length).toBeLessThanOrEqual(1)
     })
 
@@ -257,7 +257,7 @@ describe('FileAdapter', () => {
       const fs = makeFakeFS()
       const uniquePath = `/very-unique-path-${Date.now()}.json`
       new FileAdapter<Action, Resource, Role, Scope>({ path: uniquePath, fs })
-      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c) => /rootDir/.test(String(c[0])))
+      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c: unknown[]) => /rootDir/.test(String(c[0])))
       // Latch may already have fired in prior tests, so this assertion only
       // applies if a fresh warn did fire here.
       for (const call of rootDirWarns) {
