@@ -1,10 +1,12 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "_comment": "DEBT-1: mutation testing scaffold. Removing a try/catch or sentinel-compare line should be killed by the security regression test suite. Run with `bun run mutation`. Slow (~5-15 min); not part of CI by default. See SECURITY.md DEBT-1 for rationale.",
-  "packageManager": "bun",
+  "_comment": "Mutation testing scaffold. Removing a try/catch or sentinel-compare line should be killed by the security regression test suite. Run with `bun run mutation`. Slow (~5-15 min); not part of CI by default. KNOWN ISSUE: Stryker 9 + Vitest 4 + this monorepo's symlinked node_modules currently fails dry-run discovery (`No tests were executed`). Workaround pending — investigate stryker-vitest-runner glob resolution or migrate to @stryker-mutator/jest-runner against a vitest-compat jest config.",
+  "packageManager": "npm",
   "testRunner": "vitest",
   "vitest": {
-    "configFile": "vitest.config.ts"
+    "configFile": "vitest.config.ts",
+    "dir": "src",
+    "related": false
   },
   "reporters": ["progress", "clear-text", "html"],
   "coverageAnalysis": "perTest",

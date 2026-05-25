@@ -1,0 +1,48 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "DEBT-1: mutation testing scaffold. Removing a try/catch or sentinel-compare line should be killed by the security regression test suite. Run with `bun run mutation`. Slow (~5-15 min); not part of CI by default. See SECURITY.md DEBT-1 for rationale.",
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.config.ts",
+    "dir": "src",
+    "related": false
+  },
+  "reporters": ["progress", "clear-text", "html"],
+  "coverageAnalysis": "perTest",
+  "mutate": [
+    "src/core/engine/engine.ts",
+    "src/core/engine/engine.libs.ts",
+    "src/core/evaluate/evaluate.ts",
+    "src/core/evaluate/evaluate.libs.ts",
+    "src/core/conditions/conditions.ts",
+    "src/core/conditions/conditions.libs.ts",
+    "src/core/resolve/resolve.ts",
+    "src/core/validate/validate.ts",
+    "src/core/validate/validate.libs.ts",
+    "src/server/generic/index.ts",
+    "src/adapters/file/index.ts",
+    "src/adapters/redis/index.ts",
+    "src/adapters/drizzle/index.ts",
+    "src/adapters/memory/index.ts",
+    "src/invalidators/redis/index.ts"
+  ],
+  "ignorePatterns": [
+    "node_modules/**",
+    "dist/**",
+    ".cache/**",
+    ".turbo/**",
+    "audit/**",
+    "**/__tests__/**",
+    "**/*.bench.ts",
+    "**/*.test.ts"
+  ],
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": 50
+  },
+  "timeoutMS": 60000,
+  "concurrency": 4,
+  "tempDirName": ".stryker-tmp"
+}

@@ -381,6 +381,30 @@ describe('Engine.permissions() - batch check', () => {
     expect(events).toHaveLength(2)
     expect(events.every((e) => e.allowed && e.failOpen)).toBe(true)
   })
+
+  it('telemetry:false skips per-check onMetrics emission', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      roles: [],
+      assignments: { 'user-1': [] as RoleId[] },
+    })
+    const events: unknown[] = []
+    const eng = new Engine<Action, ResourceType, RoleId, Scope>({
+      adapter,
+      defaultEffect: 'allow',
+      allowFailOpen: true,
+      hooks: { onMetrics: (e) => events.push(e) },
+    })
+    await eng.permissions(
+      'user-1',
+      [
+        { action: 'read', resource: 'post' },
+        { action: 'create', resource: 'post' },
+      ],
+      undefined,
+      { telemetry: false },
+    )
+    expect(events).toHaveLength(0)
+  })
 })
 
 describe('Engine.check() - detailed decision', () => {
@@ -1646,5 +1670,19 @@ describe('Engine.preload() (N4)', () => {
     await engine.preload()
     await engine.can('u', 'read', { type: 'post', attributes: {} })
     expect(listCalls).toBe(1)
+  })
+
+  it('preload({ validator: true }) eagerly loads the lazy validator chunk', async () => {
+    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    // Must not throw. Validator chunk loads + memoised; first admin write
+    // afterwards skips the dynamic import wait.
+    await engine.preload({ validator: true })
+    await engine.admin.savePolicy({
+      id: 'p1',
+      name: 'p',
+      algorithm: 'deny-overrides',
+      rules: [],
+    } as never)
   })
 })
