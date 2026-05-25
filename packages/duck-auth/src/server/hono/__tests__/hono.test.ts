@@ -48,7 +48,16 @@ function makeCtx(
       method,
       url,
       raw: req,
-      header: (name) => (name === undefined ? Object.fromEntries(req.headers) : (req.headers.get(name) ?? undefined)),
+      header: (name) => {
+        if (name === undefined) {
+          const obj: Record<string, string> = {}
+          req.headers.forEach((value, key) => {
+            obj[key] = value
+          })
+          return obj
+        }
+        return req.headers.get(name) ?? undefined
+      },
       json: async () => (init.body === undefined ? {} : init.body),
       param: () => undefined,
     },

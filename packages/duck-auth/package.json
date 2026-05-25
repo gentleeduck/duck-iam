@@ -121,6 +121,16 @@
         "types": "./dist/server/hono/index.d.cts",
         "default": "./dist/server/hono/index.cjs"
       }
+    },
+    "./server/next": {
+      "import": {
+        "types": "./dist/server/next/index.d.ts",
+        "default": "./dist/server/next/index.js"
+      },
+      "require": {
+        "types": "./dist/server/next/index.d.cts",
+        "default": "./dist/server/next/index.cjs"
+      }
     }
   },
   "files": [

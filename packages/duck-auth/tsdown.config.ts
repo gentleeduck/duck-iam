@@ -13,6 +13,7 @@ export default createTsdownConfig({
     'server/generic/index': 'src/server/generic/index.ts',
     'server/express/index': 'src/server/express/index.ts',
     'server/hono/index': 'src/server/hono/index.ts',
+    'server/next/index': 'src/server/next/index.ts',
   },
   external: [...baseExternal],
 })
