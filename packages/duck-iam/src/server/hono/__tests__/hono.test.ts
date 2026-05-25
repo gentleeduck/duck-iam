@@ -358,7 +358,8 @@ describe('bindAdminRouter (hono)', () => {
         authorizeCalled = true
         return true
       },
-      csrfCheck: (c) => (c as { req: { header: (n: string) => string | undefined } }).req.header('sec-fetch-site') !== 'cross-site',
+      csrfCheck: (c) =>
+        (c as { req: { header: (n: string) => string | undefined } }).req.header('sec-fetch-site') !== 'cross-site',
     })
     const ctx = {
       req: {
