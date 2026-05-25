@@ -175,6 +175,34 @@ export namespace AdminAudit {
  * @returns `true` to allow, `false` to reject (403).
  * @author wildduck2 <https://github.com/wildduck2>
  */
+/**
+ * DEBT-11: per-process latch so the construction-time CSRF default
+ * notice fires at most once per Node process. Cookie-auth deployments
+ * see it as informational on startup; bearer-token APIs that explicitly
+ * pass `csrfCheck: false` skip it entirely.
+ */
+let _CSRF_DEFAULT_NOTICED = false
+
+/**
+ * DEBT-11: log a one-time notice on first admin-router construction so
+ * operators upgrading from 2.0.x are explicitly told that the default
+ * changed. Suppressed when the operator passed `csrfCheck` (any value
+ * including `false`) — silence means they read the docs.
+ *
+ * Called by every framework adapter exactly once at construction.
+ */
+export function noticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
+  if (csrfCheckPassed || _CSRF_DEFAULT_NOTICED) return
+  _CSRF_DEFAULT_NOTICED = true
+  // eslint-disable-next-line no-console
+  console.info(
+    '[duck-iam] admin router: SEC-103 default CSRF check enabled — ' +
+      'rejecting browser requests with Sec-Fetch-Site: cross-site|cross-origin. ' +
+      'Pass `csrfCheck: false` for bearer-token/mTLS APIs, or supply a custom ' +
+      'predicate. See SECURITY.md "Admin router CSRF" section. (2.1.0 behavior change)',
+  )
+}
+
 export function defaultCsrfCheck(req: unknown): boolean {
   const r = req as
     | {

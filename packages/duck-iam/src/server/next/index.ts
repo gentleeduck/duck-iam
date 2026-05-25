@@ -10,7 +10,14 @@
 
 import type { Engine } from '../../core'
 import type { AccessControl, Client, Request } from '../../core/types'
-import { type AdminAudit, defaultCsrfCheck, errorToAuditString, fireAdminMutation, METHOD_ACTION_MAP } from '../generic'
+import {
+  type AdminAudit,
+  defaultCsrfCheck,
+  errorToAuditString,
+  fireAdminMutation,
+  METHOD_ACTION_MAP,
+  noticeCsrfDefaultIfNeeded,
+} from '../generic'
 
 /** Next.js route handler context with params. */
 type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
@@ -428,6 +435,7 @@ export function createAdminHandlers<
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // SEC-103: default to built-in Sec-Fetch-Site check; pass `false` to disable.
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
+  noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
