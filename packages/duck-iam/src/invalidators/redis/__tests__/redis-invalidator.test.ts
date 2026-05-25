@@ -157,6 +157,26 @@ describe('createRedisInvalidator (SEC-005)', () => {
     expect(after - before).toBeLessThanOrEqual(1)
   })
 
+  it('rejects v:1 envelope in unsigned mode (SEC-046)', () => {
+    const bus = makeBus()
+    const ch = `t-v1-no-secret-${Math.random().toString(36).slice(2)}`
+    const inv = createRedisInvalidator({ channel: ch, client: bus.client })
+    const received: EngineTypes.IInvalidateEvent[] = []
+    inv.subscribe((e) => received.push(e))
+
+    // Attacker forges v:1 envelope without secret. instanceId is chosen to
+    // potentially collide with a local UUID; the legitimate self-filter must
+    // not be steerable from the wire in unsigned mode.
+    bus.publish(
+      JSON.stringify({
+        v: 1,
+        sig: 'attacker-controlled',
+        payload: { instanceId: 'spoofed', event: { kind: 'all' }, ts: Date.now() },
+      }),
+    )
+    expect(received).toEqual([])
+  })
+
   it('mismatched secrets between peers drops on both sides', () => {
     const a = makeBus()
     const b = makeBus()

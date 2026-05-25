@@ -312,10 +312,13 @@ export function createRedisInvalidator<TRole extends string = string>(
 /**
  * Decodes and validates an incoming wire message.
  *
- * When `secret` is `null` we accept both legacy `{instanceId, event}` and v:1
- * envelopes (unwrapping the latter). When `secret` is set we require a v:1
- * envelope, verify the HMAC, and enforce the replay window. Anything else is
- * dropped silently after a one-shot warn per channel.
+ * When `secret` is `null` we accept legacy `{instanceId, event}` only. v:1
+ * envelopes are dropped in unsigned mode — accepting them without verifying
+ * the HMAC would let an attacker forge the `instanceId` field, which the
+ * self-filter uses to ignore own-process replays. A forged match would
+ * suppress legitimate cross-instance invalidations (SEC-046). When `secret`
+ * is set we require a v:1 envelope, verify the HMAC, and enforce the replay
+ * window. Anything else is dropped silently after a one-shot warn per channel.
  *
  * Returned shape is normalized to `{instanceId, event}` so the caller doesn't
  * branch on wire format.
@@ -358,30 +361,37 @@ function parseIncoming<TRole extends string>(
 
   // v:1 signed envelope path
   if (obj.v === ENVELOPE_V) {
+    // SEC-046: never honour a v:1 envelope without a secret. The signed-mode
+    // envelope wraps `instanceId` inside a payload that is supposed to be
+    // tamper-evident; unwrapping it without verifying would let an attacker
+    // pick any `instanceId` (including a collision with the local instance's
+    // UUID) and silence its own legitimate cross-instance invalidations.
+    if (secret === null) {
+      warnDropOnce(channel, 'v:1 envelope received without secret configured')
+      return null
+    }
     const sig = obj.sig
     const payload = obj.payload
     if (typeof sig !== 'string' || typeof payload !== 'object' || payload === null) {
-      if (secret !== null) warnDropOnce(channel, 'malformed envelope')
+      warnDropOnce(channel, 'malformed envelope')
       return null
     }
-    if (secret !== null) {
-      // Verify signature against canonical pre-image. Use constant-time compare.
-      const expected = createHmac('sha256', secret).update(canonicalJSON(payload)).digest('hex')
-      if (!safeHexEqual(sig, expected)) {
-        warnDropOnce(channel, 'signature mismatch')
-        return null
-      }
-      // Replay window check.
-      const ts = (payload as { ts?: unknown }).ts
-      if (typeof ts !== 'number' || !Number.isFinite(ts)) {
-        warnDropOnce(channel, 'missing or invalid ts')
-        return null
-      }
-      const age = Date.now() - ts
-      if (age > REPLAY_WINDOW_MS || age < -REPLAY_WINDOW_MS) {
-        warnDropOnce(channel, 'replay window exceeded')
-        return null
-      }
+    // Verify signature against canonical pre-image. Use constant-time compare.
+    const expected = createHmac('sha256', secret).update(canonicalJSON(payload)).digest('hex')
+    if (!safeHexEqual(sig, expected)) {
+      warnDropOnce(channel, 'signature mismatch')
+      return null
+    }
+    // Replay window check.
+    const ts = (payload as { ts?: unknown }).ts
+    if (typeof ts !== 'number' || !Number.isFinite(ts)) {
+      warnDropOnce(channel, 'missing or invalid ts')
+      return null
+    }
+    const age = Date.now() - ts
+    if (age > REPLAY_WINDOW_MS || age < -REPLAY_WINDOW_MS) {
+      warnDropOnce(channel, 'replay window exceeded')
+      return null
     }
     // Shape-check inner payload.
     const inner = payload as Record<string, unknown>
