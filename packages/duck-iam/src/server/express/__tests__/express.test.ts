@@ -315,6 +315,28 @@ describe('adminRouter (express)', () => {
     expect(() => adminRouter(engine, {} as never)).toThrow(/authorize/)
   })
 
+  it('rejects mutation with 403 when csrfCheck returns false (SEC-103)', async () => {
+    const engine = makeEngine()
+    const { router, handlers } = makeRouter()
+    // Even if authorize() would allow, csrfCheck blocks cross-site requests
+    // before authorize ever runs.
+    let authorizeCalled = false
+    adminRouter(engine, {
+      authorize: () => {
+        authorizeCalled = true
+        return true
+      },
+      csrfCheck: (req) => (req as { headers: Record<string, string> }).headers['sec-fetch-site'] !== 'cross-site',
+    })(() => router as never)
+    const res = makeRes()
+    await handlers['PUT /policies']!(
+      { body: {}, headers: { 'sec-fetch-site': 'cross-site' } } as never,
+      res as never,
+    )
+    expect(res.statusCode).toBe(403)
+    expect(authorizeCalled).toBe(false)
+  })
+
   it('returns 401 when authorize returns false', async () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()

@@ -27,7 +27,7 @@
  */
 
 import type { Client } from '../../core/types'
-import { buildPermissionKey } from '../../shared/keys'
+import { buildPermissionKey, splitPermissionKey } from '../../shared/keys'
 
 /** Callback invoked when permissions are updated via {@link AccessClient.update} or {@link AccessClient.merge}. */
 type Listener<TAction extends string = string, TResource extends string = string, TScope extends string = string> = (
@@ -231,7 +231,11 @@ export class AccessClient<
  * we check if the resource appears at the expected position for each format.
  */
 function extractAction(key: string, resource: string): string | null {
-  const parts = key.split(':')
+  // SEC-104: honour the `\:` / `\\` escape sequences emitted by
+  // buildPermissionKey. Naive `.split(':')` mis-tokenises any resource (or
+  // resourceId / scope) containing a literal `:`, causing
+  // client.allowedActions(...) to under- or over-report.
+  const parts = splitPermissionKey(key)
 
   switch (parts.length) {
     case 2:
