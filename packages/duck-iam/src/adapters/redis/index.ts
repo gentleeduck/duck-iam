@@ -421,7 +421,16 @@ export class RedisAdapter<
   async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
     const members = await this._client.smembers(this._assignmentsKey(subjectId))
     const roles = new Set<TRole>()
-    for (const m of members) roles.add(this._decodeAssignment(m).role)
+    for (const m of members) {
+      const decoded = this._decodeAssignment(m)
+      // SEC-059: contract is "unscoped (global) roles only" — same as
+      // file/memory adapters. Scoped assignments are surfaced separately
+      // through getSubjectScopedRoles. Collapsing scoped + unscoped here
+      // diverged from the file/memory adapters and made the same subject
+      // resolve to different role sets depending on the storage backend.
+      if (decoded.scope !== undefined) continue
+      roles.add(decoded.role)
+    }
     await this._migrateLegacyAssignment(subjectId, members)
     return Array.from(roles)
   }

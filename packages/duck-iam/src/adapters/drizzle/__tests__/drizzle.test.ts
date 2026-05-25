@@ -308,6 +308,15 @@ describe('DrizzleAdapter', () => {
       expect(out.sort()).toEqual(['editor', 'viewer'])
     })
 
+    it('getSubjectRoles returns ONLY unscoped roles, not scoped (SEC-059)', async () => {
+      await adapter.assignRole('user-1', 'viewer' as Ro)
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
+      const unscoped = await adapter.getSubjectRoles('user-1')
+      expect(unscoped).toEqual(['viewer'])
+      const scoped = await adapter.getSubjectScopedRoles('user-1')
+      expect(scoped).toEqual([{ role: 'editor', scope: 'org-1' }])
+    })
+
     it('getSubjectScopedRoles only returns scoped assignments', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')

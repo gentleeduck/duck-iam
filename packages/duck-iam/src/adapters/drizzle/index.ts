@@ -375,7 +375,9 @@ export class DrizzleAdapter<
       .select()
       .from(this._t.assignments)
       .where(this._eq(this._t.assignments.subjectId, subjectId))) as unknown as AssignmentRow[]
-    return [...new Set(rows.map((r) => r.roleId as TRole))]
+    // SEC-059: unscoped (global) roles only — mirrors file/memory adapters.
+    // Scoped assignments are surfaced separately through getSubjectScopedRoles.
+    return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
   }
 
   /**
