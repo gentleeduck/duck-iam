@@ -266,6 +266,34 @@ describe('createAdminOperations onAdminMutation (SEC-010)', () => {
     >[0]
   }
 
+  it('csrfCheck rejecting throws 403 before authorize runs (SEC-103)', async () => {
+    const engine = makeEngine()
+    let authorizeCalled = false
+    let savedPolicy = false
+    const origSave = engine.admin.savePolicy.bind(engine.admin)
+    engine.admin.savePolicy = async (p) => {
+      savedPolicy = true
+      return origSave(p)
+    }
+    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+      authorize: (() => {
+        authorizeCalled = true
+        return { id: 'admin-1' }
+      }) as never,
+      csrfCheck: (req) => (req as { headers: Record<string, string> }).headers['sec-fetch-site'] !== 'cross-site',
+    })
+    const req = {
+      method: 'PUT',
+      path: '/admin/policies',
+      headers: { 'sec-fetch-site': 'cross-site' },
+    } as never
+    await expect(
+      h.savePolicy(req, { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] } as never),
+    ).rejects.toMatchObject({ status: 403 })
+    expect(authorizeCalled).toBe(false)
+    expect(savedPolicy).toBe(false)
+  })
+
   it('savePolicy fires with action:replace, target:policy, success:true', async () => {
     const engine = makeEngine()
     const events: unknown[] = []
