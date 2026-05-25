@@ -141,7 +141,11 @@ export function accessMiddleware<
   TScope extends string = string,
 >(engine: Engine<TAction, TResource, TRole, TScope>, opts: Hono.IOptions<TScope> = {}): HonoMiddleware {
   const {
-    getUserId = (c) => (c.get('userId') as string | undefined) ?? c.req.header('x-user-id') ?? null,
+    // SEC-101: never default to `c.req.header('x-user-id')` — any unauth client
+    // can spoof that header. The default reads ONLY from `c.set('userId', ...)`
+    // populated by upstream auth middleware. Operators wiring header-based
+    // identity must opt in explicitly via `getUserId`.
+    getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
     getResource = (c) => {
       const parts = c.req.path.split('/').filter(Boolean)
       return { type: parts[0] ?? 'root', id: parts[1], attributes: {} }
@@ -404,7 +408,11 @@ export function guard<
   opts: Pick<Hono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & { scope?: TScope } = {},
 ): HonoMiddleware {
   const {
-    getUserId = (c) => (c.get('userId') as string | undefined) ?? c.req.header('x-user-id') ?? null,
+    // SEC-101: never default to `c.req.header('x-user-id')` — any unauth client
+    // can spoof that header. The default reads ONLY from `c.set('userId', ...)`
+    // populated by upstream auth middleware. Operators wiring header-based
+    // identity must opt in explicitly via `getUserId`.
+    getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
     getEnvironment = defaultEnv,
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),
     onError = (_err, c) => c.json({ error: 'Internal server error' }, 500),

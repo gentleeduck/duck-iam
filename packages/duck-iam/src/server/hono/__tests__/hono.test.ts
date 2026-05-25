@@ -106,15 +106,28 @@ describe('accessMiddleware (hono)', () => {
     can.mockRestore()
   })
 
-  it('falls back to x-user-id header', async () => {
+  it('does NOT default to spoofable x-user-id header (SEC-101)', async () => {
+    const mw = accessMiddleware(engine)
+    const { ctx } = makeContext({ method: 'GET', path: '/post', headers: { 'x-user-id': 'spoofed-admin' } })
+    const res = await mw(
+      ctx,
+      vi.fn(async () => undefined),
+    )
+    // No `c.set('userId', ...)` was called upstream, so default getUserId
+    // returns null and middleware fails closed at 401.
+    expect(res?.status).toBe(401)
+  })
+
+  it('honours c.set(userId) from upstream auth middleware', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const mw = accessMiddleware(engine)
-    const { ctx } = makeContext({ method: 'GET', path: '/post', headers: { 'x-user-id': 'user-hdr' } })
+    const { ctx } = makeContext({ method: 'GET', path: '/post' })
+    ctx.set('userId', 'trusted-user')
     await mw(
       ctx,
       vi.fn(async () => undefined),
     )
-    expect(can.mock.calls[0]?.[0]).toBe('user-hdr')
+    expect(can.mock.calls[0]?.[0]).toBe('trusted-user')
     can.mockRestore()
   })
 

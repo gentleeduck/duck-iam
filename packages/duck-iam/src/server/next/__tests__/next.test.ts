@@ -47,21 +47,17 @@ describe('withAccess', () => {
     engine = makeEngine()
   })
 
-  it('returns 401 when userId is null', async () => {
+  it('returns 401 when getUserId returns null', async () => {
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'delete', 'post', handler)
+    const wrapped = withAccess(engine, 'delete', 'post', handler, { getUserId: () => null })
     const res = await wrapped(makeRequest({ method: 'DELETE' }), { params: {} })
     expect(res.status).toBe(401)
     expect(handler).not.toHaveBeenCalled()
   })
 
-  it('reads x-user-id default header', async () => {
-    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+  it('throws at construction when getUserId is omitted (SEC-101)', () => {
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'delete', 'post', handler)
-    await wrapped(makeRequest({ method: 'DELETE', headers: { 'x-user-id': 'u' } }), { params: {} })
-    expect(can.mock.calls[0]?.[0]).toBe('u')
-    can.mockRestore()
+    expect(() => withAccess(engine, 'delete', 'post', handler)).toThrow(/getUserId is required/)
   })
 
   it('returns 403 when not allowed', async () => {
