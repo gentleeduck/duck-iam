@@ -1,7 +1,23 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../types'
-import { validatePolicy, validateRole } from '../validate'
 import type { Validate } from '../validate/validate.types'
 import type { EngineTypes } from './engine.types'
+
+/**
+ * Lazy validator binding. The `../validate` module is ~12 KB gzipped; users who
+ * never call `engine.admin.savePolicy/saveRole/import` shouldn't pay for it at
+ * import time. Loaded on first admin write and memoised.
+ */
+let _validateBindings: {
+  validatePolicy: typeof import('../validate').validatePolicy
+  validateRole: typeof import('../validate').validateRole
+} | null = null
+async function _getValidate() {
+  if (!_validateBindings) {
+    const v = await import('../validate')
+    _validateBindings = { validatePolicy: v.validatePolicy, validateRole: v.validateRole }
+  }
+  return _validateBindings
+}
 
 /**
  * Single-flight helper for single-slot in-flight promises.
@@ -190,6 +206,7 @@ export function createAdmin<
       return adapter.getPolicy(id)
     },
     async savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>) {
+      const { validatePolicy } = await _getValidate()
       assertValidOrThrow('policy', validatePolicy(policy))
       await adapter.savePolicy(policy)
       engine.invalidatePolicies()
@@ -205,6 +222,7 @@ export function createAdmin<
       return adapter.getRole(id)
     },
     async saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
+      const { validateRole } = await _getValidate()
       assertValidOrThrow('role', validateRole(role))
       await adapter.saveRole(role)
       engine.invalidateRoles(role.id)
@@ -266,6 +284,7 @@ export function createAdmin<
           }
         }
       }
+      const { validatePolicy, validateRole } = await _getValidate()
       for (const p of snapshot.policies) {
         assertValidOrThrow('policy', validatePolicy(p))
         await adapter.savePolicy(p)

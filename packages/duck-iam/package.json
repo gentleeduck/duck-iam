@@ -32,6 +32,46 @@
         "default": "./dist/core/index.cjs"
       }
     },
+    "./core/validate": {
+      "import": {
+        "types": "./dist/core/validate/index.d.ts",
+        "default": "./dist/core/validate/index.js"
+      },
+      "require": {
+        "types": "./dist/core/validate/index.d.cts",
+        "default": "./dist/core/validate/index.cjs"
+      }
+    },
+    "./core/builder": {
+      "import": {
+        "types": "./dist/core/builder/index.d.ts",
+        "default": "./dist/core/builder/index.js"
+      },
+      "require": {
+        "types": "./dist/core/builder/index.d.cts",
+        "default": "./dist/core/builder/index.cjs"
+      }
+    },
+    "./core/explain": {
+      "import": {
+        "types": "./dist/core/explain/index.d.ts",
+        "default": "./dist/core/explain/index.js"
+      },
+      "require": {
+        "types": "./dist/core/explain/index.d.cts",
+        "default": "./dist/core/explain/index.cjs"
+      }
+    },
+    "./core/schema": {
+      "import": {
+        "types": "./dist/core/schema/index.d.ts",
+        "default": "./dist/core/schema/index.js"
+      },
+      "require": {
+        "types": "./dist/core/schema/index.d.cts",
+        "default": "./dist/core/schema/index.cjs"
+      }
+    },
     "./adapters/memory": {
       "import": {
         "types": "./dist/adapters/memory/index.d.ts",

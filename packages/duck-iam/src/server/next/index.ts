@@ -109,11 +109,6 @@ export namespace Next {
 }
 
 /**
- * @deprecated Use {@link Next.IWithAccessOptions}. Will be removed in 3.0.
- */
-export type IWithAccessOptions<TScope extends string = string> = Next.IWithAccessOptions<TScope>
-
-/**
  * Wraps a Next.js App Router route handler with an access check.
  *
  * Returns 401 when no user is present, 403 when denied, and otherwise invokes
@@ -270,15 +265,6 @@ export async function getPermissions<
 }
 
 /**
- * @deprecated Use {@link Next.IMiddlewareOptions}. Will be removed in 3.0.
- */
-export type INextMiddlewareOptions<
-  TAction extends string = string,
-  TResource extends string = string,
-  TScope extends string = string,
-> = Next.IMiddlewareOptions<TAction, TResource, TScope>
-
-/**
  * Builds a Next.js Edge Middleware matcher that protects routes by a list of
  * pattern-keyed rules.
  *
@@ -356,16 +342,6 @@ export function createNextMiddleware<
     }
   }
 }
-
-/**
- * @deprecated Use {@link Next.IAdminAuthorize}. Will be removed in 3.0.
- */
-export type INextAdminAuthorize = Next.IAdminAuthorize
-
-/**
- * @deprecated Use {@link Next.IAdminOptions}. Will be removed in 3.0.
- */
-export type INextAdminOptions = Next.IAdminOptions
 
 /**
  * Builds pre-bound admin Route Handlers for Next.js App Router.

@@ -110,15 +110,6 @@ export namespace Nest {
   }
 }
 
-/**
- * @deprecated Use {@link Nest.IAuthorizeMeta}. Will be removed in 3.0.
- */
-export type IAuthorizeMeta<
-  TAction extends string = string,
-  TResource extends string = string,
-  TScope extends string = string,
-> = Nest.IAuthorizeMeta<TAction, TResource, TScope>
-
 /** Handler function with attached authorize metadata. */
 interface HandlerWithMeta {
   __accessMeta?: Nest.IAuthorizeMeta
@@ -157,11 +148,6 @@ export function Authorize<
     return descriptor
   }
 }
-
-/**
- * @deprecated Use {@link Nest.IGuardOptions}. Will be removed in 3.0.
- */
-export type INestGuardOptions<TScope extends string = string> = Nest.IGuardOptions<TScope>
 
 /** Extract authorize metadata from a handler. */
 function getHandlerMeta(handler: object): Nest.IAuthorizeMeta | undefined {
@@ -292,16 +278,6 @@ export function createEngineProvider<
 }
 
 /**
- * @deprecated Use {@link Nest.IAdminAuthorize}. Will be removed in 3.0.
- */
-export type INestAdminAuthorize = Nest.IAdminAuthorize
-
-/**
- * @deprecated Use {@link Nest.IAdminOptions}. Will be removed in 3.0.
- */
-export type INestAdminOptions = Nest.IAdminOptions
-
-/**
  * Builds framework-agnostic admin operations for use inside a NestJS controller.
  *
  * Nest's decorator-driven routing means we do not ship a router factory;
@@ -352,7 +328,7 @@ export function createAdminOperations<
   noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
   /**
-   * Gate that returns whatever {@link IAdminAuthorize} returned so the value
+   * Gate that returns whatever {@link Nest.IAdminAuthorize} returned so the value
    * can be forwarded into the audit event as `actor`. Throws a 401-flavoured
    * Error on denial so the calling controller surfaces a NestJS exception.
    */

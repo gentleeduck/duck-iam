@@ -4,6 +4,12 @@ export default createTsdownConfig({
   entry: {
     index: 'src/index.ts',
     'core/index': 'src/core/index.ts',
+    'core/validate/index': 'src/core/validate/index.ts',
+    // Split sub-modules so consumers who don't use builder / explain /
+    // schema get them tree-shaken away even with eager imports.
+    'core/builder/index': 'src/core/builder/index.ts',
+    'core/explain/index': 'src/core/explain/index.ts',
+    'core/schema/index': 'src/core/schema/index.ts',
 
     // Adapters
     'adapters/memory/index': 'src/adapters/memory/index.ts',

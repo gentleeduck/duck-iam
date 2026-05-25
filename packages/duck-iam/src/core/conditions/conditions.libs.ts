@@ -2,11 +2,6 @@ import { resolve } from '../resolve'
 import type { AccessControl, Primitives, Request } from '../types'
 
 /**
- * @deprecated Use {@link AccessControl.OpFn}. Will be removed in 3.0.
- */
-export type OpFn = AccessControl.OpFn
-
-/**
  * Max allowed regex pattern length to mitigate ReDoS. Catastrophic
  * backtracking patterns are tiny (e.g. `(a+)+$`), so a tight bound here is
  * appropriate — larger patterns only give attackers more rope.

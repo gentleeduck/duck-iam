@@ -1,5 +1,4 @@
 export { evalConditionGroup, evaluateOperator, resolveConditionValue } from './conditions'
-export type { OpFn } from './conditions.libs'
 export {
   evalCondition,
   getCachedRegex,

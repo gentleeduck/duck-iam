@@ -265,11 +265,6 @@ function _normaliseHostForAllowlist(host: string): string {
 }
 
 /**
- * @deprecated Use {@link Http.IConfig}. Will be removed in 3.0.
- */
-export type IHttpAdapterConfig = Http.IConfig
-
-/**
  * Backs the access store with a remote duck-iam HTTP API.
  *
  * Useful for client-side engines that delegate storage to a backend service.

@@ -74,21 +74,6 @@ export namespace Metrics {
 }
 
 /**
- * @deprecated Use {@link Metrics.IAggregator}. Will be removed in 3.0.
- */
-export type IMetricsAggregator = Metrics.IAggregator
-
-/**
- * @deprecated Use {@link Metrics.ISnapshot}. Will be removed in 3.0.
- */
-export type IMetricsSnapshot = Metrics.ISnapshot
-
-/**
- * @deprecated Use {@link Metrics.IConfig}. Will be removed in 3.0.
- */
-export type IMetricsAggregatorConfig = Metrics.IConfig
-
-/**
  * Creates an in-process metrics aggregator with a fixed-size ring buffer for
  * latency percentiles and running counters for allow/deny verdicts.
  *

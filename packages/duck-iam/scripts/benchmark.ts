@@ -284,9 +284,14 @@ function measureEntryWithDeps(entryFile: string): number {
         }
       }
     }
-    const gz = execSync(`cat ${Array.from(seen).map((f) => `"${f}"`).join(' ')} | gzip -c | wc -c`, {
-      encoding: 'utf-8',
-    }).trim()
+    const gz = execSync(
+      `cat ${Array.from(seen)
+        .map((f) => `"${f}"`)
+        .join(' ')} | gzip -c | wc -c`,
+      {
+        encoding: 'utf-8',
+      },
+    ).trim()
     return Number.parseInt(gz, 10)
   } catch {
     return 0

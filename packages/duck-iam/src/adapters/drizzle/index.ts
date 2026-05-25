@@ -74,11 +74,6 @@ export namespace Drizzle {
   }
 }
 
-/**
- * @deprecated Use {@link Drizzle.IConfig}. Will be removed in 3.0.
- */
-export type IDrizzleConfig = Drizzle.IConfig
-
 /** Minimal shape of a Drizzle table object with optional column references. */
 interface DrizzleTable {
   id?: unknown
