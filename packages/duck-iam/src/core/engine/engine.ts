@@ -371,6 +371,14 @@ export class Engine<
     let req = request
     const t0 = this._hooks.onMetrics ? performance.now() : 0
 
+    // SEC-056: the EVALUATION try block stops at the point a decision is
+    // produced. Trailing hooks (afterEvaluate, onDeny, onMetrics) are
+    // invoked in a separate try below so a throwing hook cannot be caught
+    // by the evaluation catch and silently rewrite an allow → deny.
+    let result: AccessControl.ModeResult<TMode>
+    let decisionForHooks: AccessControl.IDecision | null = null
+    let allowedForMetrics = false
+    let failOpenForMetrics = false
     try {
       if (req.scope && req.subject.scopedRoles?.length) {
         const enriched = enrichSubjectWithScopedRoles(req.subject, req.scope)
@@ -398,27 +406,28 @@ export class Engine<
           onPolicyError,
           signals,
         )
-        this._emitMetrics(req, allowed, t0, signals.failOpen === true)
-        return this._asResult(allowed)
+        allowedForMetrics = allowed
+        failOpenForMetrics = signals.failOpen === true
+        result = this._asResult(allowed)
+      } else {
+        const decision = evaluate(
+          allPolicies,
+          req as Request.IAccessRequest,
+          this._defaultEffect,
+          this._policyCombine,
+          onPolicyError,
+          signals,
+        )
+        decisionForHooks = decision
+        allowedForMetrics = decision.allowed
+        failOpenForMetrics = signals.failOpen === true
+        result = this._asResult(decision)
       }
-
-      const decision = evaluate(
-        allPolicies,
-        req as Request.IAccessRequest,
-        this._defaultEffect,
-        this._policyCombine,
-        onPolicyError,
-        signals,
-      )
-
-      if (this._hooks.afterEvaluate) await this._hooks.afterEvaluate(req, decision)
-      if (!decision.allowed && this._hooks.onDeny) await this._hooks.onDeny(req, decision)
-      this._emitMetrics(req, decision.allowed, t0, signals.failOpen === true)
-
-      return this._asResult(decision)
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
-      if (this._hooks.onError) await this._hooks.onError(err, req)
+      // SEC-055: onError can itself throw. Don't let an operator's onError
+      // bug propagate over the engine's fail-closed contract.
+      await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
       this._emitMetrics(req, false, t0, false)
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
@@ -428,6 +437,33 @@ export class Engine<
         duration: 0,
         timestamp: Date.now(),
       })
+    }
+
+    // Trailing hook block — runs OUTSIDE the evaluation try so a hook throw
+    // cannot rewrite the decision. Each hook is individually wrapped so a
+    // bug in one doesn't suppress the others.
+    if (decisionForHooks !== null) {
+      await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, decisionForHooks!), 'afterEvaluate')
+      if (!decisionForHooks.allowed) {
+        await this._safeHookCall(() => this._hooks.onDeny?.(req, decisionForHooks!), 'onDeny')
+      }
+    }
+    this._emitMetrics(req, allowedForMetrics, t0, failOpenForMetrics)
+    return result
+  }
+
+  /**
+   * SEC-055/056: invoke a hook safely. Sync or async throws are caught and
+   * routed to console.error so a buggy operator hook cannot escape into the
+   * caller's path or rewrite a finalised decision. Returning void here is
+   * intentional — the engine never surfaces hook bugs as authz failures.
+   */
+  private async _safeHookCall(fn: () => unknown, hookName: string): Promise<void> {
+    try {
+      await fn()
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`duck-iam: ${hookName} hook threw — swallowed to preserve decision`, err)
     }
   }
 
@@ -444,15 +480,23 @@ export class Engine<
   ): void {
     const hook = this._hooks.onMetrics
     if (!hook) return
-    hook({
-      subjectId: req.subject.id,
-      action: req.action,
-      resource: req.resource.type,
-      allowed,
-      durationMs: performance.now() - t0,
-      mode: this._mode,
-      failOpen,
-    })
+    // SEC-055: hook throw must not escape — _emitMetrics is called from
+    // catch arms whose entire purpose is producing a fail-closed deny. A
+    // throwing onMetrics there would replace the deny with a raw error.
+    try {
+      hook({
+        subjectId: req.subject.id,
+        action: req.action,
+        resource: req.resource.type,
+        allowed,
+        durationMs: performance.now() - t0,
+        mode: this._mode,
+        failOpen,
+      })
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('duck-iam: onMetrics hook threw — swallowed to preserve decision', err)
+    }
   }
 
   /**
