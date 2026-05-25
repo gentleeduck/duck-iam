@@ -153,6 +153,22 @@ export class DrizzleAdapter<
     this._onPolicyError = config.onPolicyError
   }
 
+  /**
+   * DEBT-5: typed SELECT helpers consolidate the 7 `as unknown as RowType[]`
+   * casts at module-edge into one place. Drizzle's `select().from()` returns
+   * untyped rows; row shapes are pinned at the boundary here.
+   */
+  private async _selectAll<T>(table: unknown): Promise<T[]> {
+    return (await this._db.select().from(table)) as unknown as T[]
+  }
+  private async _selectFirst<T>(table: unknown, whereCol: unknown, whereVal: unknown): Promise<T | undefined> {
+    const rows = (await this._db.select().from(table).where(this._eq(whereCol, whereVal)).limit(1)) as unknown as T[]
+    return rows[0]
+  }
+  private async _selectWhere<T>(table: unknown, whereCol: unknown, whereVal: unknown): Promise<T[]> {
+    return (await this._db.select().from(table).where(this._eq(whereCol, whereVal))) as unknown as T[]
+  }
+
   private _reportPolicyError(err: Error, rowId: string): void {
     if (this._onPolicyError) {
       this._onPolicyError(err, { adapter: 'drizzle', rowId })
@@ -250,7 +266,7 @@ export class DrizzleAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    const rows = (await this._db.select().from(this._t.policies)) as unknown as PolicyRow[]
+    const rows = await this._selectAll<PolicyRow>(this._t.policies)
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
     for (const row of rows) {
       const parsed = this._safeParsePolicy(row)
@@ -271,12 +287,8 @@ export class DrizzleAdapter<
     id: string,
     _opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
-    const rows = (await this._db
-      .select()
-      .from(this._t.policies)
-      .where(this._eq(this._t.policies.id, id))
-      .limit(1)) as unknown as PolicyRow[]
-    return rows[0] ? this._safeParsePolicy(rows[0]) : null
+    const row = await this._selectFirst<PolicyRow>(this._t.policies, this._t.policies.id, id)
+    return row ? this._safeParsePolicy(row) : null
   }
 
   /**
@@ -310,7 +322,7 @@ export class DrizzleAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    const rows = (await this._db.select().from(this._t.roles)) as unknown as RoleRow[]
+    const rows = await this._selectAll<RoleRow>(this._t.roles)
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const row of rows) {
       const parsed = this._safeParseRole(row)
@@ -331,12 +343,8 @@ export class DrizzleAdapter<
     id: string,
     _opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
-    const rows = (await this._db
-      .select()
-      .from(this._t.roles)
-      .where(this._eq(this._t.roles.id, id))
-      .limit(1)) as unknown as RoleRow[]
-    return rows[0] ? this._safeParseRole(rows[0]) : null
+    const row = await this._selectFirst<RoleRow>(this._t.roles, this._t.roles.id, id)
+    return row ? this._safeParseRole(row) : null
   }
 
   /**
@@ -371,12 +379,12 @@ export class DrizzleAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
-    const rows = (await this._db
-      .select()
-      .from(this._t.assignments)
-      .where(this._eq(this._t.assignments.subjectId, subjectId))) as unknown as AssignmentRow[]
+    const rows = await this._selectWhere<AssignmentRow>(
+      this._t.assignments,
+      this._t.assignments.subjectId,
+      subjectId,
+    )
     // SEC-059: unscoped (global) roles only — mirrors file/memory adapters.
-    // Scoped assignments are surfaced separately through getSubjectScopedRoles.
     return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
   }
 
@@ -392,10 +400,11 @@ export class DrizzleAdapter<
     subjectId: string,
     _opts?: Adapter.IReadOptions,
   ): Promise<Request.IScopedRole<TRole, TScope>[]> {
-    const rows = (await this._db
-      .select()
-      .from(this._t.assignments)
-      .where(this._eq(this._t.assignments.subjectId, subjectId))) as unknown as AssignmentRow[]
+    const rows = await this._selectWhere<AssignmentRow>(
+      this._t.assignments,
+      this._t.assignments.subjectId,
+      subjectId,
+    )
     return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
   }
 
@@ -444,13 +453,9 @@ export class DrizzleAdapter<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   async getSubjectAttributes(subjectId: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
-    const rows = (await this._db
-      .select()
-      .from(this._t.attrs)
-      .where(this._eq(this._t.attrs.subjectId, subjectId))
-      .limit(1)) as unknown as AttrRow[]
-    if (!rows[0]) return {}
-    const data = rows[0].data
+    const row = await this._selectFirst<AttrRow>(this._t.attrs, this._t.attrs.subjectId, subjectId)
+    if (!row) return {}
+    const data = row.data
     if (typeof data !== 'string') return (data as Primitives.Attributes) ?? {}
     let parsed: unknown
     try {
