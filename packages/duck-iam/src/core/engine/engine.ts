@@ -9,6 +9,31 @@ import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, Adapter, Client, Request } from '../types'
 import { createAdmin, deepFreezePolicy, enrichSubjectWithScopedRoles } from './engine.libs'
 import type { EngineTypes } from './engine.types'
+
+/**
+ * Module-level flush of process-wide compiled-regex and resolved-path caches
+ * (the `matches`-operator regex cache and dot-path segment cache).
+ *
+ * SEC-050 / DEBT-12: these caches are globals; this helper is the honest
+ * surface. The instance method `Engine#flushSharedCaches` delegates here
+ * and is deprecated — calling it on one engine also affected every other
+ * engine in the process.
+ *
+ * Multi-tenant operators schedule this periodically to bound any single
+ * tenant's eviction influence. Costs: the next request pays one compile
+ * per matches-pattern and one segment-split per dot-path.
+ *
+ * @example
+ * ```ts
+ * import { flushSharedCaches } from '@gentleduck/iam'
+ * setInterval(flushSharedCaches, 5 * 60 * 1000)
+ * ```
+ * @author wildduck2 <https://github.com/wildduck2>
+ */
+export function flushSharedCaches(): void {
+  clearRegexCache()
+  clearPathCache()
+}
 /**
  * Central runtime that evaluates access requests against RBAC roles and ABAC
  * policies.
@@ -913,28 +938,14 @@ export class Engine<
   }
 
   /**
-   * SEC-050: flush process-wide compiled-regex and resolved-path caches.
-   *
-   * The matches-operator regex cache and dot-path segment cache are
-   * module-globals shared across every Engine instance in the process. In
-   * multi-tenant deployments, periodic flushing bounds any single tenant's
-   * eviction influence (a hostile tenant flooding distinct patterns evicts
-   * neighbours' hot entries; a periodic flush wipes the slate).
-   *
-   * Costs: the next request from every tenant pays one compile per
-   * matches-pattern and one segment-split per dot-path. Tune the flush
-   * interval against your request volume and pattern variety.
-   *
-   * @example
-   * ```ts
-   * setInterval(() => engine.flushSharedCaches(), 5 * 60 * 1000)
-   * ```
-   * @author wildduck2 <https://github.com/wildduck2>
+   * @deprecated DEBT-12: use the module-level {@link flushSharedCaches}
+   * instead. This instance method is misleading — the caches it wipes are
+   * process-globals, so calling `engineA.flushSharedCaches()` also affects
+   * `engineB`. Kept for backward compatibility; will be removed in 3.0.
    */
-  // biome-ignore lint/complexity/noThisInStatic: instance-bound for ergonomic operator API
+  // biome-ignore lint/complexity/noThisInStatic: backward-compat shim
   flushSharedCaches(): void {
-    clearRegexCache()
-    clearPathCache()
+    flushSharedCaches()
   }
 
   /**

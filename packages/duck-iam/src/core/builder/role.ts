@@ -1,4 +1,5 @@
 import type { AccessControl, DotPath, Primitives } from '../types'
+import { validateRole } from '../validate'
 import { When } from './when'
 
 /**
@@ -337,7 +338,7 @@ export class RoleBuilder<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   build(): AccessControl.IRole<TAction, TResource, TRole, TScope> {
-    return {
+    const role: AccessControl.IRole<TAction, TResource, TRole, TScope> = {
       id: this._id,
       name: this._name,
       description: this._description,
@@ -346,6 +347,15 @@ export class RoleBuilder<
       scope: this._scope,
       metadata: this._metadata,
     }
+    // DEBT-8: validate at build time (see policy.ts for rationale).
+    const result = validateRole(role)
+    if (!result.valid) {
+      const errs = result.issues
+        .filter((i) => i.type === 'error')
+        .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
+      throw new Error(`duck-iam RoleBuilder.build(): role rejected by validator — ${errs.join('; ')}`)
+    }
+    return role
   }
 }
 

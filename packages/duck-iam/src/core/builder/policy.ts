@@ -1,4 +1,5 @@
 import type { AccessControl, DotPath } from '../types'
+import { validatePolicy } from '../validate'
 import { RuleBuilder } from './rule'
 
 /**
@@ -217,7 +218,7 @@ export class PolicyBuilder<
    * @author wildduck2 <https://github.com/wildduck2>
    */
   build(): AccessControl.IPolicy<TAction, TResource, TRole> {
-    return {
+    const policy: AccessControl.IPolicy<TAction, TResource, TRole> = {
       id: this._id,
       name: this._name,
       description: this._description,
@@ -226,6 +227,17 @@ export class PolicyBuilder<
       rules: this._rules,
       targets: this._targets,
     }
+    // DEBT-8: validate at build time so a power-user wiring the adapter
+    // directly (bypassing engine.admin.savePolicy's SEC-043 check) still
+    // sees the failure where the bug was introduced.
+    const result = validatePolicy(policy)
+    if (!result.valid) {
+      const errs = result.issues
+        .filter((i) => i.type === 'error')
+        .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
+      throw new Error(`duck-iam PolicyBuilder.build(): policy rejected by validator — ${errs.join('; ')}`)
+    }
+    return policy
   }
 }
 
