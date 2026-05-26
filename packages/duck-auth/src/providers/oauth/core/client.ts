@@ -9,6 +9,8 @@ import { AuthErrorObject } from '../../../core/errors'
  * OIDC / OAuth2 endpoints. Either supplied directly (Google, GitHub,
  * static well-known providers) or resolved at runtime via discovery for
  * generic OIDC issuers (`well-known/openid-configuration`).
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface OAuthEndpoints {
   authorizationEndpoint: string

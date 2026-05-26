@@ -15,11 +15,15 @@ import type { Provider } from '../../core/types/provider'
  * `complete` validates input + rate-limits per email + verifies + emits
  * a `startSession` Intent that the framework adapter turns into a real
  * session via SessionsFacet.rotateOrCreate({ purpose: 'signin' }).
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface PasswordProviderOptions {
   /**
    * Function the provider uses to find an identity given an email.
    * Required because the provider doesn't import AuthRoot directly.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
   /** Bound PasswordsFacet - verify + needsRehash + slow rehash. */

@@ -26,6 +26,8 @@ import { AuthErrorObject } from './errors'
  *   - OPTIONS/GET/HEAD exempt by definition
  *   - Bearer/DPoP requests exempt (no ambient credential)
  *   - Origin/Sec-Fetch-Site check runs FIRST; CSRF token is the secondary line
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface CsrfConfig {
   /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`. */
@@ -37,6 +39,8 @@ export interface CsrfConfig {
    * 'origin-only'   - skip the token, rely on Origin/Sec-Fetch-Site only
    *                   (only safe for Bearer/DPoP transports with no ambient
    *                   credential).
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   mode?: 'double-submit' | 'origin-only'
   /** Allowed Origin headers for cross-site checks. */
@@ -92,6 +96,8 @@ export function buildCsrfCookieOptions(
  * Verify a request meets CSRF requirements. Throws AUTH/CSRF on failure.
  * Pass `sessionCsrfHash` from the resolved session; safe-method requests
  * + Bearer/DPoP requests pass through without validation.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function verifyCsrf(opts: {
   method: string

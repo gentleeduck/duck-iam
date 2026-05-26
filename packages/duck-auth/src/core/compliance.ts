@@ -18,6 +18,8 @@ import { AuthErrorObject } from './errors'
  *           7y audit retention
  *   fips  - WebAuthn attestation 'direct' required + only FIPS-validated
  *           algorithms (EdDSA + scrypt with bigger params + no SHA-1)
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export type CompliancePreset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
 
@@ -25,6 +27,8 @@ export type CompliancePreset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
  * Compliance overrides applied on top of the consumer's config. Defaults
  * here are conservative; consumers can layer presets (gdpr + soc2) but
  * library refuses conflicting combinations via strict().
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface ComplianceOverrides {
   passwords: { minLength: number }
@@ -63,6 +67,8 @@ const DEFAULT_OVERRIDES: ComplianceOverrides = {
  * // cfg.requireDataAtRest === true (gdpr)
  * // cfg.requiredStrictChecks includes both gdpr + soc2 lists
  * ```
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function resolveCompliance(presets: CompliancePreset | CompliancePreset[] | undefined): ComplianceOverrides {
   if (!presets) return DEFAULT_OVERRIDES
@@ -140,6 +146,8 @@ function mergeStricter(a: ComplianceOverrides, b: ComplianceOverrides): Complian
  * The stricter rule wins for every field: a preset that bumps password
  * minLength to 12 takes precedence over a user setting of 8; a preset
  * that caps session TTL to 1h takes precedence over a user setting of 7d.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMeta = unknown>(
   base: AuthRootConfig<Profile, Tenant, OrgMeta>,
@@ -177,6 +185,8 @@ export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMet
  *
  * Caller supplies `wired` flags describing what is hooked up; library
  * cannot introspect every adapter at the type level.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function assertComplianceStrict(opts: {
   preset: CompliancePreset | CompliancePreset[]

@@ -10,6 +10,8 @@ import type { Transport } from '../types/transport'
 /**
  * Try each transport in order on extract; emit Intents from every transport
  * on issue/revoke (so cookie + bearer co-exist on the same response).
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class CompositeTransport implements Transport.ITransport {
   constructor(private readonly _transports: Transport.ITransport[]) {

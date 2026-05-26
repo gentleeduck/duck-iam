@@ -30,6 +30,8 @@ export interface ExportBlob<Profile> {
  * Optimistic locking discipline: every write that mutates `Identity` flows
  * through `update(expectedVersion)`; callers that pass a stale version see
  * `AUTH/STALE_WRITE` and decide retry/surface.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class IdentitiesFacet<Profile = unknown> {
   constructor(
@@ -153,6 +155,8 @@ export class IdentitiesFacet<Profile = unknown> {
    * Bulk import. Used for migrations from legacy systems. Skips already-existing
    * identities by email (mode='skipExisting') or merges into existing
    * (mode='merge'). Returns counts so caller can surface to ops.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async bulkCreate(
     rows: Array<{
@@ -204,6 +208,8 @@ export class IdentitiesFacet<Profile = unknown> {
    * tokens, recovery code hashes, and other credential `secret` fields are
    * always stripped. Sessions are exported separately by Sessions facet if
    * the consumer wants them.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async exportAll(id: string, credentials: Credential.IStore, ctx: TenantContext = {}): Promise<ExportBlob<Profile>> {
     const identity = await this._store.findById(id, ctx)
@@ -215,4 +221,20 @@ export class IdentitiesFacet<Profile = unknown> {
       exportedAt: Date.now(),
     }
   }
+}
+
+/**
+ * Namespace merge for IdentitiesFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. IdentitiesFacetConfig) or the
+ * namespaced form (IdentitiesFacet.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace IdentitiesFacet {
+  /** Alias for the flat `IdentitiesFacetConfig` type. */
+  export type IConfig = IdentitiesFacetConfig
+  /** Alias for the flat generic `ExportBlob<Profile>` type. */
+  export type IExportBlob<Profile = unknown> = ExportBlob<Profile>
 }

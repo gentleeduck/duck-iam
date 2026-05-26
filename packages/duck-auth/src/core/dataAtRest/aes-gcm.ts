@@ -19,6 +19,8 @@ import type { DataAtRest } from '../types/dataAtRest'
  *
  * Output format: `aes-256-gcm$<kid>$<iv-base64>$<tag-base64>$<ct-base64>`
  * self-describing so future key rotations land cleanly.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface AesGcmConfig {
   /** Stable key id; written into every ciphertext. Used for rotation. */
@@ -80,4 +82,18 @@ export class AesGcmDataAtRest implements DataAtRest.IAdapter {
     if (parts.length < 2) return true
     return parts[1] !== this._kid
   }
+}
+
+/**
+ * Namespace merge for AesGcmDataAtRest. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. AesGcmConfig) or the
+ * namespaced form (AesGcmDataAtRest.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace AesGcmDataAtRest {
+  /** Alias for the flat `AesGcmConfig` type. */
+  export type IConfig = AesGcmConfig
 }

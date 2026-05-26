@@ -11,6 +11,8 @@ import type { Events } from '../types/events'
  * memory tier; multi-instance fleets should swap in a Redis-backed
  * store that emits maintenance.on / maintenance.off via pub/sub so
  * every node converges within seconds of the toggle.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface OperationsState {
   /** When true, every mounted route returns 503 except session/healthz. */
@@ -33,6 +35,8 @@ export interface OperationsState {
  *   cutovers, DR drills, freeze windows.
  *
  * DESIGN section O1 + O2.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class OperationsFacet {
   private _state: OperationsState = {
@@ -53,6 +57,8 @@ export class OperationsFacet {
   /**
    * Toggle maintenance mode. Emits `maintenance.on` / `maintenance.off`
    * so multi-instance fleets can subscribe and propagate.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async maintenance(on: boolean, opts: { message?: string; retryAfterSec?: number } = {}): Promise<void> {
     if (on) {
@@ -84,6 +90,8 @@ export class OperationsFacet {
    *
    * @param method HTTP method (POST/GET/...)
    * @param exempt routes that should pass through unaffected (e.g. /healthz, /session)
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   assertOperationsForRoute(method: string, exempt: { healthz?: boolean; session?: boolean } = {}): void {
     if (exempt.healthz || exempt.session) return
@@ -104,4 +112,18 @@ export class OperationsFacet {
 function isMutatingMethod(method: string): boolean {
   const m = method.toUpperCase()
   return m === 'POST' || m === 'PUT' || m === 'PATCH' || m === 'DELETE'
+}
+
+/**
+ * Namespace merge for OperationsFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. OperationsState) or the
+ * namespaced form (OperationsFacet.IState); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace OperationsFacet {
+  /** Alias for the flat `OperationsState` type. */
+  export type IState = OperationsState
 }

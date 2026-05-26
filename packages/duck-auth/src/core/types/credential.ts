@@ -10,6 +10,8 @@ import type { TenantContext } from './context'
  * stored hashed (passwords, magic-link tokens, recovery codes) or as public-key
  * material (passkey/WebAuthn). OAuth refresh tokens stored hashed for reuse
  * detection (RFC 6749 section 10.4); plaintext is never persisted.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Credential {
   export type Kind = 'password' | 'passkey' | 'oauth' | 'magic-link' | 'totp' | 'recovery' | 'api-key'
@@ -37,6 +39,8 @@ export namespace Credential {
      * Lookup by the **hashed** secret + kind. Used by magic-link / recovery
      * code / passwordless flows that issue an opaque token and need a
      * single-call resolution. Adapters index `(kind, secret)` for O(1) lookup.
+     *
+     * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
      */
     findByHashedSecret(secretHash: string, kind: Kind, ctx: TenantContext): Promise<ICredential | null>
     upsert(input: Omit<ICredential, 'id' | 'version' | 'createdAt'>, ctx: TenantContext): Promise<ICredential>

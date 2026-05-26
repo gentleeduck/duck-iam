@@ -18,12 +18,16 @@ import type { Anomaly } from '../types/anomaly'
  *     coordinates pre-resolved via the request snapshot.
  *   - Score scales linearly with overshoot above the threshold and
  *     caps at 1.0 at 2x the threshold.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface ImpossibleTravelConfig {
   /** Max speed (km/h) above which the gap counts as suspicious. Default 900. */
   maxKmPerHour: number
   /** Minimum elapsed time between samples (ms) before evaluating. Default 60s
-   *  (sub-minute gaps are usually NAT mobility, not travel). */
+   *  (sub-minute gaps are usually NAT mobility, not travel).
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam> */
   minElapsedMs: number
 }
 
@@ -46,6 +50,8 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
  * Build an impossible-travel detector. Pass `getLastSeen(identityId)`
  * so the detector can read the prior coords from wherever the app
  * persists them (often `Identity.attributes.lastSeen`).
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function impossibleTravelDetector(opts: {
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>

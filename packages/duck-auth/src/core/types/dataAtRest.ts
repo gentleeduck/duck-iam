@@ -11,13 +11,17 @@
  * via envelope encryption against AWS KMS / GCP KMS / Vault / etc.
  *
  * DESIGN section C5.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace DataAtRest {
   export interface IContext {
     /** Field name in Identity.profile that's being encrypted. */
     field: string
     /** Identity row id; lets adapters tie keys to subjects + meet
-     *  GDPR right-to-erasure by destroying the per-subject DEK. */
+     *  GDPR right-to-erasure by destroying the per-subject DEK.
+     *
+     * @author wildduck2 <https://github.com/gentleeduck/duck-iam> */
     identityId: string
     /** Optional opaque tag for tenant or row revision; passes through. */
     tag?: string

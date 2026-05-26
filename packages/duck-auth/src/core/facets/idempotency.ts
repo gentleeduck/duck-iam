@@ -13,6 +13,8 @@ import type { Idempotency } from '../types/idempotency'
  *
  * Keys are scoped by tenantId so two tenants supplying the same
  * Idempotency-Key cannot collide.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class MemoryIdempotencyStore implements Idempotency.IStore {
   private readonly _entries = new Map<
@@ -77,6 +79,8 @@ export const DEFAULT_IDEMPOTENCY_CONFIG: IdempotencyFacetConfig = {
  * Idempotency facet. Driven by framework adapters: extract the header,
  * call {@link IdempotencyFacet.handle} with an executor; the facet
  * replays the cached response when the same key is presented again.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class IdempotencyFacet {
   constructor(
@@ -103,6 +107,8 @@ export class IdempotencyFacet {
    *                 status + body to persist
    * @returns the executor's result on first invocation; the cached
    *          response on subsequent invocations within ttlMs
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async handle(
     key: string,
@@ -128,4 +134,18 @@ export class IdempotencyFacet {
     await this._store.put(key, response, this._cfg.ttlMs, ctx)
     return response
   }
+}
+
+/**
+ * Namespace merge for IdempotencyFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. IdempotencyFacetConfig) or the
+ * namespaced form (IdempotencyFacet.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace IdempotencyFacet {
+  /** Alias for the flat `IdempotencyFacetConfig` type. */
+  export type IConfig = IdempotencyFacetConfig
 }

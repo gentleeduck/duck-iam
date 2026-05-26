@@ -16,6 +16,8 @@ import type { TokenResponse } from './client'
  * {@link refreshOauthToken} on every refresh. Reuse of an old refresh
  * token causes a `AUTH/OAUTH_REUSE_DETECTED` throw + revocation of the
  * whole token family.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface OAuthFamilyMetadata {
   provider: string
@@ -44,6 +46,8 @@ export interface OAuthFamilyMetadata {
  * @param opts.events bus for `suspicious` emission on reuse detection
  * @param opts.exchange callback that hits the IdP for a fresh token (provider-specific)
  * @returns the IdP's TokenResponse + the rotated row's identity id
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export async function refreshOauthToken(opts: {
   presentedRefreshToken: string
@@ -126,6 +130,8 @@ export async function refreshOauthToken(opts: {
 /**
  * Revoke every credential row in a token family. Called when reuse is
  * detected so the leaked branch cannot continue minting tokens.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 async function revokeFamily(credentials: Credential.IStore, ctx: TenantContext, familyId: string): Promise<void> {
   // listByIdentity is the cheapest cross-row iteration the store contract
@@ -145,6 +151,8 @@ async function revokeFamily(credentials: Credential.IStore, ctx: TenantContext, 
  * Convenience helper for adapters that want to project an unexpired
  * refresh row's access token (without performing a refresh round-trip).
  * Returns null when the access token is expired or the row missing.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function projectAccessToken(row: Credential.ICredential | null): {
   accessToken: string

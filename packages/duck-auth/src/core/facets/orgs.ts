@@ -17,6 +17,8 @@ import type { Org } from '../types/org'
  * tenant-wide identity roles. Apps that pair iam project an identity x
  * org pair into a Subject whose `roles` come from `Membership.roles`.
  * The library exposes the contract; the projection lives in app code.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class OrgsFacet<OrgMeta = unknown> {
   constructor(
@@ -43,6 +45,8 @@ export class OrgsFacet<OrgMeta = unknown> {
    * Add a member with starting roles. Idempotent in spirit - adding the same
    * identity to the same org twice is allowed if the previous membership
    * has been marked `leftAt`. Otherwise surfaces a generic provider error.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async addMember(
     input: { orgId: string; identityId: string; roles?: string[] },
@@ -76,9 +80,24 @@ export class OrgsFacet<OrgMeta = unknown> {
   /**
    * Resolve the membership of (identity, org) for the in-tenant scope.
    * Returns null when the identity is not a live member.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async resolveMembership(orgId: string, identityId: string, ctx: TenantContext = {}): Promise<Org.IMembership | null> {
     const members = await this._store.listMembers(orgId, ctx)
     return members.find((m) => m.identityId === identityId && !m.leftAt) ?? null
   }
+}
+
+/**
+ * Namespace merge for OrgsFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. X) or the
+ * namespaced form (OrgsFacet.IFoo); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace OrgsFacet {
+  // No flat type aliases for this facet (class-only public surface).
 }

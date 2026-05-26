@@ -15,6 +15,8 @@ export interface MemoryLimiterConfig {
 /**
  * Token-bucket memory limiter. Dev/test only; production uses Redis.
  * Per-key independent bucket; reset() empties one bucket.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class MemoryLimiter implements Limiter.ILimiter {
   private readonly _max: number

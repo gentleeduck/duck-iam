@@ -74,6 +74,8 @@ export interface AuthRootConfig<Profile = unknown, Tenant = string, OrgMeta = un
  * Faceted authentication root. Composition surface only - every operation
  * lives on a facet (sessions, identities, providers, mfa, flows, ...).
  * Facets are added one at a time as features land.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly config: AuthRootConfig<Profile, Tenant, OrgMeta>
@@ -161,6 +163,8 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
    *
    * Delegates to {@link Transport.verify} when the transport can verify
    * stateless tokens (JWT); otherwise looks up via {@link Session.IStore}.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async resolveSession(req: { headers: Headers }): Promise<{
     session: Session.ISession
@@ -205,6 +209,8 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
    *    the channel registry from here, so this is documented for future
    *    composition with `auth.channels` facet - v0.2)
    *  - At least one `lockout` event handler subscribed
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   strict(opts: { env: 'development' | 'production' | 'test' }): void {
     if (opts.env !== 'production') return
@@ -273,6 +279,8 @@ export const __hashSid = sha256
  * No-op limiter used when no Limiter adapter is configured. Always allows.
  * `strict({ env: 'production' })` rejects this - production must supply a real
  * Limiter (redis/upstash) for brute-force protection.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class NoopLimiter implements LimiterNs.ILimiter {
   async consume(_key: string, _weight = 1): Promise<LimiterNs.IResult> {

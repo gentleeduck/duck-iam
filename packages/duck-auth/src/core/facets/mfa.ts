@@ -40,6 +40,8 @@ export interface TotpEnrollChallenge {
  * a stolen TOTP secret still requires the user's phone to be online during
  * the attack window - and rotation is one-click). Backup codes are
  * persisted hashed as `kind: 'recovery'`, single-use.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class MfaFacet {
   constructor(
@@ -54,6 +56,8 @@ export class MfaFacet {
    * Begin TOTP enrollment. Returns the otpauth:// URI so the consumer can
    * render a QR code. Secret is persisted immediately under `metadata.confirmed=false`;
    * a later `confirmTotpEnrollment(identityId, firstCode)` flips it confirmed.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async beginTotpEnrollment(
     identityId: string,
@@ -81,6 +85,8 @@ export class MfaFacet {
    * Confirm enrollment by verifying the user typed in the right code.
    * Required before TOTP counts as an enrolled MFA factor for the identity.
    * Emits `mfa.enrolled` on success.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async confirmTotpEnrollment(
     identityId: string,
@@ -139,6 +145,8 @@ export class MfaFacet {
    * Verify a backup code. Single-use; matching code is revoked atomically.
    * Generic ok:boolean - callers map false to AUTH/INVALID_CREDENTIALS so
    * an attacker cannot infer "code exists but wrong" vs "code unknown".
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async verifyBackupCode(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
     const codeHash = sha256(code.trim().toLowerCase())
@@ -195,6 +203,8 @@ export class MfaFacet {
   /**
    * Compute the AAL the identity is currently eligible for, given the
    * factors already on the session. Used by step-up evaluation.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async eligibleAal(
     identityId: string,
@@ -212,4 +222,20 @@ export class MfaFacet {
     }
     return 2
   }
+}
+
+/**
+ * Namespace merge for MfaFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. MfaFacetConfig) or the
+ * namespaced form (MfaFacet.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace MfaFacet {
+  /** Alias for the flat `MfaFacetConfig` type. */
+  export type IConfig = MfaFacetConfig
+  /** Alias for the flat `TotpEnrollChallenge` type. */
+  export type ITotpEnrollChallenge = TotpEnrollChallenge
 }

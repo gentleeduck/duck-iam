@@ -7,6 +7,8 @@
  * Rate-limit + lockout adapter. Brute-force protection is non-optional; strict()
  * refuses production boot without one wired. Dimensions configurable per app
  * (identity, ip, composite). Reference impls: memory (token bucket), redis (Lua).
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Limiter {
   export interface IResult {

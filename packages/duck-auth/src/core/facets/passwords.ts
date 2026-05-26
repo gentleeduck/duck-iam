@@ -12,6 +12,8 @@ export interface PasswordsFacetConfig {
   /**
    * Minimum password length. Default 8. Apps should override to ≥10 for
    * any production deployment; compliance presets force ≥12.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   minLength: number
   /** Reject obvious junk. Default true. */
@@ -38,6 +40,8 @@ const COMMON_PASSWORDS = new Set([
 /**
  * Passwords facet - credential CRUD + verify, with constant-time discipline.
  * Plaintext never leaves a method call; storage always goes through {@link Hasher.IHasher}.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class PasswordsFacet {
   constructor(
@@ -82,6 +86,8 @@ export class PasswordsFacet {
    *
    * Returns `{ ok: true, needsRehash }` when the password matches; `needsRehash`
    * is true if the stored hash was produced with weaker params than current.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async verify(
     identityId: string,
@@ -103,6 +109,8 @@ export class PasswordsFacet {
    * Re-hash an existing password under current params. Called on successful
    * verify when {@link verify} returns `needsRehash: true`, so a slow
    * parameter upgrade rolls out as users sign in.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async rehash(identityId: string, plaintext: string, ctx: TenantContext = {}): Promise<void> {
     const rows = await this._credentials.listByIdentity(identityId, 'password', ctx)
@@ -111,4 +119,18 @@ export class PasswordsFacet {
     const newSecret = await this._hasher.hash(plaintext)
     await this._credentials.rotate(row.id, newSecret, row.version, ctx)
   }
+}
+
+/**
+ * Namespace merge for PasswordsFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. PasswordsFacetConfig) or the
+ * namespaced form (PasswordsFacet.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace PasswordsFacet {
+  /** Alias for the flat `PasswordsFacetConfig` type. */
+  export type IConfig = PasswordsFacetConfig
 }

@@ -40,6 +40,8 @@ export const SCRYPT_DEFAULTS: ScryptParams = {
  * Encoded format: `scrypt$<N>$<r>$<p>$<saltBase64>$<keyBase64>`.
  * All fields URL-safe base64. Self-describing so we can detect parameter
  * drift in {@link needsRehash} without an external migration table.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 function encode(N: number, r: number, p: number, salt: Buffer, key: Buffer): string {
   return `scrypt$${N}$${r}$${p}$${salt.toString('base64url')}$${key.toString('base64url')}`
@@ -74,6 +76,8 @@ function parse(encoded: string): { N: number; r: number; p: number; salt: Buffer
  *
  * Compliance presets (HIPAA/SOC2/FIPS in v1.x) require swapping this for
  * Argon2id; that lands in `core/password/argon2.ts` as a sibling impl.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class ScryptHasher implements Hasher.IHasher {
   readonly id = 'scrypt'

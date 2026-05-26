@@ -13,6 +13,8 @@
  * v0.1 ships scrypt (Node built-in, zero deps); v1.0 swaps in Argon2id
  * via `@node-rs/argon2` as the default with scrypt remaining as a fallback
  * for environments without WASM/native modules.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Hasher {
   export interface IHasher {

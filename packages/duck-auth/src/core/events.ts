@@ -9,6 +9,8 @@ import type { Events } from './types/events'
  * In-memory event bus. Single-process; production swaps in Redis pub/sub
  * (`RedisEvents`) or Kafka (`KafkaEvents`). Handlers run sequentially per
  * event; a throwing handler is caught + logged so siblings still fire.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class InMemoryEvents implements Events.IBus {
   private _handlers = new Map<Events.EventName, Set<(p: unknown) => void | Promise<void>>>()

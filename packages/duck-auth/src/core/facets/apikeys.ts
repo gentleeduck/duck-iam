@@ -46,6 +46,8 @@ export interface CreatedApiKey {
  * via iam policies (the scopes string set is projected into iam Subject
  * attributes by the bridge), and hashed at rest. Plaintext is returned
  * exactly once - at create - and never persisted.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class ApiKeysFacet {
   constructor(
@@ -117,6 +119,8 @@ export class ApiKeysFacet {
   /**
    * Rotate: issues a new plaintext, marks the old row revoked. Caller
    * tells consumers to swap. Returns the new plaintext exactly once.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async rotate(keyId: string, ctx: TenantContext = {}): Promise<CreatedApiKey> {
     const existing = await this._credentials.findById(keyId, ctx)
@@ -139,6 +143,8 @@ export class ApiKeysFacet {
   /**
    * Verify a plaintext key. Returns the identity + scopes on success;
    * throws AUTH/APIKEY_INVALID / AUTH/APIKEY_REVOKED on failure.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async verify(
     plaintext: string,
@@ -163,6 +169,8 @@ export class ApiKeysFacet {
   /**
    * Helper for scope enforcement at the route. Throws AUTH/APIKEY_SCOPE_INSUFFICIENT
    * when the key lacks at least one required scope.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   requireScopes(have: string[], required: string[]): void {
     const missing = required.filter((s) => !have.includes(s))
@@ -173,4 +181,22 @@ export class ApiKeysFacet {
       })
     }
   }
+}
+
+/**
+ * Namespace merge for ApiKeysFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. ApiKeysFacetConfig) or the
+ * namespaced form (ApiKeysFacet.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace ApiKeysFacet {
+  /** Alias for the flat `ApiKeysFacetConfig` type. */
+  export type IConfig = ApiKeysFacetConfig
+  /** Alias for the flat `ApiKey` type. */
+  export type IApiKey = ApiKey
+  /** Alias for the flat `CreatedApiKey` type. */
+  export type ICreatedApiKey = CreatedApiKey
 }

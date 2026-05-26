@@ -14,6 +14,8 @@ import { randomToken } from '../../../core/crypto'
  * Encoding: `<payload-base64url>.<sig-base64url>`. HMAC-SHA256 over the
  * payload with the per-AuthRoot signing secret. Replay caught by single-
  * use nonce stored alongside the verifier in a transient session cache.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface StatePayload {
   /** Random nonce; one-time use. */

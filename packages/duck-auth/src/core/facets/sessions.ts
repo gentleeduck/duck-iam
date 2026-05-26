@@ -10,6 +10,13 @@ import type { Events } from '../types/events'
 import type { Identity } from '../types/identity'
 import type { Session } from '../types/session'
 
+/**
+ * Sessions facet namespace - groups config + input shapes alongside the class
+ * via TS class+namespace merging. Consumers can write `SessionsFacet.IConfig`
+ * or the original flat name; both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export interface SessionsFacetConfig {
   /** Sliding TTL in ms. Default 7 days. */
   ttlMs: number
@@ -36,6 +43,8 @@ export interface RotateOrCreateInput extends CreateSessionInput {
    * DESIGN section 37 rotation matrix. Drives whether the previous SID is revoked
    * outright, downgraded (step-up old-SID kept alive at lower AAL), or left
    * alone (impersonation start runs alongside the original session).
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   purpose:
     | 'signin'
@@ -62,6 +71,8 @@ export const DEFAULT_SESSION_CONFIG: SessionsFacetConfig = {
  *
  * Resolution is on `AuthRoot.resolveSession()` rather than here because the
  * Transport contract drives extraction; this facet owns lifecycle only.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class SessionsFacet {
   constructor(
@@ -78,6 +89,8 @@ export class SessionsFacet {
    * **plaintext** session identifier - the value the caller passes to
    * `Transport.issue()` to put on the wire. The plaintext sid never appears
    * on the persisted row; only its sha-256 hash does.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async create(input: CreateSessionInput): Promise<{ session: Session.ISession; sid: string }> {
     const sid = randomToken(32)
@@ -111,6 +124,8 @@ export class SessionsFacet {
    * changes a session's identity, AAL, or privilege. The library asserts that
    * flow handlers always route through this method so fixation is structurally
    * impossible to forget.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async rotateOrCreate(input: RotateOrCreateInput): Promise<{ session: Session.ISession; sid: string }> {
     const fresh = await this.create(input)
@@ -274,4 +289,16 @@ export async function resolveBySid<Profile = unknown>(
     throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: 'identity-erased' })
   }
   return { session, identity }
+}
+
+/**
+ * Namespace merge - SessionsFacet.IConfig, SessionsFacet.ICreateInput,
+ * SessionsFacet.IRotateInput. Flat names kept for backwards compatibility.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace SessionsFacet {
+  export type IConfig = SessionsFacetConfig
+  export type ICreateInput = CreateSessionInput
+  export type IRotateInput = RotateOrCreateInput
 }

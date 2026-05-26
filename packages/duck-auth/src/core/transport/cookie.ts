@@ -11,6 +11,8 @@ export interface CookieTransportConfig {
   /**
    * Cookie name. Defaults to `__Host-duck-sid` when no `domain` is set
    * (browser enforces Secure + Path=/ + no Domain), else `duck-sid`.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   name?: string
   /** Set only for cross-subdomain deployments. Forbidden together with `__Host-` prefix. */
@@ -26,6 +28,8 @@ export interface CookieTransportConfig {
 /**
  * Cookie transport - opaque session ID in an HttpOnly cookie. Default for web apps.
  * Verify is unset -> caller must call Session.IStore.getByHash() to resolve.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class CookieTransport implements Transport.ITransport {
   private readonly _name: string
@@ -92,4 +96,18 @@ function parseCookie(header: string, name: string): string | null {
     if (k === name) return decodeURIComponent(raw.slice(eq + 1).trim())
   }
   return null
+}
+
+/**
+ * Namespace merge for CookieTransport. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. CookieTransportConfig) or the
+ * namespaced form (CookieTransport.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace CookieTransport {
+  /** Alias for the flat `CookieTransportConfig` type. */
+  export type IConfig = CookieTransportConfig
 }

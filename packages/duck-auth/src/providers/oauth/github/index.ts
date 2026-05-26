@@ -5,12 +5,7 @@
 
 import type { Provider } from '../../../core/types/provider'
 import { OAuthClient, type OAuthEndpoints } from '../core/client'
-import {
-  type OAuthBeginInput,
-  type OAuthCompleteInput,
-  type OAuthProviderOptions,
-  oauthProvider,
-} from '../core/provider'
+import { type OAuthBeginInput, type OAuthCompleteInput, type OAuthOptionsBase, oauthProvider } from '../core/provider'
 
 const GITHUB_ENDPOINTS: OAuthEndpoints = {
   authorizationEndpoint: 'https://github.com/login/oauth/authorize',
@@ -18,17 +13,16 @@ const GITHUB_ENDPOINTS: OAuthEndpoints = {
   userinfoEndpoint: 'https://api.github.com/user',
 }
 
-export interface GitHubOAuthOptions<Profile = unknown> {
-  clientId: string
-  clientSecret: string
-  redirectUri: string
-  stateSigningSecret: string
+/**
+ * GitHub-specific OAuth options. Extends the shared `OAuthOptionsBase` so
+ * every IdP provider shares the same call-site shape; only IdP-specific
+ * fields land here.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface GitHubOAuthOptions<Profile = unknown> extends OAuthOptionsBase<Profile> {
   /** Default `['read:user', 'user:email']`. */
   scopes?: string[]
-  /** Override fetch (test stubs). */
-  fetch?: typeof globalThis.fetch
-  onSignIn?: OAuthProviderOptions<Profile>['onSignIn']
-  profileToIdentityProfile?: OAuthProviderOptions<Profile>['profileToIdentityProfile']
 }
 
 /** GitHub OAuth 2.0 provider. */

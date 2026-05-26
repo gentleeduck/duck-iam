@@ -12,6 +12,8 @@ import type { TenantContext } from './context'
  *
  * Memory adapter ships in-tree; production swaps in a Redis-backed
  * store with `SET NX EX` for atomic put-if-absent semantics.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Idempotency {
   /** Snapshot persisted under an idempotency key. */
@@ -30,12 +32,16 @@ export namespace Idempotency {
     /**
      * Get the cached response for an idempotency key. Returns null when
      * the key has never been seen OR when the TTL has elapsed.
+     *
+     * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
      */
     get(key: string, ctx: TenantContext): Promise<ICachedResponse | null>
     /**
      * Atomically claim a key. Returns true if the caller is the first
      * to claim; false when a previous claim exists (caller should call
      * `get()` to read the cached response and replay).
+     *
+     * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
      */
     claim(key: string, ttlMs: number, ctx: TenantContext): Promise<boolean>
     /** Store the response snapshot under the previously-claimed key. */

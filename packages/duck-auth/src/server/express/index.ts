@@ -11,6 +11,8 @@ import type { Provider } from '../../core/types/provider'
  * Express request shape - minimal duck-typed subset to avoid pulling the
  * Express type-graph into duck-auth. Apps providing their own type narrowing
  * to `Express.Request` / `Express.Response` get full inference at the call site.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface ExpressLikeRequest {
   method: string
@@ -48,6 +50,8 @@ export function toHeaders(headers: ExpressLikeRequest['headers']): Headers {
  * Execute an Intent[] against an ExpressLikeResponse. Mirrors the Web-Fetch
  * executor in `server/generic` but writes directly into Express's mutable
  * response object, since Express handlers don't return a `Response`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function applyIntents(intents: Provider.Intent[], res: ExpressLikeResponse, baseStatus = 200): void {
   let status = baseStatus

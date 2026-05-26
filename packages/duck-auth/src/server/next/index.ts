@@ -23,6 +23,8 @@ import { executeIntents } from '../generic'
  *   }
  *
  * Or one-shot via `mountNext(auth)` which wires the catch-all routes.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 export type NextHandler = (req: Request) => Promise<Response>
@@ -78,6 +80,8 @@ export function nextSession(auth: AuthRoot): NextHandler {
 /**
  * Provider begin handler. Extract the provider id from the URL path or pass
  * via the second arg; both flows fit the App Router shape.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function nextProviderBegin(auth: AuthRoot, providerId: string): NextHandler {
   return async (req) => {
@@ -98,6 +102,8 @@ export function nextProviderBegin(auth: AuthRoot, providerId: string): NextHandl
  *
  * Apps can also wire the individual nextSignIn / nextSignOut / etc. directly
  * - `mountNext` is an ergonomic helper.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function mountNext(
   auth: AuthRoot,

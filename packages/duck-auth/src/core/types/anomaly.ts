@@ -11,6 +11,8 @@ import type { Session } from './session'
  * + session and returns zero or more signals. Apps register one or more
  * detectors; AuthRoot aggregates the scores and emits `suspicious` when
  * thresholds trip. DESIGN section T2.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Anomaly {
   export type Kind = 'impossible-travel' | 'new-device' | 'high-velocity' | 'off-hours' | 'concurrent-geo'

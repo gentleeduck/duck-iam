@@ -14,6 +14,8 @@ import type { Provider } from '../../core/types/provider'
  * extract a `Headers`-shaped object from the incoming request, hand it to
  * AuthRoot, then call this executor on the returned Intent[] to emit a
  * native response in the framework's shape.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Response {
   let status = baseStatus

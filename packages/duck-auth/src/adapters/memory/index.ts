@@ -16,6 +16,8 @@ import type { Session } from '../../core/types/session'
  * Strict mode rejects this adapter when `env: 'production'`.
  *
  * Multi-tenant: tenantId filters every query so tests can verify isolation.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
   readonly identities: Identity.IStore<Profile>

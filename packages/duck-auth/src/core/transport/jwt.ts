@@ -21,6 +21,8 @@ import type { Transport } from '../types/transport'
  * Refresh tokens are issued as opaque cookies (the persisted half of the
  * dual transport) and rotated server-side. Reuse detection at refresh
  * time follows the same family-id mechanism as OAuth refresh tokens.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface JwtVerifyKey {
   kid: string
@@ -37,6 +39,8 @@ export interface JwtTransportConfig {
    * All currently-valid verify keys. Must contain `signKey`; during rotation,
    * the previous keys remain here for an overlap window so already-issued
    * tokens keep verifying.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   verifyKeys: JwtVerifyKey[]
   issuer: string
@@ -121,6 +125,8 @@ export class JwtTransport implements Transport.ITransport {
    * Issue an access JWT plus (when refresh enabled) an opaque refresh
    * cookie. The plaintext SID is used as the refresh cookie value so
    * the framework adapter can read it back at refresh time.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   issue(sid: string, session: Session.ISession, _opts: Transport.IssueOpts): Provider.Intent[] {
     const now = Math.floor(Date.now() / 1000)
@@ -243,6 +249,8 @@ export class JwtTransport implements Transport.ITransport {
    * tokens out-of-band. v0.1 HS256 only - JWKS isn't applicable to
    * symmetric keys; this returns an empty `{ keys: [] }` placeholder.
    * EdDSA / RS256 in v0.2 will populate this with public keys.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   jwks(): { keys: unknown[] } {
     return { keys: [] }
@@ -251,6 +259,8 @@ export class JwtTransport implements Transport.ITransport {
   /**
    * Mint a fresh JWT from a session without rotating the SID. Used by
    * refresh endpoints after verifying the refresh cookie.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   static mintFresh(transport: JwtTransport, sid: string, session: Session.ISession): Provider.Intent[] {
     return transport.issue(sid, session, { fresh: true, absolute: false })
@@ -259,3 +269,19 @@ export class JwtTransport implements Transport.ITransport {
 
 // Re-export for parity with cookie/bearer transports.
 export { randomToken, sha256 }
+
+/**
+ * Namespace merge for JwtTransport. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. JwtTransportConfig) or the
+ * namespaced form (JwtTransport.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace JwtTransport {
+  /** Alias for the flat `JwtTransportConfig` type. */
+  export type IConfig = JwtTransportConfig
+  /** Alias for the flat `JwtVerifyKey` type. */
+  export type IVerifyKey = JwtVerifyKey
+}

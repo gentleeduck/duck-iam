@@ -20,6 +20,8 @@
  *   return <button onClick={() => signIn.mutate({ providerId: 'password', input: { ... } })}>...</button>
  * }
  * ```
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 import {
   createContext,

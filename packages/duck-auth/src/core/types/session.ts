@@ -6,6 +6,8 @@
 /**
  * Authenticated (or guest, or API-key) bearer of access. Issued by the configured
  * Transport; resolved on every authed request. AAL + factor model follows NIST 800-63B.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Session {
   /** NIST 800-63B Authentication Assurance Levels. */

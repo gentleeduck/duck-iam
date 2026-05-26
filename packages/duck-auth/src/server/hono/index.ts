@@ -17,6 +17,8 @@ import { executeIntents } from '../generic'
  *   app.post('/auth/signout', honoSignOut(auth))
  *   app.get('/auth/session',  honoSession(auth))
  *   app.post('/auth/providers/:id/begin', honoProviderBegin(auth))
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 export type HonoHandler = (ctx: HonoContextLike) => Promise<Response>

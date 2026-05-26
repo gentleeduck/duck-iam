@@ -14,6 +14,8 @@ import type { Session } from '../../core/types/session'
  * Generics flow: `createAuthClient<MyProfile>()` types `signIn`/`session`
  * return values with the consumer's profile shape so `session.identity.profile.email`
  * autocompletes end-to-end.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 export interface AuthClientConfig {

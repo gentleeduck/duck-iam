@@ -15,6 +15,8 @@ export interface MagicLinkProviderOptions<Profile = unknown> {
   /**
    * Optional auto-create - if no identity matches the email, create one on
    * link request. Default false (caller wires its own signup flow).
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   autoCreateIdentity?: boolean
   /** Used as the `profile` payload when autoCreating; library supplies email automatically. */
@@ -48,6 +50,8 @@ export interface MagicLinkCompleteInput {
  *   complete {token} -> hash, findByHashedSecret('magic-link'), validate
  *                      expiry + non-revoked, REVOKE on use (single-use),
  *                      return startSession intent.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function magicLink<Profile = unknown>(
   opts: MagicLinkProviderOptions<Profile>,

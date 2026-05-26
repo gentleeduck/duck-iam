@@ -42,6 +42,8 @@ export interface SignInOutcome {
  * The single responsibility is wiring: providers return Intents, flows interpret
  * the lifecycle-affecting ones (startSession / requireMfa), the rest are passed
  * straight through to the framework adapter for HTTP execution.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface StepUpRequirement {
   /** Required AAL on the post-step-up session. Default 2. */
@@ -145,6 +147,8 @@ export class FlowsFacet<Profile = unknown> {
    * Dispatch a sign-in via the named provider. Provider returns Intents;
    * the `startSession` intent is interpreted here (rotateOrCreate +
    * Transport.issue); other intents flow through to the caller.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async signIn(opts: SignInOptions): Promise<SignInOutcome> {
     if (!this._providers.has(opts.providerId)) {
@@ -200,6 +204,8 @@ export class FlowsFacet<Profile = unknown> {
    * Dispatch the `begin` phase of a provider. Wraps the same context
    * construction as `signIn` so callers (framework adapters, tests) don't
    * have to build it themselves.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async beginProvider(
     providerId: string,
@@ -228,6 +234,8 @@ export class FlowsFacet<Profile = unknown> {
    * Check whether the current session satisfies a step-up requirement.
    * Returns `{satisfied: true}` (no-op) when the session already meets it;
    * otherwise returns a challenge enumerating the satisfying methods.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async checkStepUp(session: Session.ISession, requirement: StepUpRequirement): Promise<StepUpOutcome> {
     const requiredAal: Session.AAL = requirement.aal ?? 2
@@ -247,6 +255,8 @@ export class FlowsFacet<Profile = unknown> {
   /**
    * Complete a step-up by verifying the supplied factor and rotating the
    * session to the higher AAL with the new factor recorded.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async completeStepUp(opts: {
     currentSid: string
@@ -300,6 +310,8 @@ export class FlowsFacet<Profile = unknown> {
    * flow doesn't know which app-side wiring drives email lookup or message
    * delivery - depending on a magic-link provider would couple this facet to
    * one provider's options.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async requestPasswordReset(opts: {
     input: PasswordResetRequestInput
@@ -372,6 +384,8 @@ export class FlowsFacet<Profile = unknown> {
    * If MFA is enrolled, callers must satisfy a step-up *before* hitting this
    * endpoint - the library refuses to swap passwords for accounts with MFA
    * unless a fresh AAL=2 session is passed via `currentSid`.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async completePasswordReset(
     input: PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
@@ -420,6 +434,8 @@ export class FlowsFacet<Profile = unknown> {
    * Flows persist their state in the credentials store under
    * `kind: 'recovery'` + `metadata.kind: 'signup-flow'` so the existing
    * findByHashedSecret / expiresAt machinery applies for free.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async beginSignUp(opts: {
     email: string
@@ -532,6 +548,8 @@ export class FlowsFacet<Profile = unknown> {
    * Finalise the signup. Validates that every required stage is in
    * `completed`; merges the accumulated profile into the identity; revokes
    * the flow credential; issues a fresh session.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async completeSignUp(opts: {
     flowToken: string
@@ -588,6 +606,8 @@ export class FlowsFacet<Profile = unknown> {
    * `authorize` callback. iam consumers wire engine.authorize() here; non-
    * iam apps supply their own predicate. NEVER pass `() => true` - that
    * defeats audit and DESIGN section 38's invariant.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async impersonate(
     opts: ImpersonateOptions & {
@@ -653,4 +673,36 @@ export class FlowsFacet<Profile = unknown> {
     // library cannot re-issue it because the plaintext sid lives in cookie space only.
     return { intents: this._transport.revoke() }
   }
+}
+
+/**
+ * Namespace merge for FlowsFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. FlowsFacetConfig) or the
+ * namespaced form (FlowsFacet.IConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace FlowsFacet {
+  /** Alias for the flat `FlowsFacetConfig` type. */
+  export type IConfig = FlowsFacetConfig
+  /** Alias for the flat `SignInOptions` type. */
+  export type ISignInOptions = SignInOptions
+  /** Alias for the flat `SignInOutcome` type. */
+  export type ISignInOutcome = SignInOutcome
+  /** Alias for the flat `StepUpRequirement` type. */
+  export type IStepUpRequirement = StepUpRequirement
+  /** Alias for the flat `StepUpOutcome` type. */
+  export type IStepUpOutcome = StepUpOutcome
+  /** Alias for the flat `PasswordResetRequestInput` type. */
+  export type IPasswordResetRequestInput = PasswordResetRequestInput
+  /** Alias for the flat `PasswordResetCompleteInput` type. */
+  export type IPasswordResetCompleteInput = PasswordResetCompleteInput
+  /** Alias for the flat `SignUpFlowState` type. */
+  export type ISignUpFlowState = SignUpFlowState
+  /** Alias for the flat `ImpersonateOptions` type. */
+  export type IImpersonateOptions = ImpersonateOptions
+  /** Alias for the flat `ImpersonateOutcome` type. */
+  export type IImpersonateOutcome = ImpersonateOutcome
 }

@@ -14,6 +14,8 @@ import { buildState, signState, verifyState } from './state'
  * Canonical profile shape after a provider extracts it from userinfo /
  * id_token / provider-specific endpoint. Providers (google, github, ...)
  * map their idiosyncratic field names to this shape.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface OAuthProfile {
   /** Stable subject identifier at the provider (OIDC `sub`). */
@@ -22,6 +24,33 @@ export interface OAuthProfile {
   emailVerified?: boolean
   name?: string
   avatarUrl?: string
+}
+
+/**
+ * Shared option surface every provider-specific OAuth options interface
+ * (Google / GitHub / Apple / Discord / ...) extends. Keeps consumer call
+ * sites identical across providers + gives library a single place to
+ * evolve cross-provider knobs (DPoP, PKCE relaxation, etc.).
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface OAuthOptionsBase<Profile = unknown> {
+  /** OAuth client id assigned by the IdP. */
+  clientId: string
+  /** Client secret. Confidential clients (server-side) only. */
+  clientSecret: string
+  /** Exact callback URL registered with the IdP. Must match. */
+  redirectUri: string
+  /** Per-AuthRoot signing secret for the OAuth `state` parameter. */
+  stateSigningSecret: string
+  /** Override IdP scopes; falls back to provider default. */
+  scopes?: string[]
+  /** Override fetch impl (test stubs). */
+  fetch?: typeof globalThis.fetch
+  /** Customise identity resolution at signin time. */
+  onSignIn?: OAuthProviderOptions<Profile>['onSignIn']
+  /** Project canonical OAuthProfile into the consumer's Profile shape. */
+  profileToIdentityProfile?: OAuthProviderOptions<Profile>['profileToIdentityProfile']
 }
 
 export interface OAuthProviderOptions<Profile = unknown> {
@@ -41,6 +70,8 @@ export interface OAuthProviderOptions<Profile = unknown> {
    * Optional: receive the canonical profile + existing identity match (by sub)
    * and decide which identity to log in. Returns null to refuse the sign-in.
    * Default: find-by-sub, else find-by-email + auto-link, else auto-create.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   onSignIn?: (ctx: {
     profile: OAuthProfile
@@ -73,6 +104,8 @@ export interface OAuthCompleteInput {
  * v0.2 wires the auto-detect-on-refresh flow into FlowsFacet; for v0.1
  * each provider stores the refresh token + family id so reuse
  * detection logic can be added without a schema migration.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function oauthProvider<Profile = unknown>(
   opts: OAuthProviderOptions<Profile>,

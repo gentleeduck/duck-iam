@@ -18,6 +18,8 @@ import type { Session } from '../types/session'
  *             challenge; session continues at the current AAL until
  *             step-up satisfies
  *   revoke  - throw AUTH/SESSION_REVOKED + caller revokes the session
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export type HijackReaction = 'ignore' | 'rotate' | 'mfa' | 'revoke'
 
@@ -44,6 +46,8 @@ export type HijackEvaluation =
  *
  * DESIGN section T1. Emits the canonical `suspicious` event regardless
  * of the reaction so audit pipelines see every drift.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class HijackFacet {
   private readonly _policy: Required<HijackPolicyConfig>
@@ -65,6 +69,8 @@ export class HijackFacet {
    *
    * Always emits `suspicious` on drift, even when the configured reaction
    * is 'ignore', so the audit pipeline sees every change.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async evaluate(session: Session.ISession, request: { ip?: string; userAgent?: string }): Promise<HijackEvaluation> {
     // IP change
@@ -110,6 +116,8 @@ export class HijackFacet {
    * Translate a reaction into the throw the caller should bubble.
    * `'rotate'` is non-throwing; caller schedules a rotation via
    * SessionsFacet.rotateOrCreate({ purpose: 're-auth' }).
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   applyReaction(reaction: HijackReaction): void {
     if (reaction === 'mfa') {
@@ -121,4 +129,22 @@ export class HijackFacet {
       throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: 'hijack-policy' })
     }
   }
+}
+
+/**
+ * Namespace merge for HijackFacet. Co-locates the config + input + output
+ * shapes alongside the class via TS class+namespace merging. Consumers can
+ * write either the flat name (e.g. HijackPolicyConfig) or the
+ * namespaced form (HijackFacet.IPolicyConfig); both
+ * resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace HijackFacet {
+  /** Alias for the flat `HijackPolicyConfig` type. */
+  export type IPolicyConfig = HijackPolicyConfig
+  /** Alias for the flat `HijackReaction` type. */
+  export type IReaction = HijackReaction
+  /** Alias for the flat `HijackEvaluation` type. */
+  export type IEvaluation = HijackEvaluation
 }

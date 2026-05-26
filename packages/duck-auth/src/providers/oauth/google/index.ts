@@ -5,12 +5,7 @@
 
 import type { Provider } from '../../../core/types/provider'
 import { OAuthClient, type OAuthEndpoints } from '../core/client'
-import {
-  type OAuthBeginInput,
-  type OAuthCompleteInput,
-  type OAuthProviderOptions,
-  oauthProvider,
-} from '../core/provider'
+import { type OAuthBeginInput, type OAuthCompleteInput, type OAuthOptionsBase, oauthProvider } from '../core/provider'
 
 const GOOGLE_ENDPOINTS: OAuthEndpoints = {
   authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -19,18 +14,16 @@ const GOOGLE_ENDPOINTS: OAuthEndpoints = {
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
 }
 
-export interface GoogleOAuthOptions<Profile = unknown> {
-  clientId: string
-  clientSecret: string
-  redirectUri: string
-  stateSigningSecret: string
+/**
+ * Google-specific OAuth options. Extends the shared `OAuthOptionsBase` so
+ * every IdP provider (google / github / apple / discord / ...) shares the
+ * same call-site shape; only IdP-specific fields land here.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface GoogleOAuthOptions<Profile = unknown> extends OAuthOptionsBase<Profile> {
   /** Default `['openid', 'email', 'profile']`. */
   scopes?: string[]
-  /** Override fetch (test stubs). */
-  fetch?: typeof globalThis.fetch
-  /** Customise sign-in resolution. */
-  onSignIn?: OAuthProviderOptions<Profile>['onSignIn']
-  profileToIdentityProfile?: OAuthProviderOptions<Profile>['profileToIdentityProfile']
 }
 
 /** Google OAuth 2.0 / OIDC provider. */

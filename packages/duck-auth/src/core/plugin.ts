@@ -13,6 +13,8 @@ import type { Provider } from './types/provider'
  *
  * DESIGN section 10. Plugins are first-class - installed via `auth.use(plugin)`
  * which wires their providers + events into the AuthRoot atomically.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface AuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   /** Stable id; library refuses duplicate ids. */
@@ -24,11 +26,15 @@ export interface AuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknow
   /**
    * Optional install hook. Runs once at `auth.use()` time. Receives the
    * AuthRoot so the plugin can read config or wire additional facets.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   install?(auth: AuthRoot<Profile, Tenant, OrgMeta>): void | Promise<void>
   /**
    * Optional custom facet exposed under `auth.plugins.<id>`. Authors are
    * expected to keep this surface narrow + typed via their own export.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   facet?: unknown
 }
@@ -37,6 +43,8 @@ export interface AuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknow
  * Plugin registry. Composed into `AuthRoot.plugins.<id>` so the call site
  * `auth.plugins.stripe.charge(...)` reads naturally. The registry is
  * generic over the plugin map for end-to-end typing.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class PluginRegistry {
   private readonly _plugins = new Map<string, AuthPlugin>()

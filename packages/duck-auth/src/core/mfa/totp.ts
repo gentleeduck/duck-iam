@@ -11,6 +11,8 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
  * (1Password, Bitwarden, Authy, Google Authenticator, Authenticator-app
  * on iOS / Android), so v0.1 fixes this set; HOTP / SHA-256 land later as
  * generic options if a consumer needs them.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export interface TotpParams {
   digits: 6
@@ -96,6 +98,8 @@ export function buildOtpAuthUri(opts: {
 /**
  * Compute the TOTP code at the given step. Hot path; constant-time-safe
  * comparison happens in {@link verifyTotp}.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function totpAt(secretB32: string, stepIndex: number, params: TotpParams = TOTP_DEFAULTS): string {
   const secret = base32Decode(secretB32)
@@ -119,6 +123,8 @@ export function totpAt(secretB32: string, stepIndex: number, params: TotpParams 
  * legitimate code lives by timing the response.
  *
  * `nowMs` defaults to `Date.now()`; tests pass it explicitly for determinism.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function verifyTotp(
   secretB32: string,
