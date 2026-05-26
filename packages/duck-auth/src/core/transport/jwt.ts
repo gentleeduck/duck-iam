@@ -392,4 +392,6 @@ export namespace JwtTransport {
   export type IConfig = JwtTransportConfig
   /** Alias for the flat `JwtVerifyKey` type. */
   export type IVerifyKey = JwtVerifyKey
+  /** Alias for the flat `JwtAlg` type. */
+  export type IJwtAlg = JwtAlg
 }
