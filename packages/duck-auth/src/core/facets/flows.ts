@@ -1,4 +1,5 @@
 import { AuthErrorObject } from '../errors'
+import type { TenantContext } from '../types/context'
 import type { Events } from '../types/events'
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
@@ -133,6 +134,41 @@ export interface ImpersonateOutcome {
   /** Plaintext SID for the new actingAs session (separate from real session). */
   sid: string
   intents: Provider.Intent[]
+}
+
+/**
+ * Input shape for {@link FlowsFacet.linkProvider}. Attaches the
+ * (providerId, providerSub) pair to an already-authenticated identity.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface LinkProviderInput {
+  /** Identity to attach the provider link to. */
+  identityId: string
+  /** Provider id (`'google'`, `'github'`, etc). */
+  providerId: string
+  /** Provider-side subject id (verified by the OAuth dance the caller just completed). */
+  providerSub: string
+  /** Tenant scope. */
+  tenantId?: string
+}
+
+/**
+ * Input shape for {@link FlowsFacet.unlinkProvider}. Detaches a
+ * provider link from an identity; refuses by default when doing so
+ * would leave the identity with no remaining authentication factor.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface UnlinkProviderInput {
+  identityId: string
+  providerId: string
+  tenantId?: string
+  /**
+   * Set true to bypass the "would lock out the user" guard. Use only
+   * during account deletion flows or admin overrides.
+   */
+  allowLockout?: boolean
 }
 
 export class FlowsFacet<Profile = unknown> {
@@ -667,6 +703,101 @@ export class FlowsFacet<Profile = unknown> {
     return { session, sid, intents }
   }
 
+  // --- Account linking -----------------------------------------------------
+
+  /**
+   * Attach a provider link (`{ providerId, providerSub }`) to an
+   * already-authenticated identity. Refuses when the (providerId,
+   * providerSub) is already bound to a different identity to prevent
+   * account hijack via the link flow.
+   *
+   * Caller is responsible for verifying the provider sub - i.e. the
+   * caller should have just completed an OAuth dance against the IdP
+   * and extracted the sub from the verified token. The facet does NOT
+   * re-verify; it trusts the caller because the OAuth provider already
+   * did the round-trip.
+   *
+   * Emits `identity.linked` on success.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async linkProvider(opts: LinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+    const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+    const identity = await this._identities.getById(opts.identityId, tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    // Refuse when the sub already maps to a different identity.
+    const existing = await this._ctxFactory(opts.tenantId).stores.identities.findByProviderSub(
+      opts.providerId,
+      opts.providerSub,
+      tenant,
+    )
+    if (existing && existing.id !== opts.identityId) {
+      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        providerId: opts.providerId,
+        detail: 'provider sub already linked to a different identity',
+      })
+    }
+
+    // Idempotent: if the link already exists on this identity, no-op.
+    const alreadyLinked = identity.providers.some(
+      (p) => p.providerId === opts.providerId && p.providerSub === opts.providerSub,
+    )
+    if (alreadyLinked) {
+      return { identityId: opts.identityId, providerId: opts.providerId }
+    }
+
+    await this._ctxFactory(opts.tenantId).stores.identities.link(
+      opts.identityId,
+      { providerId: opts.providerId, providerSub: opts.providerSub, addedAt: Date.now() },
+      tenant,
+    )
+    await this._events.emit('identity.linked', {
+      identityId: opts.identityId,
+      providerId: opts.providerId,
+    })
+    return { identityId: opts.identityId, providerId: opts.providerId }
+  }
+
+  /**
+   * Detach a provider link. Refuses to remove the LAST authentication
+   * factor when no password / passkey credential remains - otherwise
+   * the user would lock themselves out of the account.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async unlinkProvider(opts: UnlinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+    const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+    const identity = await this._identities.getById(opts.identityId, tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    const linked = identity.providers.filter((p) => p.providerId === opts.providerId)
+    if (linked.length === 0) {
+      // Idempotent no-op.
+      return { identityId: opts.identityId, providerId: opts.providerId }
+    }
+
+    // Lockout guard: if removing this link would leave the identity
+    // with zero credentials AND zero provider links, refuse.
+    if (!opts.allowLockout) {
+      const otherLinks = identity.providers.filter((p) => p.providerId !== opts.providerId)
+      const ctx = this._ctxFactory(opts.tenantId)
+      const credentials = await ctx.stores.credentials.listByIdentity(opts.identityId, undefined, tenant)
+      const liveCredentials = credentials.filter((c) => !c.revokedAt && (c.kind === 'password' || c.kind === 'passkey'))
+      if (otherLinks.length === 0 && liveCredentials.length === 0) {
+        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          providerId: opts.providerId,
+          detail: 'refusing to unlink the only authentication factor; pass allowLockout:true to override',
+        })
+      }
+    }
+
+    await this._ctxFactory(opts.tenantId).stores.identities.unlink(opts.identityId, opts.providerId, tenant)
+    return { identityId: opts.identityId, providerId: opts.providerId }
+  }
+
+  // --- Impersonation continued --------------------------------------------
+
   /** End an impersonation; revoke the actingAs session, optionally restore the original SID. */
   async releaseImpersonation(impersonationSid: string): Promise<{ intents: Provider.Intent[] }> {
     const session = await this._sessions.getBySid(impersonationSid)
@@ -712,4 +843,8 @@ export namespace FlowsFacet {
   export type IImpersonateOutcome = ImpersonateOutcome
   /** Alias for the flat `SignUpStage` type. */
   export type ISignUpStage = SignUpStage
+  /** Alias for the flat `LinkProviderInput` type. */
+  export type ILinkProviderInput = LinkProviderInput
+  /** Alias for the flat `UnlinkProviderInput` type. */
+  export type IUnlinkProviderInput = UnlinkProviderInput
 }
