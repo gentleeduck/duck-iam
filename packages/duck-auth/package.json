@@ -72,6 +72,16 @@
         "default": "./dist/adapters/redis/index.cjs"
       }
     },
+    "./channels/console": {
+      "import": {
+        "types": "./dist/channels/console/index.d.ts",
+        "default": "./dist/channels/console/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/console/index.d.cts",
+        "default": "./dist/channels/console/index.cjs"
+      }
+    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",
