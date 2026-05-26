@@ -202,10 +202,14 @@
   },
   "peerDependencies": {
     "@gentleduck/iam": "workspace:*",
+    "@node-rs/argon2": ">=2 <3",
     "react": "^18 || ^19"
   },
   "peerDependenciesMeta": {
     "@gentleduck/iam": {
+      "optional": true
+    },
+    "@node-rs/argon2": {
       "optional": true
     },
     "react": {
