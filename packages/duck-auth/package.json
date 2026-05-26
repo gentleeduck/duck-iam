@@ -122,6 +122,16 @@
         "default": "./dist/channels/twilio/index.cjs"
       }
     },
+    "./channels/webpush": {
+      "import": {
+        "types": "./dist/channels/webpush/index.d.ts",
+        "default": "./dist/channels/webpush/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/webpush/index.d.cts",
+        "default": "./dist/channels/webpush/index.cjs"
+      }
+    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",
