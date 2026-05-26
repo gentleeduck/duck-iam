@@ -104,3 +104,8 @@ node_modules/
 **/.claude/settings.local.json
 .claude/worktrees/
 audit/
+
+# Personal docs - kept locally, never committed.
+packages/duck-auth/STATUS.md
+packages/duck-auth/DESIGN.md
+packages/duck-auth/DESIGN.*.md
