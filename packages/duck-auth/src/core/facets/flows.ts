@@ -29,9 +29,14 @@ export interface SignInOptions {
 }
 
 export interface SignInOutcome {
-  /** Persisted session row; `session.id` is the **hashed** row key. */
-  session: Session.ISession
-  /** Plaintext SID the client uses to authenticate (already on the response via intents). */
+  /**
+   * Persisted session row; `session.id` is the **hashed** row key. Null when
+   * the provider issued no `startSession` intent (typically because it
+   * returned `requireMfa` and the caller is mid-flow); in that case `sid`
+   * is also empty and `intents` carries the provider's response.
+   */
+  session: Session.ISession | null
+  /** Plaintext SID the client uses to authenticate; empty when `session` is null. */
   sid: string
   /** Intents the framework adapter must execute on the response. */
   intents: Provider.Intent[]
@@ -165,7 +170,7 @@ export class FlowsFacet<Profile = unknown> {
     )
     if (!startIntent) {
       // Provider completed without issuing a session (likely a requireMfa). Pass through.
-      return { session: null as unknown as Session.ISession, sid: '', intents }
+      return { session: null, sid: '', intents }
     }
 
     const identity = await this._identities.getById(

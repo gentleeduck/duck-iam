@@ -217,3 +217,18 @@ export function assertComplianceStrict(opts: {
     })
   }
 }
+
+/**
+ * Namespace merge for Compliance. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (CompliancePreset) or the namespaced form
+ * (Compliance.IPreset); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace Compliance {
+  /** Alias for the flat `CompliancePreset` type. */
+  export type IPreset = CompliancePreset
+  /** Alias for the flat `ComplianceOverrides` type. */
+  export type IOverrides = ComplianceOverrides
+}

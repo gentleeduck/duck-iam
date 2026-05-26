@@ -120,7 +120,7 @@ describe('FlowsFacet - signup state machine (DESIGN section 34)', () => {
       profilePatch: { acceptedTerms: true },
     })
     const out = await auth.flows.completeSignUp({ flowToken })
-    expect(out.session.identityId).toBe(flow.identityId)
+    expect(out.session!.identityId).toBe(flow.identityId)
 
     const fresh = await adapter.identities.findById(flow.identityId, {})
     expect(fresh?.profile?.emailVerified).toBe(true)
@@ -164,7 +164,7 @@ describe('FlowsFacet - impersonation (DESIGN section 38)', () => {
       authorize: async () => true,
     })
     expect(out.session.identityId).toBe(targetId)
-    expect(out.session.actingAs?.realIdentityId).toBe(adminId)
+    expect(out.session!.actingAs?.realIdentityId).toBe(adminId)
     expect(handler).toHaveBeenCalledOnce()
   })
 
@@ -199,7 +199,7 @@ describe('FlowsFacet - impersonation (DESIGN section 38)', () => {
       authorize: async () => true,
     })
     const cap = 60 * 60_000
-    expect((out.session.actingAs?.expiresAt ?? 0) - (out.session.actingAs?.startedAt ?? 0)).toBeLessThanOrEqual(cap)
+    expect((out.session!.actingAs?.expiresAt ?? 0) - (out.session!.actingAs?.startedAt ?? 0)).toBeLessThanOrEqual(cap)
   })
 
   it('releaseImpersonation revokes the actingAs session', async () => {

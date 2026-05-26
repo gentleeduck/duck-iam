@@ -30,6 +30,11 @@ export interface StatePayload {
   iat: number
 }
 
+/**
+ * `signState`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function signState(payload: StatePayload, secret: string): string {
   const json = JSON.stringify(payload)
   const body = Buffer.from(json, 'utf8').toString('base64url')
@@ -37,6 +42,11 @@ export function signState(payload: StatePayload, secret: string): string {
   return `${body}.${sig}`
 }
 
+/**
+ * `verifyState`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function verifyState(state: string, secret: string, opts: { maxAgeMs?: number } = {}): StatePayload | null {
   const maxAgeMs = opts.maxAgeMs ?? 10 * 60 * 1000
   const parts = state.split('.')
@@ -55,6 +65,11 @@ export function verifyState(state: string, secret: string, opts: { maxAgeMs?: nu
   }
 }
 
+/**
+ * `buildState`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function buildState(providerId: string, verifier: string, opts: { returnTo?: string } = {}): StatePayload {
   const p: StatePayload = {
     nonce: randomToken(16),

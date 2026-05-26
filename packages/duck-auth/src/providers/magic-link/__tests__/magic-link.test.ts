@@ -134,7 +134,7 @@ describe('magic-link provider', () => {
       const signinHandler = vi.fn()
       auth.events.on('signin.success', signinHandler)
       const result = await auth.flows.signIn({ providerId: 'magic-link', input: { token } })
-      expect(result.session.factors[0]?.method).toBe('magic-link')
+      expect(result.session!.factors[0]?.method).toBe('magic-link')
       expect(signinHandler).toHaveBeenCalledOnce()
     })
 
