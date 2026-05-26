@@ -3,7 +3,7 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHmac, createPublicKey, createSign, createVerify, timingSafeEqual } from 'node:crypto'
 import { randomToken, sha256 } from '../crypto'
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
@@ -24,17 +24,31 @@ import type { Transport } from '../types/transport'
  *
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
+/** Signature algorithms supported by `JwtTransport`. */
+export type JwtAlg = 'HS256' | 'ES256' | 'RS256'
+
 export interface JwtVerifyKey {
   kid: string
-  /** HS256 secret (UTF-8 string). */
+  /**
+   * Algorithm this key verifies. Default `'HS256'` for backwards
+   * compatibility; ES256 + RS256 callers must set this explicitly.
+   */
+  alg?: JwtAlg
+  /**
+   * Key material. For `HS256`: the UTF-8 secret. For `ES256` / `RS256`:
+   * the PEM-encoded public key (SPKI or RSA-PUBLIC).
+   */
   key: string
   /** Optional rotation cutoff - verify-only after this. */
   notAfter?: number
 }
 
 export interface JwtTransportConfig {
-  /** Active signing key. Used for every issued JWT until rotation. */
-  signKey: { kid: string; key: string }
+  /**
+   * Active signing key. For HS256 the `key` is the secret; for ES256 /
+   * RS256 it is the PEM-encoded PRIVATE key. `alg` defaults to HS256.
+   */
+  signKey: { kid: string; alg?: JwtAlg; key: string }
   /**
    * All currently-valid verify keys. Must contain `signKey`; during rotation,
    * the previous keys remain here for an overlap window so already-issued
@@ -93,6 +107,86 @@ function hmacSign(key: string, signingInput: string): string {
   return createHmac('sha256', key).update(signingInput).digest('base64url')
 }
 
+/** Sign per `alg`. Returns the base64url signature segment. */
+function jwsSign(alg: JwtAlg, key: string, signingInput: string): string {
+  if (alg === 'HS256') return hmacSign(key, signingInput)
+  if (alg === 'RS256') {
+    const signer = createSign('RSA-SHA256')
+    signer.update(signingInput)
+    signer.end()
+    return signer.sign(key).toString('base64url')
+  }
+  // ES256: createSign emits DER; JOSE expects raw r||s.
+  const signer = createSign('SHA256')
+  signer.update(signingInput)
+  signer.end()
+  const der = signer.sign(key)
+  return derToJoseEs256(der).toString('base64url')
+}
+
+/** Verify per `alg`. Returns true on match. */
+function jwsVerify(alg: JwtAlg, key: string, signingInput: string, sigB64: string): boolean {
+  if (alg === 'HS256') {
+    const expected = hmacSign(key, signingInput)
+    const a = Buffer.from(sigB64)
+    const b = Buffer.from(expected)
+    return a.length === b.length && timingSafeEqual(a, b)
+  }
+  const sig = Buffer.from(sigB64, 'base64url')
+  if (alg === 'RS256') {
+    const verifier = createVerify('RSA-SHA256')
+    verifier.update(signingInput)
+    verifier.end()
+    return verifier.verify(key, sig)
+  }
+  // ES256: DPoP-style raw r||s -> DER for createVerify.
+  const verifier = createVerify('SHA256')
+  verifier.update(signingInput)
+  verifier.end()
+  try {
+    return verifier.verify(key, joseToDerEs256(sig))
+  } catch {
+    return false
+  }
+}
+
+/** Convert ES256 DER signature to raw r||s (64 bytes for P-256). */
+function derToJoseEs256(der: Buffer): Buffer {
+  const halfLen = 32
+  if (der[0] !== 0x30) throw new Error('ES256 sig: not a DER sequence')
+  let offset = 2
+  if ((der[1] ?? 0) & 0x80) offset = 2 + ((der[1] ?? 0) & 0x7f)
+  if (der[offset] !== 0x02) throw new Error('ES256 sig: expected r INTEGER')
+  const rLen = der[offset + 1]!
+  let r = der.subarray(offset + 2, offset + 2 + rLen)
+  offset = offset + 2 + rLen
+  if (der[offset] !== 0x02) throw new Error('ES256 sig: expected s INTEGER')
+  const sLen = der[offset + 1]!
+  let s = der.subarray(offset + 2, offset + 2 + sLen)
+  if (r[0] === 0 && r.length === halfLen + 1) r = r.subarray(1)
+  if (s[0] === 0 && s.length === halfLen + 1) s = s.subarray(1)
+  return Buffer.concat([Buffer.alloc(halfLen - r.length), r, Buffer.alloc(halfLen - s.length), s])
+}
+
+/** Convert raw r||s ES256 signature to DER for Node's createVerify. */
+function joseToDerEs256(raw: Buffer): Buffer {
+  const halfLen = 32
+  if (raw.length !== halfLen * 2) throw new Error('ES256 sig: bad length')
+  let r = raw.subarray(0, halfLen)
+  let s = raw.subarray(halfLen)
+  while (r.length > 1 && r[0] === 0) r = r.subarray(1)
+  while (s.length > 1 && s[0] === 0) s = s.subarray(1)
+  const rEnc = (r[0]! & 0x80) === 0 ? r : Buffer.concat([Buffer.from([0]), r])
+  const sEnc = (s[0]! & 0x80) === 0 ? s : Buffer.concat([Buffer.from([0]), s])
+  return Buffer.concat([
+    Buffer.from([0x30, rEnc.length + sEnc.length + 4]),
+    Buffer.from([0x02, rEnc.length]),
+    rEnc,
+    Buffer.from([0x02, sEnc.length]),
+    sEnc,
+  ])
+}
+
 export class JwtTransport implements Transport.ITransport {
   private readonly _verifyKeys: Map<string, JwtVerifyKey>
   private readonly _ttlMs: number
@@ -131,8 +225,9 @@ export class JwtTransport implements Transport.ITransport {
   issue(sid: string, session: Session.ISession, _opts: Transport.IssueOpts): Provider.Intent[] {
     const now = Math.floor(Date.now() / 1000)
     const exp = Math.min(now + Math.floor(this._ttlMs / 1000), Math.floor(session.expiresAt / 1000))
-    const headerObj: { alg: 'HS256'; typ: 'JWT'; kid: string } = {
-      alg: 'HS256',
+    const signAlg: JwtAlg = this._cfg.signKey.alg ?? 'HS256'
+    const headerObj: { alg: JwtAlg; typ: 'JWT'; kid: string } = {
+      alg: signAlg,
       typ: 'JWT',
       kid: this._cfg.signKey.kid,
     }
@@ -151,7 +246,7 @@ export class JwtTransport implements Transport.ITransport {
     const headerB64 = base64urlEncode(JSON.stringify(headerObj))
     const payloadB64 = base64urlEncode(JSON.stringify(payload))
     const signingInput = `${headerB64}.${payloadB64}`
-    const sig = hmacSign(this._cfg.signKey.key, signingInput)
+    const sig = jwsSign(signAlg, this._cfg.signKey.key, signingInput)
     const jwt = `${signingInput}.${sig}`
 
     const intents: Provider.Intent[] = [
@@ -205,16 +300,18 @@ export class JwtTransport implements Transport.ITransport {
     } catch {
       return null
     }
-    if (header.alg !== 'HS256' || header.typ !== 'JWT' || !header.kid) return null
+    if (header.typ !== 'JWT' || !header.kid) return null
+    if (header.alg !== 'HS256' && header.alg !== 'ES256' && header.alg !== 'RS256') return null
 
     const key = this._verifyKeys.get(header.kid)
     if (!key) return null
+    // Pin the alg to the key configuration to prevent alg-confusion
+    // attacks (RFC 8725 section 3.1).
+    const expectedAlg: JwtAlg = key.alg ?? 'HS256'
+    if (header.alg !== expectedAlg) return null
     if (key.notAfter !== undefined && key.notAfter < Date.now()) return null
 
-    const expected = hmacSign(key.key, `${headerB64}.${payloadB64}`)
-    const a = Buffer.from(sig)
-    const b = Buffer.from(expected)
-    if (a.length !== b.length || !timingSafeEqual(a, b)) return null
+    if (!jwsVerify(expectedAlg, key.key, `${headerB64}.${payloadB64}`, sig)) return null
 
     let payload: JwtPayload
     try {
@@ -245,15 +342,26 @@ export class JwtTransport implements Transport.ITransport {
   }
 
   /**
-   * Helper to mint a JWKS-style document for clients that need to verify
-   * tokens out-of-band. v0.1 HS256 only - JWKS isn't applicable to
-   * symmetric keys; this returns an empty `{ keys: [] }` placeholder.
-   * EdDSA / RS256 in v0.2 will populate this with public keys.
+   * Emit a JWKS document for the asymmetric verify keys. HS256 keys
+   * are skipped (symmetric secrets must never appear in JWKS). RS256
+   * + ES256 PEM keys are parsed via `createPublicKey` and exported as
+   * JWK with the configured `kid` + `alg` + `use:'sig'`.
    *
    * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
-  jwks(): { keys: unknown[] } {
-    return { keys: [] }
+  jwks(): { keys: Array<Record<string, unknown>> } {
+    const out: Array<Record<string, unknown>> = []
+    for (const key of this._verifyKeys.values()) {
+      const alg: JwtAlg = key.alg ?? 'HS256'
+      if (alg === 'HS256') continue
+      try {
+        const pub = createPublicKey(key.key).export({ format: 'jwk' }) as Record<string, unknown>
+        out.push({ ...pub, kid: key.kid, alg, use: 'sig' })
+      } catch {
+        // Skip malformed key rather than fail the whole document.
+      }
+    }
+    return { keys: out }
   }
 
   /**
