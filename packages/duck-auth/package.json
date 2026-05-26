@@ -302,6 +302,16 @@
         "default": "./dist/server/fastify/index.cjs"
       }
     },
+    "./server/koa": {
+      "import": {
+        "types": "./dist/server/koa/index.d.ts",
+        "default": "./dist/server/koa/index.js"
+      },
+      "require": {
+        "types": "./dist/server/koa/index.d.cts",
+        "default": "./dist/server/koa/index.cjs"
+      }
+    },
     "./client/vanilla": {
       "import": {
         "types": "./dist/client/vanilla/index.d.ts",

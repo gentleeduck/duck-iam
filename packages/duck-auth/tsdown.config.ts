@@ -31,6 +31,7 @@ export default createTsdownConfig({
     'server/hono/index': 'src/server/hono/index.ts',
     'server/next/index': 'src/server/next/index.ts',
     'server/fastify/index': 'src/server/fastify/index.ts',
+    'server/koa/index': 'src/server/koa/index.ts',
     'client/vanilla/index': 'src/client/vanilla/index.ts',
     'client/react/index': 'src/client/react/index.ts',
     'cli/index': 'src/cli/index.ts',
