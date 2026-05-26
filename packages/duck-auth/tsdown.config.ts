@@ -14,6 +14,7 @@ export default createTsdownConfig({
     'channels/resend/index': 'src/channels/resend/index.ts',
     'channels/twilio/index': 'src/channels/twilio/index.ts',
     'channels/webpush/index': 'src/channels/webpush/index.ts',
+    'channels/ses/index': 'src/channels/ses/index.ts',
     'limiters/memory/index': 'src/limiters/memory/index.ts',
     'providers/password/index': 'src/providers/password/index.ts',
     'providers/magic-link/index': 'src/providers/magic-link/index.ts',

@@ -132,6 +132,16 @@
         "default": "./dist/channels/webpush/index.cjs"
       }
     },
+    "./channels/ses": {
+      "import": {
+        "types": "./dist/channels/ses/index.d.ts",
+        "default": "./dist/channels/ses/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/ses/index.d.cts",
+        "default": "./dist/channels/ses/index.cjs"
+      }
+    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",
