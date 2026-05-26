@@ -7,6 +7,7 @@ export default createTsdownConfig({
     'core/transport/index': 'src/core/transport/index.ts',
     'core/errors': 'src/core/errors.ts',
     'adapters/memory/index': 'src/adapters/memory/index.ts',
+    'adapters/redis/index': 'src/adapters/redis/index.ts',
     'limiters/memory/index': 'src/limiters/memory/index.ts',
     'providers/password/index': 'src/providers/password/index.ts',
     'providers/magic-link/index': 'src/providers/magic-link/index.ts',

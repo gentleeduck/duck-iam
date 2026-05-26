@@ -62,6 +62,16 @@
         "default": "./dist/adapters/memory/index.cjs"
       }
     },
+    "./adapters/redis": {
+      "import": {
+        "types": "./dist/adapters/redis/index.d.ts",
+        "default": "./dist/adapters/redis/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/redis/index.d.cts",
+        "default": "./dist/adapters/redis/index.cjs"
+      }
+    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",
