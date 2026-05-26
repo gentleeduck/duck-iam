@@ -231,7 +231,8 @@
     "src",
     "README.md",
     "LICENSE",
-    "DESIGN.md"
+    "DESIGN.md",
+    "THREAT-MODEL.md"
   ],
   "scripts": {
     "build": "tsdown",
