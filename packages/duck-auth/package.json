@@ -312,6 +312,26 @@
         "default": "./dist/server/koa/index.cjs"
       }
     },
+    "./server/elysia": {
+      "import": {
+        "types": "./dist/server/elysia/index.d.ts",
+        "default": "./dist/server/elysia/index.js"
+      },
+      "require": {
+        "types": "./dist/server/elysia/index.d.cts",
+        "default": "./dist/server/elysia/index.cjs"
+      }
+    },
+    "./server/nestjs": {
+      "import": {
+        "types": "./dist/server/nestjs/index.d.ts",
+        "default": "./dist/server/nestjs/index.js"
+      },
+      "require": {
+        "types": "./dist/server/nestjs/index.d.cts",
+        "default": "./dist/server/nestjs/index.cjs"
+      }
+    },
     "./client/vanilla": {
       "import": {
         "types": "./dist/client/vanilla/index.d.ts",

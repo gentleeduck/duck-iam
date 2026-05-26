@@ -32,6 +32,8 @@ export default createTsdownConfig({
     'server/next/index': 'src/server/next/index.ts',
     'server/fastify/index': 'src/server/fastify/index.ts',
     'server/koa/index': 'src/server/koa/index.ts',
+    'server/elysia/index': 'src/server/elysia/index.ts',
+    'server/nestjs/index': 'src/server/nestjs/index.ts',
     'client/vanilla/index': 'src/client/vanilla/index.ts',
     'client/react/index': 'src/client/react/index.ts',
     'cli/index': 'src/cli/index.ts',
