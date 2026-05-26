@@ -252,6 +252,16 @@
         "default": "./dist/providers/api-key/index.cjs"
       }
     },
+    "./providers/saml": {
+      "import": {
+        "types": "./dist/providers/saml/index.d.ts",
+        "default": "./dist/providers/saml/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/saml/index.d.cts",
+        "default": "./dist/providers/saml/index.cjs"
+      }
+    },
     "./server/generic": {
       "import": {
         "types": "./dist/server/generic/index.d.ts",
@@ -330,6 +340,16 @@
       "require": {
         "types": "./dist/server/nestjs/index.d.cts",
         "default": "./dist/server/nestjs/index.cjs"
+      }
+    },
+    "./server/grpc": {
+      "import": {
+        "types": "./dist/server/grpc/index.d.ts",
+        "default": "./dist/server/grpc/index.js"
+      },
+      "require": {
+        "types": "./dist/server/grpc/index.d.cts",
+        "default": "./dist/server/grpc/index.cjs"
       }
     },
     "./client/vanilla": {
