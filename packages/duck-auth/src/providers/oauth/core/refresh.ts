@@ -167,3 +167,14 @@ export function projectAccessToken(row: Credential.ICredential | null): {
     expiresAt: meta.accessTokenExpiresAt,
   }
 }
+
+/**
+ * Namespace merge for `OAuthRefresh`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace OAuthRefresh {
+  /** Alias for the flat `OAuthFamilyMetadata` type. */
+  export type IOAuthFamilyMetadata = OAuthFamilyMetadata
+}

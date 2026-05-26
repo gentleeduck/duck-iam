@@ -116,3 +116,32 @@ export interface PasskeyChallengeStore {
   put(key: string, challenge: string, ttlMs: number): Promise<void>
   take(key: string): Promise<string | null>
 }
+
+/**
+ * Namespace merge for `PasskeyTypes`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace PasskeyTypes {
+  /** Alias for the flat `SimpleWebAuthnServerModule` type. */
+  export type ISimpleWebAuthnServerModule = SimpleWebAuthnServerModule
+  /** Alias for the flat `RegistrationOptionsInput` type. */
+  export type IRegistrationOptionsInput = RegistrationOptionsInput
+  /** Alias for the flat `RegistrationOptions` type. */
+  export type IRegistrationOptions = RegistrationOptions
+  /** Alias for the flat `VerifyRegistrationInput` type. */
+  export type IVerifyRegistrationInput = VerifyRegistrationInput
+  /** Alias for the flat `RegistrationInfo` type. */
+  export type IRegistrationInfo = RegistrationInfo
+  /** Alias for the flat `AuthenticationOptionsInput` type. */
+  export type IAuthenticationOptionsInput = AuthenticationOptionsInput
+  /** Alias for the flat `AuthenticationOptions` type. */
+  export type IAuthenticationOptions = AuthenticationOptions
+  /** Alias for the flat `VerifyAuthenticationInput` type. */
+  export type IVerifyAuthenticationInput = VerifyAuthenticationInput
+  /** Alias for the flat `AuthenticationInfo` type. */
+  export type IAuthenticationInfo = AuthenticationInfo
+  /** Alias for the flat `PasskeyChallengeStore` type. */
+  export type IPasskeyChallengeStore = PasskeyChallengeStore
+}

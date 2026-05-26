@@ -243,3 +243,22 @@ export function oauthProvider<Profile = unknown>(
     },
   }
 }
+
+/**
+ * Namespace merge for `OAuthProvider`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace OAuthProvider {
+  /** Alias for the flat `OAuthProfile` type. */
+  export type IOAuthProfile = OAuthProfile
+  /** Alias for the flat `OAuthOptionsBase` type. */
+  export type IOAuthOptionsBase = OAuthOptionsBase
+  /** Alias for the flat `OAuthProviderOptions` type. */
+  export type IOptions = OAuthProviderOptions
+  /** Alias for the flat `OAuthBeginInput` type. */
+  export type IOAuthBeginInput = OAuthBeginInput
+  /** Alias for the flat `OAuthCompleteInput` type. */
+  export type IOAuthCompleteInput = OAuthCompleteInput
+}

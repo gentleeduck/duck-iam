@@ -51,7 +51,7 @@ export function createSqlAuthStores<Profile = unknown>(
   }
 }
 
-function buildIdentities<Profile>(bridge: SqlBridge['identities']): Identity.IStore<Profile> {
+function buildIdentities<Profile>(bridge: SqlBridge.IIdentity): Identity.IStore<Profile> {
   return {
     findById: async (id, ctx) => parseIdentity<Profile>(await bridge.findById(id, ctx.tenantId)),
     findByEmail: async (email, ctx) => parseIdentity<Profile>(await bridge.findByEmail(email, ctx.tenantId)),
@@ -110,7 +110,7 @@ function buildIdentities<Profile>(bridge: SqlBridge['identities']): Identity.ISt
   }
 }
 
-function buildCredentials(bridge: SqlBridge['credentials']): Credential.IStore {
+function buildCredentials(bridge: SqlBridge.ICredential): Credential.IStore {
   return {
     findById: async (id, ctx) => parseCredential(await bridge.findById(id, ctx.tenantId)),
     listByIdentity: async (identityId, kind, ctx) => {
@@ -163,7 +163,7 @@ function buildCredentials(bridge: SqlBridge['credentials']): Credential.IStore {
   }
 }
 
-function buildSessions(bridge: SqlBridge['sessions']): Session.IStore {
+function buildSessions(bridge: SqlBridge.ISession): Session.IStore {
   return {
     create: async (s) => {
       const row: SqlSessionRow = {

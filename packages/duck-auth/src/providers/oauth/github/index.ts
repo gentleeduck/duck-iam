@@ -63,3 +63,14 @@ export function github<Profile = unknown>(
     },
   })
 }
+
+/**
+ * Namespace merge for `GithubOAuth`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace GithubOAuth {
+  /** Alias for the flat `GitHubOAuthOptions` type. */
+  export type IGitHubOAuthOptions = GitHubOAuthOptions
+}

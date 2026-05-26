@@ -282,3 +282,14 @@ export class NoopLimiter implements LimiterNs.ILimiter {
   }
   async reset(_key: string): Promise<void> {}
 }
+
+/**
+ * Namespace merge for `AuthRoot`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace AuthRoot {
+  /** Alias for the flat `AuthRootConfig` type. */
+  export type IConfig = AuthRootConfig
+}

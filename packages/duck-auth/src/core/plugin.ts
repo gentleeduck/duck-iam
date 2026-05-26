@@ -100,3 +100,14 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
     this._eventUnsubs.length = 0
   }
 }
+
+/**
+ * Namespace merge for `PluginRegistry`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace PluginRegistry {
+  /** Alias for the flat `AuthPlugin` type. */
+  export type IAuthPlugin = AuthPlugin
+}

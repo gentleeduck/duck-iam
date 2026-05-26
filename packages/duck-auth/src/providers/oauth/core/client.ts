@@ -149,3 +149,18 @@ export class OAuthClient {
     return (await res.json()) as Record<string, unknown>
   }
 }
+
+/**
+ * Namespace merge for `OAuthClient`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace OAuthClient {
+  /** Alias for the flat `OAuthEndpoints` type. */
+  export type IOAuthEndpoints = OAuthEndpoints
+  /** Alias for the flat `OAuthClientOptions` type. */
+  export type IOptions = OAuthClientOptions
+  /** Alias for the flat `TokenResponse` type. */
+  export type ITokenResponse = TokenResponse
+}

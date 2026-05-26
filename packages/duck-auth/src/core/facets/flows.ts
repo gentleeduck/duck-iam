@@ -710,4 +710,6 @@ export namespace FlowsFacet {
   export type IImpersonateOptions = ImpersonateOptions
   /** Alias for the flat `ImpersonateOutcome` type. */
   export type IImpersonateOutcome = ImpersonateOutcome
+  /** Alias for the flat `SignUpStage` type. */
+  export type ISignUpStage = SignUpStage
 }

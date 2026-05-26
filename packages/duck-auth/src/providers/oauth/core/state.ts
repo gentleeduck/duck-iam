@@ -80,3 +80,14 @@ export function buildState(providerId: string, verifier: string, opts: { returnT
   if (opts.returnTo !== undefined) p.returnTo = opts.returnTo
   return p
 }
+
+/**
+ * Namespace merge for `OAuthState`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace OAuthState {
+  /** Alias for the flat `StatePayload` type. */
+  export type IStatePayload = StatePayload
+}

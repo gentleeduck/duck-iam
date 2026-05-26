@@ -379,4 +379,8 @@ export namespace DPoPVerifier {
   export type IClaims = DPoPClaims
   /** Alias for `DPoPVerified`. */
   export type IVerified = DPoPVerified
+  /** Alias for the flat `DPoPJsonWebKey` type. */
+  export type IDPoPJsonWebKey = DPoPJsonWebKey
+  /** Alias for the flat `DPoPNonceStore` type. */
+  export type IDPoPNonceStore = DPoPNonceStore
 }
