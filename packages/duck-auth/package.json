@@ -211,6 +211,16 @@
         "types": "./dist/cli/index.d.cts",
         "default": "./dist/cli/index.cjs"
       }
+    },
+    "./openapi": {
+      "import": {
+        "types": "./dist/openapi/index.d.ts",
+        "default": "./dist/openapi/index.js"
+      },
+      "require": {
+        "types": "./dist/openapi/index.d.cts",
+        "default": "./dist/openapi/index.cjs"
+      }
     }
   },
   "bin": {

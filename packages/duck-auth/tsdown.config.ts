@@ -22,6 +22,7 @@ export default createTsdownConfig({
     'client/vanilla/index': 'src/client/vanilla/index.ts',
     'client/react/index': 'src/client/react/index.ts',
     'cli/index': 'src/cli/index.ts',
+    'openapi/index': 'src/openapi/index.ts',
   },
   external: [...baseExternal, 'react'],
 })
