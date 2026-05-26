@@ -199,6 +199,42 @@ export interface EmailVerificationCompleteInput {
   tenantId?: string
 }
 
+/**
+ * Input shape for {@link FlowsFacet.requestAccountDeletion}. Mints a
+ * confirmation token + dispatches via the configured channel; the
+ * identity is NOT touched until {@link FlowsFacet.completeAccountDeletion}
+ * is called with the issued token.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface AccountDeletionRequestInput {
+  identityId: string
+  channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').Channel.IChannel>>
+  /** Channel kind to use; default `'email'`. */
+  channel?: 'email' | 'sms' | 'webpush'
+  /** Token TTL in ms. Default 30 minutes. */
+  ttlMs?: number
+  /** Path on the app that handles the confirmation. Default `/auth/delete-account`. */
+  callbackPath?: string
+  /** Optional human-readable reason persisted in metadata; surfaces in audit log. */
+  reason?: string
+  tenantId?: string
+}
+
+/** Input shape for {@link FlowsFacet.completeAccountDeletion}. */
+export interface AccountDeletionCompleteInput {
+  /** Token from the confirmation link. */
+  token: string
+  tenantId?: string
+}
+
+/** Input shape for {@link FlowsFacet.cancelAccountDeletion}. */
+export interface AccountDeletionCancelInput {
+  /** Identity to restore. */
+  identityId: string
+  tenantId?: string
+}
+
 export class FlowsFacet<Profile = unknown> {
   constructor(
     private readonly _sessions: SessionsFacet,
@@ -599,6 +635,137 @@ export class FlowsFacet<Profile = unknown> {
     return { identityId: row.identityId }
   }
 
+  // --- Account deletion -----------------------------------------------------
+
+  /**
+   * Request account deletion. Mints a confirmation token, dispatches
+   * via the configured channel, does NOT touch the identity. Caller
+   * confirms via {@link FlowsFacet.completeAccountDeletion}.
+   *
+   * The token is single-use + TTL'd (default 30 min). Multiple
+   * outstanding deletion requests for the same identity get the prior
+   * token wiped so only the latest verifies.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async requestAccountDeletion(opts: AccountDeletionRequestInput): Promise<{ ok: true }> {
+    const ctx = this._ctxFactory(opts.tenantId)
+    const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
+    const callbackPath = opts.callbackPath ?? '/auth/delete-account'
+
+    const limited = await ctx.limiter.consume(`account-delete:${opts.identityId}`)
+    if (!limited.ok) {
+      throw new AuthErrorObject('AUTH/RATE_LIMITED', {
+        retryAfter: Math.max(0, Math.ceil((limited.resetAt - Date.now()) / 1000)),
+      })
+    }
+
+    const identity = await ctx.stores.identities.findById(opts.identityId, ctx.tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    const channelKind = opts.channel ?? 'email'
+    const channelImpl = opts.channels[channelKind]
+    if (!channelImpl) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        detail: `account-deletion: channel "${channelKind}" not configured`,
+      })
+    }
+
+    // Replace any outstanding deletion token so the user only has one live.
+    const existing = await ctx.stores.credentials.listByIdentity(opts.identityId, 'recovery', ctx.tenant)
+    for (const row of existing) {
+      const meta = row.metadata as { purpose?: string } | undefined
+      if (meta?.purpose === 'account-deletion') {
+        await ctx.stores.credentials.delete(row.id, ctx.tenant)
+      }
+    }
+
+    const token = ctx.crypto.randomToken(32)
+    const tokenHash = ctx.crypto.sha256(token)
+    const now = Date.now()
+    await ctx.stores.credentials.upsert(
+      {
+        identityId: opts.identityId,
+        kind: 'recovery',
+        secret: tokenHash,
+        metadata: {
+          purpose: 'account-deletion',
+          ...(opts.reason !== undefined && { reason: opts.reason }),
+        },
+        expiresAt: now + ttlMs,
+      },
+      ctx.tenant,
+    )
+
+    const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
+    await channelImpl.send({
+      identity,
+      templateId: 'account-deletion',
+      vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
+      tenant: ctx.tenant,
+    })
+    return { ok: true }
+  }
+
+  /**
+   * Confirm a pending account-deletion request. Validates the token,
+   * triggers `IdentityStore.softDelete` (grace-period purge), revokes
+   * every session for the identity, and emits `identity.merged` is NOT
+   * used here - deletion is its own lifecycle.
+   *
+   * The actual hard-erase happens after the configured grace window;
+   * the identity remains restorable via {@link FlowsFacet.cancelAccountDeletion}
+   * until the grace expires.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async completeAccountDeletion(
+    input: AccountDeletionCompleteInput,
+  ): Promise<{ identityId: string; restorableUntil: number }> {
+    if (typeof input.token !== 'string' || input.token.length === 0) {
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+    }
+    const ctx = this._ctxFactory(input.tenantId)
+    const hash = ctx.crypto.sha256(input.token)
+    const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+    if (!row || row.revokedAt || (row.metadata as { purpose?: string } | undefined)?.purpose !== 'account-deletion') {
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+    }
+    if (row.expiresAt !== undefined && row.expiresAt < Date.now()) {
+      void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_EXPIRED')
+    }
+
+    const identityId = row.identityId
+    await this._identities.softDelete(identityId, ctx.tenant)
+    await this._sessions.revokeAllForIdentity(identityId)
+    await ctx.stores.credentials.delete(row.id, ctx.tenant)
+    const restorableUntil = Date.now() + this._identitiesGracePeriodMs()
+    return { identityId, restorableUntil }
+  }
+
+  /**
+   * Cancel a pending account deletion within the grace window. Calls
+   * `IdentityStore.restore`; throws when the identity was already
+   * hard-erased OR was never soft-deleted.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async cancelAccountDeletion(input: AccountDeletionCancelInput): Promise<{ identityId: string }> {
+    const tenant: TenantContext = input.tenantId !== undefined ? { tenantId: input.tenantId } : {}
+    await this._identities.restore(input.identityId, tenant)
+    return { identityId: input.identityId }
+  }
+
+  /** Read the IdentitiesFacet's grace-period for reporting back to the caller. */
+  private _identitiesGracePeriodMs(): number {
+    // Best-effort introspection; the constant lives behind the facet
+    // and we duplicate the default here when the introspection hook
+    // is absent (older configurations).
+    const cfg = (this._identities as unknown as { _cfg?: { softDeleteGracePeriodMs?: number } })._cfg
+    return cfg?.softDeleteGracePeriodMs ?? 7 * 24 * 60 * 60 * 1000
+  }
+
   // --- Signup state machine (DESIGN section 34) -----------------------------
 
   /**
@@ -986,4 +1153,10 @@ export namespace FlowsFacet {
   export type IEmailVerificationRequestInput = EmailVerificationRequestInput
   /** Alias for the flat `EmailVerificationCompleteInput` type. */
   export type IEmailVerificationCompleteInput = EmailVerificationCompleteInput
+  /** Alias for the flat `AccountDeletionRequestInput` type. */
+  export type IAccountDeletionRequestInput = AccountDeletionRequestInput
+  /** Alias for the flat `AccountDeletionCompleteInput` type. */
+  export type IAccountDeletionCompleteInput = AccountDeletionCompleteInput
+  /** Alias for the flat `AccountDeletionCancelInput` type. */
+  export type IAccountDeletionCancelInput = AccountDeletionCancelInput
 }
