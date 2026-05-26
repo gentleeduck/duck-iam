@@ -10,6 +10,8 @@ export default createTsdownConfig({
     'limiters/memory/index': 'src/limiters/memory/index.ts',
     'providers/password/index': 'src/providers/password/index.ts',
     'providers/magic-link/index': 'src/providers/magic-link/index.ts',
+    'providers/oauth/google/index': 'src/providers/oauth/google/index.ts',
+    'providers/oauth/github/index': 'src/providers/oauth/github/index.ts',
     'server/generic/index': 'src/server/generic/index.ts',
     'server/express/index': 'src/server/express/index.ts',
     'server/hono/index': 'src/server/hono/index.ts',

@@ -92,6 +92,26 @@
         "default": "./dist/providers/magic-link/index.cjs"
       }
     },
+    "./providers/oauth/google": {
+      "import": {
+        "types": "./dist/providers/oauth/google/index.d.ts",
+        "default": "./dist/providers/oauth/google/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/google/index.d.cts",
+        "default": "./dist/providers/oauth/google/index.cjs"
+      }
+    },
+    "./providers/oauth/github": {
+      "import": {
+        "types": "./dist/providers/oauth/github/index.d.ts",
+        "default": "./dist/providers/oauth/github/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/github/index.d.cts",
+        "default": "./dist/providers/oauth/github/index.cjs"
+      }
+    },
     "./server/generic": {
       "import": {
         "types": "./dist/server/generic/index.d.ts",
