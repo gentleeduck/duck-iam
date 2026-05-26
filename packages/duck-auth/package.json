@@ -112,6 +112,16 @@
         "default": "./dist/channels/resend/index.cjs"
       }
     },
+    "./channels/twilio": {
+      "import": {
+        "types": "./dist/channels/twilio/index.d.ts",
+        "default": "./dist/channels/twilio/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/twilio/index.d.cts",
+        "default": "./dist/channels/twilio/index.cjs"
+      }
+    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",
