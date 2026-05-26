@@ -352,6 +352,16 @@
         "default": "./dist/openapi/index.cjs"
       }
     },
+    "./oidc": {
+      "import": {
+        "types": "./dist/oidc/index.d.ts",
+        "default": "./dist/oidc/index.js"
+      },
+      "require": {
+        "types": "./dist/oidc/index.d.cts",
+        "default": "./dist/oidc/index.cjs"
+      }
+    },
     "./telemetry/otel": {
       "import": {
         "types": "./dist/telemetry/otel/index.d.ts",
