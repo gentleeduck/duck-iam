@@ -184,6 +184,7 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "test": "vitest run",
+    "benchmark": "bun run scripts/benchmark.ts",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
