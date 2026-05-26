@@ -72,6 +72,16 @@
         "default": "./dist/adapters/redis/index.cjs"
       }
     },
+    "./adapters/sql": {
+      "import": {
+        "types": "./dist/adapters/sql/index.d.ts",
+        "default": "./dist/adapters/sql/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/sql/index.d.cts",
+        "default": "./dist/adapters/sql/index.cjs"
+      }
+    },
     "./channels/console": {
       "import": {
         "types": "./dist/channels/console/index.d.ts",

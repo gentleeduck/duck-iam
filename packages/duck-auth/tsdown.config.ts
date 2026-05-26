@@ -8,6 +8,7 @@ export default createTsdownConfig({
     'core/errors': 'src/core/errors.ts',
     'adapters/memory/index': 'src/adapters/memory/index.ts',
     'adapters/redis/index': 'src/adapters/redis/index.ts',
+    'adapters/sql/index': 'src/adapters/sql/index.ts',
     'channels/console/index': 'src/channels/console/index.ts',
     'channels/smtp/index': 'src/channels/smtp/index.ts',
     'limiters/memory/index': 'src/limiters/memory/index.ts',
