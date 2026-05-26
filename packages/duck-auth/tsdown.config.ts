@@ -21,6 +21,7 @@ export default createTsdownConfig({
     'server/next/index': 'src/server/next/index.ts',
     'client/vanilla/index': 'src/client/vanilla/index.ts',
     'client/react/index': 'src/client/react/index.ts',
+    'cli/index': 'src/cli/index.ts',
   },
   external: [...baseExternal, 'react'],
 })
