@@ -182,6 +182,36 @@
         "default": "./dist/providers/oauth/github/index.cjs"
       }
     },
+    "./providers/oauth/linkedin": {
+      "import": {
+        "types": "./dist/providers/oauth/linkedin/index.d.ts",
+        "default": "./dist/providers/oauth/linkedin/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/linkedin/index.d.cts",
+        "default": "./dist/providers/oauth/linkedin/index.cjs"
+      }
+    },
+    "./providers/oauth/microsoft": {
+      "import": {
+        "types": "./dist/providers/oauth/microsoft/index.d.ts",
+        "default": "./dist/providers/oauth/microsoft/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/microsoft/index.d.cts",
+        "default": "./dist/providers/oauth/microsoft/index.cjs"
+      }
+    },
+    "./providers/oauth/discord": {
+      "import": {
+        "types": "./dist/providers/oauth/discord/index.d.ts",
+        "default": "./dist/providers/oauth/discord/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/discord/index.d.cts",
+        "default": "./dist/providers/oauth/discord/index.cjs"
+      }
+    },
     "./providers/passkey": {
       "import": {
         "types": "./dist/providers/passkey/index.d.ts",
