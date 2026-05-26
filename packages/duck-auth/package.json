@@ -222,6 +222,16 @@
         "default": "./dist/providers/oauth/discord/index.cjs"
       }
     },
+    "./providers/oauth/apple": {
+      "import": {
+        "types": "./dist/providers/oauth/apple/index.d.ts",
+        "default": "./dist/providers/oauth/apple/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/apple/index.d.cts",
+        "default": "./dist/providers/oauth/apple/index.cjs"
+      }
+    },
     "./providers/passkey": {
       "import": {
         "types": "./dist/providers/passkey/index.d.ts",

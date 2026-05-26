@@ -23,6 +23,7 @@ export default createTsdownConfig({
     'providers/oauth/linkedin/index': 'src/providers/oauth/linkedin/index.ts',
     'providers/oauth/microsoft/index': 'src/providers/oauth/microsoft/index.ts',
     'providers/oauth/discord/index': 'src/providers/oauth/discord/index.ts',
+    'providers/oauth/apple/index': 'src/providers/oauth/apple/index.ts',
     'providers/passkey/index': 'src/providers/passkey/index.ts',
     'providers/api-key/index': 'src/providers/api-key/index.ts',
     'server/generic/index': 'src/server/generic/index.ts',
