@@ -8,6 +8,7 @@ import type { TenantContext } from '../types/context'
 import type { Credential } from '../types/credential'
 import type { Events } from '../types/events'
 import type { Identity } from '../types/identity'
+import type { Session } from '../types/session'
 
 export interface IdentitiesFacetConfig {
   /** Grace before hard-purge after softDelete. Default 7 days. */
@@ -21,7 +22,10 @@ export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacetConfig = {
 export interface ExportBlob<Profile> {
   identity: Identity.IIdentity<Profile>
   credentials: Array<Omit<Credential.ICredential, 'secret'>>
-  /** Always redacted; consumer never sees plaintext or hashes. */
+  /** Live + recently-revoked sessions. Empty when caller skips sessions store. */
+  sessions: Array<Omit<Session.ISession, 'csrfHash'>>
+  /** GDPR Article 20 envelope: schema version + export timestamp. */
+  schemaVersion: '1'
   exportedAt: number
 }
 
@@ -211,16 +215,46 @@ export class IdentitiesFacet<Profile = unknown> {
    *
    * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
-  async exportAll(id: string, credentials: Credential.IStore, ctx: TenantContext = {}): Promise<ExportBlob<Profile>> {
+  async exportAll(
+    id: string,
+    credentials: Credential.IStore,
+    ctx: TenantContext = {},
+    opts: { sessions?: Session.IStore } = {},
+  ): Promise<ExportBlob<Profile>> {
     const identity = await this._store.findById(id, ctx)
     if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
     const creds = await credentials.listByIdentity(id, undefined, ctx)
+    const sessions = opts.sessions ? await opts.sessions.listByIdentity(id) : []
     return {
       identity,
       credentials: creds.map(({ secret: _secret, ...rest }) => rest),
+      sessions: sessions.map(({ csrfHash: _csrfHash, ...rest }) => rest),
+      schemaVersion: '1',
       exportedAt: Date.now(),
     }
   }
+
+  /**
+   * Serialise an `ExportBlob` to a canonical JSON string suitable for
+   * delivery to the user (file download / portable archive). Stable
+   * key ordering across runs so checksum comparisons work.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  static exportToJson<P>(blob: ExportBlob<P>): string {
+    return JSON.stringify(blob, sortKeys, 2)
+  }
+}
+
+function sortKeys(_key: string, value: unknown): unknown {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const sorted: Record<string, unknown> = {}
+    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
+      sorted[k] = (value as Record<string, unknown>)[k]
+    }
+    return sorted
+  }
+  return value
 }
 
 /**
