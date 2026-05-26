@@ -8,6 +8,8 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
+export { RedisDPoPNonceStore, type RedisDPoPNonceStoreConfig } from './dpop-nonce-store'
+export { RedisEvents, type RedisEventsConfig, type RedisPubSubClient } from './events'
 export { RedisIdempotencyStore, type RedisIdempotencyStoreConfig } from './idempotency-store'
 export { RedisLimiter, type RedisLimiterConfig } from './limiter'
 export type { RedisLike } from './redis-like'

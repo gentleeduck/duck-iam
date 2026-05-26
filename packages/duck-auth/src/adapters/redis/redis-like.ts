@@ -53,6 +53,7 @@ export interface RedisLike {
 export class FakeRedis implements RedisLike {
   private readonly _data = new Map<string, { value: string; expiresAt: number | null }>()
   private readonly _sets = new Map<string, Set<string>>()
+  private readonly _channels = new Map<string, Set<(channel: string, message: string) => void | Promise<void>>>()
 
   private _maybeExpire(key: string): void {
     const entry = this._data.get(key)
@@ -201,6 +202,44 @@ export class FakeRedis implements RedisLike {
    */
   async smembers(key: string): Promise<string[]> {
     return [...(this._sets.get(key) ?? [])]
+  }
+
+  /**
+   * Pub/sub stub matching `RedisPubSubClient.publish`. Fans out the
+   * payload to every subscriber on `channel`. Returns the number of
+   * subscribers that received it.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async publish(channel: string, message: string): Promise<number> {
+    const set = this._channels.get(channel)
+    if (!set) return 0
+    for (const handler of set) {
+      void handler(channel, message)
+    }
+    return set.size
+  }
+
+  /**
+   * Pub/sub stub matching `RedisPubSubClient.subscribe`. Registers the
+   * handler against `channel`; returns an async unsubscribe.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async subscribe(
+    channel: string,
+    onMessage: (channel: string, message: string) => void | Promise<void>,
+  ): Promise<() => Promise<void>> {
+    let set = this._channels.get(channel)
+    if (!set) {
+      set = new Set()
+      this._channels.set(channel, set)
+    }
+    set.add(onMessage)
+    return async () => {
+      set?.delete(onMessage)
+      if (set && set.size === 0) this._channels.delete(channel)
+    }
   }
 }
 
