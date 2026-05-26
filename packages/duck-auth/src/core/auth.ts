@@ -6,6 +6,7 @@
 import { randomToken, sha256, timingSafeEqual } from './crypto'
 import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
+import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from './facets/anomaly'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from './facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
 import { HijackFacet, type HijackPolicyConfig } from './facets/hijack'
@@ -94,6 +95,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly operations: OperationsFacet
   readonly idempotency: IdempotencyFacet
   readonly hijack: HijackFacet
+  readonly anomaly: AnomalyFacet
 
   constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
@@ -133,6 +135,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     this.operations = new OperationsFacet(this.events)
     this.idempotency = new IdempotencyFacet(new MemoryIdempotencyStore(), DEFAULT_IDEMPOTENCY_CONFIG)
     this.hijack = new HijackFacet(this.events, config.hijack ?? {})
+    this.anomaly = new AnomalyFacet(this.events, DEFAULT_ANOMALY_CONFIG)
     this.flows = new FlowsFacet<Profile>(
       this.sessions,
       this.identities,
