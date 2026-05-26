@@ -382,6 +382,16 @@
         "default": "./dist/oidc/index.cjs"
       }
     },
+    "./i18n": {
+      "import": {
+        "types": "./dist/i18n/index.d.ts",
+        "default": "./dist/i18n/index.js"
+      },
+      "require": {
+        "types": "./dist/i18n/index.d.cts",
+        "default": "./dist/i18n/index.cjs"
+      }
+    },
     "./telemetry/otel": {
       "import": {
         "types": "./dist/telemetry/otel/index.d.ts",
