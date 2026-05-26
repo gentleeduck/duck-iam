@@ -8,6 +8,7 @@ import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from './facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
+import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from './facets/idempotency'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from './facets/mfa'
 import { OperationsFacet } from './facets/operations'
@@ -87,6 +88,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly limiter: LimiterNs.ILimiter
   readonly plugins: PluginRegistry
   readonly operations: OperationsFacet
+  readonly idempotency: IdempotencyFacet
 
   constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
@@ -124,6 +126,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
     this.plugins = new PluginRegistry()
     this.operations = new OperationsFacet(this.events)
+    this.idempotency = new IdempotencyFacet(new MemoryIdempotencyStore(), DEFAULT_IDEMPOTENCY_CONFIG)
     this.flows = new FlowsFacet<Profile>(
       this.sessions,
       this.identities,
