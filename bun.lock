@@ -128,9 +128,32 @@
         "vite": "^8.0.12",
       },
     },
+    "packages/duck-auth": {
+      "name": "@gentleduck/auth",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@gentleduck/iam": "workspace:*",
+        "@gentleduck/tsdown-config": "workspace:*",
+        "@gentleduck/typescript-config": "workspace:*",
+        "@gentleduck/vitest-config": "workspace:*",
+        "@types/react": "^19.2.14",
+        "react": "^19.2.0",
+        "tsdown": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "@gentleduck/iam": "workspace:*",
+        "react": "^18 || ^19",
+      },
+      "optionalPeers": [
+        "@gentleduck/iam",
+        "react",
+      ],
+    },
     "packages/duck-iam": {
       "name": "@gentleduck/iam",
-      "version": "2.2.0",
+      "version": "3.0.0",
       "devDependencies": {
         "@casl/ability": "^6.7.2",
         "@gentleduck/libs": "^0.2.1",
@@ -567,6 +590,8 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.8", "", { "dependencies": { "@floating-ui/dom": "^1.7.6" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-cC52bHwM/n/CxS87FH0yWdngEZrjdtLW/qVruo68qg+prK7ZQ4YGdut2GyDVpoGeAYe/h899rVeOVm6Oi40k2A=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
+
+    "@gentleduck/auth": ["@gentleduck/auth@workspace:packages/duck-auth"],
 
     "@gentleduck/calendar": ["@gentleduck/calendar@0.3.1", "", { "peerDependencies": { "date-fns": ">=3.0.0", "dayjs": ">=1.11.0", "luxon": ">=3.0.0", "react": ">=18.0.0" }, "optionalPeers": ["date-fns", "dayjs", "luxon", "react"] }, "sha512-AKpg5pCU64YJ8LPzhnOAh04fuLLq/91Y3QYsmxuYNAFZwRnSiZI75rvyE27ybzjsiFq8ZGbUKJl43boQbmROaQ=="],
 
