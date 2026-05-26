@@ -10,6 +10,7 @@ import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from './facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from './facets/mfa'
+import { OperationsFacet } from './facets/operations'
 import { OrgsFacet } from './facets/orgs'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
 import { ProvidersFacet } from './facets/providers'
@@ -85,6 +86,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly flows: FlowsFacet<Profile>
   readonly limiter: LimiterNs.ILimiter
   readonly plugins: PluginRegistry
+  readonly operations: OperationsFacet
 
   constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
@@ -121,6 +123,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     )
     this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
     this.plugins = new PluginRegistry()
+    this.operations = new OperationsFacet(this.events)
     this.flows = new FlowsFacet<Profile>(
       this.sessions,
       this.identities,
