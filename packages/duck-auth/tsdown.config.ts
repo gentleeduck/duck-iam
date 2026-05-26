@@ -29,6 +29,7 @@ export default createTsdownConfig({
     'client/react/index': 'src/client/react/index.ts',
     'cli/index': 'src/cli/index.ts',
     'openapi/index': 'src/openapi/index.ts',
+    'telemetry/otel/index': 'src/telemetry/otel/index.ts',
   },
   external: [...baseExternal, 'react'],
 })
