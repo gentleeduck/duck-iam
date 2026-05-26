@@ -38,3 +38,12 @@ export {
 export { SCRYPT_DEFAULTS, ScryptHasher, type ScryptParams } from './password/scrypt'
 export * from './transport'
 export * from './types'
+export {
+  signWebhookBody,
+  verifyWebhookSignature,
+  type WebhookDeadLetterEntry,
+  type WebhookDeadLetterSink,
+  WebhookDeliverer,
+  type WebhookDelivererConfig,
+  type WebhookEndpoint,
+} from './webhooks'
