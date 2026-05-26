@@ -193,7 +193,9 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
 
   // --- Credential -------------------------------------------------------
 
-  private _buildCredentialStore(): Credential.IStore {
+  private _buildCredentialStore(): Credential.IStore & {
+    __familyRevoke: (familyId: string, ctx: TenantContext) => Promise<void>
+  } {
     const store = this._credentials
     return {
       findById: async (id) => store.get(id) ?? null,
@@ -265,6 +267,19 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
       deleteByKind: async (identityId, kind) => {
         for (const c of store.values()) {
           if (c.identityId === identityId && c.kind === kind) store.delete(c.id)
+        }
+      },
+      // Extension consumed by the OAuth refresh-reuse detector. Marks every
+      // member of an oauth token family revoked atomically. Production
+      // adapters add a `(kind, metadata.familyId)` index + bulk update;
+      // memory adapter walks every row.
+      __familyRevoke: async (familyId: string) => {
+        const now = Date.now()
+        for (const c of store.values()) {
+          if (c.kind !== 'oauth') continue
+          const meta = c.metadata as { familyId?: string } | undefined
+          if (meta?.familyId !== familyId) continue
+          store.set(c.id, { ...c, revokedAt: c.revokedAt ?? now })
         }
       },
     }

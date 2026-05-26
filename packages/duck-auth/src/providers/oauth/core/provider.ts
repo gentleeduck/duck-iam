@@ -178,7 +178,7 @@ export function oauthProvider<Profile = unknown>(
         }
       }
 
-      // Persist tokens + family id for reuse detection.
+      // Persist tokens + family id for reuse detection (RFC 6749 section 10.4).
       if (tokens.refresh_token) {
         const familyId = `${fullProviderId}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
         await ctx.stores.credentials.upsert(
@@ -192,7 +192,7 @@ export function oauthProvider<Profile = unknown>(
               familyId,
               generation: 1,
               accessToken: tokens.access_token,
-              expiresAt: tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined,
+              accessTokenExpiresAt: tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined,
             },
           },
           ctx.tenant,
