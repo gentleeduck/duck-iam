@@ -292,6 +292,16 @@
         "default": "./dist/server/next/index.cjs"
       }
     },
+    "./server/fastify": {
+      "import": {
+        "types": "./dist/server/fastify/index.d.ts",
+        "default": "./dist/server/fastify/index.js"
+      },
+      "require": {
+        "types": "./dist/server/fastify/index.d.cts",
+        "default": "./dist/server/fastify/index.cjs"
+      }
+    },
     "./client/vanilla": {
       "import": {
         "types": "./dist/client/vanilla/index.d.ts",
