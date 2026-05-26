@@ -15,6 +15,7 @@ export default createTsdownConfig({
     'providers/oauth/google/index': 'src/providers/oauth/google/index.ts',
     'providers/oauth/github/index': 'src/providers/oauth/github/index.ts',
     'providers/passkey/index': 'src/providers/passkey/index.ts',
+    'providers/api-key/index': 'src/providers/api-key/index.ts',
     'server/generic/index': 'src/server/generic/index.ts',
     'server/express/index': 'src/server/express/index.ts',
     'server/hono/index': 'src/server/hono/index.ts',
