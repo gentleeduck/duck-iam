@@ -255,4 +255,6 @@ export namespace NestAdapter {
   export type IReply = NestLikeReply
   /** Alias for `NestLikeGuard`. */
   export type IGuard = NestLikeGuard
+  /** Alias for the flat `NestExecutionContextLike` type. */
+  export type INestExecutionContextLike = NestExecutionContextLike
 }
