@@ -8,6 +8,7 @@ import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from './facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
+import { HijackFacet, type HijackPolicyConfig } from './facets/hijack'
 import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from './facets/idempotency'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from './facets/mfa'
@@ -65,6 +66,7 @@ export interface AuthRootConfig<Profile = unknown, Tenant = string, OrgMeta = un
     prefix?: string
     randomBytes?: number
   }
+  hijack?: HijackPolicyConfig
   __tenantBrand?: Tenant
 }
 
@@ -89,6 +91,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly plugins: PluginRegistry
   readonly operations: OperationsFacet
   readonly idempotency: IdempotencyFacet
+  readonly hijack: HijackFacet
 
   constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
@@ -127,6 +130,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     this.plugins = new PluginRegistry()
     this.operations = new OperationsFacet(this.events)
     this.idempotency = new IdempotencyFacet(new MemoryIdempotencyStore(), DEFAULT_IDEMPOTENCY_CONFIG)
+    this.hijack = new HijackFacet(this.events, config.hijack ?? {})
     this.flows = new FlowsFacet<Profile>(
       this.sessions,
       this.identities,
