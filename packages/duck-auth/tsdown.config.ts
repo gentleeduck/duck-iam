@@ -17,6 +17,7 @@ export default createTsdownConfig({
     'server/hono/index': 'src/server/hono/index.ts',
     'server/next/index': 'src/server/next/index.ts',
     'client/vanilla/index': 'src/client/vanilla/index.ts',
+    'client/react/index': 'src/client/react/index.ts',
   },
-  external: [...baseExternal],
+  external: [...baseExternal, 'react'],
 })

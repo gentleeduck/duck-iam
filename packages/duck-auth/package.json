@@ -161,6 +161,16 @@
         "types": "./dist/client/vanilla/index.d.cts",
         "default": "./dist/client/vanilla/index.cjs"
       }
+    },
+    "./client/react": {
+      "import": {
+        "types": "./dist/client/react/index.d.ts",
+        "default": "./dist/client/react/index.js"
+      },
+      "require": {
+        "types": "./dist/client/react/index.d.cts",
+        "default": "./dist/client/react/index.cjs"
+      }
     }
   },
   "files": [
@@ -180,10 +190,14 @@
     "clean": "rimraf dist .cache .turbo node_modules"
   },
   "peerDependencies": {
-    "@gentleduck/iam": "workspace:*"
+    "@gentleduck/iam": "workspace:*",
+    "react": "^18 || ^19"
   },
   "peerDependenciesMeta": {
     "@gentleduck/iam": {
+      "optional": true
+    },
+    "react": {
       "optional": true
     }
   },
@@ -192,6 +206,8 @@
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",
+    "@types/react": "^19.2.14",
+    "react": "^19.2.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
