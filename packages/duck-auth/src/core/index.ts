@@ -4,6 +4,16 @@
  */
 
 export { AuthRoot, type AuthRootConfig } from './auth'
+export {
+  Captcha,
+  type CaptchaVerifier,
+  type CaptchaVerifyInput,
+  type CaptchaVerifyResult,
+  HCaptchaVerifier,
+  NullCaptchaVerifier,
+  RecaptchaV3Verifier,
+  TurnstileVerifier,
+} from './captcha'
 export { randomToken, sha256, timingSafeEqual } from './crypto'
 export { type AuthError, type AuthErrorCode, AuthErrorObject } from './errors'
 export { InMemoryEvents } from './events'
