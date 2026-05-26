@@ -82,6 +82,16 @@
         "default": "./dist/channels/console/index.cjs"
       }
     },
+    "./channels/smtp": {
+      "import": {
+        "types": "./dist/channels/smtp/index.d.ts",
+        "default": "./dist/channels/smtp/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/smtp/index.d.cts",
+        "default": "./dist/channels/smtp/index.cjs"
+      }
+    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",

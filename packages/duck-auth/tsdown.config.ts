@@ -9,6 +9,7 @@ export default createTsdownConfig({
     'adapters/memory/index': 'src/adapters/memory/index.ts',
     'adapters/redis/index': 'src/adapters/redis/index.ts',
     'channels/console/index': 'src/channels/console/index.ts',
+    'channels/smtp/index': 'src/channels/smtp/index.ts',
     'limiters/memory/index': 'src/limiters/memory/index.ts',
     'providers/password/index': 'src/providers/password/index.ts',
     'providers/magic-link/index': 'src/providers/magic-link/index.ts',
