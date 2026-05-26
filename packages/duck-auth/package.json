@@ -132,6 +132,16 @@
         "default": "./dist/providers/oauth/github/index.cjs"
       }
     },
+    "./providers/passkey": {
+      "import": {
+        "types": "./dist/providers/passkey/index.d.ts",
+        "default": "./dist/providers/passkey/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/passkey/index.d.cts",
+        "default": "./dist/providers/passkey/index.cjs"
+      }
+    },
     "./server/generic": {
       "import": {
         "types": "./dist/server/generic/index.d.ts",
@@ -213,6 +223,7 @@
   "peerDependencies": {
     "@gentleduck/iam": "workspace:*",
     "@node-rs/argon2": ">=2 <3",
+    "@simplewebauthn/server": ">=10 <14",
     "react": "^18 || ^19"
   },
   "peerDependenciesMeta": {
@@ -220,6 +231,9 @@
       "optional": true
     },
     "@node-rs/argon2": {
+      "optional": true
+    },
+    "@simplewebauthn/server": {
       "optional": true
     },
     "react": {
