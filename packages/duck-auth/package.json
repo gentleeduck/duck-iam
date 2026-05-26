@@ -102,6 +102,16 @@
         "default": "./dist/channels/smtp/index.cjs"
       }
     },
+    "./channels/resend": {
+      "import": {
+        "types": "./dist/channels/resend/index.d.ts",
+        "default": "./dist/channels/resend/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/resend/index.d.cts",
+        "default": "./dist/channels/resend/index.cjs"
+      }
+    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",

@@ -11,6 +11,7 @@ export default createTsdownConfig({
     'adapters/sql/index': 'src/adapters/sql/index.ts',
     'channels/console/index': 'src/channels/console/index.ts',
     'channels/smtp/index': 'src/channels/smtp/index.ts',
+    'channels/resend/index': 'src/channels/resend/index.ts',
     'limiters/memory/index': 'src/limiters/memory/index.ts',
     'providers/password/index': 'src/providers/password/index.ts',
     'providers/magic-link/index': 'src/providers/magic-link/index.ts',
