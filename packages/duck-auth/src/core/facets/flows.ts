@@ -171,6 +171,34 @@ export interface UnlinkProviderInput {
   allowLockout?: boolean
 }
 
+/**
+ * Input shape for {@link FlowsFacet.requestEmailVerification}. The
+ * caller wires its own channel registry so the facet stays HTTP / SDK
+ * agnostic.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface EmailVerificationRequestInput {
+  /** Identity to verify. */
+  identityId: string
+  /** Channel keyed by kind. Email is the typical default. */
+  channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').Channel.IChannel>>
+  /** Which channel to dispatch on; default 'email'. */
+  channel?: 'email' | 'sms' | 'webpush'
+  /** TTL of the verification token, ms. Default 30 minutes. */
+  ttlMs?: number
+  /** Callback path on the app; library appends `?token=`. Default `/auth/verify-email`. */
+  callbackPath?: string
+  tenantId?: string
+}
+
+/** Input shape for {@link FlowsFacet.completeEmailVerification}. */
+export interface EmailVerificationCompleteInput {
+  /** Token plaintext as received from the verify link. */
+  token: string
+  tenantId?: string
+}
+
 export class FlowsFacet<Profile = unknown> {
   constructor(
     private readonly _sessions: SessionsFacet,
@@ -462,6 +490,113 @@ export class FlowsFacet<Profile = unknown> {
     await this._sessions.revokeAllForIdentity(row.identityId)
     await this._events.emit('recovery.password.completed', { identityId: row.identityId })
     return { ok: true }
+  }
+
+  // --- Email verification ---------------------------------------------------
+
+  /**
+   * Mint + dispatch an email-verification token. Idempotent under the
+   * rate-limit window: callers can re-trigger from a "didn't get the
+   * email" button without flooding the channel.
+   *
+   * Behavior:
+   *   - Generates a 256-bit random token; persists sha-256 under
+   *     Credential.kind='recovery' with metadata.purpose='email-verification'
+   *   - Per-identity rate limit at `verify:email:{identityId}` so
+   *     resend pressure is bounded
+   *   - No-op (returns { ok:true }) when the identity is already
+   *     verified - avoids leaking "verified" status to the caller
+   *   - Sends via the supplied channel with templateId='email-verification'
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async requestEmailVerification(opts: EmailVerificationRequestInput): Promise<{ ok: true }> {
+    const ctx = this._ctxFactory(opts.tenantId)
+    const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
+    const callbackPath = opts.callbackPath ?? '/auth/verify-email'
+
+    const limited = await ctx.limiter.consume(`verify:email:${opts.identityId}`)
+    if (!limited.ok) {
+      throw new AuthErrorObject('AUTH/RATE_LIMITED', {
+        retryAfter: Math.max(0, Math.ceil((limited.resetAt - Date.now()) / 1000)),
+      })
+    }
+
+    const identity = await ctx.stores.identities.findById(opts.identityId, ctx.tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    // Short-circuit: already verified -> ack without minting a new token.
+    if ((identity.profile as { emailVerified?: boolean } | undefined)?.emailVerified === true) {
+      return { ok: true }
+    }
+
+    const channel = opts.channel ?? 'email'
+    const channelImpl = opts.channels[channel]
+    if (!channelImpl) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        detail: `email-verification: channel "${channel}" not configured`,
+      })
+    }
+
+    // Replace any prior outstanding token so the user only ever has one live.
+    await ctx.stores.credentials.deleteByKind(opts.identityId, 'recovery', ctx.tenant)
+
+    const token = ctx.crypto.randomToken(32)
+    const tokenHash = ctx.crypto.sha256(token)
+    const now = Date.now()
+    await ctx.stores.credentials.upsert(
+      {
+        identityId: opts.identityId,
+        kind: 'recovery',
+        secret: tokenHash,
+        metadata: { purpose: 'email-verification' },
+        expiresAt: now + ttlMs,
+      },
+      ctx.tenant,
+    )
+
+    const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
+    await channelImpl.send({
+      identity,
+      templateId: 'email-verification',
+      vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
+      tenant: ctx.tenant,
+    })
+    return { ok: true }
+  }
+
+  /**
+   * Verify the supplied token, mark `identity.profile.emailVerified=true`,
+   * consume the token. Returns `{ identityId }` on success.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async completeEmailVerification(input: EmailVerificationCompleteInput): Promise<{ identityId: string }> {
+    if (typeof input.token !== 'string' || input.token.length === 0) {
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+    }
+    const ctx = this._ctxFactory(input.tenantId)
+    const hash = ctx.crypto.sha256(input.token)
+    const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+    const now = Date.now()
+    if (!row || row.revokedAt || (row.metadata as { purpose?: string } | undefined)?.purpose !== 'email-verification') {
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+    }
+    if (row.expiresAt !== undefined && row.expiresAt < now) {
+      void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_EXPIRED')
+    }
+
+    const identity = await ctx.stores.identities.findById(row.identityId, ctx.tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    const mergedProfile = {
+      ...((identity.profile ?? {}) as Record<string, unknown>),
+      emailVerified: true,
+    } as Profile
+    await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version, ctx.tenant)
+    await ctx.stores.credentials.delete(row.id, ctx.tenant)
+    return { identityId: row.identityId }
   }
 
   // --- Signup state machine (DESIGN section 34) -----------------------------
@@ -847,4 +982,8 @@ export namespace FlowsFacet {
   export type ILinkProviderInput = LinkProviderInput
   /** Alias for the flat `UnlinkProviderInput` type. */
   export type IUnlinkProviderInput = UnlinkProviderInput
+  /** Alias for the flat `EmailVerificationRequestInput` type. */
+  export type IEmailVerificationRequestInput = EmailVerificationRequestInput
+  /** Alias for the flat `EmailVerificationCompleteInput` type. */
+  export type IEmailVerificationCompleteInput = EmailVerificationCompleteInput
 }
