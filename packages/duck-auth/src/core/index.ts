@@ -4,11 +4,13 @@
  */
 
 export { AuthRoot, type AuthRootConfig } from './auth'
-export {
+export type {
   Captcha,
-  type CaptchaVerifier,
-  type CaptchaVerifyInput,
-  type CaptchaVerifyResult,
+  CaptchaVerifier,
+  CaptchaVerifyInput,
+  CaptchaVerifyResult,
+} from './captcha'
+export {
   HCaptchaVerifier,
   NullCaptchaVerifier,
   RecaptchaV3Verifier,
