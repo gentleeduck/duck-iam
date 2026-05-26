@@ -17,18 +17,16 @@ import { AuthErrorObject } from '../../core/errors'
 import type { Credential } from '../../core/types/credential'
 import type { Identity } from '../../core/types/identity'
 import type { Session } from '../../core/types/session'
-import type {
-  SqlBridge,
-  SqlCredentialRow,
-  SqlIdentityRow,
-  SqlSessionRow,
-} from './bridge'
+import type { SqlBridge, SqlCredentialRow, SqlIdentityRow, SqlSessionRow } from './bridge'
 
-export type { SqlBridge, SqlCredentialRow, SqlIdentityRow, SqlSessionRow } from './bridge'
-export {
-  type SqlCredentialBridge,
-  type SqlIdentityBridge,
-  type SqlSessionBridge,
+export type {
+  SqlBridge,
+  SqlCredentialBridge,
+  SqlCredentialRow,
+  SqlIdentityBridge,
+  SqlIdentityRow,
+  SqlSessionBridge,
+  SqlSessionRow,
 } from './bridge'
 
 /**
@@ -39,7 +37,9 @@ export {
  *
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function createSqlAuthStores<Profile = unknown>(bridge: SqlBridge): {
+export function createSqlAuthStores<Profile = unknown>(
+  bridge: SqlBridge,
+): {
   identities: Identity.IStore<Profile>
   credentials: Credential.IStore
   sessions: Session.IStore
@@ -54,8 +54,7 @@ export function createSqlAuthStores<Profile = unknown>(bridge: SqlBridge): {
 function buildIdentities<Profile>(bridge: SqlBridge['identities']): Identity.IStore<Profile> {
   return {
     findById: async (id, ctx) => parseIdentity<Profile>(await bridge.findById(id, ctx.tenantId)),
-    findByEmail: async (email, ctx) =>
-      parseIdentity<Profile>(await bridge.findByEmail(email, ctx.tenantId)),
+    findByEmail: async (email, ctx) => parseIdentity<Profile>(await bridge.findByEmail(email, ctx.tenantId)),
     findByProviderSub: async (providerId, sub, ctx) =>
       parseIdentity<Profile>(await bridge.findByProviderSub(providerId, sub, ctx.tenantId)),
     create: async (input, ctx) => {
@@ -100,13 +99,7 @@ function buildIdentities<Profile>(bridge: SqlBridge['identities']): Identity.ISt
       await bridge.erase(id, ctx.tenantId)
     },
     link: async (identityId, link, ctx) => {
-      await bridge.insertProviderLink(
-        identityId,
-        link.providerId,
-        link.providerSub,
-        link.addedAt,
-        ctx.tenantId,
-      )
+      await bridge.insertProviderLink(identityId, link.providerId, link.providerSub, link.addedAt, ctx.tenantId)
     },
     unlink: async (identityId, providerId, ctx) => {
       await bridge.deleteProviderLink(identityId, providerId, ctx.tenantId)
@@ -122,9 +115,7 @@ function buildCredentials(bridge: SqlBridge['credentials']): Credential.IStore {
     findById: async (id, ctx) => parseCredential(await bridge.findById(id, ctx.tenantId)),
     listByIdentity: async (identityId, kind, ctx) => {
       const rows = await bridge.listByIdentity(identityId, kind, ctx.tenantId)
-      return rows
-        .map(parseCredential)
-        .filter((c): c is Credential.ICredential => c !== null)
+      return rows.map(parseCredential).filter((c): c is Credential.ICredential => c !== null)
     },
     findByProviderSub: async (provider, sub, ctx) =>
       parseCredential(await bridge.findByProviderSub(provider, sub, ctx.tenantId)),

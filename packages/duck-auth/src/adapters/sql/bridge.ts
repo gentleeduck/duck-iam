@@ -35,11 +35,7 @@ export interface SqlBridge {
 export interface SqlIdentityBridge {
   findById(id: string, tenantId: string | undefined): Promise<SqlIdentityRow | null>
   findByEmail(email: string, tenantId: string | undefined): Promise<SqlIdentityRow | null>
-  findByProviderSub(
-    providerId: string,
-    sub: string,
-    tenantId: string | undefined,
-  ): Promise<SqlIdentityRow | null>
+  findByProviderSub(providerId: string, sub: string, tenantId: string | undefined): Promise<SqlIdentityRow | null>
   insert(row: SqlIdentityRow): Promise<void>
   /** Optimistic update. Returns the new row when version matched; null when stale. */
   updateConditional(
@@ -59,11 +55,7 @@ export interface SqlIdentityBridge {
     addedAt: number,
     tenantId: string | undefined,
   ): Promise<void>
-  deleteProviderLink(
-    identityId: string,
-    providerId: string,
-    tenantId: string | undefined,
-  ): Promise<void>
+  deleteProviderLink(identityId: string, providerId: string, tenantId: string | undefined): Promise<void>
   /** Re-point credentials + sessions at the survivor, then erase the dup. */
   merge(survivorId: string, dupId: string, tenantId: string | undefined): Promise<void>
 }
@@ -81,16 +73,8 @@ export interface SqlCredentialBridge {
     kind: string | undefined,
     tenantId: string | undefined,
   ): Promise<SqlCredentialRow[]>
-  findByProviderSub(
-    provider: string,
-    sub: string,
-    tenantId: string | undefined,
-  ): Promise<SqlCredentialRow | null>
-  findByHashedSecret(
-    secretHash: string,
-    kind: string,
-    tenantId: string | undefined,
-  ): Promise<SqlCredentialRow | null>
+  findByProviderSub(provider: string, sub: string, tenantId: string | undefined): Promise<SqlCredentialRow | null>
+  findByHashedSecret(secretHash: string, kind: string, tenantId: string | undefined): Promise<SqlCredentialRow | null>
   insert(row: SqlCredentialRow): Promise<void>
   updateConditional(
     id: string,
@@ -100,11 +84,7 @@ export interface SqlCredentialBridge {
   ): Promise<SqlCredentialRow | null>
   revoke(id: string, revokedAt: number, tenantId: string | undefined): Promise<void>
   delete(id: string, tenantId: string | undefined): Promise<void>
-  deleteByKind(
-    identityId: string,
-    kind: string,
-    tenantId: string | undefined,
-  ): Promise<void>
+  deleteByKind(identityId: string, kind: string, tenantId: string | undefined): Promise<void>
 }
 
 /**

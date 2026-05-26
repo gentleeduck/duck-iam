@@ -101,9 +101,7 @@ function makeInMemoryBridge(): SqlBridge {
     credentials: {
       findById: async (id) => credentials.get(id) ?? null,
       listByIdentity: async (identityId, kind) =>
-        [...credentials.values()].filter(
-          (r) => r.identityId === identityId && (kind === undefined || r.kind === kind),
-        ),
+        [...credentials.values()].filter((r) => r.identityId === identityId && (kind === undefined || r.kind === kind)),
       findByProviderSub: async (provider, sub) => {
         for (const r of credentials.values()) {
           const meta = r.metadata ? (JSON.parse(r.metadata) as { provider?: string; sub?: string }) : null
@@ -155,8 +153,7 @@ function makeInMemoryBridge(): SqlBridge {
       delete: async (id) => {
         sessions.delete(id)
       },
-      listByIdentity: async (identityId) =>
-        [...sessions.values()].filter((s) => s.identityId === identityId),
+      listByIdentity: async (identityId) => [...sessions.values()].filter((s) => s.identityId === identityId),
       deleteAllForIdentity: async (identityId) => {
         for (const [id, s] of sessions) {
           if (s.identityId === identityId) sessions.delete(id)
@@ -190,10 +187,7 @@ describe('createSqlAuthStores', () => {
   })
 
   it('identities.create -> findById round-trips the profile JSON encoded', async () => {
-    const ident = await stores.identities.create(
-      { profile: { email: 'a@b.com', name: 'A' }, providers: [] },
-      {},
-    )
+    const ident = await stores.identities.create({ profile: { email: 'a@b.com', name: 'A' }, providers: [] }, {})
     expect(ident.id).toBeTruthy()
     const fetched = await stores.identities.findById(ident.id, {})
     expect(fetched?.profile?.email).toBe('a@b.com')
@@ -201,32 +195,23 @@ describe('createSqlAuthStores', () => {
   })
 
   it('identities.findByEmail decodes the JSON profile', async () => {
-    await stores.identities.create(
-      { profile: { email: 'x@y.com' }, providers: [] },
-      {},
-    )
+    await stores.identities.create({ profile: { email: 'x@y.com' }, providers: [] }, {})
     const found = await stores.identities.findByEmail('x@y.com', {})
     expect(found?.profile?.email).toBe('x@y.com')
   })
 
   it('identities.update bumps version + rejects stale writes', async () => {
-    const ident = await stores.identities.create(
-      { profile: { email: 'a@b.com' }, providers: [] },
-      {},
-    )
+    const ident = await stores.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
     const v2 = await stores.identities.update(ident.id, { profile: { email: 'b@b.com' } }, 1, {})
     expect(v2.version).toBe(2)
     expect(v2.profile?.email).toBe('b@b.com')
-    await expect(
-      stores.identities.update(ident.id, { profile: { email: 'c@b.com' } }, 1, {}),
-    ).rejects.toMatchObject({ code: 'AUTH/STALE_WRITE' })
+    await expect(stores.identities.update(ident.id, { profile: { email: 'c@b.com' } }, 1, {})).rejects.toMatchObject({
+      code: 'AUTH/STALE_WRITE',
+    })
   })
 
   it('credentials.upsert + findByHashedSecret round-trips secret + metadata', async () => {
-    const ident = await stores.identities.create(
-      { profile: { email: 'a@b.com' }, providers: [] },
-      {},
-    )
+    const ident = await stores.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
     await stores.credentials.upsert(
       { identityId: ident.id, kind: 'password', secret: 'hash:xyz', metadata: { strength: 0.9 } },
       {},
@@ -237,14 +222,8 @@ describe('createSqlAuthStores', () => {
   })
 
   it('credentials.rotate bumps version', async () => {
-    const ident = await stores.identities.create(
-      { profile: { email: 'a@b.com' }, providers: [] },
-      {},
-    )
-    const cred = await stores.credentials.upsert(
-      { identityId: ident.id, kind: 'password', secret: 's1' },
-      {},
-    )
+    const ident = await stores.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
+    const cred = await stores.credentials.upsert({ identityId: ident.id, kind: 'password', secret: 's1' }, {})
     const rotated = await stores.credentials.rotate(cred.id, 's2', cred.version, {})
     expect(rotated.secret).toBe('s2')
     expect(rotated.version).toBe(cred.version + 1)
