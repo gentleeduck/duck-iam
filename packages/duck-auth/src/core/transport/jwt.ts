@@ -93,6 +93,8 @@ interface JwtPayload {
   tid?: string
   /** Acting-as envelope when impersonating. */
   acting_as?: Session.ActingAs
+  /** Session kind (`'user' | 'apikey' | 'guest'`). Preserved so M2M tokens round-trip correctly. */
+  knd?: Session.Kind
 }
 
 function base64urlEncode(s: string | Buffer): string {
@@ -239,6 +241,7 @@ export class JwtTransport implements Transport.ITransport {
       sid: session.id,
       aal: session.aal,
       factors: session.factors.map((f) => f.method),
+      knd: session.kind,
       ...(this._cfg.audience !== undefined && { aud: this._cfg.audience }),
       ...(session.tenantId !== undefined && { tid: session.tenantId }),
       ...(session.actingAs !== undefined && { acting_as: session.actingAs }),
@@ -327,7 +330,7 @@ export class JwtTransport implements Transport.ITransport {
     const session: Session.ISession = {
       id: payload.sid,
       identityId: payload.sub,
-      kind: payload.sub ? 'user' : 'guest',
+      kind: payload.knd ?? (payload.sub ? 'user' : 'guest'),
       aal: payload.aal,
       factors: payload.factors.map((m) => ({ method: m as Session.FactorMethod, completedAt: payload.iat * 1000 })),
       createdAt: payload.iat * 1000,
