@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { Provider } from '../../core/types/provider'
 
 /**
@@ -45,7 +50,7 @@ export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Re
       }
       case 'startSession':
       case 'requireMfa':
-        // Lifecycle intents — already interpreted by FlowsFacet; if one reaches
+        // Lifecycle intents - already interpreted by FlowsFacet; if one reaches
         // this executor it's a logic error in the caller. Surface a 500 rather
         // than silently dropping.
         status = 500

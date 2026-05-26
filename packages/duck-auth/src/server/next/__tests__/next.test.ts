@@ -33,7 +33,7 @@ function buildAuth() {
   return { auth, adapter }
 }
 
-describe('Next.js adapter — handler primitives', () => {
+describe('Next.js adapter - handler primitives', () => {
   it('nextSignIn happy path', async () => {
     const { auth } = buildAuth()
     const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
@@ -86,7 +86,7 @@ describe('Next.js adapter — handler primitives', () => {
   })
 })
 
-describe('mountNext — catch-all router', () => {
+describe('mountNext - catch-all router', () => {
   it('routes POST /api/auth/signin to nextSignIn', async () => {
     const { auth } = buildAuth()
     const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })

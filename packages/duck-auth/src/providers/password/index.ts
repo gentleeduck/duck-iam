@@ -1,9 +1,14 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { AuthErrorObject } from '../../core/errors'
 import type { PasswordsFacet } from '../../core/facets/passwords'
 import type { Provider } from '../../core/types/provider'
 
 /**
- * Password provider — email + password sign-in. Operates against the
+ * Password provider - email + password sign-in. Operates against the
  * configured PasswordsFacet so hashing/strength rules live in one place.
  *
  * `begin` is a no-op because password flow has no challenge round-trip.
@@ -17,7 +22,7 @@ export interface PasswordProviderOptions {
    * Required because the provider doesn't import AuthRoot directly.
    */
   findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-  /** Bound PasswordsFacet — verify + needsRehash + slow rehash. */
+  /** Bound PasswordsFacet - verify + needsRehash + slow rehash. */
   passwords: PasswordsFacet
   /** Per-email rate-limit key prefix. Default 'signin:password:'. */
   limiterKeyPrefix?: string
@@ -72,7 +77,7 @@ export function password<Profile = unknown>(
 
       if (!identity || !verifyResult.ok) {
         await ctx.events.emit('signin.failed', { providerId: 'password', reason: 'invalid-credentials' })
-        // Generic 401 — never leaks which side failed.
+        // Generic 401 - never leaks which side failed.
         throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
       }
 

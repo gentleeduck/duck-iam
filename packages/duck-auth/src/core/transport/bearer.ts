@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
 import type { Transport } from '../types/transport'
@@ -10,7 +15,7 @@ export interface BearerTransportConfig {
 }
 
 /**
- * Bearer transport — `Authorization: Bearer <opaque>` header. Native/mobile, API keys.
+ * Bearer transport - `Authorization: Bearer <opaque>` header. Native/mobile, API keys.
  * Issue returns a JSON intent carrying the token; client is responsible for persisting it.
  */
 export class BearerTransport implements Transport.ITransport {

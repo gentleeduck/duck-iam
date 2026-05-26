@@ -1,4 +1,9 @@
 /**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
+/**
  * Password hasher contract. Implementations must be:
  *   - deterministic only when given the same salt
  *   - constant-time on verify

@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { sha256 } from '../../../core/crypto'
 import { AuthErrorObject } from '../../../core/errors'
 import type { Provider } from '../../../core/types/provider'
@@ -7,7 +12,7 @@ import { buildState, signState, verifyState } from './state'
 
 /**
  * Canonical profile shape after a provider extracts it from userinfo /
- * id_token / provider-specific endpoint. Providers (google, github, …)
+ * id_token / provider-specific endpoint. Providers (google, github, ...)
  * map their idiosyncratic field names to this shape.
  */
 export interface OAuthProfile {
@@ -24,7 +29,7 @@ export interface OAuthProviderOptions<Profile = unknown> {
   providerId: string
   client: OAuthClient
   endpoints: OAuthEndpoints | (() => Promise<OAuthEndpoints>)
-  /** Redirect URI registered with the provider — must be exact match. */
+  /** Redirect URI registered with the provider - must be exact match. */
   redirectUri: string
   /** Secret used to sign the OAuth `state` parameter. */
   stateSigningSecret: string
@@ -62,7 +67,7 @@ export interface OAuthCompleteInput {
  * Generic OAuth provider. Specific provider modules (google, github)
  * pre-fill endpoints + scopes + fetchProfile and re-export.
  *
- * Refresh-token reuse detection is documented at DESIGN §4; the
+ * Refresh-token reuse detection is documented at DESIGN section 4; the
  * persistence half lives in the credentials store under
  * `kind: 'oauth'` + `metadata.familyId / generation / replayedAt`.
  * v0.2 wires the auto-detect-on-refresh flow into FlowsFacet; for v0.1

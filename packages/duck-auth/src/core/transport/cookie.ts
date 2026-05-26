@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
 import type { Transport } from '../types/transport'
@@ -19,8 +24,8 @@ export interface CookieTransportConfig {
 }
 
 /**
- * Cookie transport — opaque session ID in an HttpOnly cookie. Default for web apps.
- * Verify is unset → caller must call Session.IStore.getByHash() to resolve.
+ * Cookie transport - opaque session ID in an HttpOnly cookie. Default for web apps.
+ * Verify is unset -> caller must call Session.IStore.getByHash() to resolve.
  */
 export class CookieTransport implements Transport.ITransport {
   private readonly _name: string
@@ -77,7 +82,7 @@ export class CookieTransport implements Transport.ITransport {
 }
 
 function parseCookie(header: string, name: string): string | null {
-  // Permissive parser; matches `name=value; …`. Production swap to a hardened
+  // Permissive parser; matches `name=value; ...`. Production swap to a hardened
   // implementation if the request might contain RFC-edge cases.
   const pairs = header.split(';')
   for (const raw of pairs) {

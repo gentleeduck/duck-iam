@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { Provider } from './provider'
 import type { Session } from './session'
 
@@ -28,17 +33,17 @@ export namespace Transport {
     extract(req: { headers: Headers }): string | null
     /**
      * Build a response Intent that persists the bearer for subsequent requests.
-     * `sid` is the **plaintext** session identifier — the value the client will
+     * `sid` is the **plaintext** session identifier - the value the client will
      * send back on subsequent requests. `session` carries the row metadata
      * (`session.id` is the hashed row key; never put it on the wire).
-     * Cookie transport → setCookie intent. JWT transport → setCookie (refresh)
+     * Cookie transport -> setCookie intent. JWT transport -> setCookie (refresh)
      * + json (access token); the access token is derived from `session`.
      */
     issue(sid: string, session: Session.ISession, opts: IssueOpts): Provider.Intent[]
     /** Build a response Intent that revokes any persisted bearer. */
     revoke(): Provider.Intent[]
     /**
-     * Optional verify step — JWT transports verify locally and reconstruct Session
+     * Optional verify step - JWT transports verify locally and reconstruct Session
      * without a store hit; opaque transports return null and rely on Session.IStore lookup.
      */
     verify?(token: string): Promise<Session.ISession | null>

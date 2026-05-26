@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { AuthErrorObject } from '../errors'
 import type { TenantContext } from '../types/context'
 import type { Credential } from '../types/credential'
@@ -21,7 +26,7 @@ export interface ExportBlob<Profile> {
 }
 
 /**
- * Identities facet — CRUD + linking + merging + GDPR primitives.
+ * Identities facet - CRUD + linking + merging + GDPR primitives.
  * Optimistic locking discipline: every write that mutates `Identity` flows
  * through `update(expectedVersion)`; callers that pass a stale version see
  * `AUTH/STALE_WRITE` and decide retry/surface.
@@ -100,7 +105,7 @@ export class IdentitiesFacet<Profile = unknown> {
   async unlink(identityId: string, providerId: string, ctx: TenantContext = {}): Promise<void> {
     const cur = await this._store.findById(identityId, ctx)
     if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
-    // Don't allow unlinking the last credential surface — leaves account inaccessible.
+    // Don't allow unlinking the last credential surface - leaves account inaccessible.
     if (cur.providers.length <= 1) {
       throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
         providerId,

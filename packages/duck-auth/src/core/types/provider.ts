@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { TenantContext } from './context'
 import type { Credential } from './credential'
 import type { Identity } from './identity'
@@ -11,7 +16,7 @@ import type { Transport } from './transport'
  * actual HTTP Request/Response. This keeps providers HTTP-free and unit-testable.
  */
 export namespace Provider {
-  /** Cookie options surface for setCookie intents — duplicated here to avoid Transport-side cycles. */
+  /** Cookie options surface for setCookie intents - duplicated here to avoid Transport-side cycles. */
   export interface CookieOptions extends Transport.CookieOptions {}
 
   /** Anything a provider can ask the framework adapter to do. */
@@ -36,7 +41,7 @@ export namespace Provider {
     timingSafeEqual(a: string, b: string): boolean
   }
 
-  /** Events surface — providers emit via the bus, never directly to console. */
+  /** Events surface - providers emit via the bus, never directly to console. */
   export interface IEvents {
     emit(event: string, payload: unknown): Promise<void>
   }

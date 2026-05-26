@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { Limiter } from '../../core/types/limiter'
 
 export interface MemoryLimiterConfig {

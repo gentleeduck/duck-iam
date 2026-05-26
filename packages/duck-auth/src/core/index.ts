@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 export { AuthRoot, type AuthRootConfig } from './auth'
 export { randomToken, sha256, timingSafeEqual } from './crypto'
 export { type AuthError, type AuthErrorCode, AuthErrorObject } from './errors'

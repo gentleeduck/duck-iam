@@ -55,7 +55,7 @@ describe('SessionsFacet', () => {
     })
   })
 
-  describe('rotateOrCreate() — DESIGN §37 rotation matrix', () => {
+  describe('rotateOrCreate() - DESIGN section 37 rotation matrix', () => {
     it('signin purpose revokes the previous SID', async () => {
       const { sid: guestSid } = await facet.createGuest()
       const handler = vi.fn()

@@ -14,7 +14,7 @@ interface MyProfile {
   name?: string
 }
 
-describe('OAuth core — PKCE + state', () => {
+describe('OAuth core - PKCE + state', () => {
   it('generatePkce produces an S256 challenge derived from the verifier', () => {
     const { verifier, challenge, method } = generatePkce()
     expect(method).toBe('S256')
@@ -78,7 +78,7 @@ describe('OAuthClient.buildAuthorizeUrl', () => {
   })
 })
 
-describe('oauthProvider — generic end-to-end (mocked IdP)', () => {
+describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
   function buildAuth(fakeIdp: typeof globalThis.fetch) {
     const adapter = new MemoryAuthAdapter<MyProfile>()
     const auth = new AuthRoot<MyProfile>({

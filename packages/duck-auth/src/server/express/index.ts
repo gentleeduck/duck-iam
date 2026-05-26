@@ -1,9 +1,14 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { AuthRoot } from '../../core/auth'
 import { AuthErrorObject } from '../../core/errors'
 import type { Provider } from '../../core/types/provider'
 
 /**
- * Express request shape — minimal duck-typed subset to avoid pulling the
+ * Express request shape - minimal duck-typed subset to avoid pulling the
  * Express type-graph into duck-auth. Apps providing their own type narrowing
  * to `Express.Request` / `Express.Response` get full inference at the call site.
  */
@@ -116,7 +121,7 @@ function serializeCookie(
   return parts.join('; ')
 }
 
-/** POST /auth/signin — `{ providerId, input }` body. */
+/** POST /auth/signin - `{ providerId, input }` body. */
 export function mountSignIn(auth: AuthRoot): Handler {
   return async (req, res) => {
     try {
@@ -133,7 +138,7 @@ export function mountSignIn(auth: AuthRoot): Handler {
   }
 }
 
-/** POST /auth/signout — reads the SID from the transport. */
+/** POST /auth/signout - reads the SID from the transport. */
 export function mountSignOut(auth: AuthRoot): Handler {
   return async (req, res) => {
     try {
@@ -150,7 +155,7 @@ export function mountSignOut(auth: AuthRoot): Handler {
   }
 }
 
-/** POST /auth/providers/:id/begin — driver for two-step flows (magic-link, oauth begin, etc.). */
+/** POST /auth/providers/:id/begin - driver for two-step flows (magic-link, oauth begin, etc.). */
 export function mountProviderBegin(auth: AuthRoot): Handler {
   return async (req, res) => {
     try {
@@ -167,7 +172,7 @@ export function mountProviderBegin(auth: AuthRoot): Handler {
   }
 }
 
-/** GET /auth/session — returns the resolved session as JSON. */
+/** GET /auth/session - returns the resolved session as JSON. */
 export function mountSession(auth: AuthRoot): Handler {
   return async (req, res) => {
     try {
@@ -193,7 +198,7 @@ function handleError(err: unknown, res: ExpressLikeResponse): void {
 }
 
 function providerIdFromUrl(url: string, suffix: string): string | null {
-  // /auth/providers/<id>/<suffix> — trivial parser, no regex backtracking.
+  // /auth/providers/<id>/<suffix> - trivial parser, no regex backtracking.
   const path = url.split('?')[0] ?? ''
   const parts = path.split('/').filter(Boolean)
   // Expect ['auth', 'providers', '<id>', '<suffix>']

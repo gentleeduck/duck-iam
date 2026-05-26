@@ -4,7 +4,7 @@ import { InMemoryEvents } from '../../events'
 import { totpAt } from '../../mfa/totp'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
 
-describe('MfaFacet — TOTP', () => {
+describe('MfaFacet - TOTP', () => {
   let adapter: MemoryAuthAdapter
   let events: InMemoryEvents
   let facet: MfaFacet
@@ -95,7 +95,7 @@ describe('MfaFacet — TOTP', () => {
   })
 })
 
-describe('MfaFacet — backup codes', () => {
+describe('MfaFacet - backup codes', () => {
   let adapter: MemoryAuthAdapter
   let events: InMemoryEvents
   let facet: MfaFacet

@@ -73,7 +73,7 @@ describe('magic-link provider', () => {
       expect(creds[0]?.secret).not.toBe(extractToken(channel.sent[0]?.url ?? ''))
     })
 
-    it('unknown email + autoCreate=false → generic {ok:true} (no enumeration)', async () => {
+    it('unknown email + autoCreate=false -> generic {ok:true} (no enumeration)', async () => {
       const { auth, channel, adapter } = buildAuth({ autoCreate: false })
       const intents = await auth.flows.beginProvider('magic-link', { email: 'ghost@x.com' })
       expect(intents).toEqual([{ type: 'json', status: 200, body: { ok: true } }])
@@ -81,7 +81,7 @@ describe('magic-link provider', () => {
       expect(await adapter.identities.findByEmail('ghost@x.com', {})).toBeNull()
     })
 
-    it('unknown email + autoCreate=true → identity created, token sent', async () => {
+    it('unknown email + autoCreate=true -> identity created, token sent', async () => {
       const { auth, channel, adapter } = buildAuth({ autoCreate: true })
       await auth.flows.beginProvider('magic-link', { email: 'new@x.com' })
       expect(channel.sent).toHaveLength(1)

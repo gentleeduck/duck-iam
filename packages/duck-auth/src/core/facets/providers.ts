@@ -1,8 +1,13 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { AuthErrorObject } from '../errors'
 import type { Provider } from '../types/provider'
 
 /**
- * Providers facet — registry + dispatch. Holds the configured {@link Provider.IProvider}
+ * Providers facet - registry + dispatch. Holds the configured {@link Provider.IProvider}
  * list and routes `begin / complete` calls by id. Provider implementations are pure;
  * the framework adapter executes the Intent[] they return against the actual HTTP layer.
  */

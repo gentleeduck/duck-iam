@@ -1,8 +1,13 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { randomToken, sha256, timingSafeEqual } from './crypto'
 import { AuthErrorObject } from './errors'
 
 /**
- * CSRF protection — DESIGN §39.
+ * CSRF protection - DESIGN section 39.
  *
  * Defense-in-depth layered on top of `Origin` + `Sec-Fetch-Site` checks,
  * not the only line. Apps using Bearer transport + DPoP can disable the
@@ -28,8 +33,8 @@ export interface CsrfConfig {
   /** Header name the client puts the token on. Default `x-csrf-token`. */
   headerName?: string
   /**
-   * 'double-submit' — header + cookie + session-stored hash (default).
-   * 'origin-only'   — skip the token, rely on Origin/Sec-Fetch-Site only
+   * 'double-submit' - header + cookie + session-stored hash (default).
+   * 'origin-only'   - skip the token, rely on Origin/Sec-Fetch-Site only
    *                   (only safe for Bearer/DPoP transports with no ambient
    *                   credential).
    */
@@ -47,7 +52,7 @@ export const DEFAULT_CSRF_CONFIG: Required<Omit<CsrfConfig, 'allowedOrigins'>> &
   allowedOrigins: [],
 }
 
-/** Methods that don't mutate state — exempt from CSRF validation. */
+/** Methods that don't mutate state - exempt from CSRF validation. */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
 /** Generate a CSRF token + its hash (for session storage). */

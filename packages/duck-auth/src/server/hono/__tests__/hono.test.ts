@@ -64,7 +64,7 @@ function makeCtx(
   }
 }
 
-describe('Hono adapter — end-to-end', () => {
+describe('Hono adapter - end-to-end', () => {
   it('honoSignIn happy path returns 200 + Set-Cookie', async () => {
     const { auth } = buildAuth()
     const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })

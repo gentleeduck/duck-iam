@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { AuthErrorObject } from '../errors'
 import type { TenantContext } from '../types/context'
 import type { Credential } from '../types/credential'
@@ -31,7 +36,7 @@ const COMMON_PASSWORDS = new Set([
 ])
 
 /**
- * Passwords facet — credential CRUD + verify, with constant-time discipline.
+ * Passwords facet - credential CRUD + verify, with constant-time discipline.
  * Plaintext never leaves a method call; storage always goes through {@link Hasher.IHasher}.
  */
 export class PasswordsFacet {
@@ -73,7 +78,7 @@ export class PasswordsFacet {
   /**
    * Verify a password against the stored credential. Always runs the hasher
    * (even on missing credential) to keep timing constant across the
-   * exists/doesn't-exist branch — defeats user enumeration via timing.
+   * exists/doesn't-exist branch - defeats user enumeration via timing.
    *
    * Returns `{ ok: true, needsRehash }` when the password matches; `needsRehash`
    * is true if the stored hash was produced with weaker params than current.
@@ -85,7 +90,7 @@ export class PasswordsFacet {
   ): Promise<{ ok: true; needsRehash: boolean } | { ok: false }> {
     const rows = await this._credentials.listByIdentity(identityId, 'password', ctx)
     const row = rows.find((c) => !c.revokedAt) ?? null
-    // Reference hash for the no-credential branch — keeps timing constant.
+    // Reference hash for the no-credential branch - keeps timing constant.
     const reference = row?.secret ?? '$$reference$$'
     const ok = await this._hasher.verify(plaintext, reference)
     if (!row || !ok) return { ok: false }

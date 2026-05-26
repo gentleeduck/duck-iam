@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { Provider } from '../../../core/types/provider'
 import { OAuthClient, type OAuthEndpoints } from '../core/client'
 import {

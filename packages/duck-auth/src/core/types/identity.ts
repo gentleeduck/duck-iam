@@ -1,7 +1,12 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { TenantContext } from './context'
 
 /**
- * Stable identity record. Opaque to the auth core — application-specific shape
+ * Stable identity record. Opaque to the auth core - application-specific shape
  * carried in `profile`. The iam-auth-bridge projects this into Subject for
  * iam evaluation; non-iam apps leave the bridge unwired and pay zero coupling.
  */

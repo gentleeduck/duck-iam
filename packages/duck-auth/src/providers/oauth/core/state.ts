@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { randomToken } from '../../../core/crypto'
 
@@ -13,7 +18,7 @@ import { randomToken } from '../../../core/crypto'
 export interface StatePayload {
   /** Random nonce; one-time use. */
   nonce: string
-  /** PKCE verifier — secret. Never leaves the server. */
+  /** PKCE verifier - secret. Never leaves the server. */
   verifier: string
   /** Provider id; library refuses if it doesn't match the callback path. */
   providerId: string

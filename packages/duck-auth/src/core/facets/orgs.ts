@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { AuthErrorObject } from '../errors'
 import type { TenantContext } from '../types/context'
 import type { Events } from '../types/events'
@@ -9,7 +14,7 @@ import type { Org } from '../types/org'
  * tree-shakes to zero references.
  *
  * Iam pairing: each membership carries org-scoped roles distinct from
- * tenant-wide identity roles. Apps that pair iam project an identity ×
+ * tenant-wide identity roles. Apps that pair iam project an identity x
  * org pair into a Subject whose `roles` come from `Membership.roles`.
  * The library exposes the contract; the projection lives in app code.
  */
@@ -35,7 +40,7 @@ export class OrgsFacet<OrgMeta = unknown> {
   }
 
   /**
-   * Add a member with starting roles. Idempotent in spirit — adding the same
+   * Add a member with starting roles. Idempotent in spirit - adding the same
    * identity to the same org twice is allowed if the previous membership
    * has been marked `leftAt`. Otherwise surfaces a generic provider error.
    */

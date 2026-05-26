@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { randomToken, sha256, timingSafeEqual } from './crypto'
 import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
@@ -62,8 +67,8 @@ export interface AuthRootConfig<Profile = unknown, Tenant = string, OrgMeta = un
 }
 
 /**
- * Faceted authentication root. Composition surface only — every operation
- * lives on a facet (sessions, identities, providers, mfa, flows, …).
+ * Faceted authentication root. Composition surface only - every operation
+ * lives on a facet (sessions, identities, providers, mfa, flows, ...).
  * Facets are added one at a time as features land.
  */
 export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
@@ -168,14 +173,14 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     return resolveBySid(token, this.config.stores.sessions, this.config.stores.identities, {})
   }
 
-  /** Install a plugin atomically (providers + events + facets). DESIGN §10. */
+  /** Install a plugin atomically (providers + events + facets). DESIGN section 10. */
   async use(plugin: AuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
     await this.plugins.install(this as unknown as AuthRoot, plugin as AuthPlugin)
   }
 
   /**
    * Boot-time strict validation. Throws `AUTH/MISCONFIGURED` if any
-   * production footgun is detected. DESIGN §11.
+   * production footgun is detected. DESIGN section 11.
    *
    * Checks (production only):
    *  - Limiter wired (no NoopLimiter)
@@ -183,12 +188,12 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
    *  - Memory adapter rejected (use redis/drizzle/prisma in prod)
    *  - At least one provider registered
    *  - When passwords provider registered, hasher must NOT be the default
-   *    scrypt (compliance presets need Argon2id — emit warning in v0.1
+   *    scrypt (compliance presets need Argon2id - emit warning in v0.1
    *    until Argon2 hasher ships; non-blocking yet)
    *  - Mailer required when magic-link / password-reset capabilities exist
    *    (caller decides based on registered providers; library can't see
    *    the channel registry from here, so this is documented for future
-   *    composition with `auth.channels` facet — v0.2)
+   *    composition with `auth.channels` facet - v0.2)
    *  - At least one `lockout` event handler subscribed
    */
   strict(opts: { env: 'development' | 'production' | 'test' }): void {
@@ -203,7 +208,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     // Memory adapter heuristic: identifier in name.
     const adapterName = this.config.stores.identities.constructor.name
     if (adapterName === 'Object' || /Memory/i.test(adapterName)) {
-      // Object shape (built by MemoryAuthAdapter) ⇒ memory adapter
+      // Object shape (built by MemoryAuthAdapter) => memory adapter
       errors.push('Memory adapter rejected in production; use redis/drizzle/prisma')
     }
 
@@ -224,7 +229,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       errors.push('no provider registered; users cannot sign in')
     }
 
-    // `lockout` listener — required so operators are notified on brute-force lockouts.
+    // `lockout` listener - required so operators are notified on brute-force lockouts.
     // The InMemoryEvents impl exposes _handlers; safer alt is a public `hasListener` API,
     // landing in v0.2. For now, soft-check via the InMemoryEvents-specific shape.
     const eventsAsInternal = this.events as unknown as {
@@ -256,7 +261,7 @@ export const __hashSid = sha256
 
 /**
  * No-op limiter used when no Limiter adapter is configured. Always allows.
- * `strict({ env: 'production' })` rejects this — production must supply a real
+ * `strict({ env: 'production' })` rejects this - production must supply a real
  * Limiter (redis/upstash) for brute-force protection.
  */
 export class NoopLimiter implements LimiterNs.ILimiter {

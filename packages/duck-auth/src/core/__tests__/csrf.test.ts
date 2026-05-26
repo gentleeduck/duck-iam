@@ -21,7 +21,7 @@ describe('CSRF', () => {
     })
   })
 
-  describe('verifyCsrf — safe methods + bearer exemption', () => {
+  describe('verifyCsrf - safe methods + bearer exemption', () => {
     it.each(['GET', 'HEAD', 'OPTIONS', 'TRACE'])('exempts %s', (method) => {
       expect(() =>
         verifyCsrf({
@@ -42,7 +42,7 @@ describe('CSRF', () => {
     })
   })
 
-  describe('verifyCsrf — Sec-Fetch-Site layer', () => {
+  describe('verifyCsrf - Sec-Fetch-Site layer', () => {
     it('rejects cross-site requests', () => {
       expect(() =>
         verifyCsrf({
@@ -80,7 +80,7 @@ describe('CSRF', () => {
     })
   })
 
-  describe('verifyCsrf — allowedOrigins layer', () => {
+  describe('verifyCsrf - allowedOrigins layer', () => {
     it('rejects when Origin not in allowedOrigins', () => {
       const t = issueCsrfToken()
       expect(() =>
@@ -112,7 +112,7 @@ describe('CSRF', () => {
     })
   })
 
-  describe('verifyCsrf — double-submit token', () => {
+  describe('verifyCsrf - double-submit token', () => {
     it('rejects when X-CSRF-Token header missing', () => {
       const t = issueCsrfToken()
       expect(() =>
@@ -156,7 +156,7 @@ describe('CSRF', () => {
     })
   })
 
-  describe('verifyCsrf — origin-only mode', () => {
+  describe('verifyCsrf - origin-only mode', () => {
     it('skips token validation when mode=origin-only', () => {
       expect(() =>
         verifyCsrf({

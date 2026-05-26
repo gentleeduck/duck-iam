@@ -38,7 +38,7 @@ export interface SignInOutcome {
 }
 
 /**
- * Flows facet — high-level orchestrations on top of sessions/identities/providers.
+ * Flows facet - high-level orchestrations on top of sessions/identities/providers.
  * The single responsibility is wiring: providers return Intents, flows interpret
  * the lifecycle-affecting ones (startSession / requireMfa), the rest are passed
  * straight through to the framework adapter for HTTP execution.
@@ -48,7 +48,7 @@ export interface StepUpRequirement {
   aal?: Session.AAL
   /** Methods that satisfy the requirement (any-of). Default ['totp']. */
   methods?: Session.FactorMethod[]
-  /** Recency window in ms — re-auth required if last factor older than this. */
+  /** Recency window in ms - re-auth required if last factor older than this. */
   freshness?: number
 }
 
@@ -69,6 +69,63 @@ export interface PasswordResetRequestInput {
 export interface PasswordResetCompleteInput {
   token: string
   newPassword: string
+}
+
+// --- Signup state machine (DESIGN section 34) -------------------------------------
+
+export type SignUpStage =
+  | 'email-collected'
+  | 'email-verified'
+  | 'profile-completed'
+  | 'mfa-enrolled'
+  | 'terms-accepted'
+  | 'completed'
+
+/**
+ * Stateful signup-flow row persisted under credentials with kind='recovery'.
+ * Generic `Profile` matches the AuthRoot's `Profile`; the FlowsFacet's class
+ * generic flows through so consumers never need a cast at the call site.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface SignUpFlowState<Profile = unknown> {
+  /** Opaque flow id; surfaced to the framework adapter to put on a __Host-duck-signup cookie. */
+  id: string
+  /** Identity row created at email-collected stage (profile.emailVerified=false until verifyEmail). */
+  identityId: string
+  /** Required stages (ordered); apps configure per signup type (passkey-only, B2B, etc.). */
+  required: SignUpStage[]
+  /** Stages the user has already completed; library guarantees idempotent appends. */
+  completed: SignUpStage[]
+  /** Accumulated profile across stages; merged into Identity.profile at complete(). */
+  data: Partial<Profile>
+  /** Sliding TTL (default 30 min). */
+  expiresAt: number
+  /** Hard cap (default 24 h); cannot be slid past. */
+  absoluteExpiresAt: number
+  /** Wall-clock created time, ms. */
+  createdAt: number
+}
+
+// --- Impersonation (DESIGN section 38) -------------------------------------------
+
+export interface ImpersonateOptions {
+  /** Caller's session id (the real subject). */
+  realSid: string
+  /** Identity being impersonated. */
+  targetIdentityId: string
+  /** Human-readable reason; audit-logged via `identity.impersonated` event. */
+  reason: string
+  /** TTL cap; default 1 hour, cannot exceed 1 hour even if overridden. */
+  ttlMs?: number
+  tenantId?: string
+}
+
+export interface ImpersonateOutcome {
+  session: Session.ISession
+  /** Plaintext SID for the new actingAs session (separate from real session). */
+  sid: string
+  intents: Provider.Intent[]
 }
 
 export class FlowsFacet<Profile = unknown> {
@@ -165,7 +222,7 @@ export class FlowsFacet<Profile = unknown> {
     return { intents: this._transport.revoke() }
   }
 
-  // --- Step-up flow (DESIGN §6) -----------------------------------------
+  // --- Step-up flow (DESIGN section 6) -----------------------------------------
 
   /**
    * Check whether the current session satisfies a step-up requirement.
@@ -232,7 +289,7 @@ export class FlowsFacet<Profile = unknown> {
     return { session, sid, intents }
   }
 
-  // --- Password reset (DESIGN §33.1) ------------------------------------
+  // --- Password reset (DESIGN section 33.1) ------------------------------------
 
   /**
    * Request a password reset. Always responds successfully (no enumeration);
@@ -241,7 +298,7 @@ export class FlowsFacet<Profile = unknown> {
    *
    * `channels` and `findIdentityByEmail` are passed in because the recovery
    * flow doesn't know which app-side wiring drives email lookup or message
-   * delivery — depending on a magic-link provider would couple this facet to
+   * delivery - depending on a magic-link provider would couple this facet to
    * one provider's options.
    */
   async requestPasswordReset(opts: {
@@ -313,7 +370,7 @@ export class FlowsFacet<Profile = unknown> {
    * Complete a password reset by verifying the single-use token, setting
    * the new password, and revoking every other session for the identity.
    * If MFA is enrolled, callers must satisfy a step-up *before* hitting this
-   * endpoint — the library refuses to swap passwords for accounts with MFA
+   * endpoint - the library refuses to swap passwords for accounts with MFA
    * unless a fresh AAL=2 session is passed via `currentSid`.
    */
   async completePasswordReset(
@@ -350,5 +407,250 @@ export class FlowsFacet<Profile = unknown> {
     await this._sessions.revokeAllForIdentity(row.identityId)
     await this._events.emit('recovery.password.completed', { identityId: row.identityId })
     return { ok: true }
+  }
+
+  // --- Signup state machine (DESIGN section 34) -----------------------------
+
+  /**
+   * Begin a multi-step signup. Creates the identity with
+   * `profile.emailVerified=false` and returns a flow handle the caller
+   * persists (cookie); each subsequent stage advances the handle until
+   * `complete()` issues the session.
+   *
+   * Flows persist their state in the credentials store under
+   * `kind: 'recovery'` + `metadata.kind: 'signup-flow'` so the existing
+   * findByHashedSecret / expiresAt machinery applies for free.
+   */
+  async beginSignUp(opts: {
+    email: string
+    required?: SignUpStage[]
+    initialProfile?: Partial<Profile>
+    tenantId?: string
+  }): Promise<{ flow: SignUpFlowState<Profile>; flowToken: string }> {
+    const ctx = this._ctxFactory(opts.tenantId)
+    const now = Date.now()
+    const required = opts.required ?? ['email-verified', 'terms-accepted']
+
+    // The caller-supplied initialProfile must include any fields they consider
+    // required on Profile. We layer the email + emailVerified flag on top.
+    type EmailShape = { email: string; emailVerified: boolean }
+    const profile = {
+      ...(opts.initialProfile ?? ({} as Partial<Profile>)),
+      email: opts.email,
+      emailVerified: false,
+    } as Partial<Profile> & EmailShape
+
+    const created = await ctx.stores.identities.create(
+      {
+        profile: profile as Profile,
+        providers: [],
+        ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
+      },
+      ctx.tenant,
+    )
+
+    const flowToken = ctx.crypto.randomToken(32)
+    const flowTokenHash = ctx.crypto.sha256(flowToken)
+    const flow: SignUpFlowState<Profile> = {
+      id: ctx.crypto.randomToken(8),
+      identityId: created.id,
+      required,
+      completed: ['email-collected'],
+      data: { ...(opts.initialProfile ?? ({} as Partial<Profile>)), email: opts.email } as Partial<Profile> &
+        Pick<EmailShape, 'email'>,
+      expiresAt: now + 30 * 60_000,
+      absoluteExpiresAt: now + 24 * 60 * 60_000,
+      createdAt: now,
+    }
+    await ctx.stores.credentials.upsert(
+      {
+        identityId: created.id,
+        kind: 'recovery',
+        secret: flowTokenHash,
+        metadata: { kind: 'signup-flow', flow },
+        expiresAt: flow.absoluteExpiresAt,
+      },
+      ctx.tenant,
+    )
+    return { flow, flowToken }
+  }
+
+  /** Read the current signup flow state from its plaintext token. */
+  async getSignUpFlow(flowToken: string, tenantId?: string): Promise<SignUpFlowState<Profile> | null> {
+    const ctx = this._ctxFactory(tenantId)
+    const hash = ctx.crypto.sha256(flowToken)
+    const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+    if (!row || row.revokedAt) return null
+    const now = Date.now()
+    if (row.expiresAt !== undefined && row.expiresAt < now) {
+      await ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
+      return null
+    }
+    const meta = row.metadata as { kind?: string; flow?: SignUpFlowState<Profile> } | undefined
+    if (meta?.kind !== 'signup-flow' || !meta.flow) return null
+    return meta.flow
+  }
+
+  /** Advance the flow with new profile data; bumps the completed stage list. */
+  async advanceSignUp(opts: {
+    flowToken: string
+    stage: SignUpStage
+    profilePatch?: Partial<Profile>
+    tenantId?: string
+  }): Promise<SignUpFlowState<Profile>> {
+    const ctx = this._ctxFactory(opts.tenantId)
+    const hash = ctx.crypto.sha256(opts.flowToken)
+    const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+    if (!row || row.revokedAt) throw new AuthErrorObject('AUTH/SIGNUP_TOKEN_INVALID')
+    const meta = row.metadata as { kind?: string; flow?: SignUpFlowState<Profile> } | undefined
+    if (meta?.kind !== 'signup-flow' || !meta.flow) {
+      throw new AuthErrorObject('AUTH/SIGNUP_TOKEN_INVALID')
+    }
+    const flow = meta.flow
+    const next: SignUpFlowState<Profile> = {
+      ...flow,
+      completed: flow.completed.includes(opts.stage) ? flow.completed : [...flow.completed, opts.stage],
+      data: opts.profilePatch ? { ...flow.data, ...opts.profilePatch } : flow.data,
+      expiresAt: Math.min(flow.absoluteExpiresAt, Date.now() + 30 * 60_000),
+    }
+    // Revoke the existing row so findByHashedSecret returns the new one next time.
+    await ctx.stores.credentials.revoke(row.id, ctx.tenant)
+    await ctx.stores.credentials.upsert(
+      {
+        identityId: flow.identityId,
+        kind: 'recovery',
+        secret: hash,
+        metadata: { kind: 'signup-flow', flow: next },
+        expiresAt: flow.absoluteExpiresAt,
+      },
+      ctx.tenant,
+    )
+    return next
+  }
+
+  /**
+   * Finalise the signup. Validates that every required stage is in
+   * `completed`; merges the accumulated profile into the identity; revokes
+   * the flow credential; issues a fresh session.
+   */
+  async completeSignUp(opts: {
+    flowToken: string
+    aal?: Session.AAL
+    factors?: Session.Factor[]
+    tenantId?: string
+    ip?: string
+    userAgent?: string
+  }): Promise<SignInOutcome> {
+    const ctx = this._ctxFactory(opts.tenantId)
+    const hash = ctx.crypto.sha256(opts.flowToken)
+    const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+    if (!row || row.revokedAt) throw new AuthErrorObject('AUTH/SIGNUP_TOKEN_INVALID')
+    const meta = row.metadata as { kind?: string; flow?: SignUpFlowState<Profile> } | undefined
+    if (meta?.kind !== 'signup-flow' || !meta.flow) {
+      throw new AuthErrorObject('AUTH/SIGNUP_TOKEN_INVALID')
+    }
+    const flow = meta.flow
+    const missing = flow.required.filter((stage) => !flow.completed.includes(stage))
+    if (missing.length > 0) {
+      throw new AuthErrorObject('AUTH/SIGNUP_INCOMPLETE', { missing })
+    }
+
+    // Merge accumulated profile into identity row (version-bumped via update path).
+    const identity = await ctx.stores.identities.findById(flow.identityId, ctx.tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+    const mergedProfile = {
+      ...((identity.profile ?? {}) as Partial<Profile>),
+      ...flow.data,
+    } as Profile
+    await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version, ctx.tenant)
+    await ctx.stores.credentials.revoke(row.id, ctx.tenant)
+
+    const factors = opts.factors ?? [{ method: 'magic-link', completedAt: Date.now() }]
+    const aal = opts.aal ?? 1
+    const { session, sid } = await this._sessions.create({
+      identityId: flow.identityId,
+      kind: 'user',
+      aal,
+      factors,
+      ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
+      ...(opts.ip !== undefined && { ip: opts.ip }),
+      ...(opts.userAgent !== undefined && { userAgent: opts.userAgent }),
+    })
+    const intents = this._transport.issue(sid, session, { fresh: true, absolute: false })
+    return { session, sid, intents }
+  }
+
+  // --- Impersonation (DESIGN section 38) ------------------------------------
+
+  /**
+   * Start an impersonation. Library refuses to issue an actingAs session
+   * without first checking the caller's authorisation via the supplied
+   * `authorize` callback. iam consumers wire engine.authorize() here; non-
+   * iam apps supply their own predicate. NEVER pass `() => true` - that
+   * defeats audit and DESIGN section 38's invariant.
+   */
+  async impersonate(
+    opts: ImpersonateOptions & {
+      authorize: (realSession: Session.ISession, targetIdentityId: string) => Promise<boolean>
+    },
+  ): Promise<ImpersonateOutcome> {
+    if (opts.targetIdentityId === '') {
+      throw new AuthErrorObject('AUTH/IMPERSONATE_FORBIDDEN', { reason: 'empty target' })
+    }
+    const real = await this._sessions.getBySid(opts.realSid)
+    if (!real || !real.identityId) {
+      throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+    }
+    // Refuse self-impersonation - would mask the audit trail.
+    if (real.identityId === opts.targetIdentityId) {
+      throw new AuthErrorObject('AUTH/IMPERSONATE_FORBIDDEN', { reason: 'cannot impersonate self' })
+    }
+    const allowed = await opts.authorize(real, opts.targetIdentityId)
+    if (!allowed) {
+      throw new AuthErrorObject('AUTH/IMPERSONATE_FORBIDDEN', { reason: 'authorize() returned false' })
+    }
+
+    const ttlMs = Math.min(opts.ttlMs ?? 60 * 60_000, 60 * 60_000)
+    const now = Date.now()
+    const target = await this._identities.getById(
+      opts.targetIdentityId,
+      opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {},
+    )
+    if (!target) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    const { session, sid } = await this._sessions.rotateOrCreate({
+      purpose: 'impersonate-start',
+      previousSid: opts.realSid,
+      identityId: opts.targetIdentityId,
+      kind: 'user',
+      aal: real.aal,
+      factors: real.factors,
+      ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
+      actingAs: {
+        realIdentityId: real.identityId,
+        startedAt: now,
+        reason: opts.reason,
+        expiresAt: now + ttlMs,
+      },
+    })
+    await this._events.emit('identity.impersonated', {
+      realIdentityId: real.identityId,
+      targetIdentityId: opts.targetIdentityId,
+      reason: opts.reason,
+    })
+    const intents = this._transport.issue(sid, session, { fresh: true, absolute: false })
+    return { session, sid, intents }
+  }
+
+  /** End an impersonation; revoke the actingAs session, optionally restore the original SID. */
+  async releaseImpersonation(impersonationSid: string): Promise<{ intents: Provider.Intent[] }> {
+    const session = await this._sessions.getBySid(impersonationSid)
+    if (!session?.actingAs) {
+      throw new AuthErrorObject('AUTH/IMPERSONATE_EXPIRED')
+    }
+    await this._sessions.revoke(impersonationSid)
+    // Framework adapter restores the real-session cookie if it kept the reference;
+    // library cannot re-issue it because the plaintext sid lives in cookie space only.
+    return { intents: this._transport.revoke() }
   }
 }

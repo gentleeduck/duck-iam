@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { AuthRoot } from '../../core/auth'
 import { AuthErrorObject } from '../../core/errors'
 import { executeIntents } from '../generic'
@@ -92,7 +97,7 @@ export function nextProviderBegin(auth: AuthRoot, providerId: string): NextHandl
  * provider/flow handlers.
  *
  * Apps can also wire the individual nextSignIn / nextSignOut / etc. directly
- * — `mountNext` is an ergonomic helper.
+ * - `mountNext` is an ergonomic helper.
  */
 export function mountNext(
   auth: AuthRoot,

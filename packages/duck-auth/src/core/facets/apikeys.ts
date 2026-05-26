@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { AuthErrorObject } from '../errors'
 import type { TenantContext } from '../types/context'
 import type { Credential } from '../types/credential'
@@ -29,18 +34,18 @@ export interface ApiKey {
 export interface CreatedApiKey {
   /** API key record (no plaintext). */
   key: ApiKey
-  /** Plaintext token — returned ONCE; callers must surface to the user then drop. */
+  /** Plaintext token - returned ONCE; callers must surface to the user then drop. */
   plaintext: string
 }
 
 /**
- * API key facet — long-lived bearer tokens for service-to-service callers
- * that can't do mTLS. DESIGN §35.
+ * API key facet - long-lived bearer tokens for service-to-service callers
+ * that can't do mTLS. DESIGN section 35.
  *
  * Tokens are namespaced by prefix (`ak_live_` / `ak_test_`), scope-controlled
  * via iam policies (the scopes string set is projected into iam Subject
  * attributes by the bridge), and hashed at rest. Plaintext is returned
- * exactly once — at create — and never persisted.
+ * exactly once - at create - and never persisted.
  */
 export class ApiKeysFacet {
   constructor(

@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { AuthErrorObject } from '../../../core/errors'
 
 /**
@@ -8,7 +13,7 @@ import { AuthErrorObject } from '../../../core/errors'
 export interface OAuthEndpoints {
   authorizationEndpoint: string
   tokenEndpoint: string
-  /** OIDC userinfo (optional — providers often expose a profile endpoint instead). */
+  /** OIDC userinfo (optional - providers often expose a profile endpoint instead). */
   userinfoEndpoint?: string
   /** OIDC revocation (optional). */
   revocationEndpoint?: string

@@ -1,5 +1,10 @@
 /**
- * React client — hooks + provider wrapping the vanilla AuthClient. Keeps
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
+/**
+ * React client - hooks + provider wrapping the vanilla AuthClient. Keeps
  * React itself as a peerDep so the auth core has no React in its graph.
  *
  * @example
@@ -12,7 +17,7 @@
  *
  * function SignIn() {
  *   const signIn = useSignIn()
- *   return <button onClick={() => signIn.mutate({ providerId: 'password', input: { … } })}>...</button>
+ *   return <button onClick={() => signIn.mutate({ providerId: 'password', input: { ... } })}>...</button>
  * }
  * ```
  */

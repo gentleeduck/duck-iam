@@ -42,7 +42,7 @@ describe('generateSecret + buildOtpAuthUri', () => {
 
 describe('totpAt', () => {
   it('RFC 6238 SHA1 test vector at counter=1', () => {
-    // RFC 6238 test secret "12345678901234567890" → base32 = GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ
+    // RFC 6238 test secret "12345678901234567890" -> base32 = GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ
     const code = totpAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', 1)
     expect(code).toBe('287082')
   })

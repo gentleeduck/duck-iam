@@ -52,7 +52,7 @@ function tokenFrom(url: string): string {
   return new URL(url).searchParams.get('token') ?? ''
 }
 
-describe('FlowsFacet — step-up (DESIGN §6)', () => {
+describe('FlowsFacet - step-up (DESIGN section 6)', () => {
   it('checkStepUp returns satisfied:true for an AAL=2 fresh session', async () => {
     const { auth } = buildAuth()
     const { session } = await auth.sessions.create({
@@ -126,7 +126,7 @@ describe('FlowsFacet — step-up (DESIGN §6)', () => {
   })
 })
 
-describe('FlowsFacet — password reset (DESIGN §33.1)', () => {
+describe('FlowsFacet - password reset (DESIGN section 33.1)', () => {
   it('requestPasswordReset for unknown email returns ok (no enumeration)', async () => {
     const { auth, channel } = buildAuth()
     const r = await auth.flows.requestPasswordReset({
@@ -214,12 +214,12 @@ describe('FlowsFacet — password reset (DESIGN §33.1)', () => {
     })
     const token = tokenFrom(channel.sent[0]?.url ?? '')
 
-    // No currentSid → reset refused.
+    // No currentSid -> reset refused.
     await expect(auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })).rejects.toMatchObject({
       code: 'AUTH/RECOVERY_REQUIRES_MFA',
     })
 
-    // AAL=1 session → still refused.
+    // AAL=1 session -> still refused.
     const { sid: aal1Sid } = await auth.sessions.create({
       identityId: identity.id,
       kind: 'user',
@@ -230,7 +230,7 @@ describe('FlowsFacet — password reset (DESIGN §33.1)', () => {
       auth.flows.completePasswordReset({ token, newPassword: 'new-password-9', currentSid: aal1Sid }),
     ).rejects.toMatchObject({ code: 'AUTH/RECOVERY_REQUIRES_MFA' })
 
-    // Fresh AAL=2 session → reset allowed.
+    // Fresh AAL=2 session -> reset allowed.
     const { sid: aal2Sid } = await auth.sessions.create({
       identityId: identity.id,
       kind: 'user',

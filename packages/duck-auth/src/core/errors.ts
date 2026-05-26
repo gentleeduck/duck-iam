@@ -1,6 +1,11 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { Session } from './types/session'
 
-/** Stable error codes — DESIGN §40. Statuses fixed per code; never variable. */
+/** Stable error codes - DESIGN section 40. Statuses fixed per code; never variable. */
 export type AuthError =
   | { code: 'AUTH/UNAUTHENTICATED'; status: 401 }
   | { code: 'AUTH/SESSION_EXPIRED'; status: 401; expiredAt: number }
@@ -104,7 +109,7 @@ export class AuthErrorObject<C extends AuthErrorCode = AuthErrorCode> extends Er
     if (origin) this.origin = origin
   }
 
-  /** Wire-safe envelope for response bodies — never leaks `meta` keys flagged sensitive. */
+  /** Wire-safe envelope for response bodies - never leaks `meta` keys flagged sensitive. */
   toJSON(): { code: C; status: number } & Record<string, unknown> {
     return { code: this.code, status: this.status, ...this.meta }
   }

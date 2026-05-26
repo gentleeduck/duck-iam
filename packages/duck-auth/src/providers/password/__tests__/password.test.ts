@@ -36,7 +36,7 @@ function buildAuth(): {
   return { auth, adapter }
 }
 
-describe('password provider — end-to-end sign-in', () => {
+describe('password provider - end-to-end sign-in', () => {
   let auth: AuthRoot<MyProfile>
   let adapter: MemoryAuthAdapter<MyProfile>
 
@@ -44,7 +44,7 @@ describe('password provider — end-to-end sign-in', () => {
     ;({ auth, adapter } = buildAuth())
   })
 
-  it('full happy path: create identity → set password → sign in → cookie issued', async () => {
+  it('full happy path: create identity -> set password -> sign in -> cookie issued', async () => {
     const identity = await auth.identities.create({ profile: { email: 'alice@x.com' } })
     await auth.passwords.set(identity.id, 'correct-horse-battery')
 

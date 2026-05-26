@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { randomToken, sha256 } from '../crypto'
 import { AuthErrorObject } from '../errors'
 import type { TenantContext } from '../types/context'
@@ -28,7 +33,7 @@ export interface CreateSessionInput {
 
 export interface RotateOrCreateInput extends CreateSessionInput {
   /**
-   * DESIGN §37 rotation matrix. Drives whether the previous SID is revoked
+   * DESIGN section 37 rotation matrix. Drives whether the previous SID is revoked
    * outright, downgraded (step-up old-SID kept alive at lower AAL), or left
    * alone (impersonation start runs alongside the original session).
    */
@@ -51,9 +56,9 @@ export const DEFAULT_SESSION_CONFIG: SessionsFacetConfig = {
 }
 
 /**
- * Sessions facet — the only path that creates / rotates / revokes sessions.
+ * Sessions facet - the only path that creates / rotates / revokes sessions.
  * Every privilege-changing transition routes through {@link rotateOrCreate}
- * so the session-fixation discipline (DESIGN §37) lives in exactly one place.
+ * so the session-fixation discipline (DESIGN section 37) lives in exactly one place.
  *
  * Resolution is on `AuthRoot.resolveSession()` rather than here because the
  * Transport contract drives extraction; this facet owns lifecycle only.
@@ -70,7 +75,7 @@ export class SessionsFacet {
    *
    * Returns `{ session, sid }` where `session.id` is the **hashed** row key
    * (used internally + as the audit-log identifier) and `sid` is the
-   * **plaintext** session identifier — the value the caller passes to
+   * **plaintext** session identifier - the value the caller passes to
    * `Transport.issue()` to put on the wire. The plaintext sid never appears
    * on the persisted row; only its sha-256 hash does.
    */
@@ -102,7 +107,7 @@ export class SessionsFacet {
   }
 
   /**
-   * DESIGN §37 rotation matrix. Single code path for every transition that
+   * DESIGN section 37 rotation matrix. Single code path for every transition that
    * changes a session's identity, AAL, or privilege. The library asserts that
    * flow handlers always route through this method so fixation is structurally
    * impossible to forget.
@@ -124,7 +129,7 @@ export class SessionsFacet {
           })
           break
         case 'step-up': {
-          // Old SID is downgraded, not deleted — long-lived tabs keep working,
+          // Old SID is downgraded, not deleted - long-lived tabs keep working,
           // but at the prior AAL with fresh=false. Re-step-up is required for
           // privileged ops.
           const prev = await this._store.getByHash(prevHash)
@@ -210,7 +215,7 @@ export class SessionsFacet {
     return this._store.gc(Date.now())
   }
 
-  /** Create a guest session — no identity, AAL=1, kind='guest'. Promotable on signin. */
+  /** Create a guest session - no identity, AAL=1, kind='guest'. Promotable on signin. */
   async createGuest(
     opts: { tenantId?: string; ip?: string; userAgent?: string } = {},
   ): Promise<{ session: Session.ISession; sid: string }> {
@@ -249,7 +254,7 @@ export class SessionsFacet {
   }
 }
 
-/** Resolve a plaintext SID to (session, identity) — used by AuthRoot.resolveSession. */
+/** Resolve a plaintext SID to (session, identity) - used by AuthRoot.resolveSession. */
 export async function resolveBySid<Profile = unknown>(
   sid: string,
   sessions: Session.IStore,

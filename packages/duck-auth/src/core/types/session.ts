@@ -1,4 +1,9 @@
 /**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
+/**
  * Authenticated (or guest, or API-key) bearer of access. Issued by the configured
  * Transport; resolved on every authed request. AAL + factor model follows NIST 800-63B.
  */

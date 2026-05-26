@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { randomToken } from '../../core/crypto'
 import { AuthErrorObject } from '../../core/errors'
 import type { TenantContext } from '../../core/types/context'
@@ -7,7 +12,7 @@ import type { Org } from '../../core/types/org'
 import type { Session } from '../../core/types/session'
 
 /**
- * In-memory adapter — dev + test only. Production must use redis/drizzle/prisma.
+ * In-memory adapter - dev + test only. Production must use redis/drizzle/prisma.
  * Strict mode rejects this adapter when `env: 'production'`.
  *
  * Multi-tenant: tenantId filters every query so tests can verify isolation.
@@ -204,10 +209,21 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         return null
       },
       findByHashedSecret: async (secretHash, kind) => {
+        // Prefer the freshest LIVE row matching (kind, hash). If none live,
+        // fall back to the freshest revoked one so callers can distinguish
+        // AUTH/APIKEY_REVOKED from AUTH/APIKEY_INVALID. Live rows always win
+        // over revoked rows of the same (kind, hash).
+        let live: Credential.ICredential | null = null
+        let revoked: Credential.ICredential | null = null
         for (const c of store.values()) {
-          if (c.kind === kind && c.secret === secretHash) return c
+          if (c.kind !== kind || c.secret !== secretHash) continue
+          if (c.revokedAt) {
+            if (!revoked || c.createdAt > revoked.createdAt) revoked = c
+          } else {
+            if (!live || c.createdAt > live.createdAt) live = c
+          }
         }
-        return null
+        return live ?? revoked
       },
       upsert: async (input) => {
         const id = randomToken(16)

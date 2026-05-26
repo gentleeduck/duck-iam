@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { AuthRoot } from './auth'
 import type { Events } from './types/events'
 import type { Provider } from './types/provider'
@@ -6,7 +11,7 @@ import type { Provider } from './types/provider'
  * Plugin contract. Authors ship a plugin that may register providers,
  * subscribe events, and add custom facets onto `auth.plugins.<id>.*`.
  *
- * DESIGN §10. Plugins are first-class — installed via `auth.use(plugin)`
+ * DESIGN section 10. Plugins are first-class - installed via `auth.use(plugin)`
  * which wires their providers + events into the AuthRoot atomically.
  */
 export interface AuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknown> {

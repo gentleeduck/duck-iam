@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { randomToken, sha256 } from '../crypto'
 import type { Provider } from '../types/provider'
@@ -5,7 +10,7 @@ import type { Session } from '../types/session'
 import type { Transport } from '../types/transport'
 
 /**
- * JwtTransport — stateless transport for edge / serverless deployments.
+ * JwtTransport - stateless transport for edge / serverless deployments.
  * Verifies tokens locally via HMAC so resolveSession() avoids a store hit
  * on the hot path. v0.1 ships HS256 only (Node built-in); EdDSA / ES256 /
  * RS256 land in v0.2 via `jose` so JWKS + key rotation are first-class.
@@ -21,7 +26,7 @@ export interface JwtVerifyKey {
   kid: string
   /** HS256 secret (UTF-8 string). */
   key: string
-  /** Optional rotation cutoff — verify-only after this. */
+  /** Optional rotation cutoff - verify-only after this. */
   notAfter?: number
 }
 
@@ -52,7 +57,7 @@ const DEFAULT_REFRESH_COOKIE = '__Host-duck-refresh'
 interface JwtPayload {
   /** Issuer. */
   iss: string
-  /** Subject — identity id. */
+  /** Subject - identity id. */
   sub: string | null
   /** Audience (optional). */
   aud?: string
@@ -235,7 +240,7 @@ export class JwtTransport implements Transport.ITransport {
 
   /**
    * Helper to mint a JWKS-style document for clients that need to verify
-   * tokens out-of-band. v0.1 HS256 only — JWKS isn't applicable to
+   * tokens out-of-band. v0.1 HS256 only - JWKS isn't applicable to
    * symmetric keys; this returns an empty `{ keys: [] }` placeholder.
    * EdDSA / RS256 in v0.2 will populate this with public keys.
    */

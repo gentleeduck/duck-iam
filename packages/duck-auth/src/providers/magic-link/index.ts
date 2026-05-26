@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { AuthErrorObject } from '../../core/errors'
 import type { Channel } from '../../core/types/channel'
 import type { Provider } from '../../core/types/provider'
@@ -8,7 +13,7 @@ export interface MagicLinkProviderOptions<Profile = unknown> {
   /** Library uses this to find the identity given an email. */
   findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
   /**
-   * Optional auto-create — if no identity matches the email, create one on
+   * Optional auto-create - if no identity matches the email, create one on
    * link request. Default false (caller wires its own signup flow).
    */
   autoCreateIdentity?: boolean
@@ -32,15 +37,15 @@ export interface MagicLinkCompleteInput {
 }
 
 /**
- * Magic-link provider — passwordless. Two phases:
+ * Magic-link provider - passwordless. Two phases:
  *
- *   begin    {email} → rate-limit, find-or-(auto)create identity, mint a
+ *   begin    {email} -> rate-limit, find-or-(auto)create identity, mint a
  *                      single-use 32-byte token (hashed at rest), persist
  *                      as credential kind='magic-link' with expiresAt,
  *                      dispatch via the configured channel. Returns a
  *                      generic `{ok:true}` (no enumeration via response).
  *
- *   complete {token} → hash, findByHashedSecret('magic-link'), validate
+ *   complete {token} -> hash, findByHashedSecret('magic-link'), validate
  *                      expiry + non-revoked, REVOKE on use (single-use),
  *                      return startSession intent.
  */

@@ -1,10 +1,15 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { TenantContext } from './context'
 
 /**
  * Stored proof of an identity. One identity has N credentials; secrets are always
  * stored hashed (passwords, magic-link tokens, recovery codes) or as public-key
  * material (passkey/WebAuthn). OAuth refresh tokens stored hashed for reuse
- * detection (RFC 6749 §10.4); plaintext is never persisted.
+ * detection (RFC 6749 section 10.4); plaintext is never persisted.
  */
 export namespace Credential {
   export type Kind = 'password' | 'passkey' | 'oauth' | 'magic-link' | 'totp' | 'recovery' | 'api-key'

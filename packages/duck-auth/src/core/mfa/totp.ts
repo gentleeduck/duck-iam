@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 /**
@@ -95,7 +100,7 @@ export function buildOtpAuthUri(opts: {
 export function totpAt(secretB32: string, stepIndex: number, params: TotpParams = TOTP_DEFAULTS): string {
   const secret = base32Decode(secretB32)
   const buf = Buffer.alloc(8)
-  // RFC 4226 §5.3 — 8-byte big-endian counter.
+  // RFC 4226 section 5.3 - 8-byte big-endian counter.
   buf.writeBigUInt64BE(BigInt(stepIndex))
   const hmac = createHmac(params.algorithm, secret).update(buf).digest()
   const off = hmac[hmac.length - 1]! & 0x0f
@@ -130,7 +135,7 @@ export function verifyTotp(
   for (let d = -params.driftSteps; d <= params.driftSteps; d++) {
     candidates.push(totpAt(secretB32, currentStep + d, params))
   }
-  // Constant-time comparison across the whole window — never short-circuit.
+  // Constant-time comparison across the whole window - never short-circuit.
   let matched = false
   for (const candidate of candidates) {
     const a = Buffer.from(candidate)

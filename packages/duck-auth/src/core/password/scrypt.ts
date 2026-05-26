@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import type { Hasher } from '../types/hasher'
@@ -59,7 +64,7 @@ function parse(encoded: string): { N: number; r: number; p: number; salt: Buffer
 }
 
 /**
- * ScryptHasher — built into Node, zero deps. v0.1 default.
+ * ScryptHasher - built into Node, zero deps. v0.1 default.
  *
  * Trade-offs vs Argon2id:
  *  - scrypt does not have the memory-hard "lanes" parameter (no `p` analogue
@@ -84,7 +89,7 @@ export class ScryptHasher implements Hasher.IHasher {
       N: this._params.N,
       r: this._params.r,
       p: this._params.p,
-      maxmem: 256 * 1024 * 1024, // 256 MB ceiling — keeps headroom over N=2^17
+      maxmem: 256 * 1024 * 1024, // 256 MB ceiling - keeps headroom over N=2^17
     })
     return encode(this._params.N, this._params.r, this._params.p, salt, key)
   }

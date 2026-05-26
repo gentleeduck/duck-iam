@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import type { Identity } from '../../core/types/identity'
 import type { Session } from '../../core/types/session'
 
@@ -61,7 +66,7 @@ export function createAuthClient<Profile = unknown>(cfg: AuthClientConfig = {}):
   const baseUrl = (cfg.baseUrl ?? '/auth').replace(/\/$/, '')
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)
   if (!fetchImpl) {
-    throw new Error('@gentleduck/auth/client/vanilla: no fetch available — pass `fetch` via config')
+    throw new Error('@gentleduck/auth/client/vanilla: no fetch available - pass `fetch` via config')
   }
   const headers = { 'content-type': 'application/json', ...(cfg.headers ?? {}) }
   const observers = new Set<(state: SessionResult<Profile>) => void>()

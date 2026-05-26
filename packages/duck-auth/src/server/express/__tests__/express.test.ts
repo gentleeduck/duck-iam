@@ -133,7 +133,7 @@ describe('applyIntents', () => {
   })
 })
 
-describe('mounted handlers — end-to-end', () => {
+describe('mounted handlers - end-to-end', () => {
   it('mountSignIn happy path: cookie set, 200 body', async () => {
     const { auth } = buildAuth()
     const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })

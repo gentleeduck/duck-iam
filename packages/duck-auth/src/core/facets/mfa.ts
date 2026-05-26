@@ -1,3 +1,8 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
 import { sha256 } from '../crypto'
 import { AuthErrorObject } from '../errors'
 import { buildOtpAuthUri, generateSecret, verifyTotp } from '../mfa/totp'
@@ -33,7 +38,7 @@ export interface TotpEnrollChallenge {
  * Storage: TOTP secrets are persisted in the credentials store as
  * `kind: 'totp'`, base32 plaintext (low-sensitivity vs passwords because
  * a stolen TOTP secret still requires the user's phone to be online during
- * the attack window — and rotation is one-click). Backup codes are
+ * the attack window - and rotation is one-click). Backup codes are
  * persisted hashed as `kind: 'recovery'`, single-use.
  */
 export class MfaFacet {
@@ -132,7 +137,7 @@ export class MfaFacet {
 
   /**
    * Verify a backup code. Single-use; matching code is revoked atomically.
-   * Generic ok:boolean — callers map false to AUTH/INVALID_CREDENTIALS so
+   * Generic ok:boolean - callers map false to AUTH/INVALID_CREDENTIALS so
    * an attacker cannot infer "code exists but wrong" vs "code unknown".
    */
   async verifyBackupCode(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
@@ -200,7 +205,7 @@ export class MfaFacet {
     if (distinct.size === 0) return 1
     if (distinct.size === 1) return 1
     // Two or more distinct factors of any kind: AAL=2.
-    // (AAL=3 requires hardware-backed cryptographic auth — passkey-attested.
+    // (AAL=3 requires hardware-backed cryptographic auth - passkey-attested.
     //  Calculated by passkey enrollment metadata; future patch.)
     if (await this.hasTotp(identityId, ctx)) {
       return distinct.has('totp') ? 2 : 1
