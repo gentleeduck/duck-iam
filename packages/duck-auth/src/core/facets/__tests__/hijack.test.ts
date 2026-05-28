@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryEvents } from '../../events'
 import type { Session } from '../../types/session'
@@ -94,12 +89,32 @@ describe('HijackFacet', () => {
     expect(() => facet.applyReaction('ignore')).not.toThrow()
   })
 
-  it('does not emit suspicious when only one fingerprint side is known', async () => {
+  it('asymmetric drift (one side missing) still emits suspicious + downgrades to rotate', async () => {
     const handler = vi.fn()
     events.on('suspicious', handler)
+    const facet = new HijackFacet(events, { onIpChange: 'mfa' })
+    // Session has IP but request does not - asymmetric drift. The
+    // configured `'mfa'` reaction is downgraded to `'rotate'` so a
+    // request behind a UA-stripping proxy doesn't force MFA, but the
+    // audit pipeline still sees the drift.
+    const r = await facet.evaluate(makeSession(), { userAgent: 'Mozilla/5.0' })
+    expect(handler).toHaveBeenCalled()
+    if (r.ok) throw new Error('expected ok:false')
+    expect(r.reaction).toBe('rotate')
+  })
+
+  it('both IP and UA differ - strongest reaction wins, both suspicious events emit', async () => {
+    const handler = vi.fn()
+    events.on('suspicious', handler)
+    // Default: onIpChange='rotate', onUserAgentChange='mfa'. UA wins.
     const facet = new HijackFacet(events)
-    // Session has IP but request does not - cannot evaluate, no event
-    await facet.evaluate(makeSession(), { userAgent: 'Mozilla/5.0' })
-    expect(handler).not.toHaveBeenCalled()
+    const r = await facet.evaluate(makeSession({ ip: '1.1.1.1', userAgent: 'Mozilla/5.0' }), {
+      ip: '2.2.2.2',
+      userAgent: 'curl/8.0',
+    })
+    expect(handler).toHaveBeenCalledTimes(2)
+    if (r.ok) throw new Error('expected ok:false')
+    expect(r.reaction).toBe('mfa')
+    expect(r.signal).toBe('user-agent-change')
   })
 })

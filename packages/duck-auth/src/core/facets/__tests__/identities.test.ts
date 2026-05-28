@@ -35,9 +35,67 @@ describe('IdentitiesFacet', () => {
       const inB = await facet.getByEmail('shared@x.com', { tenantId: 'B' })
       expect(inB).toBeNull()
     })
+
+    it('rejects an oversize profile (storage / read amplification defense)', async () => {
+      // Default cap is 16 KiB; force-stuff a ~32 KiB string into a custom
+      // field. The cap check sees serialized JSON UTF-8 bytes.
+      const huge = 'x'.repeat(32 * 1024)
+      await expect(
+        // @ts-expect-error: extra field beyond MyProfile to exercise the byte-size cap.
+        facet.create({ profile: { email: 'a@x.com', big: huge } }),
+      ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    })
+
+    it('rejects a circular profile (JSON.stringify throws - fail-closed)', async () => {
+      const circular: Record<string, unknown> = { email: 'a@x.com' }
+      circular.self = circular
+      await expect(
+        // @ts-expect-error: deliberately wrong shape to test the JSON-serializable guard.
+        facet.create({ profile: circular }),
+      ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    })
+
+    it('honors an operator-supplied profileMaxBytes cap', async () => {
+      const tight = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
+        softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
+        profileMaxBytes: 32,
+      })
+      await expect(tight.create({ profile: { email: 'long-name-over-32-bytes@example.com' } })).rejects.toMatchObject({
+        code: 'AUTH/MISCONFIGURED',
+      })
+    })
+
+    it('an at-cap profile passes through', async () => {
+      const tight = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
+        softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
+        profileMaxBytes: 32,
+      })
+      // `{"email":"a@x.com"}` is 19 bytes - well within 32.
+      const i = await tight.create({ profile: { email: 'a@x.com' } })
+      expect(i.profile?.email).toBe('a@x.com')
+    })
+
+    it('opt-out (profileMaxBytes: 0) accepts a large profile', async () => {
+      const unbounded = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
+        softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
+        profileMaxBytes: 0,
+      })
+      const huge = 'x'.repeat(64 * 1024)
+      // @ts-expect-error: extra field beyond MyProfile.
+      const i = await unbounded.create({ profile: { email: 'a@x.com', big: huge } })
+      expect(i.profile?.email).toBe('a@x.com')
+    })
   })
 
   describe('updateProfile w/ optimistic locking', () => {
+    it('updateProfile rejects when merged profile exceeds cap', async () => {
+      const i = await facet.create({ profile: { email: 'a@x.com' } })
+      const huge = 'x'.repeat(32 * 1024)
+      await expect(facet.updateProfile(i.id, { name: huge }, i.version)).rejects.toMatchObject({
+        code: 'AUTH/MISCONFIGURED',
+      })
+    })
+
     it('happy path: returns new version', async () => {
       const i = await facet.create({ profile: { email: 'a@x.com' } })
       const updated = await facet.updateProfile(i.id, { name: 'Alice' }, i.version)
