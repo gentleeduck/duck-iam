@@ -1,16 +1,11 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
 import { InMemoryEvents } from '../../../core/events'
 import { MemoryLimiter } from '../../../limiters/memory'
-import type { PasskeyProviderOptions } from '../index'
+import type { PasskeyProvider } from '../index'
 import { beginPasskeyRegistration, completePasskeyRegistration, MemoryPasskeyChallengeStore, passkey } from '../index'
-import type { SimpleWebAuthnServerModule } from '../types'
+import type { PasskeyTypes } from '../types'
 
 interface ProfileShape {
   email: string
@@ -31,7 +26,7 @@ function makeContext(adapter: MemoryAuthAdapter<ProfileShape>) {
   }
 }
 
-function makeMockWebAuthn(): SimpleWebAuthnServerModule {
+function makeMockWebAuthn(): PasskeyTypes.ISimpleWebAuthnServerModule {
   return {
     generateRegistrationOptions: vi.fn(async (input) => ({
       challenge: 'reg-challenge-' + Math.random().toString(36).slice(2),
@@ -73,8 +68,8 @@ function makeMockWebAuthn(): SimpleWebAuthnServerModule {
 describe('passkey provider - registration', () => {
   let adapter: MemoryAuthAdapter<ProfileShape>
   let identityId: string
-  let opts: PasskeyProviderOptions
-  let mockWebauthn: SimpleWebAuthnServerModule
+  let opts: PasskeyProvider.IOptions
+  let mockWebauthn: PasskeyTypes.ISimpleWebAuthnServerModule
   let challengeStore: MemoryPasskeyChallengeStore
 
   beforeEach(async () => {
@@ -153,8 +148,8 @@ describe('passkey provider - registration', () => {
 describe('passkey provider - sign-in', () => {
   let adapter: MemoryAuthAdapter<ProfileShape>
   let identityId: string
-  let opts: PasskeyProviderOptions
-  let mockWebauthn: SimpleWebAuthnServerModule
+  let opts: PasskeyProvider.IOptions
+  let mockWebauthn: PasskeyTypes.ISimpleWebAuthnServerModule
   let challengeStore: MemoryPasskeyChallengeStore
 
   beforeEach(async () => {
@@ -270,6 +265,102 @@ describe('passkey provider - sign-in', () => {
     })
     await expect(provider.complete(makeContext(adapter), { sessionId: '', response: {} })).rejects.toMatchObject({
       code: 'AUTH/MISCONFIGURED',
+    })
+  })
+
+  it('complete rejects when email hint resolves to a different identity than the credential', async () => {
+    // Register a second identity + credential, then attempt to sign in with
+    // the second identity's email hint but the FIRST identity's credential.
+    const otherIdentity = await adapter.identities.create({ profile: { email: 'other@x.com' }, providers: [] }, {})
+    opts.findIdentityByEmail = async (email) => {
+      if (email === 'other@x.com') return { id: otherIdentity.id }
+      if (email === 'alice@x.com') return { id: identityId }
+      return null
+    }
+    const provider = passkey<ProfileShape>(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login-confusion' })
+    await expect(
+      provider.complete(makeContext(adapter), {
+        sessionId: 'login-confusion',
+        // Email of other-identity but credential of first identity.
+        email: 'other@x.com',
+        response: { id: 'webauthn-cred-1' },
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/PASSKEY_MISMATCH' })
+  })
+
+  it('complete rejects on counter rollback (newCounter <= stored)', async () => {
+    // Authenticator presents a counter of 0 against a stored counter of 5.
+    // Forcing a stored counter requires editing the credential row.
+    const creds = await adapter.credentials.listByIdentity(identityId, 'passkey', {})
+    const cred = creds[0]
+    if (!cred) throw new Error('expected credential')
+    ;(cred.metadata as { counter?: number }).counter = 5
+
+    mockWebauthn.verifyAuthenticationResponse = vi.fn(async () => ({
+      verified: true,
+      authenticationInfo: {
+        newCounter: 3, // regression vs stored=5
+        credentialID: 'webauthn-cred-1',
+        userVerified: true,
+      },
+    }))
+    const provider = passkey<ProfileShape>(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login-rollback' })
+    await expect(
+      provider.complete(makeContext(adapter), {
+        sessionId: 'login-rollback',
+        response: { id: 'webauthn-cred-1' },
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/PASSKEY_MISMATCH' })
+  })
+
+  it('complete rejects when response.userHandle does not match the credential identity', async () => {
+    mockWebauthn.verifyAuthenticationResponse = vi.fn(async () => ({
+      verified: true,
+      authenticationInfo: { newCounter: 0, credentialID: 'webauthn-cred-1', userVerified: true },
+    }))
+    const provider = passkey<ProfileShape>(opts)
+    await provider.begin(makeContext(adapter), { sessionId: 'login-handle' })
+    const bogusHandle = Buffer.from(new Uint8Array([9, 9, 9, 9])).toString('base64url')
+    await expect(
+      provider.complete(makeContext(adapter), {
+        sessionId: 'login-handle',
+        response: { id: 'webauthn-cred-1', response: { userHandle: bogusHandle } } as never,
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/PASSKEY_MISMATCH' })
+  })
+
+  describe('entry-point input caps (DoS defense)', () => {
+    it('begin refuses an oversize sessionId (>256 chars)', async () => {
+      const provider = passkey<ProfileShape>(opts)
+      await expect(provider.begin(makeContext(adapter), { sessionId: 'x'.repeat(257) })).rejects.toMatchObject({
+        code: 'AUTH/MISCONFIGURED',
+      })
+    })
+
+    it('begin refuses a non-string sessionId', async () => {
+      const provider = passkey<ProfileShape>(opts)
+      await expect(provider.begin(makeContext(adapter), { sessionId: 42 as unknown as string })).rejects.toMatchObject({
+        code: 'AUTH/MISCONFIGURED',
+      })
+    })
+
+    it('begin refuses an oversize email (>254 chars per RFC 5321)', async () => {
+      const provider = passkey<ProfileShape>(opts)
+      await expect(
+        provider.begin(makeContext(adapter), { sessionId: 's1', email: 'a'.repeat(255) }),
+      ).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
+    })
+
+    it('complete refuses an oversize sessionId', async () => {
+      const provider = passkey<ProfileShape>(opts)
+      await expect(
+        provider.complete(makeContext(adapter), {
+          sessionId: 'x'.repeat(257),
+          response: { id: 'webauthn-cred-1' } as never,
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
     })
   })
 })

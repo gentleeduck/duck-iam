@@ -1,38 +1,39 @@
 /**
- * @packageDocumentation
  * Discord OAuth 2.0 provider. Discord does not implement OIDC; the
  * provider hits `/users/@me` directly to derive sub + email + avatar.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
+import { AuthErrorObject } from '../../../core/errors'
 import type { Provider } from '../../../core/types/provider'
-import { OAuthClient, type OAuthEndpoints } from '../core/client'
-import { type OAuthBeginInput, type OAuthCompleteInput, type OAuthOptionsBase, oauthProvider } from '../core/provider'
+import { OAuthClient } from '../core/client'
+import { type OAuthProvider, oauthProvider } from '../core/provider'
+import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const DISCORD_ENDPOINTS: OAuthEndpoints = {
+const DISCORD_ENDPOINTS: OAuthClient.IEndpoints = {
   authorizationEndpoint: 'https://discord.com/oauth2/authorize',
   tokenEndpoint: 'https://discord.com/api/oauth2/token',
   userinfoEndpoint: 'https://discord.com/api/users/@me',
   revocationEndpoint: 'https://discord.com/api/oauth2/token/revoke',
 }
 
-/** Discord-specific options. */
-export interface DiscordOAuthOptions<Profile = unknown> extends OAuthOptionsBase<Profile> {
-  /** Default `['identify', 'email']`. */
-  scopes?: string[]
+/**
+ * Public surface for the Discord OAuth provider. Every type lives
+ * inside the namespace.
+ */
+export namespace DiscordOAuth {
+  /** Discord-specific options. */
+  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+    /** Default `['identify', 'email']`. */
+    scopes?: string[]
+  }
 }
 
 /**
- * Discord OAuth 2.0 provider factory. Maps the Discord `/users/@me`
- * response into the shared OAuthProfile shape; avatar is rebuilt from
- * `${id}/${avatar}.png` per the Discord CDN convention.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Discord OAuth 2.0 provider factory.
  */
 export function discord<Profile = unknown>(
-  opts: DiscordOAuthOptions<Profile>,
-): Provider.IProvider<OAuthBeginInput, OAuthCompleteInput, Profile> {
+  opts: DiscordOAuth.IOptions<Profile>,
+): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
   const client = new OAuthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
@@ -51,13 +52,16 @@ export function discord<Profile = unknown>(
       profileToIdentityProfile: opts.profileToIdentityProfile,
     }),
     async fetchProfile(tokens, c) {
-      const info = (await c.userinfo(tokens.access_token)) as {
-        id: string
-        username?: string
-        global_name?: string
-        email?: string
-        verified?: boolean
-        avatar?: string | null
+      const info = await c.userinfo(tokens.access_token)
+      // safe-extract instead of `as`. Discord
+      // user ids are stringified snowflakes; verify the shape rather
+      // than trust the cast.
+      const sub = getUserinfoString(info, 'id')
+      if (sub === undefined) {
+        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          providerId: 'discord',
+          detail: 'Discord userinfo missing id',
+        })
       }
       const out: {
         sub: string
@@ -65,25 +69,17 @@ export function discord<Profile = unknown>(
         emailVerified?: boolean
         name?: string
         avatarUrl?: string
-      } = { sub: info.id }
-      if (info.email !== undefined) out.email = info.email
-      if (info.verified !== undefined) out.emailVerified = info.verified
-      const displayName = info.global_name ?? info.username
+      } = { sub }
+      const email = getUserinfoString(info, 'email')
+      if (email !== undefined) out.email = email
+      if (getUserinfoBooleanTrue(info, 'verified')) out.emailVerified = true
+      const displayName = getUserinfoString(info, 'global_name') ?? getUserinfoString(info, 'username')
       if (displayName !== undefined) out.name = displayName
-      if (info.avatar) {
-        out.avatarUrl = `https://cdn.discordapp.com/avatars/${info.id}/${info.avatar}.png`
+      const avatar = getUserinfoString(info, 'avatar')
+      if (avatar !== undefined) {
+        out.avatarUrl = `https://cdn.discordapp.com/avatars/${sub}/${avatar}.png`
       }
       return out
     },
   })
-}
-
-/**
- * Namespace merge for `DiscordOAuth`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace DiscordOAuth {
-  /** Alias for `DiscordOAuthOptions`. */
-  export type IOptions = DiscordOAuthOptions
 }

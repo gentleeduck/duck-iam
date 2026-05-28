@@ -1,18 +1,14 @@
 /**
- * @packageDocumentation
  * Microsoft Entra ID (formerly Azure AD) OAuth 2.0 / OIDC provider.
- * The v2.0 multi-tenant endpoints support both personal Microsoft
- * accounts and work / school accounts; consumers narrow to single-
- * tenant via the `tenant` option.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
+import { AuthErrorObject } from '../../../core/errors'
 import type { Provider } from '../../../core/types/provider'
-import { OAuthClient, type OAuthEndpoints } from '../core/client'
-import { type OAuthBeginInput, type OAuthCompleteInput, type OAuthOptionsBase, oauthProvider } from '../core/provider'
+import { OAuthClient } from '../core/client'
+import { type OAuthProvider, oauthProvider } from '../core/provider'
+import { getUserinfoString } from '../core/userinfo'
 
-function endpointsFor(tenant: string): OAuthEndpoints {
+function endpointsFor(tenant: string): OAuthClient.IEndpoints {
   return {
     authorizationEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`,
     tokenEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
@@ -21,29 +17,27 @@ function endpointsFor(tenant: string): OAuthEndpoints {
 }
 
 /**
- * Microsoft Entra ID-specific options.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the Microsoft OAuth provider. Every type lives
+ * inside the namespace.
  */
-export interface MicrosoftOAuthOptions<Profile = unknown> extends OAuthOptionsBase<Profile> {
-  /**
-   * Tenant: `common` (any AAD tenant + personal accounts), `organizations`
-   * (any AAD tenant, no personal), `consumers` (personal only), or a
-   * specific tenant GUID. Default `common`.
-   */
-  tenant?: string
-  /** Default `['openid', 'profile', 'email', 'User.Read']`. */
-  scopes?: string[]
+export namespace MicrosoftOAuth {
+  /** Microsoft Entra ID-specific options. */
+  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+    /**
+     * Tenant: `common` (any AAD tenant + personal accounts),
+     * `organizations` (any AAD tenant), `consumers` (personal only),
+     * or a specific tenant GUID. Default `common`.
+     */
+    tenant?: string
+    /** Default `['openid', 'profile', 'email', 'User.Read']`. */
+    scopes?: string[]
+  }
 }
 
-/**
- * Microsoft Entra ID OIDC provider factory.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
+/** Microsoft Entra ID OIDC provider factory. */
 export function microsoft<Profile = unknown>(
-  opts: MicrosoftOAuthOptions<Profile>,
-): Provider.IProvider<OAuthBeginInput, OAuthCompleteInput, Profile> {
+  opts: MicrosoftOAuth.IOptions<Profile>,
+): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
   const tenant = opts.tenant ?? 'common'
   const endpoints = endpointsFor(tenant)
   const client = new OAuthClient({
@@ -64,11 +58,14 @@ export function microsoft<Profile = unknown>(
       profileToIdentityProfile: opts.profileToIdentityProfile,
     }),
     async fetchProfile(tokens, c) {
-      const info = (await c.userinfo(tokens.access_token)) as {
-        sub: string
-        email?: string
-        name?: string
-        picture?: string
+      const info = await c.userinfo(tokens.access_token)
+      // Safe-extract claims; email is org-verified for work/school accounts.
+      const sub = getUserinfoString(info, 'sub')
+      if (sub === undefined) {
+        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          providerId: 'microsoft',
+          detail: 'Microsoft userinfo missing sub',
+        })
       }
       const out: {
         sub: string
@@ -76,28 +73,17 @@ export function microsoft<Profile = unknown>(
         emailVerified?: boolean
         name?: string
         avatarUrl?: string
-      } = { sub: info.sub }
-      if (info.email !== undefined) {
-        out.email = info.email
-        // Entra ID userinfo does not return an email_verified claim;
-        // Microsoft only returns work / school / Microsoft-account
-        // emails post-tenant-config, all of which are pre-verified.
+      } = { sub }
+      const email = getUserinfoString(info, 'email')
+      if (email !== undefined) {
+        out.email = email
         out.emailVerified = true
       }
-      if (info.name !== undefined) out.name = info.name
-      if (info.picture !== undefined) out.avatarUrl = info.picture
+      const name = getUserinfoString(info, 'name')
+      if (name !== undefined) out.name = name
+      const picture = getUserinfoString(info, 'picture')
+      if (picture !== undefined) out.avatarUrl = picture
       return out
     },
   })
-}
-
-/**
- * Namespace merge for `MicrosoftOAuth`. Co-locates the flat option type
- * alongside the factory.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace MicrosoftOAuth {
-  /** Alias for `MicrosoftOAuthOptions`. */
-  export type IOptions = MicrosoftOAuthOptions
 }

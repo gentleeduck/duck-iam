@@ -1,43 +1,39 @@
 /**
- * @packageDocumentation
  * LinkedIn OAuth 2.0 / OIDC provider. Uses the v2 userinfo endpoint
  * (OpenID Connect on LinkedIn) so callers do not need the legacy v1
  * profile + email API calls.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
+import { AuthErrorObject } from '../../../core/errors'
 import type { Provider } from '../../../core/types/provider'
-import { OAuthClient, type OAuthEndpoints } from '../core/client'
-import { type OAuthBeginInput, type OAuthCompleteInput, type OAuthOptionsBase, oauthProvider } from '../core/provider'
+import { OAuthClient } from '../core/client'
+import { type OAuthProvider, oauthProvider } from '../core/provider'
+import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const LINKEDIN_ENDPOINTS: OAuthEndpoints = {
+const LINKEDIN_ENDPOINTS: OAuthClient.IEndpoints = {
   authorizationEndpoint: 'https://www.linkedin.com/oauth/v2/authorization',
   tokenEndpoint: 'https://www.linkedin.com/oauth/v2/accessToken',
   userinfoEndpoint: 'https://api.linkedin.com/v2/userinfo',
 }
 
 /**
- * LinkedIn-specific options. Extends the shared `OAuthOptionsBase` so
- * call-site shape matches the rest of the OAuth providers.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the LinkedIn OAuth provider. Every type lives
+ * inside the namespace.
  */
-export interface LinkedInOAuthOptions<Profile = unknown> extends OAuthOptionsBase<Profile> {
-  /** Default `['openid', 'profile', 'email']`. */
-  scopes?: string[]
+export namespace LinkedInOAuth {
+  /** LinkedIn-specific options. */
+  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+    /** Default `['openid', 'profile', 'email']`. */
+    scopes?: string[]
+  }
 }
 
 /**
- * LinkedIn OIDC provider factory. Maps the LinkedIn `userinfo` payload
- * (sub / name / given_name / family_name / picture / email /
- * email_verified) into the shared OAuthProfile shape.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * LinkedIn OIDC provider factory.
  */
 export function linkedin<Profile = unknown>(
-  opts: LinkedInOAuthOptions<Profile>,
-): Provider.IProvider<OAuthBeginInput, OAuthCompleteInput, Profile> {
+  opts: LinkedInOAuth.IOptions<Profile>,
+): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
   const client = new OAuthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
@@ -56,12 +52,14 @@ export function linkedin<Profile = unknown>(
       profileToIdentityProfile: opts.profileToIdentityProfile,
     }),
     async fetchProfile(tokens, c) {
-      const info = (await c.userinfo(tokens.access_token)) as {
-        sub: string
-        email?: string
-        email_verified?: boolean
-        name?: string
-        picture?: string
+      const info = await c.userinfo(tokens.access_token)
+      // safe-extract LinkedIn claims.
+      const sub = getUserinfoString(info, 'sub')
+      if (sub === undefined) {
+        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          providerId: 'linkedin',
+          detail: 'LinkedIn userinfo missing sub',
+        })
       }
       const out: {
         sub: string
@@ -69,23 +67,15 @@ export function linkedin<Profile = unknown>(
         emailVerified?: boolean
         name?: string
         avatarUrl?: string
-      } = { sub: info.sub }
-      if (info.email !== undefined) out.email = info.email
-      if (info.email_verified !== undefined) out.emailVerified = info.email_verified
-      if (info.name !== undefined) out.name = info.name
-      if (info.picture !== undefined) out.avatarUrl = info.picture
+      } = { sub }
+      const email = getUserinfoString(info, 'email')
+      if (email !== undefined) out.email = email
+      if (getUserinfoBooleanTrue(info, 'email_verified')) out.emailVerified = true
+      const name = getUserinfoString(info, 'name')
+      if (name !== undefined) out.name = name
+      const picture = getUserinfoString(info, 'picture')
+      if (picture !== undefined) out.avatarUrl = picture
       return out
     },
   })
-}
-
-/**
- * Namespace merge for `LinkedInOAuth`. Co-locates the flat option type
- * alongside the factory.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace LinkedInOAuth {
-  /** Alias for `LinkedInOAuthOptions`. */
-  export type IOptions = LinkedInOAuthOptions
 }

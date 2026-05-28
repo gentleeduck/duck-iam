@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
@@ -70,6 +65,23 @@ describe('api-key provider', () => {
     })
   })
 
+  it('complete with a non-string token surfaces AUTH/APIKEY_INVALID (defeats sha256 TypeError)', async () => {
+    const provider = apiKey<ProfileShape>({ apiKeys: env.facet })
+    await expect(provider.complete(env.ctx, { token: 42 as unknown as string })).rejects.toMatchObject({
+      code: 'AUTH/APIKEY_INVALID',
+    })
+    await expect(provider.complete(env.ctx, { token: {} as unknown as string })).rejects.toMatchObject({
+      code: 'AUTH/APIKEY_INVALID',
+    })
+  })
+
+  it('complete with an oversize token throws AUTH/APIKEY_INVALID without sha256-ing the payload', async () => {
+    const provider = apiKey<ProfileShape>({ apiKeys: env.facet })
+    await expect(provider.complete(env.ctx, { token: 'x'.repeat(513) })).rejects.toMatchObject({
+      code: 'AUTH/APIKEY_INVALID',
+    })
+  })
+
   it('complete with a wrong-prefix token throws AUTH/APIKEY_INVALID', async () => {
     const provider = apiKey<ProfileShape>({ apiKeys: env.facet })
     await expect(provider.complete(env.ctx, { token: 'bogus_xyz' })).rejects.toMatchObject({
@@ -110,5 +122,101 @@ describe('api-key provider', () => {
     const provider = apiKey<ProfileShape>({ apiKeys: env.facet })
     const intents = await provider.begin(env.ctx, {})
     expect(intents).toEqual([])
+  })
+
+  describe('tenant-boundary defense', () => {
+    it('refuses to identify-confirm a tenant-bound key on a no-tenant request', async () => {
+      const adapter = new MemoryAuthAdapter<ProfileShape>()
+      const events = new InMemoryEvents()
+      const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken, sha256 })
+      const ident = await adapter.identities.create(
+        { profile: { email: 't1@x.com' }, providers: [] },
+        { tenantId: 'tenant-A' },
+      )
+      const created = await facet.create(ident.id, {
+        name: 'tenant-A key',
+        scopes: ['read'],
+        tenantId: 'tenant-A',
+      })
+      const provider = apiKey<ProfileShape>({ apiKeys: facet })
+      const ctx = {
+        stores: {
+          identities: adapter.identities,
+          sessions: adapter.sessions,
+          credentials: adapter.credentials,
+        },
+        tenant: {},
+        baseUrl: 'https://app.test',
+        limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+        events,
+        crypto: { randomToken, sha256, timingSafeEqual },
+      }
+      await expect(provider.complete(ctx, { token: created.plaintext })).rejects.toMatchObject({
+        code: 'AUTH/APIKEY_INVALID',
+      })
+    })
+
+    it('refuses to identify-confirm a tenant-A key on a tenant-B request', async () => {
+      const adapter = new MemoryAuthAdapter<ProfileShape>()
+      const events = new InMemoryEvents()
+      const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken, sha256 })
+      const ident = await adapter.identities.create(
+        { profile: { email: 't2@x.com' }, providers: [] },
+        { tenantId: 'tenant-A' },
+      )
+      const created = await facet.create(ident.id, {
+        name: 'tenant-A key',
+        scopes: ['read'],
+        tenantId: 'tenant-A',
+      })
+      const provider = apiKey<ProfileShape>({ apiKeys: facet })
+      const ctx = {
+        stores: {
+          identities: adapter.identities,
+          sessions: adapter.sessions,
+          credentials: adapter.credentials,
+        },
+        tenant: { tenantId: 'tenant-B' },
+        baseUrl: 'https://app.test',
+        limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+        events,
+        crypto: { randomToken, sha256, timingSafeEqual },
+      }
+      await expect(provider.complete(ctx, { token: created.plaintext })).rejects.toMatchObject({
+        code: 'AUTH/APIKEY_INVALID',
+      })
+    })
+
+    it('still identifies-confirms a tenant-A key on a tenant-A request (happy path)', async () => {
+      const adapter = new MemoryAuthAdapter<ProfileShape>()
+      const events = new InMemoryEvents()
+      const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken, sha256 })
+      const ident = await adapter.identities.create(
+        { profile: { email: 't3@x.com' }, providers: [] },
+        { tenantId: 'tenant-A' },
+      )
+      const created = await facet.create(ident.id, {
+        name: 'tenant-A key',
+        scopes: ['read'],
+        tenantId: 'tenant-A',
+      })
+      const provider = apiKey<ProfileShape>({ apiKeys: facet })
+      const ctx = {
+        stores: {
+          identities: adapter.identities,
+          sessions: adapter.sessions,
+          credentials: adapter.credentials,
+        },
+        tenant: { tenantId: 'tenant-A' },
+        baseUrl: 'https://app.test',
+        limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+        events,
+        crypto: { randomToken, sha256, timingSafeEqual },
+      }
+      const intents = await provider.complete(ctx, { token: created.plaintext })
+      expect(intents).toHaveLength(1)
+      const intent = intents[0]!
+      expect(intent.type).toBe('startSession')
+    })
   })
 })

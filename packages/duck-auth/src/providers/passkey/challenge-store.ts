@@ -1,25 +1,17 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
-import type { PasskeyChallengeStore } from './types'
+import { isCredentialExpired } from '../../core/credential-utils'
+import type { PasskeyTypes } from './types'
 
 /**
- * Reference in-memory `PasskeyChallengeStore`. Suitable for tests +
- * single-process deploys; production must wire a Redis-backed
- * implementation that survives pod restarts.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Reference in-memory `PasskeyTypes.IChallengeStore`. Suitable for
+ * tests + single-process deploys; production wires a Redis-backed
+ * implementation.
  */
-export class MemoryPasskeyChallengeStore implements PasskeyChallengeStore {
+export class MemoryPasskeyChallengeStore implements PasskeyTypes.IChallengeStore {
   private readonly _entries = new Map<string, { challenge: string; expiresAt: number }>()
 
   /**
    * Persist a challenge under `key` for `ttlMs`. Overwrites any prior
-   * entry — only one challenge is live per key at a time.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   * entry; only one challenge is live per key at a time.
    */
   async put(key: string, challenge: string, ttlMs: number): Promise<void> {
     this._entries.set(key, { challenge, expiresAt: Date.now() + ttlMs })
@@ -27,15 +19,14 @@ export class MemoryPasskeyChallengeStore implements PasskeyChallengeStore {
 
   /**
    * Read + delete a challenge atomically. Returns null when missing,
-   * expired, or already consumed. Used by the passkey verify step.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   * expired, or already consumed.
    */
   async take(key: string): Promise<string | null> {
     const entry = this._entries.get(key)
     if (!entry) return null
     this._entries.delete(key)
-    if (entry.expiresAt < Date.now()) return null
+    // Non-finite expiresAt would slip `NaN < now == false`; replay window.
+    if (isCredentialExpired(entry)) return null
     return entry.challenge
   }
 }
