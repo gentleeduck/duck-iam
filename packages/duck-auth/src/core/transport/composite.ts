@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
 import type { Transport } from '../types/transport'
@@ -10,8 +5,6 @@ import type { Transport } from '../types/transport'
 /**
  * Try each transport in order on extract; emit Intents from every transport
  * on issue/revoke (so cookie + bearer co-exist on the same response).
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class CompositeTransport implements Transport.ITransport {
   constructor(private readonly _transports: Transport.ITransport[]) {
@@ -37,6 +30,11 @@ export class CompositeTransport implements Transport.ITransport {
   }
 
   async verify(token: string): Promise<Session.ISession | null> {
+    // Cap once before walking transports; 4096 is the largest any
+    // shipped transport accepts.
+    if (typeof token !== 'string' || token.length === 0 || token.length > 4096) {
+      return null
+    }
     for (const t of this._transports) {
       if (!t.verify) continue
       const s = await t.verify(token)

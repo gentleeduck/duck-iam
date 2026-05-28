@@ -1,41 +1,30 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
 import type { Transport } from '../types/transport'
 
-export interface CookieTransportConfig {
-  /**
-   * Cookie name. Defaults to `__Host-duck-sid` when no `domain` is set
-   * (browser enforces Secure + Path=/ + no Domain), else `duck-sid`.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
-  name?: string
-  /** Set only for cross-subdomain deployments. Forbidden together with `__Host-` prefix. */
-  domain?: string
-  path?: string
-  /** Must be true in production; strict() rejects false. */
-  secure?: boolean
-  sameSite?: 'strict' | 'lax' | 'none'
-  /** Default 7d. Overridden by Session.absoluteExpiresAt at issue time. */
-  maxAgeSec?: number
-}
-
 /**
  * Cookie transport - opaque session ID in an HttpOnly cookie. Default for web apps.
  * Verify is unset -> caller must call Session.IStore.getByHash() to resolve.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class CookieTransport implements Transport.ITransport {
   private readonly _name: string
   private readonly _options: Transport.CookieOptions
 
-  constructor(cfg: CookieTransportConfig = {}) {
+  constructor(cfg: CookieTransport.IConfig = {}) {
+    // Reject invalid cookie names early: RFC 6265 forbids CTL chars and the
+    // separators below. Otherwise serializeCookie would emit a malformed
+    // Set-Cookie that browsers silently drop, producing "session never sticks"
+    // outages with no error surface.
+    if (cfg.name !== undefined) {
+      if (typeof cfg.name !== 'string' || cfg.name.length === 0 || cfg.name.length > 256) {
+        throw new Error('@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars')
+      }
+      // RFC 6265 token: alphanumerics + small set of safe punctuation. `-` is
+      // allowed (the default `duck-sid`).
+      if (!/^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/.test(cfg.name)) {
+        throw new Error('@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character')
+      }
+    }
     const hasDomain = Boolean(cfg.domain)
     this._name = cfg.name ?? (hasDomain ? 'duck-sid' : '__Host-duck-sid')
     this._options = {
@@ -46,20 +35,31 @@ export class CookieTransport implements Transport.ITransport {
       maxAge: (cfg.maxAgeSec ?? 7 * 24 * 60 * 60) * 1,
     }
     if (cfg.domain) this._options.domain = cfg.domain
-    // __Host- prefix forbids Domain; refuse the combination.
-    if (this._name.startsWith('__Host-') && cfg.domain) {
-      throw new Error(
-        '@gentleduck/auth CookieTransport: __Host- prefix forbids the Domain attribute. ' +
-          'Either drop `domain` or override `name` to a non-__Host- value.',
-      )
+    // Fail-fast on __Host- violations; browsers silently drop them.
+    if (this._name.startsWith('__Host-')) {
+      if (cfg.domain) {
+        throw new Error(
+          '@gentleduck/auth CookieTransport: __Host- prefix forbids the Domain attribute. ' +
+            'Either drop `domain` or override `name` to a non-__Host- value.',
+        )
+      }
+      if (this._options.path !== '/') {
+        throw new Error(
+          `@gentleduck/auth CookieTransport: __Host- prefix requires Path=/. Got Path=${this._options.path}.`,
+        )
+      }
+      if (this._options.secure !== true) {
+        throw new Error(
+          '@gentleduck/auth CookieTransport: __Host- prefix requires Secure=true. ' +
+            'Either set { secure: true } (production) or override `name` to a non-__Host- value.',
+        )
+      }
     }
   }
 
   /**
    * Diagnostic getter consumed by `AuthRoot.strict()` to assert that
    * production deployments have `secure: true`. Read-only.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   get secure(): boolean {
     return this._options.secure === true
@@ -69,8 +69,6 @@ export class CookieTransport implements Transport.ITransport {
    * Diagnostic getter exposing the cookie name (e.g. `__Host-duck-sid`).
    * Read-only; used by tests + framework adapters that need to render the
    * name in user-facing output.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   get cookieName(): string {
     return this._name
@@ -82,10 +80,10 @@ export class CookieTransport implements Transport.ITransport {
     return parseCookie(header, this._name)
   }
 
-  issue(sid: string, session: Session.ISession, _opts: Transport.IssueOpts): Provider.Intent[] {
+  issue(sid: string, session: Session.ISession, opts: Transport.IssueOpts): Provider.Intent[] {
     const expiresInMs = Math.max(0, session.expiresAt - Date.now())
     const maxAge = Math.min(this._options.maxAge ?? 0, Math.floor(expiresInMs / 1000))
-    return [
+    const intents: Provider.Intent[] = [
       {
         type: 'setCookie',
         name: this._name,
@@ -93,6 +91,23 @@ export class CookieTransport implements Transport.ITransport {
         options: { ...this._options, maxAge },
       },
     ]
+    // Emit `__Host-duck-csrf` for JS to read back as the `x-csrf-token`
+    // header. httpOnly:false is intentional; the hash lives on the row.
+    if (opts.csrfToken !== undefined) {
+      intents.push({
+        type: 'setCookie',
+        name: '__Host-duck-csrf',
+        value: opts.csrfToken,
+        options: {
+          httpOnly: false,
+          secure: true,
+          sameSite: 'lax',
+          path: '/',
+          maxAge,
+        },
+      })
+    }
+    return intents
   }
 
   revoke(): Provider.Intent[] {
@@ -102,33 +117,72 @@ export class CookieTransport implements Transport.ITransport {
         name: this._name,
         options: { ...this._options, maxAge: 0 },
       },
+      {
+        type: 'clearCookie',
+        name: '__Host-duck-csrf',
+        options: { httpOnly: false, secure: true, sameSite: 'lax', path: '/', maxAge: 0 },
+      },
     ]
   }
 }
 
+/** SEC: per-value length cap. A real opaque SID is 64 hex chars; JWTs
+ * commonly run a few hundred. 1024 is generous. Without the cap, an
+ * attacker who can fit a large cookie under the HTTP-server header
+ * limit (typically 8-16k) can still force `decodeURIComponent` + a
+ * downstream `sha256` over the whole blob per request. Reject early. */
+const COOKIE_VALUE_MAX = 1024
+
 function parseCookie(header: string, name: string): string | null {
-  // Permissive parser; matches `name=value; ...`. Production swap to a hardened
-  // implementation if the request might contain RFC-edge cases.
+  // Whole-header cap: browsers cap Cookie at ~8KB by default; servers may
+  // accept more. Refuse outliers up-front so a multi-MB header cannot force
+  // a giant string.split(';') allocation.
+  if (header.length > 16384) return null
+  // Reject ambiguous Cookie headers (path/domain shadowing) by failing
+  // closed when more than one match for `name=` appears.
   const pairs = header.split(';')
+  let found: string | null = null
   for (const raw of pairs) {
     const eq = raw.indexOf('=')
     if (eq < 0) continue
     const k = raw.slice(0, eq).trim()
-    if (k === name) return decodeURIComponent(raw.slice(eq + 1).trim())
+    if (k !== name) continue
+    if (found !== null) {
+      // Duplicate - refuse to choose. Caller surfaces as missing-session.
+      return null
+    }
+    const rawValue = raw.slice(eq + 1).trim()
+    // cap value length BEFORE `decodeURIComponent` so an oversize
+    // cookie cannot force a multi-KB decode-then-sha256 per request.
+    if (rawValue.length > COOKIE_VALUE_MAX) return null
+    // Catch URIError on malformed `%XX`; would otherwise crash the auth pipeline.
+    try {
+      found = decodeURIComponent(rawValue)
+    } catch {
+      return null
+    }
   }
-  return null
+  return found
 }
 
 /**
  * Namespace merge for CookieTransport. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging. Consumers can
- * write either the flat name (e.g. CookieTransportConfig) or the
- * namespaced form (CookieTransport.IConfig); both
- * resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * shapes alongside the class via TS class+namespace merging.
  */
 export namespace CookieTransport {
-  /** Alias for the flat `CookieTransportConfig` type. */
-  export type IConfig = CookieTransportConfig
+  export interface IConfig {
+    /**
+     * Cookie name. Defaults to `__Host-duck-sid` when no `domain` is set
+     * (browser enforces Secure + Path=/ + no Domain), else `duck-sid`.
+     */
+    name?: string
+    /** Set only for cross-subdomain deployments. Forbidden together with `__Host-` prefix. */
+    domain?: string
+    path?: string
+    /** Must be true in production; strict() rejects false. */
+    secure?: boolean
+    sameSite?: 'strict' | 'lax' | 'none'
+    /** Default 7d. Overridden by Session.absoluteExpiresAt at issue time. */
+    maxAgeSec?: number
+  }
 }
