@@ -312,7 +312,7 @@ describe('DrizzleAdapter', () => {
       expect(out.sort()).toEqual(['editor', 'viewer'])
     })
 
-    it('getSubjectRoles returns ONLY unscoped roles, not scoped (SEC-059)', async () => {
+    it('getSubjectRoles returns ONLY unscoped roles, not scoped', async () => {
       await adapter.assignRole('user-1', 'viewer' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
       const unscoped = await adapter.getSubjectRoles('user-1')
@@ -367,12 +367,12 @@ describe('DrizzleAdapter', () => {
       expect(await adapter.getSubjectAttributes('pre')).toEqual({ x: 2 })
     })
 
-    it('getSubjectAttributes throws on corrupt JSON string (SEC-058)', async () => {
+    it('getSubjectAttributes throws on corrupt JSON string', async () => {
       mock.tables.attrs.push({ subjectId: 'corrupt', data: '{not-json' })
       await expect(adapter.getSubjectAttributes('corrupt')).rejects.toThrow(/corrupted attributes/)
     })
 
-    it('setSubjectAttributes recovers from corrupt existing blob (SEC-067)', async () => {
+    it('setSubjectAttributes recovers from corrupt existing blob', async () => {
       mock.tables.attrs.push({ subjectId: 'corrupt', data: '{not-json' })
       await adapter.setSubjectAttributes('corrupt', { team: 'A' })
       expect(await adapter.getSubjectAttributes('corrupt')).toEqual({ team: 'A' })

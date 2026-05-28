@@ -70,13 +70,13 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).rejects.toThrow(/\[@gentleduck\/iam:http\] HTTP 500: boom/)
     })
 
-    it('rejects non-http(s) baseUrl scheme (SEC-001)', () => {
+    it('rejects non-http(s) baseUrl scheme', () => {
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'ftp://api.example.com/iam' })).toThrow(
         /scheme must be http: or https:/,
       )
     })
 
-    it('rejects baseUrl with query string or fragment (SEC-001)', () => {
+    it('rejects baseUrl with query string or fragment', () => {
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?x=1' })).toThrow(
         /query string or fragment/,
       )
@@ -85,11 +85,11 @@ describe('HttpAdapter', () => {
       )
     })
 
-    it('rejects malformed baseUrl (SEC-001)', () => {
+    it('rejects malformed baseUrl', () => {
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'not a url' })).toThrow(/invalid baseUrl/)
     })
 
-    it('rejects private/loopback host by default (SEC-001)', () => {
+    it('rejects private/loopback host by default', () => {
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://127.0.0.1/iam' })).toThrow(/private\/loopback/)
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://10.0.0.5/iam' })).toThrow(/private\/loopback/)
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://192.168.1.1/iam' })).toThrow(/private\/loopback/)
@@ -98,7 +98,7 @@ describe('HttpAdapter', () => {
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::1]/iam' })).toThrow(/private\/loopback/)
     })
 
-    it('rejects IPv4-mapped IPv6 loopback (SEC-028)', () => {
+    it('rejects IPv4-mapped IPv6 loopback', () => {
       // Node canonicalises `[::ffff:127.0.0.1]` -> `[::ffff:7f00:1]`, which
       // the bracket-strip + naive `::ffff:` recurse did not catch.
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:127.0.0.1]/iam' })).toThrow(
@@ -114,7 +114,7 @@ describe('HttpAdapter', () => {
       )
     })
 
-    it('accepts IPv4-mapped IPv6 loopback when allowPrivateHosts: true (SEC-028)', async () => {
+    it('accepts IPv4-mapped IPv6 loopback when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
@@ -124,11 +124,11 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).resolves.toEqual([])
     })
 
-    it('rejects IPv6 unspecified `::` (SEC-029)', () => {
+    it('rejects IPv6 unspecified `::`', () => {
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::]/iam' })).toThrow(/private\/loopback/)
     })
 
-    it('accepts IPv6 unspecified when allowPrivateHosts: true (SEC-029)', async () => {
+    it('accepts IPv6 unspecified when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
@@ -138,13 +138,13 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).resolves.toEqual([])
     })
 
-    it('rejects IPv4 unspecified 0.0.0.0 (SEC-029)', () => {
+    it('rejects IPv4 unspecified 0.0.0.0', () => {
       // Already covered by the `a === 0` arm; pin it explicitly so future
       // refactors can't silently drop the check.
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://0.0.0.0/iam' })).toThrow(/private\/loopback/)
     })
 
-    it('accepts 0.0.0.0 when allowPrivateHosts: true (SEC-029)', async () => {
+    it('accepts 0.0.0.0 when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
@@ -154,7 +154,7 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).resolves.toEqual([])
     })
 
-    it('accepts private host when allowPrivateHosts: true (SEC-001)', async () => {
+    it('accepts private host when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'http://127.0.0.1/iam',
@@ -164,7 +164,7 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).resolves.toEqual([])
     })
 
-    it('rejects baseUrl whose host is not in allowedHosts (SEC-001)', () => {
+    it('rejects baseUrl whose host is not in allowedHosts', () => {
       expect(
         () =>
           new HttpAdapter<A, R, Ro, S>({
@@ -174,7 +174,7 @@ describe('HttpAdapter', () => {
       ).toThrow(/not in allowedHosts/)
     })
 
-    it('accepts baseUrl whose host is in allowedHosts (SEC-001)', async () => {
+    it('accepts baseUrl whose host is in allowedHosts', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com',
@@ -185,7 +185,7 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://api.example.com/policies')
     })
 
-    it('matches allowedHosts case-insensitively when entry is uppercase (SEC-030)', async () => {
+    it('matches allowedHosts case-insensitively when entry is uppercase', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com',
@@ -196,7 +196,7 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://api.example.com/policies')
     })
 
-    it('matches allowedHosts case-insensitively when URL host is mixed case (SEC-030)', async () => {
+    it('matches allowedHosts case-insensitively when URL host is mixed case', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://API.Example.COM',
@@ -209,7 +209,7 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://API.Example.COM/policies')
     })
 
-    it('bare-host allowedHosts entry matches port-bearing URL (SEC-030)', async () => {
+    it('bare-host allowedHosts entry matches port-bearing URL', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com:8080',
@@ -220,7 +220,7 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://api.example.com:8080/policies')
     })
 
-    it('host:port allowedHosts entry matches only that exact port (SEC-030)', async () => {
+    it('host:port allowedHosts entry matches only that exact port', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com:8080',
@@ -239,7 +239,7 @@ describe('HttpAdapter', () => {
       ).toThrow(/not in allowedHosts/)
     })
 
-    it('rejects 6to4 IPv6 wrapping loopback (SEC-035)', () => {
+    it('rejects 6to4 IPv6 wrapping loopback', () => {
       // 2002:7f00:0001:: carries inner 127.0.0.1 via 6to4. Linux ships 6to4
       // by default; this used to slip past the IPv6 private check.
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:0001::]/iam' })).toThrow(
@@ -249,14 +249,14 @@ describe('HttpAdapter', () => {
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:1::]/iam' })).toThrow(/private\/loopback/)
     })
 
-    it('rejects 6to4 IPv6 wrapping RFC1918 (SEC-035)', () => {
+    it('rejects 6to4 IPv6 wrapping RFC1918', () => {
       // 2002:c0a8:0001:: carries inner 192.168.0.1.
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:c0a8:0001::]/iam' })).toThrow(
         /private\/loopback/,
       )
     })
 
-    it('accepts 6to4 loopback when allowPrivateHosts: true (SEC-035)', async () => {
+    it('accepts 6to4 loopback when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
@@ -266,9 +266,9 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).resolves.toEqual([])
     })
 
-    it('rejects NAT64 well-known prefix wrapping loopback (SEC-035)', () => {
+    it('rejects NAT64 well-known prefix wrapping loopback', () => {
       // 64:ff9b::/96 well-known NAT64 prefix; last 32 bits hold the inner v4.
-      // `64:ff9b::7f00:1` → 127.0.0.1.
+      // `64:ff9b::7f00:1` -> 127.0.0.1.
       expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
         /private\/loopback/,
       )
@@ -278,7 +278,7 @@ describe('HttpAdapter', () => {
       )
     })
 
-    it('accepts NAT64 loopback when allowPrivateHosts: true (SEC-035)', async () => {
+    it('accepts NAT64 loopback when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
@@ -288,7 +288,7 @@ describe('HttpAdapter', () => {
       await expect(adapter.listPolicies()).resolves.toEqual([])
     })
 
-    it('canonical NAT64 form `[64:ff9b::7f00:1]` still rejects loopback (SEC-038)', () => {
+    it('canonical NAT64 form `[64:ff9b::7f00:1]` still rejects loopback', () => {
       // Regression: the `0064:ff9b:` literal branch had an off-by-one
       // slice. Verify the canonical WHATWG form (what `new URL` emits)
       // continues to reject correctly.
@@ -297,7 +297,7 @@ describe('HttpAdapter', () => {
       )
     })
 
-    it('matches allowedHosts when URL has trailing FQDN dot (SEC-037)', async () => {
+    it('matches allowedHosts when URL has trailing FQDN dot', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com./iam',
@@ -308,7 +308,7 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://api.example.com./iam/policies')
     })
 
-    it('matches when allowlist entry has trailing dot but URL does not (SEC-037)', async () => {
+    it('matches when allowlist entry has trailing dot but URL does not', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com',
@@ -319,7 +319,7 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://api.example.com/policies')
     })
 
-    it('matches unicode allowlist entry against punycode URL host (SEC-037)', async () => {
+    it('matches unicode allowlist entry against punycode URL host', async () => {
       // Node's URL parser returns the punycode form for Unicode inputs.
       // An allowlist entry authored in Unicode must still match.
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
@@ -332,7 +332,7 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://xn--mnchen-3ya.de/iam/policies')
     })
 
-    it('encodes subject id path segment to defeat path injection (SEC-001)', async () => {
+    it('encodes subject id path segment to defeat path injection', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.getSubjectRoles('..//etc/passwd')
@@ -340,14 +340,14 @@ describe('HttpAdapter', () => {
       expect(calls[0]?.url).not.toContain('/etc/passwd')
     })
 
-    it('encodes policy id path segment (SEC-001)', async () => {
+    it('encodes policy id path segment', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse(null, false, 404))
       const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.getPolicy('..//internal-admin')
       expect(calls[0]?.url).toBe('https://x/policies/..%2F%2Finternal-admin')
     })
 
-    it('warns once when allowedHosts is omitted (SEC-001)', () => {
+    it('warns once when allowedHosts is omitted', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
       try {
         // Latch is module-level: prior tests in this file may have already
@@ -363,7 +363,7 @@ describe('HttpAdapter', () => {
       }
     })
 
-    it('passes redirect:"error" to fetch to block redirect-based SSRF (SEC-042)', async () => {
+    it('passes redirect:"error" to fetch to block redirect-based SSRF', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.listPolicies()
@@ -593,11 +593,7 @@ describe('HttpAdapter', () => {
       const fetch = vi.fn(async () =>
         nextResponseOk ? jsonResponse([]) : jsonResponse('boom', false, 503),
       ) as unknown as typeof globalThis.fetch
-      // Cooldown must comfortably exceed inter-await wall time on a busy CI
-      // runner; the previous 5 ms / 10 ms pair flaked because the second
-      // `rejects.toThrow` could land after cooldown elapsed, flipping the
-      // state to half-open and surfacing the underlying 503 instead of
-      // "circuit open".
+      // Cooldown must exceed inter-await wall time on busy CI; tight pairs flake.
       const adapter = new HttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://x',
         fetch,

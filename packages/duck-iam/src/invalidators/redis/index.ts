@@ -228,7 +228,7 @@ function safeHexEqual(a: string, b: string): boolean {
  * verified on receive with a 30-second replay window keyed off `payload.ts`.
  * Without a secret the invalidator falls back to legacy unsigned envelopes
  * (logged once); anyone with PUBLISH rights on the channel can then wipe
- * caches → set a secret in production.
+ * caches -> set a secret in production.
  *
  * @template TRole - Role identifier union the engine is parameterised over.
  * @param config - Supplies the client and optional channel; see {@link RedisInvalidator.IConfig}.
@@ -250,10 +250,7 @@ export function createRedisInvalidator<TRole extends string = string>(
   config: RedisInvalidator.IConfig,
 ): EngineTypes.IInvalidator<TRole> {
   const baseChannel = config.channel ?? DEFAULT_CHANNEL
-  // CAVEAT-1: tenantId convenience - guarantees per-tenant channel isolation
-  // on a shared Redis instance. Reject anything outside a safe identifier
-  // shape so an attacker-controlled tenant slug cannot inject pub/sub
-  // wildcards (`*`) or whitespace that would confuse downstream subscribers.
+  // Tenant slug shape-validated to prevent pub/sub wildcard injection.
   let channel = baseChannel
   if (config.tenantId !== undefined) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(config.tenantId)) {
@@ -329,11 +326,8 @@ export function createRedisInvalidator<TRole extends string = string>(
       try {
         config.client.publish(channel, payload)
       } catch (err) {
-        // Publish failure is non-fatal: local invalidate already applied,
-        // remote nodes will pick up the change on TTL. Route to operator's
-        // onPublishError hook so a long-lived outage doesn't silently
-        // desync caches across nodes; fall back to a single rate-limited
-        // console.warn line so a missing hook is not totally silent.
+        // Publish failure is non-fatal; route to onPublishError so a
+        // long-lived outage does not silently desync caches.
         const error = err instanceof Error ? err : new Error(String(err))
         try {
           config.onPublishError?.(error, channel)
@@ -379,14 +373,9 @@ function parseIncoming<TRole extends string>(
   channel: string,
   warnDropOnce: (channel: string, reason: string) => void,
 ): { instanceId: string; event: EngineTypes.IInvalidateEvent<TRole> } | null {
-  // Pre-auth size cap: canonicalJSON runs BEFORE the HMAC verify, so an
-  // unauth peer could otherwise crash subscribers with deeply nested JSON.
-  // Reject oversize wire messages before JSON.parse so we never allocate
-  // the parse tree for a hostile blob.
+  // Pre-auth size cap; canonicalJSON runs before HMAC verify.
   if (typeof s !== 'string') return null
-  // Cap by UTF-8 byte length, not `s.length` (which counts UTF-16 code
-  // units). A surrogate-heavy string would otherwise sneak ~4x past the
-  // 16KB cap and force the JSON parser to materialise a much larger tree.
+  // Byte length (not `s.length`); surrogate pairs would sneak past the cap.
   if (Buffer.byteLength(s, 'utf8') > MAX_WIRE_BYTES) {
     warnDropOnce(channel, 'oversize wire message')
     return null
@@ -399,29 +388,21 @@ function parseIncoming<TRole extends string>(
     return null
   }
   if (typeof parsed !== 'object' || parsed === null) return null
-  // Depth + key-count cap on the parsed tree, using an iterative walker
-  // that can't stack-overflow itself. Applied to every incoming envelope
-  // (both legacy and v:1) so the canonicalJSON pre-image is always safe
-  // to materialise.
+  // Iterative depth/key-count cap so canonicalJSON pre-image is always safe.
   if (_measurePayload(parsed) === null) {
     warnDropOnce(channel, 'payload exceeds depth/key limits')
     return null
   }
-  const obj = parsed as Record<string, unknown>
 
   // v:1 signed envelope path
-  if (obj.v === ENVELOPE_V) {
-    // Never honour a v:1 envelope without a secret. The signed-mode
-    // envelope wraps `instanceId` inside a payload that is supposed to be
-    // tamper-evident; unwrapping it without verifying would let an attacker
-    // pick any `instanceId` (including a collision with the local instance's
-    // UUID) and silence its own legitimate cross-instance invalidations.
+  if (Reflect.get(parsed, 'v') === ENVELOPE_V) {
+    // Refuse v:1 without secret; forged instanceId would silence invalidations.
     if (secret === null) {
       warnDropOnce(channel, 'v:1 envelope received without secret configured')
       return null
     }
-    const sig = obj.sig
-    const payload = obj.payload
+    const sig = Reflect.get(parsed, 'sig')
+    const payload = Reflect.get(parsed, 'payload')
     if (typeof sig !== 'string' || typeof payload !== 'object' || payload === null) {
       warnDropOnce(channel, 'malformed envelope')
       return null
@@ -433,7 +414,7 @@ function parseIncoming<TRole extends string>(
       return null
     }
     // Replay window check.
-    const ts = (payload as { ts?: unknown }).ts
+    const ts = Reflect.get(payload, 'ts')
     if (typeof ts !== 'number' || !Number.isFinite(ts)) {
       warnDropOnce(channel, 'missing or invalid ts')
       return null
@@ -444,17 +425,17 @@ function parseIncoming<TRole extends string>(
       return null
     }
     // Shape-check inner payload.
-    const inner = payload as Record<string, unknown>
-    if (typeof inner.instanceId !== 'string') {
+    const instanceId = Reflect.get(payload, 'instanceId')
+    if (typeof instanceId !== 'string') {
       warnDropOnce(channel, 'malformed inner payload (instanceId)')
       return null
     }
-    const ev = inner.event
-    if (!_isValidEvent(ev)) {
+    const ev = Reflect.get(payload, 'event')
+    if (!_isValidEvent<TRole>(ev)) {
       warnDropOnce(channel, 'malformed inner payload (event)')
       return null
     }
-    return { event: ev as EngineTypes.IInvalidateEvent<TRole>, instanceId: inner.instanceId }
+    return { event: ev, instanceId }
   }
 
   // Legacy unsigned envelope: only allowed when no secret is configured.
@@ -462,27 +443,37 @@ function parseIncoming<TRole extends string>(
     warnDropOnce(channel, 'unsigned message with secret configured')
     return null
   }
-  if (typeof obj.instanceId !== 'string') {
+  const legacyInstanceId = Reflect.get(parsed, 'instanceId')
+  if (typeof legacyInstanceId !== 'string') {
     warnDropOnce(channel, 'malformed legacy payload (instanceId)')
     return null
   }
-  const ev = obj.event
-  if (!_isValidEvent(ev)) {
+  const ev = Reflect.get(parsed, 'event')
+  if (!_isValidEvent<TRole>(ev)) {
     warnDropOnce(channel, 'malformed legacy payload (event)')
     return null
   }
-  return { event: ev as EngineTypes.IInvalidateEvent<TRole>, instanceId: obj.instanceId }
+  return { event: ev, instanceId: legacyInstanceId }
 }
 
 /**
- * Returns `true` when `ev` matches the {@link EngineTypes.IInvalidateEvent}
- * discriminated union. Tighter than a bare `typeof === 'object'` check so a
- * tampered payload can't trigger arbitrary handler calls.
+ * Type predicate for the {@link EngineTypes.IInvalidateEvent} discriminated
+ * union. Enforces per-kind required fields so a tampered payload cannot
+ * trigger an invalidate with an undefined `subjectId` or `roleId`.
  */
-function _isValidEvent(ev: unknown): boolean {
-  if (typeof ev !== 'object' || ev === null) return false
-  const kind = (ev as { kind?: unknown }).kind
-  return kind === 'all' || kind === 'policies' || kind === 'roles' || kind === 'subject'
+function _isValidEvent<TRole extends string>(ev: unknown): ev is EngineTypes.IInvalidateEvent<TRole> {
+  if (typeof ev !== 'object' || ev === null || Array.isArray(ev)) return false
+  const kind = Reflect.get(ev, 'kind')
+  if (kind === 'all' || kind === 'policies') return true
+  if (kind === 'roles') {
+    const roleId = Reflect.get(ev, 'roleId')
+    return roleId === undefined || (typeof roleId === 'string' && roleId.length > 0)
+  }
+  if (kind === 'subject') {
+    const subjectId = Reflect.get(ev, 'subjectId')
+    return typeof subjectId === 'string' && subjectId.length > 0
+  }
+  return false
 }
 
 function generateInstanceId(): string {
