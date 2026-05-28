@@ -27,7 +27,7 @@ export const MAX_REGEX_INPUT_LENGTH = 2048
  * Carried as a tagged error so the evaluator's `safeEval` can route it through
  * `onPolicyError` and mark the entire policy as NotApplicable. Critically, we
  * do NOT silently return `false`: a `false` result from a `matches` operator
- * inside a `deny` rule would flip the rule's effect to "condition not met →
+ * inside a `deny` rule would flip the rule's effect to "condition not met ->
  * allow". By throwing, the whole policy drops out of the decision instead of
  * silently becoming permissive.
  */
@@ -103,6 +103,10 @@ export function getCachedRegex(pattern: string, cache: Map<string, RegExp> = reg
   }
 }
 
+function isScalar(v: Primitives.AttributeValue | undefined): v is Primitives.Scalar {
+  return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+}
+
 /**
  * Record mapping every supported operator to its implementation function.
  */
@@ -117,22 +121,22 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
 
   in: (f, v) => {
     if (!Array.isArray(v)) return false
-    if (Array.isArray(f)) return f.some((i) => v.includes(i))
-    return v.includes(f as Primitives.Scalar)
+    if (Array.isArray(f)) return f.some((i) => isScalar(i) && v.includes(i))
+    return isScalar(f) && v.includes(f)
   },
   nin: (f, v) => {
     if (!Array.isArray(v)) return true
-    if (Array.isArray(f)) return !f.some((i) => v.includes(i))
-    return !v.includes(f as Primitives.Scalar)
+    if (Array.isArray(f)) return !f.some((i) => isScalar(i) && v.includes(i))
+    return !isScalar(f) || !v.includes(f)
   },
 
   contains: (f, v) => {
-    if (Array.isArray(f)) return f.includes(v as Primitives.Scalar)
+    if (Array.isArray(f)) return isScalar(v) && f.includes(v)
     if (typeof f === 'string' && typeof v === 'string') return f.includes(v)
     return false
   },
   not_contains: (f, v) => {
-    if (Array.isArray(f)) return !f.includes(v as Primitives.Scalar)
+    if (Array.isArray(f)) return !isScalar(v) || !f.includes(v)
     if (typeof f === 'string' && typeof v === 'string') return !f.includes(v)
     return true
   },
@@ -143,13 +147,9 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
   matches: (f, v) => {
     if (typeof f !== 'string' || typeof v !== 'string') return false
     if (v.length > MAX_REGEX_LENGTH) return false
-    // Bound worst-case backtracking work even if a pathological pattern
-    // somehow landed in the store. Inputs longer than MAX_REGEX_INPUT_LENGTH
-    // throw RegexInputTooLargeError instead of returning false, because a
-    // silent false would flip `deny`-when-`matches` rules to allow on
-    // adversarial input. The thrown error is caught by the evaluator's
-    // policy-error path and the whole policy is dropped as NotApplicable.
-    // Field name is unknown at this layer; evalCondition() handles the throw.
+    // Throw on oversize input so `deny`-when-`matches` rules do not flip
+    // to allow on adversarial inputs; evalCondition() routes it through
+    // onPolicyError.
     if (f.length > MAX_REGEX_INPUT_LENGTH) {
       throw new RegexInputTooLargeError('<unknown>', f.length)
     }
