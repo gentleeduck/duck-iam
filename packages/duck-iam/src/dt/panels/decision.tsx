@@ -46,7 +46,7 @@ export function DecisionInspector({
       const trace = await engine.explain(input.subjectId, input.action, resource, environment)
       setResult(trace)
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setPending(false)
     }
