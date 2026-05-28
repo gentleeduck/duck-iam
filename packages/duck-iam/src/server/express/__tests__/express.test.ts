@@ -355,7 +355,7 @@ describe('adminRouter (express)', () => {
     expect(res.statusCode).not.toBe(403)
   })
 
-  it('rejects mutation with 403 when csrfCheck returns false (SEC-103)', async () => {
+  it('rejects mutation with 403 when csrfCheck returns false', async () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
     // Even if authorize() would allow, csrfCheck blocks cross-site requests
@@ -424,7 +424,7 @@ describe('adminRouter (express)', () => {
     engine.admin.savePolicy = original
   })
 
-  describe('onAdminMutation (SEC-010)', () => {
+  describe('onAdminMutation', () => {
     const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
 
     it('fires on PUT /policies with action:replace, target:policy, success:true', async () => {
@@ -536,7 +536,7 @@ describe('adminRouter (express)', () => {
       errSpy.mockRestore()
     })
 
-    it('SEC-039: redactPath rewrites event.path before the hook is called', async () => {
+    it('redactPath rewrites event.path before the hook is called', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: Array<{ path: string }> = []
@@ -562,7 +562,7 @@ describe('adminRouter (express)', () => {
       expect(events[0]!.path).not.toMatch(/role-tenant-acme/)
     })
 
-    it('SEC-040: onAuditHookError receives thrown error and event', async () => {
+    it('onAuditHookError receives thrown error and event', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -596,7 +596,7 @@ describe('adminRouter (express)', () => {
       errSpy.mockRestore()
     })
 
-    it('SEC-040: onAuditHookError throwing falls back to console.error and does not crash', async () => {
+    it('onAuditHookError throwing falls back to console.error and does not crash', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -624,7 +624,7 @@ describe('adminRouter (express)', () => {
       errSpy.mockRestore()
     })
 
-    it('SEC-041: event.error defaults to the error class name, not err.message', async () => {
+    it('event.error defaults to the error class name, not err.message', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: Array<{ success: boolean; error?: string }> = []
@@ -653,7 +653,7 @@ describe('adminRouter (express)', () => {
       expect(events[0]!.error).not.toMatch(/password/)
     })
 
-    it('SEC-041: includeErrorMessage:true restores err.message', async () => {
+    it('includeErrorMessage:true restores err.message', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: Array<{ error?: string }> = []

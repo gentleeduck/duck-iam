@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../../public/logo-dark.svg" alt="@gentleduck/iam" width="120"/>
+  <img src="./public/logo-dark.svg" alt="@gentleduck/iam" width="120"/>
 </p>
 
 <h1 align="center">@gentleduck/iam</h1>

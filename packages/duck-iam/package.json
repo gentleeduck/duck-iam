@@ -319,7 +319,7 @@
   "devDependencies": {
     "@casl/ability": "^6.7.2",
     "@gentleduck/libs": "^0.2.1",
-    "@gentleduck/registry-ui": "^0.4.3",
+    "@gentleduck/registry-ui": "^0.4.4",
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/variants": "^0.1.23",
