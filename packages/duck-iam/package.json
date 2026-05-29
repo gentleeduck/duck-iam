@@ -332,7 +332,7 @@
     "accesscontrol": "^2.2.1",
     "casbin": "^5.36.0",
     "drizzle-orm": "^0.45.2",
-    "easy-rbac": "^3.2.0",
+    "easy-rbac": "^4.0.0",
     "motion": "^12.39.0",
     "role-acl": "^4.5.4",
     "tsdown": "catalog:",
