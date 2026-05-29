@@ -575,47 +575,47 @@ describe('detectCatastrophicRegex() (P1)', () => {
     expect(detectCatastrophicRegex('(\\+)+').safe).toBe(true)
   })
 
-  it('flags backreference followed by `+` quantifier (SEC-020)', () => {
+  it('flags backreference followed by `+` quantifier', () => {
     const r = detectCatastrophicRegex('(\\w+)\\1+')
     expect(r.safe).toBe(false)
     expect(r.reason).toBe('backref-quantifier')
   })
 
-  it('flags `(.*)\\1+` backreference + quantifier (SEC-020)', () => {
+  it('flags `(.*)\\1+` backreference + quantifier', () => {
     const r = detectCatastrophicRegex('(.*)\\1+')
     expect(r.safe).toBe(false)
     expect(r.reason).toBe('backref-quantifier')
   })
 
-  it('flags named backreference `(?<name>\\w+)\\k<name>+` (SEC-020)', () => {
+  it('flags named backreference `(?<name>\\w+)\\k<name>+`', () => {
     const r = detectCatastrophicRegex('(?<name>\\w+)\\k<name>+')
     expect(r.safe).toBe(false)
     expect(r.reason).toBe('backref-quantifier')
   })
 
-  it('flags `a{1,1000000}` bounded-large quantifier (SEC-020)', () => {
+  it('flags `a{1,1000000}` bounded-large quantifier', () => {
     const r = detectCatastrophicRegex('a{1,1000000}')
     expect(r.safe).toBe(false)
     expect(r.reason).toBe('bounded-large-quantifier')
   })
 
-  it('accepts `a{1,1000}` (at the threshold) (SEC-020)', () => {
+  it('accepts `a{1,1000}` (at the threshold)', () => {
     expect(detectCatastrophicRegex('a{1,1000}').safe).toBe(true)
   })
 
-  it('flags `(?=(a+)+)` lookaround containing a quantifier (SEC-020)', () => {
+  it('flags `(?=(a+)+)` lookaround containing a quantifier', () => {
     const r = detectCatastrophicRegex('(?=(a+)+)')
     expect(r.safe).toBe(false)
     expect(r.reason).toBe('lookaround-with-quantifier')
   })
 
-  it('flags `(?<=(a*)*)` lookbehind containing a quantifier (SEC-020)', () => {
+  it('flags `(?<=(a*)*)` lookbehind containing a quantifier', () => {
     const r = detectCatastrophicRegex('(?<=(a*)*)')
     expect(r.safe).toBe(false)
     expect(r.reason).toBe('lookaround-with-quantifier')
   })
 
-  it('accepts `(?<=foo)` lookbehind without inner quantifier (SEC-020)', () => {
+  it('accepts `(?<=foo)` lookbehind without inner quantifier', () => {
     expect(detectCatastrophicRegex('(?<=foo)').safe).toBe(true)
   })
 })

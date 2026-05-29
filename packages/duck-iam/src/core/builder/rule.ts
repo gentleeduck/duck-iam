@@ -176,7 +176,7 @@ export class RuleBuilder<
    * @returns `this` for chaining
    */
   forScope(...scopes: (TScope | '*')[]): this {
-    const nonWild = scopes.filter((s) => s !== '*') as string[]
+    const nonWild = scopes.filter((s): s is TScope => s !== '*')
     if (nonWild.length === 0) return this
     this._scopeCondition =
       nonWild.length === 1

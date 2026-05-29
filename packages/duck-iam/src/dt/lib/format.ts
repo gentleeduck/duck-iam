@@ -24,7 +24,7 @@ export function safeParseJson<T = unknown>(raw: string, fallback: T): { value: T
   try {
     return { value: JSON.parse(trimmed) as T }
   } catch (err) {
-    return { value: fallback, error: (err as Error).message }
+    return { value: fallback, error: err instanceof Error ? err.message : String(err) }
   }
 }
 

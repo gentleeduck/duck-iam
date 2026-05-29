@@ -494,15 +494,33 @@ export function extractEnvironment(req: {
   const getHeader = (name: string): string | undefined => {
     if (!req.headers) return undefined
     if (req.headers instanceof Headers) return req.headers.get(name) ?? undefined
-    const val = (req.headers as Record<string, string | string[] | undefined>)[name]
+    const val = req.headers[name]
     return Array.isArray(val) ? val[0] : val
   }
 
   return {
-    ip: req.ip ?? getHeader('x-forwarded-for') ?? getHeader('x-real-ip'),
+    // XFF can carry multiple comma-separated values (one per proxy hop,
+    // leftmost is the original client). Apps behind multiple trusted
+    // proxies should bypass this helper and assemble `env.ip` themselves.
+    ip: req.ip ?? normalizeForwardedFor(getHeader('x-forwarded-for')) ?? normalizeForwardedFor(getHeader('x-real-ip')),
     userAgent: getHeader('user-agent'),
     timestamp: Date.now(),
   }
+}
+
+/**
+ * Extract the leftmost client IP from an `X-Forwarded-For` / `X-Real-IP`
+ * header. Returns undefined for missing, empty, or oversized input.
+ */
+function normalizeForwardedFor(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  if (raw.length === 0 || raw.length > 4096) return undefined
+  const first = raw.split(',', 1)[0]
+  if (first === undefined) return undefined
+  const trimmed = first.trim()
+  if (trimmed.length === 0) return undefined
+  if (trimmed.length > 256) return undefined
+  return trimmed
 }
 
 /**

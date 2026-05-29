@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { Identity } from './identity'
 import type { Session } from './session'
 
@@ -10,8 +5,6 @@ import type { Session } from './session'
  * Typed event bus. Reference impl is in-memory; production swaps in Redis pub/sub
  * (`RedisEvents`) or Kafka (`KafkaEvents`) for multi-process / multi-region listeners.
  * Audit envelope (impersonation) flows on every event when present.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Events {
   export interface AuditEnvelope {

@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it } from 'vitest'
 import { RedisIdempotencyStore } from '../idempotency-store'
 import { FakeRedis } from '../redis-like'

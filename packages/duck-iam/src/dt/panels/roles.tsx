@@ -17,7 +17,7 @@ export function RolesPanel({ engine }: { engine: IDevtoolsEngine }) {
       setError(null)
       setRoles(await engine.admin.listRoles())
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof Error ? err.message : String(err))
     }
   }, [engine])
 

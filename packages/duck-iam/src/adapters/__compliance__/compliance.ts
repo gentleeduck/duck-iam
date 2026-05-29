@@ -139,7 +139,7 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
         expect(await a.getSubjectRoles('user-1')).toEqual([])
       })
 
-      it('SEC-059: getSubjectRoles returns ONLY unscoped (global) roles', async () => {
+      it('getSubjectRoles returns ONLY unscoped (global) roles', async () => {
         // Every adapter must honour this contract. Returning scoped+unscoped
         // collapsed means the same subject decides differently across backends.
         const a = await factory()
@@ -148,7 +148,7 @@ export function runAdapterCompliance(adapterName: string, factory: () => AnyAdap
         expect((await a.getSubjectRoles('user-1')).sort()).toEqual(['viewer'])
       })
 
-      it('SEC-059: getSubjectScopedRoles returns ONLY scoped assignments', async () => {
+      it('getSubjectScopedRoles returns ONLY scoped assignments', async () => {
         const a = await factory()
         if (!a.getSubjectScopedRoles) return // optional method
         await a.assignRole('user-1', 'viewer')

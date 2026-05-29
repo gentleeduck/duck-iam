@@ -1,76 +1,70 @@
 /**
- * @packageDocumentation
  * Resend channel adapter. Wraps the Resend HTTP API via the `resend`
  * npm package (lazy peerDep) for transactional email send.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
+import { getProfileString } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
 import type { Channel } from '../../core/types/channel'
 
 /**
- * Subset of the `resend` package surface we depend on. Both the v3
- * Resend client and any drop-in test double satisfies this.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the Resend channel. Every type lives inside the
+ * namespace.
  */
-export interface ResendClientLike {
-  emails: {
-    send(opts: {
-      from: string
-      to: string | string[]
-      subject: string
-      text?: string
-      html?: string
-      headers?: Record<string, string>
-    }): Promise<{ data?: { id?: string } | null; error?: { message: string } | null }>
+export namespace ResendChannel {
+  /**
+   * Subset of the `resend` package surface we depend on. Both the v3
+   * Resend client and any drop-in test double satisfies this.
+   */
+  export interface IClient {
+    emails: {
+      send(opts: {
+        from: string
+        to: string | string[]
+        subject: string
+        text?: string
+        html?: string
+        headers?: Record<string, string>
+      }): Promise<{ data?: { id?: string } | null; error?: { message: string } | null }>
+    }
+  }
+
+  /**
+   * Template resolver. The auth lib hands `(templateId, vars)` to this
+   * hook; the app returns the rendered email body.
+   */
+  export type ITemplateResolver = (
+    templateId: string,
+    vars: Record<string, unknown>,
+  ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
+
+  /** Config knobs for {@link ResendChannel}. */
+  export interface IConfig {
+    /** Resend API key. Required when `client` is not supplied. */
+    apiKey?: string
+    /** Pre-constructed Resend-like client. Useful for tests + custom transports. */
+    client?: IClient
+    /** From: address. Must be on a verified Resend domain. */
+    from: string
+    /** Template resolver invoked per send. */
+    templates: ITemplateResolver
+    /** Identifier appearing in logs + diagnostics. Default `resend`. */
+    id?: string
   }
 }
 
-/**
- * Template resolver. The auth lib hands `(templateId, vars)` to this
- * hook; the app returns the rendered email body. Apps own all template
- * content.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export type ResendTemplateResolver = (
-  templateId: string,
-  vars: Record<string, unknown>,
-) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
-
-/**
- * Config knobs for `ResendChannel`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface ResendChannelConfig {
-  /** Resend API key, e.g. `re_xxx`. Required when `client` is not supplied. */
-  apiKey?: string
-  /** Pre-constructed Resend-like client. Useful for tests + custom transports. */
-  client?: ResendClientLike
-  /** From: address. Must be on a verified Resend domain. */
-  from: string
-  /** Template resolver invoked per send. */
-  templates: ResendTemplateResolver
-  /** Identifier appearing in logs + diagnostics. Default `resend`. */
-  id?: string
-}
-
-let _resendModule: { Resend: new (key: string) => ResendClientLike } | null = null
-async function loadResend(): Promise<{ Resend: new (key: string) => ResendClientLike }> {
+let _resendModule: { Resend: new (key: string) => ResendChannel.IClient } | null = null
+async function loadResend(): Promise<{ Resend: new (key: string) => ResendChannel.IClient }> {
   if (_resendModule) return _resendModule
   try {
     const mod = (await import('resend' as string)) as {
-      Resend: new (key: string) => ResendClientLike
+      Resend: new (key: string) => ResendChannel.IClient
     }
     _resendModule = mod
     return mod
   } catch {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail:
-        'ResendChannel requires the `resend` peerDep. ' + 'Install via `bun add resend` (or `npm install resend`).',
+      detail: 'ResendChannel requires the `resend` peerDep. Install via `bun add resend` (or `npm install resend`).',
     })
   }
 }
@@ -78,19 +72,16 @@ async function loadResend(): Promise<{ Resend: new (key: string) => ResendClient
 /**
  * Resend channel implementation of `Channel.IChannel`. Reads the
  * recipient email from `input.identity.profile.email`; returns
- * ok:false (never throws) on any Resend error so the caller can retry
- * or escalate without the exception escaping the channel boundary.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * ok:false (never throws) on any Resend error.
  */
 export class ResendChannel implements Channel.IChannel {
   readonly kind: Channel.Kind = 'email'
   readonly id: string
   private readonly _from: string
-  private readonly _resolve: ResendTemplateResolver
-  private _clientPromise: Promise<ResendClientLike> | null = null
+  private readonly _resolve: ResendChannel.ITemplateResolver
+  private _clientPromise: Promise<ResendChannel.IClient> | null = null
 
-  constructor(cfg: ResendChannelConfig) {
+  constructor(cfg: ResendChannel.IConfig) {
     if (!cfg.from) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: 'ResendChannel requires a non-empty `from` address (must be on a verified Resend domain)',
@@ -116,16 +107,13 @@ export class ResendChannel implements Channel.IChannel {
   /**
    * Resolve the template, look up the recipient, hand the rendered
    * email to Resend.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
-    const profile = input.identity.profile as { email?: string } | undefined
-    const to = profile?.email
+    const to = getProfileString(input.identity.profile, 'email')
     if (!to) {
       return { ok: false, error: 'identity has no email; ResendChannel cannot deliver' }
     }
-    let resolved: Awaited<ReturnType<ResendTemplateResolver>>
+    let resolved: Awaited<ReturnType<ResendChannel.ITemplateResolver>>
     try {
       resolved = await this._resolve(input.templateId, input.vars as Record<string, unknown>)
     } catch (err) {
@@ -153,18 +141,4 @@ export class ResendChannel implements Channel.IChannel {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
   }
-}
-
-/**
- * Namespace merge for `ResendChannel`. Co-locates config + helpers.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace ResendChannel {
-  /** Alias for `ResendChannelConfig`. */
-  export type IConfig = ResendChannelConfig
-  /** Alias for `ResendClientLike`. */
-  export type IClient = ResendClientLike
-  /** Alias for `ResendTemplateResolver`. */
-  export type ITemplateResolver = ResendTemplateResolver
 }

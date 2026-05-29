@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * OpenAPI 3.1 reference spec for the routes the framework adapters
  * mount. Routes are framework-defined (the lib is HTTP-agnostic) so
  * this surfaces the canonical contract apps can publish or hand to a
@@ -11,58 +10,20 @@
  * const spec = buildOpenApiSpec({ baseUrl: 'https://app.test', title: 'My App Auth' })
  * await fs.writeFile('openapi.yaml', renderOpenApiYaml(spec))
  * ```
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-
-/**
- * Caller-supplied knobs. Everything is optional - sensible defaults so
- * `buildOpenApiSpec({ baseUrl })` is the minimum-viable call.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface OpenApiBuildConfig {
-  /** Server URL the routes are mounted under. */
-  baseUrl: string
-  /** Spec title. Default `Auth API`. */
-  title?: string
-  /** Spec version. Default `0.1.0`. */
-  version?: string
-  /** Mount prefix; routes are emitted under `${baseUrl}${prefix}/<name>`. Default `/auth`. */
-  prefix?: string
-  /** Enabled providers; controls which routes appear. Default emits all. */
-  providers?: Array<'password' | 'magic-link' | 'oauth' | 'passkey'>
-  /** Add `/.well-known/jwks.json` to the spec (JWT transport only). Default false. */
-  includeJwks?: boolean
-}
-
-/** Minimal OpenAPI shape we emit. Loose typing keeps the spec readable. */
-export interface OpenApiSpec {
-  openapi: '3.1.0'
-  info: { title: string; version: string; description?: string }
-  servers: Array<{ url: string }>
-  paths: Record<string, Record<string, unknown>>
-  components: {
-    schemas: Record<string, unknown>
-    securitySchemes: Record<string, unknown>
-  }
-  security: Array<Record<string, never[]>>
-}
 
 /**
  * Build the OpenAPI 3.1 spec for the configured providers. Returns a
  * plain object the caller serializes with `JSON.stringify` or
  * `renderOpenApiYaml`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function buildOpenApiSpec(config: OpenApiBuildConfig): OpenApiSpec {
+export function buildOpenApiSpec(config: OpenApi.IConfig): OpenApi.ISpec {
   const title = config.title ?? 'Auth API'
   const version = config.version ?? '0.1.0'
   const prefix = config.prefix ?? '/auth'
   const providers = new Set(config.providers ?? ['password', 'magic-link', 'oauth', 'passkey'])
 
-  const spec: OpenApiSpec = {
+  const spec: OpenApi.ISpec = {
     openapi: '3.1.0',
     info: {
       title,
@@ -209,10 +170,8 @@ export function buildOpenApiSpec(config: OpenApiBuildConfig): OpenApiSpec {
  * Render the spec as YAML. Trivial emitter: handles primitives + arrays +
  * objects in their natural order. Sufficient for the OpenApiSpec shape we
  * produce; not a general-purpose YAML library.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function renderOpenApiYaml(spec: OpenApiSpec): string {
+export function renderOpenApiYaml(spec: OpenApi.ISpec): string {
   return yamlify(spec, 0)
 }
 
@@ -228,7 +187,7 @@ function yamlify(value: unknown, indent: number): string {
       const rendered = yamlify(item, indent + 1).trimEnd()
       if (rendered.includes('\n')) {
         out += `${pad}- ${rendered.slice(0, rendered.indexOf('\n'))}\n`
-        out += rendered.slice(rendered.indexOf('\n') + 1) + '\n'
+        out += `${rendered.slice(rendered.indexOf('\n') + 1)}\n`
       } else {
         out += `${pad}- ${rendered}\n`
       }
@@ -236,10 +195,11 @@ function yamlify(value: unknown, indent: number): string {
     return out
   }
   if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-    if (entries.length === 0) return '{}\n'
+    const keys = Object.keys(value)
+    if (keys.length === 0) return '{}\n'
     let out = indent === 0 ? '' : '\n'
-    for (const [k, v] of entries) {
+    for (const k of keys) {
+      const v: unknown = Reflect.get(value, k)
       const head = `${pad}${quoteKey(k)}:`
       if (v !== null && typeof v === 'object') {
         out += `${head}${yamlify(v, indent + 1)}`
@@ -399,12 +359,32 @@ function routePost(opts: {
 
 /**
  * Namespace merge for `buildOpenApiSpec` config.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace OpenApi {
-  /** Alias for `OpenApiBuildConfig`. */
-  export type IConfig = OpenApiBuildConfig
-  /** Alias for the produced spec shape. */
-  export type ISpec = OpenApiSpec
+  export interface IConfig {
+    /** Server URL the routes are mounted under. */
+    baseUrl: string
+    /** Spec title. Default `Auth API`. */
+    title?: string
+    /** Spec version. Default `0.1.0`. */
+    version?: string
+    /** Mount prefix; routes are emitted under `${baseUrl}${prefix}/<name>`. Default `/auth`. */
+    prefix?: string
+    /** Enabled providers; controls which routes appear. Default emits all. */
+    providers?: Array<'password' | 'magic-link' | 'oauth' | 'passkey'>
+    /** Add `/.well-known/jwks.json` to the spec (JWT transport only). Default false. */
+    includeJwks?: boolean
+  }
+
+  export interface ISpec {
+    openapi: '3.1.0'
+    info: { title: string; version: string; description?: string }
+    servers: Array<{ url: string }>
+    paths: Record<string, Record<string, unknown>>
+    components: {
+      schemas: Record<string, unknown>
+      securitySchemes: Record<string, unknown>
+    }
+    security: Array<Record<string, never[]>>
+  }
 }

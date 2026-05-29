@@ -32,7 +32,7 @@ export function isDevtoolsAllowed(engine: IDevtoolsEngine): boolean {
   const mode = readEngineMode(engine)
   if (mode === 'development') return true
 
-  // No positive signal (or engine reports production / unknown) → BLOCK.
+  // No positive signal (or engine reports production / unknown) -> BLOCK.
   return false
 }
 

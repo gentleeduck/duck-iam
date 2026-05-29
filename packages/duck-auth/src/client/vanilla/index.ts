@@ -1,85 +1,20 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { Identity } from '../../core/types/identity'
 import type { Session } from '../../core/types/session'
 
 /**
- * Framework-free client SDK. Drives the mounted server routes via `fetch`
- * (or a configurable transport). Returns plain typed values; consumers
- * wrap into React/Vue/Svelte/Solid state in their own client packages.
- *
- * Generics flow: `createAuthClient<MyProfile>()` types `signIn`/`session`
- * return values with the consumer's profile shape so `session.identity.profile.email`
- * autocompletes end-to-end.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
-export interface AuthClientConfig {
-  /** Mount point on the server. Default `/auth`. */
-  baseUrl?: string
-  /** Override the fetch impl (test stubs, retry wrappers, etc.). */
-  fetch?: typeof globalThis.fetch
-  /** Override how subscribed observers are notified. Default: synchronous. */
-  notifyImmediately?: boolean
-  /** Optional headers to merge into every request (e.g. tenant header). */
-  headers?: Record<string, string>
-}
-
-export interface SignInOptions {
-  providerId: string
-  input: unknown
-  /** Override the route path under baseUrl. Default `/signin`. */
-  path?: string
-}
-
-export interface SignInResult<Profile = unknown> {
-  ok: boolean
-  session: Session.ISession | null
-  identity: Identity.IIdentity<Profile> | null
-  /** Echo of the route response body for non-session intents (json results). */
-  body?: unknown
-}
-
-export interface SessionResult<Profile = unknown> {
-  session: Session.ISession | null
-  identity: Identity.IIdentity<Profile> | null
-}
-
-export interface AuthClient<Profile = unknown> {
-  /** POST /auth/signin */
-  signIn(opts: SignInOptions): Promise<SignInResult<Profile>>
-  /** POST /auth/signout */
-  signOut(): Promise<{ ok: true }>
-  /** GET /auth/session */
-  getSession(): Promise<SessionResult<Profile>>
-  /** POST /auth/providers/:id/begin */
-  beginProvider(id: string, input?: unknown): Promise<{ body: unknown }>
-  /** Observe session changes. Returned function unsubscribes. */
-  onChange(handler: (state: SessionResult<Profile>) => void): () => void
-  /** Force a session refetch + notify observers. */
-  refresh(): Promise<SessionResult<Profile>>
-}
-
-/**
  * `createAuthClient`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function createAuthClient<Profile = unknown>(cfg: AuthClientConfig = {}): AuthClient<Profile> {
+export function createAuthClient<Profile = unknown>(cfg: VanillaClient.IConfig = {}): VanillaClient.IClient<Profile> {
   const baseUrl = (cfg.baseUrl ?? '/auth').replace(/\/$/, '')
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)
   if (!fetchImpl) {
     throw new Error('@gentleduck/auth/client/vanilla: no fetch available - pass `fetch` via config')
   }
   const headers = { 'content-type': 'application/json', ...(cfg.headers ?? {}) }
-  const observers = new Set<(state: SessionResult<Profile>) => void>()
-  let lastState: SessionResult<Profile> = { session: null, identity: null }
+  const observers = new Set<(state: VanillaClient.ISessionResult<Profile>) => void>()
+  let lastState: VanillaClient.ISessionResult<Profile> = { session: null, identity: null }
 
-  function notify(state: SessionResult<Profile>): void {
+  function notify(state: VanillaClient.ISessionResult<Profile>): void {
     lastState = state
     for (const fn of observers) {
       try {
@@ -131,7 +66,7 @@ export function createAuthClient<Profile = unknown>(cfg: AuthClientConfig = {}):
     },
     async getSession() {
       const { body } = await call('GET', '/session')
-      const state = body as SessionResult<Profile>
+      const state = body as VanillaClient.ISessionResult<Profile>
       notify(state)
       return state
     },
@@ -152,21 +87,52 @@ export function createAuthClient<Profile = unknown>(cfg: AuthClientConfig = {}):
 
 /**
  * Namespace merge for VanillaClient. Co-locates the config + input +
- * output shapes via TS namespace declaration. Consumers can write either
- * the flat name (AuthClientConfig) or the namespaced form
- * (VanillaClient.IConfig); both resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * output shapes via TS namespace declaration.
  */
 export namespace VanillaClient {
-  /** Alias for the flat `AuthClientConfig` type. */
-  export type IConfig = AuthClientConfig
-  /** Alias for the flat `SignInOptions` type. */
-  export type ISignInOptions = SignInOptions
-  /** Alias for the flat `SignInResult<Profile = unknown>` type. */
-  export type ISignInResult<Profile = unknown> = SignInResult<Profile>
-  /** Alias for the flat `SessionResult<Profile = unknown>` type. */
-  export type ISessionResult<Profile = unknown> = SessionResult<Profile>
-  /** Alias for the flat `AuthClient<Profile = unknown>` type. */
-  export type IClient<Profile = unknown> = AuthClient<Profile>
+  export interface IConfig {
+    /** Mount point on the server. Default `/auth`. */
+    baseUrl?: string
+    /** Override the fetch impl (test stubs, retry wrappers, etc.). */
+    fetch?: typeof globalThis.fetch
+    /** Override how subscribed observers are notified. Default: synchronous. */
+    notifyImmediately?: boolean
+    /** Optional headers to merge into every request (e.g. tenant header). */
+    headers?: Record<string, string>
+  }
+
+  export interface ISignInOptions {
+    providerId: string
+    input: unknown
+    /** Override the route path under baseUrl. Default `/signin`. */
+    path?: string
+  }
+
+  export interface ISignInResult<Profile = unknown> {
+    ok: boolean
+    session: Session.ISession | null
+    identity: Identity.IIdentity<Profile> | null
+    /** Echo of the route response body for non-session intents (json results). */
+    body?: unknown
+  }
+
+  export interface ISessionResult<Profile = unknown> {
+    session: Session.ISession | null
+    identity: Identity.IIdentity<Profile> | null
+  }
+
+  export interface IClient<Profile = unknown> {
+    /** POST /auth/signin */
+    signIn(opts: VanillaClient.ISignInOptions): Promise<VanillaClient.ISignInResult<Profile>>
+    /** POST /auth/signout */
+    signOut(): Promise<{ ok: true }>
+    /** GET /auth/session */
+    getSession(): Promise<VanillaClient.ISessionResult<Profile>>
+    /** POST /auth/providers/:id/begin */
+    beginProvider(id: string, input?: unknown): Promise<{ body: unknown }>
+    /** Observe session changes. Returned function unsubscribes. */
+    onChange(handler: (state: VanillaClient.ISessionResult<Profile>) => void): () => void
+    /** Force a session refetch + notify observers. */
+    refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+  }
 }

@@ -169,11 +169,7 @@ export class FileAdapter<
    * @param init - Provides the store path and filesystem driver.
    */
   constructor(init: File.IInit) {
-    // Reject `..` segments in the raw input. `path.normalize`/`path.resolve`
-    // eagerly collapse `..` against the preceding segment, so a literal
-    // `/var/lib/iam/../../etc/passwd` simplifies silently to `/etc/passwd`.
-    // The user-visible intent of `..` is "escape the parent" - we refuse the
-    // input regardless of where it lands.
+    // Reject raw `..`; path.resolve would silently collapse it.
     if (init.path.split(/[\\/]+/).includes('..')) {
       throw new Error(`[@gentleduck/iam:file] FileAdapter path contains a ".." segment: "${init.path}"`)
     }
@@ -181,10 +177,7 @@ export class FileAdapter<
     if (!nodePath.isAbsolute(resolved)) {
       throw new Error(`[@gentleduck/iam:file] FileAdapter path must resolve to an absolute path: "${init.path}"`)
     }
-    // The pre-resolve form must already have been absolute. `path.resolve`
-    // happily turns `./foo` into an absolute path by joining cwd; refuse
-    // that quietly-promoted case because relative inputs are exactly the
-    // class of bug this constructor exists to prevent.
+    // Refuse pre-resolve relative paths; path.resolve would silently join cwd.
     if (!nodePath.isAbsolute(init.path)) {
       throw new Error(`[@gentleduck/iam:file] FileAdapter path must be supplied as an absolute path: "${init.path}"`)
     }
@@ -200,10 +193,7 @@ export class FileAdapter<
         throw new Error(`[@gentleduck/iam:file] FileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
       }
     } else if (!_ROOTDIR_WARNED_FIRED) {
-      // Fire at most once per process - a multi-tenant host instantiating
-      // many FileAdapters would otherwise drown its log stream. Do not
-      // echo the resolved path: it may derive from request data and
-      // reflecting it would expose a path-existence oracle via log scraping.
+      // Once-per-process; do not echo the path (request-derived; log-oracle).
       _ROOTDIR_WARNED_FIRED = true
       // eslint-disable-next-line no-console
       console.warn(
@@ -236,18 +226,15 @@ export class FileAdapter<
     try {
       canonical = await this._fs.realpath(this._path)
     } catch (err) {
-      // Only fall back to the parent-realpath shortcut when the file is
-      // genuinely absent (ENOENT). Other errors (symlink loops, permission
-      // denied, filesystem busy) must propagate - otherwise an attacker who
-      // can induce a non-ENOENT failure on a hostile symlink could bypass
-      // the containment check.
-      const code = (err as NodeJS.ErrnoException | undefined)?.code
+      // Non-ENOENT failures must propagate; hostile symlinks could bypass containment.
+      const code = err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
       if (code && code !== 'ENOENT') throw err
       try {
         const canonicalParent = await this._fs.realpath(this._parentDir)
         canonical = nodePath.join(canonicalParent, nodePath.basename(this._path))
       } catch (parentErr) {
-        const parentCode = (parentErr as NodeJS.ErrnoException | undefined)?.code
+        const parentCode =
+          parentErr !== null && parentErr !== undefined ? Reflect.get(Object(parentErr), 'code') : undefined
         if (parentCode && parentCode !== 'ENOENT') throw parentErr
         // Parent doesn't exist either - the read path's ENOENT branch handles
         // it; the write path will surface the missing-parent error explicitly.
@@ -285,17 +272,20 @@ export class FileAdapter<
           raw = await this._fs.readFile(this._path, 'utf8')
         } catch (err) {
           // Only ENOENT is recoverable; anything else must surface.
-          const code = (err as NodeJS.ErrnoException | undefined)?.code
+          const code = err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
           if (code !== 'ENOENT') {
             throw new Error(
               `[@gentleduck/iam:file] load failed (${code ?? 'unknown'}): ${err instanceof Error ? err.message : String(err)}`,
             )
           }
+          // Null-proto dicts so attacker-controlled ids (`__proto__`) cannot
+          // (a) read Object.prototype back, or (b) pollute the proto chain
+          // via setter assignment.
           const empty: File.IState<TAction, TResource, TRole, TScope> = {
-            policies: {},
-            roles: {},
-            assignments: {},
-            attributes: {},
+            policies: Object.create(null),
+            roles: Object.create(null),
+            assignments: Object.create(null),
+            attributes: Object.create(null),
           }
           this._cache = empty
           return empty
@@ -304,11 +294,7 @@ export class FileAdapter<
         try {
           parsed = JSON.parse(raw) as Partial<File.IState<TAction, TResource, TRole, TScope>>
         } catch (err) {
-          // Do NOT populate _cache with {} here. A subsequent _flush()
-          // would serialise the empty cache and overwrite the
-          // recoverable-but-corrupt file, permanently destroying data.
-          // Throw the corruption so the operator restores from backup
-          // before any write lands.
+          // Throw, never set _cache to {}; a later _flush would erase a recoverable file.
           this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), this._path)
           throw new Error(
             `[@gentleduck/iam:file] store at "${this._path}" is corrupt (JSON parse failed) - refusing to load; restore from backup before retrying`,
@@ -316,7 +302,8 @@ export class FileAdapter<
         }
 
         // Validate each row; drop malformed entries instead of returning them.
-        const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = {}
+        // Null-proto so prototype-key reads/writes can't pollute the proto chain.
+        const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
         for (const [rowId, p] of Object.entries(parsed.policies ?? {})) {
           const result = validatePolicy(p)
           if (result.valid) {
@@ -328,7 +315,7 @@ export class FileAdapter<
             )
           }
         }
-        const roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>> = {}
+        const roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>> = Object.create(null)
         for (const [rowId, r] of Object.entries(parsed.roles ?? {})) {
           const result = validateRole(r)
           if (result.valid) {
@@ -344,8 +331,12 @@ export class FileAdapter<
         const state: File.IState<TAction, TResource, TRole, TScope> = {
           policies,
           roles,
-          assignments: parsed.assignments ?? {},
-          attributes: parsed.attributes ?? {},
+          assignments: parseFileAssignments<TRole, TScope>(parsed.assignments, (rowId, reason) =>
+            this._reportPolicyError(new Error(`assignments[${rowId}]: ${reason}`), rowId),
+          ),
+          attributes: parseFileAttributes(parsed.attributes, (rowId, reason) =>
+            this._reportPolicyError(new Error(`attributes[${rowId}]: ${reason}`), rowId),
+          ),
         }
         this._cache = state
         return state
@@ -372,7 +363,7 @@ export class FileAdapter<
     } catch (err) {
       // EEXIST is the happy path - directory already there. Anything else is
       // a real problem and must surface to the caller.
-      const code = (err as NodeJS.ErrnoException | undefined)?.code
+      const code = err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
       if (code !== 'EEXIST') {
         throw new Error(
           `[@gentleduck/iam:file] FileAdapter parent directory "${this._parentDir}" is not accessible (${code ?? 'unknown'}). ` +
@@ -505,9 +496,8 @@ export class FileAdapter<
    */
   async getSubjectScopedRoles(id: string, _opts?: Adapter.IReadOptions): Promise<Request.IScopedRole<TRole, TScope>[]> {
     const s = await this._loadState()
-    return (s.assignments[id] ?? [])
-      .filter((e) => e.scope != null)
-      .map((e) => ({ role: e.role, scope: e.scope as TScope }))
+    const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
+    return (s.assignments[id] ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
   }
 
   /**
@@ -575,7 +565,100 @@ export class FileAdapter<
    */
   async setSubjectAttributes(id: string, attrs: Primitives.Attributes): Promise<void> {
     const s = await this._loadState()
-    s.attributes[id] = { ...(s.attributes[id] ?? {}), ...attrs }
+    s.attributes[id] = Object.assign(Object.create(null), s.attributes[id] ?? {}, attrs)
     await this._flush()
   }
+}
+
+/**
+ * Structural parser for the file adapter's `assignments` map. Malformed
+ * rows are dropped and reported via the supplied error sink.
+ */
+function parseFileAssignments<TRole extends string, TScope extends string>(
+  raw: unknown,
+  report: (rowId: string, reason: string) => void,
+): Record<string, Array<{ role: TRole; scope?: TScope }>> {
+  if (raw === undefined || raw === null) return Object.create(null)
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    report('__root__', `expected object, got ${Array.isArray(raw) ? 'array' : typeof raw}`)
+    return Object.create(null)
+  }
+  const out: Record<string, Array<{ role: TRole; scope?: TScope }>> = Object.create(null)
+  for (const [rowId, rowVal] of Object.entries(raw)) {
+    if (!Array.isArray(rowVal)) {
+      report(rowId, `expected array of {role, scope?}, got ${rowVal === null ? 'null' : typeof rowVal}`)
+      continue
+    }
+    const entries: Array<{ role: TRole; scope?: TScope }> = []
+    let perEntryError: string | null = null
+    for (const entry of rowVal) {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+        perEntryError = `assignment entry not a plain object`
+        break
+      }
+      const role = Reflect.get(entry, 'role')
+      if (typeof role !== 'string' || role.length === 0) {
+        perEntryError = `assignment entry missing/non-string role`
+        break
+      }
+      const scope = Reflect.get(entry, 'scope')
+      if (scope !== undefined && (typeof scope !== 'string' || scope.length === 0)) {
+        perEntryError = `assignment entry scope must be a non-empty string when present`
+        break
+      }
+      const narrowed: { role: TRole; scope?: TScope } =
+        scope === undefined
+          ? { role: roleAs<TRole>(role) }
+          : { role: roleAs<TRole>(role), scope: scopeAs<TScope>(scope) }
+      entries.push(narrowed)
+    }
+    if (perEntryError !== null) {
+      report(rowId, perEntryError)
+      continue
+    }
+    out[rowId] = entries
+  }
+  return out
+}
+
+/**
+ * Structural parser for the file adapter's `attributes` map. Malformed
+ * rows are dropped and reported via the supplied error sink.
+ */
+function parseFileAttributes(
+  raw: unknown,
+  report: (rowId: string, reason: string) => void,
+): Record<string, Primitives.Attributes> {
+  if (raw === undefined || raw === null) return Object.create(null)
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    report('__root__', `expected object, got ${Array.isArray(raw) ? 'array' : typeof raw}`)
+    return Object.create(null)
+  }
+  const out: Record<string, Primitives.Attributes> = Object.create(null)
+  for (const [rowId, rowVal] of Object.entries(raw)) {
+    if (typeof rowVal !== 'object' || rowVal === null || Array.isArray(rowVal)) {
+      report(rowId, `expected attributes object, got ${rowVal === null ? 'null' : typeof rowVal}`)
+      continue
+    }
+    const attrs: Primitives.Attributes = Object.create(null)
+    for (const [k, v] of Object.entries(rowVal)) {
+      attrs[k] = v as Primitives.AttributeValue
+    }
+    out[rowId] = attrs
+  }
+  return out
+}
+
+/**
+ * Narrowing helpers for the typed-string generics. We have already
+ * runtime-validated that the value is a non-empty string; the role/scope
+ * type parameters are TS-only constraints that the file adapter can't
+ * verify (the legitimate string values are determined by the calling
+ * app's `createAccessConfig`).
+ */
+function roleAs<TRole extends string>(s: string): TRole {
+  return s as TRole
+}
+function scopeAs<TScope extends string>(s: string): TScope {
+  return s as TScope
 }

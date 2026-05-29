@@ -11,15 +11,15 @@ flat - they are the hot path and benefit from a single noun.
 
 #### Migration
 
-| Before (≤ 2.x)                          | After (3.0)                                  |
+| Before (<= 2.x)             | After (3.0)                 |
 | --------------------------------------- | -------------------------------------------- |
-| `engine.invalidate(opts)`               | `engine.cache.invalidate(opts)`              |
-| `engine.invalidateSubject(id, opts)`    | `engine.cache.invalidateSubject(id, opts)`   |
-| `engine.invalidatePolicies(opts)`       | `engine.cache.invalidatePolicies(opts)`      |
-| `engine.invalidateRoles(id?, opts)`     | `engine.cache.invalidateRoles(id?, opts)`    |
-| `engine.stats()`                        | `engine.stats.get()`                         |
-| `engine.resetStats()`                   | `engine.stats.reset()`                       |
-| `engine.flushSharedCaches()` (removed)  | `import { flushSharedCaches } from ...`      |
+| `engine.invalidate(opts)`        | `engine.cache.invalidate(opts)`       |
+| `engine.invalidateSubject(id, opts)`  | `engine.cache.invalidateSubject(id, opts)`  |
+| `engine.invalidatePolicies(opts)`    | `engine.cache.invalidatePolicies(opts)`   |
+| `engine.invalidateRoles(id?, opts)`   | `engine.cache.invalidateRoles(id?, opts)`  |
+| `engine.stats()`            | `engine.stats.get()`             |
+| `engine.resetStats()`          | `engine.stats.reset()`            |
+| `engine.flushSharedCaches()` (removed) | `import { flushSharedCaches } from ...`   |
 
 Codemod is a five-line `sed`; no behavior change. Reason for cutting now
 instead of waiting: bundling the deprecation with `flushSharedCaches`'s
@@ -51,76 +51,74 @@ longer the only number.
 #### Architecture
 
 - **`runSingleFlight` + `runSingleFlightKeyed`**: 5 copies of the sentinel-
-  compare in-flight pattern in `engine.ts` (`_loadPolicies`, `_loadRoles`,
-  `_loadRbacPolicy`, `_loadAllPolicies`, `_resolveSubject`) collapsed to one
-  helper. Same-class bugs (a missed sentinel in the merger) are now
-  structurally impossible.
+ compare in-flight pattern in `engine.ts` (`_loadPolicies`, `_loadRoles`,
+ `_loadRbacPolicy`, `_loadAllPolicies`, `_resolveSubject`) collapsed to one
+ helper. Same-class bugs (a missed sentinel in the merger) are now
+ structurally impossible.
 - **`runAdminAuthz` + `withAdminAudit`**: extracted from the 4 server
-  adapters (express / hono / nest / next). The csrf + authorize + try +
-  audit shape lives in one place. Future changes land in one file instead
-  of four.
+ adapters (express / hono / nest / next). The csrf + authorize + try +
+ audit shape lives in one place. Future changes land in one file instead
+ of four.
 - **Per-Engine evaluation caches**: `regex` and `path` caches threaded
-  end-to-end through `evaluate / evaluateFast / evaluatePolicy /
-  evaluatePolicyFast / matchCandidate / ruleApplies / evalConditionGroup /
-  evalCondition / resolve`. Multi-tenant deployments instantiate one
-  Engine per tenant; each owns its own caches and cannot be evicted by
-  hostile-tenant pattern flooding. `flushSharedCaches()` remains for
-  legacy callers.
+ end-to-end through `evaluate / evaluateFast / evaluatePolicy /
+ evaluatePolicyFast / matchCandidate / ruleApplies / evalConditionGroup /
+ evalCondition / resolve`. Multi-tenant deployments instantiate one
+ Engine per tenant; each owns its own caches and cannot be evicted by
+ hostile-tenant pattern flooding. `flushSharedCaches()` remains for
+ legacy callers.
 - **Drizzle typed selects**: 7 `as unknown as` casts at module-edge
-  consolidated into 3 typed helpers (`_selectAll`, `_selectFirst`,
-  `_selectWhere`). Type system is load-bearing again.
+ consolidated into 3 typed helpers (`_selectAll`, `_selectFirst`,
+ `_selectWhere`). Type system is load-bearing again.
 - **Adapter compliance suite** at `src/adapters/__compliance__/`. Every
-  shipped adapter passes the same 21 scenarios. Caught a `revokeRole`
-  drift in `MemoryAdapter` and `FileAdapter` (omitting `scope` should
-  remove all matching role rows, not just the unscoped one).
+ shipped adapter passes the same 21 scenarios. Caught a `revokeRole`
+ drift in `MemoryAdapter` and `FileAdapter` (omitting `scope` should
+ remove all matching role rows, not just the unscoped one).
 - **Builder auto-validate**: `PolicyBuilder.build()` and
-  `RoleBuilder.build()` run `validatePolicy` / `validateRole` and throw on
-  error. Power-users wiring the adapter directly (bypassing
-  `engine.admin.savePolicy`) see failures where the bug was introduced.
+ `RoleBuilder.build()` run `validatePolicy` / `validateRole` and throw on
+ error. Power-users wiring the adapter directly (bypassing
+ `engine.admin.savePolicy`) see failures where the bug was introduced.
 
 #### Bundle slim
 
 - **Lazy validator**: `engine.libs.ts` admin write paths
-  (`savePolicy / saveRole / import`) now `await import('../validate')` on
-  first call. The 12 KB validator chunk is skipped entirely by read-only
-  services.
+ (`savePolicy / saveRole / import`) now `await import('../validate')` on
+ first call. The 12 KB validator chunk is skipped entirely by read-only
+ services.
 - **Subpath splits**: `@gentleduck/iam/core/validate`,
-  `@gentleduck/iam/core/builder`, `@gentleduck/iam/core/explain`,
-  `@gentleduck/iam/core/schema` each ship as separate entries.
-  Tree-shaking drops them for consumers that don't import the subpath.
+ `@gentleduck/iam/core/builder`, `@gentleduck/iam/core/explain`,
+ `@gentleduck/iam/core/schema` each ship as separate entries.
+ Tree-shaking drops them for consumers that don't import the subpath.
 - **Barrel cleanup**: `src/index.ts` no longer re-exports `FileAdapter`,
-  `MemoryAdapter`, or the validator. Adapter consumers go through subpath
-  imports (`@gentleduck/iam/adapters/memory`).
-- **Drop 26 `@deprecated` 2.0→3.0 type aliases**. `.d.ts` surface clean.
-  The deprecation window from 2.0.0 is closed; consumers were warned for
-  two minor versions.
+ `MemoryAdapter`, or the validator. Adapter consumers go through subpath
+ imports (`@gentleduck/iam/adapters/memory`).
+- **Drop 26 `@deprecated` 2.0->3.0 type aliases**. `.d.ts` surface clean.
+ The deprecation window from 2.0.0 is closed; consumers were warned for
+ two minor versions.
 - **Forensic comments scrubbed**: 452 redundant `@author` JSDoc tags and
-  326 `SEC-XXX` / `DEBT-X` / `audit/` references removed from source
-  comments. The source-level `SEC-XXX` index moved to `SECURITY.md`'s
-  Code-level Annotations appendix.
+ 326 audit-trail reference comments removed from source.
 
 #### New APIs
 
 - **`flushSharedCaches`** module-level export (`@gentleduck/iam` and
-  `@gentleduck/iam/core`). The instance method `Engine#flushSharedCaches`
-  is deprecated - it wiped process-globals despite being instance-bound.
+ `@gentleduck/iam/core`). The instance method `Engine#flushSharedCaches`
+ is deprecated - it wiped process-globals despite being instance-bound.
 - **`engine.preload({ validator: true })`** eagerly loads the lazy
-  validator chunk at boot for operators who want every cost up front.
+ validator chunk at boot for operators who want every cost up front.
 - **`engine.permissions(..., { telemetry: false })`** opt-out of per-check
-  `onMetrics` + `signals` allocation. Restores 2.0.x throughput on hot UI
-  gates where `authorize()` already captures the metrics signal.
+ `onMetrics` + `signals` allocation. Restores 2.0.x throughput on hot UI
+ gates where `authorize()` already captures the metrics signal.
 - **`escapeHtml`** from `@gentleduck/iam/core/explain`. Safe HTML escape
-  for consumers rendering `Explain.IResult.summary` into a debug panel.
+ for consumers rendering `Explain.IResult.summary` into a debug panel.
 - **`createEvalCaches`** from `@gentleduck/iam/core` constructs a fresh
-  per-Engine cache pair if a consumer needs to build their own evaluator
-  pipeline.
+ per-Engine cache pair if a consumer needs to build their own evaluator
+ pipeline.
 - **`splitPermissionKey`** from `@gentleduck/iam/shared/keys` reverses
-  `buildPermissionKey` honouring escape sequences.
+ `buildPermissionKey` honouring escape sequences.
 
 #### Tests
 
-- 836 → **943** (+107). The +107 is the new adapter compliance matrix
-  applied to 5 adapters.
+- 836 -> **943** (+107). The +107 is the new adapter compliance matrix
+ applied to 5 adapters.
 
 #### Stryker mutation testing scaffold
 
@@ -140,7 +138,7 @@ Measured baselines (2.0.1 from `git worktree` clean build, not eyeballed):
 | Bundle "import everything" | **38.4 KB** | 44.8 KB | **41.3 KB** |
 | Bundle realistic profile | n/a | n/a | **15-25 KB** |
 
-Net 2.0.1 → 2.2.0 bundle delta: **+2.9 KB (+7.5%)**. Earlier docs cited
+Net 2.0.1 -> 2.2.0 bundle delta: **+2.9 KB (+7.5%)**. Earlier docs cited
 a ~21 KB pre-cycle number - that was estimated from a partial dist, not
 a clean build. The full security cycle cost ~6 KB raw; the bundle slim
 cycle recovered ~3 KB; net is +2.9 KB for fail-closed hook contracts,
@@ -154,76 +152,76 @@ to ~22 µs for callers who opt out.
 
 ## 2.1.0
 
-### Adversarial security audit cycle (SEC-001 .. SEC-106 + CAVEAT-1/2/3)
+### Adversarial security audit cycle 
 
 A second multi-round audit pass after 2.0.0. Spans **21 rescan cycles** across two adversarial security-auditor agents plus a silent-failure hunter and a code-smell scanner. Resulted in **~60 fix commits** addressing 1 CRITICAL, 7 HIGH, 11 Medium, 12 Low, and 4 Info findings on top of the 2.0.0 hardening. Three consecutive clean rescans (Med+ free) declared the source tree exhausted: *"the package is genuinely hard to break."*
 
 The change set is **mostly backward compatible** with two notable defaults:
 
-1. **Hono `accessMiddleware` + `guard` no longer default to `x-user-id` header** (SEC-101). Spoofable. Now reads only `c.get('userId')` populated by upstream auth. Operators relying on the header must wire `getUserId` explicitly.
-2. **Next `withAccess` requires `getUserId`** (SEC-101). Previous default also trusted the header. Throws at construction when omitted.
+1. **Hono `accessMiddleware` + `guard` no longer default to `x-user-id` header**. Spoofable. Now reads only `c.get('userId')` populated by upstream auth. Operators relying on the header must wire `getUserId` explicitly.
+2. **Next `withAccess` requires `getUserId`**. Previous default also trusted the header. Throws at construction when omitted.
 3. **Admin routers CSRF-check by default** (CAVEAT-2). New `defaultCsrfCheck` rejects browser requests with `Sec-Fetch-Site: cross-site|cross-origin`. Bearer/mTLS APIs opt out via `csrfCheck: false`. Cookie-auth admin UIs get protection without any opt-in.
 
 #### CRITICAL (1)
 
-- **SEC-054** `FileAdapter._loadState` swallowed every `readFile` error and silently fell back to an empty store. EACCES (permissions drift), EISDIR (path overwritten), EIO (disk corruption) became `{policies:{},roles:{},...}`. With `defaultEffect:'allow'+allowFailOpen` this is total silent fail-open; with `'deny'` it's total silent outage. Only `ENOENT` now recovers as empty; everything else throws a wrapped Error.
+- `FileAdapter._loadState` swallowed every `readFile` error and silently fell back to an empty store. EACCES (permissions drift), EISDIR (path overwritten), EIO (disk corruption) became `{policies:{},roles:{},...}`. With `defaultEffect:'allow'+allowFailOpen` this is total silent fail-open; with `'deny'` it's total silent outage. Only `ENOENT` now recovers as empty; everything else throws a wrapped Error.
 
 #### HIGH (7)
 
-- **SEC-042** HTTP adapter followed fetch redirects without re-validation. A 302 to `169.254.169.254` or `10.0.0.5:6379` bypassed the construction-time `allowedHosts` / private-IP guard. `_fetchOnce` now passes `redirect: 'error'`.
-- **SEC-055** `_emitMetrics` invoked `onMetrics` without a try/catch. A throwing operator hook escaped `authorize`'s catch arm and replaced the documented fail-closed deny with a raw error. Wrapped via `_safeHookCall`; double-wrapped around `console.error` itself.
-- **SEC-056** `afterEvaluate` / `onDeny` ran inside `authorize`'s main try block; throws caught by the evaluation catch silently rewrote an allow verdict into a fail-closed deny. Trailing hooks now run outside the evaluation try; throws routed to console.error without reshaping the decision.
-- **SEC-057** `engine.permissions()` passed `undefined` for `onPolicyError` to evaluator - per-policy throws vanished. UI gates silently allowed under `defaultEffect:'allow'`. Now forwards the same shim `authorize()` uses.
-- **SEC-058** Redis + Drizzle `getSubjectAttributes` returned `{}` on JSON.parse failure or non-object root. ABAC conditions silently flipped to deny. Now throws; engine routes through `onError` + fail-closed deny.
-- **SEC-064** `FileAdapter` JSON parse failure silently populated `_cache = {}`. Next `_flush()` overwrote the recoverable-but-corrupt file. **Permanent data destruction triggered by a single transient parse error.** Now throws "store corrupt - refusing to load; restore from backup before retrying".
-- **SEC-065** `can()` / `check()` invoked `this._hooks.onError?.()` unwrapped - SEC-055/058 throws routed through these catches; a throwing operator `onError` propagated as unhandled rejection. Now `_safeHookCall`.
-- **SEC-101** Hono / Next default `getUserId` trusted spoofable `x-user-id` header. **Trivial auth bypass via curl.** Hono: no header fallback. Next: required option, throws on construction without it.
+- HTTP adapter followed fetch redirects without re-validation. A 302 to `169.254.169.254` or `10.0.0.5:6379` bypassed the construction-time `allowedHosts` / private-IP guard. `_fetchOnce` now passes `redirect: 'error'`.
+- `_emitMetrics` invoked `onMetrics` without a try/catch. A throwing operator hook escaped `authorize`'s catch arm and replaced the documented fail-closed deny with a raw error. Wrapped via `_safeHookCall`; double-wrapped around `console.error` itself.
+- `afterEvaluate` / `onDeny` ran inside `authorize`'s main try block; throws caught by the evaluation catch silently rewrote an allow verdict into a fail-closed deny. Trailing hooks now run outside the evaluation try; throws routed to console.error without reshaping the decision.
+- `engine.permissions()` passed `undefined` for `onPolicyError` to evaluator - per-policy throws vanished. UI gates silently allowed under `defaultEffect:'allow'`. Now forwards the same shim `authorize()` uses.
+- Redis + Drizzle `getSubjectAttributes` returned `{}` on JSON.parse failure or non-object root. ABAC conditions silently flipped to deny. Now throws; engine routes through `onError` + fail-closed deny.
+- `FileAdapter` JSON parse failure silently populated `_cache = {}`. Next `_flush()` overwrote the recoverable-but-corrupt file. **Permanent data destruction triggered by a single transient parse error.** Now throws "store corrupt - refusing to load; restore from backup before retrying".
+- `can()` / `check()` invoked `this._hooks.onError?.()` unwrapped - /058 throws routed through these catches; a throwing operator `onError` propagated as unhandled rejection. Now `_safeHookCall`.
+- Hono / Next default `getUserId` trusted spoofable `x-user-id` header. **Trivial auth bypass via curl.** Hono: no header fallback. Next: required option, throws on construction without it.
 
 #### Medium (11)
 
-- **SEC-043** Admin write path skipped validation. Hostile admin (or buggy UI) could persist a policy that adapter read-side validator silently drops → tenant ends up with zero policies → `defaultEffect` decides every request. `createAdmin.savePolicy / saveRole / import` now call `validatePolicy / validateRole` and throw on error.
-- **SEC-052** `assertValidOrThrow` echoed attacker-controlled values (`Invalid algorithm "<value>"`). Operator who opted into `includeErrorMessage:true` + HTTP body echo got a probe oracle. Now emits `INVALID_ALGORITHM at "algorithm"` - structural codes only.
-- **SEC-024** Redis migration vs `revokeRole` race. `_migrateLegacyAssignment`'s SADD-then-SREM let migrator resurrect a just-revoked assignment. `_runSerialised` per-key chain orders writes; revoke now SREMs both encodings.
-- **SEC-025** File `_assertWithinRoot` ran once per adapter; attacker swapping the file for a symlink after first I/O steered subsequent writes. Drops latch; realpath re-checks every read/write.
-- **SEC-063** `_assertWithinRoot` outside the load try; rejected promise stuck forever in `_loadInFlight`. Restructure clears in-flight via finally on any throw.
-- **SEC-067** SEC-058 caused admin lockout: `setSubjectAttributes` called the getter first, getter now throws on corrupt existing data → operator could not overwrite. Setter catches the throw, logs, treats existing as `{}`.
-- **SEC-068** HTTP adapter `getSubjectRoles` forwarded server response verbatim; other adapters enforce unscoped-only (SEC-059). JSDoc now documents operator's contract responsibility.
-- **SEC-103** Admin router shipped without CSRF guidance. Cookie-auth deployments exposed to cross-site forms. Optional `csrfCheck` added to all 4 framework adapters; default-on via `defaultCsrfCheck` (CAVEAT-2).
-- **SEC-070** `engine.permissions()` had no outer try around `Promise.all([_resolveSubject, _loadAllPolicies])`. Adapter rejection crashed the whole batch without `onError` + fail-closed map. Now wraps in try; returns all-deny map keyed by every requested check + invokes `onError`.
-- **SEC-045** `_loadAllPolicies` merger had no in-flight sentinel; concurrent invalidate-mid-load repopulated stale data. Added `_mergedInFlight` sentinel.
-- **SEC-059** `getSubjectRoles` semantic drift: file/memory returned unscoped-only; redis/drizzle/prisma returned all collapsed. Same subject resolved differently across backends. Aligned all to unscoped-only; documented in `Adapter.ISubjectStore`.
+- Admin write path skipped validation. Hostile admin (or buggy UI) could persist a policy that adapter read-side validator silently drops -> tenant ends up with zero policies -> `defaultEffect` decides every request. `createAdmin.savePolicy / saveRole / import` now call `validatePolicy / validateRole` and throw on error.
+- `assertValidOrThrow` echoed attacker-controlled values (`Invalid algorithm "<value>"`). Operator who opted into `includeErrorMessage:true` + HTTP body echo got a probe oracle. Now emits `INVALID_ALGORITHM at "algorithm"` - structural codes only.
+- Redis migration vs `revokeRole` race. `_migrateLegacyAssignment`'s SADD-then-SREM let migrator resurrect a just-revoked assignment. `_runSerialised` per-key chain orders writes; revoke now SREMs both encodings.
+- File `_assertWithinRoot` ran once per adapter; attacker swapping the file for a symlink after first I/O steered subsequent writes. Drops latch; realpath re-checks every read/write.
+- `_assertWithinRoot` outside the load try; rejected promise stuck forever in `_loadInFlight`. Restructure clears in-flight via finally on any throw.
+- caused admin lockout: `setSubjectAttributes` called the getter first, getter now throws on corrupt existing data -> operator could not overwrite. Setter catches the throw, logs, treats existing as `{}`.
+- HTTP adapter `getSubjectRoles` forwarded server response verbatim; other adapters enforce unscoped-only. JSDoc now documents operator's contract responsibility.
+- Admin router shipped without CSRF guidance. Cookie-auth deployments exposed to cross-site forms. Optional `csrfCheck` added to all 4 framework adapters; default-on via `defaultCsrfCheck` (CAVEAT-2).
+- `engine.permissions()` had no outer try around `Promise.all([_resolveSubject, _loadAllPolicies])`. Adapter rejection crashed the whole batch without `onError` + fail-closed map. Now wraps in try; returns all-deny map keyed by every requested check + invokes `onError`.
+- `_loadAllPolicies` merger had no in-flight sentinel; concurrent invalidate-mid-load repopulated stale data. Added `_mergedInFlight` sentinel.
+- `getSubjectRoles` semantic drift: file/memory returned unscoped-only; redis/drizzle/prisma returned all collapsed. Same subject resolved differently across backends. Aligned all to unscoped-only; documented in `Adapter.ISubjectStore`.
 
 #### Low (12)
 
-- **SEC-044** No way to chart fail-open rate. Added `failOpen: boolean` to `IMetricsEvent` + counter to `createMetricsAggregator`. Threaded through `evaluate`/`evaluateFast` via optional `IEvalSignals`.
-- **SEC-046** Redis invalidator v:1 envelope was unwrapped without HMAC verification when `secret: null` - attacker chose `instanceId`, silenced legitimate cross-instance invalidates. v:1 in unsigned mode now dropped + warned.
-- **SEC-051** `permissions()` bypassed `_emitMetrics` entirely; dashboards charting fail-open missed every batch UI gate. Now emits per check.
-- **SEC-026** File `rootDir` warn fired every construction → log spam → operators filter the warning. Module-global latch fires once per process.
-- **SEC-027** File warn echoed resolved path → path-existence oracle via log scraping. Path stripped from message.
-- **SEC-032** Redis invalidator one-shot per-channel warn latch let attacker burn the first warn on a benign reason then silently flood. Replaced with 60s rate-limit + suppressed-count surfacing.
-- **SEC-047** `errorToAuditString(includeMessage=true)` returned raw `String(err)` for non-Error throws - unbounded leak. Now tagged `<non-Error <typeof>>` + capped at 256 chars + `JSON.stringify` fallback.
-- **SEC-048** Devtools `localStorage` prefix `__IAM_DEVTOOLS` → vendor-namespaced `__GENTLEDUCK_IAM_DEVTOOLS_V1`.
-- **SEC-053** `_assertWithinRoot` parent-realpath fallback fired on ANY error; ELOOP / EACCES bypassed symlink check via reconstructed path. Now gated on `code === 'ENOENT'`.
-- **SEC-060** Vanilla client listener-throw was totally silent. `console.error` surfacing.
-- **SEC-061** Invalidator dropped shape-mismatched inner payloads without `warnDropOnce` - operators saw nothing on sustained schema drift. Routed through warn.
-- **SEC-062** Invalidator `publish()` failure silently swallowed. Added optional `onPublishError(err, channel)` hook + rate-limited console fallback.
-- **SEC-066** `_safeHookCall` / `_emitMetrics` called `console.error` unwrapped; throwing logger (closed stdout, broken pipe) would resurrect SEC-055. Defensive double-wrap.
-- **SEC-069** `dt/lib/flow.ts` listener `catch{}` silent. console.error added.
-- **SEC-104** Vanilla `extractAction` split key on `:` naively; resources containing `:` mis-tokenised. Added `splitPermissionKey` that honours `\\:`/`\\\\` escapes from `buildPermissionKey`.
+- No way to chart fail-open rate. Added `failOpen: boolean` to `IMetricsEvent` + counter to `createMetricsAggregator`. Threaded through `evaluate`/`evaluateFast` via optional `IEvalSignals`.
+- Redis invalidator v:1 envelope was unwrapped without HMAC verification when `secret: null` - attacker chose `instanceId`, silenced legitimate cross-instance invalidates. v:1 in unsigned mode now dropped + warned.
+- `permissions()` bypassed `_emitMetrics` entirely; dashboards charting fail-open missed every batch UI gate. Now emits per check.
+- File `rootDir` warn fired every construction -> log spam -> operators filter the warning. Module-global latch fires once per process.
+- File warn echoed resolved path -> path-existence oracle via log scraping. Path stripped from message.
+- Redis invalidator one-shot per-channel warn latch let attacker burn the first warn on a benign reason then silently flood. Replaced with 60s rate-limit + suppressed-count surfacing.
+- `errorToAuditString(includeMessage=true)` returned raw `String(err)` for non-Error throws - unbounded leak. Now tagged `<non-Error <typeof>>` + capped at 256 chars + `JSON.stringify` fallback.
+- Devtools `localStorage` prefix `__IAM_DEVTOOLS` -> vendor-namespaced `__GENTLEDUCK_IAM_DEVTOOLS_V1`.
+- `_assertWithinRoot` parent-realpath fallback fired on ANY error; ELOOP / EACCES bypassed symlink check via reconstructed path. Now gated on `code === 'ENOENT'`.
+- Vanilla client listener-throw was totally silent. `console.error` surfacing.
+- Invalidator dropped shape-mismatched inner payloads without `warnDropOnce` - operators saw nothing on sustained schema drift. Routed through warn.
+- Invalidator `publish()` failure silently swallowed. Added optional `onPublishError(err, channel)` hook + rate-limited console fallback.
+- `_safeHookCall` / `_emitMetrics` called `console.error` unwrapped; throwing logger (closed stdout, broken pipe) would resurrect . Defensive double-wrap.
+- `dt/lib/flow.ts` listener `catch{}` silent. console.error added.
+- Vanilla `extractAction` split key on `:` naively; resources containing `:` mis-tokenised. Added `splitPermissionKey` that honours `\\:`/`\\\\` escapes from `buildPermissionKey`.
 
 #### Info (4)
 
-- **SEC-105** `createNextMiddleware` JSDoc example demonstrated the SEC-101 unsafe pattern. Replaced with `getServerSession` example + warning.
-- **SEC-106** Only express had a CSRF regression test; hono/next/nest needed parity. Added.
+- `createNextMiddleware` JSDoc example demonstrated the unsafe pattern. Replaced with `getServerSession` example + warning.
+- Only express had a CSRF regression test; hono/next/nest needed parity. Added.
 - **INFO-A** `LRUCache` + Engine `maxPolicies/maxRoles/adapterTimeoutMs` accepted NaN (silently disabled bound). Now `Number.isFinite` required.
 - **INFO-B** `Explain.IResult.summary` is plain text with attacker-influenced values; consumers rendering as HTML must escape. JSDoc added.
 
-#### Deployment hardening (CAVEAT-1/2/3 + SEC-050)
+#### Deployment hardening (CAVEAT-1/2/3 + )
 
 - **CAVEAT-1**: `createRedisInvalidator({ tenantId })` auto-prefixes the channel `'duck-iam:invalidate:tenant:${tenantId}'`. Validates `tenantId` against `/^[A-Za-z0-9_-]{1,64}$/` so attacker-controlled tenant slugs cannot inject pub/sub wildcards.
 - **CAVEAT-2**: Admin routers default-on CSRF via `defaultCsrfCheck` (Sec-Fetch-Site check). `csrfCheck: false` opts out for bearer/mTLS APIs.
 - **CAVEAT-3**: `SECURITY.md` adds a 10-section **Deployment Hardening Guide** covering identity sourcing, admin CSRF, Redis tenancy, cache scoping, `defaultEffect:'allow'`, `explain()` output trust, adapter trust, file `rootDir`, HTTP `allowedHosts`, observability wiring.
-- **SEC-050**: `getCachedRegex` / `getSegments` accept optional per-instance cache override. `clearRegexCache()` / `clearPathCache()` exported. `Engine.flushSharedCaches()` ergonomic operator API for multi-tenant deployments.
+- ****: `getCachedRegex` / `getSegments` accept optional per-instance cache override. `clearRegexCache()` / `clearPathCache()` exported. `Engine.flushSharedCaches()` ergonomic operator API for multi-tenant deployments.
 
 #### New APIs (additive)
 
@@ -252,7 +250,7 @@ The change set is **mostly backward compatible** with two notable defaults:
 
 #### Tests
 
-- 785 → **836** tests (+51).
+- 785 -> **836** tests (+51).
 - 5 consecutive clean rescans (Med+ free): 010, 011, 012, 014, 017, 019, 020, 021 (intermediate Med+ found-and-fixed in 015, 018).
 
 #### Audit hygiene
@@ -410,17 +408,17 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - 0e80f84: Add Redis adapter, Drizzle schemas, and full integration test coverage.
 
-  **New: `RedisAdapter`** at `@gentleduck/iam/adapters/redis`. Distributed key/value backend with idempotent `assignRole` (set semantics), multi-tenant `keyPrefix`, and a minimal `RedisLike` interface that ioredis, node-redis v4+, and Upstash all satisfy directly.
+ **New: `RedisAdapter`** at `@gentleduck/iam/adapters/redis`. Distributed key/value backend with idempotent `assignRole` (set semantics), multi-tenant `keyPrefix`, and a minimal `RedisLike` interface that ioredis, node-redis v4+, and Upstash all satisfy directly.
 
-  **New: pre-built Drizzle schemas** at `@gentleduck/iam/adapters/drizzle/schema/{pg,mysql,sqlite}`. Drop-in tables for all three SQL dialects with the right column types, FK cascade on `roleId`, unique index on `(subjectId, roleId, scope)`, and auto-managed `created_at`/`updated_at`. Generate migrations via `drizzle-kit generate`.
+ **New: pre-built Drizzle schemas** at `@gentleduck/iam/adapters/drizzle/schema/{pg,mysql,sqlite}`. Drop-in tables for all three SQL dialects with the right column types, FK cascade on `roleId`, unique index on `(subjectId, roleId, scope)`, and auto-managed `created_at`/`updated_at`. Generate migrations via `drizzle-kit generate`.
 
-  **Test coverage expansion**: every adapter, server middleware, and client integration now has dedicated tests. Total test count went from 309 to 498. New test files:
+ **Test coverage expansion**: every adapter, server middleware, and client integration now has dedicated tests. Total test count went from 309 to 498. New test files:
 
-  - `adapters/prisma`, `adapters/drizzle`, `adapters/http`, `adapters/redis`
-  - `server/express`, `server/hono`, `server/nest`, `server/next`
-  - `client/react`, `client/vue`
+ - `adapters/prisma`, `adapters/drizzle`, `adapters/http`, `adapters/redis`
+ - `server/express`, `server/hono`, `server/nest`, `server/next`
+ - `client/react`, `client/vue`
 
-  **Optional peer deps added**: `drizzle-orm`, `ioredis`, `redis` (all optional).
+ **Optional peer deps added**: `drizzle-orm`, `ioredis`, `redis` (all optional).
 
 ## 1.6.2
 
@@ -446,13 +444,13 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - e682b61: Add optional scope parameter to grant() for permission-level scoping
 
-  The `grant()` method now accepts an optional third `scope` argument:
-  `.grant('update', 'post', 'org-1')`. This enables permission-level
-  scoping directly without needing `grantScoped()`. The existing
-  `grantScoped(scope, action, resource)` method remains available.
+ The `grant()` method now accepts an optional third `scope` argument:
+ `.grant('update', 'post', 'org-1')`. This enables permission-level
+ scoping directly without needing `grantScoped()`. The existing
+ `grantScoped(scope, action, resource)` method remains available.
 
-  Also fixed incorrect `first-applicable` references in JSDoc comments
-  to use the correct algorithm names `first-match` and `highest-priority`.
+ Also fixed incorrect `first-applicable` references in JSDoc comments
+ to use the correct algorithm names `first-match` and `highest-priority`.
 
 ## 1.4.0
 
@@ -460,9 +458,9 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - 72c449b: Add FlexibleDollarPaths for $-value autocomplete and fix AttrValue for optional properties
 
-  - FlexibleDollarPaths<TContext> added directly to method value signatures so the IDE shows $-prefixed autocomplete (e.g. $subject.id) even without a custom context
-  - AttrValue now strips undefined from optional properties - yearsExperience?: number correctly resolves to number instead of falling back to AttributeValue
-  - StringConditionValue no longer includes (string & {}) internally - the flexible string fallback is handled at the method signature level via FlexibleDollarPaths
+ - FlexibleDollarPaths<TContext> added directly to method value signatures so the IDE shows $-prefixed autocomplete (e.g. $subject.id) even without a custom context
+ - AttrValue now strips undefined from optional properties - yearsExperience?: number correctly resolves to number instead of falling back to AttributeValue
+ - StringConditionValue no longer includes (string & {}) internally - the flexible string fallback is handled at the method signature level via FlexibleDollarPaths
 
 ## 1.3.2
 
@@ -470,13 +468,13 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - 2dd9f8b: feat: FlexibleDotPaths for DefaultContext autocomplete and strict ConditionValue type safety
 
-  - DotPaths now bails to `never` (not `string`) for string-indexed types, preventing
-    union pollution that killed IDE autocomplete.
-  - New FlexibleDotPaths<T> detects open-ended attribute bags (like DefaultContext) and
-    adds `(string & {})` so known structural paths autocomplete while arbitrary strings
-    are still accepted. Fully typed contexts remain strict.
-  - ConditionValue correctly restricts non-string value types: `env('hour', 'lt', '')`
-    now errors when `hour` is `number`, instead of accepting any AttributeValue.
+ - DotPaths now bails to `never` (not `string`) for string-indexed types, preventing
+  union pollution that killed IDE autocomplete.
+ - New FlexibleDotPaths<T> detects open-ended attribute bags (like DefaultContext) and
+  adds `(string & {})` so known structural paths autocomplete while arbitrary strings
+  are still accepted. Fully typed contexts remain strict.
+ - ConditionValue correctly restricts non-string value types: `env('hour', 'lt', '')`
+  now errors when `hour` is `number`, instead of accepting any AttributeValue.
 
 ## 1.3.1
 
@@ -484,9 +482,9 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - b62bb5b: fix: prevent DotPaths from recursing into array methods and functions
 
-  DotPaths now treats arrays as leaf paths and skips function-valued properties,
-  so autocomplete only shows real data properties instead of array methods like
-  `length`, `push`, `toString`, etc.
+ DotPaths now treats arrays as leaf paths and skips function-valued properties,
+ so autocomplete only shows real data properties instead of array methods like
+ `length`, `push`, `toString`, etc.
 
 ## 1.3.0
 

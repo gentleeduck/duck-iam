@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { TestChannel } from '../../../channels/console'
@@ -138,5 +133,36 @@ describe('FlowsFacet - account deletion', () => {
     await expect(auth.flows.requestAccountDeletion({ identityId, channels: { email: channel } })).rejects.toMatchObject(
       { code: 'AUTH/RATE_LIMITED' },
     )
+  })
+
+  it('rejects oversize reason (>1024 chars)', async () => {
+    const big = 'A'.repeat(1025)
+    await expect(
+      auth.flows.requestAccountDeletion({
+        identityId,
+        channels: { email: channel },
+        reason: big,
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+  })
+
+  it('accepts reason at 1024 chars (boundary)', async () => {
+    const sized = 'A'.repeat(1024)
+    const r = await auth.flows.requestAccountDeletion({
+      identityId,
+      channels: { email: channel },
+      reason: sized,
+    })
+    expect(r).toEqual({ ok: true })
+  })
+
+  it('rejects non-string reason without crashing', async () => {
+    await expect(
+      auth.flows.requestAccountDeletion({
+        identityId,
+        channels: { email: channel },
+        reason: 42 as unknown as string,
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
   })
 })

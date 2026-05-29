@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { MemoryLimiter } from '../../../limiters/memory'
@@ -81,6 +76,13 @@ describe('M2MFacet - client_credentials grant', () => {
     expect(result.scope.split(' ').sort()).toEqual(['read:users'])
   })
 
+  it('granted scope is signed into the JWT (`scope` claim), not just the response envelope', async () => {
+    const result = await env.m2m.exchange({ clientId, clientSecret, scope: 'read:users' })
+    const [, payloadB64] = result.access_token.split('.')
+    const payload = JSON.parse(Buffer.from(payloadB64!, 'base64url').toString('utf8'))
+    expect(payload.scope).toBe('read:users')
+  })
+
   it('strict mode: requested scope superset triggers SCOPE_INSUFFICIENT', async () => {
     const strict = new M2MFacet(env.auth.apiKeys, env.auth.sessions, env.transport, {
       ttlMs: 60 * 60 * 1000,
@@ -89,6 +91,27 @@ describe('M2MFacet - client_credentials grant', () => {
     await expect(
       strict.exchange({ clientId, clientSecret, scope: 'read:users admin:everything' }),
     ).rejects.toMatchObject({ code: 'AUTH/APIKEY_SCOPE_INSUFFICIENT' })
+  })
+
+  it('rejects oversize scope (>4096 chars) before splitting - memory amplification defense', async () => {
+    // Without the cap an attacker with a valid api-key could submit a
+    // multi-MB scope string and force `.split(/\s+/)` to allocate a
+    // 1M+ token array. Reject before splitting.
+    const huge = `${'x '.repeat(2050)}`
+    await expect(env.m2m.exchange({ clientId, clientSecret, scope: huge })).rejects.toMatchObject({
+      code: 'AUTH/APIKEY_SCOPE_INSUFFICIENT',
+      meta: { detail: 'scope parameter exceeds size cap' },
+    })
+  })
+
+  it('rejects too-many-tokens scope (>64 tokens) after split', async () => {
+    // 65 single-char tokens - under the 4096-char cap, but token count
+    // exceeds 64 (the per-request scope cardinality limit).
+    const many = Array.from({ length: 65 }, (_, i) => `s${i}`).join(' ')
+    await expect(env.m2m.exchange({ clientId, clientSecret, scope: many })).rejects.toMatchObject({
+      code: 'AUTH/APIKEY_SCOPE_INSUFFICIENT',
+      meta: { detail: 'scope parameter contains too many tokens' },
+    })
   })
 
   it('wrong client_secret throws AUTH/APIKEY_INVALID', async () => {

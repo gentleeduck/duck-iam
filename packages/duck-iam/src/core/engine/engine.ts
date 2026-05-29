@@ -145,25 +145,18 @@ export class Engine<
   constructor(config: EngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>) {
     this._adapter = config.adapter
     this._defaultEffect = config.defaultEffect ?? 'deny'
-    this._mode = config.mode ?? ('development' as AccessControl.Mode)
+    this._mode = config.mode ?? 'development'
     this._policyCombine = config.policyCombine ?? 'and'
     this._hooks = config.hooks ?? {}
 
-    // `evaluateFast` cannot distinguish "rule fired" from "default applied"
-    // (returns a plain boolean), so it can't implement `first-applicable`
-    // faithfully. Fail loudly at construction instead of returning silently
-    // different decisions in production vs development.
+    // evaluateFast can't represent first-applicable; fail at construction.
     if (this._mode === 'production' && this._policyCombine === 'first-applicable') {
       throw new Error(
         "[@gentleduck/iam:engine] policyCombine 'first-applicable' requires mode 'development'; the production fast path cannot represent it correctly.",
       )
     }
 
-    // Fail-open guard: `defaultEffect: 'allow'` is almost always a misconfig
-    // regardless of mode - a buggy condition or an adapter blip silently flips
-    // deny to allow. Refuse it unless the operator explicitly opts in via
-    // `allowFailOpen: true`. We previously enforced this only in production,
-    // which let dev/staging engines ship with the same footgun.
+    // `defaultEffect: 'allow'` is a fail-open footgun; require explicit opt-in.
     if (this._defaultEffect === 'allow' && !config.allowFailOpen) {
       throw new Error(
         "[@gentleduck/iam:engine] defaultEffect 'allow' is a fail-open footgun. Pass `allowFailOpen: true` to confirm intent.",
@@ -182,11 +175,8 @@ export class Engine<
     this._maxRoles = config.maxRoles ?? 10_000
     this._adapterTimeoutMs = config.adapterTimeoutMs ?? 5_000
 
-    // INFO-A: reject non-finite caps. `NaN > x` is always false, so a
-    // misconfigured NaN limit silently disabled the bound; Infinity does
-    // too but at least surfaces in metrics. Reject both at construction
-    // so the operator sees the typo immediately instead of debugging an
-    // adapter that "never trips the limit".
+    // Reject non-finite caps; `NaN > x` is always false so a NaN limit
+    // silently disables the bound.
     if (!Number.isFinite(this._maxPolicies) || this._maxPolicies < 1) {
       throw new RangeError('[@gentleduck/iam:engine] maxPolicies must be a finite number >= 1')
     }
@@ -234,9 +224,9 @@ export class Engine<
         reject(new Error(`[@gentleduck/iam:engine] ${label} timed out after ${this._adapterTimeoutMs}ms`))
       }, this._adapterTimeoutMs)
     })
-    return Promise.race([fn({ signal: ctrl.signal }), timeout]).finally(() => {
+    return Promise.race<T>([fn({ signal: ctrl.signal }), timeout]).finally(() => {
       if (timer) clearTimeout(timer)
-    }) as Promise<T>
+    })
   }
 
   /** Apply a cross-instance invalidate event to local caches. */
@@ -275,10 +265,7 @@ export class Engine<
         this._policiesInFlight = p
       },
       async () => {
-        const policies = (await this._withTimeout(
-          (opts) => this._adapter.listPolicies(opts),
-          'listPolicies',
-        )) as AccessControl.IPolicy[]
+        const policies = await this._withTimeout((opts) => this._adapter.listPolicies(opts), 'listPolicies')
         if (policies.length > this._maxPolicies) {
           throw new Error(
             `[@gentleduck/iam:engine] adapter returned ${policies.length} policies; maxPolicies is ${this._maxPolicies}. Raise the limit or fix the adapter.`,
@@ -303,10 +290,7 @@ export class Engine<
         this._rolesInFlight = p
       },
       async () => {
-        const roles = (await this._withTimeout(
-          (opts) => this._adapter.listRoles(opts),
-          'listRoles',
-        )) as AccessControl.IRole[]
+        const roles = await this._withTimeout((opts) => this._adapter.listRoles(opts), 'listRoles')
         if (roles.length > this._maxRoles) {
           throw new Error(
             `[@gentleduck/iam:engine] adapter returned ${roles.length} roles; maxRoles is ${this._maxRoles}. Raise the limit or fix the adapter.`,
@@ -436,15 +420,17 @@ export class Engine<
     let req = request
     const t0 = this._hooks.onMetrics ? performance.now() : 0
 
-    // The evaluation try block stops at the point a decision is produced.
-    // Trailing hooks (afterEvaluate, onDeny, onMetrics) run in a separate
-    // try below so a throwing hook cannot be caught by the evaluation
-    // catch and silently rewrite an allow → deny.
+    // Trailing hooks run outside the evaluation try; a thrown hook must not
+    // rewrite an allow into deny via the catch.
     let result: AccessControl.ModeResult<TMode>
     let decisionForHooks: AccessControl.IDecision | null = null
     let allowedForMetrics = false
     let failOpenForMetrics = false
     try {
+      // Normalise non-array roles; string would substring-match `contains <role>`.
+      if (req.subject && !Array.isArray(req.subject.roles)) {
+        req = { ...req, subject: { ...req.subject, roles: [] } }
+      }
       if (req.scope && req.subject.scopedRoles?.length) {
         const enriched = enrichSubjectWithScopedRoles(req.subject, req.scope)
         if (enriched !== req.subject) req = { ...req, subject: enriched }
@@ -465,7 +451,7 @@ export class Engine<
       if (this._mode === 'production') {
         const allowed = evaluateFast(
           allPolicies,
-          req as Request.IAccessRequest,
+          req,
           this._defaultEffect,
           this._policyCombine,
           onPolicyError,
@@ -478,7 +464,7 @@ export class Engine<
       } else {
         const decision = evaluate(
           allPolicies,
-          req as Request.IAccessRequest,
+          req,
           this._defaultEffect,
           this._policyCombine,
           onPolicyError,
@@ -597,30 +583,25 @@ export class Engine<
     environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
   ): Promise<boolean> {
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return false
     try {
       const subject = await this._resolveSubject(subjectId)
       const result = await this.authorize({ subject, action, resource, environment, scope })
-      return typeof result === 'boolean' ? result : (result as AccessControl.IDecision).allowed
+      return typeof result === 'boolean' ? result : result.allowed
     } catch (error) {
       // Subject-resolution errors (adapter down, listRoles limit hit) escape
       // authorize()'s try/catch. Translate to a fail-closed deny so callers
       // never see an unhandled rejection from the entry-point methods.
       const err = error instanceof Error ? error : new Error(String(error))
-      // Wrap onError via _safeHookCall - same contract as authorize()'s
-      // catch. A throwing operator onError here would otherwise propagate
-      // as an unhandled rejection, bypassing the fail-closed `return false`
-      // below.
-      await this._safeHookCall(
-        () =>
-          this._hooks.onError?.(err, {
-            subject: { id: subjectId, roles: [], attributes: {} },
-            action,
-            resource,
-            environment,
-            scope,
-          } as Request.IAccessRequest<TAction, TResource, TScope>),
-        'onError',
-      )
+      // _safeHookCall so a throwing onError cannot bypass fail-closed `return false`.
+      const errReq: Request.IAccessRequest<TAction, TResource, TScope> = {
+        subject: { id: subjectId, roles: [], attributes: {} },
+        action,
+        resource,
+        environment,
+        scope,
+      }
+      await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
       return false
     }
   }
@@ -643,18 +624,24 @@ export class Engine<
     environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
   ): Promise<AccessControl.ModeResult<TMode>> {
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
+      // Fail-closed: in production mode return false; otherwise a synthesized deny.
+      return (
+        this._mode === 'production' ? false : { allowed: false, reason: 'invalid subjectId' }
+      ) as AccessControl.ModeResult<TMode>
+    }
     try {
       const subject = await this._resolveSubject(subjectId)
       return await this.authorize({ subject, action, resource, environment, scope })
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
-      const req = {
+      const req: Request.IAccessRequest<TAction, TResource, TScope> = {
         subject: { id: subjectId, roles: [], attributes: {} },
         action,
         resource,
         environment,
         scope,
-      } as Request.IAccessRequest<TAction, TResource, TScope>
+      }
       // Wrap so a throwing operator onError cannot escape the documented
       // fail-closed behaviour.
       await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
@@ -697,15 +684,18 @@ export class Engine<
     if (this._mode === 'production') {
       throw new Error('explain() is not available in production mode')
     }
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
+      throw new Error('[@gentleduck/iam:engine] explain(): subjectId must be a non-empty string <=1024 chars')
+    }
     const subject = await this._resolveSubject(subjectId)
-    const originalRoles = [...subject.roles] as string[]
+    const originalRoles = [...subject.roles]
 
     let enrichedSubject = subject
     if (scope && subject.scopedRoles?.length) {
       enrichedSubject = enrichSubjectWithScopedRoles(subject, scope)
     }
 
-    const scopedRolesApplied = (enrichedSubject.roles as string[]).filter((r) => !originalRoles.includes(r))
+    const scopedRolesApplied = enrichedSubject.roles.filter((r) => !originalRoles.includes(r))
 
     let req: Request.IAccessRequest<TAction, TResource, TScope> = {
       subject: enrichedSubject,
@@ -724,7 +714,7 @@ export class Engine<
 
     return explainEvaluation(
       allPolicies,
-      req as Request.IAccessRequest,
+      req,
       this._defaultEffect,
       { subjectId, originalRoles, scopedRolesApplied },
       this._policyCombine,
@@ -751,41 +741,39 @@ export class Engine<
     environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
     opts: { telemetry?: boolean } = {},
   ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
-    // `telemetry: false` skips per-check onMetrics + signals allocation
-    // (~2x throughput on large batches). Use for hot UI gates where you
-    // already chart fail-open via authorize() metrics and don't need
-    // per-check telemetry for permissions().
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
+      throw new Error('[@gentleduck/iam:engine] permissions(): subjectId must be a non-empty string <=1024 chars')
+    }
+    // Defensive cap: prevents an unbounded batch (e.g. attacker-driven UI gate
+    // that floods checks) from running into thousands of per-check evaluations.
+    // 1024 covers any plausible legitimate batch.
+    if (checks.length > 1024) {
+      throw new Error('[@gentleduck/iam:engine] permissions() refuses batches >1024 checks')
+    }
+    // `telemetry: false` skips per-check onMetrics for hot UI gates (~2x throughput).
     const telemetry = opts.telemetry !== false
-    // Outer try mirrors check()/can() - adapter rejections from
-    // _resolveSubject or _loadAllPolicies happen BEFORE the per-check try,
-    // so without this catch the entire batch would reject with no onError
-    // signal and no fail-closed map. Synthesise an all-deny map matching
-    // every requested check so callers cannot accidentally treat a thrown
-    // batch as "no restrictions".
+    // Outer try synthesises all-deny on subject/policy load failure.
     let subject: Request.ISubject
     let allPolicies: AccessControl.IPolicy[]
     try {
       ;[subject, allPolicies] = await Promise.all([this._resolveSubject(subjectId), this._loadAllPolicies()])
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
-      const failClosed = {} as Record<string, boolean>
+      const failClosed: Record<string, boolean> = {}
       for (const c of checks) {
         failClosed[buildPermissionKey(c.action, c.resource, c.resourceId, c.scope)] = false
       }
-      await this._safeHookCall(
-        () =>
-          this._hooks.onError?.(err, {
-            subject: { id: subjectId, roles: [], attributes: {} },
-            action: checks[0]?.action ?? ('' as TAction),
-            resource: { type: checks[0]?.resource ?? ('' as TResource), attributes: {} },
-            environment,
-          } as Request.IAccessRequest<TAction, TResource, TScope>),
-        'onError',
-      )
+      const errReq: Request.IAccessRequest<TAction, TResource, TScope> = {
+        subject: { id: subjectId, roles: [], attributes: {} },
+        action: checks[0]?.action ?? ('' as TAction),
+        resource: { type: checks[0]?.resource ?? ('' as TResource), attributes: {} },
+        environment,
+      }
+      await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
       return failClosed as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
     }
 
-    const map = {} as Record<string, boolean>
+    const map: Record<string, boolean> = {}
     // Memo per scope: N checks sharing a scope must not rebuild the merged role list N times.
     const enrichedByScope = new Map<TScope, Request.ISubject>()
 
@@ -838,7 +826,7 @@ export class Engine<
         if (this._mode === 'production') {
           const allowed = evaluateFast(
             allPolicies,
-            req as Request.IAccessRequest,
+            req,
             this._defaultEffect,
             this._policyCombine,
             onPolicyError,
@@ -852,7 +840,7 @@ export class Engine<
         } else {
           const decision = evaluate(
             allPolicies,
-            req as Request.IAccessRequest,
+            req,
             this._defaultEffect,
             this._policyCombine,
             onPolicyError,
@@ -951,6 +939,7 @@ export class Engine<
 
   /** @internal Clear one subject's cached data. Reached via {@link cache.invalidateSubject}. */
   private _invalidateSubject(subjectId: string, opts: { broadcast?: boolean } = {}): void {
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return
     this._subjectCache.delete(subjectId)
     this._subjectsInFlight.delete(subjectId)
     if (opts.broadcast !== false && this._invalidator) {
@@ -971,6 +960,11 @@ export class Engine<
 
   /** @internal Clear cached roles + selectively drop affected subjects. Reached via {@link cache.invalidateRoles}. */
   private _invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
+    // Treat invalid roleId (non-string / oversize) as "clear all subjects"
+    // (the safer, fail-closed branch) rather than silently no-oping.
+    if (roleId !== undefined && (typeof roleId !== 'string' || roleId.length === 0 || roleId.length > 1024)) {
+      roleId = undefined
+    }
     this._roleCache.clear()
     this._rbacPolicyCache.clear()
     this._rolesInFlight = null
@@ -982,8 +976,8 @@ export class Engine<
       this._subjectsInFlight.clear()
     } else {
       for (const [subjectId, subject] of this._subjectCache.entries()) {
-        const inRoles = (subject.roles as readonly string[]).includes(roleId)
-        const inScoped = subject.scopedRoles?.some((sr) => (sr.role as string) === roleId) ?? false
+        const inRoles = subject.roles.includes(roleId)
+        const inScoped = subject.scopedRoles?.some((sr) => sr.role === roleId) ?? false
         if (inRoles || inScoped) {
           this._subjectCache.delete(subjectId)
           this._subjectsInFlight.delete(subjectId)

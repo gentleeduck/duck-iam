@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * i18n message catalogue for `@gentleduck/auth`. Maps error codes +
  * channel template ids to localised strings.
  *
@@ -13,61 +12,20 @@
  * password-reset / email-verification / account-deletion / magic-link
  * flows all accept a `(templateId, vars) -> { subject, body }`
  * callback) so the same flow renders the user's preferred locale.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { AuthErrorObject } from '../core/errors'
 
 /**
- * Locale -> messageId -> string catalogue. `messageId` typically maps
- * to an AuthError code (`'AUTH/INVALID_CREDENTIALS'`) or a channel
- * template id (`'magic-link'`, `'email-verification.subject'`).
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface I18nCatalogShape {
-  [locale: string]: { [messageId: string]: string }
-}
-
-/**
- * Common resolver contract. Both the zero-dep catalogue + Lingui
- * adapter implement this shape so consumers can swap without
- * touching call sites.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface I18nResolver {
-  /** Resolve a message id under the chosen locale; falls back to the default locale. */
-  t(messageId: string, opts?: { locale?: string; vars?: Record<string, unknown> }): string
-  /** List of locales the resolver knows. */
-  readonly locales: string[]
-}
-
-/**
- * Config knobs for `I18nMessageCatalog`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface I18nMessageCatalogConfig {
-  /** Catalogue keyed by locale -> messageId -> template. */
-  messages: I18nCatalogShape
-  /** Locale used when the requested one is missing. Default `'en'`. */
-  defaultLocale?: string
-}
-
-/**
  * Zero-dep i18n catalogue. Templates may contain `{{var}}` placeholders;
  * `vars` substitution is a single regex pass (no escaping, no plural
  * rules, no nesting - those need a real library like Lingui).
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export class I18nMessageCatalog implements I18nResolver {
-  private readonly _messages: I18nCatalogShape
+export class I18nMessageCatalog implements I18n.IResolver {
+  private readonly _messages: I18n.ICatalogShape
   private readonly _defaultLocale: string
 
-  constructor(cfg: I18nMessageCatalogConfig) {
+  constructor(cfg: I18n.IConfig) {
     if (!cfg.messages || Object.keys(cfg.messages).length === 0) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: 'I18nMessageCatalog requires a non-empty `messages` object',
@@ -81,8 +39,6 @@ export class I18nMessageCatalog implements I18nResolver {
    * Look up `messageId` under `locale`; falls back to defaultLocale;
    * finally to the messageId itself when nothing matches. Variable
    * substitution: `{{name}}` is replaced with `vars.name` (toString).
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   t(messageId: string, opts: { locale?: string; vars?: Record<string, unknown> } = {}): string {
     const locale = opts.locale ?? this._defaultLocale
@@ -101,21 +57,6 @@ export class I18nMessageCatalog implements I18nResolver {
 }
 
 /**
- * Subset of `@lingui/core` `I18n` we depend on. Lingui's real surface
- * is huge; this captures the three methods we need so consumers pass
- * their pre-built `i18n` instance without the auth lib pulling in
- * lingui as a peer.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface LinguiI18nLike {
-  _(id: string, values?: Record<string, unknown>): string
-  activate(locale: string): void
-  readonly locales?: string[]
-  readonly locale?: string
-}
-
-/**
  * Lingui adapter. Forwards `t()` to Lingui's `i18n._()` which handles
  * ICU pluralisation + interpolation + locale-fallback chain via
  * Lingui's catalogue. Apps that already wire Lingui at app boot just
@@ -126,11 +67,9 @@ export interface LinguiI18nLike {
  *     underlying i18n then restores the prior locale. Lingui calls
  *     happening concurrently on the same i18n instance can race; for
  *     concurrent locale switches build one resolver per request.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export class LinguiResolver implements I18nResolver {
-  constructor(private readonly _i18n: LinguiI18nLike) {
+export class LinguiResolver implements I18n.IResolver {
+  constructor(private readonly _i18n: I18n.ILingui) {
     if (!_i18n || typeof _i18n._ !== 'function') {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: 'LinguiResolver requires a Lingui i18n instance with a `_` method',
@@ -142,8 +81,6 @@ export class LinguiResolver implements I18nResolver {
    * Resolve via Lingui's ICU MessageFormat path. `opts.locale` is
    * applied via `activate()` for the duration of the call; the prior
    * locale is restored on exit.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   t(messageId: string, opts: { locale?: string; vars?: Record<string, unknown> } = {}): string {
     if (opts.locale && this._i18n.locale !== opts.locale) {
@@ -168,8 +105,6 @@ export class LinguiResolver implements I18nResolver {
  * Default English seed for the AuthError + channel template strings.
  * Apps merge in their own catalogue; this gives the library a sane
  * fallback so an English-only deploy works without configuration.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export const DEFAULT_EN_MESSAGES: Record<string, string> = {
   'AUTH/UNAUTHENTICATED': 'Sign in to continue.',
@@ -195,16 +130,30 @@ export const DEFAULT_EN_MESSAGES: Record<string, string> = {
 
 /**
  * Namespace merge for the i18n surface.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace I18n {
-  /** Alias for `I18nResolver`. */
-  export type IResolver = I18nResolver
-  /** Alias for `I18nCatalogShape`. */
-  export type ICatalogShape = I18nCatalogShape
-  /** Alias for `I18nMessageCatalogConfig`. */
-  export type IConfig = I18nMessageCatalogConfig
-  /** Alias for `LinguiI18nLike`. */
-  export type ILingui = LinguiI18nLike
+  export interface IResolver {
+    /** Resolve a message id under the chosen locale; falls back to the default locale. */
+    t(messageId: string, opts?: { locale?: string; vars?: Record<string, unknown> }): string
+    /** List of locales the resolver knows. */
+    readonly locales: string[]
+  }
+
+  export interface ICatalogShape {
+    [locale: string]: { [messageId: string]: string }
+  }
+
+  export interface IConfig {
+    /** Catalogue keyed by locale -> messageId -> template. */
+    messages: I18n.ICatalogShape
+    /** Locale used when the requested one is missing. Default `'en'`. */
+    defaultLocale?: string
+  }
+
+  export interface ILingui {
+    _(id: string, values?: Record<string, unknown>): string
+    activate(locale: string): void
+    readonly locales?: string[]
+    readonly locale?: string
+  }
 }

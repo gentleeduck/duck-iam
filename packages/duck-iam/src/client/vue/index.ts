@@ -83,7 +83,7 @@ export function createVueAccess<
 
   /** Create reactive access control state with can/cannot helpers. */
   function createAccessState(initialPermissions: Client.PermissionMap<TAction, TResource, TScope>) {
-    const permissions = ref(initialPermissions as Client.PermissionMap<TAction, TResource, TScope>)
+    const permissions = ref(initialPermissions)
 
     const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
       const key = buildPermissionKey(action, resource, resourceId, scope)

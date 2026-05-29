@@ -418,11 +418,6 @@ describe('matches operator ReDoS hardening (P1)', () => {
   it('evaluates a catastrophic pattern + adversarial-length input under 50ms', async () => {
     const { regexCache, RegexInputTooLargeError } = await import('../conditions.libs')
     regexCache.clear()
-    // `(a+)+$` is the textbook catastrophic-backtracking pattern, paired
-    // with a long input ending in a non-matching character (`!`) to force
-    // maximum backtracking. The runtime input cap (MAX_REGEX_INPUT_LENGTH)
-    // throws before the regex engine ever runs. The throw (rather than a
-    // silent `false`) prevents `deny`-when-`matches` rules from flipping.
     const big = `${'a'.repeat(3000)}!`
     const req = makeReq({ subject: { id: big, roles: [], attributes: {} } })
     const group: AccessControl.IConditionGroup = {
@@ -468,13 +463,7 @@ describe('matches operator ReDoS hardening (P1)', () => {
     expect(regexCache.has(pattern)).toBe(false)
   })
 
-  it('SEC-022: deny-when-matches over-length input drops policy (decision = deny, not allow)', async () => {
-    // Returning `false` from the matches operator on over-length input would
-    // make a `deny WHEN subject.id MATCHES '^evil-'` rule flip to "condition
-    // not met -> deny does not fire -> effective allow" on a 10k-byte
-    // subject.id. The operator throws instead; the evaluator catches and
-    // treats the whole policy as NotApplicable, so the engine falls through
-    // to its `defaultEffect` (deny).
+  it('deny-when-matches over-length input drops policy (decision = deny, not allow)', async () => {
     const { evaluate } = await import('../../evaluate')
     const policy: AccessControl.IPolicy = {
       id: 'deny-evil',

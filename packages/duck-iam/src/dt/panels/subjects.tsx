@@ -26,7 +26,7 @@ export function SubjectsPanel({ engine }: { engine: IDevtoolsEngine }) {
       setAttrs(a)
       setAttrsDraft(JSON.stringify(a, null, 2))
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
@@ -43,7 +43,7 @@ export function SubjectsPanel({ engine }: { engine: IDevtoolsEngine }) {
       setAttrs(parsed.value)
       setStatus('attributes saved')
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
@@ -58,7 +58,7 @@ export function SubjectsPanel({ engine }: { engine: IDevtoolsEngine }) {
       await engine.admin.assignRole(subjectId, roleId, scope || undefined)
       setStatus(`assigned ${roleId}${scope ? ` @ ${scope}` : ''}`)
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
@@ -73,7 +73,7 @@ export function SubjectsPanel({ engine }: { engine: IDevtoolsEngine }) {
       await engine.admin.revokeRole(subjectId, roleId, scope || undefined)
       setStatus(`revoked ${roleId}${scope ? ` @ ${scope}` : ''}`)
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }

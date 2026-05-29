@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * Fastify adapter. Fastify is Node-native (req/reply rather than
  * Web-Fetch), so the adapter translates between the Web Fetch
  * `Response` that `executeIntents` returns and Fastify's reply API.
@@ -10,81 +9,31 @@
  *   fastify.post('/auth/signout', fastifySignOut(auth))
  *   fastify.get('/auth/session',  fastifySession(auth))
  *   fastify.post('/auth/providers/:id/begin', fastifyProviderBegin(auth))
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import type { AuthRoot } from '../../core/auth'
-import { AuthErrorObject } from '../../core/errors'
-import { executeIntents } from '../generic'
-
-/**
- * Narrow subset of `fastify.FastifyRequest` we depend on. Lets us
- * accept Fastify request objects without importing fastify types as a
- * hard dep.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface FastifyLikeRequest {
-  method: string
-  url: string
-  headers: Record<string, string | string[] | undefined>
-  body?: unknown
-  params?: Record<string, string>
-}
-
-/**
- * Narrow subset of `fastify.FastifyReply`. Mirrors the Set-Cookie /
- * status / send / header surface the adapter touches; lets tests
- * inject a simple stub.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface FastifyLikeReply {
-  status(code: number): FastifyLikeReply
-  header(key: string, value: string): FastifyLikeReply
-  send(payload: unknown): FastifyLikeReply | void | Promise<unknown>
-}
-
-/**
- * Fastify route-handler shape. Returns the reply (Fastify convention)
- * so the host's `done` callback fires.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export type FastifyAuthHandler = (req: FastifyLikeRequest, reply: FastifyLikeReply) => Promise<FastifyLikeReply | void>
+import {
+  errorToHttp,
+  executeIntents,
+  extractSetCookies,
+  nodeHeadersToFetch,
+  parseProviderBeginBody,
+  parseSignInBody,
+} from '../generic'
 
 /** Convert the loose Fastify header bag into a Web Fetch Headers object. */
-function toFetchHeaders(headers: FastifyLikeRequest['headers']): Headers {
-  const h = new Headers()
-  for (const [k, v] of Object.entries(headers)) {
-    if (v === undefined) continue
-    if (Array.isArray(v)) {
-      for (const item of v) h.append(k, String(item))
-    } else {
-      h.set(k, String(v))
-    }
-  }
-  return h
-}
+const toFetchHeaders: (headers: FastifyAdapter.IRequest['headers']) => Headers = nodeHeadersToFetch
 
 /**
  * Forward the Web Fetch `Response` produced by `executeIntents` onto
  * the Fastify reply. Handles Set-Cookie multiplicity correctly (one
  * header per cookie). Returns the reply so the caller can `return`
  * straight from the handler.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-async function forward(response: Response, reply: FastifyLikeReply): Promise<FastifyLikeReply> {
+async function forward(response: Response, reply: FastifyAdapter.IReply): Promise<FastifyAdapter.IReply> {
   reply.status(response.status)
-  // Use getSetCookie() when available so multiple Set-Cookie headers
-  // each land separately; fall back to the iterator for older runtimes.
-  const getSetCookie = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie
-  if (getSetCookie) {
-    for (const cookie of getSetCookie.call(response.headers)) {
-      reply.header('set-cookie', cookie)
-    }
+  for (const cookie of extractSetCookies(response)) {
+    reply.header('set-cookie', cookie)
   }
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === 'set-cookie') return // already handled
@@ -95,35 +44,25 @@ async function forward(response: Response, reply: FastifyLikeReply): Promise<Fas
   return reply
 }
 
-function handleError(err: unknown, reply: FastifyLikeReply): FastifyLikeReply {
-  if (err instanceof AuthErrorObject) {
-    reply.status(err.status)
-    reply.header('content-type', 'application/json; charset=utf-8')
-    reply.send(JSON.stringify(err.toJSON()))
-    return reply
-  }
-  reply.status(500)
+function handleError(err: unknown, reply: FastifyAdapter.IReply): FastifyAdapter.IReply {
+  const { status, body } = errorToHttp(err)
+  reply.status(status)
   reply.header('content-type', 'application/json; charset=utf-8')
-  reply.send(JSON.stringify({ code: 'AUTH/MISCONFIGURED', detail: 'internal error' }))
+  reply.send(JSON.stringify(body))
   return reply
 }
 
 /**
  * Fastify handler for the sign-in route.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function fastifySignIn(auth: AuthRoot): FastifyAuthHandler {
+export function fastifySignIn(auth: AuthRoot): FastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
-      const body = (req.body ?? {}) as { providerId?: string; input?: unknown }
-      if (!body.providerId) {
+      const parsed = parseSignInBody(req.body)
+      if (!parsed) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
       }
-      const result = await auth.flows.signIn({
-        providerId: body.providerId,
-        input: body.input ?? {},
-      })
+      const result = await auth.flows.signIn(parsed)
       return forward(executeIntents(result.intents), reply)
     } catch (err) {
       return handleError(err, reply)
@@ -133,10 +72,8 @@ export function fastifySignIn(auth: AuthRoot): FastifyAuthHandler {
 
 /**
  * Fastify handler for sign-out.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function fastifySignOut(auth: AuthRoot): FastifyAuthHandler {
+export function fastifySignOut(auth: AuthRoot): FastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
       const sid = auth.transport.extract({ headers: toFetchHeaders(req.headers) })
@@ -151,10 +88,8 @@ export function fastifySignOut(auth: AuthRoot): FastifyAuthHandler {
 
 /**
  * Fastify handler for the session-introspection route.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function fastifySession(auth: AuthRoot): FastifyAuthHandler {
+export function fastifySession(auth: AuthRoot): FastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
       const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
@@ -175,17 +110,19 @@ export function fastifySession(auth: AuthRoot): FastifyAuthHandler {
 /**
  * Fastify handler for the per-provider begin step (OAuth start /
  * passkey-options / etc.).
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function fastifyProviderBegin(auth: AuthRoot): FastifyAuthHandler {
+export function fastifyProviderBegin(auth: AuthRoot): FastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
       const id = req.params?.id
       if (!id) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }]), reply)
       }
-      const intents = await auth.flows.beginProvider(id, (req.body ?? {}) as unknown)
+      const body = parseProviderBeginBody(req.body)
+      if (body === null) {
+        return forward(executeIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
+      }
+      const intents = await auth.flows.beginProvider(id, body)
       return forward(executeIntents(intents), reply)
     } catch (err) {
       return handleError(err, reply)
@@ -197,13 +134,11 @@ export function fastifyProviderBegin(auth: AuthRoot): FastifyAuthHandler {
  * Convenience plugin function that mounts every handler under
  * `/auth/*` in one call. Apps that want a custom path layout can
  * skip this and wire each handler directly.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function registerFastifyAuth(
   fastify: {
-    post: (path: string, handler: FastifyAuthHandler) => void
-    get: (path: string, handler: FastifyAuthHandler) => void
+    post: (path: string, handler: FastifyAdapter.IHandler) => void
+    get: (path: string, handler: FastifyAdapter.IHandler) => void
   },
   auth: AuthRoot,
   opts: { prefix?: string } = {},
@@ -218,14 +153,24 @@ export function registerFastifyAuth(
 /**
  * Namespace merge for `FastifyAdapter`. Co-locates the loose handler
  * + request / reply shapes alongside the factories.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace FastifyAdapter {
-  /** Alias for `FastifyAuthHandler`. */
-  export type IHandler = FastifyAuthHandler
-  /** Alias for `FastifyLikeRequest`. */
-  export type IRequest = FastifyLikeRequest
-  /** Alias for `FastifyLikeReply`. */
-  export type IReply = FastifyLikeReply
+  export type IHandler = (
+    req: FastifyAdapter.IRequest,
+    reply: FastifyAdapter.IReply,
+  ) => Promise<FastifyAdapter.IReply | undefined>
+
+  export interface IRequest {
+    method: string
+    url: string
+    headers: Record<string, string | string[] | undefined>
+    body?: unknown
+    params?: Record<string, string>
+  }
+
+  export interface IReply {
+    status(code: number): FastifyAdapter.IReply
+    header(key: string, value: string): FastifyAdapter.IReply
+    send(payload: unknown): FastifyAdapter.IReply | undefined | Promise<unknown>
+  }
 }

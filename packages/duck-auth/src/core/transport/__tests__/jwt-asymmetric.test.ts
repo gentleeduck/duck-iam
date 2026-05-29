@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import type { Session } from '../../types/session'
@@ -169,5 +164,112 @@ describe('JwtTransport.jwks - HS256 keys never leak', () => {
       issuer: 'https://app.example.com',
     })
     expect(t.jwks()).toEqual({ keys: [] })
+  })
+})
+
+describe('JwtTransport - EdDSA (Ed25519)', () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+  const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
+  const t = new JwtTransport({
+    signKey: { kid: 'k-ed', alg: 'EdDSA', key: privPem },
+    verifyKeys: [{ kid: 'k-ed', alg: 'EdDSA', key: pubPem }],
+    issuer: 'https://app.example.com',
+    ttlMs: 60_000,
+  })
+
+  it('issues an EdDSA JWT (header alg=EdDSA) + verifies round-trip', async () => {
+    const intents = t.issue('plaintext-sid', fakeSession(), { fresh: true, absolute: false })
+    const jwt = findAccessToken(intents)
+    const [header] = jwt.split('.')
+    const decoded = JSON.parse(Buffer.from(header!, 'base64url').toString('utf8'))
+    expect(decoded.alg).toBe('EdDSA')
+    expect(decoded.kid).toBe('k-ed')
+    const session = await t.verify(jwt)
+    expect(session?.identityId).toBe('user-1')
+    expect(session?.aal).toBe(2)
+  })
+
+  it('rejects a forged token signed with a different ed25519 key', async () => {
+    const other = generateKeyPairSync('ed25519')
+    const forge = new JwtTransport({
+      signKey: { kid: 'k-ed', alg: 'EdDSA', key: other.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() },
+      verifyKeys: [
+        { kid: 'k-ed', alg: 'EdDSA', key: other.publicKey.export({ type: 'spki', format: 'pem' }).toString() },
+      ],
+      issuer: 'https://app.example.com',
+    })
+    const fakeJwt = findAccessToken(forge.issue('x', fakeSession(), { fresh: true, absolute: false }))
+    expect(await t.verify(fakeJwt)).toBeNull()
+  })
+
+  it('jwks emits the OKP public key with crv=Ed25519', () => {
+    const doc = t.jwks()
+    expect(doc.keys).toHaveLength(1)
+    const k = doc.keys[0] as Record<string, unknown>
+    expect(k.kty).toBe('OKP')
+    expect(k.crv).toBe('Ed25519')
+    expect(k.alg).toBe('EdDSA')
+    expect(k.use).toBe('sig')
+    expect(k.kid).toBe('k-ed')
+  })
+})
+
+describe('JwtTransport.rotateSignKey - live JWKS rotation', () => {
+  it('rotates the active sign kid; old verifyKey stays valid until retireVerifyKey', async () => {
+    const a = generateKeyPairSync('ed25519')
+    const b = generateKeyPairSync('ed25519')
+    const aPriv = a.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    const aPub = a.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+    const bPriv = b.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    const bPub = b.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+
+    const t = new JwtTransport({
+      signKey: { kid: 'a', alg: 'EdDSA', key: aPriv },
+      verifyKeys: [{ kid: 'a', alg: 'EdDSA', key: aPub }],
+      issuer: 'https://app.example.com',
+    })
+    const t1 = findAccessToken(t.issue('x', fakeSession(), { fresh: true, absolute: false }))
+
+    t.rotateSignKey({
+      signKey: { kid: 'b', alg: 'EdDSA', key: bPriv },
+      verifyKey: { kid: 'b', alg: 'EdDSA', key: bPub },
+    })
+    const t2 = findAccessToken(t.issue('x', fakeSession(), { fresh: true, absolute: false }))
+
+    // Both tokens verify during overlap.
+    expect((await t.verify(t1))?.identityId).toBe('user-1')
+    expect((await t.verify(t2))?.identityId).toBe('user-1')
+
+    // New tokens carry the new kid.
+    const headerB = JSON.parse(Buffer.from(t2.split('.')[0]!, 'base64url').toString('utf8'))
+    expect(headerB.kid).toBe('b')
+
+    // After retiring 'a', the old token stops verifying.
+    t.retireVerifyKey('a')
+    expect(await t.verify(t1)).toBeNull()
+  })
+
+  it('refuses to retire the active signing kid', () => {
+    const a = generateKeyPairSync('ed25519')
+    const aPriv = a.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    const aPub = a.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+    const t = new JwtTransport({
+      signKey: { kid: 'a', alg: 'EdDSA', key: aPriv },
+      verifyKeys: [{ kid: 'a', alg: 'EdDSA', key: aPub }],
+      issuer: 'https://app.example.com',
+    })
+    expect(() => t.retireVerifyKey('a')).toThrow('AUTH/MISCONFIGURED')
+  })
+
+  it('HS256 rotation auto-syncs the verify entry from the signKey', async () => {
+    const t = new JwtTransport({
+      signKey: { kid: 'k1', key: 'old-secret' },
+      verifyKeys: [{ kid: 'k1', key: 'old-secret' }],
+      issuer: 'https://app.example.com',
+    })
+    t.rotateSignKey({ signKey: { kid: 'k2', key: 'new-secret' } })
+    const jwt = findAccessToken(t.issue('x', fakeSession(), { fresh: true, absolute: false }))
+    expect((await t.verify(jwt))?.identityId).toBe('user-1')
   })
 })

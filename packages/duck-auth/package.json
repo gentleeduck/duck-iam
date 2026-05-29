@@ -52,6 +52,16 @@
         "default": "./dist/core/errors.cjs"
       }
     },
+    "./core/dataAtRest": {
+      "import": {
+        "types": "./dist/core/dataAtRest/index.d.ts",
+        "default": "./dist/core/dataAtRest/index.js"
+      },
+      "require": {
+        "types": "./dist/core/dataAtRest/index.d.cts",
+        "default": "./dist/core/dataAtRest/index.cjs"
+      }
+    },
     "./adapters/memory": {
       "import": {
         "types": "./dist/adapters/memory/index.d.ts",
@@ -80,6 +90,36 @@
       "require": {
         "types": "./dist/adapters/sql/index.d.cts",
         "default": "./dist/adapters/sql/index.cjs"
+      }
+    },
+    "./adapters/drizzle/pg": {
+      "import": {
+        "types": "./dist/adapters/drizzle/pg/index.d.ts",
+        "default": "./dist/adapters/drizzle/pg/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/drizzle/pg/index.d.cts",
+        "default": "./dist/adapters/drizzle/pg/index.cjs"
+      }
+    },
+    "./adapters/drizzle/mysql": {
+      "import": {
+        "types": "./dist/adapters/drizzle/mysql/index.d.ts",
+        "default": "./dist/adapters/drizzle/mysql/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/drizzle/mysql/index.d.cts",
+        "default": "./dist/adapters/drizzle/mysql/index.cjs"
+      }
+    },
+    "./adapters/drizzle/sqlite": {
+      "import": {
+        "types": "./dist/adapters/drizzle/sqlite/index.d.ts",
+        "default": "./dist/adapters/drizzle/sqlite/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/drizzle/sqlite/index.d.cts",
+        "default": "./dist/adapters/drizzle/sqlite/index.cjs"
       }
     },
     "./channels/console": {
@@ -372,6 +412,46 @@
         "default": "./dist/client/react/index.cjs"
       }
     },
+    "./client/react/storybook": {
+      "import": {
+        "types": "./dist/client/react/storybook/index.d.ts",
+        "default": "./dist/client/react/storybook/index.js"
+      },
+      "require": {
+        "types": "./dist/client/react/storybook/index.d.cts",
+        "default": "./dist/client/react/storybook/index.cjs"
+      }
+    },
+    "./client/vue": {
+      "import": {
+        "types": "./dist/client/vue/index.d.ts",
+        "default": "./dist/client/vue/index.js"
+      },
+      "require": {
+        "types": "./dist/client/vue/index.d.cts",
+        "default": "./dist/client/vue/index.cjs"
+      }
+    },
+    "./client/svelte": {
+      "import": {
+        "types": "./dist/client/svelte/index.d.ts",
+        "default": "./dist/client/svelte/index.js"
+      },
+      "require": {
+        "types": "./dist/client/svelte/index.d.cts",
+        "default": "./dist/client/svelte/index.cjs"
+      }
+    },
+    "./client/solid": {
+      "import": {
+        "types": "./dist/client/solid/index.d.ts",
+        "default": "./dist/client/solid/index.js"
+      },
+      "require": {
+        "types": "./dist/client/solid/index.d.cts",
+        "default": "./dist/client/solid/index.cjs"
+      }
+    },
     "./cli": {
       "import": {
         "types": "./dist/cli/index.d.ts",
@@ -421,6 +501,16 @@
         "types": "./dist/telemetry/otel/index.d.cts",
         "default": "./dist/telemetry/otel/index.cjs"
       }
+    },
+    "./test": {
+      "import": {
+        "types": "./dist/test/index.d.ts",
+        "default": "./dist/test/index.js"
+      },
+      "require": {
+        "types": "./dist/test/index.d.cts",
+        "default": "./dist/test/index.cjs"
+      }
     }
   },
   "bin": {
@@ -444,12 +534,20 @@
     "clean": "rimraf dist .cache .turbo node_modules"
   },
   "peerDependencies": {
+    "@aws-sdk/client-kms": ">=3 <4",
     "@gentleduck/iam": "workspace:*",
     "@node-rs/argon2": ">=2 <3",
     "@simplewebauthn/server": ">=10 <14",
-    "react": "^18 || ^19"
+    "drizzle-orm": ">=0.30 <2",
+    "react": "^18 || ^19",
+    "solid-js": "^1",
+    "svelte": "^4 || ^5",
+    "vue": "^3"
   },
   "peerDependenciesMeta": {
+    "@aws-sdk/client-kms": {
+      "optional": true
+    },
     "@gentleduck/iam": {
       "optional": true
     },
@@ -459,7 +557,19 @@
     "@simplewebauthn/server": {
       "optional": true
     },
+    "drizzle-orm": {
+      "optional": true
+    },
     "react": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },
@@ -468,8 +578,9 @@
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",
+    "@node-rs/argon2": ">=2 <3",
     "@types/react": "^19.2.14",
-    "react": "^19.2.0",
+    "react": "^19.2.6",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

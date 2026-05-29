@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import { sha256 } from '../../crypto'
 import type { Identity } from '../../types/identity'
@@ -119,5 +114,56 @@ describe('deviceFingerprintDetector', () => {
     await detector.evaluate(ctx({ identityId: 'u1' }))
     const u2 = await detector.evaluate(ctx({ identityId: 'u2' }))
     expect(u2).toHaveLength(1)
+  })
+
+  describe('score config validation', () => {
+    it('refuses construction with NaN score (would emit signals where `score > threshold` is silently `false`)', () => {
+      expect(() =>
+        deviceFingerprintDetector({
+          store: new MemoryDeviceFingerprintStore(),
+          sha256,
+          score: Number.NaN,
+        }),
+      ).toThrow(/score must be a finite number/)
+    })
+
+    it('refuses construction with Infinity (would dominate any aggregate suspicious score)', () => {
+      expect(() =>
+        deviceFingerprintDetector({
+          store: new MemoryDeviceFingerprintStore(),
+          sha256,
+          score: Number.POSITIVE_INFINITY,
+        }),
+      ).toThrow(/score must be a finite number/)
+    })
+
+    it('refuses negative score', () => {
+      expect(() =>
+        deviceFingerprintDetector({
+          store: new MemoryDeviceFingerprintStore(),
+          sha256,
+          score: -0.5,
+        }),
+      ).toThrow(/score must be a finite number/)
+    })
+
+    it('refuses score > 1 (out-of-range)', () => {
+      expect(() =>
+        deviceFingerprintDetector({
+          store: new MemoryDeviceFingerprintStore(),
+          sha256,
+          score: 1.5,
+        }),
+      ).toThrow(/score must be a finite number/)
+    })
+
+    it('accepts boundary values 0 and 1', () => {
+      expect(() =>
+        deviceFingerprintDetector({ store: new MemoryDeviceFingerprintStore(), sha256, score: 0 }),
+      ).not.toThrow()
+      expect(() =>
+        deviceFingerprintDetector({ store: new MemoryDeviceFingerprintStore(), sha256, score: 1 }),
+      ).not.toThrow()
+    })
   })
 })

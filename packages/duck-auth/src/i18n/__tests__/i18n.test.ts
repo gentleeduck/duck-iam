@@ -1,10 +1,5 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_EN_MESSAGES, I18nMessageCatalog, type LinguiI18nLike, LinguiResolver } from '../index'
+import { DEFAULT_EN_MESSAGES, type I18n, I18nMessageCatalog, LinguiResolver } from '../index'
 
 describe('I18nMessageCatalog', () => {
   it('refuses empty messages object', () => {
@@ -73,7 +68,7 @@ describe('I18nMessageCatalog', () => {
 })
 
 describe('LinguiResolver', () => {
-  function makeLingui(overrides: Partial<LinguiI18nLike> = {}): LinguiI18nLike {
+  function makeLingui(overrides: Partial<I18n.ILingui> = {}): I18n.ILingui {
     let locale = overrides.locale ?? 'en'
     return {
       get locale() {
