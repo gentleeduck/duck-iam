@@ -74,7 +74,7 @@ function bundleSize(entryRelPath: string): number {
       const m = raw.match(/from\s+['"]([^'"]+)['"]/)
       if (!m) continue
       const spec = m[1]
-      if (!spec || !spec.startsWith('.')) continue // skip externals
+      if (!spec?.startsWith('.')) continue // skip externals
       const resolved = join(fileDir, spec.endsWith('.js') ? spec : `${spec}.js`)
       queue.push(resolved)
     }

@@ -38,8 +38,6 @@ app.post('/auth/signup', async (c) => {
 
 mountHono(app, auth)
 
-app.get('/', (c) =>
-  c.json({ docs: 'README.md', name: 'duck-auth-demo', providers: auth.providers.list() }),
-)
+app.get('/', (c) => c.json({ docs: 'README.md', name: 'duck-auth-demo', providers: auth.providers.list() }))
 
 export default { fetch: app.fetch, port: Number(process.env.PORT ?? 8787) }

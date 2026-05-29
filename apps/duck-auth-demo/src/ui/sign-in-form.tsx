@@ -3,6 +3,8 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
+import { useSignIn } from '@gentleduck/auth/client/react'
+import type { VanillaClient } from '@gentleduck/auth/client/vanilla'
 import { cn } from '@gentleduck/libs/cn'
 import { Alert, AlertDescription, AlertTitle } from '@gentleduck/registry-ui/alert'
 import { Button } from '@gentleduck/registry-ui/button'
@@ -10,8 +12,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@gent
 import { Input } from '@gentleduck/registry-ui/input'
 import { Label } from '@gentleduck/registry-ui/label'
 import { type FormEvent, useState } from 'react'
-import type { VanillaClient } from '@gentleduck/auth/client/vanilla'
-import { useSignIn } from '@gentleduck/auth/client/react'
 
 /**
  * `<SignInForm />` — email + password form wired to `useSignIn`.

@@ -146,8 +146,8 @@ export namespace DefineAuth {
     | null
     | undefined
     | ''
-    // biome-ignore lint/suspicious/noExplicitAny: thunk receives any AuthRoot variance - caller resolves Tenant/OrgMeta themselves
     | ((
+        // biome-ignore lint/suspicious/noExplicitAny: thunk accepts any Tenant/OrgMeta variance; caller resolves the concrete types
         auth: AuthRoot<Profile, any, any>,
       ) => Provider.IProvider<unknown, unknown, Profile> | false | null | undefined | '')
 

@@ -53,14 +53,14 @@ export const auth = defineAuth<DemoProfile>({
     process.env.GOOGLE_CLIENT_ID &&
       google<DemoProfile>({
         clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
         redirectUri: `${BASE_URL}/auth/providers/google/callback`,
         stateSigningSecret: STATE,
       }),
     process.env.GITHUB_CLIENT_ID &&
       github<DemoProfile>({
         clientId: process.env.GITHUB_CLIENT_ID,
-        clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
         redirectUri: `${BASE_URL}/auth/providers/github/callback`,
         stateSigningSecret: STATE,
       }),

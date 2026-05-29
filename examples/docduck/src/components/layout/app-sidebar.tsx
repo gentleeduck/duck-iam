@@ -68,7 +68,14 @@ export function AppSidebar({ user }: AppSidebarProps) {
   return (
     <TooltipProvider delayDuration={0}>
       {/* Mobile overlay */}
-      {open && <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setOpen(false)} />}
+      {open && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
 
       <aside
         className={`fixed z-50 flex h-full flex-col border-r bg-sidebar transition-all duration-200 md:relative md:z-auto ${

@@ -21,7 +21,7 @@ export class MemoryLimiter implements Limiter.ILimiter {
       // bogus keys cannot probe limiter state.
       return { ok: false, remaining: 0, resetAt: now + this._windowMs }
     }
-    const w = isFinite(weight) ? Math.max(1, Math.floor(weight)) : 1
+    const w = Number.isFinite(weight) ? Math.max(1, Math.floor(weight)) : 1
     let b = this._buckets.get(key)
     if (!b || b.resetAt < now) {
       b = { count: 0, resetAt: now + this._windowMs }

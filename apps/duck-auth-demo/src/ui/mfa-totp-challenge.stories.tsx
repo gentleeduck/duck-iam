@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from '@storybook/react'
 import { withAuth } from '@gentleduck/auth/client/react/storybook'
+import type { Meta, StoryObj } from '@storybook/react'
 import { MfaTotpChallenge } from './mfa-totp-challenge'
 
 const meta: Meta<typeof MfaTotpChallenge> = {
@@ -33,8 +33,7 @@ export const AlwaysReject: Story = {
 export const Live: Story = {
   args: {
     onSubmit: async (code) => {
-      const identityId =
-        new URLSearchParams(globalThis.location?.search ?? '').get('identityId') ?? 'replace-me'
+      const identityId = new URLSearchParams(globalThis.location?.search ?? '').get('identityId') ?? 'replace-me'
       const res = await fetch('http://localhost:8787/auth/mfa/totp/verify', {
         body: JSON.stringify({ code, identityId }),
         credentials: 'include',
