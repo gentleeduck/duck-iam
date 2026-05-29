@@ -106,7 +106,7 @@ describe('accessMiddleware (hono)', () => {
     can.mockRestore()
   })
 
-  it('does NOT default to spoofable x-user-id header (SEC-101)', async () => {
+  it('does NOT default to spoofable x-user-id header', async () => {
     const mw = accessMiddleware(engine)
     const { ctx } = makeContext({ method: 'GET', path: '/post', headers: { 'x-user-id': 'spoofed-admin' } })
     const res = await mw(
@@ -340,7 +340,7 @@ describe('bindAdminRouter (hono)', () => {
     expect((res.data as { error: string }).error).toBe('Unauthorized')
   })
 
-  it('csrfCheck rejecting blocks mutation with 403, authorize never called (SEC-103)', async () => {
+  it('csrfCheck rejecting blocks mutation with 403, authorize never called', async () => {
     const engine = makeEngine()
     let authorizeCalled = false
     type Handler = (c: unknown) => Promise<Response> | Response
@@ -374,7 +374,7 @@ describe('bindAdminRouter (hono)', () => {
     expect(authorizeCalled).toBe(false)
   })
 
-  describe('onAdminMutation (SEC-010)', () => {
+  describe('onAdminMutation', () => {
     const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
 
     type Handler = (c: unknown) => Promise<Response> | Response
@@ -503,7 +503,7 @@ describe('bindAdminRouter (hono)', () => {
       errSpy.mockRestore()
     })
 
-    it('SEC-039: redactPath rewrites event.path before the hook is called', async () => {
+    it('redactPath rewrites event.path before the hook is called', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: Array<{ path: string }> = []
@@ -527,7 +527,7 @@ describe('bindAdminRouter (hono)', () => {
       expect(events[0]!.path).not.toMatch(/role-tenant-acme/)
     })
 
-    it('SEC-040: onAuditHookError receives thrown error and event', async () => {
+    it('onAuditHookError receives thrown error and event', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -558,7 +558,7 @@ describe('bindAdminRouter (hono)', () => {
       errSpy.mockRestore()
     })
 
-    it('SEC-041: event.error defaults to the error class name, not err.message', async () => {
+    it('event.error defaults to the error class name, not err.message', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: Array<{ success: boolean; error?: string }> = []
@@ -586,7 +586,7 @@ describe('bindAdminRouter (hono)', () => {
       expect(events[0]!.error).not.toMatch(/password/)
     })
 
-    it('SEC-041: includeErrorMessage:true restores err.message', async () => {
+    it('includeErrorMessage:true restores err.message', async () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: Array<{ error?: string }> = []

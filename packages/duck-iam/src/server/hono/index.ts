@@ -131,10 +131,7 @@ export function accessMiddleware<
   TScope extends string = string,
 >(engine: Engine<TAction, TResource, TRole, TScope>, opts: Hono.IOptions<TScope> = {}): HonoMiddleware {
   const {
-    // Never default to `c.req.header('x-user-id')` - any unauthenticated
-    // client can spoof that header. The default reads ONLY from
-    // `c.set('userId', ...)` populated by upstream auth middleware. Operators
-    // wiring header-based identity must opt in via `getUserId`.
+    // Read only from upstream-set `c.get('userId')`; never trust client headers.
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
     getResource = (c) => {
       const parts = c.req.path.split('/').filter(Boolean)
@@ -313,11 +310,19 @@ export function bindAdminRouter<
       'role-assignment',
       (c) => c.req.param('id'),
       async (c) => {
-        const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as {
-          roleId: TRole
-          scope?: TScope
+        const raw: unknown = await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()
+        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+          return c.json({ error: 'invalid body' }, 400)
         }
-        await engine.admin.assignRole(c.req.param('id') as string, body.roleId, body.scope)
+        const roleId = Reflect.get(raw, 'roleId')
+        const scope = Reflect.get(raw, 'scope')
+        if (typeof roleId !== 'string' || roleId.length === 0 || roleId.length > 128) {
+          return c.json({ error: 'invalid roleId' }, 400)
+        }
+        if (scope !== undefined && (typeof scope !== 'string' || scope.length === 0 || scope.length > 128)) {
+          return c.json({ error: 'invalid scope' }, 400)
+        }
+        await engine.admin.assignRole(c.req.param('id') as string, roleId as TRole, scope as TScope | undefined)
         return c.json({ ok: true })
       },
     ),
@@ -369,10 +374,7 @@ export function guard<
   opts: Pick<Hono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & { scope?: TScope } = {},
 ): HonoMiddleware {
   const {
-    // Never default to `c.req.header('x-user-id')` - any unauthenticated
-    // client can spoof that header. The default reads ONLY from
-    // `c.set('userId', ...)` populated by upstream auth middleware. Operators
-    // wiring header-based identity must opt in via `getUserId`.
+    // Read only from upstream-set `c.get('userId')`; never trust client headers.
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
     getEnvironment = defaultEnv,
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),
