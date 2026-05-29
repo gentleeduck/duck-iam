@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 /**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  *
  * Audit + auto-fix pass that walks every `src/**\/*.ts` file (excluding
  * `__tests__`), enumerates flat-exported interfaces / types / classes /
@@ -144,7 +142,6 @@ function appendAliases(file: string, owner: string, missing: FlatDecl[]): void {
   lines.push(` * Namespace merge for \`${owner}\`. Co-locates the flat type exports`)
   lines.push(' * alongside the primary symbol via TS class+namespace merging.')
   lines.push(' *')
-  lines.push(' * @author wildduck2 <https://github.com/gentleeduck/duck-iam>')
   lines.push(' */')
   lines.push(`export namespace ${owner} {`)
   for (const d of missing) {

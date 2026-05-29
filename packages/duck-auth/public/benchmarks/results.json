@@ -1,80 +1,80 @@
 {
-  "generatedAt": "2026-05-26T01:10:33.066Z",
+  "generatedAt": "2026-05-26T17:12:26.090Z",
   "subpaths": [
     {
       "subpath": "@gentleduck/auth/core",
-      "gzipped_kb": 20.91,
-      "raw_kb": 0.49
+      "gzipped_kb": 47.74,
+      "raw_kb": 33.44
     },
     {
       "subpath": "@gentleduck/auth/core/transport",
-      "gzipped_kb": 3.25,
-      "raw_kb": 0.21
+      "gzipped_kb": 9.06,
+      "raw_kb": 0.42
     },
     {
       "subpath": "@gentleduck/auth/core/errors",
       "gzipped_kb": 0.76,
-      "raw_kb": 1.71
+      "raw_kb": 1.73
     },
     {
       "subpath": "@gentleduck/auth/adapters/memory",
-      "gzipped_kb": 3.36,
-      "raw_kb": 8.21
+      "gzipped_kb": 3.83,
+      "raw_kb": 9.76
     },
     {
       "subpath": "@gentleduck/auth/limiters/memory",
-      "gzipped_kb": 0.5,
-      "raw_kb": 0.93
+      "gzipped_kb": 0.54,
+      "raw_kb": 1
     },
     {
       "subpath": "@gentleduck/auth/providers/password",
-      "gzipped_kb": 1.58,
-      "raw_kb": 1.71
+      "gzipped_kb": 1.75,
+      "raw_kb": 2.09
     },
     {
       "subpath": "@gentleduck/auth/providers/magic-link",
-      "gzipped_kb": 2.35,
-      "raw_kb": 4
+      "gzipped_kb": 2.27,
+      "raw_kb": 3.82
     },
     {
       "subpath": "@gentleduck/auth/providers/oauth/google",
-      "gzipped_kb": 4.92,
+      "gzipped_kb": 5.29,
       "raw_kb": 1.5
     },
     {
       "subpath": "@gentleduck/auth/providers/oauth/github",
-      "gzipped_kb": 4.87,
+      "gzipped_kb": 5.24,
       "raw_kb": 1.3
     },
     {
       "subpath": "@gentleduck/auth/server/generic",
-      "gzipped_kb": 1.06,
-      "raw_kb": 2.42
+      "gzipped_kb": 1.1,
+      "raw_kb": 2.48
     },
     {
       "subpath": "@gentleduck/auth/server/express",
-      "gzipped_kb": 2.45,
-      "raw_kb": 4.57
+      "gzipped_kb": 4.71,
+      "raw_kb": 5.13
     },
     {
       "subpath": "@gentleduck/auth/server/hono",
-      "gzipped_kb": 2.61,
-      "raw_kb": 2.31
+      "gzipped_kb": 6.27,
+      "raw_kb": 8.69
     },
     {
       "subpath": "@gentleduck/auth/server/next",
-      "gzipped_kb": 3.01,
-      "raw_kb": 3.45
+      "gzipped_kb": 5.26,
+      "raw_kb": 4.16
     },
     {
       "subpath": "@gentleduck/auth/client/vanilla",
-      "gzipped_kb": 0.97,
-      "raw_kb": 2.21
+      "gzipped_kb": 1.02,
+      "raw_kb": 2.3
     },
     {
       "subpath": "@gentleduck/auth/client/react",
-      "gzipped_kb": 2.14,
-      "raw_kb": 2.98
+      "gzipped_kb": 2.24,
+      "raw_kb": 3.56
     }
   ],
   "profiles": {
@@ -90,11 +90,11 @@
         "providers/oauth/google/index.js",
         "server/express/index.js"
       ],
-      "gzipped_kb": 39.31
+      "gzipped_kb": 75.19
     },
     "minimalSession": {
       "label": "Session-only (core + cookie transport + memory adapter)",
-      "gzipped_kb": 24.27
+      "gzipped_kb": 51.58
     }
   },
   "budgets": {
@@ -108,11 +108,11 @@
     },
     "fullKit": {
       "target_kb": 78,
-      "gzipped_kb": 39.31
+      "gzipped_kb": 75.19
     },
     "client/react": {
       "target_kb": 5,
-      "gzipped_kb": 2.14
+      "gzipped_kb": 2.24
     }
   }
 }

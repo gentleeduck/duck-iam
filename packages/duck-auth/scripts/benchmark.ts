@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 /**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  *
  * Bundle benchmark for `@gentleduck/auth`. Measures gzipped size of every
  * shipped subpath + the realistic "full kit" headline (core + cookie
