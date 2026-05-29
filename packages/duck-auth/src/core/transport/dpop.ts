@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * DPoP (Demonstration of Proof-of-Possession) per RFC 9449. Verifies
  * the `DPoP` header on each authenticated request, binding a bearer
  * access token to a client-held private key.
@@ -10,67 +9,135 @@
  *
  * This module ships only the verifier surface; minting DPoP proofs is
  * a client-side concern that lives in `client/vanilla`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type KeyObject } from 'node:crypto'
+import { timingSafeEqual } from '../crypto'
 import { AuthErrorObject } from '../errors'
 
 /**
- * RFC 7517 JSON Web Key shape. Re-declared here because Node's
- * @types/node does not export `JsonWebKey` as a named member from
- * `node:crypto`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the DPoP verifier. Every type lives inside the
+ * namespace.
  */
-export interface DPoPJsonWebKey {
-  kty: 'EC' | 'OKP' | 'RSA'
-  crv?: string
-  x?: string
-  y?: string
-  n?: string
-  e?: string
-  /** Private-key component; RFC 9449 forbids in proofs. */
-  d?: string
-  [key: string]: unknown
-}
-
-/**
- * Replay-protection store for DPoP `jti` (JWT id) claims. Each accepted
- * proof writes its `jti` for `windowSec` so an attacker who captures a
- * proof in transit cannot replay it inside the freshness window.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface DPoPNonceStore {
+export namespace DPoPVerifier {
   /**
-   * Mark a `jti` as seen. Returns true on first sight, false when the
-   * `jti` was already recorded within the freshness window. Must be
-   * atomic across concurrent callers (Redis SETNX in production).
+   * RFC 7517 JSON Web Key shape. Re-declared because Node's
+   * @types/node does not export `JsonWebKey` from `node:crypto`.
    */
-  recordSeen(jti: string, ttlMs: number): Promise<boolean>
+  export interface IJsonWebKey {
+    kty: 'EC' | 'OKP' | 'RSA'
+    crv?: string
+    x?: string
+    y?: string
+    n?: string
+    e?: string
+    /** Private-key component; RFC 9449 forbids in proofs. */
+    d?: string
+    [key: string]: unknown
+  }
+
+  /**
+   * Replay-protection store for DPoP `jti` claims. Each accepted proof
+   * writes its `jti` for the freshness window so a captured proof
+   * cannot be replayed.
+   */
+  export interface INonceStore {
+    /**
+     * Mark `jti` as seen. Returns true on first sight, false when the
+     * jti was already recorded within the freshness window. Must be
+     * atomic across concurrent callers.
+     */
+    recordSeen(jti: string, ttlMs: number): Promise<boolean>
+  }
+
+  /** Config knobs for {@link DPoPVerifier}. */
+  export interface IConfig {
+    /**
+     * Tolerated clock skew between client + server, ms. Default 30s.
+     */
+    clockSkewMs?: number
+    /**
+     * Freshness window applied to `iat` (ms). Proofs older than this
+     * (after subtracting clockSkew) are rejected. Default 60s.
+     */
+    freshnessMs?: number
+    /**
+     * Replay-protection store. Defaults to the in-memory implementation;
+     * production wires a Redis-backed store.
+     */
+    nonceStore?: INonceStore
+    /**
+     * Allowed signing algorithms. Defaults to `['ES256', 'EdDSA']` -
+     * symmetric algorithms are forbidden by RFC 9449 section 4.2.
+     */
+    acceptedAlgs?: Array<'ES256' | 'EdDSA' | 'RS256' | 'PS256'>
+    /**
+     * Server-supplied nonce challenge (RFC 9449 §8/9). When set, the
+     * proof's `nonce` claim MUST match. Pass a string for a static
+     * nonce or a thunk that returns the current nonce (e.g. rotated
+     * every minute). Useful for multi-pod deployments where jti store
+     * latency makes the local replay window porous.
+     */
+    expectedNonce?: string | (() => Promise<string> | string)
+  }
+
+  /** Decoded DPoP proof claims. */
+  export interface IClaims {
+    /** Unique per-proof identifier; used for replay protection. */
+    jti: string
+    /** HTTP method, uppercased. */
+    htm: string
+    /** Absolute URL of the request, without query / fragment. */
+    htu: string
+    /** Issued-at, seconds since epoch. */
+    iat: number
+    /** Optional access-token hash (sha-256 base64url) bound to this proof. */
+    ath?: string
+    /** Optional server-supplied nonce echoed back for additional replay protection. */
+    nonce?: string
+  }
+
+  /** Result of a successful verify call. */
+  export interface IVerified {
+    /** RFC 7638 JWK thumbprint of the client's public key. */
+    jkt: string
+    /** The verified claims. */
+    claims: IClaims
+  }
 }
 
 /**
  * In-memory nonce store. Single-process only; multi-pod deploys must
  * wire a Redis-backed store using `SETNX` for true atomic claim.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export class MemoryDPoPNonceStore implements DPoPNonceStore {
+export class MemoryDPoPNonceStore implements DPoPVerifier.INonceStore {
   private readonly _seen = new Map<string, number>()
 
   /**
    * Mark a `jti`. Lazily prunes the map on each call so memory growth
    * is bounded by the freshness window plus epsilon.
    *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   * prune iterates in Map insertion order and breaks at the first
+   * non-expired entry. Under uniform TTL (the normal case - `ttlMs`
+   * is `freshnessMs + clockSkewMs` per verifier) insertion order equals
+   * expiry order, so this O(prefix) loop replaces an O(N) full scan
+   * that would otherwise turn every recordSeen call under load into a
+   * 1M-iteration sweep (CPU DoS). If callers share a store across
+   * multiple verifiers with heterogeneous TTLs, some out-of-order
+   * expired entries can linger; they are bounded by the longest TTL
+   * and harmless - `has(jti)` returns true for a jti whose freshness
+   * window has already passed, so DPoP rejects with "already seen"
+   * (false positive on the rare cross-verifier reuse, never a
+   * security failure).
    */
   async recordSeen(jti: string, ttlMs: number): Promise<boolean> {
     const now = Date.now()
     for (const [k, expiresAt] of this._seen) {
-      if (expiresAt < now) this._seen.delete(k)
+      if (expiresAt < now) {
+        this._seen.delete(k)
+        continue
+      }
+      break
     }
     if (this._seen.has(jti)) return false
     this._seen.set(jti, now + ttlMs)
@@ -78,124 +145,54 @@ export class MemoryDPoPNonceStore implements DPoPNonceStore {
   }
 }
 
-export interface DPoPVerifierConfig {
-  /**
-   * Tolerated clock skew between client + server, ms. The proof's `iat`
-   * claim must fall in `[now - clockSkew - window, now + clockSkew]`.
-   * Default 30 seconds.
-   */
-  clockSkewMs?: number
-  /**
-   * Freshness window applied to `iat` (ms). Proofs older than this
-   * (after subtracting `clockSkewMs`) are rejected. Default 60 seconds.
-   */
-  freshnessMs?: number
-  /**
-   * Replay-protection store. Defaults to the in-memory implementation;
-   * production must wire a Redis-backed store.
-   */
-  nonceStore?: DPoPNonceStore
-  /**
-   * Allowed signing algorithms. Defaults to `['ES256', 'EdDSA']` -
-   * symmetric algorithms are forbidden by RFC 9449 section 4.2.
-   */
-  acceptedAlgs?: Array<'ES256' | 'EdDSA' | 'RS256' | 'PS256'>
-}
-
-/**
- * Decoded DPoP proof claims. The verifier reconstructs this from the
- * `DPoP` header on each verified request.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface DPoPClaims {
-  /** Unique per-proof identifier; used for replay protection. */
-  jti: string
-  /** HTTP method, uppercased. */
-  htm: string
-  /** Absolute URL of the request, without query / fragment. */
-  htu: string
-  /** Issued-at, seconds since epoch. */
-  iat: number
-  /** Optional access-token hash (sha-256 base64url) bound to this proof. */
-  ath?: string
-  /** Optional server-supplied nonce echoed back for additional replay protection. */
-  nonce?: string
-}
-
-/**
- * Result of a successful DPoP proof verification. Callers cross-check
- * `jkt` against `cnf.jkt` on the access token (see `bindAccessTokenToDPoP`)
- * to confirm the proof + token were issued together.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface DPoPVerified {
-  /** RFC 7638 JWK thumbprint of the client's public key. */
-  jkt: string
-  /** The verified claims. */
-  claims: DPoPClaims
-}
-
 /**
  * Per-request DPoP verifier. Stateless apart from the configured nonce
  * store. Throws `AUTH/DPOP_INVALID` on any failure so the framework
  * adapter can wrap calls in a single try/catch.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class DPoPVerifier {
   private readonly _clockSkewMs: number
   private readonly _freshnessMs: number
-  private readonly _nonceStore: DPoPNonceStore
+  private readonly _nonceStore: DPoPVerifier.INonceStore
+  private readonly _expectedNonce: DPoPVerifier.IConfig['expectedNonce']
   private readonly _acceptedAlgs: Set<string>
 
-  constructor(cfg: DPoPVerifierConfig = {}) {
+  constructor(cfg: DPoPVerifier.IConfig = {}) {
     this._clockSkewMs = cfg.clockSkewMs ?? 30_000
     this._freshnessMs = cfg.freshnessMs ?? 60_000
     this._nonceStore = cfg.nonceStore ?? new MemoryDPoPNonceStore()
+    this._expectedNonce = cfg.expectedNonce
     this._acceptedAlgs = new Set(cfg.acceptedAlgs ?? ['ES256', 'EdDSA'])
   }
 
   /**
-   * Verify the `DPoP` header against the request. Returns `{ jkt, claims }`
-   * on success; throws `AUTH/DPOP_INVALID` otherwise.
-   *
-   * @param dpopHeader raw `DPoP` header value
-   * @param request canonical request shape (method + absolute URL)
-   * @param accessToken optional bearer token; when supplied, `ath` claim
-   *                    is required + compared
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   * Verify the `DPoP` header against the request. Returns
+   * `{ jkt, claims }` on success; throws `AUTH/DPOP_INVALID` otherwise.
    */
   async verify(
     dpopHeader: string,
     request: { method: string; url: string },
     accessToken?: string,
-  ): Promise<DPoPVerified> {
-    if (!dpopHeader) {
+  ): Promise<DPoPVerifier.IVerified> {
+    if (typeof dpopHeader !== 'string' || dpopHeader.length === 0) {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'missing DPoP header' })
     }
-    const parts = dpopHeader.split('.')
-    if (parts.length !== 3) {
+    // DPoP proofs are JWS over a small payload (htm/htu/iat/jti/nonce/ath).
+    // Real proofs are 600-1200 bytes; 8192 generous. Refuse multi-MB blob first
+    // to avoid base64-decode + JSON-parse over a hostile payload.
+    if (dpopHeader.length > 8192) {
+      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'DPoP header too large' })
+    }
+    const [headerB64, payloadB64, sig, ...rest] = dpopHeader.split('.')
+    if (rest.length > 0 || headerB64 === undefined || payloadB64 === undefined || sig === undefined) {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'malformed JWS' })
     }
-    const [headerB64, payloadB64, sig] = parts as [string, string, string]
 
-    const header = decodeJson(headerB64) as { alg?: string; typ?: string; jwk?: DPoPJsonWebKey }
-    if (!header || header.typ !== 'dpop+jwt') {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'bad typ; expected dpop+jwt' })
+    const parsedHeader = parseDpopHeader(decodeJson(headerB64), this._acceptedAlgs)
+    if (!parsedHeader.ok) {
+      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: parsedHeader.reason })
     }
-    if (!header.alg || !this._acceptedAlgs.has(header.alg)) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: `alg ${header.alg ?? '?'} not accepted` })
-    }
-    if (!header.jwk || typeof header.jwk !== 'object') {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'missing jwk' })
-    }
-    if ((header.jwk as { d?: unknown }).d !== undefined) {
-      // RFC 9449 4.2 - proofs MUST NOT include the private key.
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'jwk contains private key material' })
-    }
+    const header = parsedHeader.value
 
     let publicKey: KeyObject
     try {
@@ -208,29 +205,53 @@ export class DPoPVerifier {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'signature verification failed' })
     }
 
-    const claims = decodeJson(payloadB64) as DPoPClaims | null
-    if (!claims) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'malformed payload' })
+    const parsedClaims = parseDpopClaims(decodeJson(payloadB64))
+    if (!parsedClaims.ok) {
+      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: parsedClaims.reason })
     }
-    if (!claims.jti || typeof claims.jti !== 'string') {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'missing jti' })
-    }
-    if (!claims.htm || claims.htm.toUpperCase() !== request.method.toUpperCase()) {
+    const claims = parsedClaims.value
+
+    if (claims.htm.toUpperCase() !== request.method.toUpperCase()) {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'htm mismatch' })
     }
-    if (!claims.htu || normalizeUrl(claims.htu) !== normalizeUrl(request.url)) {
+    if (normalizeUrl(claims.htu) !== normalizeUrl(request.url)) {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'htu mismatch' })
     }
+    // RFC 9449 4.2 freshness window; parser already rejects non-finite iat.
     const nowMs = Date.now()
     const iatMs = claims.iat * 1000
     if (Math.abs(nowMs - iatMs) > this._clockSkewMs + this._freshnessMs) {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'proof outside freshness window' })
     }
 
-    if (accessToken) {
+    // RFC 9449 §4.3: bind the proof to the access token via `ath` when
+    // one is present; refuse a stray `ath` when it is not.
+    if (accessToken !== undefined) {
+      if (typeof accessToken !== 'string' || accessToken.length === 0 || accessToken.length > 4096) {
+        throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'access token too large or invalid' })
+      }
+      if (!claims.ath) {
+        throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'ath required when access token present' })
+      }
       const expected = sha256base64url(accessToken)
-      if (claims.ath !== expected) {
+      // timingSafeEqual defense-in-depth (signature still gates).
+      if (!timingSafeEqual(claims.ath, expected)) {
         throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'ath mismatch' })
+      }
+    } else if (claims.ath !== undefined) {
+      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'ath unexpected (no access token in request)' })
+    }
+
+    // Server nonce challenge (RFC 9449 8/9); tightens replay across partitioned deploys.
+    if (this._expectedNonce !== undefined) {
+      const expectedNonce =
+        typeof this._expectedNonce === 'function' ? await this._expectedNonce() : this._expectedNonce
+      // timingSafeEqual so `!==` does not leak the nonce byte-by-byte.
+      if (claims.nonce === undefined || !timingSafeEqual(claims.nonce, expectedNonce)) {
+        throw new AuthErrorObject('AUTH/DPOP_INVALID', {
+          reason: 'nonce mismatch',
+          expectedNonce,
+        })
       }
     }
 
@@ -246,34 +267,114 @@ export class DPoPVerifier {
 /**
  * Compute the RFC 7638 JWK thumbprint of a public key. Used to bind a
  * DPoP proof's JWK to the `cnf.jkt` claim on the access token.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function computeJwkThumbprint(jwk: DPoPJsonWebKey): string {
-  const j = jwk as Record<string, unknown>
+export function computeJwkThumbprint(jwk: DPoPVerifier.IJsonWebKey): string {
   let canonical: string
-  switch (j.kty) {
+  switch (jwk.kty) {
     case 'EC':
-      canonical = JSON.stringify({ crv: j.crv, kty: 'EC', x: j.x, y: j.y })
+      canonical = JSON.stringify({ crv: jwk.crv, kty: 'EC', x: jwk.x, y: jwk.y })
       break
     case 'OKP':
-      canonical = JSON.stringify({ crv: j.crv, kty: 'OKP', x: j.x })
+      canonical = JSON.stringify({ crv: jwk.crv, kty: 'OKP', x: jwk.x })
       break
     case 'RSA':
-      canonical = JSON.stringify({ e: j.e, kty: 'RSA', n: j.n })
+      canonical = JSON.stringify({ e: jwk.e, kty: 'RSA', n: jwk.n })
       break
     default:
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: `unsupported kty ${String(j.kty)}` })
+      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: `unsupported kty ${String(jwk.kty)}` })
   }
   return createHash('sha256').update(canonical).digest('base64url')
 }
 
 /**
+ * Internal parser result. Discriminated so callers narrow without casts.
+ * `reason` is surfaced as the `AuthErrorObject` meta on failure.
+ */
+type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: string }
+
+interface DpopHeaderShape {
+  alg: string
+  typ: 'dpop+jwt'
+  jwk: DPoPVerifier.IJsonWebKey
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function isJsonWebKey(v: unknown): v is DPoPVerifier.IJsonWebKey {
+  if (!isPlainObject(v)) return false
+  return v.kty === 'EC' || v.kty === 'OKP' || v.kty === 'RSA'
+}
+
+/**
+ * validate the decoded DPoP header without `as` casts. The header
+ * is attacker-controlled (signature covers it, but the attacker mints
+ * the proof in token-theft / malicious-client scenarios). Type errors
+ * here previously surfaced as raw `TypeError` from method calls on
+ * unexpected shapes.
+ */
+function parseDpopHeader(raw: unknown, acceptedAlgs: ReadonlySet<string>): ParseResult<DpopHeaderShape> {
+  if (!isPlainObject(raw)) {
+    return { ok: false, reason: 'bad typ; expected dpop+jwt' }
+  }
+  const { alg, typ, jwk } = raw
+  if (typ !== 'dpop+jwt') {
+    return { ok: false, reason: 'bad typ; expected dpop+jwt' }
+  }
+  if (typeof alg !== 'string' || !acceptedAlgs.has(alg)) {
+    return { ok: false, reason: `alg ${typeof alg === 'string' ? alg : '?'} not accepted` }
+  }
+  if (!isJsonWebKey(jwk)) {
+    return { ok: false, reason: 'missing jwk' }
+  }
+  if (jwk.d !== undefined) {
+    return { ok: false, reason: 'jwk contains private key material' }
+  }
+  return { ok: true, value: { alg, typ, jwk } }
+}
+
+/**
+ * validate the decoded DPoP claims without `as` casts. Each field
+ * is narrowed by `typeof` before use so a malformed proof cannot
+ * (a) bypass freshness via `NaN > N === false` on a non-numeric `iat`,
+ * (b) crash the verifier via `.toUpperCase()` on a non-string `htm`,
+ * (c) crash via `new URL(obj)` on a non-string `htu`, or
+ * (d) sneak through `ath`/`nonce` value-equality checks with object
+ *     identity.
+ */
+function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.IClaims> {
+  if (!isPlainObject(raw)) {
+    return { ok: false, reason: 'malformed payload' }
+  }
+  const { jti, htm, htu, iat, ath, nonce } = raw
+  if (typeof jti !== 'string' || jti.length === 0) {
+    return { ok: false, reason: 'missing jti' }
+  }
+  if (typeof htm !== 'string') {
+    return { ok: false, reason: 'htm missing or not a string' }
+  }
+  if (typeof htu !== 'string') {
+    return { ok: false, reason: 'htu missing or not a string' }
+  }
+  if (typeof iat !== 'number' || !Number.isFinite(iat)) {
+    return { ok: false, reason: 'iat missing or not a finite number' }
+  }
+  if (ath !== undefined && typeof ath !== 'string') {
+    return { ok: false, reason: 'ath not a string' }
+  }
+  if (nonce !== undefined && typeof nonce !== 'string') {
+    return { ok: false, reason: 'nonce not a string' }
+  }
+  const claims: DPoPVerifier.IClaims = { jti, htm, htu, iat }
+  if (ath !== undefined) claims.ath = ath
+  if (nonce !== undefined) claims.nonce = nonce
+  return { ok: true, value: claims }
+}
+
+/**
  * Inject a `cnf.jkt` confirmation claim into an existing access-token
- * payload object. Use this when issuing the access token alongside a
- * DPoP-aware client so subsequent verifies can cross-check.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * payload object.
  */
 export function bindPayloadToDPoP<P extends Record<string, unknown>>(
   payload: P,
@@ -310,7 +411,6 @@ function verifyJws(alg: string, key: KeyObject, signingInput: string, signatureB
   try {
     switch (alg) {
       case 'ES256': {
-        // Node expects DER-encoded ECDSA sigs; DPoP carries the raw r||s form.
         const der = joseToDer(signature, 32)
         const v = createVerify('SHA256')
         v.update(signingInput)
@@ -327,10 +427,9 @@ function verifyJws(alg: string, key: KeyObject, signingInput: string, signatureB
         const v = createVerify('RSA-SHA256')
         v.update(signingInput)
         v.end()
-        return v.verify({ key, padding: 6 /* RSA_PKCS1_PSS_PADDING */ }, signature)
+        return v.verify({ key, padding: 6 }, signature)
       }
       case 'EdDSA': {
-        // Node verify() supports Ed25519 with a null algorithm.
         return cryptoVerify(null, Buffer.from(signingInput), key, signature)
       }
       default:
@@ -341,7 +440,6 @@ function verifyJws(alg: string, key: KeyObject, signingInput: string, signatureB
   }
 }
 
-/** Convert a raw r||s JOSE signature (P-256, 64 bytes) to DER. */
 function joseToDer(raw: Buffer, halfLen: number): Buffer {
   if (raw.length !== halfLen * 2) {
     throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'malformed ES256 signature length' })
@@ -364,23 +462,4 @@ function encodeInteger(buf: Buffer): Buffer {
   const needsPad = (buf[0] ?? 0) & 0x80
   const body = needsPad ? Buffer.concat([Buffer.from([0]), buf]) : buf
   return Buffer.concat([Buffer.from([0x02, body.length]), body])
-}
-
-/**
- * Namespace merge for `DPoPVerifier`. Co-locates config + claim shapes
- * alongside the class.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace DPoPVerifier {
-  /** Alias for `DPoPVerifierConfig`. */
-  export type IConfig = DPoPVerifierConfig
-  /** Alias for `DPoPClaims`. */
-  export type IClaims = DPoPClaims
-  /** Alias for `DPoPVerified`. */
-  export type IVerified = DPoPVerified
-  /** Alias for the flat `DPoPJsonWebKey` type. */
-  export type IDPoPJsonWebKey = DPoPJsonWebKey
-  /** Alias for the flat `DPoPNonceStore` type. */
-  export type IDPoPNonceStore = DPoPNonceStore
 }
