@@ -114,3 +114,16 @@ export class AuthErrorObject<C extends AuthErrorCode = AuthErrorCode> extends Er
     return { code: this.code, status: this.status, ...this.meta }
   }
 }
+
+/**
+ * Namespace merge for `AuthErrorObject`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace AuthErrorObject {
+  /** Alias for the flat `AuthError` type. */
+  export type IAuthError = AuthError
+  /** Alias for the flat `AuthErrorCode` type. */
+  export type IAuthErrorCode = AuthErrorCode
+}

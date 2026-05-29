@@ -4,8 +4,9 @@
  */
 
 // Root barrel - intentionally narrow. Subpath imports (`@gentleduck/auth/core`,
-// `@gentleduck/auth/adapters/memory`, etc.) are the primary surface to keep
-// bundle size predictable. This entry re-exports the most common pairs only.
+// `@gentleduck/auth/adapters/memory`, `@gentleduck/auth/adapters/redis`, etc.)
+// are the primary surface to keep bundle size predictable. This entry
+// re-exports the most common pairs only.
 export { AuthRoot, type AuthRootConfig } from './core/auth'
 export {
   type AuthError,

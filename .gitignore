@@ -103,9 +103,10 @@ node_modules/
 # tasks/
 **/.claude/settings.local.json
 .claude/worktrees/
-audit/
+audit-iam/
+audit-auth/
 
-# Personal docs - kept locally, never committed.
-packages/duck-auth/STATUS.md
-packages/duck-auth/DESIGN.md
-packages/duck-auth/DESIGN.*.md
+# Personal docs - kept locally, never committed. README is the only
+# .md that ships with the package.
+packages/duck-auth/**/*.md
+!packages/duck-auth/README.md

@@ -88,3 +88,16 @@ export function impossibleTravelDetector(opts: {
     },
   }
 }
+
+/**
+ * Namespace merge for ImpossibleTravel. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (ImpossibleTravelConfig) or the namespaced form
+ * (ImpossibleTravel.IConfig); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace ImpossibleTravel {
+  /** Alias for the flat `ImpossibleTravelConfig` type. */
+  export type IConfig = ImpossibleTravelConfig
+}

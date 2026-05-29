@@ -91,7 +91,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly orgs: OrgsFacet<OrgMeta> | null
   readonly flows: FlowsFacet<Profile>
   readonly limiter: LimiterNs.ILimiter
-  readonly plugins: PluginRegistry
+  readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
   readonly operations: OperationsFacet
   readonly idempotency: IdempotencyFacet
   readonly hijack: HijackFacet
@@ -131,7 +131,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       },
     )
     this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
-    this.plugins = new PluginRegistry()
+    this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
     this.operations = new OperationsFacet(this.events)
     this.idempotency = new IdempotencyFacet(new MemoryIdempotencyStore(), DEFAULT_IDEMPOTENCY_CONFIG)
     this.hijack = new HijackFacet(this.events, config.hijack ?? {})
@@ -192,7 +192,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
 
   /** Install a plugin atomically (providers + events + facets). DESIGN section 10. */
   async use(plugin: AuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
-    await this.plugins.install(this as unknown as AuthRoot, plugin as AuthPlugin)
+    await this.plugins.install(this, plugin)
   }
 
   /**
@@ -231,31 +231,22 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       errors.push('Memory adapter rejected in production; use redis/drizzle/prisma')
     }
 
-    // Transport secure-cookie check (only when CookieTransport used; can't
-    // detect non-cookie transports here, but the cookie-secure footgun is
-    // the most common).
-    const transportName = this.config.transport.constructor.name
-    if (transportName === 'CookieTransport') {
-      const cookieTransport = this.config.transport as unknown as {
-        _options: { secure?: boolean }
-      }
-      if (cookieTransport._options?.secure === false) {
-        errors.push('CookieTransport secure=false rejected in production')
-      }
+    // Transport secure-cookie check via the public `secure` getter so
+    // we never reach into private state.
+    const maybeSecureGetter = (this.config.transport as { secure?: boolean }).secure
+    if (typeof maybeSecureGetter === 'boolean' && maybeSecureGetter === false) {
+      errors.push('CookieTransport secure=false rejected in production')
     }
 
     if ((this.config.providers ?? []).length === 0 && this.providers.list().length === 0) {
       errors.push('no provider registered; users cannot sign in')
     }
 
-    // `lockout` listener - required so operators are notified on brute-force lockouts.
-    // The InMemoryEvents impl exposes _handlers; safer alt is a public `hasListener` API,
-    // landing in v0.2. For now, soft-check via the InMemoryEvents-specific shape.
-    const eventsAsInternal = this.events as unknown as {
-      _handlers?: Map<string, Set<unknown>>
-    }
-    const lockoutHandlers = eventsAsInternal._handlers?.get('lockout')
-    if (lockoutHandlers === undefined || lockoutHandlers.size === 0) {
+    // `lockout` listener via the public `listenerCount` introspection
+    // helper. Bus implementations without the helper skip this check
+    // (we cannot enforce against a foreign Events.IBus impl).
+    const listenerCount = (this.events as { listenerCount?: (event: string) => number }).listenerCount
+    if (typeof listenerCount === 'function' && listenerCount.call(this.events, 'lockout') === 0) {
       errors.push('no `lockout` event handler subscribed; operators must wire one (paging, audit, etc.)')
     }
 
@@ -290,4 +281,15 @@ export class NoopLimiter implements LimiterNs.ILimiter {
     return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: Date.now() + 60_000 }
   }
   async reset(_key: string): Promise<void> {}
+}
+
+/**
+ * Namespace merge for `AuthRoot`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace AuthRoot {
+  /** Alias for the flat `AuthRootConfig` type. */
+  export type IConfig = AuthRootConfig
 }

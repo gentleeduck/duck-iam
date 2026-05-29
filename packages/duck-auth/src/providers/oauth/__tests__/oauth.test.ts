@@ -178,7 +178,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
       input: { code: 'authcode-abc', state },
     })
 
-    expect(result.session.factors[0]?.method).toBe('oauth')
+    expect(result.session!.factors[0]?.method).toBe('oauth')
     const identity = await adapter.identities.findByEmail('new@x.com', {})
     expect(identity).not.toBeNull()
     expect(identity?.providers.some((p) => p.providerId === 'oauth:fakeoidc' && p.providerSub === 'idp-user-1')).toBe(
@@ -239,6 +239,6 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     const begin2 = await auth.flows.beginProvider('oauth:fakeoidc', {})
     const state2 = new URL((begin2[0] as { url: string }).url).searchParams.get('state') ?? ''
     const r2 = await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c2', state: state2 } })
-    expect(r2.session.identityId).toBe(identitiesBefore?.id)
+    expect(r2.session!.identityId).toBe(identitiesBefore?.id)
   })
 })

@@ -31,8 +31,8 @@ export interface AuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknow
    */
   install?(auth: AuthRoot<Profile, Tenant, OrgMeta>): void | Promise<void>
   /**
-   * Optional custom facet exposed under `auth.plugins.<id>`. Authors are
-   * expected to keep this surface narrow + typed via their own export.
+   * Optional custom facet exposed under `auth.plugins.facets[id]`. Authors
+   * keep this surface narrow + typed via their own export.
    *
    * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
@@ -40,25 +40,30 @@ export interface AuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknow
 }
 
 /**
- * Plugin registry. Composed into `AuthRoot.plugins.<id>` so the call site
- * `auth.plugins.stripe.charge(...)` reads naturally. The registry is
- * generic over the plugin map for end-to-end typing.
+ * Plugin registry. Generic over the AuthRoot generics so `install` does not
+ * need a cast at the call site; `AuthRoot.use(plugin)` forwards its own
+ * generics unchanged.
  *
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export class PluginRegistry {
-  private readonly _plugins = new Map<string, AuthPlugin>()
+export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknown> {
+  private readonly _plugins = new Map<string, AuthPlugin<Profile, Tenant, OrgMeta>>()
   private readonly _eventUnsubs: Array<() => void> = []
 
   /** All installed plugins keyed by id. */
-  get installed(): ReadonlyMap<string, AuthPlugin> {
+  get installed(): ReadonlyMap<string, AuthPlugin<Profile, Tenant, OrgMeta>> {
     return this._plugins
   }
 
   /** Mounted facets keyed by plugin id; consumer-side narrowing required. */
   readonly facets: Record<string, unknown> = {}
 
-  async install(auth: AuthRoot, plugin: AuthPlugin): Promise<void> {
+  /**
+   * Install a plugin atomically.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async install(auth: AuthRoot<Profile, Tenant, OrgMeta>, plugin: AuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
     if (this._plugins.has(plugin.id)) {
       throw new Error(`@gentleduck/auth: plugin "${plugin.id}" already installed`)
     }
@@ -85,9 +90,24 @@ export class PluginRegistry {
     }
   }
 
-  /** Tear down every event subscription wired by installed plugins. */
+  /**
+   * Tear down every event subscription wired by installed plugins.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
   dispose(): void {
     for (const unsub of this._eventUnsubs) unsub()
     this._eventUnsubs.length = 0
   }
+}
+
+/**
+ * Namespace merge for `PluginRegistry`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace PluginRegistry {
+  /** Alias for the flat `AuthPlugin` type. */
+  export type IAuthPlugin = AuthPlugin
 }

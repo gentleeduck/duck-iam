@@ -1,4 +1,5 @@
 import { AuthErrorObject } from '../errors'
+import type { TenantContext } from '../types/context'
 import type { Events } from '../types/events'
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
@@ -29,9 +30,14 @@ export interface SignInOptions {
 }
 
 export interface SignInOutcome {
-  /** Persisted session row; `session.id` is the **hashed** row key. */
-  session: Session.ISession
-  /** Plaintext SID the client uses to authenticate (already on the response via intents). */
+  /**
+   * Persisted session row; `session.id` is the **hashed** row key. Null when
+   * the provider issued no `startSession` intent (typically because it
+   * returned `requireMfa` and the caller is mid-flow); in that case `sid`
+   * is also empty and `intents` carries the provider's response.
+   */
+  session: Session.ISession | null
+  /** Plaintext SID the client uses to authenticate; empty when `session` is null. */
   sid: string
   /** Intents the framework adapter must execute on the response. */
   intents: Provider.Intent[]
@@ -130,6 +136,105 @@ export interface ImpersonateOutcome {
   intents: Provider.Intent[]
 }
 
+/**
+ * Input shape for {@link FlowsFacet.linkProvider}. Attaches the
+ * (providerId, providerSub) pair to an already-authenticated identity.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface LinkProviderInput {
+  /** Identity to attach the provider link to. */
+  identityId: string
+  /** Provider id (`'google'`, `'github'`, etc). */
+  providerId: string
+  /** Provider-side subject id (verified by the OAuth dance the caller just completed). */
+  providerSub: string
+  /** Tenant scope. */
+  tenantId?: string
+}
+
+/**
+ * Input shape for {@link FlowsFacet.unlinkProvider}. Detaches a
+ * provider link from an identity; refuses by default when doing so
+ * would leave the identity with no remaining authentication factor.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface UnlinkProviderInput {
+  identityId: string
+  providerId: string
+  tenantId?: string
+  /**
+   * Set true to bypass the "would lock out the user" guard. Use only
+   * during account deletion flows or admin overrides.
+   */
+  allowLockout?: boolean
+}
+
+/**
+ * Input shape for {@link FlowsFacet.requestEmailVerification}. The
+ * caller wires its own channel registry so the facet stays HTTP / SDK
+ * agnostic.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface EmailVerificationRequestInput {
+  /** Identity to verify. */
+  identityId: string
+  /** Channel keyed by kind. Email is the typical default. */
+  channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').Channel.IChannel>>
+  /** Which channel to dispatch on; default 'email'. */
+  channel?: 'email' | 'sms' | 'webpush'
+  /** TTL of the verification token, ms. Default 30 minutes. */
+  ttlMs?: number
+  /** Callback path on the app; library appends `?token=`. Default `/auth/verify-email`. */
+  callbackPath?: string
+  tenantId?: string
+}
+
+/** Input shape for {@link FlowsFacet.completeEmailVerification}. */
+export interface EmailVerificationCompleteInput {
+  /** Token plaintext as received from the verify link. */
+  token: string
+  tenantId?: string
+}
+
+/**
+ * Input shape for {@link FlowsFacet.requestAccountDeletion}. Mints a
+ * confirmation token + dispatches via the configured channel; the
+ * identity is NOT touched until {@link FlowsFacet.completeAccountDeletion}
+ * is called with the issued token.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export interface AccountDeletionRequestInput {
+  identityId: string
+  channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').Channel.IChannel>>
+  /** Channel kind to use; default `'email'`. */
+  channel?: 'email' | 'sms' | 'webpush'
+  /** Token TTL in ms. Default 30 minutes. */
+  ttlMs?: number
+  /** Path on the app that handles the confirmation. Default `/auth/delete-account`. */
+  callbackPath?: string
+  /** Optional human-readable reason persisted in metadata; surfaces in audit log. */
+  reason?: string
+  tenantId?: string
+}
+
+/** Input shape for {@link FlowsFacet.completeAccountDeletion}. */
+export interface AccountDeletionCompleteInput {
+  /** Token from the confirmation link. */
+  token: string
+  tenantId?: string
+}
+
+/** Input shape for {@link FlowsFacet.cancelAccountDeletion}. */
+export interface AccountDeletionCancelInput {
+  /** Identity to restore. */
+  identityId: string
+  tenantId?: string
+}
+
 export class FlowsFacet<Profile = unknown> {
   constructor(
     private readonly _sessions: SessionsFacet,
@@ -165,7 +270,7 @@ export class FlowsFacet<Profile = unknown> {
     )
     if (!startIntent) {
       // Provider completed without issuing a session (likely a requireMfa). Pass through.
-      return { session: null as unknown as Session.ISession, sid: '', intents }
+      return { session: null, sid: '', intents }
     }
 
     const identity = await this._identities.getById(
@@ -423,6 +528,244 @@ export class FlowsFacet<Profile = unknown> {
     return { ok: true }
   }
 
+  // --- Email verification ---------------------------------------------------
+
+  /**
+   * Mint + dispatch an email-verification token. Idempotent under the
+   * rate-limit window: callers can re-trigger from a "didn't get the
+   * email" button without flooding the channel.
+   *
+   * Behavior:
+   *   - Generates a 256-bit random token; persists sha-256 under
+   *     Credential.kind='recovery' with metadata.purpose='email-verification'
+   *   - Per-identity rate limit at `verify:email:{identityId}` so
+   *     resend pressure is bounded
+   *   - No-op (returns { ok:true }) when the identity is already
+   *     verified - avoids leaking "verified" status to the caller
+   *   - Sends via the supplied channel with templateId='email-verification'
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async requestEmailVerification(opts: EmailVerificationRequestInput): Promise<{ ok: true }> {
+    const ctx = this._ctxFactory(opts.tenantId)
+    const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
+    const callbackPath = opts.callbackPath ?? '/auth/verify-email'
+
+    const limited = await ctx.limiter.consume(`verify:email:${opts.identityId}`)
+    if (!limited.ok) {
+      throw new AuthErrorObject('AUTH/RATE_LIMITED', {
+        retryAfter: Math.max(0, Math.ceil((limited.resetAt - Date.now()) / 1000)),
+      })
+    }
+
+    const identity = await ctx.stores.identities.findById(opts.identityId, ctx.tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    // Short-circuit: already verified -> ack without minting a new token.
+    if ((identity.profile as { emailVerified?: boolean } | undefined)?.emailVerified === true) {
+      return { ok: true }
+    }
+
+    const channel = opts.channel ?? 'email'
+    const channelImpl = opts.channels[channel]
+    if (!channelImpl) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        detail: `email-verification: channel "${channel}" not configured`,
+      })
+    }
+
+    // Replace any prior outstanding token so the user only ever has one live.
+    await ctx.stores.credentials.deleteByKind(opts.identityId, 'recovery', ctx.tenant)
+
+    const token = ctx.crypto.randomToken(32)
+    const tokenHash = ctx.crypto.sha256(token)
+    const now = Date.now()
+    await ctx.stores.credentials.upsert(
+      {
+        identityId: opts.identityId,
+        kind: 'recovery',
+        secret: tokenHash,
+        metadata: { purpose: 'email-verification' },
+        expiresAt: now + ttlMs,
+      },
+      ctx.tenant,
+    )
+
+    const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
+    await channelImpl.send({
+      identity,
+      templateId: 'email-verification',
+      vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
+      tenant: ctx.tenant,
+    })
+    return { ok: true }
+  }
+
+  /**
+   * Verify the supplied token, mark `identity.profile.emailVerified=true`,
+   * consume the token. Returns `{ identityId }` on success.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async completeEmailVerification(input: EmailVerificationCompleteInput): Promise<{ identityId: string }> {
+    if (typeof input.token !== 'string' || input.token.length === 0) {
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+    }
+    const ctx = this._ctxFactory(input.tenantId)
+    const hash = ctx.crypto.sha256(input.token)
+    const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+    const now = Date.now()
+    if (!row || row.revokedAt || (row.metadata as { purpose?: string } | undefined)?.purpose !== 'email-verification') {
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+    }
+    if (row.expiresAt !== undefined && row.expiresAt < now) {
+      void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_EXPIRED')
+    }
+
+    const identity = await ctx.stores.identities.findById(row.identityId, ctx.tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    const mergedProfile = {
+      ...((identity.profile ?? {}) as Record<string, unknown>),
+      emailVerified: true,
+    } as Profile
+    await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version, ctx.tenant)
+    await ctx.stores.credentials.delete(row.id, ctx.tenant)
+    return { identityId: row.identityId }
+  }
+
+  // --- Account deletion -----------------------------------------------------
+
+  /**
+   * Request account deletion. Mints a confirmation token, dispatches
+   * via the configured channel, does NOT touch the identity. Caller
+   * confirms via {@link FlowsFacet.completeAccountDeletion}.
+   *
+   * The token is single-use + TTL'd (default 30 min). Multiple
+   * outstanding deletion requests for the same identity get the prior
+   * token wiped so only the latest verifies.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async requestAccountDeletion(opts: AccountDeletionRequestInput): Promise<{ ok: true }> {
+    const ctx = this._ctxFactory(opts.tenantId)
+    const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
+    const callbackPath = opts.callbackPath ?? '/auth/delete-account'
+
+    const limited = await ctx.limiter.consume(`account-delete:${opts.identityId}`)
+    if (!limited.ok) {
+      throw new AuthErrorObject('AUTH/RATE_LIMITED', {
+        retryAfter: Math.max(0, Math.ceil((limited.resetAt - Date.now()) / 1000)),
+      })
+    }
+
+    const identity = await ctx.stores.identities.findById(opts.identityId, ctx.tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    const channelKind = opts.channel ?? 'email'
+    const channelImpl = opts.channels[channelKind]
+    if (!channelImpl) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        detail: `account-deletion: channel "${channelKind}" not configured`,
+      })
+    }
+
+    // Replace any outstanding deletion token so the user only has one live.
+    const existing = await ctx.stores.credentials.listByIdentity(opts.identityId, 'recovery', ctx.tenant)
+    for (const row of existing) {
+      const meta = row.metadata as { purpose?: string } | undefined
+      if (meta?.purpose === 'account-deletion') {
+        await ctx.stores.credentials.delete(row.id, ctx.tenant)
+      }
+    }
+
+    const token = ctx.crypto.randomToken(32)
+    const tokenHash = ctx.crypto.sha256(token)
+    const now = Date.now()
+    await ctx.stores.credentials.upsert(
+      {
+        identityId: opts.identityId,
+        kind: 'recovery',
+        secret: tokenHash,
+        metadata: {
+          purpose: 'account-deletion',
+          ...(opts.reason !== undefined && { reason: opts.reason }),
+        },
+        expiresAt: now + ttlMs,
+      },
+      ctx.tenant,
+    )
+
+    const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
+    await channelImpl.send({
+      identity,
+      templateId: 'account-deletion',
+      vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
+      tenant: ctx.tenant,
+    })
+    return { ok: true }
+  }
+
+  /**
+   * Confirm a pending account-deletion request. Validates the token,
+   * triggers `IdentityStore.softDelete` (grace-period purge), revokes
+   * every session for the identity, and emits `identity.merged` is NOT
+   * used here - deletion is its own lifecycle.
+   *
+   * The actual hard-erase happens after the configured grace window;
+   * the identity remains restorable via {@link FlowsFacet.cancelAccountDeletion}
+   * until the grace expires.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async completeAccountDeletion(
+    input: AccountDeletionCompleteInput,
+  ): Promise<{ identityId: string; restorableUntil: number }> {
+    if (typeof input.token !== 'string' || input.token.length === 0) {
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+    }
+    const ctx = this._ctxFactory(input.tenantId)
+    const hash = ctx.crypto.sha256(input.token)
+    const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
+    if (!row || row.revokedAt || (row.metadata as { purpose?: string } | undefined)?.purpose !== 'account-deletion') {
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+    }
+    if (row.expiresAt !== undefined && row.expiresAt < Date.now()) {
+      void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
+      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_EXPIRED')
+    }
+
+    const identityId = row.identityId
+    await this._identities.softDelete(identityId, ctx.tenant)
+    await this._sessions.revokeAllForIdentity(identityId)
+    await ctx.stores.credentials.delete(row.id, ctx.tenant)
+    const restorableUntil = Date.now() + this._identitiesGracePeriodMs()
+    return { identityId, restorableUntil }
+  }
+
+  /**
+   * Cancel a pending account deletion within the grace window. Calls
+   * `IdentityStore.restore`; throws when the identity was already
+   * hard-erased OR was never soft-deleted.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async cancelAccountDeletion(input: AccountDeletionCancelInput): Promise<{ identityId: string }> {
+    const tenant: TenantContext = input.tenantId !== undefined ? { tenantId: input.tenantId } : {}
+    await this._identities.restore(input.identityId, tenant)
+    return { identityId: input.identityId }
+  }
+
+  /** Read the IdentitiesFacet's grace-period for reporting back to the caller. */
+  private _identitiesGracePeriodMs(): number {
+    // Best-effort introspection; the constant lives behind the facet
+    // and we duplicate the default here when the introspection hook
+    // is absent (older configurations).
+    const cfg = (this._identities as unknown as { _cfg?: { softDeleteGracePeriodMs?: number } })._cfg
+    return cfg?.softDeleteGracePeriodMs ?? 7 * 24 * 60 * 60 * 1000
+  }
+
   // --- Signup state machine (DESIGN section 34) -----------------------------
 
   /**
@@ -662,6 +1005,101 @@ export class FlowsFacet<Profile = unknown> {
     return { session, sid, intents }
   }
 
+  // --- Account linking -----------------------------------------------------
+
+  /**
+   * Attach a provider link (`{ providerId, providerSub }`) to an
+   * already-authenticated identity. Refuses when the (providerId,
+   * providerSub) is already bound to a different identity to prevent
+   * account hijack via the link flow.
+   *
+   * Caller is responsible for verifying the provider sub - i.e. the
+   * caller should have just completed an OAuth dance against the IdP
+   * and extracted the sub from the verified token. The facet does NOT
+   * re-verify; it trusts the caller because the OAuth provider already
+   * did the round-trip.
+   *
+   * Emits `identity.linked` on success.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async linkProvider(opts: LinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+    const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+    const identity = await this._identities.getById(opts.identityId, tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    // Refuse when the sub already maps to a different identity.
+    const existing = await this._ctxFactory(opts.tenantId).stores.identities.findByProviderSub(
+      opts.providerId,
+      opts.providerSub,
+      tenant,
+    )
+    if (existing && existing.id !== opts.identityId) {
+      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        providerId: opts.providerId,
+        detail: 'provider sub already linked to a different identity',
+      })
+    }
+
+    // Idempotent: if the link already exists on this identity, no-op.
+    const alreadyLinked = identity.providers.some(
+      (p) => p.providerId === opts.providerId && p.providerSub === opts.providerSub,
+    )
+    if (alreadyLinked) {
+      return { identityId: opts.identityId, providerId: opts.providerId }
+    }
+
+    await this._ctxFactory(opts.tenantId).stores.identities.link(
+      opts.identityId,
+      { providerId: opts.providerId, providerSub: opts.providerSub, addedAt: Date.now() },
+      tenant,
+    )
+    await this._events.emit('identity.linked', {
+      identityId: opts.identityId,
+      providerId: opts.providerId,
+    })
+    return { identityId: opts.identityId, providerId: opts.providerId }
+  }
+
+  /**
+   * Detach a provider link. Refuses to remove the LAST authentication
+   * factor when no password / passkey credential remains - otherwise
+   * the user would lock themselves out of the account.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  async unlinkProvider(opts: UnlinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+    const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+    const identity = await this._identities.getById(opts.identityId, tenant)
+    if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+
+    const linked = identity.providers.filter((p) => p.providerId === opts.providerId)
+    if (linked.length === 0) {
+      // Idempotent no-op.
+      return { identityId: opts.identityId, providerId: opts.providerId }
+    }
+
+    // Lockout guard: if removing this link would leave the identity
+    // with zero credentials AND zero provider links, refuse.
+    if (!opts.allowLockout) {
+      const otherLinks = identity.providers.filter((p) => p.providerId !== opts.providerId)
+      const ctx = this._ctxFactory(opts.tenantId)
+      const credentials = await ctx.stores.credentials.listByIdentity(opts.identityId, undefined, tenant)
+      const liveCredentials = credentials.filter((c) => !c.revokedAt && (c.kind === 'password' || c.kind === 'passkey'))
+      if (otherLinks.length === 0 && liveCredentials.length === 0) {
+        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          providerId: opts.providerId,
+          detail: 'refusing to unlink the only authentication factor; pass allowLockout:true to override',
+        })
+      }
+    }
+
+    await this._ctxFactory(opts.tenantId).stores.identities.unlink(opts.identityId, opts.providerId, tenant)
+    return { identityId: opts.identityId, providerId: opts.providerId }
+  }
+
+  // --- Impersonation continued --------------------------------------------
+
   /** End an impersonation; revoke the actingAs session, optionally restore the original SID. */
   async releaseImpersonation(impersonationSid: string): Promise<{ intents: Provider.Intent[] }> {
     const session = await this._sessions.getBySid(impersonationSid)
@@ -705,4 +1143,20 @@ export namespace FlowsFacet {
   export type IImpersonateOptions = ImpersonateOptions
   /** Alias for the flat `ImpersonateOutcome` type. */
   export type IImpersonateOutcome = ImpersonateOutcome
+  /** Alias for the flat `SignUpStage` type. */
+  export type ISignUpStage = SignUpStage
+  /** Alias for the flat `LinkProviderInput` type. */
+  export type ILinkProviderInput = LinkProviderInput
+  /** Alias for the flat `UnlinkProviderInput` type. */
+  export type IUnlinkProviderInput = UnlinkProviderInput
+  /** Alias for the flat `EmailVerificationRequestInput` type. */
+  export type IEmailVerificationRequestInput = EmailVerificationRequestInput
+  /** Alias for the flat `EmailVerificationCompleteInput` type. */
+  export type IEmailVerificationCompleteInput = EmailVerificationCompleteInput
+  /** Alias for the flat `AccountDeletionRequestInput` type. */
+  export type IAccountDeletionRequestInput = AccountDeletionRequestInput
+  /** Alias for the flat `AccountDeletionCompleteInput` type. */
+  export type IAccountDeletionCompleteInput = AccountDeletionCompleteInput
+  /** Alias for the flat `AccountDeletionCancelInput` type. */
+  export type IAccountDeletionCancelInput = AccountDeletionCancelInput
 }

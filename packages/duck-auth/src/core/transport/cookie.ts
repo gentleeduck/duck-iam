@@ -55,6 +55,27 @@ export class CookieTransport implements Transport.ITransport {
     }
   }
 
+  /**
+   * Diagnostic getter consumed by `AuthRoot.strict()` to assert that
+   * production deployments have `secure: true`. Read-only.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  get secure(): boolean {
+    return this._options.secure === true
+  }
+
+  /**
+   * Diagnostic getter exposing the cookie name (e.g. `__Host-duck-sid`).
+   * Read-only; used by tests + framework adapters that need to render the
+   * name in user-facing output.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  get cookieName(): string {
+    return this._name
+  }
+
   extract(req: { headers: Headers }): string | null {
     const header = req.headers.get('cookie')
     if (!header) return null

@@ -43,6 +43,11 @@ export interface PasswordCompleteInput {
   password: string
 }
 
+/**
+ * `password`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function password<Profile = unknown>(
   opts: PasswordProviderOptions,
 ): Provider.IProvider<PasswordBeginInput, PasswordCompleteInput, Profile> {
@@ -101,4 +106,21 @@ export function password<Profile = unknown>(
       ]
     },
   }
+}
+
+/**
+ * Namespace merge for PasswordProvider. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (PasswordProviderOptions) or the namespaced form
+ * (PasswordProvider.IOptions); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace PasswordProvider {
+  /** Alias for the flat `PasswordProviderOptions` type. */
+  export type IOptions = PasswordProviderOptions
+  /** Alias for the flat `PasswordBeginInput` type. */
+  export type IBeginInput = PasswordBeginInput
+  /** Alias for the flat `PasswordCompleteInput` type. */
+  export type ICompleteInput = PasswordCompleteInput
 }

@@ -137,3 +137,16 @@ export function verifyCsrf(opts: {
     throw new AuthErrorObject('AUTH/CSRF')
   }
 }
+
+/**
+ * Namespace merge for Csrf. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (CsrfConfig) or the namespaced form
+ * (Csrf.IConfig); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace Csrf {
+  /** Alias for the flat `CsrfConfig` type. */
+  export type IConfig = CsrfConfig
+}

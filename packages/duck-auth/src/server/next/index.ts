@@ -29,6 +29,11 @@ import { executeIntents } from '../generic'
 
 export type NextHandler = (req: Request) => Promise<Response>
 
+/**
+ * `nextSignIn`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function nextSignIn(auth: AuthRoot): NextHandler {
   return async (req) => {
     try {
@@ -50,6 +55,11 @@ export function nextSignIn(auth: AuthRoot): NextHandler {
   }
 }
 
+/**
+ * `nextSignOut`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function nextSignOut(auth: AuthRoot): NextHandler {
   return async (req) => {
     try {
@@ -63,6 +73,11 @@ export function nextSignOut(auth: AuthRoot): NextHandler {
   }
 }
 
+/**
+ * `nextSession`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function nextSession(auth: AuthRoot): NextHandler {
   return async (req) => {
     try {
@@ -151,4 +166,17 @@ function handleError(err: unknown): Response {
     return Response.json(err.toJSON(), { status: err.status })
   }
   return Response.json({ code: 'AUTH/MISCONFIGURED', detail: 'internal error' }, { status: 500 })
+}
+
+/**
+ * Namespace merge for NextAdapter. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (NextHandler) or the namespaced form
+ * (NextAdapter.IHandler); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace NextAdapter {
+  /** Alias for the flat `NextHandler` type. */
+  export type IHandler = NextHandler
 }
