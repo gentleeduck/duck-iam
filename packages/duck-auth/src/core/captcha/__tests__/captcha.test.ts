@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import { HCaptchaVerifier, NullCaptchaVerifier, RecaptchaV3Verifier, TurnstileVerifier } from '../index'
 
@@ -110,5 +105,66 @@ describe('NullCaptchaVerifier', () => {
   it('always succeeds (test helper)', async () => {
     const v = new NullCaptchaVerifier()
     expect(await v.verify({ token: '' })).toEqual({ success: true })
+  })
+})
+
+describe('siteverify response validation (bot-defense bypass defense)', () => {
+  it('Turnstile rejects success as a string (would have been truthy-bypassed previously)', async () => {
+    const v = new TurnstileVerifier({ secret: 'x', fetch: makeFetch({ success: 'true' }) })
+    const result = await v.verify({ token: 'abc' })
+    expect(result.success).toBe(false)
+    expect(result.errorCodes).toContain('malformed-response')
+  })
+
+  it('Turnstile rejects success as a non-empty object (was truthy -> bypass)', async () => {
+    const v = new TurnstileVerifier({ secret: 'x', fetch: makeFetch({ success: { evil: true } }) })
+    const result = await v.verify({ token: 'abc' })
+    expect(result.success).toBe(false)
+  })
+
+  it('Turnstile rejects success as the number 1 (truthy)', async () => {
+    const v = new TurnstileVerifier({ secret: 'x', fetch: makeFetch({ success: 1 }) })
+    const result = await v.verify({ token: 'abc' })
+    expect(result.success).toBe(false)
+  })
+
+  it('hCaptcha rejects non-boolean success', async () => {
+    const v = new HCaptchaVerifier({ secret: 'x', fetch: makeFetch({ success: 'yes' }) })
+    expect((await v.verify({ token: 'abc' })).success).toBe(false)
+  })
+
+  it('reCAPTCHA v3 rejects non-boolean success even when score+action look reasonable', async () => {
+    const v = new RecaptchaV3Verifier({
+      secret: 'x',
+      fetch: makeFetch({ success: 'true', score: 0.9, action: 'signin' }),
+    })
+    const result = await v.verify({ token: 'abc' })
+    expect(result.success).toBe(false)
+    expect(result.errorCodes).toContain('malformed-response')
+  })
+
+  it('reCAPTCHA v3 rejects non-numeric score (string-coercion bypass at threshold check)', async () => {
+    const v = new RecaptchaV3Verifier({
+      secret: 'x',
+      fetch: makeFetch({ success: true, score: '0.9', action: 'signin' }),
+    })
+    const result = await v.verify({ token: 'abc' })
+    expect(result.success).toBe(false)
+  })
+
+  it('Turnstile rejects non-array error-codes', async () => {
+    const v = new TurnstileVerifier({
+      secret: 'x',
+      fetch: makeFetch({ success: true, 'error-codes': 'should-be-array' }),
+    })
+    expect((await v.verify({ token: 'abc' })).success).toBe(false)
+  })
+
+  it('Turnstile rejects array of non-strings in error-codes', async () => {
+    const v = new TurnstileVerifier({
+      secret: 'x',
+      fetch: makeFetch({ success: true, 'error-codes': ['valid', 42] }),
+    })
+    expect((await v.verify({ token: 'abc' })).success).toBe(false)
   })
 })

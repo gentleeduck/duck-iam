@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { TenantContext } from './context'
 import type { Credential } from './credential'
 import type { Identity } from './identity'
@@ -14,8 +9,6 @@ import type { Transport } from './transport'
  * A sign-in method. Providers are pure logic: they read stores, validate input,
  * and return Intents; the framework adapter executes the Intents against the
  * actual HTTP Request/Response. This keeps providers HTTP-free and unit-testable.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Provider {
   /** Cookie options surface for setCookie intents - duplicated here to avoid Transport-side cycles. */

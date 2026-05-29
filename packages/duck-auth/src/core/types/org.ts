@@ -1,15 +1,8 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { TenantContext } from './context'
 
 /**
  * Organizations + membership. Locked to core in v4.2 (Q1 decision).
  * Apps not using orgs leave the generic `Org = never`; tree-shaker drops the facet.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Org {
   export interface IOrg<Meta = unknown> {

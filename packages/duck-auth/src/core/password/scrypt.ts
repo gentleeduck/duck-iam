@@ -1,34 +1,16 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
-import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
+import { scrypt as nodeScrypt, randomBytes, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import type { Hasher } from '../types/hasher'
 
-const scryptAsync = promisify(scrypt) as (
+const scryptAsync = promisify(nodeScrypt) as (
   password: string,
   salt: Buffer,
   keylen: number,
   options: { N: number; r: number; p: number; maxmem?: number },
 ) => Promise<Buffer>
 
-export interface ScryptParams {
-  /** CPU/memory cost (must be a power of two). Default 2^17 = 131072. */
-  N: number
-  /** Block size. Default 8. */
-  r: number
-  /** Parallelisation. Default 1. */
-  p: number
-  /** Derived-key length, bytes. Default 64. */
-  keylen: number
-  /** Salt length, bytes. Default 16. */
-  saltLen: number
-}
-
 /** Default parameters tuned for ~150 ms on a 2022-class server CPU. */
-export const SCRYPT_DEFAULTS: ScryptParams = {
+export const SCRYPT_DEFAULTS: ScryptHasher.IScryptParams = {
   N: 1 << 17,
   r: 8,
   p: 1,
@@ -40,8 +22,6 @@ export const SCRYPT_DEFAULTS: ScryptParams = {
  * Encoded format: `scrypt$<N>$<r>$<p>$<saltBase64>$<keyBase64>`.
  * All fields URL-safe base64. Self-describing so we can detect parameter
  * drift in {@link needsRehash} without an external migration table.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 function encode(N: number, r: number, p: number, salt: Buffer, key: Buffer): string {
   return `scrypt$${N}$${r}$${p}$${salt.toString('base64url')}$${key.toString('base64url')}`
@@ -76,14 +56,12 @@ function parse(encoded: string): { N: number; r: number; p: number; salt: Buffer
  *
  * Compliance presets (HIPAA/SOC2/FIPS in v1.x) require swapping this for
  * Argon2id; that lands in `core/password/argon2.ts` as a sibling impl.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class ScryptHasher implements Hasher.IHasher {
   readonly id = 'scrypt'
-  private readonly _params: ScryptParams
+  private readonly _params: ScryptHasher.IScryptParams
 
-  constructor(params: Partial<ScryptParams> = {}) {
+  constructor(params: Partial<ScryptHasher.IScryptParams> = {}) {
     this._params = { ...SCRYPT_DEFAULTS, ...params }
   }
 
@@ -130,10 +108,18 @@ export class ScryptHasher implements Hasher.IHasher {
 /**
  * Namespace merge for `ScryptHasher`. Co-locates the flat type exports
  * alongside the primary symbol via TS class+namespace merging.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace ScryptHasher {
-  /** Alias for the flat `ScryptParams` type. */
-  export type IScryptParams = ScryptParams
+  export interface IScryptParams {
+    /** CPU/memory cost (must be a power of two). Default 2^17 = 131072. */
+    N: number
+    /** Block size. Default 8. */
+    r: number
+    /** Parallelisation. Default 1. */
+    p: number
+    /** Derived-key length, bytes. Default 64. */
+    keylen: number
+    /** Salt length, bytes. Default 16. */
+    saltLen: number
+  }
 }

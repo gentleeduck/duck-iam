@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it } from 'vitest'
 import { Argon2idHasher } from '../argon2'
 
@@ -11,8 +6,6 @@ import { Argon2idHasher } from '../argon2'
  * carry the native dep. The peerDep is optional; when it is missing the
  * suite skips the integration-level tests and runs only the contract +
  * error-path tests that do not require the module.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 async function hasArgon2(): Promise<boolean> {
   try {
@@ -65,7 +58,16 @@ describe('Argon2idHasher (contract)', () => {
   })
 })
 
-describe.runIf(await hasArgon2())('Argon2idHasher (integration; requires @node-rs/argon2)', () => {
+// bun's test runner doesn't ship `describe.runIf`; fall back to `describe.skip`
+// when the conditional helper is unavailable so the suite runs under both.
+const _runIf = (vi: unknown, gate: boolean) => {
+  const d = describe as unknown as {
+    runIf?: (cond: boolean) => typeof describe
+    skip: typeof describe
+  }
+  return typeof d.runIf === 'function' ? d.runIf(gate) : gate ? describe : d.skip
+}
+_runIf(undefined, await hasArgon2())('Argon2idHasher (integration; requires @node-rs/argon2)', () => {
   // Lowest legal params so the suite runs fast.
   const fast = new Argon2idHasher({
     memoryCost: 8,
