@@ -226,10 +226,17 @@ validator is lazy-loaded only when admin write paths run. See the
 [benchmarks page](https://gentleduck.org/duck-iam/duck-iam/benchmarks)
 for per-profile measurements.
 
-## Documentation
+## Docs
 
-Full docs, course, and API reference: [duck-iam docs](https://gentleduck.org/duck-iam)
+- Site: [gentleduck.org/duck-iam](https://gentleduck.org/duck-iam)
+- Devtools: import `@gentleduck/iam/dt` to inspect policy evaluation inside your app
+- Sibling repos: [`@gentleduck/auth`](https://www.npmjs.com/package/@gentleduck/auth), [`@gentleduck/ui`](https://github.com/gentleeduck/duck-ui), [`@gentleduck/upload`](https://github.com/gentleeduck/duck-upload), [`@gentleduck/md`](https://github.com/gentleeduck/duck-md)
+
+## Contributing
+
+PR checklist + style notes in the repo's [`CONTRIBUTING.md`](https://github.com/gentleeduck/duck-iam/blob/main/CONTRIBUTING.md).
+Security disclosures: [`SECURITY.md`](./SECURITY.md).
 
 ## License
 
-MIT
+MIT. See [`LICENSE`](./LICENSE).
