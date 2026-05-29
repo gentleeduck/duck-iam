@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RedisEvents } from '../events'
 import { FakeRedis } from '../redis-like'
@@ -67,5 +62,58 @@ describe('RedisEvents', () => {
     await bus.emit('lockout', { identityId: 'u1', until: 0 })
     expect(good).toHaveBeenCalled()
     stderrSpy.mockRestore()
+  })
+
+  describe('pub/sub envelope validation (hostile publisher defense)', () => {
+    it('discards malformed JSON without crashing the subscriber', async () => {
+      const handler = vi.fn()
+      bus.on('lockout', handler)
+      await new Promise((r) => setTimeout(r, 10))
+      // Publish raw garbage that would have thrown JSON.parse -> uncaught
+      // error out of the subscribe callback, killing the subscription.
+      await redis.publish('test:events:lockout', '}')
+      await redis.publish('test:events:lockout', 'not json')
+      await new Promise((r) => setTimeout(r, 10))
+      expect(handler).not.toHaveBeenCalled()
+      // Sanity: subscription still works after the bad messages.
+      await bus.emit('lockout', { identityId: 'u', until: 0 })
+      expect(handler).toHaveBeenCalled()
+    })
+
+    it('discards null envelope (would have thrown TypeError on `null.from`)', async () => {
+      const handler = vi.fn()
+      bus.on('lockout', handler)
+      await new Promise((r) => setTimeout(r, 10))
+      await redis.publish('test:events:lockout', 'null')
+      await new Promise((r) => setTimeout(r, 10))
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    it('discards array envelope (not a plain object)', async () => {
+      const handler = vi.fn()
+      bus.on('lockout', handler)
+      await new Promise((r) => setTimeout(r, 10))
+      await redis.publish('test:events:lockout', '[1,2,3]')
+      await new Promise((r) => setTimeout(r, 10))
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    it('discards envelope with non-string `from`', async () => {
+      const handler = vi.fn()
+      bus.on('lockout', handler)
+      await new Promise((r) => setTimeout(r, 10))
+      await redis.publish('test:events:lockout', JSON.stringify({ from: 42, payload: { identityId: 'u', until: 0 } }))
+      await new Promise((r) => setTimeout(r, 10))
+      expect(handler).not.toHaveBeenCalled()
+    })
+
+    it('discards envelope with missing `payload` key', async () => {
+      const handler = vi.fn()
+      bus.on('lockout', handler)
+      await new Promise((r) => setTimeout(r, 10))
+      await redis.publish('test:events:lockout', JSON.stringify({ from: 'remote-instance' }))
+      await new Promise((r) => setTimeout(r, 10))
+      expect(handler).not.toHaveBeenCalled()
+    })
   })
 })

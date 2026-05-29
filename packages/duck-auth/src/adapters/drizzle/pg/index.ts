@@ -1,23 +1,20 @@
-// @ts-nocheck
-/**
- * Reference Drizzle ORM (Postgres) implementation of the SqlBridge
- * contract. Drop into your project, install the peerDeps, swap in your
- * own column / schema customizations, then hand the bridge to
- * `createSqlAuthStores`.
- *
- * NOT compiled by tsdown (skipped via the `.example.ts` suffix +
- * `@ts-nocheck` so consumers without `drizzle-orm` / `pg` installed
- * don't break their build). Copy the file, do not import it.
- *
- * Required peerDeps (consumer side):
- *   bun add drizzle-orm pg
- *   bun add -D drizzle-kit @types/pg
- */
-
-import type { SqlBridge } from '@gentleduck/auth/adapters/sql'
+import { createRequire } from 'node:module'
 import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { bigint, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
+import { bigint, index, integer, type PgColumn, pgTable, text } from 'drizzle-orm/pg-core'
+
+const lazyRequire = createRequire(import.meta.url)
+
+import { createSqlAuthStores, type SqlBridge } from '../../sql'
+
+interface NodePgPoolLike {
+  connect: () => Promise<unknown>
+  query: (...args: unknown[]) => unknown
+}
+
+function isNodePgDatabase(input: NodePgPoolLike | NodePgDatabase): input is NodePgDatabase {
+  return typeof (input as NodePgDatabase).select === 'function'
+}
 
 // ---------------------------------------------------------------------
 // Schema definitions
@@ -35,10 +32,7 @@ export const identitiesTable = pgTable(
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
   },
-  (t) => ({
-    tenantIdx: index('auth_identities_tenant').on(t.tenantId),
-    deletedAtIdx: index('auth_identities_deleted_at').on(t.deletedAt),
-  }),
+  (t) => [index('auth_identities_tenant').on(t.tenantId), index('auth_identities_deleted_at').on(t.deletedAt)],
 )
 
 export const credentialsTable = pgTable(
@@ -56,12 +50,11 @@ export const credentialsTable = pgTable(
     expiresAt: bigint('expires_at', { mode: 'number' }),
     revokedAt: bigint('revoked_at', { mode: 'number' }),
   },
-  (t) => ({
-    identityIdx: index('auth_credentials_identity').on(t.identityId),
-    // Bridge contract: findByHashedSecret(kind, secret) is O(1).
-    kindSecretIdx: index('auth_credentials_kind_secret').on(t.kind, t.secret),
-    tenantIdx: index('auth_credentials_tenant').on(t.tenantId),
-  }),
+  (t) => [
+    index('auth_credentials_identity').on(t.identityId),
+    index('auth_credentials_kind_secret').on(t.kind, t.secret),
+    index('auth_credentials_tenant').on(t.tenantId),
+  ],
 )
 
 export const sessionsTable = pgTable(
@@ -84,20 +77,22 @@ export const sessionsTable = pgTable(
     fresh: integer('fresh').notNull(),
     actingAs: text('acting_as'),
   },
-  (t) => ({
-    identityIdx: index('auth_sessions_identity').on(t.identityId),
-    expiresIdx: index('auth_sessions_expires').on(t.expiresAt),
-    absoluteExpiresIdx: index('auth_sessions_absolute_expires').on(t.absoluteExpiresAt),
-  }),
+  (t) => [
+    index('auth_sessions_identity').on(t.identityId),
+    index('auth_sessions_expires').on(t.expiresAt),
+    index('auth_sessions_absolute_expires').on(t.absoluteExpiresAt),
+  ],
 )
 
 // ---------------------------------------------------------------------
 // Bridge factory
 // ---------------------------------------------------------------------
 
-export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
+export function createDrizzlePgAuthBridge<const TSchema extends Record<string, any>>(
+  db: NodePgDatabase<TSchema>,
+): SqlBridge.IBridge {
   /** Helper: scope a where clause by tenantId; null tenant matches the row's NULL. */
-  function tenantWhere<T extends { tenantId: unknown }>(table: T, tenantId: string | undefined) {
+  function tenantWhere<T extends { tenantId: PgColumn }>(table: T, tenantId: string | undefined) {
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
   }
 
@@ -128,7 +123,7 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         return (rows.rows[0] as never) ?? null
       },
       findByProviderSub: async (providerId, sub, tenantId) => {
-        // `${...}` (no `.raw`) binds as $N; .raw would be SQLi.
+        // `${...}` binds as $N; `.raw` would be SQL injection.
         const matchPattern = JSON.stringify([{ providerId, providerSub: sub }])
         const rows = await db.execute(
           sql`select * from ${identitiesTable}
@@ -177,8 +172,7 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
         // see findByProviderSub comment - drop `sql.raw` so
-        // `providerId` / `providerSub` / `addedAt` are bound as a
-        // parameter, not raw text.
+        // `providerId` / `providerSub` are parameterized, not raw.
         const newLink = JSON.stringify([{ providerId, providerSub, addedAt }])
         await db.execute(
           sql`update ${identitiesTable}
@@ -333,17 +327,47 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
   }
 }
 
-// ---------------------------------------------------------------------
-// Wire-up (replace with your own AuthRoot config)
-// ---------------------------------------------------------------------
-//
-// import { drizzle } from 'drizzle-orm/node-postgres'
-// import { Pool } from 'pg'
-// import { createSqlAuthStores } from '@gentleduck/auth/adapters/sql'
-//
-// const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
-// const db = drizzle(pool, { schema: { identitiesTable, credentialsTable, sessionsTable } })
-// const bridge = createDrizzlePgAuthBridge(db)
-// const stores = createSqlAuthStores<MyProfile>(bridge)
-//
-// new AuthRoot({ stores, ... })
+/**
+ * Storage helper that folds `Pool -> drizzle -> bridge -> stores` into
+ * a single call. Returns the `{ identities, sessions, credentials }`
+ * triple ready for {@link defineAuth} (or `AuthRoot.stores` directly).
+ *
+ * Accepts either a connection-string, an existing `pg.Pool`, or a
+ * pre-constructed `NodePgDatabase`. Each branch picks up the right
+ * shape without any user-side casting.
+ *
+ * @example
+ * ```ts
+ * import { drizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
+ *
+ * defineAuth({ storage: drizzlePgStorage(process.env.DATABASE_URL!), ... })
+ * ```
+ *
+ * @example
+ * ```ts
+ * // Reuse an existing pool
+ * import { Pool } from 'pg'
+ * const pool = new Pool({ connectionString: ... })
+ * defineAuth({ storage: drizzlePgStorage(pool), ... })
+ * ```
+ */
+export function drizzlePgStorage<const Profile>(
+  input: string | NodePgPoolLike | NodePgDatabase,
+): ReturnType<typeof createSqlAuthStores<Profile>> {
+  // Lazy-require to avoid a hard runtime dep when consumers wire the
+  // bridge themselves; `pg` + `drizzle-orm` are optional peerDeps.
+  let db: NodePgDatabase
+  if (typeof input === 'string') {
+    const { Pool } = lazyRequire('pg')
+    const { drizzle } = lazyRequire('drizzle-orm/node-postgres')
+    db = drizzle(new Pool({ connectionString: input })) as unknown as NodePgDatabase
+  } else {
+    if (isNodePgDatabase(input)) {
+      db = input
+    } else {
+      const { drizzle } = lazyRequire('drizzle-orm/node-postgres')
+      db = drizzle(input)
+    }
+  }
+  return createSqlAuthStores<Profile>(createDrizzlePgAuthBridge(db))
+}

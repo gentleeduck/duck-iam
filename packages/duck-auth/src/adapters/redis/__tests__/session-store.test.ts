@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it } from 'vitest'
 import { sha256 } from '../../../core/crypto'
 import type { Session } from '../../../core/types/session'
@@ -119,5 +114,39 @@ describe('RedisSessionStore', () => {
     await store.create(guest)
     expect(await store.getByHash(guest.id)).not.toBeNull()
     expect(await redis.smembers('test:idx:identity:ident-1')).toEqual([])
+  })
+
+  it('getByHash returns null on a corrupted JSON entry (parser fail-closed)', async () => {
+    // Plant raw garbage as if Redis was tampered with.
+    await redis.set('test:sess:corrupt-id', 'not-valid-json-{{}}}', {})
+    expect(await store.getByHash('corrupt-id')).toBeNull()
+  })
+
+  it('getByHash returns null when expiresAt is a string (parser rejects non-finite-number)', async () => {
+    // The legacy cast would have accepted this; downstream
+    // `expiresAt < Date.now()` becomes a NaN comparison and silently
+    // treats the session as live. parseStoredSession rejects.
+    await redis.set(
+      'test:sess:bad-expires',
+      JSON.stringify({
+        id: 'bad-expires',
+        identityId: 'i1',
+        kind: 'web',
+        aal: 1,
+        factors: [],
+        createdAt: 1,
+        rotatedAt: 1,
+        expiresAt: 'never', // <- wrong type
+        absoluteExpiresAt: 2,
+        fresh: true,
+      }),
+      {},
+    )
+    expect(await store.getByHash('bad-expires')).toBeNull()
+  })
+
+  it('getByHash returns null when the entry is a top-level array (not an object)', async () => {
+    await redis.set('test:sess:array-row', JSON.stringify(['unexpected']), {})
+    expect(await store.getByHash('array-row')).toBeNull()
   })
 })
