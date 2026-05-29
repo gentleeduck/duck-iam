@@ -241,10 +241,7 @@ export class RedisAdapter<
   private _runSerialised<T>(key: string, task: () => Promise<T>): Promise<T> {
     const prev = this._assignmentWriteLocks.get(key) ?? Promise.resolve()
     const next = prev.then(task, task)
-    // Subsequent serialised callers must wait for this task too, even on
-    // failure. The catch-noop suppresses Node's unhandled-rejection on the
-    // chained tail (the caller already owns `next`'s rejection); we still
-    // keep the chain ordering so a thrown task doesn't reorder later writes.
+    // Tail swallows the rejection only on the chain copy; caller owns `next`'s.
     const tail = next.then(
       () => undefined,
       () => undefined,
@@ -535,10 +532,7 @@ export class RedisAdapter<
     try {
       parsed = JSON.parse(value)
     } catch (err) {
-      // Corruption is NOT the same shape as "no attributes". Returning {}
-      // here would silently strip ABAC inputs and the engine would deny
-      // policies that previously allowed with no visible change. Surface
-      // through _reportPolicyError and throw so the engine fails closed.
+      // Corruption != empty; returning {} would silently strip ABAC and flip allow->deny.
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
       throw new Error(`[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (JSON parse failed)`)
     }

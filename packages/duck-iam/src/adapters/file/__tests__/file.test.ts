@@ -132,7 +132,7 @@ describe('FileAdapter', () => {
     expect(disk.policies).toEqual({})
   })
 
-  it('throws on malformed JSON instead of silently emptying the store (SEC-064)', async () => {
+  it('throws on malformed JSON instead of silently emptying the store', async () => {
     // Previous behaviour silently populated _cache = {} which the next
     // flush would persist, permanently destroying recoverable data.
     const fs = makeFakeFS('not-json{')
@@ -190,7 +190,7 @@ describe('FileAdapter', () => {
       expect(errors[0]?.rowId).toBe('bad')
     })
 
-    it('reports a malformed JSON file via onPolicyError + throws (SEC-064)', async () => {
+    it('reports a malformed JSON file via onPolicyError + throws', async () => {
       const errors: Array<{ rowId: string }> = []
       const fs = makeFakeFS('not-json{')
       const adapter = new FileAdapter<Action, Resource, Role, Scope>({
@@ -203,7 +203,7 @@ describe('FileAdapter', () => {
     })
   })
 
-  describe('SEC-003: path-traversal hardening', () => {
+  describe('path-traversal hardening', () => {
     it('rejects a path containing a ".." segment', () => {
       const fs = makeFakeFS()
       expect(
@@ -249,7 +249,7 @@ describe('FileAdapter', () => {
       ).toThrow(/escapes rootDir/)
     })
 
-    it('warns at most once per process when rootDir is omitted (SEC-026)', () => {
+    it('warns at most once per process when rootDir is omitted', () => {
       _warnSpy?.mockClear()
       const fs = makeFakeFS()
       // Latch is module-level: prior tests in this file may already have
@@ -263,7 +263,7 @@ describe('FileAdapter', () => {
       expect(rootDirWarns.length).toBeLessThanOrEqual(1)
     })
 
-    it('does not reflect the constructed path in the rootDir-missing warn (SEC-027)', () => {
+    it('does not reflect the constructed path in the rootDir-missing warn', () => {
       _warnSpy?.mockClear()
       const fs = makeFakeFS()
       const uniquePath = `/very-unique-path-${Date.now()}.json`
@@ -303,7 +303,7 @@ describe('FileAdapter', () => {
       await expect(adapter.listPolicies()).rejects.toThrow(/symlink traversal/)
     })
 
-    it('rethrows non-ENOENT realpath errors instead of falling through to parent (SEC-053)', async () => {
+    it('rethrows non-ENOENT realpath errors instead of falling through to parent', async () => {
       // A symlink-loop on the file (ELOOP) was previously silenced by the
       // parent-realpath fallback, letting a hostile symlink bypass the
       // containment check.
@@ -359,7 +359,7 @@ describe('FileAdapter', () => {
       expect(await adapter.listPolicies()).toEqual([])
     })
 
-    it('_loadInFlight clears after symlink-escape rejection (SEC-063)', async () => {
+    it('_loadInFlight clears after symlink-escape rejection', async () => {
       // The in-flight slot must clear on any throw so a fixed-up filesystem
       // can be re-tried; otherwise a rejected promise would pin the adapter
       // in permanent failure.
@@ -388,7 +388,7 @@ describe('FileAdapter', () => {
       expect(await adapter.listPolicies()).toEqual([])
     })
 
-    it('throws on non-ENOENT load failures instead of fail-opening to empty store (SEC-054)', async () => {
+    it('throws on non-ENOENT load failures instead of fail-opening to empty store', async () => {
       // EACCES (permissions drift), EISDIR (path overwritten), etc. must
       // surface immediately. A silent empty-store fallback would let the
       // engine see zero policies and let defaultEffect decide every request.
@@ -415,7 +415,7 @@ describe('FileAdapter', () => {
       expect(await adapter.listPolicies()).toEqual([])
     })
 
-    it('re-checks realpath on every I/O, not just the first (SEC-025)', async () => {
+    it('re-checks realpath on every I/O, not just the first', async () => {
       // After the first successful read, the file is swapped for a symlink to
       // /etc/passwd. The second I/O must re-run realpath and reject - the
       // one-shot _rootCheckDone latch would have let the symlink through.

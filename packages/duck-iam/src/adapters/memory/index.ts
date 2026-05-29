@@ -68,7 +68,7 @@ export class MemoryAdapter<
     for (const [uid, roles] of Object.entries(init?.assignments ?? {})) {
       this._assignments.set(
         uid,
-        (roles as TRole[]).map((r) => ({ role: r })),
+        roles.map((r) => ({ role: r })),
       )
     }
     for (const [uid, attrs] of Object.entries(init?.attributes ?? {})) {
@@ -184,9 +184,8 @@ export class MemoryAdapter<
    * @returns Array of `(role, scope)` pairs for scoped assignments only.
    */
   async getSubjectScopedRoles(id: string, _opts?: Adapter.IReadOptions): Promise<Request.IScopedRole<TRole, TScope>[]> {
-    return (this._assignments.get(id) ?? [])
-      .filter((e) => e.scope != null)
-      .map((e) => ({ role: e.role, scope: e.scope as TScope }))
+    const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
+    return (this._assignments.get(id) ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
   }
 
   /**
@@ -200,8 +199,11 @@ export class MemoryAdapter<
    * @returns Resolves once the assignment is recorded.
    */
   async assignRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
-    if (!this._assignments.has(id)) this._assignments.set(id, [])
-    const entries = this._assignments.get(id) as Array<{ role: TRole; scope?: TScope }>
+    let entries = this._assignments.get(id)
+    if (!entries) {
+      entries = []
+      this._assignments.set(id, entries)
+    }
     if (!entries.some((e) => e.role === roleId && e.scope === scope)) {
       entries.push({ role: roleId, scope })
     }
@@ -246,6 +248,10 @@ export class MemoryAdapter<
    * @returns Resolves once the merge completes.
    */
   async setSubjectAttributes(id: string, attrs: Primitives.Attributes): Promise<void> {
+    if (typeof attrs !== 'object' || attrs === null || Array.isArray(attrs)) {
+      const got = attrs === null ? 'null' : Array.isArray(attrs) ? 'array' : typeof attrs
+      throw new Error(`[@gentleduck/iam:memory] attributes for "${id}" must be a plain object (got ${got})`)
+    }
     this._attributes.set(id, { ...(this._attributes.get(id) ?? {}), ...attrs })
   }
 }

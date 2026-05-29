@@ -273,7 +273,7 @@ describe('RedisAdapter', () => {
       expect((await adapter.getSubjectAttributes('user-1')).team).toBe('B')
     })
 
-    it('getSubjectRoles returns ONLY unscoped roles, not scoped (SEC-059)', async () => {
+    it('getSubjectRoles returns ONLY unscoped roles, not scoped', async () => {
       // Aligns redis with file/memory contract: scoped roles go through
       // getSubjectScopedRoles only.
       await adapter.assignRole('user-1', 'viewer' as Ro)
@@ -282,12 +282,12 @@ describe('RedisAdapter', () => {
       expect(await adapter.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
     })
 
-    it('throws on corrupted attributes JSON instead of returning {} (SEC-058)', async () => {
+    it('throws on corrupted attributes JSON instead of returning {}', async () => {
       await redis.set('attrs:user-1', '{not-valid-json')
       await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
     })
 
-    it('setSubjectAttributes recovers from corrupt existing blob (SEC-067)', async () => {
+    it('setSubjectAttributes recovers from corrupt existing blob', async () => {
       // Admin overwrite is the only recovery path: the read throws on
       // corruption, which would otherwise lock the operator out forever.
       // Setter catches the throw, logs, and uses `{}` as the merge base.
@@ -297,7 +297,7 @@ describe('RedisAdapter', () => {
       expect(await adapter.getSubjectAttributes('user-1')).toEqual({ team: 'A' })
     })
 
-    it('throws on non-object attributes JSON (SEC-058)', async () => {
+    it('throws on non-object attributes JSON', async () => {
       await redis.set('attrs:user-1', '"a-string"')
       await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(/corrupted attributes/)
     })
@@ -455,7 +455,7 @@ describe('RedisAdapter', () => {
     })
   })
 
-  describe('SEC-019: assignment separator is NUL, not space', () => {
+  describe('assignment separator is NUL, not space', () => {
     // Repro of the original bug: encoded member used a literal space (0x20)
     // as the role/scope separator despite the comment claiming NUL. Any
     // role or scope containing whitespace would silently collide on decode.
@@ -486,7 +486,7 @@ describe('RedisAdapter', () => {
       expect(scoped).toEqual([{ role: 'role with space', scope: 'scope:with:colons' }])
     })
 
-    it('a value containing only a space round-trips correctly (original SEC-019 repro)', async () => {
+    it('a value containing only a space round-trips correctly', async () => {
       const r = new FakeRedis()
       const adapter = new RedisAdapter<string, string, string, string>({ client: r })
       await adapter.assignRole('user-1', 'admin user')
@@ -516,7 +516,7 @@ describe('RedisAdapter', () => {
     })
   })
 
-  describe('SEC-024: migrate-vs-revoke serialisation', () => {
+  describe('migrate-vs-revoke serialisation', () => {
     it('uses Lua EVAL when client supports it (DEBT-10)', async () => {
       // Cross-process atomic migration via EVAL: confirm the adapter
       // dispatches to the Lua path when client.eval exists.

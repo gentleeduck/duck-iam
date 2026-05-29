@@ -283,7 +283,21 @@ export class PrismaAdapter<
     const row = await this.prisma.accessSubjectAttr.findUnique({
       where: { subjectId },
     })
-    return (row?.data as Primitives.Attributes) ?? {}
+    if (!row) return {}
+    const data = row.data
+    if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+      throw new Error(
+        `[@gentleduck/iam:prisma] corrupted attributes for "${subjectId}" (expected JSON object, got ${
+          data === null ? 'null' : Array.isArray(data) ? 'array' : typeof data
+        })`,
+      )
+    }
+    // Reconstruct as a fresh Record to avoid sharing the Prisma-managed object.
+    const attrs: Primitives.Attributes = {}
+    for (const [k, v] of Object.entries(data)) {
+      attrs[k] = v as Primitives.AttributeValue
+    }
+    return attrs
   }
 
   /**
@@ -294,7 +308,13 @@ export class PrismaAdapter<
    * @returns Resolves once the upsert completes.
    */
   async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
-    const existing = await this.getSubjectAttributes(subjectId)
+    // Recover from corrupt existing data instead of locking the operator out.
+    let existing: Primitives.Attributes
+    try {
+      existing = await this.getSubjectAttributes(subjectId)
+    } catch {
+      existing = {}
+    }
     const merged = { ...existing, ...attrs }
     await this.prisma.accessSubjectAttr.upsert({
       where: { subjectId },
