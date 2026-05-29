@@ -5,7 +5,7 @@ const TRANSIENT = Symbol('duck-iam.http.transient')
 
 /** Tags an Error as transient so `isTransientError` will pick it up. Returns the same instance. */
 function makeTransient<T extends Error>(err: T): T {
-  ;(err as Error & { [TRANSIENT]?: true })[TRANSIENT] = true
+  Reflect.set(err, TRANSIENT, true)
   return err
 }
 
@@ -16,10 +16,10 @@ function makeTransient<T extends Error>(err: T): T {
  */
 function isTransientError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
-  if ((err as { [TRANSIENT]?: boolean })[TRANSIENT]) return true
-  const name = (err as { name?: string }).name
+  if (Reflect.get(err, TRANSIENT) === true) return true
+  const name = Reflect.get(err, 'name')
   if (name === 'AbortError' || name === 'TypeError') return true
-  const code = (err as { code?: string }).code
+  const code = Reflect.get(err, 'code')
   return code === 'ECONNRESET' || code === 'ECONNREFUSED' || code === 'ETIMEDOUT' || code === 'ENOTFOUND'
 }
 
@@ -204,7 +204,7 @@ function _isPrivateHost(hostname: string): boolean {
       if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(tail)) return _isPrivateHost(tail)
     }
     // 6to4 prefix `2002::/16` carries an inner IPv4 in the next two 16-bit
-    // groups (`2002:AABB:CCDD::` → `A.B.C.D` with bytes AA,BB,CC,DD). Linux
+    // groups (`2002:AABB:CCDD::` -> `A.B.C.D` with bytes AA,BB,CC,DD). Linux
     // ships 6to4 by default - `2002:7f00:1::` carries `127.0.0.1`.
     if (lower.startsWith('2002:')) {
       const m = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})(?::|$)/.exec(lower)
@@ -213,11 +213,7 @@ function _isPrivateHost(hostname: string): boolean {
         if (dotted) return _isPrivateHost(dotted)
       }
     }
-    // NAT64 well-known prefix `64:ff9b::/96` carries an inner IPv4 in the
-    // last 32 bits. URL parsing canonicalises leading zeros (`0064:ff9b:` →
-    // `64:ff9b:`); accept both spellings defensively. The `0064:ff9b:`
-    // branch uses a slice length of 10 (not 13) so direct callers passing
-    // a non-canonical hostname still produce the right tail.
+    // NAT64 `64:ff9b::/96`; accept both canonical and `0064:ff9b:` spellings.
     if (lower.startsWith('64:ff9b:') || lower.startsWith('0064:ff9b:')) {
       const tail = lower.startsWith('0064:') ? lower.slice(10) : lower.slice(8)
       // Dotted-quad tail (`64:ff9b::127.0.0.1`).
@@ -241,7 +237,7 @@ function _isPrivateHost(hostname: string): boolean {
  * Normalise a hostname for allowlist comparison.
  *
  * - Lower-cases.
- * - Strips a single trailing FQDN dot (`example.com.` → `example.com`).
+ * - Strips a single trailing FQDN dot (`example.com.` -> `example.com`).
  * - Converts a Unicode hostname (anything outside ASCII) to its WHATWG-URL
  *   punycode form by round-tripping through `new URL`. Node's `URL` parser
  *   already returns the `xn--` form for `parsed.hostname`, so this only
@@ -340,13 +336,8 @@ export class HttpAdapter<
       throw new Error('[@gentleduck/iam:http] baseUrl must not contain a query string or fragment')
     }
     if (config.allowedHosts && config.allowedHosts.length > 0) {
-      // Case-insensitive, port-aware, trailing-dot tolerant, IDN-aware
-      // match. Two precedence arms:
-      // 1) bare hostname (no port) - matches the URL's hostname regardless of
-      //    the URL's port.
-      // 2) full host (`hostname:port`) - exact port match required.
-      // Both sides are normalised: lower-cased, FQDN trailing dot stripped,
-      // and Unicode entries punycoded via the WHATWG URL parser.
+      // Two arms: bare hostname (any port) vs `hostname:port` (exact match).
+      // Both sides normalised: lower-case, no FQDN trailing dot, IDN punycoded.
       const urlHostname = _normaliseHostForAllowlist(parsed.hostname)
       // For host (with port) we split, normalise host, then re-attach port.
       const rawHost = parsed.host.toLowerCase()
@@ -413,9 +404,9 @@ export class HttpAdapter<
   private async _request<T>(path: string, init?: RequestInit, readOpts?: Adapter.IReadOptions): Promise<T> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (!res.ok) {
-      throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await res.text()}`)
+      throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
     }
-    return res.json()
+    return readJsonCapped<T>(res)
   }
 
   /**
@@ -433,9 +424,9 @@ export class HttpAdapter<
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (res.status === 404) return null
     if (!res.ok) {
-      throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await res.text()}`)
+      throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
     }
-    return res.json()
+    return readJsonCapped<T>(res)
   }
 
   /**
@@ -474,7 +465,10 @@ export class HttpAdapter<
           this._onCircuitFailure()
           throw err
         }
-        const delay = this._backoffMs * 2 ** attempt + Math.floor(Math.random() * this._backoffMs)
+        // Cap exponential backoff so misconfigured `_retries` cannot drive the
+        // delay past 2^31 ms (setTimeout overflow).
+        const exp = Math.min(this._backoffMs * 2 ** attempt, 60_000)
+        const delay = exp + Math.floor(Math.random() * Math.min(this._backoffMs, 5000))
         await new Promise((r) => setTimeout(r, delay))
         attempt++
       }
@@ -495,14 +489,10 @@ export class HttpAdapter<
     }
     const controllers = [readOpts?.signal, this._timeoutSignal()].filter((s): s is AbortSignal => !!s)
     const signal = anySignal(controllers)
-    // SSRF defence: refuse to follow redirects. The base URL was validated against
-    // `allowedHosts` / private-IP rules at construction time, but `fetch`'s default
-    // `redirect: 'follow'` would let the server steer the next hop to anywhere
-    // (e.g. `169.254.169.254`, `127.0.0.1`, internal services). `'error'` forces
-    // the IAM server to return final URLs directly.
+    // SSRF defence: `redirect: 'error'` keeps the validated base URL.
     const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal, redirect: 'error' })
     if (res.status >= 500) {
-      const body = await res.text().catch(() => '')
+      const body = await readBodyCapped(res)
       throw makeTransient(new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${body}`))
     }
     return res
@@ -538,6 +528,7 @@ export class HttpAdapter<
     id: string,
     opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
+    if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
     return this._requestOrNull(`/policies/${encodeURIComponent(id)}`, undefined, opts)
   }
   /**
@@ -582,6 +573,7 @@ export class HttpAdapter<
     id: string,
     opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+    if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
     return this._requestOrNull(`/roles/${encodeURIComponent(id)}`, undefined, opts)
   }
   /**
@@ -621,7 +613,9 @@ export class HttpAdapter<
    * @returns Array of UNSCOPED role IDs returned by `GET /subjects/{id}/roles`.
    */
   async getSubjectRoles(subjectId: string, opts?: Adapter.IReadOptions): Promise<TRole[]> {
-    return this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, undefined, opts)
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
+    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, undefined, opts)
+    return parseHttpSubjectRoles<TRole>(raw, subjectId)
   }
   /**
    * Lists scoped role assignments for a subject.
@@ -634,7 +628,9 @@ export class HttpAdapter<
     subjectId: string,
     opts?: Adapter.IReadOptions,
   ): Promise<Request.IScopedRole<TRole, TScope>[]> {
-    return this._request(`/subjects/${encodeURIComponent(subjectId)}/scoped-roles`, undefined, opts)
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
+    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/scoped-roles`, undefined, opts)
+    return parseHttpSubjectScopedRoles<TRole, TScope>(raw, subjectId)
   }
   /**
    * Grants a role to a subject, optionally restricted to a scope.
@@ -672,7 +668,9 @@ export class HttpAdapter<
    * @returns The subject's attribute map.
    */
   async getSubjectAttributes(subjectId: string, opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
-    return this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, undefined, opts)
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return {}
+    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, undefined, opts)
+    return parseHttpSubjectAttributes(raw, subjectId)
   }
   /**
    * Shallow-merges new attributes into the subject's existing bag via PATCH.
@@ -687,4 +685,118 @@ export class HttpAdapter<
       body: JSON.stringify(attrs),
     })
   }
+}
+
+/** Read up to 200 chars of the response body for error messages. */
+async function readBodyCapped(res: Response): Promise<string> {
+  // Streaming read with a 4KB hard cap; `res.text()` would buffer the entire
+  // body first - a hostile remote sending a multi-GB body would exhaust
+  // memory before the cap-and-slice ever ran. We only need a short prefix
+  // for the error-context line, so cap during ingest.
+  const MAX_BYTES = 4096
+  const reader = res.body?.getReader()
+  if (!reader) {
+    try {
+      const t = await res.text()
+      return t.length <= 200 ? t : `${t.slice(0, 200)}...(truncated)`
+    } catch {
+      return ''
+    }
+  }
+  const decoder = new TextDecoder()
+  let acc = ''
+  let bytes = 0
+  try {
+    while (bytes < MAX_BYTES) {
+      const { value, done } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      acc += decoder.decode(value, { stream: true })
+      if (bytes >= MAX_BYTES) break
+    }
+    acc += decoder.decode()
+  } catch {
+    /* swallow stream errors; partial body is fine for diagnostics */
+  } finally {
+    void reader.cancel().catch(() => {})
+  }
+  if (acc.length <= 200) return acc
+  return `${acc.slice(0, 200)}...(truncated)`
+}
+
+/**
+ * Stream-and-cap JSON reader: refuses bodies past 4 MiB so a hostile remote
+ * cannot OOM us before we ever reach JSON.parse. Real IAM payloads are
+ * <100 KiB; 4 MiB is generous for bulk-policy fetches.
+ */
+async function readJsonCapped<T>(res: Response): Promise<T> {
+  const MAX_BYTES = 4 * 1024 * 1024
+  const reader = res.body?.getReader()
+  if (!reader) {
+    return (await res.json()) as T
+  }
+  const decoder = new TextDecoder()
+  let text = ''
+  let bytes = 0
+  try {
+    while (bytes < MAX_BYTES) {
+      const { value, done } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      text += decoder.decode(value, { stream: true })
+      if (bytes >= MAX_BYTES) {
+        throw new Error('[@gentleduck/iam:http] response body exceeds 4 MiB cap')
+      }
+    }
+    text += decoder.decode()
+  } finally {
+    void reader.cancel().catch(() => {})
+  }
+  return JSON.parse(text) as T
+}
+
+function parseHttpSubjectAttributes(value: unknown, subjectId: string): Primitives.Attributes {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
+    throw new Error(
+      `[@gentleduck/iam:http] getSubjectAttributes for "${subjectId}" returned ${got} (expected JSON object)`,
+    )
+  }
+  return value as Primitives.Attributes
+}
+
+function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: string): TRole[] {
+  if (!Array.isArray(value)) {
+    const got = value === null ? 'null' : typeof value
+    throw new Error(`[@gentleduck/iam:http] getSubjectRoles for "${subjectId}" returned ${got} (expected JSON array)`)
+  }
+  const roles: TRole[] = []
+  for (const entry of value) {
+    if (typeof entry === 'string' && entry.length > 0) {
+      roles.push(entry as TRole)
+    }
+  }
+  return roles
+}
+
+function parseHttpSubjectScopedRoles<TRole extends string, TScope extends string>(
+  value: unknown,
+  subjectId: string,
+): Request.IScopedRole<TRole, TScope>[] {
+  if (!Array.isArray(value)) {
+    const got = value === null ? 'null' : typeof value
+    throw new Error(
+      `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned ${got} (expected JSON array)`,
+    )
+  }
+  const out: Request.IScopedRole<TRole, TScope>[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
+    const role = Reflect.get(entry, 'role')
+    const scope = Reflect.get(entry, 'scope')
+    if (typeof role !== 'string' || role.length === 0) continue
+    if (typeof scope !== 'string' || scope.length === 0) continue
+    out.push({ role: role as TRole, scope: scope as TScope })
+  }
+  return out
 }
