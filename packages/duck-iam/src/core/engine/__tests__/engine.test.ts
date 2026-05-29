@@ -285,7 +285,7 @@ describe('Engine.permissions() - batch check', () => {
     expect(map['publish:post']).toBe(false)
   })
 
-  it('returns fail-closed all-deny map when adapter rejects (SEC-070)', async () => {
+  it('returns fail-closed all-deny map when adapter rejects', async () => {
     // Adapter rejects on listPolicies - without the outer try permissions()
     // would reject the whole batch and callers that don't .catch() lose the
     // fail-closed behaviour. With the catch: every requested check is keyed
@@ -316,7 +316,7 @@ describe('Engine.permissions() - batch check', () => {
     expect(errors[0]?.message).toBe('adapter down')
   })
 
-  it('forwards onPolicyError to evaluator for batch checks (SEC-057)', async () => {
+  it('forwards onPolicyError to evaluator for batch checks', async () => {
     // A policy whose evaluator throws (RegexInputTooLargeError when matching
     // against an oversize subject attribute) must surface via onPolicyError;
     // permissions() previously passed undefined and the throw was eaten.
@@ -359,7 +359,7 @@ describe('Engine.permissions() - batch check', () => {
     expect(policyErrors[0]?.id).toBe('matches-policy')
   })
 
-  it('fires onMetrics per check including failOpen signal (SEC-051)', async () => {
+  it('fires onMetrics per check including failOpen signal', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [],
       assignments: { 'user-1': [] as RoleId[] },
@@ -947,7 +947,7 @@ describe('Engine - construction guards', () => {
     expect(warnings.some((w) => /fail-open/i.test(w))).toBe(true)
   })
 
-  it('onMetrics receives failOpen=true when verdict came from defaultEffect fallback (SEC-044)', async () => {
+  it('onMetrics receives failOpen=true when verdict came from defaultEffect fallback', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [],
       assignments: { 'user-1': [] as RoleId[] },
@@ -964,7 +964,7 @@ describe('Engine - construction guards', () => {
     expect(events[0]).toEqual({ allowed: true, failOpen: true })
   })
 
-  it('onMetrics receives failOpen=false when verdict came from an explicit allow rule (SEC-044)', async () => {
+  it('onMetrics receives failOpen=false when verdict came from an explicit allow rule', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -979,7 +979,7 @@ describe('Engine - construction guards', () => {
     expect(events[0]).toEqual({ allowed: true, failOpen: false })
   })
 
-  it('onMetrics throw does not escape authorize (SEC-055)', async () => {
+  it('onMetrics throw does not escape authorize', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -1003,7 +1003,7 @@ describe('Engine - construction guards', () => {
     }
   })
 
-  it('afterEvaluate throw does not rewrite allow → deny (SEC-056)', async () => {
+  it('afterEvaluate throw does not rewrite allow -> deny', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -1028,7 +1028,7 @@ describe('Engine - construction guards', () => {
     }
   })
 
-  it('onDeny throw does not rewrite deny → throw (SEC-056)', async () => {
+  it('onDeny throw does not rewrite deny -> throw', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -1329,7 +1329,7 @@ describe('Engine - cache invalidation', () => {
     expect(b.path.size).toBeGreaterThan(0)
   })
 
-  it('module-level flushSharedCaches drops process-wide regex + path caches (SEC-050)', async () => {
+  it('module-level flushSharedCaches drops process-wide regex + path caches', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -1341,12 +1341,7 @@ describe('Engine - cache invalidation', () => {
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
 
-  it('_loadAllPolicies mid-flight: invalidatePolicies does not repopulate merged cache (SEC-045)', async () => {
-    // Merger layer sits above _loadPolicies/_loadRbacPolicy. Even though each
-    // underlying loader sentinel-guards its own slot, the merger could still
-    // set the merged cache with stale data after the in-flight underlying
-    // loaders return, because the merger had no sentinel of its own.
-    // After fix: merger uses _mergedInFlight sentinel.
+  it('_loadAllPolicies mid-flight: invalidatePolicies does not repopulate merged cache', async () => {
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
@@ -1395,11 +1390,6 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('invalidate() during a pending load: result is consistent with the post-invalidate adapter state', async () => {
-    // Race target: caller A's loadPolicies awaits adapter.listPolicies, invalidate() fires,
-    // A's promise then resolves. Without the in-flight sentinel guard, A would write the
-    // pre-invalidate result back into the now-cleared cache, silently masking the invalidate.
-    // We exercise the path; assertion is on no thrown error and the final state being
-    // re-loadable. (A direct race assertion would be flaky on a single-threaded event loop.)
     const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },

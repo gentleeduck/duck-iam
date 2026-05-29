@@ -116,9 +116,11 @@ function applyCombiner(
       }
     }
     case 'highest-priority': {
-      if (matched.length > 0) {
-        const sorted = [...matched].sort((a, b) => b.priority - a.priority)
-        const top = sorted[0] as (typeof sorted)[0]
+      let top: (typeof matched)[number] | undefined
+      for (const cur of matched) {
+        if (top === undefined || cur.priority > top.priority) top = cur
+      }
+      if (top !== undefined) {
         return {
           effect: top.effect,
           reason: `Highest priority: rule "${top.ruleId}" (p=${top.priority})`,
@@ -136,7 +138,10 @@ function policyTargetsMatch(policy: AccessControl.IPolicy, req: Request.IAccessR
   const { actions, resources, roles } = policy.targets
   if (actions?.length && !actions.some((a) => matchesAction(a, req.action))) return false
   if (resources?.length && !resources.some((r) => matchesResource(r, req.resource.type))) return false
-  if (roles?.length && !roles.some((role) => req.subject.roles.includes(role))) return false
+  if (roles?.length) {
+    const subjectRoles = Array.isArray(req.subject.roles) ? req.subject.roles : []
+    if (!roles.some((role) => subjectRoles.includes(role))) return false
+  }
   return true
 }
 

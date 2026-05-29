@@ -186,6 +186,9 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
  * per evaluation with no upside.
  */
 export const MAX_FIELD_LENGTH = 256
+
+/** Max allowed length for a string `value` on a condition. */
+export const MAX_CONDITION_VALUE_LENGTH = 1024
 /**
  * Valid combining algorithm names.
  */
@@ -298,13 +301,33 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
         path: `${path}.field`,
       })
     }
-    if (!VALID_OPERATORS.has(obj.operator as string)) {
+    if (typeof obj.operator !== 'string' || !VALID_OPERATORS.has(obj.operator)) {
       issues.push({
         type: 'error',
         code: 'INVALID_OPERATOR',
         message: `Invalid operator "${String(obj.operator)}"`,
         path: `${path}.operator`,
       })
+    }
+    if (typeof obj.value === 'string' && obj.value.length > MAX_CONDITION_VALUE_LENGTH) {
+      issues.push({
+        type: 'error',
+        code: 'LIMIT_EXCEEDED',
+        message: `Condition value is ${obj.value.length} chars; limit is ${MAX_CONDITION_VALUE_LENGTH}`,
+        path: `${path}.value`,
+      })
+    } else if (Array.isArray(obj.value)) {
+      for (const [i, entry] of obj.value.entries()) {
+        if (typeof entry === 'string' && entry.length > MAX_CONDITION_VALUE_LENGTH) {
+          issues.push({
+            type: 'error',
+            code: 'LIMIT_EXCEEDED',
+            message: `Condition value[${i}] is ${entry.length} chars; limit is ${MAX_CONDITION_VALUE_LENGTH}`,
+            path: `${path}.value[${i}]`,
+          })
+          break
+        }
+      }
     }
     if (typeof obj.value === 'string' && obj.value.startsWith('$') && !isResolvablePath(obj.value.slice(1))) {
       issues.push({
@@ -364,8 +387,7 @@ export function validateConditionGroup(input: unknown, path: string, issues: Val
     return
   }
 
-  const obj = input as Record<string, unknown>
-  const groupKey = ['all', 'any', 'none'].find((k) => k in obj)
+  const groupKey = (['all', 'any', 'none'] as const).find((k) => k in input)
 
   if (!groupKey) {
     issues.push({
@@ -377,7 +399,7 @@ export function validateConditionGroup(input: unknown, path: string, issues: Val
     return
   }
 
-  const items = obj[groupKey]
+  const items = Reflect.get(input, groupKey)
   if (!Array.isArray(items)) {
     issues.push({
       type: 'error',
@@ -421,7 +443,7 @@ export function validateRuleShape(input: unknown, path: string, issues: Validate
     })
   }
 
-  if (!VALID_EFFECTS.has(rule.effect as string)) {
+  if (typeof rule.effect !== 'string' || !VALID_EFFECTS.has(rule.effect)) {
     issues.push({
       type: 'error',
       code: 'INVALID_EFFECT',
@@ -455,7 +477,7 @@ export function validateRuleShape(input: unknown, path: string, issues: Validate
         path: `${path}.actions`,
       })
     }
-    for (const [i, action] of (rule.actions as unknown[]).entries()) {
+    for (const [i, action] of rule.actions.entries()) {
       if (typeof action !== 'string') {
         issues.push({
           type: 'error',
@@ -483,7 +505,7 @@ export function validateRuleShape(input: unknown, path: string, issues: Validate
         path: `${path}.resources`,
       })
     }
-    for (const [i, resource] of (rule.resources as unknown[]).entries()) {
+    for (const [i, resource] of rule.resources.entries()) {
       if (typeof resource !== 'string') {
         issues.push({
           type: 'error',
@@ -495,16 +517,18 @@ export function validateRuleShape(input: unknown, path: string, issues: Validate
     }
   }
 
-  // Broad-allow warning: `effect: 'allow'` + `actions: ['*']` + `resources: ['*']`
-  // + zero conditions grants every operation to every subject the policy applies to.
-  // Intent is ambiguous from the policy alone (super-admin vs. mistake) - surface
-  // for review so the operator confirms once.
+  // Warn on unconditional allow * * (super-admin vs. mistake ambiguity).
   if (rule.effect === 'allow' && Array.isArray(rule.actions) && Array.isArray(rule.resources)) {
     const allActions = rule.actions.length === 1 && rule.actions[0] === '*'
     const allResources = rule.resources.length === 1 && rule.resources[0] === '*'
-    const cond = rule.conditions as { all?: unknown[]; any?: unknown[]; none?: unknown[] } | undefined
+    const conditionArrLen = (cond: unknown, key: string): number => {
+      if (cond === null || typeof cond !== 'object') return 0
+      const arr = Reflect.get(cond, key)
+      return Array.isArray(arr) ? arr.length : 0
+    }
+    const cond = rule.conditions
     const hasConditions =
-      !!cond && ((cond.all?.length ?? 0) > 0 || (cond.any?.length ?? 0) > 0 || (cond.none?.length ?? 0) > 0)
+      conditionArrLen(cond, 'all') > 0 || conditionArrLen(cond, 'any') > 0 || conditionArrLen(cond, 'none') > 0
     if (allActions && allResources && !hasConditions) {
       issues.push({
         type: 'warning',

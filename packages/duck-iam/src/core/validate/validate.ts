@@ -58,7 +58,8 @@ export function validateRoles(roles: readonly AccessControl.IRole[]): Validate.I
     const stack = [role.id]
 
     while (stack.length > 0) {
-      const current = stack.pop() as string
+      const current = stack.pop()
+      if (current === undefined) break
       if (visited.has(current)) {
         issues.push({
           type: 'warning',
@@ -188,7 +189,7 @@ export function validatePolicy(input: unknown): Validate.IResult {
     })
   }
 
-  if (!VALID_ALGORITHMS.has(p.algorithm as string)) {
+  if (typeof p.algorithm !== 'string' || !VALID_ALGORITHMS.has(p.algorithm)) {
     issues.push({
       type: 'error',
       code: 'INVALID_ALGORITHM',
@@ -217,23 +218,25 @@ export function validatePolicy(input: unknown): Validate.IResult {
         path: 'rules',
       })
     }
-    for (const [i, rule] of (p.rules as unknown[]).entries()) {
+    for (const [i, rule] of p.rules.entries()) {
       validateRuleShape(rule, `rules[${i}]`, issues)
     }
 
     // Check for duplicate rule IDs
     const ruleIds = new Set<string>()
-    for (const rule of p.rules as Array<Record<string, unknown>>) {
-      if (typeof rule?.id === 'string') {
-        if (ruleIds.has(rule.id)) {
+    for (const rule of p.rules) {
+      if (typeof rule !== 'object' || rule === null) continue
+      const ruleId = Reflect.get(rule, 'id')
+      if (typeof ruleId === 'string') {
+        if (ruleIds.has(ruleId)) {
           issues.push({
             type: 'warning',
             code: 'DUPLICATE_RULE_ID',
-            message: `Duplicate rule ID "${rule.id}"`,
+            message: `Duplicate rule ID "${ruleId}"`,
             path: 'rules',
           })
         }
-        ruleIds.add(rule.id)
+        ruleIds.add(ruleId)
       }
     }
   }
@@ -247,9 +250,10 @@ export function validatePolicy(input: unknown): Validate.IResult {
         path: 'targets',
       })
     } else {
-      const targets = p.targets as Record<string, unknown>
+      const targets = p.targets
       for (const key of ['actions', 'resources', 'roles'] as const) {
-        if (targets[key] !== undefined && !Array.isArray(targets[key])) {
+        const value = Reflect.get(targets, key)
+        if (value !== undefined && !Array.isArray(value)) {
           issues.push({
             type: 'error',
             code: 'INVALID_TYPE',
@@ -312,7 +316,7 @@ export function validateRole(input: unknown): Validate.IResult {
         path: 'inherits',
       })
     } else {
-      for (const [i, v] of (r.inherits as unknown[]).entries()) {
+      for (const [i, v] of r.inherits.entries()) {
         if (typeof v !== 'string') {
           issues.push({
             type: 'error',

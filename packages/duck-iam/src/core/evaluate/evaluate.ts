@@ -178,15 +178,13 @@ export function evaluate(
 
   if (combine === 'and') {
     let lastAllow: AccessControl.IDecision | null = null
-    let anyApplicable = false
     for (const policy of policies) {
       const decision = safeEval(policy)
       if (decision.applicable === false) continue
-      anyApplicable = true
       if (!decision.allowed) return { ...decision, duration: performance.now() - start }
       lastAllow = decision
     }
-    if (!anyApplicable) {
+    if (lastAllow === null) {
       if (signals && defaultEffect === 'allow') signals.failOpen = true
       return {
         allowed: defaultEffect === 'allow',
@@ -196,20 +194,18 @@ export function evaluate(
         timestamp: Date.now(),
       }
     }
-    return { ...(lastAllow as AccessControl.IDecision), duration: performance.now() - start }
+    return { ...lastAllow, duration: performance.now() - start }
   }
 
   if (combine === 'allow-overrides') {
     let lastDeny: AccessControl.IDecision | null = null
-    let anyApplicable = false
     for (const policy of policies) {
       const decision = safeEval(policy)
       if (decision.applicable === false) continue
-      anyApplicable = true
       if (decision.allowed) return { ...decision, duration: performance.now() - start }
       lastDeny = decision
     }
-    if (!anyApplicable) {
+    if (lastDeny === null) {
       if (signals && defaultEffect === 'allow') signals.failOpen = true
       return {
         allowed: defaultEffect === 'allow',
@@ -219,7 +215,7 @@ export function evaluate(
         timestamp: Date.now(),
       }
     }
-    return { ...(lastDeny as AccessControl.IDecision), duration: performance.now() - start }
+    return { ...lastDeny, duration: performance.now() - start }
   }
 
   for (const policy of policies) {
@@ -267,7 +263,10 @@ export function evaluatePolicyFast(
     if (targets.resources?.length && !targets.resources.some((r) => matchesResource(r, request.resource.type))) {
       return null
     }
-    if (targets.roles?.length && !targets.roles.some((role) => request.subject.roles.includes(role))) return null
+    if (targets.roles?.length) {
+      const subjectRoles = Array.isArray(request.subject.roles) ? request.subject.roles : []
+      if (!targets.roles.some((role) => subjectRoles.includes(role))) return null
+    }
   }
 
   const idx = indexPolicy(policy)

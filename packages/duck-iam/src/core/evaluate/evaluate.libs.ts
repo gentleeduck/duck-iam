@@ -61,8 +61,11 @@ export function policyApplies(policy: AccessControl.IPolicy, req: Request.IAcces
     return false
   }
 
-  if (roles?.length && !roles.some((role) => req.subject.roles.includes(role))) {
-    return false
+  if (roles?.length) {
+    const subjectRoles = Array.isArray(req.subject.roles) ? req.subject.roles : []
+    if (!roles.some((role) => subjectRoles.includes(role))) {
+      return false
+    }
   }
 
   return true
