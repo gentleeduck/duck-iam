@@ -276,6 +276,7 @@
   "files": [
     "dist",
     "src",
+    "public",
     "README.md",
     "LICENSE",
     "SECURITY.md"

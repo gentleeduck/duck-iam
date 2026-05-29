@@ -519,6 +519,7 @@
   "files": [
     "dist",
     "src",
+    "public",
     "README.md",
     "LICENSE"
   ],
