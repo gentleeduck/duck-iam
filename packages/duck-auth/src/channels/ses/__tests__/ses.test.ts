@@ -1,11 +1,6 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import type { Identity } from '../../../core/types/identity'
-import { SesChannel, type SesClientLike } from '../index'
+import { SesChannel } from '../index'
 
 function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   return {
@@ -18,7 +13,7 @@ function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   }
 }
 
-function makeClient(impl?: SesClientLike['send']): SesClientLike {
+function makeClient(impl?: SesChannel.IClient['send']): SesChannel.IClient {
   return { send: vi.fn(impl ?? (async () => ({ MessageId: 'ses-1' }))) }
 }
 
@@ -38,7 +33,7 @@ describe('SesChannel', () => {
     expect(
       () =>
         new SesChannel({
-          client: null as unknown as SesClientLike,
+          client: null as unknown as SesChannel.IClient,
           from: 'noreply@app.test',
           templates: () => ({ subject: 'x' }),
         }),

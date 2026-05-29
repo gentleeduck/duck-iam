@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * OpenTelemetry instrumentation for `@gentleduck/auth`. Wires the
  * Events bus into OTel metrics (counters + gauges + histograms) so
  * sign-in / session / lockout traffic surfaces in any
@@ -9,55 +8,10 @@
  * use the framework's own OTel auto-instrumentation (express, hono,
  * etc.) - this module only adds the auth-domain metrics those traces
  * cannot derive on their own.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { AuthErrorObject } from '../../core/errors'
 import type { Events } from '../../core/types/events'
-
-/**
- * Narrow subset of `@opentelemetry/api` Meter we use. Lets consumers
- * pass any meter implementation (real OTel SDK, test stub, custom
- * forwarder) without the auth lib taking @opentelemetry/api as a hard
- * dep.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface OtelMeterLike {
-  createCounter(name: string, options?: { description?: string; unit?: string }): OtelCounterLike
-  createUpDownCounter(name: string, options?: { description?: string; unit?: string }): OtelCounterLike
-  createHistogram(name: string, options?: { description?: string; unit?: string }): OtelHistogramLike
-}
-
-export interface OtelCounterLike {
-  add(value: number, attributes?: Record<string, string | number | boolean>): void
-}
-
-export interface OtelHistogramLike {
-  record(value: number, attributes?: Record<string, string | number | boolean>): void
-}
-
-/**
- * Config knobs for `OtelInstrumentation`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface OtelInstrumentationConfig {
-  /**
-   * Meter to record against. Production: `metrics.getMeter('@gentleduck/auth')`
-   * from `@opentelemetry/api`. Tests: any stub satisfying `OtelMeterLike`.
-   */
-  meter: OtelMeterLike
-  /** Metric name prefix. Default `auth`. Final names look like `auth.signin.total`. */
-  prefix?: string
-  /**
-   * Extra attributes attached to every recorded measurement (env,
-   * service.name, etc.). Useful when the meter does not auto-resource
-   * those.
-   */
-  defaultAttributes?: Record<string, string | number | boolean>
-}
 
 /**
  * Records auth-domain metrics off an Events.IBus. The recorded
@@ -74,22 +28,20 @@ export interface OtelInstrumentationConfig {
  *   - {prefix}.suspicious.total (counter): tag signal + score-bucket
  *
  * `attach(bus)` subscribes; the returned cleanup detaches every listener.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class OtelInstrumentation {
-  private readonly _signinTotal: OtelCounterLike
-  private readonly _signupTotal: OtelCounterLike
-  private readonly _sessionActive: OtelCounterLike
-  private readonly _sessionRotated: OtelCounterLike
-  private readonly _lockoutTotal: OtelCounterLike
-  private readonly _mfaEnrolled: OtelCounterLike
-  private readonly _mfaRemoved: OtelCounterLike
-  private readonly _impersonated: OtelCounterLike
-  private readonly _suspicious: OtelCounterLike
+  private readonly _signinTotal: OtelInstrumentation.ICounter
+  private readonly _signupTotal: OtelInstrumentation.ICounter
+  private readonly _sessionActive: OtelInstrumentation.ICounter
+  private readonly _sessionRotated: OtelInstrumentation.ICounter
+  private readonly _lockoutTotal: OtelInstrumentation.ICounter
+  private readonly _mfaEnrolled: OtelInstrumentation.ICounter
+  private readonly _mfaRemoved: OtelInstrumentation.ICounter
+  private readonly _impersonated: OtelInstrumentation.ICounter
+  private readonly _suspicious: OtelInstrumentation.ICounter
   private readonly _defaults: Record<string, string | number | boolean>
 
-  constructor(cfg: OtelInstrumentationConfig) {
+  constructor(cfg: OtelInstrumentation.IConfig) {
     if (!cfg.meter) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: 'OtelInstrumentation requires a meter from @opentelemetry/api',
@@ -129,8 +81,6 @@ export class OtelInstrumentation {
   /**
    * Subscribe to every event the lib emits that maps to a metric.
    * Returns a cleanup function that detaches every listener.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   attach(bus: Events.IBus): () => void {
     const subs: Events.Unsubscribe[] = []
@@ -220,13 +170,11 @@ function bucketSeverity(score: number): 'low' | 'medium' | 'high' {
  * Convenience: tries to load `@opentelemetry/api` lazily + return a
  * meter named after the auth lib. Throws AUTH/MISCONFIGURED when the
  * peer is missing.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export async function getAuthOtelMeter(name = '@gentleduck/auth'): Promise<OtelMeterLike> {
+export async function getAuthOtelMeter(name = '@gentleduck/auth'): Promise<OtelInstrumentation.IMeter> {
   try {
     const otel = (await import('@opentelemetry/api' as string)) as {
-      metrics: { getMeter: (name: string) => OtelMeterLike }
+      metrics: { getMeter: (name: string) => OtelInstrumentation.IMeter }
     }
     return otel.metrics.getMeter(name)
   } catch {
@@ -240,16 +188,35 @@ export async function getAuthOtelMeter(name = '@gentleduck/auth'): Promise<OtelM
 /**
  * Namespace merge for `OtelInstrumentation`. Co-locates config + meter
  * + instrument contracts alongside the class.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace OtelInstrumentation {
-  /** Alias for `OtelInstrumentationConfig`. */
-  export type IConfig = OtelInstrumentationConfig
-  /** Alias for `OtelMeterLike`. */
-  export type IMeter = OtelMeterLike
-  /** Alias for `OtelCounterLike`. */
-  export type ICounter = OtelCounterLike
-  /** Alias for `OtelHistogramLike`. */
-  export type IHistogram = OtelHistogramLike
+  export interface IConfig {
+    /**
+     * Meter to record against. Production: `metrics.getMeter('@gentleduck/auth')`
+     * from `@opentelemetry/api`. Tests: any stub satisfying `OtelMeterLike`.
+     */
+    meter: OtelInstrumentation.IMeter
+    /** Metric name prefix. Default `auth`. Final names look like `auth.signin.total`. */
+    prefix?: string
+    /**
+     * Extra attributes attached to every recorded measurement (env,
+     * service.name, etc.). Useful when the meter does not auto-resource
+     * those.
+     */
+    defaultAttributes?: Record<string, string | number | boolean>
+  }
+
+  export interface IMeter {
+    createCounter(name: string, options?: { description?: string; unit?: string }): OtelInstrumentation.ICounter
+    createUpDownCounter(name: string, options?: { description?: string; unit?: string }): OtelInstrumentation.ICounter
+    createHistogram(name: string, options?: { description?: string; unit?: string }): OtelInstrumentation.IHistogram
+  }
+
+  export interface ICounter {
+    add(value: number, attributes?: Record<string, string | number | boolean>): void
+  }
+
+  export interface IHistogram {
+    record(value: number, attributes?: Record<string, string | number | boolean>): void
+  }
 }
