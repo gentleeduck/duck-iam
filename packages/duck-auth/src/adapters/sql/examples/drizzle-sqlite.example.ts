@@ -1,29 +1,37 @@
 // @ts-nocheck
 /**
- * Reference Drizzle ORM (Postgres) implementation of the SqlBridge
- * contract. Drop into your project, install the peerDeps, swap in your
- * own column / schema customizations, then hand the bridge to
- * `createSqlAuthStores`.
+ * Reference Drizzle ORM (SQLite via better-sqlite3) implementation of
+ * the SqlBridge contract. Drop into your project, install the peerDeps,
+ * swap in your own column / schema customizations, then hand the bridge
+ * to `createSqlAuthStores`.
  *
  * NOT compiled by tsdown (skipped via the `.example.ts` suffix +
- * `@ts-nocheck` so consumers without `drizzle-orm` / `pg` installed
- * don't break their build). Copy the file, do not import it.
+ * `@ts-nocheck` so consumers without `drizzle-orm` / `better-sqlite3`
+ * installed don't break their build). Copy the file, do not import it.
  *
  * Required peerDeps (consumer side):
- *   bun add drizzle-orm pg
- *   bun add -D drizzle-kit @types/pg
+ *   bun add drizzle-orm better-sqlite3
+ *   bun add -D drizzle-kit @types/better-sqlite3
+ *
+ * Differences from the pg / mysql flavours:
+ *   - SQLite stores all integers (including bigints) as INTEGER. The
+ *     mode-`number` Drizzle column already handles the JS-side
+ *     conversion.
+ *   - JSON queries use the JSON1 extension's `json_extract`. JSON1 is
+ *     bundled with every modern SQLite (>= 3.38).
+ *   - `RETURNING` works in SQLite >= 3.35 - same idiom as pg here.
  */
 
 import type { SqlBridge } from '@gentleduck/auth/adapters/sql'
 import { and, eq, isNull, lt, sql } from 'drizzle-orm'
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { bigint, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 // ---------------------------------------------------------------------
 // Schema definitions
 // ---------------------------------------------------------------------
 
-export const identitiesTable = pgTable(
+export const identitiesTable = sqliteTable(
   'auth_identities',
   {
     id: text('id').primaryKey(),
@@ -31,9 +39,9 @@ export const identitiesTable = pgTable(
     profile: text('profile'),
     providers: text('providers').notNull().default('[]'),
     version: integer('version').notNull().default(1),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-    deletedAt: bigint('deleted_at', { mode: 'number' }),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    deletedAt: integer('deleted_at'),
   },
   (t) => ({
     tenantIdx: index('auth_identities_tenant').on(t.tenantId),
@@ -41,7 +49,7 @@ export const identitiesTable = pgTable(
   }),
 )
 
-export const credentialsTable = pgTable(
+export const credentialsTable = sqliteTable(
   'auth_credentials',
   {
     id: text('id').primaryKey(),
@@ -51,10 +59,10 @@ export const credentialsTable = pgTable(
     secret: text('secret').notNull(),
     metadata: text('metadata'),
     version: integer('version').notNull().default(1),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    lastUsedAt: bigint('last_used_at', { mode: 'number' }),
-    expiresAt: bigint('expires_at', { mode: 'number' }),
-    revokedAt: bigint('revoked_at', { mode: 'number' }),
+    createdAt: integer('created_at').notNull(),
+    lastUsedAt: integer('last_used_at'),
+    expiresAt: integer('expires_at'),
+    revokedAt: integer('revoked_at'),
   },
   (t) => ({
     identityIdx: index('auth_credentials_identity').on(t.identityId),
@@ -64,7 +72,7 @@ export const credentialsTable = pgTable(
   }),
 )
 
-export const sessionsTable = pgTable(
+export const sessionsTable = sqliteTable(
   'auth_sessions',
   {
     id: text('id').primaryKey(),
@@ -77,10 +85,10 @@ export const sessionsTable = pgTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     fingerprint: text('fingerprint'),
-    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-    rotatedAt: bigint('rotated_at', { mode: 'number' }).notNull(),
-    expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
-    absoluteExpiresAt: bigint('absolute_expires_at', { mode: 'number' }).notNull(),
+    createdAt: integer('created_at').notNull(),
+    rotatedAt: integer('rotated_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    absoluteExpiresAt: integer('absolute_expires_at').notNull(),
     fresh: integer('fresh').notNull(),
     actingAs: text('acting_as'),
   },
@@ -95,8 +103,7 @@ export const sessionsTable = pgTable(
 // Bridge factory
 // ---------------------------------------------------------------------
 
-export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
-  /** Helper: scope a where clause by tenantId; null tenant matches the row's NULL. */
+export function createDrizzleSqliteAuthBridge(db: BetterSQLite3Database): SqlBridge {
   function tenantWhere<T extends { tenantId: unknown }>(table: T, tenantId: string | undefined) {
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
   }
@@ -115,29 +122,32 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         return row
       },
       findByEmail: async (email, tenantId) => {
-        // Profile is JSON-encoded; cheapest portable extraction is server-side json operators.
         // Tenant-scope: null tenant_id rows are "global identities"
         // reachable from any tenant, matching findById's semantics.
-        const rows = await db.execute(
+        const rows = await db.all(
           sql`select * from ${identitiesTable}
-              where (profile::jsonb)->>'email' = ${email}
+              where json_extract(profile, '$.email') = ${email}
                 and deleted_at is null
-                and (tenant_id is null or ${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
+                and (tenant_id is null or ${tenantId ?? null} is null or tenant_id = ${tenantId ?? null})
               limit 1`,
         )
-        return (rows.rows[0] as never) ?? null
+        return (rows[0] as never) ?? null
       },
       findByProviderSub: async (providerId, sub, tenantId) => {
-        // `${...}` (no `.raw`) binds as $N; .raw would be SQLi.
-        const matchPattern = JSON.stringify([{ providerId, providerSub: sub }])
-        const rows = await db.execute(
-          sql`select * from ${identitiesTable}
-              where (providers::jsonb) @> ${matchPattern}::jsonb
-                and deleted_at is null
-                and (tenant_id is null or ${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
+        // json_each over providers; matches null-sub links and treats
+        // null tenant_id rows as global (matches findById's semantics).
+        const rows = await db.all(
+          sql`select i.* from ${identitiesTable} i, json_each(i.providers) j
+              where json_extract(j.value, '$.providerId') = ${providerId}
+                and (
+                  json_extract(j.value, '$.providerSub') = ${sub}
+                  or (${sub ?? null} is null and json_extract(j.value, '$.providerSub') is null)
+                )
+                and i.deleted_at is null
+                and (i.tenant_id is null or ${tenantId ?? null} is null or i.tenant_id = ${tenantId ?? null})
               limit 1`,
         )
-        return (rows.rows[0] as never) ?? null
+        return (rows[0] as never) ?? null
       },
       insert: async (row) => {
         await db.insert(identitiesTable).values(row)
@@ -176,34 +186,42 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
-        // see findByProviderSub comment - drop `sql.raw` so
-        // `providerId` / `providerSub` / `addedAt` are bound as a
-        // parameter, not raw text.
-        const newLink = JSON.stringify([{ providerId, providerSub, addedAt }])
-        await db.execute(
-          sql`update ${identitiesTable}
-              set providers = (
-                select jsonb_agg(distinct elem)
-                from jsonb_array_elements(providers::jsonb || ${newLink}::jsonb) elem
-              )::text
-              where id = ${identityId}
-                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)`,
+        // Read-modify-write idempotency; not race-safe under concurrent
+        // callbacks (wrap in `BEGIN IMMEDIATE` if needed).
+        const rows = await db
+          .select({ providers: identitiesTable.providers })
+          .from(identitiesTable)
+          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .limit(1)
+        const cur = rows[0]
+        if (!cur) return
+        const arr = JSON.parse(cur.providers) as Array<{ providerId: string; providerSub?: string; addedAt: number }>
+        const exists = arr.some(
+          (p) => p.providerId === providerId && (providerSub === undefined || p.providerSub === providerSub),
         )
+        if (exists) return
+        arr.push({ providerId, providerSub, addedAt })
+        await db
+          .update(identitiesTable)
+          .set({ providers: JSON.stringify(arr) })
+          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
       },
       deleteProviderLink: async (identityId, providerId, tenantId) => {
-        await db.execute(
-          sql`update ${identitiesTable}
-              set providers = (
-                select coalesce(jsonb_agg(elem), '[]'::jsonb)::text
-                from jsonb_array_elements(providers::jsonb) elem
-                where (elem->>'providerId') != ${providerId}
-              )
-              where id = ${identityId}
-                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)`,
-        )
+        const rows = await db
+          .select({ providers: identitiesTable.providers })
+          .from(identitiesTable)
+          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .limit(1)
+        const cur = rows[0]
+        if (!cur) return
+        const arr = JSON.parse(cur.providers) as Array<{ providerId: string }>
+        const next = arr.filter((p) => p.providerId !== providerId)
+        await db
+          .update(identitiesTable)
+          .set({ providers: JSON.stringify(next) })
+          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
       },
       merge: async (survivorId, dupId, tenantId) => {
-        // Cascade is tenant-scoped: cross-tenant merge attempts are no-ops.
         await db
           .update(credentialsTable)
           .set({ identityId: survivorId })
@@ -227,10 +245,13 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         return rows[0] ?? null
       },
       listByIdentity: async (identityId, kind, tenantId) => {
+        // Use `!== undefined` so empty-string tenant ids are honored
+        // (truthy `tenantId ?` would drop the filter for '' and leak
+        // across tenants).
         const where = [
           eq(credentialsTable.identityId, identityId),
-          ...(kind ? [eq(credentialsTable.kind, kind)] : []),
-          ...(tenantId ? [eq(credentialsTable.tenantId, tenantId)] : []),
+          ...(kind !== undefined ? [eq(credentialsTable.kind, kind)] : []),
+          ...(tenantId !== undefined ? [eq(credentialsTable.tenantId, tenantId)] : []),
         ]
         return db
           .select()
@@ -238,13 +259,13 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
           .where(and(...where))
       },
       findByProviderSub: async (provider, sub, _tenantId) => {
-        const rows = await db.execute(
+        const rows = await db.all(
           sql`select * from ${credentialsTable}
-              where (metadata::jsonb)->>'provider' = ${provider}
-                and (metadata::jsonb)->>'sub' = ${sub}
+              where json_extract(metadata, '$.provider') = ${provider}
+                and json_extract(metadata, '$.sub') = ${sub}
               limit 1`,
         )
-        return (rows.rows[0] as never) ?? null
+        return (rows[0] as never) ?? null
       },
       findByHashedSecret: async (secretHash, kind, tenantId) => {
         const rows = await db
@@ -337,13 +358,13 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
 // Wire-up (replace with your own AuthRoot config)
 // ---------------------------------------------------------------------
 //
-// import { drizzle } from 'drizzle-orm/node-postgres'
-// import { Pool } from 'pg'
+// import Database from 'better-sqlite3'
+// import { drizzle } from 'drizzle-orm/better-sqlite3'
 // import { createSqlAuthStores } from '@gentleduck/auth/adapters/sql'
 //
-// const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
-// const db = drizzle(pool, { schema: { identitiesTable, credentialsTable, sessionsTable } })
-// const bridge = createDrizzlePgAuthBridge(db)
+// const sqlite = new Database(process.env.DATABASE_PATH ?? 'auth.sqlite')
+// const db = drizzle(sqlite, { schema: { identitiesTable, credentialsTable, sessionsTable } })
+// const bridge = createDrizzleSqliteAuthBridge(db)
 // const stores = createSqlAuthStores<MyProfile>(bridge)
 //
 // new AuthRoot({ stores, ... })

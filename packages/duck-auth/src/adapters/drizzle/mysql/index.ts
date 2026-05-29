@@ -1,36 +1,48 @@
 // @ts-nocheck
 /**
- * Reference Drizzle ORM (Postgres) implementation of the SqlBridge
+ * Reference Drizzle ORM (MySQL / MariaDB) implementation of the SqlBridge
  * contract. Drop into your project, install the peerDeps, swap in your
  * own column / schema customizations, then hand the bridge to
  * `createSqlAuthStores`.
  *
  * NOT compiled by tsdown (skipped via the `.example.ts` suffix +
- * `@ts-nocheck` so consumers without `drizzle-orm` / `pg` installed
+ * `@ts-nocheck` so consumers without `drizzle-orm` / `mysql2` installed
  * don't break their build). Copy the file, do not import it.
  *
  * Required peerDeps (consumer side):
- *   bun add drizzle-orm pg
- *   bun add -D drizzle-kit @types/pg
+ *   bun add drizzle-orm mysql2
+ *   bun add -D drizzle-kit
+ *
+ * Differences from the pg flavour:
+ *   - `JSON_EXTRACT(col, '$.key')` replaces pg's `(col::jsonb)->>'key'`.
+ *   - MySQL does not implement `RETURNING`; updates that need the new
+ *     row issue a separate `SELECT` afterwards.
+ *   - Provider-link upserts are done client-side (parse JSON, splice,
+ *     re-write) for portability across MySQL 5.7 / 8.x / MariaDB.
  */
 
-import type { SqlBridge } from '@gentleduck/auth/adapters/sql'
+import { createRequire } from 'node:module'
 import { and, eq, isNull, lt, sql } from 'drizzle-orm'
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { bigint, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
+
+const lazyRequire = createRequire(import.meta.url)
+
+import { bigint, index, int, mysqlTable, text, varchar } from 'drizzle-orm/mysql-core'
+import type { MySql2Database } from 'drizzle-orm/mysql2'
+import { createSqlAuthStores, type SqlBridge } from '../../sql'
+import { parseProviderLinks } from '../_parsers'
 
 // ---------------------------------------------------------------------
 // Schema definitions
 // ---------------------------------------------------------------------
 
-export const identitiesTable = pgTable(
+export const identitiesTable = mysqlTable(
   'auth_identities',
   {
-    id: text('id').primaryKey(),
-    tenantId: text('tenant_id'),
+    id: varchar('id', { length: 64 }).primaryKey(),
+    tenantId: varchar('tenant_id', { length: 64 }),
     profile: text('profile'),
     providers: text('providers').notNull().default('[]'),
-    version: integer('version').notNull().default(1),
+    version: int('version').notNull().default(1),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
     deletedAt: bigint('deleted_at', { mode: 'number' }),
@@ -41,16 +53,17 @@ export const identitiesTable = pgTable(
   }),
 )
 
-export const credentialsTable = pgTable(
+export const credentialsTable = mysqlTable(
   'auth_credentials',
   {
-    id: text('id').primaryKey(),
-    identityId: text('identity_id').notNull(),
-    tenantId: text('tenant_id'),
-    kind: text('kind').notNull(),
-    secret: text('secret').notNull(),
+    id: varchar('id', { length: 64 }).primaryKey(),
+    identityId: varchar('identity_id', { length: 64 }).notNull(),
+    tenantId: varchar('tenant_id', { length: 64 }),
+    kind: varchar('kind', { length: 32 }).notNull(),
+    // 512 covers Argon2id PHC strings at any sensible cost parameter.
+    secret: varchar('secret', { length: 512 }).notNull(),
     metadata: text('metadata'),
-    version: integer('version').notNull().default(1),
+    version: int('version').notNull().default(1),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     lastUsedAt: bigint('last_used_at', { mode: 'number' }),
     expiresAt: bigint('expires_at', { mode: 'number' }),
@@ -64,24 +77,24 @@ export const credentialsTable = pgTable(
   }),
 )
 
-export const sessionsTable = pgTable(
+export const sessionsTable = mysqlTable(
   'auth_sessions',
   {
-    id: text('id').primaryKey(),
-    identityId: text('identity_id'),
-    tenantId: text('tenant_id'),
-    kind: text('kind').notNull(),
-    aal: integer('aal').notNull(),
+    id: varchar('id', { length: 64 }).primaryKey(),
+    identityId: varchar('identity_id', { length: 64 }),
+    tenantId: varchar('tenant_id', { length: 64 }),
+    kind: varchar('kind', { length: 32 }).notNull(),
+    aal: int('aal').notNull(),
     factors: text('factors').notNull().default('[]'),
-    csrfHash: text('csrf_hash'),
-    ip: text('ip'),
+    csrfHash: varchar('csrf_hash', { length: 128 }),
+    ip: varchar('ip', { length: 45 }),
     userAgent: text('user_agent'),
-    fingerprint: text('fingerprint'),
+    fingerprint: varchar('fingerprint', { length: 128 }),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     rotatedAt: bigint('rotated_at', { mode: 'number' }).notNull(),
     expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
     absoluteExpiresAt: bigint('absolute_expires_at', { mode: 'number' }).notNull(),
-    fresh: integer('fresh').notNull(),
+    fresh: int('fresh').notNull(),
     actingAs: text('acting_as'),
   },
   (t) => ({
@@ -95,10 +108,15 @@ export const sessionsTable = pgTable(
 // Bridge factory
 // ---------------------------------------------------------------------
 
-export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
-  /** Helper: scope a where clause by tenantId; null tenant matches the row's NULL. */
+export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
   function tenantWhere<T extends { tenantId: unknown }>(table: T, tenantId: string | undefined) {
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
+  }
+
+  /** MySQL has no RETURNING; re-select the row after an update. */
+  async function reselect<T>(table: never, id: string): Promise<T | null> {
+    const rows = await db.select().from(table).where(eq(table.id, id)).limit(1)
+    return (rows[0] as T) ?? null
   }
 
   return {
@@ -115,35 +133,34 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         return row
       },
       findByEmail: async (email, tenantId) => {
-        // Profile is JSON-encoded; cheapest portable extraction is server-side json operators.
         // Tenant-scope: null tenant_id rows are "global identities"
         // reachable from any tenant, matching findById's semantics.
         const rows = await db.execute(
           sql`select * from ${identitiesTable}
-              where (profile::jsonb)->>'email' = ${email}
+              where JSON_EXTRACT(profile, '$.email') = ${email}
                 and deleted_at is null
-                and (tenant_id is null or ${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
+                and (tenant_id is null or ${tenantId ?? null} is null or tenant_id = ${tenantId ?? null})
               limit 1`,
         )
-        return (rows.rows[0] as never) ?? null
+        return (rows[0] as never) ?? null
       },
       findByProviderSub: async (providerId, sub, tenantId) => {
-        // `${...}` (no `.raw`) binds as $N; .raw would be SQLi.
-        const matchPattern = JSON.stringify([{ providerId, providerSub: sub }])
+        // MySQL's JSON_CONTAINS is the portable check for "has element X".
+        const needle = JSON.stringify({ providerId, providerSub: sub })
         const rows = await db.execute(
           sql`select * from ${identitiesTable}
-              where (providers::jsonb) @> ${matchPattern}::jsonb
+              where JSON_CONTAINS(providers, ${needle})
                 and deleted_at is null
-                and (tenant_id is null or ${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
+                and (tenant_id is null or ${tenantId ?? null} is null or tenant_id = ${tenantId ?? null})
               limit 1`,
         )
-        return (rows.rows[0] as never) ?? null
+        return (rows[0] as never) ?? null
       },
       insert: async (row) => {
         await db.insert(identitiesTable).values(row)
       },
       updateConditional: async (id, patch, expectedVersion, tenantId) => {
-        const result = await db
+        const r = await db
           .update(identitiesTable)
           .set(patch as never)
           .where(
@@ -153,8 +170,9 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
               tenantWhere(identitiesTable, tenantId),
             ),
           )
-          .returning()
-        return result[0] ?? null
+        // mysql2 returns `{ rowsAffected }`; fall back to reselect on success.
+        if ((r as { rowsAffected?: number }).rowsAffected === 0) return null
+        return reselect(identitiesTable, id)
       },
       softDelete: async (id, deletedAt, tenantId) => {
         await db
@@ -163,12 +181,11 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
           .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
       },
       restore: async (id, tenantId) => {
-        const result = await db
+        await db
           .update(identitiesTable)
           .set({ deletedAt: null })
           .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
-          .returning()
-        return result[0] ?? null
+        return reselect(identitiesTable, id)
       },
       erase: async (id, tenantId) => {
         await db.delete(credentialsTable).where(eq(credentialsTable.identityId, id))
@@ -176,34 +193,45 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
-        // see findByProviderSub comment - drop `sql.raw` so
-        // `providerId` / `providerSub` / `addedAt` are bound as a
-        // parameter, not raw text.
-        const newLink = JSON.stringify([{ providerId, providerSub, addedAt }])
-        await db.execute(
-          sql`update ${identitiesTable}
-              set providers = (
-                select jsonb_agg(distinct elem)
-                from jsonb_array_elements(providers::jsonb || ${newLink}::jsonb) elem
-              )::text
-              where id = ${identityId}
-                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)`,
+        // Portable across MySQL 5.7/8.x; wrap in `SELECT ... FOR UPDATE` if races.
+        const rows = await db
+          .select()
+          .from(identitiesTable)
+          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .limit(1)
+        const cur = rows[0]
+        if (!cur) return
+        // parseProviderLinks fail-safes
+        // malformed providers JSON to [] (was: crash on `null` /
+        // non-array / `JSON.parse` SyntaxError).
+        const arr = parseProviderLinks(cur.providers)
+        const exists = arr.some(
+          (p) => p.providerId === providerId && (providerSub === undefined || p.providerSub === providerSub),
         )
+        if (exists) return
+        arr.push(providerSub === undefined ? { providerId, addedAt } : { providerId, providerSub, addedAt })
+        await db
+          .update(identitiesTable)
+          .set({ providers: JSON.stringify(arr) })
+          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
       },
       deleteProviderLink: async (identityId, providerId, tenantId) => {
-        await db.execute(
-          sql`update ${identitiesTable}
-              set providers = (
-                select coalesce(jsonb_agg(elem), '[]'::jsonb)::text
-                from jsonb_array_elements(providers::jsonb) elem
-                where (elem->>'providerId') != ${providerId}
-              )
-              where id = ${identityId}
-                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)`,
-        )
+        const rows = await db
+          .select()
+          .from(identitiesTable)
+          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .limit(1)
+        const cur = rows[0]
+        if (!cur) return
+        // see insertProviderLink comment.
+        const arr = parseProviderLinks(cur.providers)
+        const next = arr.filter((p) => p.providerId !== providerId)
+        await db
+          .update(identitiesTable)
+          .set({ providers: JSON.stringify(next) })
+          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
       },
       merge: async (survivorId, dupId, tenantId) => {
-        // Cascade is tenant-scoped: cross-tenant merge attempts are no-ops.
         await db
           .update(credentialsTable)
           .set({ identityId: survivorId })
@@ -227,10 +255,13 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         return rows[0] ?? null
       },
       listByIdentity: async (identityId, kind, tenantId) => {
+        // Use `!== undefined` so empty-string tenant ids are honored
+        // (truthy `tenantId ?` would drop the filter for '' and leak
+        // across tenants).
         const where = [
           eq(credentialsTable.identityId, identityId),
-          ...(kind ? [eq(credentialsTable.kind, kind)] : []),
-          ...(tenantId ? [eq(credentialsTable.tenantId, tenantId)] : []),
+          ...(kind !== undefined ? [eq(credentialsTable.kind, kind)] : []),
+          ...(tenantId !== undefined ? [eq(credentialsTable.tenantId, tenantId)] : []),
         ]
         return db
           .select()
@@ -240,11 +271,11 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       findByProviderSub: async (provider, sub, _tenantId) => {
         const rows = await db.execute(
           sql`select * from ${credentialsTable}
-              where (metadata::jsonb)->>'provider' = ${provider}
-                and (metadata::jsonb)->>'sub' = ${sub}
+              where JSON_EXTRACT(metadata, '$.provider') = ${provider}
+                and JSON_EXTRACT(metadata, '$.sub') = ${sub}
               limit 1`,
         )
-        return (rows.rows[0] as never) ?? null
+        return (rows[0] as never) ?? null
       },
       findByHashedSecret: async (secretHash, kind, tenantId) => {
         const rows = await db
@@ -264,7 +295,7 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         await db.insert(credentialsTable).values(row)
       },
       updateConditional: async (id, patch, expectedVersion, tenantId) => {
-        const result = await db
+        const r = await db
           .update(credentialsTable)
           .set(patch as never)
           .where(
@@ -274,8 +305,8 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
               tenantWhere(credentialsTable, tenantId),
             ),
           )
-          .returning()
-        return result[0] ?? null
+        if ((r as { rowsAffected?: number }).rowsAffected === 0) return null
+        return reselect(credentialsTable, id)
       },
       revoke: async (id, revokedAt, tenantId) => {
         await db
@@ -309,12 +340,12 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         return rows[0] ?? null
       },
       update: async (id, patch) => {
-        const result = await db
+        const r = await db
           .update(sessionsTable)
           .set(patch as never)
           .where(eq(sessionsTable.id, id))
-          .returning()
-        return result[0] ?? null
+        if ((r as { rowsAffected?: number }).rowsAffected === 0) return null
+        return reselect(sessionsTable, id)
       },
       delete: async (id) => {
         await db.delete(sessionsTable).where(eq(sessionsTable.id, id))
@@ -326,8 +357,8 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         await db.delete(sessionsTable).where(eq(sessionsTable.identityId, identityId))
       },
       deleteExpired: async (now) => {
-        const result = await db.delete(sessionsTable).where(lt(sessionsTable.absoluteExpiresAt, now)).returning()
-        return result.length
+        const r = await db.delete(sessionsTable).where(lt(sessionsTable.absoluteExpiresAt, now))
+        return (r as { rowsAffected?: number }).rowsAffected ?? 0
       },
     },
   }
@@ -337,13 +368,48 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
 // Wire-up (replace with your own AuthRoot config)
 // ---------------------------------------------------------------------
 //
-// import { drizzle } from 'drizzle-orm/node-postgres'
-// import { Pool } from 'pg'
-// import { createSqlAuthStores } from '@gentleduck/auth/adapters/sql'
+// import { drizzle } from 'drizzle-orm/mysql2'
+// import mysql from 'mysql2/promise'
+// import { createSqlAuthStores } from '../../sql'
 //
-// const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
-// const db = drizzle(pool, { schema: { identitiesTable, credentialsTable, sessionsTable } })
-// const bridge = createDrizzlePgAuthBridge(db)
+// const pool = mysql.createPool({ uri: process.env.DATABASE_URL! })
+// const db = drizzle(pool, { schema: { identitiesTable, credentialsTable, sessionsTable }, mode: 'default' })
+// const bridge = createDrizzleMysqlAuthBridge(db)
 // const stores = createSqlAuthStores<MyProfile>(bridge)
 //
 // new AuthRoot({ stores, ... })
+
+/**
+ * Storage helper that folds `mysql2 pool -> drizzle -> bridge -> stores`
+ * into a single call. Returns `{ identities, sessions, credentials }`
+ * for {@link defineAuth}.
+ *
+ * Accepts a connection-string, a pre-built `mysql2` pool, or a
+ * pre-constructed `MySql2Database`.
+ *
+ * @example
+ * ```ts
+ * import { drizzleMysqlStorage } from '@gentleduck/auth/adapters/drizzle/mysql'
+ *
+ * defineAuth({ storage: drizzleMysqlStorage(process.env.DATABASE_URL!), ... })
+ * ```
+ */
+export const drizzleMysqlStorage = <Profile = unknown>(
+  input: string | MySql2Database | { execute: () => unknown },
+): ReturnType<typeof createSqlAuthStores<Profile>> => {
+  let db: MySql2Database
+  if (typeof input === 'string') {
+    const mysql = lazyRequire('mysql2/promise')
+    const { drizzle } = lazyRequire('drizzle-orm/mysql2')
+    db = drizzle(mysql.createPool(input)) as unknown as MySql2Database
+  } else if (
+    typeof (input as { execute?: unknown }).execute === 'function' &&
+    typeof (input as { query?: unknown }).query !== 'function'
+  ) {
+    const { drizzle } = lazyRequire('drizzle-orm/mysql2')
+    db = drizzle(input as never) as unknown as MySql2Database
+  } else {
+    db = input as MySql2Database
+  }
+  return createSqlAuthStores<Profile>(createDrizzleMysqlAuthBridge(db))
+}

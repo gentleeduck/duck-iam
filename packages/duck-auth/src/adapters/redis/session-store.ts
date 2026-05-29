@@ -1,83 +1,61 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { AuthErrorObject } from '../../core/errors'
 import type { Session } from '../../core/types/session'
 import type { RedisLike } from './redis-like'
 
 /**
- * Config knobs for `RedisSessionStore`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the Redis-backed session store. Every type lives
+ * inside the namespace.
  */
-export interface RedisSessionStoreConfig {
-  /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
-  redis: RedisLike
-  /**
-   * Key namespace prefix. Default: `auth`. Final keys:
-   *   `${prefix}:sess:{sessionId}`
-   *   `${prefix}:idx:identity:{identityId}` (Set of sessionId hashes)
-   */
-  prefix?: string
-  /**
-   * TTL safety cap applied to every session write. The session's own
-   * `absoluteExpiresAt` is authoritative; this is a defense-in-depth
-   * ceiling so a buggy producer cannot create non-expiring keys.
-   * Default: 30 days.
-   */
-  maxTtlSec?: number
+export namespace RedisSessionStore {
+  /** Config knobs for {@link RedisSessionStore}. */
+  export interface IConfig {
+    /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
+    redis: RedisLike.IClient
+    /**
+     * Key namespace prefix. Default: `auth`. Final keys:
+     *   `${prefix}:sess:{sessionId}`
+     *   `${prefix}:idx:identity:{identityId}` (Set of sessionId hashes)
+     */
+    prefix?: string
+    /**
+     * TTL safety cap applied to every session write. The session's own
+     * `absoluteExpiresAt` is authoritative; this is a defense-in-depth
+     * ceiling. Default: 30 days.
+     */
+    maxTtlSec?: number
+  }
 }
 
 /**
  * Redis-backed `Session.IStore`. Session.id is already the sha-256 of
  * the plaintext sid (see SessionsFacet) so the primary key + lookup
- * key are the same value; no second mapping is needed.
- *
- * Keys:
- *   - `${prefix}:sess:{sessionId}` -> JSON-encoded ISession
- *   - `${prefix}:idx:identity:{identityId}` -> Set of sessionId values
- *
- * GC: TTL handles the primary record. Identity Sets are reconciled
- * eagerly on `delete()` and lazily on `listByIdentity()` + `gc()`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * key are the same value.
  */
 export class RedisSessionStore implements Session.IStore {
-  private readonly _redis: RedisLike
+  private readonly _redis: RedisLike.IClient
   private readonly _prefix: string
   private readonly _maxTtlSec: number
 
-  constructor(cfg: RedisSessionStoreConfig) {
+  constructor(cfg: RedisSessionStore.IConfig) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth'
     this._maxTtlSec = cfg.maxTtlSec ?? 30 * 24 * 60 * 60
   }
 
-  /** Compose the primary session record key. */
   private _sessKey(sessionId: string): string {
     return `${this._prefix}:sess:${sessionId}`
   }
 
-  /** Compose the identity -> sessionIds Set key. */
   private _idxKey(identityId: string): string {
     return `${this._prefix}:idx:identity:${identityId}`
   }
 
-  /** Clamp the per-write TTL to `maxTtlSec`. */
   private _ttlFor(session: Session.ISession): number {
     const remainingMs = Math.max(0, session.absoluteExpiresAt - Date.now())
     const remainingSec = Math.ceil(remainingMs / 1000)
     return Math.max(1, Math.min(this._maxTtlSec, remainingSec))
   }
 
-  /**
-   * Persist a new session. Writes the primary record and, for identified
-   * sessions, indexes the sessionId under the owning identity's Set.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
   async create(s: Session.ISession): Promise<void> {
     if (!s.id) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
@@ -92,30 +70,21 @@ export class RedisSessionStore implements Session.IStore {
     }
   }
 
-  /**
-   * Read a session by its hash. Returns null when missing or TTL-expired.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
   async getByHash(sidHash: string): Promise<Session.ISession | null> {
     const raw = await this._redis.get(this._sessKey(sidHash))
     if (!raw) return null
-    return JSON.parse(raw) as Session.ISession
+    return parseStoredSession(raw)
   }
 
-  /**
-   * Patch an existing session in-place. TTL is recalculated from the
-   * patched `absoluteExpiresAt` so a rotation does not silently extend
-   * the original window past its cap.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
   async update(id: string, patch: Partial<Session.ISession>): Promise<Session.ISession> {
     const raw = await this._redis.get(this._sessKey(id))
     if (!raw) {
       throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: `session ${id} not found` })
     }
-    const current = JSON.parse(raw) as Session.ISession
+    const current = parseStoredSession(raw)
+    if (!current) {
+      throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: `session ${id} corrupted` })
+    }
     const next: Session.ISession = { ...current, ...patch }
     const ttl = this._ttlFor(next)
     await this._redis.set(this._sessKey(id), JSON.stringify(next), { ex: ttl })
@@ -125,30 +94,17 @@ export class RedisSessionStore implements Session.IStore {
     return next
   }
 
-  /**
-   * Hard-delete a session. Drops the primary record and removes the id
-   * from the owning identity's Set (best-effort: reads the record first
-   * so we know which Set to touch).
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
   async delete(id: string): Promise<void> {
     const raw = await this._redis.get(this._sessKey(id))
     await this._redis.del(this._sessKey(id))
     if (raw) {
-      const session = JSON.parse(raw) as Session.ISession
-      if (session.identityId) {
+      const session = parseStoredSession(raw)
+      if (session?.identityId) {
         await this._redis.srem(this._idxKey(session.identityId), id)
       }
     }
   }
 
-  /**
-   * Enumerate live sessions for an identity. Stale Set members (primary
-   * record TTL-evicted) are pruned during the scan.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
   async listByIdentity(identityId: string): Promise<Session.ISession[]> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length === 0) return []
@@ -157,7 +113,10 @@ export class RedisSessionStore implements Session.IStore {
     for (const id of ids) {
       const raw = await this._redis.get(this._sessKey(id))
       if (raw) {
-        out.push(JSON.parse(raw) as Session.ISession)
+        const parsed = parseStoredSession(raw)
+        if (parsed) out.push(parsed)
+        // Corrupted entries are skipped (fail-closed). Caller treats
+        // the row as not-present; the next write replaces it.
       } else {
         stale.push(id)
       }
@@ -168,12 +127,6 @@ export class RedisSessionStore implements Session.IStore {
     return out
   }
 
-  /**
-   * Revoke every session for an identity. Drops every live record + the
-   * index Set in one pass.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
   async deleteAllForIdentity(identityId: string): Promise<void> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length > 0) {
@@ -182,13 +135,8 @@ export class RedisSessionStore implements Session.IStore {
     await this._redis.del(this._idxKey(identityId))
   }
 
-  /**
-   * Reconcile orphaned index entries left behind when a primary record
-   * TTL-expires before its containing Set member is removed. Returns the
-   * count of dropped Set members.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
+  // gc impl below
+
   async gc(_now: number): Promise<{ deleted: number }> {
     let cursor = '0'
     let deleted = 0
@@ -215,12 +163,40 @@ export class RedisSessionStore implements Session.IStore {
 }
 
 /**
- * Namespace merge for `RedisSessionStore`. Co-locates the config shape
- * alongside the class via TS class+namespace merging.
+ * structural validator for a stored session blob. Replaces the
+ * `JSON.parse(raw) as Session.ISession` cast - a corrupted/tampered
+ * Redis entry (e.g. a row whose `expiresAt` is a string `"never"`)
+ * would otherwise survive the cast, then downstream comparisons like
+ * `session.expiresAt < Date.now()` would do `"never" < N -> NaN-style
+ * comparison -> false`, bypassing the expiry check and treating the
+ * (expired) session as valid.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Threat-model note: Redis writes are normally library-only - if an
+ * attacker has Redis write access, they can mint arbitrary sessions
+ * anyway. This is defense in depth + consistent with the parser
+ * pattern applied across duck-auth.
+ *
+ * Validates the SEC-critical fields (`id`, `expiresAt`,
+ * `absoluteExpiresAt`); the structural rest is trusted (operator
+ * controls writes). Returns null on JSON.parse throw OR any
+ * critical-field shape mismatch so the caller fail-closes.
  */
-export namespace RedisSessionStore {
-  /** Alias for `RedisSessionStoreConfig`. */
-  export type IConfig = RedisSessionStoreConfig
+function parseStoredSession(raw: string): Session.ISession | null {
+  let obj: unknown
+  try {
+    obj = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return null
+  const id: unknown = Reflect.get(obj, 'id')
+  if (typeof id !== 'string' || id.length === 0) return null
+  const expiresAt: unknown = Reflect.get(obj, 'expiresAt')
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null
+  const absoluteExpiresAt: unknown = Reflect.get(obj, 'absoluteExpiresAt')
+  if (typeof absoluteExpiresAt !== 'number' || !Number.isFinite(absoluteExpiresAt)) return null
+  // Critical fields validated; pass through the full row. The caller
+  // operates on additional fields (kind, aal, factors, etc.) that we
+  // trust because Redis writes go through this library.
+  return obj as Session.ISession
 }

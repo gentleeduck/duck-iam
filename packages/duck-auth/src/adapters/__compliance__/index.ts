@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it } from 'vitest'
 import type { Credential } from '../../core/types/credential'
 import type { Identity } from '../../core/types/identity'
@@ -246,6 +241,25 @@ export function runCredentialStoreCompliance(factory: () => Credential.IStore): 
       await store.deleteByKind('u', 'password', {})
       const rest = await store.listByIdentity('u', undefined, {})
       expect(rest.every((c) => c.kind !== 'password')).toBe(true)
+    })
+
+    it('patchMetadata shallow-merges + bumps version atomically', async () => {
+      const store = factory()
+      const c = await store.upsert(
+        { identityId: 'u', kind: 'totp', secret: 's', metadata: { confirmed: false, counter: 0 } },
+        {},
+      )
+      const next = await store.patchMetadata(c.id, { confirmed: true }, {})
+      expect((next.metadata as { confirmed: boolean; counter: number }).confirmed).toBe(true)
+      expect((next.metadata as { confirmed: boolean; counter: number }).counter).toBe(0)
+      expect(next.version).toBe(c.version + 1)
+    })
+
+    it('patchMetadata throws AUTH/UNAUTHENTICATED for an unknown id', async () => {
+      const store = factory()
+      await expect(store.patchMetadata('does-not-exist', { x: 1 }, {})).rejects.toMatchObject({
+        code: 'AUTH/UNAUTHENTICATED',
+      })
     })
   })
 }
