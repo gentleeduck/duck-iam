@@ -142,10 +142,7 @@ export class AccessClient<
       try {
         fn(permissions)
       } catch (err) {
-        // Listener errors must not prevent other listeners from being notified,
-        // but a fully-silent swallow makes a buggy listener feel like flaky
-        // propagation. Surface via console.error so the developer sees the
-        // stack; production callers can supply onListenerError to redirect.
+        // Surface the throw without aborting other listeners.
         // eslint-disable-next-line no-console
         console.error('[@gentleduck/iam:client] listener threw - continuing to notify others', err)
       }
@@ -220,10 +217,7 @@ export class AccessClient<
  * we check if the resource appears at the expected position for each format.
  */
 function extractAction(key: string, resource: string): string | null {
-  // Honour the `\:` / `\\` escape sequences emitted by buildPermissionKey.
-  // Naive `.split(':')` mis-tokenises any resource / resourceId / scope
-  // containing a literal `:`, causing client.allowedActions(...) to under-
-  // or over-report.
+  // splitPermissionKey honours `\:` / `\\` escapes; naive split mis-tokenises.
   const parts = splitPermissionKey(key)
 
   switch (parts.length) {

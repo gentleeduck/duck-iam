@@ -107,11 +107,11 @@ export function createAccessControl<
 >(React: ReactLike) {
   const { createContext, useContext, useMemo, useCallback } = React
 
-  const AccessContext = createContext({
+  const AccessContext = createContext<ReactClient.IContextValue<TAction, TResource, TScope>>({
     permissions: {} as Client.PermissionMap<TAction, TResource, TScope>,
     can: () => false,
     cannot: () => true,
-  } as ReactClient.IContextValue<TAction, TResource, TScope>)
+  })
 
   /** Context provider component that supplies permission data to the tree. */
   function AccessProvider({
@@ -187,7 +187,7 @@ export function createAccessControl<
   ) {
     const [permissions, setPermissions] = React.useState({} as Client.PermissionMap<TAction, TResource, TScope>)
     const [loading, setLoading] = React.useState(true)
-    const [error, setError] = React.useState(null as Error | null)
+    const [error, setError] = React.useState<Error | null>(null)
 
     React.useEffect(() => {
       let cancelled = false

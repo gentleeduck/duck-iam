@@ -144,10 +144,7 @@ export function withAccess<
   handler: RouteHandler,
   opts: Next.IWithAccessOptions<TScope> = {},
 ): RouteHandler {
-  // `getUserId` MUST be supplied. Deriving identity from request headers
-  // (e.g. `x-user-id`) would let an unauthenticated client spoof any user.
-  // Operators must wire identity from a trusted source (cookie session,
-  // JWT, etc.).
+  // getUserId required; header-derived identity is spoofable.
   if (!opts.getUserId) {
     throw new Error(
       '[@gentleduck/iam:next] opts.getUserId is required - deriving identity from request headers is unsafe. ' +

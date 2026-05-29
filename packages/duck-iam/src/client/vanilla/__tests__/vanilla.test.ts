@@ -101,7 +101,7 @@ describe('AccessClient', () => {
     expect(actions).toHaveLength(2)
   })
 
-  it('allowedActions() honours escape sequences for resources containing : (SEC-104)', () => {
+  it('allowedActions() honours escape sequences for resources containing :', () => {
     // Resource 'doc:42' is keyed as 'read:doc\\:42'. Naive split-on-:
     // would mis-tokenise; splitPermissionKey unescapes correctly.
     const client = new AccessClient<Action, ResourceType, Scope>(

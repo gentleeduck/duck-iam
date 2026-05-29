@@ -256,7 +256,7 @@ describe('createEngineProvider', () => {
   })
 })
 
-describe('createAdminOperations onAdminMutation (SEC-010)', () => {
+describe('createAdminOperations onAdminMutation', () => {
   const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
 
   function makeAdminReq(method: string, path = '/admin/policies') {
@@ -265,7 +265,7 @@ describe('createAdminOperations onAdminMutation (SEC-010)', () => {
     >[0]
   }
 
-  it('csrfCheck rejecting throws 403 before authorize runs (SEC-103)', async () => {
+  it('csrfCheck rejecting throws 403 before authorize runs', async () => {
     const engine = makeEngine()
     let authorizeCalled = false
     let savedPolicy = false
@@ -386,7 +386,7 @@ describe('createAdminOperations onAdminMutation (SEC-010)', () => {
     errSpy.mockRestore()
   })
 
-  it('SEC-039: redactPath rewrites event.path before the hook is called', async () => {
+  it('redactPath rewrites event.path before the hook is called', async () => {
     const engine = makeEngine()
     const events: Array<{ path: string }> = []
     const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
@@ -407,7 +407,7 @@ describe('createAdminOperations onAdminMutation (SEC-010)', () => {
     expect(events[0]!.path).not.toMatch(/role-tenant-acme/)
   })
 
-  it('SEC-040: onAuditHookError receives thrown error and event', async () => {
+  it('onAuditHookError receives thrown error and event', async () => {
     const engine = makeEngine()
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const captured: Array<{ err: unknown; event: { action: string; target: string } }> = []
@@ -436,7 +436,7 @@ describe('createAdminOperations onAdminMutation (SEC-010)', () => {
     errSpy.mockRestore()
   })
 
-  it('SEC-041: event.error defaults to the error class name', async () => {
+  it('event.error defaults to the error class name', async () => {
     const engine = makeEngine()
     const events: Array<{ success: boolean; error?: string }> = []
     class PolicyValidationError extends Error {
@@ -464,7 +464,7 @@ describe('createAdminOperations onAdminMutation (SEC-010)', () => {
     expect(events[0]!.error).not.toMatch(/password/)
   })
 
-  it('SEC-041: includeErrorMessage:true restores err.message', async () => {
+  it('includeErrorMessage:true restores err.message', async () => {
     const engine = makeEngine()
     const events: Array<{ error?: string }> = []
     const original = engine.admin.savePolicy
