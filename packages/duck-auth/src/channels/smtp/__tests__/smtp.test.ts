@@ -1,0 +1,131 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
+import { describe, expect, it, vi } from 'vitest'
+import type { Identity } from '../../../core/types/identity'
+import { SmtpChannel, type SmtpTransporterLike } from '../index'
+
+function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
+  return {
+    id: 'ident-1',
+    profile: email ? { email } : undefined,
+    providers: [],
+    version: 1,
+    createdAt: 0,
+    updatedAt: 0,
+  }
+}
+
+function makeTransporter(impl?: SmtpTransporterLike['sendMail']): SmtpTransporterLike {
+  return {
+    sendMail: vi.fn(impl ?? (async () => ({ messageId: 'mid-1' }))),
+  }
+}
+
+describe('SmtpChannel', () => {
+  it('resolves the template + sends with the configured `from`', async () => {
+    const transporter = makeTransporter()
+    const channel = new SmtpChannel({
+      transporter,
+      from: 'noreply@app.test',
+      templates: () => ({ subject: 'Hi', html: '<p>Hi</p>' }),
+    })
+    const result = await channel.send({
+      identity: makeIdentity('user@x.com'),
+      templateId: 'magic-link',
+      vars: { url: 'https://app/click' },
+      tenant: {},
+    })
+    expect(result.ok).toBe(true)
+    expect(result.providerMessageId).toBe('mid-1')
+    expect(transporter.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'noreply@app.test',
+        to: 'user@x.com',
+        subject: 'Hi',
+        html: '<p>Hi</p>',
+      }),
+    )
+  })
+
+  it('refuses construction when from is empty', () => {
+    expect(
+      () =>
+        new SmtpChannel({
+          transporter: makeTransporter(),
+          from: '',
+          templates: () => ({ subject: 'x' }),
+        }),
+    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+  })
+
+  it('returns ok:false when the identity has no email', async () => {
+    const channel = new SmtpChannel({
+      transporter: makeTransporter(),
+      from: 'noreply@app.test',
+      templates: () => ({ subject: 'x' }),
+    })
+    const result = await channel.send({
+      identity: makeIdentity(undefined),
+      templateId: 'x',
+      vars: {},
+      tenant: {},
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/no email/)
+  })
+
+  it('returns ok:false when the template resolver throws', async () => {
+    const channel = new SmtpChannel({
+      transporter: makeTransporter(),
+      from: 'noreply@app.test',
+      templates: () => {
+        throw new Error('template-missing')
+      },
+    })
+    const result = await channel.send({
+      identity: makeIdentity('user@x.com'),
+      templateId: 'x',
+      vars: {},
+      tenant: {},
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('template-missing')
+  })
+
+  it('returns ok:false when the transporter throws', async () => {
+    const channel = new SmtpChannel({
+      transporter: makeTransporter(async () => {
+        throw new Error('smtp-timeout')
+      }),
+      from: 'noreply@app.test',
+      templates: () => ({ subject: 'x' }),
+    })
+    const result = await channel.send({
+      identity: makeIdentity('user@x.com'),
+      templateId: 'x',
+      vars: {},
+      tenant: {},
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('smtp-timeout')
+  })
+
+  it('passes through the resolved text body when html is absent', async () => {
+    const transporter = makeTransporter()
+    const channel = new SmtpChannel({
+      transporter,
+      from: 'noreply@app.test',
+      templates: () => ({ subject: 'x', text: 'plain text body' }),
+    })
+    await channel.send({
+      identity: makeIdentity('user@x.com'),
+      templateId: 'x',
+      vars: {},
+      tenant: {},
+    })
+    expect(transporter.sendMail).toHaveBeenCalledWith(expect.objectContaining({ text: 'plain text body' }))
+  })
+})

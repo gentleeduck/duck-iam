@@ -38,6 +38,11 @@ function reqHeaders(ctx: HonoContextLike): Headers {
   return ctx.req.raw.headers
 }
 
+/**
+ * `honoSignIn`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function honoSignIn(auth: AuthRoot): HonoHandler {
   return async (ctx) => {
     try {
@@ -59,6 +64,11 @@ export function honoSignIn(auth: AuthRoot): HonoHandler {
   }
 }
 
+/**
+ * `honoSignOut`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function honoSignOut(auth: AuthRoot): HonoHandler {
   return async (ctx) => {
     try {
@@ -72,6 +82,11 @@ export function honoSignOut(auth: AuthRoot): HonoHandler {
   }
 }
 
+/**
+ * `honoSession`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function honoSession(auth: AuthRoot): HonoHandler {
   return async (ctx) => {
     try {
@@ -89,6 +104,11 @@ export function honoSession(auth: AuthRoot): HonoHandler {
   }
 }
 
+/**
+ * `honoProviderBegin`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function honoProviderBegin(auth: AuthRoot): HonoHandler {
   return async (ctx) => {
     try {
@@ -116,4 +136,19 @@ function handleError(err: unknown): Response {
     status: 500,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   })
+}
+
+/**
+ * Namespace merge for HonoAdapter. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (HonoHandler) or the namespaced form
+ * (HonoAdapter.IHandler); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace HonoAdapter {
+  /** Alias for the flat `HonoHandler` type. */
+  export type IHandler = HonoHandler
+  /** Alias for the flat `HonoContextLike` type. */
+  export type IContext = HonoContextLike
 }

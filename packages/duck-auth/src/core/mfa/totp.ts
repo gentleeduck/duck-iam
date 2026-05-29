@@ -150,3 +150,16 @@ export function verifyTotp(
   }
   return matched
 }
+
+/**
+ * Namespace merge for Totp. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (TotpParams) or the namespaced form
+ * (Totp.IParams); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace Totp {
+  /** Alias for the flat `TotpParams` type. */
+  export type IParams = TotpParams
+}

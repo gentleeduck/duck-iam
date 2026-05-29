@@ -62,6 +62,11 @@ export interface AuthProviderProps extends AuthClientConfig {
   noInitialFetch?: boolean
 }
 
+/**
+ * `AuthProvider`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function AuthProvider(props: AuthProviderProps): ReturnType<typeof createElement> {
   const { children, client: externalClient, noInitialFetch, ...cfg } = props
   const client = useMemo(() => externalClient ?? createAuthClient(cfg), [externalClient, cfg.baseUrl])
@@ -114,6 +119,11 @@ export interface UseSessionResult<Profile = unknown> {
   refresh(): Promise<SessionResult<Profile>>
 }
 
+/**
+ * `useSession`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function useSession<Profile = unknown>(): UseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, status: ctx.status, refresh: ctx.refresh }
@@ -146,21 +156,58 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): MutationResult<I, O> {
   return { mutate, loading, error }
 }
 
+/**
+ * `useSignIn`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function useSignIn<Profile = unknown>(): MutationResult<SignInOptions, SignInResult<Profile>> {
   const { client } = useAuthCtx<Profile>()
   return useMutation((opts: SignInOptions) => client.signIn(opts))
 }
 
+/**
+ * `useSignOut`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function useSignOut(): MutationResult<void, { ok: true }> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
+/**
+ * `useBeginProvider`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function useBeginProvider(): MutationResult<{ id: string; input?: unknown }, { body: unknown }> {
   const { client } = useAuthCtx()
   return useMutation(({ id, input }) => client.beginProvider(id, input))
 }
 
+/**
+ * `useAuthClient`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function useAuthClient<Profile = unknown>(): AuthClient<Profile> {
   return useAuthCtx<Profile>().client
+}
+
+/**
+ * Namespace merge for ReactClient. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (AuthProviderProps) or the namespaced form
+ * (ReactClient.IProviderProps); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace ReactClient {
+  /** Alias for the flat `AuthProviderProps` type. */
+  export type IProviderProps = AuthProviderProps
+  /** Alias for the flat `UseSessionResult<Profile = unknown>` type. */
+  export type IUseSessionResult<Profile = unknown> = UseSessionResult<Profile>
+  /** Alias for the flat `MutationResult<I, O>` type. */
+  export type IMutationResult<I, O> = MutationResult<I, O>
 }

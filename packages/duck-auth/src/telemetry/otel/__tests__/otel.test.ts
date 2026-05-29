@@ -1,0 +1,138 @@
+/**
+ * @packageDocumentation
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { InMemoryEvents } from '../../../core/events'
+import { type OtelCounterLike, type OtelHistogramLike, OtelInstrumentation, type OtelMeterLike } from '../index'
+
+interface CapturedCounter {
+  name: string
+  counter: OtelCounterLike
+  adds: Array<{ value: number; attrs?: Record<string, string | number | boolean> }>
+}
+
+function makeMeter(): { meter: OtelMeterLike; counters: Map<string, CapturedCounter> } {
+  const counters = new Map<string, CapturedCounter>()
+  function makeCounter(name: string): OtelCounterLike {
+    const captured: CapturedCounter = {
+      name,
+      counter: {
+        add: vi.fn((value, attrs) => {
+          captured.adds.push({ value, attrs })
+        }),
+      },
+      adds: [],
+    }
+    counters.set(name, captured)
+    return captured.counter
+  }
+  const meter: OtelMeterLike = {
+    createCounter: (name) => makeCounter(name),
+    createUpDownCounter: (name) => makeCounter(name),
+    createHistogram: (name): OtelHistogramLike => ({
+      record: vi.fn(),
+    }),
+  }
+  return { meter, counters }
+}
+
+describe('OtelInstrumentation', () => {
+  let bus: InMemoryEvents
+  let meter: OtelMeterLike
+  let counters: Map<string, CapturedCounter>
+  let cleanup: () => void
+
+  beforeEach(() => {
+    bus = new InMemoryEvents()
+    ;({ meter, counters } = makeMeter())
+    const inst = new OtelInstrumentation({ meter, prefix: 'test' })
+    cleanup = inst.attach(bus)
+  })
+
+  it('declares the expected metric names with the configured prefix', () => {
+    const names = [...counters.keys()].sort()
+    expect(names).toEqual([
+      'test.identity.impersonated.total',
+      'test.lockout.total',
+      'test.mfa.enrolled.total',
+      'test.mfa.removed.total',
+      'test.session.active',
+      'test.session.rotated.total',
+      'test.signin.total',
+      'test.signup.total',
+      'test.suspicious.total',
+    ])
+  })
+
+  it('signin.success increments signin.total with provider + result attributes', async () => {
+    await bus.emit('signin.success', {
+      identity: { id: 'u1' } as never,
+      factors: [{ method: 'password', completedAt: 0 }],
+    })
+    const adds = counters.get('test.signin.total')!.adds
+    expect(adds).toHaveLength(1)
+    expect(adds[0]!.attrs).toMatchObject({ provider: 'password', result: 'success' })
+  })
+
+  it('signin.failed records reason attribute', async () => {
+    await bus.emit('signin.failed', { providerId: 'password', reason: 'invalid-credentials' })
+    const adds = counters.get('test.signin.total')!.adds
+    expect(adds[0]!.attrs).toMatchObject({
+      provider: 'password',
+      result: 'failed',
+      reason: 'invalid-credentials',
+    })
+  })
+
+  it('session.created + session.revoked move the up-down counter', async () => {
+    await bus.emit('session.created', { session: {} as never, identity: null })
+    await bus.emit('session.created', { session: {} as never, identity: null })
+    await bus.emit('session.revoked', { sessionId: 's1', identityId: 'u1' })
+    const adds = counters.get('test.session.active')!.adds
+    expect(adds.map((a) => a.value)).toEqual([1, 1, -1])
+  })
+
+  it('lockout fires lockout.total once per event', async () => {
+    await bus.emit('lockout', { identityId: 'u1', until: 0 })
+    await bus.emit('lockout', { identityId: 'u1', until: 0 })
+    expect(counters.get('test.lockout.total')!.adds).toHaveLength(2)
+  })
+
+  it('suspicious buckets severity by score', async () => {
+    await bus.emit('suspicious', { signal: 'impossible-travel', score: 0.1, meta: {} })
+    await bus.emit('suspicious', { signal: 'impossible-travel', score: 0.5, meta: {} })
+    await bus.emit('suspicious', { signal: 'impossible-travel', score: 0.9, meta: {} })
+    const adds = counters.get('test.suspicious.total')!.adds
+    expect(adds.map((a) => a.attrs?.severity)).toEqual(['low', 'medium', 'high'])
+  })
+
+  it('cleanup detaches every listener', async () => {
+    cleanup()
+    await bus.emit('signup.completed', { identity: { id: 'u1' } as never })
+    expect(counters.get('test.signup.total')!.adds).toHaveLength(0)
+  })
+
+  it('default attributes appended to every record', async () => {
+    bus = new InMemoryEvents()
+    ;({ meter, counters } = makeMeter())
+    const inst = new OtelInstrumentation({
+      meter,
+      prefix: 'test',
+      defaultAttributes: { 'service.name': 'auth', env: 'prod' },
+    })
+    inst.attach(bus)
+    await bus.emit('signup.completed', { identity: { id: 'u1' } as never })
+    expect(counters.get('test.signup.total')!.adds[0]!.attrs).toMatchObject({
+      'service.name': 'auth',
+      env: 'prod',
+    })
+  })
+
+  it('refuses construction without a meter', () => {
+    expect(() => new OtelInstrumentation({ meter: null as unknown as OtelMeterLike })).toThrowError(
+      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
+    )
+  })
+})

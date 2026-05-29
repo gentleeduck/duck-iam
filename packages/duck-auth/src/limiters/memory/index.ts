@@ -46,3 +46,14 @@ export class MemoryLimiter implements Limiter.ILimiter {
     this._buckets.delete(key)
   }
 }
+
+/**
+ * Namespace merge for `MemoryLimiter`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace MemoryLimiter {
+  /** Alias for the flat `MemoryLimiterConfig` type. */
+  export type IConfig = MemoryLimiterConfig
+}

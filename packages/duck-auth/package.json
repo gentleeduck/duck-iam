@@ -62,6 +62,86 @@
         "default": "./dist/adapters/memory/index.cjs"
       }
     },
+    "./adapters/redis": {
+      "import": {
+        "types": "./dist/adapters/redis/index.d.ts",
+        "default": "./dist/adapters/redis/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/redis/index.d.cts",
+        "default": "./dist/adapters/redis/index.cjs"
+      }
+    },
+    "./adapters/sql": {
+      "import": {
+        "types": "./dist/adapters/sql/index.d.ts",
+        "default": "./dist/adapters/sql/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/sql/index.d.cts",
+        "default": "./dist/adapters/sql/index.cjs"
+      }
+    },
+    "./channels/console": {
+      "import": {
+        "types": "./dist/channels/console/index.d.ts",
+        "default": "./dist/channels/console/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/console/index.d.cts",
+        "default": "./dist/channels/console/index.cjs"
+      }
+    },
+    "./channels/smtp": {
+      "import": {
+        "types": "./dist/channels/smtp/index.d.ts",
+        "default": "./dist/channels/smtp/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/smtp/index.d.cts",
+        "default": "./dist/channels/smtp/index.cjs"
+      }
+    },
+    "./channels/resend": {
+      "import": {
+        "types": "./dist/channels/resend/index.d.ts",
+        "default": "./dist/channels/resend/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/resend/index.d.cts",
+        "default": "./dist/channels/resend/index.cjs"
+      }
+    },
+    "./channels/twilio": {
+      "import": {
+        "types": "./dist/channels/twilio/index.d.ts",
+        "default": "./dist/channels/twilio/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/twilio/index.d.cts",
+        "default": "./dist/channels/twilio/index.cjs"
+      }
+    },
+    "./channels/webpush": {
+      "import": {
+        "types": "./dist/channels/webpush/index.d.ts",
+        "default": "./dist/channels/webpush/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/webpush/index.d.cts",
+        "default": "./dist/channels/webpush/index.cjs"
+      }
+    },
+    "./channels/ses": {
+      "import": {
+        "types": "./dist/channels/ses/index.d.ts",
+        "default": "./dist/channels/ses/index.js"
+      },
+      "require": {
+        "types": "./dist/channels/ses/index.d.cts",
+        "default": "./dist/channels/ses/index.cjs"
+      }
+    },
     "./limiters/memory": {
       "import": {
         "types": "./dist/limiters/memory/index.d.ts",
@@ -112,6 +192,76 @@
         "default": "./dist/providers/oauth/github/index.cjs"
       }
     },
+    "./providers/oauth/linkedin": {
+      "import": {
+        "types": "./dist/providers/oauth/linkedin/index.d.ts",
+        "default": "./dist/providers/oauth/linkedin/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/linkedin/index.d.cts",
+        "default": "./dist/providers/oauth/linkedin/index.cjs"
+      }
+    },
+    "./providers/oauth/microsoft": {
+      "import": {
+        "types": "./dist/providers/oauth/microsoft/index.d.ts",
+        "default": "./dist/providers/oauth/microsoft/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/microsoft/index.d.cts",
+        "default": "./dist/providers/oauth/microsoft/index.cjs"
+      }
+    },
+    "./providers/oauth/discord": {
+      "import": {
+        "types": "./dist/providers/oauth/discord/index.d.ts",
+        "default": "./dist/providers/oauth/discord/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/discord/index.d.cts",
+        "default": "./dist/providers/oauth/discord/index.cjs"
+      }
+    },
+    "./providers/oauth/apple": {
+      "import": {
+        "types": "./dist/providers/oauth/apple/index.d.ts",
+        "default": "./dist/providers/oauth/apple/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/oauth/apple/index.d.cts",
+        "default": "./dist/providers/oauth/apple/index.cjs"
+      }
+    },
+    "./providers/passkey": {
+      "import": {
+        "types": "./dist/providers/passkey/index.d.ts",
+        "default": "./dist/providers/passkey/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/passkey/index.d.cts",
+        "default": "./dist/providers/passkey/index.cjs"
+      }
+    },
+    "./providers/api-key": {
+      "import": {
+        "types": "./dist/providers/api-key/index.d.ts",
+        "default": "./dist/providers/api-key/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/api-key/index.d.cts",
+        "default": "./dist/providers/api-key/index.cjs"
+      }
+    },
+    "./providers/saml": {
+      "import": {
+        "types": "./dist/providers/saml/index.d.ts",
+        "default": "./dist/providers/saml/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/saml/index.d.cts",
+        "default": "./dist/providers/saml/index.cjs"
+      }
+    },
     "./server/generic": {
       "import": {
         "types": "./dist/server/generic/index.d.ts",
@@ -152,6 +302,56 @@
         "default": "./dist/server/next/index.cjs"
       }
     },
+    "./server/fastify": {
+      "import": {
+        "types": "./dist/server/fastify/index.d.ts",
+        "default": "./dist/server/fastify/index.js"
+      },
+      "require": {
+        "types": "./dist/server/fastify/index.d.cts",
+        "default": "./dist/server/fastify/index.cjs"
+      }
+    },
+    "./server/koa": {
+      "import": {
+        "types": "./dist/server/koa/index.d.ts",
+        "default": "./dist/server/koa/index.js"
+      },
+      "require": {
+        "types": "./dist/server/koa/index.d.cts",
+        "default": "./dist/server/koa/index.cjs"
+      }
+    },
+    "./server/elysia": {
+      "import": {
+        "types": "./dist/server/elysia/index.d.ts",
+        "default": "./dist/server/elysia/index.js"
+      },
+      "require": {
+        "types": "./dist/server/elysia/index.d.cts",
+        "default": "./dist/server/elysia/index.cjs"
+      }
+    },
+    "./server/nestjs": {
+      "import": {
+        "types": "./dist/server/nestjs/index.d.ts",
+        "default": "./dist/server/nestjs/index.js"
+      },
+      "require": {
+        "types": "./dist/server/nestjs/index.d.cts",
+        "default": "./dist/server/nestjs/index.cjs"
+      }
+    },
+    "./server/grpc": {
+      "import": {
+        "types": "./dist/server/grpc/index.d.ts",
+        "default": "./dist/server/grpc/index.js"
+      },
+      "require": {
+        "types": "./dist/server/grpc/index.d.cts",
+        "default": "./dist/server/grpc/index.cjs"
+      }
+    },
     "./client/vanilla": {
       "import": {
         "types": "./dist/client/vanilla/index.d.ts",
@@ -171,14 +371,66 @@
         "types": "./dist/client/react/index.d.cts",
         "default": "./dist/client/react/index.cjs"
       }
+    },
+    "./cli": {
+      "import": {
+        "types": "./dist/cli/index.d.ts",
+        "default": "./dist/cli/index.js"
+      },
+      "require": {
+        "types": "./dist/cli/index.d.cts",
+        "default": "./dist/cli/index.cjs"
+      }
+    },
+    "./openapi": {
+      "import": {
+        "types": "./dist/openapi/index.d.ts",
+        "default": "./dist/openapi/index.js"
+      },
+      "require": {
+        "types": "./dist/openapi/index.d.cts",
+        "default": "./dist/openapi/index.cjs"
+      }
+    },
+    "./oidc": {
+      "import": {
+        "types": "./dist/oidc/index.d.ts",
+        "default": "./dist/oidc/index.js"
+      },
+      "require": {
+        "types": "./dist/oidc/index.d.cts",
+        "default": "./dist/oidc/index.cjs"
+      }
+    },
+    "./i18n": {
+      "import": {
+        "types": "./dist/i18n/index.d.ts",
+        "default": "./dist/i18n/index.js"
+      },
+      "require": {
+        "types": "./dist/i18n/index.d.cts",
+        "default": "./dist/i18n/index.cjs"
+      }
+    },
+    "./telemetry/otel": {
+      "import": {
+        "types": "./dist/telemetry/otel/index.d.ts",
+        "default": "./dist/telemetry/otel/index.js"
+      },
+      "require": {
+        "types": "./dist/telemetry/otel/index.d.cts",
+        "default": "./dist/telemetry/otel/index.cjs"
+      }
     }
+  },
+  "bin": {
+    "duck-auth": "./dist/cli/index.js"
   },
   "files": [
     "dist",
     "src",
     "README.md",
-    "LICENSE",
-    "DESIGN.md"
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsdown",
@@ -192,10 +444,18 @@
   },
   "peerDependencies": {
     "@gentleduck/iam": "workspace:*",
+    "@node-rs/argon2": ">=2 <3",
+    "@simplewebauthn/server": ">=10 <14",
     "react": "^18 || ^19"
   },
   "peerDependenciesMeta": {
     "@gentleduck/iam": {
+      "optional": true
+    },
+    "@node-rs/argon2": {
+      "optional": true
+    },
+    "@simplewebauthn/server": {
       "optional": true
     },
     "react": {

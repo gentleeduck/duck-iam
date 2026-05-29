@@ -210,3 +210,20 @@ function providerIdFromUrl(url: string, suffix: string): string | null {
   if (parts[parts.length - 1] !== suffix) return null
   return parts[parts.length - 2] ?? null
 }
+
+/**
+ * Namespace merge for ExpressAdapter. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (ExpressLikeRequest) or the namespaced form
+ * (ExpressAdapter.IRequest); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace ExpressAdapter {
+  /** Alias for the flat `ExpressLikeRequest` type. */
+  export type IRequest = ExpressLikeRequest
+  /** Alias for the flat `ExpressLikeResponse` type. */
+  export type IResponse = ExpressLikeResponse
+  /** Alias for the flat `Handler` type. */
+  export type IHandler = Handler
+}

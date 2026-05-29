@@ -39,4 +39,16 @@ export class InMemoryEvents implements Events.IBus {
       }
     }
   }
+
+  /**
+   * Introspection helper. Returns the number of handlers attached to an
+   * event. Used by `AuthRoot.strict()` to assert that operators have
+   * wired the required event listeners (e.g. `lockout`) without reaching
+   * into private state.
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  listenerCount<K extends Events.EventName>(event: K): number {
+    return this._handlers.get(event)?.size ?? 0
+  }
 }

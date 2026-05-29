@@ -24,6 +24,14 @@ export interface OAuthEndpoints {
 export interface OAuthClientOptions {
   clientId: string
   clientSecret?: string
+  /**
+   * Per-request client_secret generator. When provided, called on
+   * every exchangeCode / refresh call and the return value used as
+   * `client_secret` in the form body. Designed for Sign in with Apple
+   * (the secret is a fresh-per-call ES256 JWT) and similar non-static
+   * secret providers. Takes precedence over `clientSecret` when set.
+   */
+  dynamicClientSecret?: () => string | Promise<string>
   /** Endpoints; can be promised when discovering at boot. */
   endpoints: OAuthEndpoints | (() => Promise<OAuthEndpoints>)
   /** OAuth2 scopes the provider should request. */
@@ -45,6 +53,21 @@ export class OAuthClient {
   private _endpoints: OAuthEndpoints | null = null
 
   constructor(private readonly _opts: OAuthClientOptions) {}
+
+  /**
+   * Resolve the per-call client_secret. Dynamic generator wins when
+   * supplied (Sign in with Apple); otherwise the static value is used.
+   * Returns undefined when neither is configured (PKCE public clients).
+   *
+   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   */
+  private async _resolveSecret(): Promise<string | undefined> {
+    if (this._opts.dynamicClientSecret) {
+      const value = await this._opts.dynamicClientSecret()
+      return value || undefined
+    }
+    return this._opts.clientSecret || undefined
+  }
 
   private async _resolveEndpoints(): Promise<OAuthEndpoints> {
     if (this._endpoints) return this._endpoints
@@ -80,13 +103,14 @@ export class OAuthClient {
   async exchangeCode(opts: { code: string; redirectUri: string; codeVerifier: string }): Promise<TokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
+    const secret = await this._resolveSecret()
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
       code: opts.code,
       redirect_uri: opts.redirectUri,
       client_id: this._opts.clientId,
       code_verifier: opts.codeVerifier,
-      ...(this._opts.clientSecret !== undefined && { client_secret: this._opts.clientSecret }),
+      ...(secret !== undefined && { client_secret: secret }),
     })
     const res = await fetchImpl(e.tokenEndpoint, {
       method: 'POST',
@@ -107,11 +131,12 @@ export class OAuthClient {
   async refresh(refreshToken: string): Promise<TokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
+    const secret = await this._resolveSecret()
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       client_id: this._opts.clientId,
-      ...(this._opts.clientSecret !== undefined && { client_secret: this._opts.clientSecret }),
+      ...(secret !== undefined && { client_secret: secret }),
     })
     const res = await fetchImpl(e.tokenEndpoint, {
       method: 'POST',
@@ -148,4 +173,19 @@ export class OAuthClient {
     }
     return (await res.json()) as Record<string, unknown>
   }
+}
+
+/**
+ * Namespace merge for `OAuthClient`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace OAuthClient {
+  /** Alias for the flat `OAuthEndpoints` type. */
+  export type IOAuthEndpoints = OAuthEndpoints
+  /** Alias for the flat `OAuthClientOptions` type. */
+  export type IOptions = OAuthClientOptions
+  /** Alias for the flat `TokenResponse` type. */
+  export type ITokenResponse = TokenResponse
 }

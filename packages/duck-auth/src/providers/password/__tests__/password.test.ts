@@ -56,9 +56,9 @@ describe('password provider - end-to-end sign-in', () => {
       input: { email: 'alice@x.com', password: 'correct-horse-battery' },
     })
 
-    expect(result.session.identityId).toBe(identity.id)
-    expect(result.session.factors).toHaveLength(1)
-    expect(result.session.factors[0]?.method).toBe('password')
+    expect(result.session!.identityId).toBe(identity.id)
+    expect(result.session!.factors).toHaveLength(1)
+    expect(result.session!.factors[0]?.method).toBe('password')
     expect(signinHandler).toHaveBeenCalledOnce()
 
     // Cookie intent carries the PLAINTEXT sid, not the row hash.
@@ -150,7 +150,7 @@ describe('password provider - end-to-end sign-in', () => {
     })
     const headers = new Headers({ cookie: `duck-sid=${signin.sid}` })
     const resolved = await auth.resolveSession({ headers })
-    expect(resolved?.session.id).toBe(signin.session.id)
+    expect(resolved?.session.id).toBe(signin.session!.id)
     expect(resolved?.identity?.profile?.email).toBe('a@x.com')
   })
 })

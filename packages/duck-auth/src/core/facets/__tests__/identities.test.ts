@@ -208,5 +208,46 @@ describe('IdentitiesFacet', () => {
         code: 'AUTH/UNAUTHENTICATED',
       })
     })
+
+    it('emits schemaVersion=1 + empty sessions array when sessions store omitted', async () => {
+      const i = await facet.create({ profile: { email: 'a@x.com' } })
+      const blob = await facet.exportAll(i.id, adapter.credentials)
+      expect(blob.schemaVersion).toBe('1')
+      expect(blob.sessions).toEqual([])
+    })
+
+    it('includes sessions when sessions store supplied; strips csrfHash', async () => {
+      const i = await facet.create({ profile: { email: 'a@x.com' } })
+      const now = Date.now()
+      await adapter.sessions.create({
+        id: 'sid-hash-1',
+        identityId: i.id,
+        kind: 'user',
+        aal: 2,
+        factors: [{ method: 'password', completedAt: now }],
+        csrfHash: 'redact-me',
+        createdAt: now,
+        rotatedAt: now,
+        expiresAt: now + 60_000,
+        absoluteExpiresAt: now + 60_000,
+        fresh: true,
+      })
+      const blob = await facet.exportAll(i.id, adapter.credentials, {}, { sessions: adapter.sessions })
+      expect(blob.sessions).toHaveLength(1)
+      expect(blob.sessions[0]).not.toHaveProperty('csrfHash')
+      expect(blob.sessions[0]!.identityId).toBe(i.id)
+    })
+
+    it('exportToJson produces deterministic JSON across runs (sorted keys)', async () => {
+      const i = await facet.create({ profile: { email: 'a@x.com' } })
+      const blob1 = await facet.exportAll(i.id, adapter.credentials)
+      const blob2 = await facet.exportAll(i.id, adapter.credentials)
+      // exportedAt differs each run; assert the rest of the structure
+      // round-trips through canonical JSON the same way.
+      const j1 = IdentitiesFacet.exportToJson({ ...blob1, exportedAt: 0 })
+      const j2 = IdentitiesFacet.exportToJson({ ...blob2, exportedAt: 0 })
+      expect(j1).toBe(j2)
+      expect(j1.split('\n')[0]).toBe('{')
+    })
   })
 })

@@ -64,6 +64,11 @@ export interface AuthClient<Profile = unknown> {
   refresh(): Promise<SessionResult<Profile>>
 }
 
+/**
+ * `createAuthClient`.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
 export function createAuthClient<Profile = unknown>(cfg: AuthClientConfig = {}): AuthClient<Profile> {
   const baseUrl = (cfg.baseUrl ?? '/auth').replace(/\/$/, '')
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)
@@ -143,4 +148,25 @@ export function createAuthClient<Profile = unknown>(cfg: AuthClientConfig = {}):
       return this.getSession()
     },
   }
+}
+
+/**
+ * Namespace merge for VanillaClient. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (AuthClientConfig) or the namespaced form
+ * (VanillaClient.IConfig); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace VanillaClient {
+  /** Alias for the flat `AuthClientConfig` type. */
+  export type IConfig = AuthClientConfig
+  /** Alias for the flat `SignInOptions` type. */
+  export type ISignInOptions = SignInOptions
+  /** Alias for the flat `SignInResult<Profile = unknown>` type. */
+  export type ISignInResult<Profile = unknown> = SignInResult<Profile>
+  /** Alias for the flat `SessionResult<Profile = unknown>` type. */
+  export type ISessionResult<Profile = unknown> = SessionResult<Profile>
+  /** Alias for the flat `AuthClient<Profile = unknown>` type. */
+  export type IClient<Profile = unknown> = AuthClient<Profile>
 }

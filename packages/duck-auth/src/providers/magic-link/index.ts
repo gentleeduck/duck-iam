@@ -158,3 +158,20 @@ export function magicLink<Profile = unknown>(
     },
   }
 }
+
+/**
+ * Namespace merge for MagicLinkProvider. Co-locates the config + input +
+ * output shapes via TS namespace declaration. Consumers can write either
+ * the flat name (MagicLinkProviderOptions) or the namespaced form
+ * (MagicLinkProvider.IOptions); both resolve to the same type.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace MagicLinkProvider {
+  /** Alias for the flat `MagicLinkProviderOptions<Profile = unknown>` type. */
+  export type IOptions<Profile = unknown> = MagicLinkProviderOptions<Profile>
+  /** Alias for the flat `MagicLinkBeginInput` type. */
+  export type IBeginInput = MagicLinkBeginInput
+  /** Alias for the flat `MagicLinkCompleteInput` type. */
+  export type ICompleteInput = MagicLinkCompleteInput
+}

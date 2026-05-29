@@ -126,3 +126,14 @@ export class ScryptHasher implements Hasher.IHasher {
     )
   }
 }
+
+/**
+ * Namespace merge for `ScryptHasher`. Co-locates the flat type exports
+ * alongside the primary symbol via TS class+namespace merging.
+ *
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ */
+export namespace ScryptHasher {
+  /** Alias for the flat `ScryptParams` type. */
+  export type IScryptParams = ScryptParams
+}
