@@ -3,8 +3,8 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
-import { Badge } from '@gentleduck/registry-ui/badge'
 import { useSession } from '@gentleduck/auth/client/react'
+import { Badge } from '@gentleduck/registry-ui/badge'
 
 /**
  * `<SessionBadge />` — small status pill reflecting the current

@@ -88,7 +88,7 @@ export const sessionsTable = pgTable(
 // Bridge factory
 // ---------------------------------------------------------------------
 
-export function createDrizzlePgAuthBridge<const TSchema extends Record<string, any>>(
+export function createDrizzlePgAuthBridge<const TSchema extends Record<string, unknown>>(
   db: NodePgDatabase<TSchema>,
 ): SqlBridge.IBridge {
   /** Helper: scope a where clause by tenantId; null tenant matches the row's NULL. */

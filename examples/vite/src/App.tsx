@@ -11,8 +11,11 @@ function App() {
     <>
       <section id="center">
         <div className="hero">
+          {/* biome-ignore lint/performance/noImgElement: vite app, not next - <img> is correct */}
           <img src={heroImg} className="base" width="170" height="179" alt="" />
+          {/* biome-ignore lint/performance/noImgElement: vite app, not next - <img> is correct */}
           <img src={reactLogo} className="framework" alt="React logo" />
+          {/* biome-ignore lint/performance/noImgElement: vite app, not next - <img> is correct */}
           <img src={viteLogo} className="vite" alt="Vite logo" />
         </div>
         <div>
@@ -38,12 +41,14 @@ function App() {
           <ul>
             <li>
               <a href="https://vite.dev/" target="_blank" rel="noopener">
+                {/* biome-ignore lint/performance/noImgElement: vite app, not next - <img> is correct */}
                 <img className="logo" src={viteLogo} alt="" />
                 Explore Vite
               </a>
             </li>
             <li>
               <a href="https://react.dev/" target="_blank" rel="noopener">
+                {/* biome-ignore lint/performance/noImgElement: vite app, not next - <img> is correct */}
                 <img className="button-icon" src={reactLogo} alt="" />
                 Learn more
               </a>

@@ -3,9 +3,9 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
+import { useBeginProvider } from '@gentleduck/auth/client/react'
 import { cn } from '@gentleduck/libs/cn'
 import { Button } from '@gentleduck/registry-ui/button'
-import { useBeginProvider } from '@gentleduck/auth/client/react'
 
 /**
  * `<ProvidersList />` — vertical stack of OAuth/SSO provider Buttons,
