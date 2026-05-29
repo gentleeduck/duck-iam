@@ -1,0 +1,13 @@
+{
+  "name": "@gentleduck/example-oidc-op",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run server.ts",
+    "client": "bun run client.ts"
+  },
+  "dependencies": {
+    "@gentleduck/auth": "workspace:*"
+  }
+}

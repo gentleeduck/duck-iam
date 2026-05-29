@@ -24,6 +24,22 @@ describe('buildOidcDiscovery', () => {
     expect(d.subject_types_supported).toEqual(['public'])
   })
 
+  it('exposes introspection + revocation endpoints out of the box', () => {
+    const d = buildOidcDiscovery({ issuer: 'https://app.test' })
+    expect(d.introspection_endpoint).toBe('https://app.test/auth/oauth/introspect')
+    expect(d.revocation_endpoint).toBe('https://app.test/auth/oauth/revoke')
+  })
+
+  it('only emits registration_endpoint when explicitly opted-in', () => {
+    const off = buildOidcDiscovery({ issuer: 'https://app.test' })
+    expect(off.registration_endpoint).toBeUndefined()
+    const on = buildOidcDiscovery({
+      issuer: 'https://app.test',
+      registrationEndpoint: 'https://app.test/auth/oauth/register',
+    })
+    expect(on.registration_endpoint).toBe('https://app.test/auth/oauth/register')
+  })
+
   it('strips trailing slash from issuer', () => {
     const d = buildOidcDiscovery({ issuer: 'https://app.test/' })
     expect(d.issuer).toBe('https://app.test')

@@ -1,5 +1,5 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
-import { validatePolicy, validateRole } from '../../core/validate'
+import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 
 /**
  * Redis adapter integration types. Type-only namespace - zero bundle cost.
@@ -124,15 +124,15 @@ export class RedisAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
       return null
     }
-    const result = validatePolicy(parsed)
-    if (!result.valid) {
-      this._reportPolicyError(
-        new Error(`Invalid policy "${rowId}": ${result.issues.map((i) => i.message).join('; ')}`),
-        rowId,
-      )
+    const policy = parsePolicyRow<TAction, TResource, TRole>(parsed)
+    if (policy === null) {
+      const issues = validatePolicy(parsed)
+        .issues.map((i) => i.message)
+        .join('; ')
+      this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
       return null
     }
-    return parsed as AccessControl.IPolicy<TAction, TResource, TRole>
+    return policy
   }
 
   private _safeParseRole(raw: string, rowId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
@@ -143,15 +143,15 @@ export class RedisAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
       return null
     }
-    const result = validateRole(parsed)
-    if (!result.valid) {
-      this._reportPolicyError(
-        new Error(`Invalid role "${rowId}": ${result.issues.map((i) => i.message).join('; ')}`),
-        rowId,
-      )
+    const role = parseRoleRow<TAction, TResource, TRole, TScope>(parsed)
+    if (role === null) {
+      const issues = validateRole(parsed)
+        .issues.map((i) => i.message)
+        .join('; ')
+      this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
       return null
     }
-    return parsed as AccessControl.IRole<TAction, TResource, TRole, TScope>
+    return role
   }
 
   private _reportPolicyError(err: Error, rowId: string): void {

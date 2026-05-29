@@ -1,5 +1,6 @@
 import { AuthRoot } from './auth'
 import { ScryptHasher } from './password/scrypt'
+import type { PluginRegistry } from './plugin'
 import { CookieTransport } from './transport/cookie'
 import type { Channel } from './types/channel'
 import type { Credential } from './types/credential'
@@ -152,8 +153,12 @@ export namespace DefineAuth {
       ) => Provider.IProvider<unknown, unknown, Profile> | false | null | undefined | '')
 
   /** A skipped-or-included plugin entry - same rules as providers. */
-  // biome-ignore lint/suspicious/noExplicitAny: plugin shape is intentionally loose; PluginRegistry.install checks it.
-  export type IPluginEntry = any | false | null | undefined | ''
+  export type IPluginEntry<Profile = unknown, Tenant = string, OrgMeta = unknown> =
+    | PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>
+    | false
+    | null
+    | undefined
+    | ''
 
   /** Storage triple returned by `memoryStorage()` / `drizzlePgStorage()` / etc. */
   export interface IStorage<Profile = unknown, OrgMeta = unknown> {
@@ -188,7 +193,7 @@ export namespace DefineAuth {
     /** Provider array - falsy entries are silently skipped. */
     providers?: IProviderEntry<Profile>[]
     /** Plugins applied via `auth.plugins.use(p)`. Falsy entries skipped. */
-    plugins?: IPluginEntry[]
+    plugins?: IPluginEntry<Profile, _Tenant, OrgMeta>[]
     /** Custom event bus (defaults to `InMemoryEvents` inside `AuthRoot`). */
     events?: Events.IBus
     /** Session-config knobs passed straight to `AuthRoot.IConfig.session`. */

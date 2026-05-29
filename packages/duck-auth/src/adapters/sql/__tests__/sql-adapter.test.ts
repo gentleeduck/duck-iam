@@ -98,9 +98,13 @@ function makeInMemoryBridge(): SqlBridge.IBridge {
         }
         return null
       },
-      findByHashedSecret: async (secretHash, kind) => {
+      findByHashedSecret: async (secretHash, kind, tenantId) => {
         for (const r of credentials.values()) {
-          if (r.kind === kind && r.secret === secretHash) return r
+          if (r.kind !== kind || r.secret !== secretHash) continue
+          // Match SQL bridge contract: undefined tid = global; set tid
+          // requires exact match OR row.tenantId === null (global rows).
+          if (tenantId !== undefined && r.tenantId !== tenantId && r.tenantId !== null) continue
+          return r
         }
         return null
       },

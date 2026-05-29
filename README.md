@@ -48,7 +48,7 @@ const allowed = await engine.can(session.session!.identityId, 'update', { type: 
 | Path | Package | Role |
 | --- | --- | --- |
 | [`packages/duck-auth`](packages/duck-auth) | [`@gentleduck/auth`](https://www.npmjs.com/package/@gentleduck/auth) | **AuthN** - sessions, passwords, magic-link, passkeys, OAuth, SAML, MFA, JWT, webhooks |
-| [`packages/duck-iam`](packages/duck-iam) | [`@gentleduck/iam`](https://www.npmjs.com/package/@gentleduck/iam) | **AuthZ** - RBAC + ABAC + ReBAC policy engine with explain trace + devtools |
+| [`packages/duck-iam`](packages/duck-iam) | [`@gentleduck/iam`](https://www.npmjs.com/package/@gentleduck/iam) | **AuthZ** - RBAC + ABAC policy engine with scoped roles, explain trace, and devtools |
 
 Both packages have their own subpath export tree (providers, transports, adapters, server middleware, clients, channels, tooling). See each package's README for the full list.
 

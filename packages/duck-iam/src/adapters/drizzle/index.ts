@@ -1,5 +1,5 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
-import { validatePolicy, validateRole } from '../../core/validate'
+import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 
 /**
  * Row shapes returned by Drizzle queries.
@@ -195,15 +195,15 @@ export class DrizzleAdapter<
       rules: parsedRules,
       targets: parsedTargets,
     }
-    const result = validatePolicy(candidate)
-    if (!result.valid) {
-      this._reportPolicyError(
-        new Error(`Invalid policy "${row.id}": ${result.issues.map((i) => i.message).join('; ')}`),
-        row.id,
-      )
+    const policy = parsePolicyRow<TAction, TResource, TRole>(candidate)
+    if (policy === null) {
+      const issues = validatePolicy(candidate)
+        .issues.map((i) => i.message)
+        .join('; ')
+      this._reportPolicyError(new Error(`Invalid policy "${row.id}": ${issues}`), row.id)
       return null
     }
-    return candidate as AccessControl.IPolicy<TAction, TResource, TRole>
+    return policy
   }
 
   private _safeParseRole(row: RoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
@@ -235,15 +235,15 @@ export class DrizzleAdapter<
       scope: row.scope ?? undefined,
       metadata,
     }
-    const result = validateRole(candidate)
-    if (!result.valid) {
-      this._reportPolicyError(
-        new Error(`Invalid role "${row.id}": ${result.issues.map((i) => i.message).join('; ')}`),
-        row.id,
-      )
+    const role = parseRoleRow<TAction, TResource, TRole, TScope>(candidate)
+    if (role === null) {
+      const issues = validateRole(candidate)
+        .issues.map((i) => i.message)
+        .join('; ')
+      this._reportPolicyError(new Error(`Invalid role "${row.id}": ${issues}`), row.id)
       return null
     }
-    return candidate as AccessControl.IRole<TAction, TResource, TRole, TScope>
+    return role
   }
 
   /**

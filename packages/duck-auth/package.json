@@ -482,6 +482,46 @@
         "default": "./dist/oidc/index.cjs"
       }
     },
+    "./oidc/op": {
+      "import": {
+        "types": "./dist/oidc/op/index.d.ts",
+        "default": "./dist/oidc/op/index.js"
+      },
+      "require": {
+        "types": "./dist/oidc/op/index.d.cts",
+        "default": "./dist/oidc/op/index.cjs"
+      }
+    },
+    "./oidc/op/drizzle/pg": {
+      "import": {
+        "types": "./dist/oidc/op/drizzle/pg.d.ts",
+        "default": "./dist/oidc/op/drizzle/pg.js"
+      },
+      "require": {
+        "types": "./dist/oidc/op/drizzle/pg.d.cts",
+        "default": "./dist/oidc/op/drizzle/pg.cjs"
+      }
+    },
+    "./oidc/op/drizzle/sqlite": {
+      "import": {
+        "types": "./dist/oidc/op/drizzle/sqlite.d.ts",
+        "default": "./dist/oidc/op/drizzle/sqlite.js"
+      },
+      "require": {
+        "types": "./dist/oidc/op/drizzle/sqlite.d.cts",
+        "default": "./dist/oidc/op/drizzle/sqlite.cjs"
+      }
+    },
+    "./oidc/op/drizzle/mysql": {
+      "import": {
+        "types": "./dist/oidc/op/drizzle/mysql.d.ts",
+        "default": "./dist/oidc/op/drizzle/mysql.js"
+      },
+      "require": {
+        "types": "./dist/oidc/op/drizzle/mysql.d.cts",
+        "default": "./dist/oidc/op/drizzle/mysql.cjs"
+      }
+    },
     "./i18n": {
       "import": {
         "types": "./dist/i18n/index.d.ts",

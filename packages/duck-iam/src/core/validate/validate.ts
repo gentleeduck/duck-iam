@@ -2,6 +2,10 @@ import { MAX_INHERITANCE_DEPTH } from '../rbac'
 import type { AccessControl } from '../types'
 import { POLICY_LIMITS, VALID_ALGORITHMS, validateRuleShape } from './validate.libs'
 import type { Validate } from './validate.types'
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
 /**
  * Validate role definitions for common configuration mistakes.
  *
@@ -164,12 +168,12 @@ function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessCon
 export function validatePolicy(input: unknown): Validate.IResult {
   const issues: Validate.IIssue[] = []
 
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+  if (!isPlainObject(input)) {
     issues.push({ type: 'error', code: 'INVALID_TYPE', message: 'Policy must be a non-null object', path: '' })
     return { valid: false, issues }
   }
 
-  const p = input as Record<string, unknown>
+  const p = input
 
   if (typeof p.id !== 'string' || !p.id) {
     issues.push({
@@ -282,12 +286,12 @@ export function validatePolicy(input: unknown): Validate.IResult {
 export function validateRole(input: unknown): Validate.IResult {
   const issues: Validate.IIssue[] = []
 
-  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+  if (!isPlainObject(input)) {
     issues.push({ type: 'error', code: 'INVALID_TYPE', message: 'Role must be a non-null object', path: '' })
     return { valid: false, issues }
   }
 
-  const r = input as Record<string, unknown>
+  const r = input
 
   if (typeof r.id !== 'string' || !r.id) {
     issues.push({
@@ -330,4 +334,37 @@ export function validateRole(input: unknown): Validate.IResult {
   }
 
   return { valid: issues.every((i) => i.type !== 'error'), issues }
+}
+
+/**
+ * Parse a single policy row. Returns the typed row when validation
+ * passes, null otherwise. Use from adapters (file/redis/drizzle/prisma)
+ * so the boundary between `unknown` (from JSON / SQL) and the typed
+ * domain crosses through a single function instead of a scatter of
+ * `as AccessControl.IPolicy<...>` casts.
+ *
+ * The TAction / TResource / TRole generics are TS-only constraints
+ * that runtime validation cannot verify; the adapter trusts the strings
+ * because the same library wrote them via `savePolicy`.
+ */
+export function parsePolicyRow<
+  TAction extends string = string,
+  TResource extends string = string,
+  TRole extends string = string,
+>(raw: unknown): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  if (!validatePolicy(raw).valid) return null
+  return raw as AccessControl.IPolicy<TAction, TResource, TRole>
+}
+
+/**
+ * Parse a single role row. Mirror of {@link parsePolicyRow}.
+ */
+export function parseRoleRow<
+  TAction extends string = string,
+  TResource extends string = string,
+  TRole extends string = string,
+  TScope extends string = string,
+>(raw: unknown): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  if (!validateRole(raw).valid) return null
+  return raw as AccessControl.IRole<TAction, TResource, TRole, TScope>
 }

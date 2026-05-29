@@ -1,11 +1,12 @@
 /**
- * OIDC discovery document generator + standard route handlers. Emits
- * the canonical `/.well-known/openid-configuration` body so apps that
- * issue JWT access tokens via `JwtTransport` look like an OIDC OP to
- * relying parties.
+ * OIDC discovery-doc + JWKS helper. Emits the canonical
+ * `/.well-known/openid-configuration` body and a JWKS pass-through so
+ * apps that issue JWTs via `JwtTransport` look like an OP at the
+ * discovery layer.
  *
- * The lib does NOT mount the route - framework adapters wire it; this
- * module ships the document shape + a JWKS pass-through.
+ * For the full OAuth2/OIDC OP (`/authorize`, `/token`, `/userinfo`,
+ * introspection, revocation) wire up `createOidcOP` from
+ * `@gentleduck/auth/oidc/op`.
  */
 
 import { AuthErrorObject } from '../core/errors'
@@ -50,6 +51,9 @@ export function buildOidcDiscovery(cfg: OidcDiscovery.IConfig): OidcDiscovery.ID
     userinfo_endpoint: `${issuer}${prefix}/oauth/userinfo`,
     jwks_uri: `${issuer}${jwks}`,
     end_session_endpoint: `${issuer}${prefix}/oauth/logout`,
+    introspection_endpoint: `${issuer}${prefix}/oauth/introspect`,
+    revocation_endpoint: `${issuer}${prefix}/oauth/revoke`,
+    ...(cfg.registrationEndpoint !== undefined && { registration_endpoint: cfg.registrationEndpoint }),
     scopes_supported: cfg.scopesSupported ?? ['openid', 'profile', 'email', 'offline_access'],
     response_types_supported: cfg.responseTypesSupported ?? ['code'],
     grant_types_supported: cfg.grantTypesSupported ?? ['authorization_code', 'refresh_token', 'client_credentials'],
@@ -301,6 +305,12 @@ export namespace OidcDiscovery {
      */
     tokenEndpointAuthMethodsSupported?: string[]
     /**
+     * Advertise a `registration_endpoint` (RFC 7591). Set when the
+     * host wires `OidcOP.register` on a public route. Omit to suppress
+     * the field entirely.
+     */
+    registrationEndpoint?: string
+    /**
      * Permit a non-HTTPS `issuer`. Dev-only. OIDC core §16.18 requires
      * HTTPS in production. Default false; explicit opt-in here so the
      * misconfig is visible in code review.
@@ -322,6 +332,8 @@ export namespace OidcDiscovery {
     userinfo_endpoint: string
     jwks_uri: string
     end_session_endpoint: string
+    introspection_endpoint?: string
+    revocation_endpoint?: string
     registration_endpoint?: string
     scopes_supported: string[]
     response_types_supported: string[]

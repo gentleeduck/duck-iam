@@ -1,19 +1,14 @@
-import {
-  createHmac,
-  createPrivateKey,
-  createPublicKey,
-  createSign,
-  createVerify,
-  sign as ed25519Sign,
-  verify as ed25519Verify,
-  timingSafeEqual,
-} from 'node:crypto'
+import { createPublicKey } from 'node:crypto'
 import { isExpiredAt } from '../credential-utils'
 import { randomToken, sha256 } from '../crypto'
 import { AuthErrorObject } from '../errors'
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
 import type { Transport } from '../types/transport'
+import { signEddsa, verifyEddsa } from './jwt-algs/eddsa'
+import { signEs256, verifyEs256 } from './jwt-algs/es256'
+import { signHs256, verifyHs256 } from './jwt-algs/hs256'
+import { signRs256, verifyRs256 } from './jwt-algs/rs256'
 
 /**
  * JwtTransport - stateless transport for edge / serverless deployments.
@@ -84,106 +79,30 @@ function base64urlDecode(s: string): string {
   return Buffer.from(s, 'base64url').toString('utf8')
 }
 
-function hmacSign(key: string, signingInput: string): string {
-  return createHmac('sha256', key).update(signingInput).digest('base64url')
-}
-
-/** Sign per `alg`. Returns the base64url signature segment. */
 function jwsSign(alg: JwtTransport.IJwtAlg, key: string, signingInput: string): string {
-  if (alg === 'HS256') return hmacSign(key, signingInput)
-  if (alg === 'RS256') {
-    const signer = createSign('RSA-SHA256')
-    signer.update(signingInput)
-    signer.end()
-    return signer.sign(key).toString('base64url')
+  switch (alg) {
+    case 'HS256':
+      return signHs256(key, signingInput)
+    case 'RS256':
+      return signRs256(key, signingInput)
+    case 'EdDSA':
+      return signEddsa(key, signingInput)
+    case 'ES256':
+      return signEs256(key, signingInput)
   }
-  if (alg === 'EdDSA') {
-    // Ed25519 via Node's algorithm-less `sign` (RFC 8032). The KeyObject
-    // is required because the underlying call short-circuits when given
-    // a PEM string and the message length isn't a multiple of 64.
-    const pk = createPrivateKey(key)
-    return ed25519Sign(null, Buffer.from(signingInput), pk).toString('base64url')
-  }
-  // ES256: createSign emits DER; JOSE expects raw r||s.
-  const signer = createSign('SHA256')
-  signer.update(signingInput)
-  signer.end()
-  const der = signer.sign(key)
-  return derToJoseEs256(der).toString('base64url')
 }
 
-/** Verify per `alg`. Returns true on match. */
 function jwsVerify(alg: JwtTransport.IJwtAlg, key: string, signingInput: string, sigB64: string): boolean {
-  if (alg === 'HS256') {
-    const expected = hmacSign(key, signingInput)
-    const a = Buffer.from(sigB64)
-    const b = Buffer.from(expected)
-    return a.length === b.length && timingSafeEqual(a, b)
+  switch (alg) {
+    case 'HS256':
+      return verifyHs256(key, signingInput, sigB64)
+    case 'RS256':
+      return verifyRs256(key, signingInput, sigB64)
+    case 'EdDSA':
+      return verifyEddsa(key, signingInput, sigB64)
+    case 'ES256':
+      return verifyEs256(key, signingInput, sigB64)
   }
-  const sig = Buffer.from(sigB64, 'base64url')
-  if (alg === 'RS256') {
-    const verifier = createVerify('RSA-SHA256')
-    verifier.update(signingInput)
-    verifier.end()
-    return verifier.verify(key, sig)
-  }
-  if (alg === 'EdDSA') {
-    try {
-      const pub = createPublicKey(key)
-      return ed25519Verify(null, Buffer.from(signingInput), pub, sig)
-    } catch {
-      return false
-    }
-  }
-  // ES256: DPoP-style raw r||s -> DER for createVerify.
-  const verifier = createVerify('SHA256')
-  verifier.update(signingInput)
-  verifier.end()
-  try {
-    return verifier.verify(key, joseToDerEs256(sig))
-  } catch {
-    return false
-  }
-}
-
-/** Convert ES256 DER signature to raw r||s (64 bytes for P-256). */
-function derToJoseEs256(der: Buffer): Buffer {
-  const halfLen = 32
-  if (der[0] !== 0x30) throw new Error('ES256 sig: not a DER sequence')
-  let offset = 2
-  if ((der[1] ?? 0) & 0x80) offset = 2 + ((der[1] ?? 0) & 0x7f)
-  if (der[offset] !== 0x02) throw new Error('ES256 sig: expected r INTEGER')
-  const rLen = der.readUInt8(offset + 1)
-  let r = der.subarray(offset + 2, offset + 2 + rLen)
-  offset = offset + 2 + rLen
-  if (der[offset] !== 0x02) throw new Error('ES256 sig: expected s INTEGER')
-  const sLen = der.readUInt8(offset + 1)
-  let s = der.subarray(offset + 2, offset + 2 + sLen)
-  if (r[0] === 0 && r.length === halfLen + 1) r = r.subarray(1)
-  if (s[0] === 0 && s.length === halfLen + 1) s = s.subarray(1)
-  return Buffer.concat([Buffer.alloc(halfLen - r.length), r, Buffer.alloc(halfLen - s.length), s])
-}
-
-/** Convert raw r||s ES256 signature to DER for Node's createVerify. */
-function joseToDerEs256(raw: Buffer): Buffer {
-  const halfLen = 32
-  if (raw.length !== halfLen * 2) throw new Error('ES256 sig: bad length')
-  let r = raw.subarray(0, halfLen)
-  let s = raw.subarray(halfLen)
-  while (r.length > 1 && r[0] === 0) r = r.subarray(1)
-  while (s.length > 1 && s[0] === 0) s = s.subarray(1)
-  // After the strip loop r/s are guaranteed length >= 1; readUInt8(0)
-  // would throw on empty, so the post-strip invariant gives us the
-  // high-bit test without the `!` assertion.
-  const rEnc = (r.readUInt8(0) & 0x80) === 0 ? r : Buffer.concat([Buffer.from([0]), r])
-  const sEnc = (s.readUInt8(0) & 0x80) === 0 ? s : Buffer.concat([Buffer.from([0]), s])
-  return Buffer.concat([
-    Buffer.from([0x30, rEnc.length + sEnc.length + 4]),
-    Buffer.from([0x02, rEnc.length]),
-    rEnc,
-    Buffer.from([0x02, sEnc.length]),
-    sEnc,
-  ])
 }
 
 /**

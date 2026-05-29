@@ -1,4 +1,4 @@
-export { validatePolicy, validateRole, validateRoles } from './validate'
+export { parsePolicyRow, parseRoleRow, validatePolicy, validateRole, validateRoles } from './validate'
 export {
   detectCatastrophicRegex,
   MAX_CONDITION_VALUE_LENGTH,

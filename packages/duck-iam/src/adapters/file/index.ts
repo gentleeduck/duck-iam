@@ -1,6 +1,11 @@
 import * as nodePath from 'node:path'
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
-import { validatePolicy, validateRole } from '../../core/validate'
+import {
+  parsePolicyRow as parsePolicyRowShared,
+  parseRoleRow as parseRoleRowShared,
+  validatePolicy,
+  validateRole,
+} from '../../core/validate'
 
 export namespace File {
   /**
@@ -290,9 +295,9 @@ export class FileAdapter<
           this._cache = empty
           return empty
         }
-        let parsed: Partial<File.IState<TAction, TResource, TRole, TScope>>
+        let parsedRaw: unknown
         try {
-          parsed = JSON.parse(raw) as Partial<File.IState<TAction, TResource, TRole, TScope>>
+          parsedRaw = JSON.parse(raw)
         } catch (err) {
           // Throw, never set _cache to {}; a later _flush would erase a recoverable file.
           this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), this._path)
@@ -301,30 +306,34 @@ export class FileAdapter<
           )
         }
 
+        const parsed = isPlainObject(parsedRaw) ? parsedRaw : {}
+
         // Validate each row; drop malformed entries instead of returning them.
         // Null-proto so prototype-key reads/writes can't pollute the proto chain.
         const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
-        for (const [rowId, p] of Object.entries(parsed.policies ?? {})) {
-          const result = validatePolicy(p)
-          if (result.valid) {
-            policies[rowId] = p as AccessControl.IPolicy<TAction, TResource, TRole>
+        const policiesRaw = isPlainObject(parsed.policies) ? parsed.policies : {}
+        for (const [rowId, p] of Object.entries(policiesRaw)) {
+          const policy = parsePolicyRow<TAction, TResource, TRole>(p)
+          if (policy !== null) {
+            policies[rowId] = policy
           } else {
-            this._reportPolicyError(
-              new Error(`Invalid policy "${rowId}": ${result.issues.map((i) => i.message).join('; ')}`),
-              rowId,
-            )
+            const issues = validatePolicy(p)
+              .issues.map((i) => i.message)
+              .join('; ')
+            this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
           }
         }
         const roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>> = Object.create(null)
-        for (const [rowId, r] of Object.entries(parsed.roles ?? {})) {
-          const result = validateRole(r)
-          if (result.valid) {
-            roles[rowId] = r as AccessControl.IRole<TAction, TResource, TRole, TScope>
+        const rolesRaw = isPlainObject(parsed.roles) ? parsed.roles : {}
+        for (const [rowId, r] of Object.entries(rolesRaw)) {
+          const role = parseRoleRow<TAction, TResource, TRole, TScope>(r)
+          if (role !== null) {
+            roles[rowId] = role
           } else {
-            this._reportPolicyError(
-              new Error(`Invalid role "${rowId}": ${result.issues.map((i) => i.message).join('; ')}`),
-              rowId,
-            )
+            const issues = validateRole(r)
+              .issues.map((i) => i.message)
+              .join('; ')
+            this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
           }
         }
 
@@ -662,3 +671,10 @@ function roleAs<TRole extends string>(s: string): TRole {
 function scopeAs<TScope extends string>(s: string): TScope {
   return s as TScope
 }
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+const parsePolicyRow = parsePolicyRowShared
+const parseRoleRow = parseRoleRowShared

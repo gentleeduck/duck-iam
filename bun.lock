@@ -17,7 +17,7 @@
     },
     "apps/duck-auth-demo": {
       "name": "@gentleduck/duck-auth-demo",
-      "version": "0.0.0",
+      "version": "0.0.1",
       "dependencies": {
         "@gentleduck/auth": "workspace:*",
         "@gentleduck/libs": "^0.2.1",
@@ -83,6 +83,13 @@
         "drizzle-kit": "^0.31.0",
         "tailwindcss": "^4.3.0",
         "typescript": "^6.0.2",
+      },
+    },
+    "examples/oidc-op": {
+      "name": "@gentleduck/example-oidc-op",
+      "version": "0.0.0",
+      "dependencies": {
+        "@gentleduck/auth": "workspace:*",
       },
     },
     "examples/tanstack-start": {
@@ -162,7 +169,7 @@
     },
     "packages/duck-auth": {
       "name": "@gentleduck/auth",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "bin": {
         "duck-auth": "./dist/cli/index.js",
       },
@@ -203,7 +210,7 @@
     },
     "packages/duck-iam": {
       "name": "@gentleduck/iam",
-      "version": "3.0.0",
+      "version": "3.0.1",
       "devDependencies": {
         "@casl/ability": "^6.7.2",
         "@gentleduck/libs": "^0.2.1",
@@ -646,6 +653,8 @@
     "@gentleduck/calendar": ["@gentleduck/calendar@0.3.1", "", { "peerDependencies": { "date-fns": ">=3.0.0", "dayjs": ">=1.11.0", "luxon": ">=3.0.0", "react": ">=18.0.0" }, "optionalPeers": ["date-fns", "dayjs", "luxon", "react"] }, "sha512-AKpg5pCU64YJ8LPzhnOAh04fuLLq/91Y3QYsmxuYNAFZwRnSiZI75rvyE27ybzjsiFq8ZGbUKJl43boQbmROaQ=="],
 
     "@gentleduck/duck-auth-demo": ["@gentleduck/duck-auth-demo@workspace:apps/duck-auth-demo"],
+
+    "@gentleduck/example-oidc-op": ["@gentleduck/example-oidc-op@workspace:examples/oidc-op"],
 
     "@gentleduck/github": ["@gentleduck/github@workspace:tooling/github"],
 
