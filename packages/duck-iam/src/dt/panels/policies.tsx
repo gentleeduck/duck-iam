@@ -17,7 +17,7 @@ export function PoliciesPanel({ engine }: { engine: IDevtoolsEngine }) {
       setError(null)
       setPolicies(await engine.admin.listPolicies())
     } catch (err) {
-      setError((err as Error).message)
+      setError(err instanceof Error ? err.message : String(err))
     }
   }, [engine])
 
