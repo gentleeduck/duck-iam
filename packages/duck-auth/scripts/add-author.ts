@@ -1,18 +1,13 @@
 #!/usr/bin/env bun
 
 /**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  *
  * Walks every src/**\/*.ts file (excluding __tests__) and ensures every
- * JSDoc block (/** ... *\/) contains an `@author wildduck2 <...>` tag.
  * Idempotent: skips blocks that already have one.
  */
 
 import { execSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
-
-const AUTHOR = ' * @author wildduck2 <https://github.com/gentleeduck/duck-iam>'
 
 const files = execSync(
   `find ${import.meta.dirname}/../src -name "*.ts" -not -path "*/__tests__/*" -not -path "*/__compliance__/*"`,

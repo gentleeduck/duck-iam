@@ -67,25 +67,30 @@ bunx @gentleduck/auth init src/auth --production   # Redis + JWT + Argon2id
 bunx @gentleduck/auth doctor                       # run AuthRoot.strict()
 bunx @gentleduck/auth keys generate hs256          # mint a JWT signing secret
 bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP)
+bunx @gentleduck/auth keys rotate hs256            # rotate HS256 + emit rollover snippet
+bunx @gentleduck/auth migrate pg                   # emit CREATE TABLE DDL (pg|mysql|sqlite)
+bunx @gentleduck/auth emit-openapi                 # print OpenAPI 3.1 spec
 ```
 
 ## What's in the box
 
 ### Core (`@gentleduck/auth/core`)
 
-- `AuthRoot` - 14-facet root: identities, sessions, credentials,
-  passwords, mfa, recovery, flows, csrf, idempotency, audit, admin,
-  events, api-keys, telemetry
+- `AuthRoot` - 14-facet root: sessions, identities, passwords,
+  providers, mfa, flows, apiKeys, m2m, orgs, plugins, operations,
+  idempotency, hijack, anomaly
 - `AuthErrorObject` + typed error codes (`AUTH/UNAUTHENTICATED`,
   `AUTH/MFA_REQUIRED`, `AUTH/RATE_LIMITED`, ...) with wire-safe JSON
 - `ScryptHasher` (built-in) + `Argon2idHasher` (lazy peerDep)
-- `InMemoryEvents`
+- `InMemoryEvents`, `Csrf`, `Compliance` presets (gdpr / hipaa / soc2 / fips)
+- Anomaly detectors: `impossibleTravelDetector`, `deviceFingerprintDetector`
+- `WebhookDeliverer` (signed outbound delivery + dead-letter sink)
 
 ### Transports (`@gentleduck/auth/core/transport`)
 
 - `CookieTransport` - `__Host-` prefix + HttpOnly + SameSite=Lax
 - `BearerTransport` - opaque tokens
-- `JwtTransport` - HS256 JWT + opaque refresh cookie + JWKS hook
+- `JwtTransport` - HS256 / ES256 JWT + opaque refresh cookie + JWKS rotation
 - `CompositeTransport` - combine multiple
 - `DPoPVerifier` + `MemoryDPoPNonceStore` + `computeJwkThumbprint`
   + `bindPayloadToDPoP` (RFC 9449)
@@ -98,8 +103,13 @@ bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP
 | `@gentleduck/auth/providers/magic-link` | Passwordless one-time link |
 | `@gentleduck/auth/providers/oauth/google` | Google OAuth (PKCE + nonce) |
 | `@gentleduck/auth/providers/oauth/github` | GitHub OAuth (PKCE + state) |
-| `@gentleduck/auth/providers/passkey` | WebAuthn passkey (lazy peerDep on `@simplewebauthn/server`) |
+| `@gentleduck/auth/providers/oauth/linkedin` | LinkedIn OAuth |
+| `@gentleduck/auth/providers/oauth/microsoft` | Microsoft OAuth |
+| `@gentleduck/auth/providers/oauth/discord` | Discord OAuth |
+| `@gentleduck/auth/providers/oauth/apple` | Apple OAuth |
+| `@gentleduck/auth/providers/passkey` | WebAuthn passkey, discoverable + username (lazy peerDep on `@simplewebauthn/server`) |
 | `@gentleduck/auth/providers/api-key` | Long-lived bearer keys via `ApiKeysFacet` |
+| `@gentleduck/auth/providers/saml` | IdP-initiated SAML SSO scaffold |
 
 ### Adapters
 
@@ -107,6 +117,7 @@ bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP
 |---|---|
 | `@gentleduck/auth/adapters/memory` | Identity + credential + session + org (dev/test) |
 | `@gentleduck/auth/adapters/redis` | Session + idempotency + limiter + events + DPoP nonce stores (production) |
+| `@gentleduck/auth/adapters/sql` | `SqlBridge` contract + `createSqlAuthStores` factory (Drizzle/pg, Drizzle/mysql, Drizzle/sqlite reference impls in `adapters/sql/examples/`) |
 | `@gentleduck/auth/limiters/memory` | Token-bucket limiter (dev/test) |
 
 ### Channels
@@ -115,6 +126,10 @@ bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP
 |---|---|
 | `@gentleduck/auth/channels/console` | Console / Noop / Test channels (dev + test) |
 | `@gentleduck/auth/channels/smtp` | Nodemailer-compatible SMTP relay |
+| `@gentleduck/auth/channels/resend` | Resend transactional email |
+| `@gentleduck/auth/channels/ses` | AWS SES |
+| `@gentleduck/auth/channels/twilio` | Twilio SMS |
+| `@gentleduck/auth/channels/webpush` | Web Push notifications |
 
 ### Servers
 
@@ -123,6 +138,11 @@ bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP
 | `@gentleduck/auth/server/express` | Express middleware |
 | `@gentleduck/auth/server/hono` | Hono middleware |
 | `@gentleduck/auth/server/next` | Next.js route handlers |
+| `@gentleduck/auth/server/fastify` | Fastify plugin |
+| `@gentleduck/auth/server/koa` | Koa middleware |
+| `@gentleduck/auth/server/elysia` | Elysia handler |
+| `@gentleduck/auth/server/nestjs` | NestJS guard + module |
+| `@gentleduck/auth/server/grpc` | gRPC interceptor |
 | `@gentleduck/auth/server/generic` | Web Fetch executor (anything else) |
 
 ### Clients
@@ -136,8 +156,12 @@ bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP
 
 | Path | What |
 |---|---|
-| `@gentleduck/auth/cli` | `duck-auth init` / `doctor` / `keys generate` |
-| `@gentleduck/auth/openapi` | `buildOpenApiSpec` + `renderOpenApiYaml` |
+| `@gentleduck/auth/cli` | `duck-auth init` / `doctor` / `keys generate&rotate` / `migrate` / `emit-openapi` |
+| `@gentleduck/auth/openapi` | `buildOpenApiDocument` + spec renderers |
+| `@gentleduck/auth/oidc` | OIDC discovery + JWKS cache |
+| `@gentleduck/auth/i18n` | Error-code message catalog (optional Lingui adapter) |
+| `@gentleduck/auth/telemetry/otel` | OpenTelemetry instrumentation (counters + histograms, redacted attributes) |
+| `@gentleduck/auth/test` | `createTestAuth()` helper for in-memory end-to-end tests |
 
 ## Security posture
 
@@ -150,26 +174,33 @@ bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP
 - Compliance preset matches the regulatory scope
 - DPoP verifier wired when bearer tokens are issued
 
-See [`THREAT-MODEL.md`](./THREAT-MODEL.md) for the STRIDE / OWASP ASVS
-mapping of every threat the library mitigates and every threat the
-host app must own.
+See [`SECURITY.md`](./SECURITY.md) for the deployment hardening guide and
+[`THREAT-MODEL.md`](./THREAT-MODEL.md) for the STRIDE mapping of every
+threat the library mitigates and every threat the host app must own.
 
 ## Status
 
-Pre-1.0. Per-component status is tracked in [`DESIGN.md`](./DESIGN.md).
+Pre-1.0. v0.1 covers ~98% of the v1.0 MUST surface. Per-component status
+in [`STATUS.md`](./STATUS.md); architectural rationale in
+[`DESIGN.md`](./DESIGN.md).
 
 | Surface | Status |
 |---|---|
 | Core (14 facets) | shipped |
 | Transports (cookie, bearer, jwt, composite, DPoP) | shipped |
-| Adapters (memory, redis) | shipped |
-| Providers (password, magic-link, oauth, passkey, api-key) | shipped |
-| Channels (console, smtp) | shipped |
-| CLI (init / doctor / keys) | shipped |
-| OpenAPI generator | shipped |
-| Drizzle / Prisma SQL adapters | planned v1.2 |
-| OpenTelemetry | planned v1.2 |
-| Channels: Resend / Twilio / web-push | planned v1.2 |
+| Adapters (memory, redis, sql bridge + drizzle examples) | shipped |
+| Providers (password, magic-link, 6 OAuth, passkey, api-key, saml) | shipped |
+| Channels (console, smtp, resend, ses, twilio, webpush) | shipped |
+| Servers (express, hono, next, fastify, koa, elysia, nestjs, grpc, generic) | shipped |
+| Clients (vanilla, react, vue, svelte, solid) | shipped |
+| CLI (init / doctor / keys / migrate / emit-openapi) | shipped |
+| OpenAPI generator + OIDC discovery + OpenTelemetry + i18n | shipped |
+| `createTestAuth()` test helper + Storybook decorator | shipped |
+| Drizzle adapter (bundled pg / mysql / sqlite) | shipped |
+| WebAuthn-MFA factor | shipped |
+| KMS-envelope DataAtRest (`AwsKmsProvider` reference) | shipped |
+| JwtTransport (HS256 / ES256 / RS256 / EdDSA + live JWKS rotation) | shipped |
+| Native iOS / Android SDKs | community-maintained (per DESIGN §23 Q9) |
 
 ## License
 
