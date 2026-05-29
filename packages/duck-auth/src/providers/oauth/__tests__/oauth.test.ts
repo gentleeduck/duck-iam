@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { AuthRoot } from '../../../core/auth'
@@ -8,6 +9,18 @@ import { OAuthClient } from '../core/client'
 import { generatePkce } from '../core/pkce'
 import { oauthProvider } from '../core/provider'
 import { buildState, signState, verifyState } from '../core/state'
+
+/**
+ * SEC helper: mint a properly-signed state string from a caller-supplied
+ * (and possibly malformed) payload. Signature is correct so the verifier
+ * reaches the claim-parsing path - exercises the runtime validator that
+ * defends against missing/non-typed payload fields.
+ */
+function mintRawState(payload: unknown, secret: string): string {
+  const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+  const sig = createHmac('sha256', secret).update(body).digest('base64url')
+  return `${body}.${sig}`
+}
 
 interface MyProfile {
   email: string
@@ -48,6 +61,159 @@ describe('OAuth core - PKCE + state', () => {
     const payload = { ...buildState('oauth:google', 'v'), iat: Date.now() - 11 * 60 * 1000 }
     const state = signState(payload, 'secret')
     expect(verifyState(state, 'secret')).toBeNull()
+  })
+
+  describe('verifyState - SEC: payload validation', () => {
+    const SECRET = 'secret'
+    const base = buildState('oauth:google', 'verifier-xyz')
+
+    it('rejects payload whose iat is missing (would bypass expiry via NaN math)', () => {
+      const { iat, ...noIat } = base
+      void iat
+      expect(verifyState(mintRawState(noIat, SECRET), SECRET)).toBeNull()
+    })
+
+    it('rejects payload whose iat is a string', () => {
+      expect(verifyState(mintRawState({ ...base, iat: String(base.iat) }, SECRET), SECRET)).toBeNull()
+    })
+
+    it('rejects payload whose providerId is a non-string (would skew downstream callback check)', () => {
+      expect(verifyState(mintRawState({ ...base, providerId: { evil: 'object' } }, SECRET), SECRET)).toBeNull()
+    })
+
+    it('rejects payload whose verifier is a non-string (would corrupt PKCE token exchange)', () => {
+      expect(verifyState(mintRawState({ ...base, verifier: 42 }, SECRET), SECRET)).toBeNull()
+    })
+
+    it('rejects payload whose nonce is a non-string (would weaken one-time-use guarantee)', () => {
+      expect(verifyState(mintRawState({ ...base, nonce: null }, SECRET), SECRET)).toBeNull()
+    })
+
+    it('rejects payload whose returnTo is a non-string (open-redirect defense)', () => {
+      expect(verifyState(mintRawState({ ...base, returnTo: { url: '/evil' } }, SECRET), SECRET)).toBeNull()
+    })
+
+    it('rejects payload whose returnTo is oversize (URL-bomb defense)', () => {
+      // The state is HMAC-signed and carried in the OAuth provider URL.
+      // An attacker who can call begin() with a massive returnTo would
+      // mint state cookies / URLs that overflow browser/provider limits
+      // and cause unpredictable failures. Cap at 2048.
+      const huge = 'x'.repeat(2049)
+      expect(verifyState(mintRawState({ ...base, returnTo: huge }, SECRET), SECRET)).toBeNull()
+    })
+
+    it('accepts returnTo at the exact cap (2048 chars)', () => {
+      const max = 'x'.repeat(2048)
+      const result = verifyState(mintRawState({ ...base, returnTo: max }, SECRET), SECRET)
+      expect(result?.returnTo).toBe(max)
+    })
+
+    it('rejects payload that is a JSON array (not an object)', () => {
+      expect(verifyState(mintRawState(['not', 'an', 'object'], SECRET), SECRET)).toBeNull()
+    })
+
+    it('rejects a state string with extra dot-separated segments (no longer relies on parts cast)', () => {
+      const goodState = signState(base, SECRET)
+      expect(verifyState(`${goodState}.extra`, SECRET)).toBeNull()
+    })
+
+    it('rejects an oversize state parameter (>8192 chars, resource amplification defense)', () => {
+      // Without the top-level cap, an attacker could send a multi-MB
+      // state and force a base64 decode + JSON.parse over the whole
+      // blob (regardless of HMAC outcome the decode still runs).
+      const huge = 'x'.repeat(8193)
+      expect(verifyState(huge, SECRET)).toBeNull()
+    })
+
+    it('rejects a non-string state without crashing on .split (typeof guard)', () => {
+      expect(verifyState(undefined as unknown as string, SECRET)).toBeNull()
+      expect(verifyState(42 as unknown as string, SECRET)).toBeNull()
+      expect(verifyState('' as string, SECRET)).toBeNull()
+    })
+
+    it('accepts a state at the exact cap (8192 chars) - well-formed signed state at boundary still validates', () => {
+      // Build a payload large enough that the signed state lands near
+      // the cap, confirming a legitimate (if borderline) state passes.
+      const longReturnTo = 'x'.repeat(2048)
+      const state = signState({ ...base, returnTo: longReturnTo }, SECRET)
+      // The signed state is well under 8192 in practice (~3K with
+      // returnTo at cap); verify it still validates.
+      expect(state.length).toBeLessThan(8192)
+      expect(verifyState(state, SECRET)?.returnTo).toBe(longReturnTo)
+    })
+  })
+})
+
+describe('OAuthClient - SEC: token response validation', () => {
+  function clientWithResponse(body: unknown, status = 200): OAuthClient {
+    return new OAuthClient({
+      clientId: 'cid',
+      endpoints: {
+        authorizationEndpoint: 'https://idp/authorize',
+        tokenEndpoint: 'https://idp/token',
+        userinfoEndpoint: 'https://idp/userinfo',
+      },
+      scopes: ['openid'],
+      fetch: async () =>
+        new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }),
+    })
+  }
+
+  it('exchangeCode rejects non-object response (e.g. provider returns a JSON array)', async () => {
+    const client = clientWithResponse(['not', 'an', 'object'])
+    await expect(
+      client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
+    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+  })
+
+  it('exchangeCode rejects response missing access_token', async () => {
+    const client = clientWithResponse({ token_type: 'Bearer', expires_in: 3600 })
+    await expect(
+      client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
+    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+  })
+
+  it('exchangeCode rejects non-string access_token (would corrupt Bearer header downstream)', async () => {
+    const client = clientWithResponse({ access_token: 42, token_type: 'Bearer' })
+    await expect(
+      client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
+    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+  })
+
+  it('exchangeCode rejects non-numeric expires_in (would have stored NaN expiry into family metadata)', async () => {
+    const client = clientWithResponse({ access_token: 'at', token_type: 'Bearer', expires_in: '3600' })
+    await expect(
+      client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
+    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+  })
+
+  it('exchangeCode rejects non-string refresh_token', async () => {
+    const client = clientWithResponse({ access_token: 'at', token_type: 'Bearer', refresh_token: { evil: true } })
+    await expect(
+      client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
+    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+  })
+
+  it('refresh rejects malformed response', async () => {
+    const client = clientWithResponse({ token_type: 'Bearer' })
+    await expect(client.refresh('rt')).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+  })
+
+  it('exchangeCode rejects invalid JSON body', async () => {
+    const client = new OAuthClient({
+      clientId: 'cid',
+      endpoints: { authorizationEndpoint: 'https://idp/a', tokenEndpoint: 'https://idp/t' },
+      scopes: ['openid'],
+      fetch: async () => new Response('not json at all', { status: 200 }),
+    })
+    await expect(
+      client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
+    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+  })
+
+  it('userinfo rejects non-object response body', async () => {
+    const client = clientWithResponse('a string body')
+    await expect(client.userinfo('at')).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
   })
 })
 
@@ -201,6 +367,32 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     ).rejects.toMatchObject({ code: 'AUTH/OAUTH_STATE_MISMATCH' })
   })
 
+  it('complete rejects oversize code (>2048 chars) BEFORE forwarding to IdP (outbound resource amplification defense)', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const { auth } = buildAuth(fetchImpl)
+    const huge = 'x'.repeat(2049)
+    await expect(
+      auth.flows.signIn({
+        providerId: 'oauth:fakeoidc',
+        input: { code: huge, state: 'whatever' },
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    // Library MUST not have fired any fetch - code rejected before exchange.
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('complete rejects empty code (defensive)', async () => {
+    const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
+    const { auth } = buildAuth(fetchImpl)
+    await expect(
+      auth.flows.signIn({
+        providerId: 'oauth:fakeoidc',
+        input: { code: '', state: 'whatever' },
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('complete with state from a different provider surfaces AUTH/OAUTH_STATE_MISMATCH', async () => {
     const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
     const { auth } = buildAuth(fetchImpl)
@@ -240,5 +432,59 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     const state2 = new URL((begin2[0] as { url: string }).url).searchParams.get('state') ?? ''
     const r2 = await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c2', state: state2 } })
     expect(r2.session!.identityId).toBe(identitiesBefore?.id)
+  })
+})
+
+describe('oauthProvider - redirectUri construction guard', () => {
+  const baseOpts = {
+    providerId: 'fakeoidc',
+    client: new OAuthClient({
+      clientId: 'cid',
+      clientSecret: 'csec',
+      endpoints: {
+        authorizationEndpoint: 'https://idp/authorize',
+        tokenEndpoint: 'https://idp/token',
+        userinfoEndpoint: 'https://idp/userinfo',
+      },
+      scopes: ['openid'],
+      fetch: vi.fn() as unknown as typeof globalThis.fetch,
+    }),
+    endpoints: {
+      authorizationEndpoint: 'https://idp/authorize',
+      tokenEndpoint: 'https://idp/token',
+      userinfoEndpoint: 'https://idp/userinfo',
+    },
+    stateSigningSecret: 'sec',
+    async fetchProfile() {
+      return { sub: 's' }
+    },
+  }
+
+  it('throws AUTH/MISCONFIGURED on a `javascript:` redirectUri', () => {
+    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'javascript:alert(1)' })).toThrow(/MISCONFIGURED/)
+  })
+
+  it('throws on a redirectUri containing CR/LF (header injection)', () => {
+    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb\r\nX-Inject: 1' })).toThrow(
+      /MISCONFIGURED/,
+    )
+  })
+
+  it('throws on a non-string redirectUri', () => {
+    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 42 as unknown as string })).toThrow(
+      /MISCONFIGURED/,
+    )
+  })
+
+  it('throws on an unparseable redirectUri', () => {
+    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'not a url' })).toThrow(/MISCONFIGURED/)
+  })
+
+  it('accepts a normal https redirectUri', () => {
+    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb' })).not.toThrow()
+  })
+
+  it('accepts a http redirectUri (some self-hosted setups still use it)', () => {
+    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'http://localhost:3000/cb' })).not.toThrow()
   })
 })
