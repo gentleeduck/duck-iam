@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from '@storybook/react'
 import { withAuth } from '@gentleduck/auth/client/react/storybook'
+import type { Meta, StoryObj } from '@storybook/react'
 import { SessionBadge } from './session-badge'
 
 const meta: Meta<typeof SessionBadge> = {

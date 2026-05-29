@@ -148,8 +148,9 @@ export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
           {filteredDocuments.map((doc) => (
             <ContextMenu key={doc.id}>
               <ContextMenuTrigger asChild>
-                <div
-                  className="group flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-3.5 transition-colors duration-200 hover:bg-accent/50"
+                <button
+                  type="button"
+                  className="group flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-3.5 text-left transition-colors duration-200 hover:bg-accent/50"
                   onClick={() => router.push(`/workspaces/${workspaceSlug}/documents/${doc.id}`)}>
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                     <FileTextIcon className="h-4 w-4" />
@@ -173,7 +174,7 @@ export function DocumentList({ documents, workspaceId, workspaceSlug }: Props) {
                       <span className="truncate text-[11px] text-muted-foreground/60">{formatDate(doc.updatedAt)}</span>
                     </div>
                   </div>
-                </div>
+                </button>
               </ContextMenuTrigger>
 
               <ContextMenuContent className="w-48">

@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from '@storybook/react'
 import { withAuth } from '@gentleduck/auth/client/react/storybook'
+import type { Meta, StoryObj } from '@storybook/react'
 import { AuthLayout } from './auth-layout'
 import { ProvidersList } from './providers-list'
 import { SignInForm } from './sign-in-form'
@@ -37,10 +37,7 @@ export const FullSignInPage: Story = {
 export const LiveSignInPage: Story = {
   decorators: [withAuth({ live: true })],
   render: () => (
-    <AuthLayout
-      brand={<h1 className="font-semibold text-2xl">Duck Auth (live)</h1>}
-      footer="Backend on :8787"
-    >
+    <AuthLayout brand={<h1 className="font-semibold text-2xl">Duck Auth (live)</h1>} footer="Backend on :8787">
       <SignInForm description="Real backend — try alice@test / hunter2hunter2 after signup." />
       <ProvidersList providers={[{ id: 'magic-link', label: 'Email me a magic link' }]} />
     </AuthLayout>

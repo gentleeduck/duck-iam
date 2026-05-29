@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from '@storybook/react'
 import { withAuth } from '@gentleduck/auth/client/react/storybook'
+import type { Meta, StoryObj } from '@storybook/react'
 import { SignOutButton } from './sign-out-button'
 
 const meta: Meta<typeof SignOutButton> = {
