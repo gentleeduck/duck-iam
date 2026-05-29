@@ -1,9 +1,6 @@
 const STYLE_ID = '__iam_dt_styles__'
 
-// Chrome + minimal utility CSS. Chrome (positioning, slide animation, resize)
-// is here. Utility helpers (iam-dt-*) are kept so panels can use them inline;
-// they all reference Tailwind/registry-ui design tokens via CSS variables so
-// the dark/light theme of the host app drives them automatically.
+// Chrome + iam-dt-* utility CSS; theme tokens come from host via CSS vars.
 const CSS = `
 .iam-dt-btn-wrap { position: fixed; z-index: 99998; }
 .iam-dt-btn-wrap[data-pos="bottom-right"] { bottom: 20px; right: 20px; }

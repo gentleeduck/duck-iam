@@ -66,10 +66,6 @@ function IamDevtoolsImpl({
   buttonPosition = 'bottom-right',
   position: positionProp,
   hideButton = false,
-  // SEC-048: vendor-namespaced default to avoid collision with any other
-  // library that happened to pick `__IAM_DEVTOOLS`. Consumers may still
-  // override via the storagePrefix prop. Devtools is prod-blocked, so this
-  // is collision-hygiene only, not a security control.
   storagePrefix = '__GENTLEDUCK_IAM_DEVTOOLS_V1',
   inset = 0,
   ...inner
@@ -117,7 +113,7 @@ function IamDevtoolsImpl({
   const onDragStart = (e: React.PointerEvent) => {
     const axis: 'x' | 'y' = position === 'left' || position === 'right' ? 'x' : 'y'
     dragRef.current = { start: axis === 'x' ? e.clientX : e.clientY, size, axis }
-    ;(e.target as Element).setPointerCapture(e.pointerId)
+    if (e.target instanceof Element) e.target.setPointerCapture(e.pointerId)
   }
   const onDragMove = (e: React.PointerEvent) => {
     const d = dragRef.current
@@ -131,7 +127,7 @@ function IamDevtoolsImpl({
   const onDragEnd = (e: React.PointerEvent) => {
     dragRef.current = null
     try {
-      ;(e.target as Element).releasePointerCapture(e.pointerId)
+      if (e.target instanceof Element) e.target.releasePointerCapture(e.pointerId)
     } catch {}
   }
 
