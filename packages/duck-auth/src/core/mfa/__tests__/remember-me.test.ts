@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { randomToken, sha256 } from '../../crypto'
@@ -45,8 +40,16 @@ describe('RememberMeFacet', () => {
 
   it('verify returns null after revoke', async () => {
     const { token, credentialId } = await facet.issue(identityId)
-    await facet.revoke(credentialId)
+    await facet.revoke(identityId, credentialId)
     expect(await facet.verify(token)).toBeNull()
+  })
+
+  it('revoke is a no-op when (identityId, credentialId) ownership does not match', async () => {
+    const otherIdentity = await adapter.identities.create({ profile: { email: 'other@x.com' }, providers: [] }, {})
+    const { token, credentialId } = await facet.issue(identityId)
+    await facet.revoke(otherIdentity.id, credentialId)
+    // Token still verifies - the cross-identity revoke was refused.
+    expect(await facet.verify(token)).not.toBeNull()
   })
 
   it('list returns live trusted devices with metadata', async () => {

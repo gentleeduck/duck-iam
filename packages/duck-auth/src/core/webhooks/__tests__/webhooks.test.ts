@@ -1,11 +1,6 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryEvents } from '../../events'
-import { signWebhookBody, verifyWebhookSignature, type WebhookDeadLetterEntry, WebhookDeliverer } from '../index'
+import { signWebhookBody, verifyWebhookSignature, WebhookDeliverer } from '../index'
 
 function makeFetch(
   responses: Array<{ ok: boolean; throws?: boolean }>,
@@ -98,7 +93,7 @@ describe('WebhookDeliverer', () => {
 
   it('dead-letters after exhausting attempts', async () => {
     const fetchStub = makeFetch([{ ok: false }, { ok: false }, { throws: true, ok: false }])
-    const dlq: WebhookDeadLetterEntry[] = []
+    const dlq: WebhookDeliverer.IDeadLetterEntry[] = []
     const d = new WebhookDeliverer({
       endpoints: [{ url: 'https://hook.test', secret: 's', id: 'edge' }],
       maxAttempts: 3,
@@ -134,5 +129,90 @@ describe('WebhookDeliverer', () => {
     const calls = (fetchStub as unknown as { calls: Array<{ headers: Record<string, string> }> }).calls
     expect(calls[0]!.headers['X-My-Sig']).toBeDefined()
     expect(calls[0]!.headers['X-Duck-Signature']).toBeUndefined()
+  })
+
+  it('refuses non-HTTPS endpoint by default', () => {
+    expect(
+      () =>
+        new WebhookDeliverer({
+          endpoints: [{ url: 'http://hook.test', secret: 's' }],
+        }),
+    ).toThrowError(/AUTH\/MISCONFIGURED/)
+  })
+
+  it.each([
+    ['http://localhost/hook'],
+    ['http://127.0.0.1/hook'],
+    ['http://10.0.0.5/hook'],
+    ['http://192.168.1.1/hook'],
+    ['http://169.254.169.254/latest/meta-data/'],
+    ['http://172.20.0.5/hook'],
+  ])('refuses SSRF-risky host %s even with allowInsecure', (url) => {
+    expect(
+      () =>
+        new WebhookDeliverer({
+          endpoints: [{ url, secret: 's' }],
+          allowInsecure: true,
+        }),
+    ).toThrowError(/AUTH\/MISCONFIGURED/)
+  })
+
+  it.each([
+    // IPv6 embedded-v4 forms that the legacy regex list missed.
+    // WHATWG URL canonicalises `::ffff:127.0.0.1` -> `[::ffff:7f00:1]`,
+    // and many OSes route this to the embedded v4 loopback.
+    ['http://[::ffff:127.0.0.1]/hook', 'IPv4-mapped IPv6 loopback (dotted-quad form)'],
+    ['http://[::ffff:7f00:1]/hook', 'IPv4-mapped IPv6 loopback (hex-tail canonical form)'],
+    // NAT64 well-known prefix can carry inner v4 loopback.
+    ['http://[64:ff9b::7f00:1]/hook', 'NAT64-wrapped loopback'],
+    // 6to4 prefix routes to embedded inner v4 on Linux by default.
+    ['http://[2002:7f00:1::]/hook', '6to4-wrapped loopback'],
+    // all-zeros IPv6 unspecified often routes to local interface.
+    ['http://[::]/hook', 'IPv6 unspecified (all-zeros)'],
+    // hex-form IPv4 - WHATWG URL does NOT canonicalize 0x notation.
+    ['http://0x7f.0.0.1/hook', 'hex-IPv4 loopback'],
+  ])('refuses SSRF-risky host %s (%s)', (url) => {
+    expect(
+      () =>
+        new WebhookDeliverer({
+          endpoints: [{ url, secret: 's' }],
+          allowInsecure: true,
+        }),
+    ).toThrowError(/AUTH\/MISCONFIGURED/)
+  })
+
+  it('timestamp-bound signature round-trips + rejects replays outside window', async () => {
+    const body = JSON.stringify({ x: 1 })
+    const past = Date.now() - 10 * 60_000
+    const sig = signWebhookBody('s', body, past)
+    expect(verifyWebhookSignature('s', body, sig, { timestamp: past })).toBe(false)
+    const fresh = Date.now()
+    const sigFresh = signWebhookBody('s', body, fresh)
+    expect(verifyWebhookSignature('s', body, sigFresh, { timestamp: fresh })).toBe(true)
+  })
+
+  it('verifyWebhookSignature rejects NaN timestamp (would otherwise bypass freshness via `NaN > N === false`)', () => {
+    // NaN timestamp (parseInt of missing header) would let `NaN > N == false` replay.
+    const body = JSON.stringify({ x: 1 })
+    const sig = signWebhookBody('s', body, Date.now())
+    expect(verifyWebhookSignature('s', body, sig, { timestamp: Number.NaN })).toBe(false)
+  })
+
+  it('verifyWebhookSignature rejects non-numeric timestamp from a buggy caller', () => {
+    const body = JSON.stringify({ x: 1 })
+    const sig = signWebhookBody('s', body, Date.now())
+    // @ts-expect-error: SEC test intentionally violates the typed shape
+    expect(verifyWebhookSignature('s', body, sig, { timestamp: 'recent' })).toBe(false)
+  })
+
+  it('deliverer emits X-Duck-Timestamp header alongside signature', async () => {
+    const fetchStub = makeFetch([{ ok: true }])
+    const d = new WebhookDeliverer({
+      endpoints: [{ url: 'https://hook.test', secret: 's' }],
+      fetch: fetchStub,
+    })
+    await d.deliverOne('lockout', { identityId: 'u1', until: 0 })
+    const calls = (fetchStub as unknown as { calls: Array<{ headers: Record<string, string> }> }).calls
+    expect(calls[0]!.headers['x-duck-timestamp']).toBeDefined()
   })
 })

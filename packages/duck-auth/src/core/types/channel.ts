@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { TenantContext } from './context'
 import type { Identity } from './identity'
 
@@ -13,8 +8,6 @@ import type { Identity } from './identity'
  *
  * Channels never accept plaintext secrets - magic-link URLs are pre-signed by
  * the library before reaching the channel; templates only receive safe vars.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Channel {
   export type Kind = 'email' | 'sms' | 'webpush'

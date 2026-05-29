@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it } from 'vitest'
 import { AesGcmDataAtRest } from '../aes-gcm'
 
@@ -49,5 +44,49 @@ describe('AesGcmDataAtRest', () => {
 
   it('id is stable for audit-log reporting', () => {
     expect(adapter.id).toBe('aes-256-gcm')
+  })
+
+  it('rotation - previousKeys ring decrypts ciphertexts written under an older kid', async () => {
+    // Adapter v1: kid=k1
+    const v1 = new AesGcmDataAtRest({ kid: 'k1', masterKey: Buffer.alloc(32, 1) })
+    const ct = await v1.encrypt('secret-payload', { field: 'ssn', identityId: 'u' })
+
+    // Adapter v2: rotated to k2, with k1 retained for backwards compat.
+    const v2 = new AesGcmDataAtRest({
+      kid: 'k2',
+      masterKey: Buffer.alloc(32, 2),
+      previousKeys: [{ kid: 'k1', masterKey: Buffer.alloc(32, 1) }],
+    })
+    const recovered = await v2.decrypt(ct, { field: 'ssn', identityId: 'u' })
+    expect(recovered).toBe('secret-payload')
+
+    // After re-encrypting, the ciphertext is tagged with the new kid.
+    expect(v2.needsReEncrypt(ct)).toBe(true)
+    const reEncrypted = await v2.encrypt(recovered, { field: 'ssn', identityId: 'u' })
+    expect(reEncrypted.split('$')[1]).toBe('k2')
+    expect(v2.needsReEncrypt(reEncrypted)).toBe(false)
+  })
+
+  it('rotation - ciphertext under an unknown kid throws AUTH/MISCONFIGURED (not silent data loss)', async () => {
+    const v1 = new AesGcmDataAtRest({ kid: 'k1', masterKey: Buffer.alloc(32, 1) })
+    const ct = await v1.encrypt('payload', { field: 'f', identityId: 'u' })
+    const v2 = new AesGcmDataAtRest({ kid: 'k2', masterKey: Buffer.alloc(32, 2) })
+    await expect(v2.decrypt(ct, { field: 'f', identityId: 'u' })).rejects.toMatchObject({
+      code: 'AUTH/MISCONFIGURED',
+    })
+  })
+
+  it('rotation - duplicate kid between current + previousKeys throws at construction', () => {
+    try {
+      new AesGcmDataAtRest({
+        kid: 'k1',
+        masterKey: Buffer.alloc(32, 1),
+        previousKeys: [{ kid: 'k1', masterKey: Buffer.alloc(32, 9) }],
+      })
+      throw new Error('expected throw')
+    } catch (err) {
+      expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
+      expect((err as { meta: { detail: string } }).meta.detail).toMatch(/duplicate kid/)
+    }
   })
 })

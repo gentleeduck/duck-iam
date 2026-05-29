@@ -1,7 +1,4 @@
 /**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- *
  * Argon2id-backed password hasher. Compliance presets (HIPAA / SOC2 /
  * FIPS) require it; v0.1 default is the built-in scrypt because Argon2
  * needs the native `@node-rs/argon2` peerDep. Consumers wire this
@@ -16,28 +13,8 @@
 import { AuthErrorObject } from '../errors'
 import type { Hasher } from '../types/hasher'
 
-/**
- * Argon2id parameter set. Defaults match OWASP's "Memory-constrained
- * environments" guidance (m=19 MB, t=2, p=1) which is appropriate for
- * most server CPUs. Compliance presets ratchet to m=64 MB, t=3, p=4.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface Argon2idParams {
-  /** Memory cost in KiB. Default 19_456 (19 MiB). FIPS preset uses 65_536. */
-  memoryCost: number
-  /** Time cost (iterations). Default 2. FIPS preset uses 3. */
-  timeCost: number
-  /** Parallelism. Default 1. FIPS preset uses 4. */
-  parallelism: number
-  /** Hash length in bytes. Default 32. */
-  hashLength: number
-  /** Salt length in bytes. Default 16. */
-  saltLength: number
-}
-
 /** Conservative OWASP defaults. */
-export const ARGON2ID_DEFAULTS: Argon2idParams = {
+export const ARGON2ID_DEFAULTS: Argon2idHasher.IParams = {
   memoryCost: 19_456,
   timeCost: 2,
   parallelism: 1,
@@ -46,7 +23,7 @@ export const ARGON2ID_DEFAULTS: Argon2idParams = {
 }
 
 /** Tuned for compliance preset (HIPAA / SOC2 / FIPS). */
-export const ARGON2ID_COMPLIANCE: Argon2idParams = {
+export const ARGON2ID_COMPLIANCE: Argon2idHasher.IParams = {
   memoryCost: 65_536,
   timeCost: 3,
   parallelism: 4,
@@ -96,14 +73,12 @@ async function loadArgon2(): Promise<NodeRsArgon2Module> {
  *   `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`
  * self-describing across parameter rotations; `needsRehash` compares the
  * embedded `m / t / p` to the current params.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class Argon2idHasher implements Hasher.IHasher {
   readonly id = 'argon2id'
-  private readonly _params: Argon2idParams
+  private readonly _params: Argon2idHasher.IParams
 
-  constructor(params: Partial<Argon2idParams> = {}) {
+  constructor(params: Partial<Argon2idHasher.IParams> = {}) {
     this._params = { ...ARGON2ID_DEFAULTS, ...params }
   }
 
@@ -150,10 +125,18 @@ export class Argon2idHasher implements Hasher.IHasher {
 
 /**
  * Namespace merge - Argon2idHasher.IParams alongside the class.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace Argon2idHasher {
-  /** Alias for the flat `Argon2idParams` type. */
-  export type IParams = Argon2idParams
+  export interface IParams {
+    /** Memory cost in KiB. Default 19_456 (19 MiB). FIPS preset uses 65_536. */
+    memoryCost: number
+    /** Time cost (iterations). Default 2. FIPS preset uses 3. */
+    timeCost: number
+    /** Parallelism. Default 1. FIPS preset uses 4. */
+    parallelism: number
+    /** Hash length in bytes. Default 32. */
+    hashLength: number
+    /** Salt length in bytes. Default 16. */
+    saltLength: number
+  }
 }

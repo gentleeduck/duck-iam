@@ -1,16 +1,9 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { Events } from './types/events'
 
 /**
  * In-memory event bus. Single-process; production swaps in Redis pub/sub
  * (`RedisEvents`) or Kafka (`KafkaEvents`). Handlers run sequentially per
  * event; a throwing handler is caught + logged so siblings still fire.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class InMemoryEvents implements Events.IBus {
   private _handlers = new Map<Events.EventName, Set<(p: unknown) => void | Promise<void>>>()
@@ -29,7 +22,11 @@ export class InMemoryEvents implements Events.IBus {
   async emit<K extends Events.EventName>(event: K, payload: Events.EventMap[K]): Promise<void> {
     const set = this._handlers.get(event)
     if (!set || set.size === 0) return
-    for (const handler of set) {
+    // Snapshot the listener set so a handler that subscribes / unsubscribes
+    // mid-emit cannot reorder this dispatch or loop forever (each handler
+    // sees the listener set as it was at emit time).
+    const snapshot = [...set]
+    for (const handler of snapshot) {
       try {
         await handler(payload)
       } catch (err) {
@@ -45,8 +42,6 @@ export class InMemoryEvents implements Events.IBus {
    * event. Used by `AuthRoot.strict()` to assert that operators have
    * wired the required event listeners (e.g. `lockout`) without reaching
    * into private state.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   listenerCount<K extends Events.EventName>(event: K): number {
     return this._handlers.get(event)?.size ?? 0

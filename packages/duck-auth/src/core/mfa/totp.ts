@@ -1,28 +1,6 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
-/**
- * RFC 6238 TOTP-SHA1 with the standard 6-digit / 30-second window. The most
- * widely-supported configuration on third-party authenticator apps
- * (1Password, Bitwarden, Authy, Google Authenticator, Authenticator-app
- * on iOS / Android), so v0.1 fixes this set; HOTP / SHA-256 land later as
- * generic options if a consumer needs them.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface TotpParams {
-  digits: 6
-  periodSec: 30
-  algorithm: 'sha1'
-  /** Acceptable drift windows on either side of the current step. */
-  driftSteps: number
-}
-
-export const TOTP_DEFAULTS: TotpParams = {
+export const TOTP_DEFAULTS: Totp.IParams = {
   digits: 6,
   periodSec: 30,
   algorithm: 'sha1',
@@ -56,8 +34,8 @@ export function base32Decode(s: string): Buffer {
   let bits = 0
   let value = 0
   const out: number[] = []
-  for (let i = 0; i < cleaned.length; i++) {
-    const ch = cleaned[i] as string
+  // for-of yields `string` (not `string|undefined`); avoids index-cast.
+  for (const ch of cleaned) {
     const idx = BASE32_ALPHABET.indexOf(ch)
     if (idx < 0) throw new Error(`invalid base32 character: ${ch}`)
     value = (value << 5) | idx
@@ -80,7 +58,7 @@ export function buildOtpAuthUri(opts: {
   secret: string
   issuer: string
   accountName: string
-  params?: Partial<TotpParams>
+  params?: Partial<Totp.IParams>
 }): string {
   const p = { ...TOTP_DEFAULTS, ...opts.params }
   const label = encodeURIComponent(`${opts.issuer}:${opts.accountName}`)
@@ -98,21 +76,18 @@ export function buildOtpAuthUri(opts: {
 /**
  * Compute the TOTP code at the given step. Hot path; constant-time-safe
  * comparison happens in {@link verifyTotp}.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function totpAt(secretB32: string, stepIndex: number, params: TotpParams = TOTP_DEFAULTS): string {
+export function totpAt(secretB32: string, stepIndex: number, params: Totp.IParams = TOTP_DEFAULTS): string {
   const secret = base32Decode(secretB32)
   const buf = Buffer.alloc(8)
   // RFC 4226 section 5.3 - 8-byte big-endian counter.
   buf.writeBigUInt64BE(BigInt(stepIndex))
   const hmac = createHmac(params.algorithm, secret).update(buf).digest()
-  const off = hmac[hmac.length - 1]! & 0x0f
-  const binCode =
-    ((hmac[off]! & 0x7f) << 24) |
-    ((hmac[off + 1]! & 0xff) << 16) |
-    ((hmac[off + 2]! & 0xff) << 8) |
-    (hmac[off + 3]! & 0xff)
+  // Dynamic truncation per RFC 4226 §5.3 - low nibble of the last byte
+  // picks a 4-byte offset; readUInt32BE then yields the truncated code
+  // without per-byte `!` assertions.
+  const off = hmac.readUInt8(hmac.length - 1) & 0x0f
+  const binCode = hmac.readUInt32BE(off) & 0x7fffffff
   const mod = 10 ** params.digits
   return (binCode % mod).toString().padStart(params.digits, '0')
 }
@@ -123,13 +98,11 @@ export function totpAt(secretB32: string, stepIndex: number, params: TotpParams 
  * legitimate code lives by timing the response.
  *
  * `nowMs` defaults to `Date.now()`; tests pass it explicitly for determinism.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function verifyTotp(
   secretB32: string,
   code: string,
-  opts: { params?: TotpParams; nowMs?: number } = {},
+  opts: { params?: Totp.IParams; nowMs?: number } = {},
 ): boolean {
   const params = opts.params ?? TOTP_DEFAULTS
   const nowMs = opts.nowMs ?? Date.now()
@@ -153,13 +126,14 @@ export function verifyTotp(
 
 /**
  * Namespace merge for Totp. Co-locates the config + input +
- * output shapes via TS namespace declaration. Consumers can write either
- * the flat name (TotpParams) or the namespaced form
- * (Totp.IParams); both resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * output shapes via TS namespace declaration.
  */
 export namespace Totp {
-  /** Alias for the flat `TotpParams` type. */
-  export type IParams = TotpParams
+  export interface IParams {
+    digits: 6
+    periodSec: 30
+    algorithm: 'sha1'
+    /** Acceptable drift windows on either side of the current step. */
+    driftSteps: number
+  }
 }

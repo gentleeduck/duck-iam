@@ -75,7 +75,7 @@ describe('AuthRoot.strict()', () => {
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
           code: 'AUTH/MISCONFIGURED',
-          meta: expect.objectContaining({ detail: expect.stringMatching(/Memory adapter rejected/) }),
+          meta: expect.objectContaining({ detail: expect.stringMatching(/Memory adapter .*rejected/) }),
         }),
       )
     })
@@ -110,6 +110,36 @@ describe('AuthRoot.strict()', () => {
       )
     })
 
+    it('rejects an explicitly-passed NoopLimiter (not just missing limiter)', async () => {
+      const adapter = new MemoryAuthAdapter<MyProfile>()
+      const { NoopLimiter } = await import('../auth')
+      const auth = new AuthRoot<MyProfile>({
+        baseUrl: 'https://app.example.com',
+        transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
+        stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
+        limiter: new NoopLimiter(),
+        providers: [
+          {
+            id: 'password',
+            kind: 'password',
+            async begin() {
+              return []
+            },
+            async complete() {
+              return []
+            },
+          },
+        ],
+      })
+      auth.events.on('lockout', () => {})
+      expect(() => auth.strict({ env: 'production' })).toThrow(
+        expect.objectContaining({
+          code: 'AUTH/MISCONFIGURED',
+          meta: expect.objectContaining({ detail: expect.stringMatching(/NoopLimiter rejected/) }),
+        }),
+      )
+    })
+
     it('aggregates multiple errors in one throw', () => {
       const auth = makeAuth({ limiter: false, providers: false, lockoutHandler: false })
       try {
@@ -122,6 +152,38 @@ describe('AuthRoot.strict()', () => {
         // matching the constructor name heuristic too, so it surfaces in
         // the error list).
         expect(msg).toContain('AUTH/MISCONFIGURED')
+      }
+    })
+
+    it('refuses http:// baseUrl in production', () => {
+      const adapter = new MemoryAuthAdapter<MyProfile>()
+      const auth = new AuthRoot<MyProfile>({
+        baseUrl: 'http://app.example.com',
+        transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
+        stores: {
+          identities: adapter.identities,
+          sessions: adapter.sessions,
+          credentials: adapter.credentials,
+        },
+        limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
+      })
+      auth.providers.register({
+        id: 'fake',
+        kind: 'password',
+        async begin() {
+          return []
+        },
+        async complete() {
+          return []
+        },
+      })
+      auth.events.on('lockout', () => {})
+      try {
+        auth.strict({ env: 'production' })
+        expect.fail('expected throw')
+      } catch (err) {
+        const detail = (err as { meta?: { detail?: string } }).meta?.detail ?? ''
+        expect(detail).toMatch(/must use https/)
       }
     })
   })
