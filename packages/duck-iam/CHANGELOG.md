@@ -1,5 +1,32 @@
 # @gentleduck/iam
 
+## 3.0.1
+
+### Patch Changes
+
+- 1f5ac74: **@gentleduck/auth**: end-to-end input + tenant + config-time hardening sweep.
+  - Provider entry-point caps + typeof guards (api-key, magic-link, oauth, passkey, password, saml). Magic-link `callbackPath` validated at construction (refuses protocol-relative + CR/LF). OAuth `redirectUri` + endpoint URLs validated. SAML `relayState` + `host` CR/LF guard.
+  - Facet input caps (flows, sessions, mfa, apikeys, identities, idempotency). `isProviderIdSafe` guard in `signIn` / `beginProvider`. CAS-claim on recovery + signup. Email canonicalization (`trim().toLowerCase()`) shared between rate-limit + lookup + stored metadata.
+  - Transport hardening: 4 KB bearer cap, 8 KB DPoP cap, 16 KB cookie-header cap, cookie name RFC 6265 validation. JWT `signKey.kid` + `signKey.key` validation. `Number.isFinite` on iat / nonce / counter rollback. timingSafeEqual on `ath` + `nonce`.
+  - Adapter parity: memory adapter `findByHashedSecret` respects `ctx.tenantId` (was searching globally) + uses `isRevoked` predicate. `upsert` inherits `tenantId` from ctx. Redis adapter caps key length + clamps NaN/huge ttl. SQL adapters parameterize JSONB queries.
+  - `AuthRoot.strict`: refuse `http://` baseUrl in production.
+  - Webhooks: `redirect: 'error'` SSRF, 1 MiB payload cap, 20-attempt backoff cap, NaN-timestamp rejection.
+  - New `@gentleduck/auth/server/{fastify,koa,nestjs,elysia,grpc}` adapters.
+  - New providers: SAML 2.0 SP, Microsoft, Discord, LinkedIn, Sign in with Apple, api-key sign-in.
+  - New channels: Resend, Twilio, Web Push, AWS SES.
+  - DPoP (RFC 9449) + OAuth refresh-reuse detection.
+  - READMEs: parallel structure across both packages, local logo + LICENSE for npm rendering.
+
+  **@gentleduck/iam**: defense-in-depth + adapter hardening + vitest compat shim.
+  - `engine.libs.assertNonEmptyStringParam`: enforce 1024-char cap. `assertAttributesParam`: 256-key + depth-16 caps. `engine.permissions()`: refuse batches >1024. `engine.can()` / `check()` / `explain()`: subjectId typeof + length-cap; fail-closed in production.
+  - File adapter dicts now `Object.create(null)` (prototype-pollution defense). `setSubjectAttributes('__proto__', ...)` no longer pollutes Object.prototype.
+  - HTTP adapter: streaming `readBodyCapped` + `readJsonCapped<T>` so multi-GB remote bodies cannot OOM before slice. ID-length caps. Backoff overflow cap. SSRF `redirect: 'error'`.
+  - Redis invalidator: pre-auth UTF-8 byte-length cap + depth/key-count cap on parsed envelopes.
+  - Hono adapter: body Reflect.get-parsed with typeof + length guards.
+  - Vitest compat shim for bun runtime (`stubGlobal` / `unstubAllGlobals` / `describe.runIf`); 8 previously-failing devtools tests now pass.
+
+  **Tests**: +42 across both packages, all green. No functional behavior changes beyond defensive guards on hostile input.
+
 ## 3.0.0
 
 ### Breaking - Engine facet split
@@ -11,15 +38,15 @@ flat - they are the hot path and benefit from a single noun.
 
 #### Migration
 
-| Before (<= 2.x)             | After (3.0)                 |
-| --------------------------------------- | -------------------------------------------- |
-| `engine.invalidate(opts)`        | `engine.cache.invalidate(opts)`       |
-| `engine.invalidateSubject(id, opts)`  | `engine.cache.invalidateSubject(id, opts)`  |
-| `engine.invalidatePolicies(opts)`    | `engine.cache.invalidatePolicies(opts)`   |
-| `engine.invalidateRoles(id?, opts)`   | `engine.cache.invalidateRoles(id?, opts)`  |
-| `engine.stats()`            | `engine.stats.get()`             |
-| `engine.resetStats()`          | `engine.stats.reset()`            |
-| `engine.flushSharedCaches()` (removed) | `import { flushSharedCaches } from ...`   |
+| Before (<= 2.x)                        | After (3.0)                                |
+| -------------------------------------- | ------------------------------------------ |
+| `engine.invalidate(opts)`              | `engine.cache.invalidate(opts)`            |
+| `engine.invalidateSubject(id, opts)`   | `engine.cache.invalidateSubject(id, opts)` |
+| `engine.invalidatePolicies(opts)`      | `engine.cache.invalidatePolicies(opts)`    |
+| `engine.invalidateRoles(id?, opts)`    | `engine.cache.invalidateRoles(id?, opts)`  |
+| `engine.stats()`                       | `engine.stats.get()`                       |
+| `engine.resetStats()`                  | `engine.stats.reset()`                     |
+| `engine.flushSharedCaches()` (removed) | `import { flushSharedCaches } from ...`    |
 
 Codemod is a five-line `sed`; no behavior change. Reason for cutting now
 instead of waiting: bundling the deprecation with `flushSharedCaches`'s
@@ -51,74 +78,74 @@ longer the only number.
 #### Architecture
 
 - **`runSingleFlight` + `runSingleFlightKeyed`**: 5 copies of the sentinel-
- compare in-flight pattern in `engine.ts` (`_loadPolicies`, `_loadRoles`,
- `_loadRbacPolicy`, `_loadAllPolicies`, `_resolveSubject`) collapsed to one
- helper. Same-class bugs (a missed sentinel in the merger) are now
- structurally impossible.
+  compare in-flight pattern in `engine.ts` (`_loadPolicies`, `_loadRoles`,
+  `_loadRbacPolicy`, `_loadAllPolicies`, `_resolveSubject`) collapsed to one
+  helper. Same-class bugs (a missed sentinel in the merger) are now
+  structurally impossible.
 - **`runAdminAuthz` + `withAdminAudit`**: extracted from the 4 server
- adapters (express / hono / nest / next). The csrf + authorize + try +
- audit shape lives in one place. Future changes land in one file instead
- of four.
+  adapters (express / hono / nest / next). The csrf + authorize + try +
+  audit shape lives in one place. Future changes land in one file instead
+  of four.
 - **Per-Engine evaluation caches**: `regex` and `path` caches threaded
- end-to-end through `evaluate / evaluateFast / evaluatePolicy /
- evaluatePolicyFast / matchCandidate / ruleApplies / evalConditionGroup /
- evalCondition / resolve`. Multi-tenant deployments instantiate one
- Engine per tenant; each owns its own caches and cannot be evicted by
- hostile-tenant pattern flooding. `flushSharedCaches()` remains for
- legacy callers.
+  end-to-end through `evaluate / evaluateFast / evaluatePolicy /
+evaluatePolicyFast / matchCandidate / ruleApplies / evalConditionGroup /
+evalCondition / resolve`. Multi-tenant deployments instantiate one
+  Engine per tenant; each owns its own caches and cannot be evicted by
+  hostile-tenant pattern flooding. `flushSharedCaches()` remains for
+  legacy callers.
 - **Drizzle typed selects**: 7 `as unknown as` casts at module-edge
- consolidated into 3 typed helpers (`_selectAll`, `_selectFirst`,
- `_selectWhere`). Type system is load-bearing again.
+  consolidated into 3 typed helpers (`_selectAll`, `_selectFirst`,
+  `_selectWhere`). Type system is load-bearing again.
 - **Adapter compliance suite** at `src/adapters/__compliance__/`. Every
- shipped adapter passes the same 21 scenarios. Caught a `revokeRole`
- drift in `MemoryAdapter` and `FileAdapter` (omitting `scope` should
- remove all matching role rows, not just the unscoped one).
+  shipped adapter passes the same 21 scenarios. Caught a `revokeRole`
+  drift in `MemoryAdapter` and `FileAdapter` (omitting `scope` should
+  remove all matching role rows, not just the unscoped one).
 - **Builder auto-validate**: `PolicyBuilder.build()` and
- `RoleBuilder.build()` run `validatePolicy` / `validateRole` and throw on
- error. Power-users wiring the adapter directly (bypassing
- `engine.admin.savePolicy`) see failures where the bug was introduced.
+  `RoleBuilder.build()` run `validatePolicy` / `validateRole` and throw on
+  error. Power-users wiring the adapter directly (bypassing
+  `engine.admin.savePolicy`) see failures where the bug was introduced.
 
 #### Bundle slim
 
 - **Lazy validator**: `engine.libs.ts` admin write paths
- (`savePolicy / saveRole / import`) now `await import('../validate')` on
- first call. The 12 KB validator chunk is skipped entirely by read-only
- services.
+  (`savePolicy / saveRole / import`) now `await import('../validate')` on
+  first call. The 12 KB validator chunk is skipped entirely by read-only
+  services.
 - **Subpath splits**: `@gentleduck/iam/core/validate`,
- `@gentleduck/iam/core/builder`, `@gentleduck/iam/core/explain`,
- `@gentleduck/iam/core/schema` each ship as separate entries.
- Tree-shaking drops them for consumers that don't import the subpath.
+  `@gentleduck/iam/core/builder`, `@gentleduck/iam/core/explain`,
+  `@gentleduck/iam/core/schema` each ship as separate entries.
+  Tree-shaking drops them for consumers that don't import the subpath.
 - **Barrel cleanup**: `src/index.ts` no longer re-exports `FileAdapter`,
- `MemoryAdapter`, or the validator. Adapter consumers go through subpath
- imports (`@gentleduck/iam/adapters/memory`).
+  `MemoryAdapter`, or the validator. Adapter consumers go through subpath
+  imports (`@gentleduck/iam/adapters/memory`).
 - **Drop 26 `@deprecated` 2.0->3.0 type aliases**. `.d.ts` surface clean.
- The deprecation window from 2.0.0 is closed; consumers were warned for
- two minor versions.
+  The deprecation window from 2.0.0 is closed; consumers were warned for
+  two minor versions.
 - **Forensic comments scrubbed**: 452 redundant `@author` JSDoc tags and
- 326 audit-trail reference comments removed from source.
+  326 audit-trail reference comments removed from source.
 
 #### New APIs
 
 - **`flushSharedCaches`** module-level export (`@gentleduck/iam` and
- `@gentleduck/iam/core`). The instance method `Engine#flushSharedCaches`
- is deprecated - it wiped process-globals despite being instance-bound.
+  `@gentleduck/iam/core`). The instance method `Engine#flushSharedCaches`
+  is deprecated - it wiped process-globals despite being instance-bound.
 - **`engine.preload({ validator: true })`** eagerly loads the lazy
- validator chunk at boot for operators who want every cost up front.
+  validator chunk at boot for operators who want every cost up front.
 - **`engine.permissions(..., { telemetry: false })`** opt-out of per-check
- `onMetrics` + `signals` allocation. Restores 2.0.x throughput on hot UI
- gates where `authorize()` already captures the metrics signal.
+  `onMetrics` + `signals` allocation. Restores 2.0.x throughput on hot UI
+  gates where `authorize()` already captures the metrics signal.
 - **`escapeHtml`** from `@gentleduck/iam/core/explain`. Safe HTML escape
- for consumers rendering `Explain.IResult.summary` into a debug panel.
+  for consumers rendering `Explain.IResult.summary` into a debug panel.
 - **`createEvalCaches`** from `@gentleduck/iam/core` constructs a fresh
- per-Engine cache pair if a consumer needs to build their own evaluator
- pipeline.
+  per-Engine cache pair if a consumer needs to build their own evaluator
+  pipeline.
 - **`splitPermissionKey`** from `@gentleduck/iam/shared/keys` reverses
- `buildPermissionKey` honouring escape sequences.
+  `buildPermissionKey` honouring escape sequences.
 
 #### Tests
 
 - 836 -> **943** (+107). The +107 is the new adapter compliance matrix
- applied to 5 adapters.
+  applied to 5 adapters.
 
 #### Stryker mutation testing scaffold
 
@@ -130,13 +157,13 @@ resolve + validate + server/generic + all 5 adapters. Not in CI by default
 
 Measured baselines (2.0.1 from `git worktree` clean build, not eyeballed):
 
-| Path | 2.0.1 | 2.1.0 | 2.2.0 |
-|---|---|---|---|
-| `evaluatePolicy` (conditions) | 1.33 µs | 1.00 µs | 1.00 µs |
-| `engine.can()` cached | 4.86 µs | 5.85 µs | 5.18 µs |
-| `engine.permissions()` x20 | 20.06 µs | 42.71 µs | 48.08 µs |
-| Bundle "import everything" | **38.4 KB** | 44.8 KB | **41.3 KB** |
-| Bundle realistic profile | n/a | n/a | **15-25 KB** |
+| Path                          | 2.0.1       | 2.1.0    | 2.2.0        |
+| ----------------------------- | ----------- | -------- | ------------ |
+| `evaluatePolicy` (conditions) | 1.33 µs     | 1.00 µs  | 1.00 µs      |
+| `engine.can()` cached         | 4.86 µs     | 5.85 µs  | 5.18 µs      |
+| `engine.permissions()` x20    | 20.06 µs    | 42.71 µs | 48.08 µs     |
+| Bundle "import everything"    | **38.4 KB** | 44.8 KB  | **41.3 KB**  |
+| Bundle realistic profile      | n/a         | n/a      | **15-25 KB** |
 
 Net 2.0.1 -> 2.2.0 bundle delta: **+2.9 KB (+7.5%)**. Earlier docs cited
 a ~21 KB pre-cycle number - that was estimated from a partial dist, not
@@ -152,9 +179,9 @@ to ~22 µs for callers who opt out.
 
 ## 2.1.0
 
-### Adversarial security audit cycle 
+### Adversarial security audit cycle
 
-A second multi-round audit pass after 2.0.0. Spans **21 rescan cycles** across two adversarial security-auditor agents plus a silent-failure hunter and a code-smell scanner. Resulted in **~60 fix commits** addressing 1 CRITICAL, 7 HIGH, 11 Medium, 12 Low, and 4 Info findings on top of the 2.0.0 hardening. Three consecutive clean rescans (Med+ free) declared the source tree exhausted: *"the package is genuinely hard to break."*
+A second multi-round audit pass after 2.0.0. Spans **21 rescan cycles** across two adversarial security-auditor agents plus a silent-failure hunter and a code-smell scanner. Resulted in **~60 fix commits** addressing 1 CRITICAL, 7 HIGH, 11 Medium, 12 Low, and 4 Info findings on top of the 2.0.0 hardening. Three consecutive clean rescans (Med+ free) declared the source tree exhausted: _"the package is genuinely hard to break."_
 
 The change set is **mostly backward compatible** with two notable defaults:
 
@@ -221,7 +248,7 @@ The change set is **mostly backward compatible** with two notable defaults:
 - **CAVEAT-1**: `createRedisInvalidator({ tenantId })` auto-prefixes the channel `'duck-iam:invalidate:tenant:${tenantId}'`. Validates `tenantId` against `/^[A-Za-z0-9_-]{1,64}$/` so attacker-controlled tenant slugs cannot inject pub/sub wildcards.
 - **CAVEAT-2**: Admin routers default-on CSRF via `defaultCsrfCheck` (Sec-Fetch-Site check). `csrfCheck: false` opts out for bearer/mTLS APIs.
 - **CAVEAT-3**: `SECURITY.md` adds a 10-section **Deployment Hardening Guide** covering identity sourcing, admin CSRF, Redis tenancy, cache scoping, `defaultEffect:'allow'`, `explain()` output trust, adapter trust, file `rootDir`, HTTP `allowedHosts`, observability wiring.
-- ****: `getCachedRegex` / `getSegments` accept optional per-instance cache override. `clearRegexCache()` / `clearPathCache()` exported. `Engine.flushSharedCaches()` ergonomic operator API for multi-tenant deployments.
+- \*\*\*\*: `getCachedRegex` / `getSegments` accept optional per-instance cache override. `clearRegexCache()` / `clearPathCache()` exported. `Engine.flushSharedCaches()` ergonomic operator API for multi-tenant deployments.
 
 #### New APIs (additive)
 
@@ -408,17 +435,17 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - 0e80f84: Add Redis adapter, Drizzle schemas, and full integration test coverage.
 
- **New: `RedisAdapter`** at `@gentleduck/iam/adapters/redis`. Distributed key/value backend with idempotent `assignRole` (set semantics), multi-tenant `keyPrefix`, and a minimal `RedisLike` interface that ioredis, node-redis v4+, and Upstash all satisfy directly.
+  **New: `RedisAdapter`** at `@gentleduck/iam/adapters/redis`. Distributed key/value backend with idempotent `assignRole` (set semantics), multi-tenant `keyPrefix`, and a minimal `RedisLike` interface that ioredis, node-redis v4+, and Upstash all satisfy directly.
 
- **New: pre-built Drizzle schemas** at `@gentleduck/iam/adapters/drizzle/schema/{pg,mysql,sqlite}`. Drop-in tables for all three SQL dialects with the right column types, FK cascade on `roleId`, unique index on `(subjectId, roleId, scope)`, and auto-managed `created_at`/`updated_at`. Generate migrations via `drizzle-kit generate`.
+  **New: pre-built Drizzle schemas** at `@gentleduck/iam/adapters/drizzle/schema/{pg,mysql,sqlite}`. Drop-in tables for all three SQL dialects with the right column types, FK cascade on `roleId`, unique index on `(subjectId, roleId, scope)`, and auto-managed `created_at`/`updated_at`. Generate migrations via `drizzle-kit generate`.
 
- **Test coverage expansion**: every adapter, server middleware, and client integration now has dedicated tests. Total test count went from 309 to 498. New test files:
+  **Test coverage expansion**: every adapter, server middleware, and client integration now has dedicated tests. Total test count went from 309 to 498. New test files:
 
- - `adapters/prisma`, `adapters/drizzle`, `adapters/http`, `adapters/redis`
- - `server/express`, `server/hono`, `server/nest`, `server/next`
- - `client/react`, `client/vue`
+- `adapters/prisma`, `adapters/drizzle`, `adapters/http`, `adapters/redis`
+- `server/express`, `server/hono`, `server/nest`, `server/next`
+- `client/react`, `client/vue`
 
- **Optional peer deps added**: `drizzle-orm`, `ioredis`, `redis` (all optional).
+**Optional peer deps added**: `drizzle-orm`, `ioredis`, `redis` (all optional).
 
 ## 1.6.2
 
@@ -444,13 +471,13 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - e682b61: Add optional scope parameter to grant() for permission-level scoping
 
- The `grant()` method now accepts an optional third `scope` argument:
- `.grant('update', 'post', 'org-1')`. This enables permission-level
- scoping directly without needing `grantScoped()`. The existing
- `grantScoped(scope, action, resource)` method remains available.
+The `grant()` method now accepts an optional third `scope` argument:
+`.grant('update', 'post', 'org-1')`. This enables permission-level
+scoping directly without needing `grantScoped()`. The existing
+`grantScoped(scope, action, resource)` method remains available.
 
- Also fixed incorrect `first-applicable` references in JSDoc comments
- to use the correct algorithm names `first-match` and `highest-priority`.
+Also fixed incorrect `first-applicable` references in JSDoc comments
+to use the correct algorithm names `first-match` and `highest-priority`.
 
 ## 1.4.0
 
@@ -458,9 +485,9 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - 72c449b: Add FlexibleDollarPaths for $-value autocomplete and fix AttrValue for optional properties
 
- - FlexibleDollarPaths<TContext> added directly to method value signatures so the IDE shows $-prefixed autocomplete (e.g. $subject.id) even without a custom context
- - AttrValue now strips undefined from optional properties - yearsExperience?: number correctly resolves to number instead of falling back to AttributeValue
- - StringConditionValue no longer includes (string & {}) internally - the flexible string fallback is handled at the method signature level via FlexibleDollarPaths
+- FlexibleDollarPaths<TContext> added directly to method value signatures so the IDE shows $-prefixed autocomplete (e.g. $subject.id) even without a custom context
+- AttrValue now strips undefined from optional properties - yearsExperience?: number correctly resolves to number instead of falling back to AttributeValue
+- StringConditionValue no longer includes (string & {}) internally - the flexible string fallback is handled at the method signature level via FlexibleDollarPaths
 
 ## 1.3.2
 
@@ -468,12 +495,12 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - 2dd9f8b: feat: FlexibleDotPaths for DefaultContext autocomplete and strict ConditionValue type safety
 
- - DotPaths now bails to `never` (not `string`) for string-indexed types, preventing
+- DotPaths now bails to `never` (not `string`) for string-indexed types, preventing
   union pollution that killed IDE autocomplete.
- - New FlexibleDotPaths<T> detects open-ended attribute bags (like DefaultContext) and
+- New FlexibleDotPaths<T> detects open-ended attribute bags (like DefaultContext) and
   adds `(string & {})` so known structural paths autocomplete while arbitrary strings
   are still accepted. Fully typed contexts remain strict.
- - ConditionValue correctly restricts non-string value types: `env('hour', 'lt', '')`
+- ConditionValue correctly restricts non-string value types: `env('hour', 'lt', '')`
   now errors when `hour` is `number`, instead of accepting any AttributeValue.
 
 ## 1.3.1
@@ -482,9 +509,9 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 - b62bb5b: fix: prevent DotPaths from recursing into array methods and functions
 
- DotPaths now treats arrays as leaf paths and skips function-valued properties,
- so autocomplete only shows real data properties instead of array methods like
- `length`, `push`, `toString`, etc.
+DotPaths now treats arrays as leaf paths and skips function-valued properties,
+so autocomplete only shows real data properties instead of array methods like
+`length`, `push`, `toString`, etc.
 
 ## 1.3.0
 
