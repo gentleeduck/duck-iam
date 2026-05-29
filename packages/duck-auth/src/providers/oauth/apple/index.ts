@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * Sign in with Apple. The OAuth flow shape matches the rest of the
  * providers (PKCE-S256 + HMAC state + nonce) but Apple's client_secret
  * is a per-request ES256 JWT rather than a static string. This
@@ -13,16 +12,15 @@
  * shares it on the very first consent), so capturing it requires app
  * cooperation; for now we surface sub + email which is sufficient for
  * the OAuthProvider profileToIdentityProfile hook.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { createSign } from 'node:crypto'
 import type { Provider } from '../../../core/types/provider'
-import { OAuthClient, type OAuthEndpoints } from '../core/client'
-import { type OAuthBeginInput, type OAuthCompleteInput, type OAuthOptionsBase, oauthProvider } from '../core/provider'
+import { OAuthClient } from '../core/client'
+import { type OAuthProvider, oauthProvider } from '../core/provider'
+import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const APPLE_ENDPOINTS: OAuthEndpoints = {
+const APPLE_ENDPOINTS: OAuthClient.IEndpoints = {
   authorizationEndpoint: 'https://appleid.apple.com/auth/authorize',
   tokenEndpoint: 'https://appleid.apple.com/auth/token',
   userinfoEndpoint: '',
@@ -30,32 +28,34 @@ const APPLE_ENDPOINTS: OAuthEndpoints = {
 }
 
 /**
- * Apple-specific options. `clientSecret` from `OAuthOptionsBase` is
- * ignored; the secret is generated per request from the team / key /
- * private-key triple.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the Apple OAuth provider. Every type lives
+ * inside the namespace.
  */
-export interface AppleOAuthOptions<Profile = unknown> extends Omit<OAuthOptionsBase<Profile>, 'clientSecret'> {
-  /** Apple Developer Team ID (10-char alphanumeric). */
-  teamId: string
-  /** Key ID associated with the AuthKey_*.p8 file in Apple Developer. */
-  keyId: string
+export namespace AppleOAuth {
   /**
-   * The contents of the AuthKey_*.p8 file (ES256 private key, PEM).
-   * Treat as a secret; load from a secrets manager.
+   * Apple-specific options. `clientSecret` from
+   * `OAuthProvider.IOptionsBase` is ignored; the secret is generated
+   * per request from the team / key / private-key triple.
    */
-  privateKey: string
-  /** Default `['name', 'email']`. */
-  scopes?: string[]
+  export interface IOptions<Profile = unknown> extends Omit<OAuthProvider.IOptionsBase<Profile>, 'clientSecret'> {
+    /** Apple Developer Team ID (10-char alphanumeric). */
+    teamId: string
+    /** Key ID associated with the AuthKey_*.p8 file. */
+    keyId: string
+    /**
+     * The contents of the AuthKey_*.p8 file (ES256 private key, PEM).
+     * Treat as a secret; load from a secrets manager.
+     */
+    privateKey: string
+    /** Default `['name', 'email']`. */
+    scopes?: string[]
+  }
 }
 
 /**
  * Generate a fresh Apple client_secret JWT. Valid for `ttlSec`
  * seconds; Apple caps at 6 months. We default to 30 minutes so the
  * exposed surface is tiny.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 function generateAppleClientSecret(
   opts: { teamId: string; keyId: string; privateKey: string; clientId: string },
@@ -88,11 +88,11 @@ function derToJose(der: Buffer, halfLen: number): Buffer {
   let offset = 2
   if ((der[1] ?? 0) & 0x80) offset = 2 + ((der[1] ?? 0) & 0x7f)
   if (der[offset] !== 0x02) throw new Error('expected r INTEGER')
-  const rLen = der[offset + 1]!
+  const rLen = der.readUInt8(offset + 1)
   let r = der.subarray(offset + 2, offset + 2 + rLen)
   offset = offset + 2 + rLen
   if (der[offset] !== 0x02) throw new Error('expected s INTEGER')
-  const sLen = der[offset + 1]!
+  const sLen = der.readUInt8(offset + 1)
   let s = der.subarray(offset + 2, offset + 2 + sLen)
   if (r[0] === 0 && r.length === halfLen + 1) r = r.subarray(1)
   if (s[0] === 0 && s.length === halfLen + 1) s = s.subarray(1)
@@ -101,25 +101,56 @@ function derToJose(der: Buffer, halfLen: number): Buffer {
   return Buffer.concat([rPad, sPad])
 }
 
-/** Decode an id_token payload (claims only; signature verification not done). */
-function decodeIdToken(idToken: string): { sub: string; email?: string; email_verified?: boolean } | null {
+/**
+ * Decode an id_token payload (claims only; signature verification not done).
+ *
+ * the prior code returned `JSON.parse(...)`
+ * directly as the declared type - a structural lie over Apple-returned
+ * JSON. A malformed id_token with `sub: 42` (number) would have flowed
+ * downstream into `findByProviderSub('apple', 42, ...)` with type-
+ * confused values; on SQL adapters the lookup would coerce `42` to the
+ * string `'42'` and could collide with another identity whose legitimate
+ * sub happens to be `'42'`. The signature side of the trust model is
+ * "we got this id_token from Apple's token endpoint over TLS after
+ * authenticating with client_secret JWT" - that's enough to skip
+ * signature verification, but NOT enough to skip claim-shape
+ * validation against malformed responses.
+ *
+ * Exported (vs prior module-private) so tests can drive it without
+ * mocking a full Apple OAuth callback round-trip.
+ */
+export function decodeIdToken(idToken: string): { sub: string; email?: string; email_verified?: boolean } | null {
   const parts = idToken.split('.')
   if (parts.length !== 3) return null
+  let raw: unknown
   try {
-    return JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8'))
+    raw = JSON.parse(Buffer.from(parts[1] ?? '', 'base64url').toString('utf8'))
   } catch {
     return null
   }
+  const sub = getUserinfoString(raw, 'sub')
+  if (sub === undefined) return null
+  const out: { sub: string; email?: string; email_verified?: boolean } = { sub }
+  const email = getUserinfoString(raw, 'email')
+  if (email !== undefined) out.email = email
+  // Apple's claim is sometimes string `"true"` instead of boolean -
+  // accept either for the verified case, but use strict checks.
+  if (getUserinfoBooleanTrue(raw, 'email_verified')) {
+    out.email_verified = true
+  } else if (typeof raw === 'object' && raw !== null && Reflect.get(raw, 'email_verified') === 'true') {
+    // Apple specifically: string-encoded boolean. RFC 7519 doesn't
+    // mandate booleans for custom claims, so we accept both forms.
+    out.email_verified = true
+  }
+  return out
 }
 
 /**
  * Sign in with Apple provider factory.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function apple<Profile = unknown>(
-  opts: AppleOAuthOptions<Profile>,
-): Provider.IProvider<OAuthBeginInput, OAuthCompleteInput, Profile> {
+  opts: AppleOAuth.IOptions<Profile>,
+): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
   const client = new OAuthClient({
     clientId: opts.clientId,
     clientSecret: '', // ignored - the OAuthClient uses the dynamic secret hook
@@ -147,20 +178,16 @@ export function apple<Profile = unknown>(
       profileToIdentityProfile: opts.profileToIdentityProfile,
     }),
     async fetchProfile(tokens) {
-      // Apple does not expose a userinfo endpoint; everything is in id_token.
-      const tokenObj = tokens as { id_token?: string }
-      if (!tokenObj.id_token) {
+      // Apple has no userinfo endpoint; everything is in id_token.
+      if (!tokens.id_token) {
         return { sub: '' }
       }
-      const claims = decodeIdToken(tokenObj.id_token)
+      const claims = decodeIdToken(tokens.id_token)
       if (!claims) return { sub: '' }
       const out: { sub: string; email?: string; emailVerified?: boolean } = { sub: claims.sub }
       if (claims.email !== undefined) {
         out.email = claims.email
-        // Apple only returns email_verified when the address is real
-        // (not a private-relay alias). Treat private-relay aliases as
-        // verified too - they cannot be created without Apple owning
-        // the inbox.
+        // Treat relay aliases as verified; only Apple can create them.
         out.emailVerified = claims.email_verified ?? true
       }
       return out
@@ -169,14 +196,11 @@ export function apple<Profile = unknown>(
 }
 
 /**
- * Namespace merge for `AppleOAuth`. Also exports the JWT helper for
- * callers who want to pre-mint the client_secret out-of-band.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Augment the AppleOAuth namespace with the client_secret helper for
+ * advanced callers who want to pre-mint the JWT out-of-band.
  */
+// eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace AppleOAuth {
-  /** Alias for `AppleOAuthOptions`. */
-  export type IOptions = AppleOAuthOptions
   /** Re-export of the client_secret JWT helper for advanced callers. */
   export const generateClientSecret = generateAppleClientSecret
 }

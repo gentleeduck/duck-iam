@@ -153,4 +153,30 @@ describe('password provider - end-to-end sign-in', () => {
     expect(resolved?.session.id).toBe(signin.session!.id)
     expect(resolved?.identity?.profile?.email).toBe('a@x.com')
   })
+
+  describe('email case-folding parity', () => {
+    it('signs in with mixed-case email when identity is stored lowercase', async () => {
+      const identity = await auth.identities.create({ profile: { email: 'alice@x.com' } })
+      await auth.passwords.set(identity.id, 'correct-pw')
+      const result = await auth.flows.signIn({
+        providerId: 'password',
+        input: { email: '  ALICE@X.com  ', password: 'correct-pw' },
+      })
+      expect(result.session!.identityId).toBe(identity.id)
+    })
+
+    it('rate-limit shares one bucket across mixed-case + whitespace variants', async () => {
+      // Two unsuccessful attempts in different casing should still count
+      // against the same email key. The limit is 5 / 60s in buildAuth().
+      for (let i = 0; i < 5; i++) {
+        const caseStyle = i % 2 === 0 ? 'GHOST@x.com' : ' ghost@x.com '
+        await auth.flows
+          .signIn({ providerId: 'password', input: { email: caseStyle, password: 'bad' } })
+          .catch(() => {})
+      }
+      await expect(
+        auth.flows.signIn({ providerId: 'password', input: { email: 'ghost@x.com', password: 'bad' } }),
+      ).rejects.toMatchObject({ code: 'AUTH/RATE_LIMITED' })
+    })
+  })
 })

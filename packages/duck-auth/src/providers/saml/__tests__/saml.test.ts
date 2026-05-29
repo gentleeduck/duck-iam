@@ -1,14 +1,9 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
 import { InMemoryEvents } from '../../../core/events'
 import { MemoryLimiter } from '../../../limiters/memory'
-import { type SamlClientLike, type SamlProfile, samlProvider } from '../index'
+import { SamlProvider, samlProvider } from '../index'
 
 interface MyProfile {
   email: string
@@ -29,11 +24,11 @@ function ctxFor(adapter: MemoryAuthAdapter<MyProfile>) {
   }
 }
 
-function makeClient(overrides: Partial<SamlClientLike> = {}): SamlClientLike {
+function makeClient(overrides: Partial<SamlProvider.IClient> = {}): SamlProvider.IClient {
   return {
     getAuthorizeUrlAsync: vi.fn(async () => 'https://idp.example/sso?SAMLRequest=AAA'),
     validatePostResponseAsync: vi.fn(async () => ({
-      profile: { nameID: 'sso-user-1', email: 'user@x.com' } as SamlProfile,
+      profile: { nameID: 'sso-user-1', email: 'user@x.com' } as SamlProvider.IProfile,
       loggedOut: false,
     })),
     ...overrides,

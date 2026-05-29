@@ -1,120 +1,136 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { sha256 } from '../../../core/crypto'
 import { AuthErrorObject } from '../../../core/errors'
 import type { Provider } from '../../../core/types/provider'
-import type { OAuthClient, OAuthEndpoints } from './client'
+import type { OAuthClient } from './client'
 import { generatePkce } from './pkce'
 import { buildState, signState, verifyState } from './state'
 
 /**
- * Canonical profile shape after a provider extracts it from userinfo /
- * id_token / provider-specific endpoint. Providers (google, github, ...)
- * map their idiosyncratic field names to this shape.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the generic OAuth provider. Every type lives
+ * inside the namespace.
  */
-export interface OAuthProfile {
-  /** Stable subject identifier at the provider (OIDC `sub`). */
-  sub: string
-  email?: string
-  emailVerified?: boolean
-  name?: string
-  avatarUrl?: string
-}
-
-/**
- * Shared option surface every provider-specific OAuth options interface
- * (Google / GitHub / Apple / Discord / ...) extends. Keeps consumer call
- * sites identical across providers + gives library a single place to
- * evolve cross-provider knobs (DPoP, PKCE relaxation, etc.).
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface OAuthOptionsBase<Profile = unknown> {
-  /** OAuth client id assigned by the IdP. */
-  clientId: string
-  /** Client secret. Confidential clients (server-side) only. */
-  clientSecret: string
-  /** Exact callback URL registered with the IdP. Must match. */
-  redirectUri: string
-  /** Per-AuthRoot signing secret for the OAuth `state` parameter. */
-  stateSigningSecret: string
-  /** Override IdP scopes; falls back to provider default. */
-  scopes?: string[]
-  /** Override fetch impl (test stubs). */
-  fetch?: typeof globalThis.fetch
-  /** Customise identity resolution at signin time. */
-  onSignIn?: OAuthProviderOptions<Profile>['onSignIn']
-  /** Project canonical OAuthProfile into the consumer's Profile shape. */
-  profileToIdentityProfile?: OAuthProviderOptions<Profile>['profileToIdentityProfile']
-}
-
-export interface OAuthProviderOptions<Profile = unknown> {
-  /** Stable id; library prefixes with `oauth:` for consistency. */
-  providerId: string
-  client: OAuthClient
-  endpoints: OAuthEndpoints | (() => Promise<OAuthEndpoints>)
-  /** Redirect URI registered with the provider - must be exact match. */
-  redirectUri: string
-  /** Secret used to sign the OAuth `state` parameter. */
-  stateSigningSecret: string
-  /** Extract a canonical profile from the token response + provider userinfo. */
-  fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OAuthClient) => Promise<OAuthProfile>
-  /** Map a canonical OAuth profile to the consumer's Profile shape on first sign-in. */
-  profileToIdentityProfile?: (p: OAuthProfile) => Profile
+export namespace OAuthProvider {
   /**
-   * Optional: receive the canonical profile + existing identity match (by sub)
-   * and decide which identity to log in. Returns null to refuse the sign-in.
-   * Default: find-by-sub, else find-by-email + auto-link, else auto-create.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+   * Canonical profile shape after a provider extracts it from
+   * userinfo / id_token / provider-specific endpoint. Providers
+   * (google, github, ...) map their idiosyncratic field names to this
+   * shape.
    */
-  onSignIn?: (ctx: {
-    profile: OAuthProfile
-    findByProviderSub: (providerSub: string) => Promise<{ id: string } | null>
-    findByEmail: (email: string) => Promise<{ id: string } | null>
-    createIdentity: (profile: Profile) => Promise<{ id: string }>
-    linkProvider: (identityId: string, providerSub: string) => Promise<void>
-  }) => Promise<{ identityId: string } | null>
-}
+  export interface IProfile {
+    /** Stable subject identifier at the provider (OIDC `sub`). */
+    sub: string
+    email?: string
+    emailVerified?: boolean
+    name?: string
+    avatarUrl?: string
+  }
 
-export interface OAuthBeginInput {
-  /** Optional return-to path; the library appends to the front-end after callback. */
-  returnTo?: string
-}
+  /**
+   * Shared option surface every provider-specific OAuth options
+   * interface (Google / GitHub / Apple / Discord / ...) extends.
+   */
+  export interface IOptionsBase<Profile = unknown> {
+    /** OAuth client id assigned by the IdP. */
+    clientId: string
+    /** Client secret. Confidential clients (server-side) only. */
+    clientSecret: string
+    /** Exact callback URL registered with the IdP. Must match. */
+    redirectUri: string
+    /** Per-AuthRoot signing secret for the OAuth `state` parameter. */
+    stateSigningSecret: string
+    /** Override IdP scopes; falls back to provider default. */
+    scopes?: string[]
+    /** Override fetch impl (test stubs). */
+    fetch?: typeof globalThis.fetch
+    /** Customise identity resolution at signin time. */
+    onSignIn?: IOptions<Profile>['onSignIn']
+    /** Project canonical IProfile into the consumer's Profile shape. */
+    profileToIdentityProfile?: IOptions<Profile>['profileToIdentityProfile']
+  }
 
-export interface OAuthCompleteInput {
-  /** Authorisation code returned by the provider. */
-  code: string
-  /** Opaque state value the library issued at begin. */
-  state: string
+  /** Full options surface consumed by `oauthProvider`. */
+  export interface IOptions<Profile = unknown> {
+    /** Stable id; library prefixes with `oauth:` for consistency. */
+    providerId: string
+    client: OAuthClient
+    endpoints: OAuthClient.IEndpoints | (() => Promise<OAuthClient.IEndpoints>)
+    /** Redirect URI registered with the provider. */
+    redirectUri: string
+    /** Secret used to sign the OAuth `state` parameter. */
+    stateSigningSecret: string
+    /** Extract a canonical profile from the token response + userinfo. */
+    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OAuthClient) => Promise<IProfile>
+    /** Map IProfile -> consumer Profile shape on first sign-in. */
+    profileToIdentityProfile?: (p: IProfile) => Profile
+    /** Identity-resolution override; null return refuses sign-in. */
+    onSignIn?: (ctx: {
+      profile: IProfile
+      findByProviderSub: (providerSub: string) => Promise<{ id: string } | null>
+      findByEmail: (email: string) => Promise<{ id: string } | null>
+      createIdentity: (profile: Profile) => Promise<{ id: string }>
+      linkProvider: (identityId: string, providerSub: string) => Promise<void>
+    }) => Promise<{ identityId: string } | null>
+    /**
+     * Federation conflict policy. Fires when the
+     * OAuth profile's email matches an existing identity but no
+     * matching provider-sub link exists yet. The default behaviour
+     * is `'reject'` - the safest pre-1.1 stance, because OAuth
+     * providers that do NOT mark the email as verified would
+     * otherwise enable account-takeover via email squatting.
+     *
+     * - `'reject'`: throw `AUTH/PROVIDER_FAILED` with detail
+     *   `federation-conflict`.
+     * - `'link-if-verified'`: link the new provider IFF the OAuth
+     *   profile's `email_verified` claim is true; otherwise reject.
+     * - `(ctx) => Promise<'link' | 'reject'>`: caller-supplied
+     *   hook for "merge-after-confirmation" - the app prompts the
+     *   user out-of-band and resolves with the verdict.
+     */
+    onFederationConflict?: OAuthProvider.IFederationPolicy
+  }
+
+  /** Policy + hook shape for the federation conflict workflow. */
+  export type IFederationPolicy =
+    | 'reject'
+    | 'link-if-verified'
+    | ((ctx: { existingIdentityId: string; profile: IProfile; providerId: string }) => Promise<'link' | 'reject'>)
+
+  /** Input to {@link oauthProvider}.begin. */
+  export interface IBeginInput {
+    /** Optional return-to path; library appends to the front-end after callback. */
+    returnTo?: string
+  }
+
+  /** Input to {@link oauthProvider}.complete. */
+  export interface ICompleteInput {
+    /** Authorisation code returned by the provider. */
+    code: string
+    /** Opaque state value the library issued at begin. */
+    state: string
+  }
 }
 
 /**
- * Generic OAuth provider. Specific provider modules (google, github)
- * pre-fill endpoints + scopes + fetchProfile and re-export.
- *
- * Refresh-token reuse detection is documented at DESIGN section 4; the
- * persistence half lives in the credentials store under
- * `kind: 'oauth'` + `metadata.familyId / generation / replayedAt`.
- * v0.2 wires the auto-detect-on-refresh flow into FlowsFacet; for v0.1
- * each provider stores the refresh token + family id so reuse
- * detection logic can be added without a schema migration.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Generic OAuth provider. Specific provider modules (google, github,
+ * ...) pre-fill endpoints + scopes + fetchProfile and re-export.
  */
 export function oauthProvider<Profile = unknown>(
-  opts: OAuthProviderOptions<Profile>,
-): Provider.IProvider<OAuthBeginInput, OAuthCompleteInput, Profile> {
+  opts: OAuthProvider.IOptions<Profile>,
+): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
   const fullProviderId = `oauth:${opts.providerId}`
+  // Refuse a malformed `redirectUri` at construction so a misconfigured
+  // value (e.g. `javascript:alert(1)`, an unparseable string, or one carrying
+  // CR/LF for header injection) cannot reach the IdP authorize URL or our
+  // session-issue path.
+  if (!isValidOAuthRedirectUri(opts.redirectUri)) {
+    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      detail: `oauth.redirectUri must be an http(s) URL with no CR/LF (got: ${typeof opts.redirectUri})`,
+    })
+  }
   return {
     id: fullProviderId,
     kind: 'oauth',
-    async begin(ctx, input) {
+    async begin(_ctx, input) {
       const pkce = generatePkce()
       const statePayload = buildState(fullProviderId, pkce.verifier, {
         ...(input?.returnTo !== undefined && { returnTo: input.returnTo }),
@@ -128,6 +144,13 @@ export function oauthProvider<Profile = unknown>(
       return [{ type: 'redirect', url, status: 302 }]
     },
     async complete(ctx, input) {
+      // 2KB cap on `code` prevents outbound-amplification to the IdP.
+      if (typeof input.code !== 'string' || input.code.length === 0 || input.code.length > 2048) {
+        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          providerId: fullProviderId,
+          detail: 'invalid authorization code',
+        })
+      }
       const verified = verifyState(input.state, opts.stateSigningSecret)
       if (!verified) {
         throw new AuthErrorObject('AUTH/OAUTH_STATE_MISMATCH')
@@ -149,7 +172,6 @@ export function oauthProvider<Profile = unknown>(
         })
       }
 
-      // Identity resolution
       let identityId: string | null = null
       if (opts.onSignIn) {
         const r = await opts.onSignIn({
@@ -188,6 +210,20 @@ export function oauthProvider<Profile = unknown>(
         } else if (profile.email) {
           const byEmail = await ctx.stores.identities.findByEmail(profile.email, ctx.tenant)
           if (byEmail) {
+            // Email matches but no sub link; silent auto-link is ATO bait.
+            const policy = opts.onFederationConflict ?? 'reject'
+            const verdict = await resolveFederationConflict(policy, {
+              existingIdentityId: byEmail.id,
+              profile,
+              providerId: fullProviderId,
+            })
+            if (verdict === 'reject') {
+              throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+                providerId: fullProviderId,
+                detail:
+                  'federation-conflict: an existing identity owns this email; provider-sub link refused under the configured policy',
+              })
+            }
             await ctx.stores.identities.link(
               byEmail.id,
               { providerId: fullProviderId, providerSub: profile.sub, addedAt: Date.now() },
@@ -211,7 +247,6 @@ export function oauthProvider<Profile = unknown>(
         }
       }
 
-      // Persist tokens + family id for reuse detection (RFC 6749 section 10.4).
       if (tokens.refresh_token) {
         const familyId = `${fullProviderId}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
         await ctx.stores.credentials.upsert(
@@ -245,20 +280,35 @@ export function oauthProvider<Profile = unknown>(
 }
 
 /**
- * Namespace merge for `OAuthProvider`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Resolve a federation-conflict policy to a `'link' | 'reject'`
+ * verdict. Kept module-local so callers cannot bypass the
+ * `'link-if-verified'` semantics (which require BOTH
+ * `profile.emailVerified === true` AND an unambiguous email match).
  */
-export namespace OAuthProvider {
-  /** Alias for the flat `OAuthProfile` type. */
-  export type IOAuthProfile = OAuthProfile
-  /** Alias for the flat `OAuthOptionsBase` type. */
-  export type IOAuthOptionsBase = OAuthOptionsBase
-  /** Alias for the flat `OAuthProviderOptions` type. */
-  export type IOptions = OAuthProviderOptions
-  /** Alias for the flat `OAuthBeginInput` type. */
-  export type IOAuthBeginInput = OAuthBeginInput
-  /** Alias for the flat `OAuthCompleteInput` type. */
-  export type IOAuthCompleteInput = OAuthCompleteInput
+async function resolveFederationConflict(
+  policy: OAuthProvider.IFederationPolicy,
+  ctx: { existingIdentityId: string; profile: OAuthProvider.IProfile; providerId: string },
+): Promise<'link' | 'reject'> {
+  if (policy === 'reject') return 'reject'
+  if (policy === 'link-if-verified') {
+    return ctx.profile.emailVerified === true ? 'link' : 'reject'
+  }
+  // Operator-supplied callback. Refuse anything other than the documented
+  // {'link' | 'reject'} discriminator so a buggy/typo'd return doesn't
+  // accidentally fall-through to 'link' (the dangerous default).
+  const verdict = await policy(ctx)
+  return verdict === 'link' ? 'link' : 'reject'
+}
+
+function isValidOAuthRedirectUri(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  if (value.length === 0 || value.length > 2048) return false
+  if (value.includes('\r') || value.includes('\n')) return false
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return false
+  }
+  return parsed.protocol === 'https:' || parsed.protocol === 'http:'
 }

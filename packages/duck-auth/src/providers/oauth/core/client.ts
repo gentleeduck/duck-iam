@@ -1,77 +1,101 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { AuthErrorObject } from '../../../core/errors'
 
 /**
- * OIDC / OAuth2 endpoints. Either supplied directly (Google, GitHub,
- * static well-known providers) or resolved at runtime via discovery for
- * generic OIDC issuers (`well-known/openid-configuration`).
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the OAuth client. Every type lives inside the
+ * namespace.
  */
-export interface OAuthEndpoints {
-  authorizationEndpoint: string
-  tokenEndpoint: string
-  /** OIDC userinfo (optional - providers often expose a profile endpoint instead). */
-  userinfoEndpoint?: string
-  /** OIDC revocation (optional). */
-  revocationEndpoint?: string
-}
-
-export interface OAuthClientOptions {
-  clientId: string
-  clientSecret?: string
+export namespace OAuthClient {
   /**
-   * Per-request client_secret generator. When provided, called on
-   * every exchangeCode / refresh call and the return value used as
-   * `client_secret` in the form body. Designed for Sign in with Apple
-   * (the secret is a fresh-per-call ES256 JWT) and similar non-static
-   * secret providers. Takes precedence over `clientSecret` when set.
+   * OIDC / OAuth2 endpoints. Supplied directly (Google, GitHub,
+   * static well-known providers) or resolved at runtime via discovery
+   * for generic OIDC issuers.
    */
-  dynamicClientSecret?: () => string | Promise<string>
-  /** Endpoints; can be promised when discovering at boot. */
-  endpoints: OAuthEndpoints | (() => Promise<OAuthEndpoints>)
-  /** OAuth2 scopes the provider should request. */
-  scopes: string[]
-  /** Override the fetch impl (test stubs). */
-  fetch?: typeof globalThis.fetch
-}
+  export interface IEndpoints {
+    authorizationEndpoint: string
+    tokenEndpoint: string
+    /** OIDC userinfo (optional - providers often expose a profile endpoint instead). */
+    userinfoEndpoint?: string
+    /** OIDC revocation (optional). */
+    revocationEndpoint?: string
+  }
 
-export interface TokenResponse {
-  access_token: string
-  token_type: string
-  expires_in?: number
-  refresh_token?: string
-  id_token?: string
-  scope?: string
+  /** Config knobs for the OAuth client. */
+  export interface IOptions {
+    clientId: string
+    clientSecret?: string
+    /**
+     * Per-request client_secret generator. When provided, called on
+     * every exchangeCode / refresh and used as `client_secret` in the
+     * form body. Designed for Sign in with Apple. Takes precedence
+     * over `clientSecret`.
+     */
+    dynamicClientSecret?: () => string | Promise<string>
+    /** Endpoints; can be promised when discovering at boot. */
+    endpoints: IEndpoints | (() => Promise<IEndpoints>)
+    /** OAuth2 scopes the provider should request. */
+    scopes: string[]
+    /** Override the fetch impl (test stubs). */
+    fetch?: typeof globalThis.fetch
+  }
+
+  /** Standard OAuth2 token-endpoint response. */
+  export interface ITokenResponse {
+    access_token: string
+    token_type: string
+    expires_in?: number
+    refresh_token?: string
+    id_token?: string
+    scope?: string
+  }
 }
 
 export class OAuthClient {
-  private _endpoints: OAuthEndpoints | null = null
+  private _endpoints: OAuthClient.IEndpoints | null = null
 
-  constructor(private readonly _opts: OAuthClientOptions) {}
+  constructor(private readonly _opts: OAuthClient.IOptions) {}
 
   /**
    * Resolve the per-call client_secret. Dynamic generator wins when
    * supplied (Sign in with Apple); otherwise the static value is used.
    * Returns undefined when neither is configured (PKCE public clients).
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   private async _resolveSecret(): Promise<string | undefined> {
     if (this._opts.dynamicClientSecret) {
       const value = await this._opts.dynamicClientSecret()
-      return value || undefined
+      // Reject non-string returns from the operator's dynamic-secret callback;
+      // a falsy/object/number value would otherwise propagate into the URLSearchParams
+      // body as the literal string and corrupt the token exchange.
+      if (typeof value !== 'string') return undefined
+      return value.length === 0 ? undefined : value
     }
     return this._opts.clientSecret || undefined
   }
 
-  private async _resolveEndpoints(): Promise<OAuthEndpoints> {
+  private async _resolveEndpoints(): Promise<OAuthClient.IEndpoints> {
     if (this._endpoints) return this._endpoints
     const e = typeof this._opts.endpoints === 'function' ? await this._opts.endpoints() : this._opts.endpoints
+    // Validate endpoint URLs at resolution time. A buggy/typo'd dynamic
+    // endpoints callback that returns a `javascript:`/`file:` URL would
+    // otherwise reach fetch() and either fail unhelpfully or fire on an
+    // unintended scheme.
+    if (typeof e?.authorizationEndpoint !== 'string' || !isHttpUrl(e.authorizationEndpoint)) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'oauth: authorizationEndpoint must be an http(s) URL' })
+    }
+    if (typeof e.tokenEndpoint !== 'string' || !isHttpUrl(e.tokenEndpoint)) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'oauth: tokenEndpoint must be an http(s) URL' })
+    }
+    if (
+      e.userinfoEndpoint !== undefined &&
+      (typeof e.userinfoEndpoint !== 'string' || !isHttpUrl(e.userinfoEndpoint))
+    ) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'oauth: userinfoEndpoint must be an http(s) URL' })
+    }
+    if (
+      e.revocationEndpoint !== undefined &&
+      (typeof e.revocationEndpoint !== 'string' || !isHttpUrl(e.revocationEndpoint))
+    ) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'oauth: revocationEndpoint must be an http(s) URL' })
+    }
     this._endpoints = e
     return e
   }
@@ -100,7 +124,11 @@ export class OAuthClient {
   }
 
   /** Exchange an authorisation code for tokens. PKCE verifier required. */
-  async exchangeCode(opts: { code: string; redirectUri: string; codeVerifier: string }): Promise<TokenResponse> {
+  async exchangeCode(opts: {
+    code: string
+    redirectUri: string
+    codeVerifier: string
+  }): Promise<OAuthClient.ITokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
@@ -124,11 +152,19 @@ export class OAuthClient {
         detail: `token endpoint returned ${res.status}: ${text.slice(0, 200)}`,
       })
     }
-    return (await res.json()) as TokenResponse
+    // Strict parse; non-numeric `expires_in` would propagate NaN past expiry.
+    const tokens = parseTokenResponse(await readJsonSafe(res))
+    if (!tokens) {
+      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        providerId: 'oauth',
+        detail: 'token endpoint returned malformed response',
+      })
+    }
+    return tokens
   }
 
-  /** Refresh-token rotation; throws on any non-2xx. Reuse detection is at the facet level. */
-  async refresh(refreshToken: string): Promise<TokenResponse> {
+  /** Refresh-token rotation; throws on any non-2xx. */
+  async refresh(refreshToken: string): Promise<OAuthClient.ITokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
@@ -150,7 +186,14 @@ export class OAuthClient {
         detail: `refresh failed ${res.status}: ${text.slice(0, 200)}`,
       })
     }
-    return (await res.json()) as TokenResponse
+    const tokens = parseTokenResponse(await readJsonSafe(res))
+    if (!tokens) {
+      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        providerId: 'oauth',
+        detail: 'refresh endpoint returned malformed response',
+      })
+    }
+    return tokens
   }
 
   /** Fetch the OIDC userinfo profile (when the provider exposes one). */
@@ -171,21 +214,91 @@ export class OAuthClient {
         detail: `userinfo failed ${res.status}`,
       })
     }
-    return (await res.json()) as Record<string, unknown>
+    // userinfo bodies are IdP-controlled. Require an object shape
+    // before handing the body back to caller-supplied `fetchProfile`.
+    const json = await readJsonSafe(res)
+    if (!isPlainObject(json)) {
+      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        providerId: 'oauth',
+        detail: 'userinfo returned non-object body',
+      })
+    }
+    return json
+  }
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value)
+    return u.protocol === 'https:' || u.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+async function readJsonSafe(res: Response): Promise<unknown> {
+  // Stream + cap so a hostile IdP that streams a multi-GB body cannot OOM us
+  // before we ever reach JSON.parse. Real OAuth token / userinfo bodies are
+  // <10KB; 64KB is generous.
+  const MAX_BYTES = 64 * 1024
+  const reader = res.body?.getReader()
+  if (!reader) {
+    try {
+      return await res.json()
+    } catch {
+      return null
+    }
+  }
+  const decoder = new TextDecoder()
+  let text = ''
+  let bytes = 0
+  try {
+    while (bytes < MAX_BYTES) {
+      const { value, done } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      text += decoder.decode(value, { stream: true })
+      if (bytes >= MAX_BYTES) return null
+    }
+    text += decoder.decode()
+  } catch {
+    return null
+  } finally {
+    void reader.cancel().catch(() => {})
+  }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
   }
 }
 
 /**
- * Namespace merge for `OAuthClient`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * validator for OAuth2 token-endpoint responses (RFC 6749 §5.1).
+ * Replaces an `as OAuthClient.ITokenResponse` cast over IdP-supplied
+ * JSON. A non-numeric `expires_in` was particularly dangerous: callers
+ * compute `accessTokenExpiresAt = Date.now() + expires_in * 1000`, and
+ * `Date.now() + NaN === NaN` would persist a never-expiring access
+ * token into the family metadata (where {@link parseFamilyMetadata}
+ * now rejects it on read, but the write should also fail closed).
  */
-export namespace OAuthClient {
-  /** Alias for the flat `OAuthEndpoints` type. */
-  export type IOAuthEndpoints = OAuthEndpoints
-  /** Alias for the flat `OAuthClientOptions` type. */
-  export type IOptions = OAuthClientOptions
-  /** Alias for the flat `TokenResponse` type. */
-  export type ITokenResponse = TokenResponse
+function parseTokenResponse(raw: unknown): OAuthClient.ITokenResponse | null {
+  if (!isPlainObject(raw)) return null
+  const { access_token, token_type, expires_in, refresh_token, id_token, scope } = raw
+  if (typeof access_token !== 'string' || access_token.length === 0) return null
+  if (typeof token_type !== 'string' || token_type.length === 0) return null
+  if (expires_in !== undefined && (typeof expires_in !== 'number' || !Number.isFinite(expires_in))) return null
+  if (refresh_token !== undefined && typeof refresh_token !== 'string') return null
+  if (id_token !== undefined && typeof id_token !== 'string') return null
+  if (scope !== undefined && typeof scope !== 'string') return null
+  const r: OAuthClient.ITokenResponse = { access_token, token_type }
+  if (expires_in !== undefined) r.expires_in = expires_in
+  if (refresh_token !== undefined) r.refresh_token = refresh_token
+  if (id_token !== undefined) r.id_token = id_token
+  if (scope !== undefined) r.scope = scope
+  return r
 }
