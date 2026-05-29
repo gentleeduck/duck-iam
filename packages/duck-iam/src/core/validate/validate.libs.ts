@@ -3,6 +3,10 @@ import { MAX_CONDITION_DEPTH, MAX_REGEX_LENGTH } from '../conditions/conditions.
 import { ALLOWED_ROOTS } from '../resolve/resolve'
 import type { Validate } from './validate.types'
 
+function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
 /**
  * Maximum number of unbounded quantifiers (`+`, `*`, `{n,}`) allowed in a
  * single `matches` pattern. Beyond this the surface area for catastrophic
@@ -266,7 +270,7 @@ export const VALID_OPERATORS = new Set([
  * @param depth  - Current nesting depth (defaults to `0`; bounded by `MAX_CONDITION_DEPTH`).
  */
 export function validateConditionItem(input: unknown, path: string, issues: Validate.IIssue[], depth = 0): void {
-  if (typeof input !== 'object' || input === null) {
+  if (!isPlainObjectLike(input)) {
     issues.push({
       type: 'error',
       code: 'INVALID_CONDITION',
@@ -276,7 +280,7 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
     return
   }
 
-  const obj = input as Record<string, unknown>
+  const obj = input
 
   if ('field' in obj) {
     if (typeof obj.field !== 'string' || !obj.field) {
@@ -427,12 +431,12 @@ export function validateConditionGroup(input: unknown, path: string, issues: Val
  * @param issues - Array to push validation issues into.
  */
 export function validateRuleShape(input: unknown, path: string, issues: Validate.IIssue[]): void {
-  if (typeof input !== 'object' || input === null) {
+  if (!isPlainObjectLike(input)) {
     issues.push({ type: 'error', code: 'INVALID_RULE', message: 'Rule must be an object', path })
     return
   }
 
-  const rule = input as Record<string, unknown>
+  const rule = input
 
   if (typeof rule.id !== 'string' || !rule.id) {
     issues.push({

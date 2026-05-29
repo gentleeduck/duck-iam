@@ -128,8 +128,8 @@ Plus `m2m` (`client_credentials` OAuth2 grant), `compliance` (FIPS / HIPAA / SOC
 | `@gentleduck/auth/providers/oauth/discord` | Discord OAuth |
 | `@gentleduck/auth/providers/oauth/linkedin` | LinkedIn OAuth |
 | `@gentleduck/auth/providers/oauth/apple` | Sign in with Apple |
-| `@gentleduck/auth/providers/oauth/core` | Generic OIDC base (build your own) |
-| `@gentleduck/auth/providers/saml` | SAML 2.0 SP (lazy peerDep on `node-saml`) |
+| `@gentleduck/auth/providers/oauth/core` | Generic OAuth2 / OIDC client base. Build your own per-IdP wrapper |
+| `@gentleduck/auth/providers/saml` | Wrapper over `@node-saml/node-saml` (lazy peerDep): SP-initiated + IdP-initiated SSO, SP metadata XML generation, Single Logout (SP- and IdP-initiated) |
 
 ## Transports
 
@@ -233,7 +233,11 @@ import { recaptchaVerifier } from '@gentleduck/auth/captcha/recaptcha'
 |---|---|
 | `@gentleduck/auth/cli` | `duck-auth init` / `doctor` / `keys generate` |
 | `@gentleduck/auth/openapi` | `buildOpenApiSpec` + `renderOpenApiYaml` for the auth surface |
-| `@gentleduck/auth/oidc` | OIDC discovery doc + JWKS route helper |
+| `@gentleduck/auth/oidc` | OIDC discovery-doc + JWKS helper |
+| `@gentleduck/auth/oidc/op` | Full OAuth2/OIDC OP: `/authorize` (code + S256 PKCE), `/token` (auth_code + refresh, family-rotated), `/userinfo`, `/introspect`, `/revoke`, `/register` (RFC 7591 Dynamic Client Registration) |
+| `@gentleduck/auth/oidc/op/drizzle/pg` | Postgres Drizzle stores for the OIDC OP (5 tables, GC helper) |
+| `@gentleduck/auth/oidc/op/drizzle/sqlite` | SQLite Drizzle stores for the OIDC OP |
+| `@gentleduck/auth/oidc/op/drizzle/mysql` | MySQL Drizzle stores for the OIDC OP |
 | `@gentleduck/auth/i18n` | Message catalogue + Lingui adapter |
 | `@gentleduck/auth/telemetry` | OpenTelemetry metrics instrumentation |
 

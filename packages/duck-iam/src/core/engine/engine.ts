@@ -3,17 +3,21 @@ import { buildPermissionKey } from '../../shared/keys'
 import { clearRegexCache } from '../conditions/conditions.libs'
 import { evaluate, evaluateFast } from '../evaluate'
 import type { Explain } from '../explain'
-import { explainEvaluation } from '../explain'
-import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, Adapter, Client, Request } from '../types'
+import { emitMetrics, safeHookCall } from './engine.hooks'
 import {
-  createAdmin,
-  deepFreezePolicy,
-  enrichSubjectWithScopedRoles,
-  runSingleFlight,
-  runSingleFlightKeyed,
-} from './engine.libs'
+  applyInvalidateEvent,
+  type IEngineCacheBag,
+  invalidateAll,
+  invalidatePolicies,
+  invalidateRoles,
+  invalidateSubject,
+} from './engine.invalidation'
+import { createAdmin, enrichSubjectWithScopedRoles } from './engine.libs'
+import { disposeInvalidator, preloadEngine, runHealthCheck } from './engine.lifecycle'
+import { type ILoaderDeps, loadAllPolicies, resolveSubject } from './engine.loaders'
+import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
 import type { EngineTypes } from './engine.types'
 
 /**
@@ -84,11 +88,13 @@ export class Engine<
   private _subjectCache: LRUCache<Request.ISubject>
   // Single-flight: coalesce concurrent cache-misses so a cold start under load
   // doesn't fan out N identical adapter calls. Cleared once the promise settles.
-  private _policiesInFlight: Promise<AccessControl.IPolicy[]> | null = null
-  private _rolesInFlight: Promise<AccessControl.IRole[]> | null = null
-  private _rbacInFlight: Promise<AccessControl.IPolicy> | null = null
-  private _mergedInFlight: Promise<AccessControl.IPolicy[]> | null = null
-  private _subjectsInFlight = new Map<string, Promise<Request.ISubject>>()
+  private _inFlight = {
+    policies: { value: null as Promise<AccessControl.IPolicy[]> | null },
+    roles: { value: null as Promise<AccessControl.IRole[]> | null },
+    rbac: { value: null as Promise<AccessControl.IPolicy> | null },
+    merged: { value: null as Promise<AccessControl.IPolicy[]> | null },
+    subjects: new Map<string, Promise<Request.ISubject>>(),
+  }
   /**
    * Per-instance evaluation caches. Multi-tenant deployments instantiate
    * one Engine per tenant; each owns its own regex + path caches and
@@ -229,171 +235,54 @@ export class Engine<
     })
   }
 
+  /** @internal Build the cache-bag the helper modules use to mutate state. */
+  private _cacheBag(): IEngineCacheBag<TRole> {
+    return {
+      policyCache: this._policyCache,
+      roleCache: this._roleCache,
+      rbacPolicyCache: this._rbacPolicyCache,
+      mergedPolicyCache: this._mergedPolicyCache,
+      subjectCache: this._subjectCache,
+      inFlight: this._inFlight,
+      ...(this._invalidator !== undefined && { invalidator: this._invalidator }),
+    }
+  }
+
   /** Apply a cross-instance invalidate event to local caches. */
   private _applyInvalidateEvent(event: EngineTypes.IInvalidateEvent<TRole>): void {
-    switch (event.kind) {
-      case 'all':
-        this._invalidateAll({ broadcast: false })
-        return
-      case 'policies':
-        this._invalidatePolicies({ broadcast: false })
-        return
-      case 'roles':
-        this._invalidateRoles(event.roleId, { broadcast: false })
-        return
-      case 'subject':
-        this._invalidateSubject(event.subjectId, { broadcast: false })
-    }
+    applyInvalidateEvent(this._cacheBag(), event)
   }
 
   /**
    * Release the invalidator subscription. Call when discarding the engine.
    */
   dispose(): void {
-    this._invalidatorUnsub?.()
-    this._invalidatorUnsub = null
+    this._invalidatorUnsub = disposeInvalidator(this._invalidatorUnsub).unsub
   }
 
   /** Load all policies from the adapter, using the cache if available. */
-  private async _loadPolicies(): Promise<AccessControl.IPolicy[]> {
-    const cached = this._policyCache.get('all')
-    if (cached) return cached
-    if (this._policiesInFlight) return this._policiesInFlight
-    return runSingleFlight(
-      () => this._policiesInFlight,
-      (p) => {
-        this._policiesInFlight = p
-      },
-      async () => {
-        const policies = await this._withTimeout((opts) => this._adapter.listPolicies(opts), 'listPolicies')
-        if (policies.length > this._maxPolicies) {
-          throw new Error(
-            `[@gentleduck/iam:engine] adapter returned ${policies.length} policies; maxPolicies is ${this._maxPolicies}. Raise the limit or fix the adapter.`,
-          )
-        }
-        return policies
-      },
-      (policies) => {
-        this._policyCache.set('all', policies)
-      },
-    )
+  /** @internal Build the loader deps. */
+  private _loaderDeps(): ILoaderDeps<TAction, TResource, TRole, TScope> {
+    return {
+      adapter: this._adapter,
+      policyCache: this._policyCache,
+      roleCache: this._roleCache,
+      rbacPolicyCache: this._rbacPolicyCache,
+      mergedPolicyCache: this._mergedPolicyCache,
+      subjectCache: this._subjectCache,
+      inFlight: this._inFlight,
+      maxPolicies: this._maxPolicies,
+      maxRoles: this._maxRoles,
+      withTimeout: (fn, label) => this._withTimeout(fn, label),
+    }
   }
 
-  /** Load all roles from the adapter, using the cache if available. */
-  private async _loadRoles(): Promise<AccessControl.IRole[]> {
-    const cached = this._roleCache.get('all')
-    if (cached) return cached
-    if (this._rolesInFlight) return this._rolesInFlight
-    return runSingleFlight(
-      () => this._rolesInFlight,
-      (p) => {
-        this._rolesInFlight = p
-      },
-      async () => {
-        const roles = await this._withTimeout((opts) => this._adapter.listRoles(opts), 'listRoles')
-        if (roles.length > this._maxRoles) {
-          throw new Error(
-            `[@gentleduck/iam:engine] adapter returned ${roles.length} roles; maxRoles is ${this._maxRoles}. Raise the limit or fix the adapter.`,
-          )
-        }
-        return roles
-      },
-      (roles) => {
-        this._roleCache.set('all', roles)
-      },
-    )
+  private _resolveSubject(subjectId: string): Promise<Request.ISubject> {
+    return resolveSubject(this._loaderDeps(), subjectId)
   }
 
-  /** Resolve a subject's roles, scoped roles, and attributes, using the cache if available. */
-  private async _resolveSubject(subjectId: string): Promise<Request.ISubject> {
-    const cached = this._subjectCache.get(subjectId)
-    if (cached) return cached
-    const inFlight = this._subjectsInFlight.get(subjectId)
-    if (inFlight) return inFlight
-    return runSingleFlightKeyed(
-      this._subjectsInFlight,
-      subjectId,
-      async () => {
-        const [assignedRoles, attributes, allRoles] = await Promise.all([
-          this._withTimeout((opts) => this._adapter.getSubjectRoles(subjectId, opts), 'getSubjectRoles'),
-          this._withTimeout((opts) => this._adapter.getSubjectAttributes(subjectId, opts), 'getSubjectAttributes'),
-          this._loadRoles(),
-        ])
-        const roles = resolveEffectiveRoles(assignedRoles, allRoles)
-        const scopedRolesFn = this._adapter.getSubjectScopedRoles
-        const scopedRoles = scopedRolesFn
-          ? await this._withTimeout(
-              (opts) => scopedRolesFn.call(this._adapter, subjectId, opts),
-              'getSubjectScopedRoles',
-            )
-          : undefined
-        const subject: Request.ISubject = { id: subjectId, roles, scopedRoles, attributes }
-        return subject
-      },
-      (subject) => {
-        this._subjectCache.set(subjectId, subject)
-      },
-    )
-  }
-
-  /**
-   * Load RBAC + ABAC policies for evaluation.
-   * Each user-defined policy keeps its own combining algorithm.
-   * The RBAC-generated policy uses allow-overrides (set by rolesToPolicy).
-   * The rolesToPolicy() conversion is cached to avoid recomputation.
-   */
-  private async _loadAllPolicies(): Promise<AccessControl.IPolicy[]> {
-    const cached = this._mergedPolicyCache.get('merged')
-    if (cached) return cached
-    if (this._mergedInFlight) return this._mergedInFlight
-    // runSingleFlight handles sentinel-compare so an invalidate() mid-await
-    // cannot repopulate the merged cache with stale rules.
-    return runSingleFlight(
-      () => this._mergedInFlight,
-      (p) => {
-        this._mergedInFlight = p
-      },
-      async () => {
-        const [policies, rbacPolicy] = await Promise.all([this._loadPolicies(), this._loadRbacPolicy()])
-        // Skip the RBAC policy when it has no rules - including it would
-        // contribute a default-effect deny under AND combine.
-        return rbacPolicy.rules.length === 0 ? policies : [rbacPolicy, ...policies]
-      },
-      (merged) => {
-        this._mergedPolicyCache.set('merged', merged)
-      },
-    )
-  }
-
-  /**
-   * Build the auto-generated RBAC policy from the role graph.
-   *
-   * Single-flighted so concurrent callers after a TTL eviction share one
-   * rebuild promise. The build itself is sync but `loadRoles()` is async on
-   * cold-miss, so the await window is where double-compute would otherwise
-   * happen.
-   *
-   * Cached output is **deep-frozen** - every consumer (`evaluate`, `explain`,
-   * `evaluateFast`) reads the same reference, and a callee that mutates a
-   * shared rule's `actions` array would corrupt every future request.
-   */
-  private async _loadRbacPolicy(): Promise<AccessControl.IPolicy> {
-    const cached = this._rbacPolicyCache.get('rbac')
-    if (cached) return cached
-    if (this._rbacInFlight) return this._rbacInFlight
-    return runSingleFlight(
-      () => this._rbacInFlight,
-      (p) => {
-        this._rbacInFlight = p
-      },
-      async () => {
-        const roles = await this._loadRoles()
-        return deepFreezePolicy(rolesToPolicy(roles))
-      },
-      (built) => {
-        this._rbacPolicyCache.set('rbac', built)
-      },
-    )
+  private _loadAllPolicies(): Promise<AccessControl.IPolicy[]> {
+    return loadAllPolicies(this._loaderDeps())
   }
 
   /**
@@ -513,19 +402,7 @@ export class Engine<
    * the engine never surfaces hook bugs as authz failures.
    */
   private async _safeHookCall(fn: () => unknown, hookName: string): Promise<void> {
-    try {
-      await fn()
-    } catch (err) {
-      // console.error itself can throw (closed stdout in a daemon, broken
-      // pipe, user-replaced Console with a buggy override). A throw here
-      // would escape _safeHookCall and re-expose the original hook throw.
-      try {
-        // eslint-disable-next-line no-console
-        console.error(`[@gentleduck/iam:engine] ${hookName} hook threw - swallowed to preserve decision`, err)
-      } catch {
-        /* last-resort: give up logging; decision is more important than diagnostics */
-      }
-    }
+    await safeHookCall(fn, hookName)
   }
 
   /**
@@ -539,30 +416,7 @@ export class Engine<
     t0: number,
     failOpen: boolean,
   ): void {
-    const hook = this._hooks.onMetrics
-    if (!hook) return
-    // Hook throws must not escape - _emitMetrics is called from catch arms
-    // whose entire purpose is producing a fail-closed deny. A throwing
-    // onMetrics there would replace the deny with a raw error.
-    try {
-      hook({
-        subjectId: req.subject.id,
-        action: req.action,
-        resource: req.resource.type,
-        allowed,
-        durationMs: performance.now() - t0,
-        mode: this._mode,
-        failOpen,
-      })
-    } catch (err) {
-      // Defensive - see _safeHookCall.
-      try {
-        // eslint-disable-next-line no-console
-        console.error('[@gentleduck/iam:engine] onMetrics hook threw - swallowed to preserve decision', err)
-      } catch {
-        /* last-resort: give up logging */
-      }
-    }
+    emitMetrics(this._hooks, req, allowed, t0, failOpen, this._mode)
   }
 
   /**
@@ -711,6 +565,11 @@ export class Engine<
     }
 
     const allPolicies = await this._loadAllPolicies()
+
+    // Lazy import: production mode users (which throw before this point)
+    // pay zero bytes for the explain chunk. Bundlers split this into its
+    // own chunk.
+    const { explainEvaluation } = await import('../explain')
 
     return explainEvaluation(
       allPolicies,
@@ -894,6 +753,17 @@ export class Engine<
     return this._admin
   }
 
+  /** @internal Cache references for the stats helper. */
+  private _cachesForStats() {
+    return {
+      policyCache: this._policyCache,
+      roleCache: this._roleCache,
+      rbacPolicyCache: this._rbacPolicyCache,
+      mergedPolicyCache: this._mergedPolicyCache,
+      subjectCache: this._subjectCache,
+    }
+  }
+
   /** @internal Snapshot per-cache counters. Reached via {@link stats.get}. */
   private _statsSnapshot(): {
     policies: { hits: number; misses: number; size: number }
@@ -902,91 +772,32 @@ export class Engine<
     mergedPolicies: { hits: number; misses: number; size: number }
     subjects: { hits: number; misses: number; size: number }
   } {
-    return {
-      policies: this._policyCache.stats,
-      roles: this._roleCache.stats,
-      rbacPolicy: this._rbacPolicyCache.stats,
-      mergedPolicies: this._mergedPolicyCache.stats,
-      subjects: this._subjectCache.stats,
-    }
+    return statsSnapshotHelper(this._cachesForStats())
   }
 
   /** @internal Zero per-cache counters. Reached via {@link stats.reset}. */
   private _resetStats(): void {
-    this._policyCache.resetStats()
-    this._roleCache.resetStats()
-    this._rbacPolicyCache.resetStats()
-    this._mergedPolicyCache.resetStats()
-    this._subjectCache.resetStats()
+    resetStatsHelper(this._cachesForStats())
   }
 
   /** @internal Clear all caches + in-flight resolvers. Reached via {@link cache.invalidate}. */
   private _invalidateAll(opts: { broadcast?: boolean } = {}): void {
-    this._policyCache.clear()
-    this._roleCache.clear()
-    this._rbacPolicyCache.clear()
-    this._subjectCache.clear()
-    this._policiesInFlight = null
-    this._rolesInFlight = null
-    this._rbacInFlight = null
-    this._mergedInFlight = null
-    this._mergedPolicyCache.clear()
-    this._subjectsInFlight.clear()
-    if (opts.broadcast !== false && this._invalidator) {
-      void this._invalidator.publish({ kind: 'all' })
-    }
+    invalidateAll(this._cacheBag(), opts)
   }
 
   /** @internal Clear one subject's cached data. Reached via {@link cache.invalidateSubject}. */
   private _invalidateSubject(subjectId: string, opts: { broadcast?: boolean } = {}): void {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return
-    this._subjectCache.delete(subjectId)
-    this._subjectsInFlight.delete(subjectId)
-    if (opts.broadcast !== false && this._invalidator) {
-      void this._invalidator.publish({ kind: 'subject', subjectId })
-    }
+    invalidateSubject(this._cacheBag(), subjectId, opts)
   }
 
   /** @internal Clear cached policies. Reached via {@link cache.invalidatePolicies}. */
   private _invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
-    this._policyCache.clear()
-    this._policiesInFlight = null
-    this._mergedInFlight = null
-    this._mergedPolicyCache.clear()
-    if (opts.broadcast !== false && this._invalidator) {
-      void this._invalidator.publish({ kind: 'policies' })
-    }
+    invalidatePolicies(this._cacheBag(), opts)
   }
 
   /** @internal Clear cached roles + selectively drop affected subjects. Reached via {@link cache.invalidateRoles}. */
   private _invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
-    // Treat invalid roleId (non-string / oversize) as "clear all subjects"
-    // (the safer, fail-closed branch) rather than silently no-oping.
-    if (roleId !== undefined && (typeof roleId !== 'string' || roleId.length === 0 || roleId.length > 1024)) {
-      roleId = undefined
-    }
-    this._roleCache.clear()
-    this._rbacPolicyCache.clear()
-    this._rolesInFlight = null
-    this._rbacInFlight = null
-    this._mergedInFlight = null
-    this._mergedPolicyCache.clear()
-    if (roleId === undefined) {
-      this._subjectCache.clear()
-      this._subjectsInFlight.clear()
-    } else {
-      for (const [subjectId, subject] of this._subjectCache.entries()) {
-        const inRoles = subject.roles.includes(roleId)
-        const inScoped = subject.scopedRoles?.some((sr) => sr.role === roleId) ?? false
-        if (inRoles || inScoped) {
-          this._subjectCache.delete(subjectId)
-          this._subjectsInFlight.delete(subjectId)
-        }
-      }
-    }
-    if (opts.broadcast !== false && this._invalidator) {
-      void this._invalidator.publish({ kind: 'roles', roleId })
-    }
+    invalidateRoles(this._cacheBag(), roleId, opts)
   }
 
   /**
@@ -1000,9 +811,10 @@ export class Engine<
    * services can leave it off.
    */
   async preload(opts: { validator?: boolean } = {}): Promise<void> {
-    const tasks: Array<Promise<unknown>> = [this._loadAllPolicies()]
-    if (opts.validator) tasks.push(import('../validate'))
-    await Promise.all(tasks)
+    await preloadEngine({
+      loadAllPolicies: () => this._loadAllPolicies(),
+      loadValidator: opts.validator === true,
+    })
   }
 
   /**
@@ -1015,34 +827,8 @@ export class Engine<
    * @returns A {@link EngineTypes.IHealth} snapshot.
    */
   async healthCheck(): Promise<EngineTypes.IHealth> {
-    const t0 = performance.now()
-    let adapter: 'ok' | 'fail' = 'ok'
-    let lastError: string | undefined
-    try {
+    return runHealthCheck(this._cachesForStats(), async () => {
       await this._withTimeout((opts) => this._adapter.listPolicies(opts), 'healthCheck.listPolicies')
-    } catch (err) {
-      adapter = 'fail'
-      lastError = err instanceof Error ? err.message : String(err)
-    }
-    const s = this._statsSnapshot()
-    const total =
-      s.policies.hits +
-      s.policies.misses +
-      s.roles.hits +
-      s.roles.misses +
-      s.rbacPolicy.hits +
-      s.rbacPolicy.misses +
-      s.mergedPolicies.hits +
-      s.mergedPolicies.misses +
-      s.subjects.hits +
-      s.subjects.misses
-    const hits = s.policies.hits + s.roles.hits + s.rbacPolicy.hits + s.mergedPolicies.hits + s.subjects.hits
-    return {
-      ok: adapter === 'ok',
-      adapter,
-      cacheHitRate: total === 0 ? 0 : hits / total,
-      adapterLatencyMs: Math.round(performance.now() - t0),
-      lastError,
-    }
+    })
   }
 }

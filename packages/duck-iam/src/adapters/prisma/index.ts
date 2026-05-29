@@ -1,4 +1,5 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
+import { parsePolicyRow, parseRoleRow } from '../../core/validate'
 
 /**
  * Row shapes expected from Prisma models.
@@ -117,7 +118,12 @@ export class PrismaAdapter<
    */
   async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = await this.prisma.accessPolicy.findMany()
-    return rows.map(toPolicy) as AccessControl.IPolicy<TAction, TResource, TRole>[]
+    const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
+    for (const row of rows) {
+      const policy = parsePolicyRow<TAction, TResource, TRole>(toPolicy(row))
+      if (policy !== null) out.push(policy)
+    }
+    return out
   }
 
   /**
@@ -132,7 +138,7 @@ export class PrismaAdapter<
     _opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const row = await this.prisma.accessPolicy.findUnique({ where: { id } })
-    return row ? (toPolicy(row) as AccessControl.IPolicy<TAction, TResource, TRole>) : null
+    return row ? parsePolicyRow<TAction, TResource, TRole>(toPolicy(row)) : null
   }
 
   /**
@@ -168,7 +174,12 @@ export class PrismaAdapter<
    */
   async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this.prisma.accessRole.findMany()
-    return rows.map(toRole) as AccessControl.IRole<TAction, TResource, TRole, TScope>[]
+    const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
+    for (const row of rows) {
+      const role = parseRoleRow<TAction, TResource, TRole, TScope>(toRole(row))
+      if (role !== null) out.push(role)
+    }
+    return out
   }
 
   /**
@@ -183,7 +194,7 @@ export class PrismaAdapter<
     _opts?: Adapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const row = await this.prisma.accessRole.findUnique({ where: { id } })
-    return row ? (toRole(row) as AccessControl.IRole<TAction, TResource, TRole, TScope>) : null
+    return row ? parseRoleRow<TAction, TResource, TRole, TScope>(toRole(row)) : null
   }
 
   /**
