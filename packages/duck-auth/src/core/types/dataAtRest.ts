@@ -1,18 +1,10 @@
 /**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
-/**
  * Data-at-rest encryption adapter. Field-level encrypt/decrypt for
  * sensitive Identity.profile fields (SSN, DOB, phone) without forcing
  * every consumer onto the same KMS. Library calls encrypt/decrypt with
  * a (field, identityId) context so adapters can derive per-record keys
  * via envelope encryption against AWS KMS / GCP KMS / Vault / etc.
  *
- * DESIGN section C5.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace DataAtRest {
   export interface IContext {
@@ -20,8 +12,7 @@ export namespace DataAtRest {
     field: string
     /** Identity row id; lets adapters tie keys to subjects + meet
      *  GDPR right-to-erasure by destroying the per-subject DEK.
-     *
-     * @author wildduck2 <https://github.com/gentleeduck/duck-iam> */
+     */
     identityId: string
     /** Optional opaque tag for tenant or row revision; passes through. */
     tag?: string

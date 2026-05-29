@@ -1,37 +1,6 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { Anomaly } from '../types/anomaly'
 
-/**
- * Impossible-travel detector. Compares the request's geo coordinates
- * with the session's last-known coords (set by the framework adapter at
- * session.create). When the implied speed between the two locations
- * exceeds `maxKmPerHour` (default 900, faster than a commercial jet),
- * emit a signal.
- *
- * Notes
- *   - Requires a GeoIP provider on the caller side; library does not
- *     ship MaxMind or ipinfo by default (licensing). Apps pass
- *     coordinates pre-resolved via the request snapshot.
- *   - Score scales linearly with overshoot above the threshold and
- *     caps at 1.0 at 2x the threshold.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface ImpossibleTravelConfig {
-  /** Max speed (km/h) above which the gap counts as suspicious. Default 900. */
-  maxKmPerHour: number
-  /** Minimum elapsed time between samples (ms) before evaluating. Default 60s
-   *  (sub-minute gaps are usually NAT mobility, not travel).
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam> */
-  minElapsedMs: number
-}
-
-const DEFAULT_CONFIG: ImpossibleTravelConfig = {
+const DEFAULT_CONFIG: ImpossibleTravel.IConfig = {
   maxKmPerHour: 900,
   minElapsedMs: 60_000,
 }
@@ -50,24 +19,40 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
  * Build an impossible-travel detector. Pass `getLastSeen(identityId)`
  * so the detector can read the prior coords from wherever the app
  * persists them (often `Identity.attributes.lastSeen`).
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function impossibleTravelDetector(opts: {
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>
-  config?: Partial<ImpossibleTravelConfig>
+  config?: Partial<ImpossibleTravel.IConfig>
 }): Anomaly.IDetector {
-  const cfg: ImpossibleTravelConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
+  const cfg: ImpossibleTravel.IConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
+  // reject pathological maxKmPerHour at construction so the
+  // detector cannot silently turn into a permissive bypass.
+  if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
+    throw new Error(`impossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`)
+  }
   return {
     id: 'impossible-travel',
     async evaluate({ identity, req }) {
-      if (!req.geo?.lat || !req.geo?.lon) return []
+      // explicit `=== undefined` checks. Truthy `!req.geo?.lat`
+      // also rejected lat===0 (Equator), suppressing legit signals from
+      // West Africa / Gulf of Guinea; same for lon===0 (Prime Meridian).
+      if (req.geo?.lat === undefined || req.geo?.lon === undefined) return []
+      // Number.isFinite refuses string/NaN/Infinity from a buggy geo resolver;
+      // would otherwise poison Math.sin / Math.cos and propagate NaN through
+      // haversine.
+      if (!Number.isFinite(req.geo.lat) || !Number.isFinite(req.geo.lon)) return []
       const last = await opts.getLastSeen(identity.id)
       if (!last) return []
+      if (!Number.isFinite(last.lat) || !Number.isFinite(last.lon) || !Number.isFinite(last.at)) return []
       const elapsedMs = req.now - last.at
-      if (elapsedMs < cfg.minElapsedMs) return []
+      // Negative elapsed (clock skew) would make negative speed <= max (bypass).
+      if (Math.abs(elapsedMs) < cfg.minElapsedMs) return []
       const distanceKm = haversineKm({ lat: last.lat, lon: last.lon }, { lat: req.geo.lat, lon: req.geo.lon })
-      const speedKmH = distanceKm / (elapsedMs / 3_600_000)
+      const speedKmH = distanceKm / (Math.abs(elapsedMs) / 3_600_000)
+      // NaN / Infinity from upstream math bugs must NOT bypass.
+      // NaN <= anything is false -> fall-through default would emit a
+      // signal with score=Infinity; clamp to deny instead.
+      if (!Number.isFinite(speedKmH)) return []
       if (speedKmH <= cfg.maxKmPerHour) return []
       const overshoot = speedKmH / cfg.maxKmPerHour
       const score = Math.min(1, (overshoot - 1) / 1)
@@ -91,13 +76,15 @@ export function impossibleTravelDetector(opts: {
 
 /**
  * Namespace merge for ImpossibleTravel. Co-locates the config + input +
- * output shapes via TS namespace declaration. Consumers can write either
- * the flat name (ImpossibleTravelConfig) or the namespaced form
- * (ImpossibleTravel.IConfig); both resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * output shapes via TS namespace declaration.
  */
 export namespace ImpossibleTravel {
-  /** Alias for the flat `ImpossibleTravelConfig` type. */
-  export type IConfig = ImpossibleTravelConfig
+  export interface IConfig {
+    /** Max speed (km/h) above which the gap counts as suspicious. Default 900. */
+    maxKmPerHour: number
+    /** Minimum elapsed time between samples (ms) before evaluating. Default 60s
+     *  (sub-minute gaps are usually NAT mobility, not travel).
+     */
+    minElapsedMs: number
+  }
 }

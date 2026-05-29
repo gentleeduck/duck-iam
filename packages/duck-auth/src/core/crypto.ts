@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { createHash, timingSafeEqual as nodeTimingSafeEqual, randomBytes } from 'node:crypto'
 
 /** 32-byte random token, base64url. Used for session IDs, CSRF, magic links. */

@@ -1,15 +1,10 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { randomToken, sha256, timingSafeEqual } from './crypto'
 import { AuthErrorObject } from './errors'
 import { InMemoryEvents } from './events'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from './facets/anomaly'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from './facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
-import { HijackFacet, type HijackPolicyConfig } from './facets/hijack'
+import { HijackFacet } from './facets/hijack'
 import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from './facets/idempotency'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from './facets/mfa'
@@ -19,7 +14,7 @@ import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
 import { ProvidersFacet } from './facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
 import { ScryptHasher } from './password/scrypt'
-import { type AuthPlugin, PluginRegistry } from './plugin'
+import { PluginRegistry } from './plugin'
 import type { Credential } from './types/credential'
 import type { Events } from './types/events'
 import type { Hasher } from './types/hasher'
@@ -30,56 +25,13 @@ import type { Provider } from './types/provider'
 import type { Session } from './types/session'
 import type { Transport } from './types/transport'
 
-export interface AuthRootConfig<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  baseUrl: string
-  transport: Transport.ITransport
-  stores: {
-    identities: Identity.IStore<Profile>
-    sessions: Session.IStore
-    credentials: Credential.IStore
-    orgs?: Org.IStore<OrgMeta>
-  }
-  limiter?: Limiter.ILimiter
-  providers?: Provider.IProvider<unknown, unknown, Profile>[]
-  events?: Events.IBus
-  session?: {
-    ttlMs?: number
-    absoluteTtlMs?: number
-    freshnessMs?: number
-  }
-  identities?: {
-    softDeleteGracePeriodMs?: number
-  }
-  passwords?: {
-    /** Min length, default 8. Compliance presets bump to 12+. */
-    minLength?: number
-    rejectCommon?: boolean
-    /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
-    hasher?: Hasher.IHasher
-  }
-  mfa?: {
-    /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */
-    issuer?: string
-    backupCodeCount?: number
-    backupCodeLen?: number
-  }
-  apiKeys?: {
-    prefix?: string
-    randomBytes?: number
-  }
-  hijack?: HijackPolicyConfig
-  __tenantBrand?: Tenant
-}
-
 /**
  * Faceted authentication root. Composition surface only - every operation
  * lives on a facet (sessions, identities, providers, mfa, flows, ...).
  * Facets are added one at a time as features land.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  readonly config: AuthRootConfig<Profile, Tenant, OrgMeta>
+  readonly config: AuthRoot.IConfig<Profile, Tenant, OrgMeta>
   readonly events: Events.IBus
   readonly transport: Transport.ITransport
   readonly sessions: SessionsFacet
@@ -97,7 +49,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly hijack: HijackFacet
   readonly anomaly: AnomalyFacet
 
-  constructor(config: AuthRootConfig<Profile, Tenant, OrgMeta>) {
+  constructor(config: AuthRoot.IConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
     this.events = config.events ?? new InMemoryEvents()
     this.transport = config.transport
@@ -110,9 +62,11 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     this.identities = new IdentitiesFacet<Profile>(config.stores.identities, this.events, {
       softDeleteGracePeriodMs:
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
+      profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
     this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
       minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
+      maxLength: config.passwords?.maxLength ?? DEFAULT_PASSWORDS_CONFIG.maxLength,
       rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
     })
     this.providers = new ProvidersFacet<Profile>(config.providers ?? [])
@@ -166,38 +120,80 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
    *
    * Delegates to {@link Transport.verify} when the transport can verify
    * stateless tokens (JWT); otherwise looks up via {@link Session.IStore}.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
-  async resolveSession(req: { headers: Headers }): Promise<{
+  async resolveSession(
+    req: { headers: Headers },
+    opts: { expectedTenantId?: string; requestSnapshot?: import('./types/anomaly').Anomaly.RequestSnapshot } = {},
+  ): Promise<{
     session: Session.ISession
     identity: Identity.IIdentity<Profile> | null
+    /**
+     * Aggregate anomaly decision when at least one detector is
+     * registered AND `opts.requestSnapshot` was supplied. Operators
+     * branch on `anomaly.decision === 'deny'` / `'step-up'` /
+     * `'allow'`; the field is absent when no detectors run.
+     */
+    anomaly?: import('./facets/anomaly').AnomalyFacet.IResult
   } | null> {
     const token = this.transport.extract(req)
     if (!token) return null
 
+    const finalize = async (
+      session: Session.ISession,
+      identity: Identity.IIdentity<Profile> | null,
+    ): Promise<{
+      session: Session.ISession
+      identity: Identity.IIdentity<Profile> | null
+      anomaly?: import('./facets/anomaly').AnomalyFacet.IResult
+    }> => {
+      // Auto-evaluate anomaly detectors so routes branch on a single field.
+      if (opts.requestSnapshot && identity && this.anomaly.list().length > 0) {
+        try {
+          const result = await this.anomaly.evaluate({ session, identity, req: opts.requestSnapshot })
+          return { session, identity, anomaly: result }
+        } catch {
+          // Detector machinery already catches per-detector throws;
+          // this catch defends against a bug in the aggregator itself.
+          return { session, identity }
+        }
+      }
+      return { session, identity }
+    }
+
     if (this.transport.verify) {
       const verified = await this.transport.verify(token)
       if (verified) {
+        // Cross-tenant guard; a token minted under tenant A must not
+        // be honoured at a tenant-B endpoint.
+        if (opts.expectedTenantId !== undefined && verified.tenantId !== opts.expectedTenantId) {
+          return null
+        }
         const ctx = { ...(verified.tenantId !== undefined && { tenantId: verified.tenantId }) }
         const identity = verified.identityId
           ? await this.config.stores.identities.findById(verified.identityId, ctx)
           : null
-        return { session: verified, identity }
+        return finalize(verified, identity)
       }
     }
 
-    return resolveBySid(token, this.config.stores.sessions, this.config.stores.identities, {})
+    const resolved = await resolveBySid(token, this.config.stores.sessions, this.config.stores.identities, {})
+    if (!resolved) return null
+    // same cross-tenant guard as the JWT branch. Reject mismatches
+    // AND undefined-vs-expected - see the JWT branch comment above.
+    if (opts.expectedTenantId !== undefined && resolved.session.tenantId !== opts.expectedTenantId) {
+      return null
+    }
+    return finalize(resolved.session, resolved.identity)
   }
 
-  /** Install a plugin atomically (providers + events + facets). DESIGN section 10. */
-  async use(plugin: AuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
+  /** Install a plugin atomically (providers + events + facets) */
+  async use(plugin: PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
     await this.plugins.install(this, plugin)
   }
 
   /**
    * Boot-time strict validation. Throws `AUTH/MISCONFIGURED` if any
-   * production footgun is detected. DESIGN section 11.
+   * production footgun is detected
    *
    * Checks (production only):
    *  - Limiter wired (no NoopLimiter)
@@ -209,26 +205,32 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
    *    until Argon2 hasher ships; non-blocking yet)
    *  - Mailer required when magic-link / password-reset capabilities exist
    *    (caller decides based on registered providers; library can't see
-   *    the channel registry from here, so this is documented for future
-   *    composition with `auth.channels` facet - v0.2)
+   *    the channel registry from here - operators wire the check at
+   *    construction time)
    *  - At least one `lockout` event handler subscribed
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   strict(opts: { env: 'development' | 'production' | 'test' }): void {
     if (opts.env !== 'production') return
 
     const errors: string[] = []
 
-    if (!this.config.limiter) {
-      errors.push('Limiter adapter required (brute-force protection)')
+    // Reject NoopLimiter via class brand (bundlers rename constructors).
+    if (!this.config.limiter || (this.limiter as { __isNoopLimiter?: boolean }).__isNoopLimiter === true) {
+      errors.push('Limiter adapter required (brute-force protection); NoopLimiter rejected in production')
     }
 
-    // Memory adapter heuristic: identifier in name.
-    const adapterName = this.config.stores.identities.constructor.name
-    if (adapterName === 'Object' || /Memory/i.test(adapterName)) {
-      // Object shape (built by MemoryAuthAdapter) => memory adapter
-      errors.push('Memory adapter rejected in production; use redis/drizzle/prisma')
+    // Memory adapter detection over every store; mixed deployments would otherwise
+    // run session state in-process and break revocation/rotation across instances.
+    const stores: Array<{ obj: unknown; label: string }> = [
+      { obj: this.config.stores.identities, label: 'identities' },
+      { obj: this.config.stores.sessions, label: 'sessions' },
+      { obj: this.config.stores.credentials, label: 'credentials' },
+    ]
+    for (const { obj, label } of stores) {
+      const name = (obj as { constructor?: { name?: string } }).constructor?.name ?? ''
+      if (name === 'Object' || /Memory/i.test(name)) {
+        errors.push(`Memory adapter (${label}) rejected in production; use redis/drizzle/prisma`)
+      }
     }
 
     // Transport secure-cookie check via the public `secure` getter so
@@ -236,6 +238,19 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     const maybeSecureGetter = (this.config.transport as { secure?: boolean }).secure
     if (typeof maybeSecureGetter === 'boolean' && maybeSecureGetter === false) {
       errors.push('CookieTransport secure=false rejected in production')
+    }
+
+    // baseUrl must use HTTPS in production so OAuth callback URLs, magic-link
+    // URLs, and webhooks aren't issued over plaintext.
+    if (typeof this.config.baseUrl === 'string') {
+      try {
+        const u = new URL(this.config.baseUrl)
+        if (u.protocol !== 'https:') {
+          errors.push(`baseUrl '${this.config.baseUrl}' must use https:// in production (got ${u.protocol})`)
+        }
+      } catch {
+        errors.push(`baseUrl '${this.config.baseUrl}' is not a valid URL`)
+      }
     }
 
     if ((this.config.providers ?? []).length === 0 && this.providers.list().length === 0) {
@@ -258,12 +273,8 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   }
 }
 
-export type {
-  CreateSessionInput,
-  RotateOrCreateInput,
-  SessionsFacetConfig,
-} from './facets/sessions'
-// Re-export SessionsFacet types for consumers that want to type the facet directly.
+// Re-export SessionsFacet for consumers that want to type the facet directly.
+// `SessionsFacet.IConfig`, `.ICreateInput`, `.IRotateInput` ride along via class+namespace merge.
 export { SessionsFacet } from './facets/sessions'
 
 // Used by other facets that need the hashing scheme. Kept private to the package.
@@ -273,10 +284,13 @@ export const __hashSid = sha256
  * No-op limiter used when no Limiter adapter is configured. Always allows.
  * `strict({ env: 'production' })` rejects this - production must supply a real
  * Limiter (redis/upstash) for brute-force protection.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class NoopLimiter implements LimiterNs.ILimiter {
+  /** Brand consumed by `AuthRoot.strict({ env: 'production' })` to
+   * detect "explicit NoopLimiter" - class-identity comparison breaks
+   * across bundler rewrites (treeshaken duplicates / nested workspaces)
+   * so we tag every instance and check the tag instead. */
+  readonly __isNoopLimiter = true as const
   async consume(_key: string, _weight = 1): Promise<LimiterNs.IResult> {
     return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: Date.now() + 60_000 }
   }
@@ -286,10 +300,50 @@ export class NoopLimiter implements LimiterNs.ILimiter {
 /**
  * Namespace merge for `AuthRoot`. Co-locates the flat type exports
  * alongside the primary symbol via TS class+namespace merging.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace AuthRoot {
-  /** Alias for the flat `AuthRootConfig` type. */
-  export type IConfig = AuthRootConfig
+  export interface IConfig<Profile = unknown, Tenant = string, OrgMeta = unknown> {
+    baseUrl: string
+    transport: Transport.ITransport
+    stores: {
+      identities: Identity.IStore<Profile>
+      sessions: Session.IStore
+      credentials: Credential.IStore
+      orgs?: Org.IStore<OrgMeta>
+    }
+    limiter?: Limiter.ILimiter
+    providers?: Provider.IProvider<unknown, unknown, Profile>[]
+    events?: Events.IBus
+    session?: {
+      ttlMs?: number
+      absoluteTtlMs?: number
+      freshnessMs?: number
+    }
+    identities?: {
+      softDeleteGracePeriodMs?: number
+      /** SEC: max serialized (JSON UTF-8) profile size, in bytes. Default 16 KiB. Set to `0` to disable. */
+      profileMaxBytes?: number
+    }
+    passwords?: {
+      /** Min length, default 8. Compliance presets bump to 12+. */
+      minLength?: number
+      /** Max length, default 1024. SEC: caps argon2/scrypt DoS surface. */
+      maxLength?: number
+      rejectCommon?: boolean
+      /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
+      hasher?: Hasher.IHasher
+    }
+    mfa?: {
+      /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */
+      issuer?: string
+      backupCodeCount?: number
+      backupCodeLen?: number
+    }
+    apiKeys?: {
+      prefix?: string
+      randomBytes?: number
+    }
+    hijack?: HijackFacet.IPolicyConfig
+    __tenantBrand?: Tenant
+  }
 }

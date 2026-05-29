@@ -1,51 +1,7 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
-import type { AuthRootConfig } from './auth'
+import type { AuthRoot } from './auth'
 import { AuthErrorObject } from './errors'
 
-/**
- * Compliance preset id. Apps pass one (or an array) to ratchet defaults
- * + enforce stricter strict() checks.
- *
- *   gdpr  - soft-delete required, dataAtRest required, export endpoint
- *           mandatory, audit log retained
- *   hipaa - everything in gdpr + AAL >= 2 on all sessions, password
- *           length bumped to 12, BAA-compliant channels only
- *   soc2  - strict() failure on missing limiter / events listeners +
- *           7y audit retention
- *   fips  - WebAuthn attestation 'direct' required + only FIPS-validated
- *           algorithms (EdDSA + scrypt with bigger params + no SHA-1)
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export type CompliancePreset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
-
-/**
- * Compliance overrides applied on top of the consumer's config. Defaults
- * here are conservative; consumers can layer presets (gdpr + soc2) but
- * library refuses conflicting combinations via strict().
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface ComplianceOverrides {
-  passwords: { minLength: number }
-  sessions: { ttlMs: number; absoluteTtlMs: number; freshnessMs: number }
-  mfa: { backupCodeCount: number }
-  apiKeys: { randomBytes: number }
-  /** Names of strict() checks the preset insists on. */
-  requiredStrictChecks: string[]
-  /** Minimum AAL enforced on every session created during signin. */
-  minAal: 1 | 2 | 3
-  /** When true, dataAtRest adapter required at boot. */
-  requireDataAtRest: boolean
-  /** When true, mailer / channel adapter required for any provider that needs it. */
-  requireChannelForReset: boolean
-}
-
-const DEFAULT_OVERRIDES: ComplianceOverrides = {
+const DEFAULT_OVERRIDES: Compliance.IOverrides = {
   passwords: { minLength: 8 },
   sessions: { ttlMs: 7 * 24 * 60 * 60 * 1000, absoluteTtlMs: 30 * 24 * 60 * 60 * 1000, freshnessMs: 5 * 60 * 1000 },
   mfa: { backupCodeCount: 10 },
@@ -67,13 +23,13 @@ const DEFAULT_OVERRIDES: ComplianceOverrides = {
  * // cfg.requireDataAtRest === true (gdpr)
  * // cfg.requiredStrictChecks includes both gdpr + soc2 lists
  * ```
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function resolveCompliance(presets: CompliancePreset | CompliancePreset[] | undefined): ComplianceOverrides {
+export function resolveCompliance(
+  presets: Compliance.IPreset | Compliance.IPreset[] | undefined,
+): Compliance.IOverrides {
   if (!presets) return DEFAULT_OVERRIDES
   const list = Array.isArray(presets) ? presets : [presets]
-  let acc: ComplianceOverrides = { ...DEFAULT_OVERRIDES, requiredStrictChecks: [] }
+  let acc: Compliance.IOverrides = { ...DEFAULT_OVERRIDES, requiredStrictChecks: [] }
   for (const p of list) {
     const overlay = PRESETS[p]
     acc = mergeStricter(acc, overlay)
@@ -81,7 +37,7 @@ export function resolveCompliance(presets: CompliancePreset | CompliancePreset[]
   return acc
 }
 
-const PRESETS: Record<CompliancePreset, ComplianceOverrides> = {
+const PRESETS: Record<Compliance.IPreset, Compliance.IOverrides> = {
   gdpr: {
     ...DEFAULT_OVERRIDES,
     requiredStrictChecks: ['exportAvailable', 'softDeleteEnabled'],
@@ -122,7 +78,7 @@ const PRESETS: Record<CompliancePreset, ComplianceOverrides> = {
   },
 }
 
-function mergeStricter(a: ComplianceOverrides, b: ComplianceOverrides): ComplianceOverrides {
+function mergeStricter(a: Compliance.IOverrides, b: Compliance.IOverrides): Compliance.IOverrides {
   return {
     passwords: { minLength: Math.max(a.passwords.minLength, b.passwords.minLength) },
     sessions: {
@@ -133,7 +89,7 @@ function mergeStricter(a: ComplianceOverrides, b: ComplianceOverrides): Complian
     mfa: { backupCodeCount: Math.max(a.mfa.backupCodeCount, b.mfa.backupCodeCount) },
     apiKeys: { randomBytes: Math.max(a.apiKeys.randomBytes, b.apiKeys.randomBytes) },
     requiredStrictChecks: Array.from(new Set([...a.requiredStrictChecks, ...b.requiredStrictChecks])),
-    minAal: Math.max(a.minAal, b.minAal) as 1 | 2 | 3,
+    minAal: maxAal(a.minAal, b.minAal),
     requireDataAtRest: a.requireDataAtRest || b.requireDataAtRest,
     requireChannelForReset: a.requireChannelForReset || b.requireChannelForReset,
   }
@@ -146,15 +102,15 @@ function mergeStricter(a: ComplianceOverrides, b: ComplianceOverrides): Complian
  * The stricter rule wins for every field: a preset that bumps password
  * minLength to 12 takes precedence over a user setting of 8; a preset
  * that caps session TTL to 1h takes precedence over a user setting of 7d.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMeta = unknown>(
-  base: AuthRootConfig<Profile, Tenant, OrgMeta>,
-  preset: CompliancePreset | CompliancePreset[],
-): AuthRootConfig<Profile, Tenant, OrgMeta> {
+  base: AuthRoot.IConfig<Profile, Tenant, OrgMeta>,
+  preset: Compliance.IPreset | Compliance.IPreset[],
+): AuthRoot.IConfig<Profile, Tenant, OrgMeta> {
   const overrides = resolveCompliance(preset)
-  return {
+  // Attach the resolved overrides via `__compliancePreset` so
+  // `AuthRoot.strict` can apply `assertComplianceStrict` automatically.
+  const out = {
     ...base,
     passwords: {
       ...(base.passwords ?? {}),
@@ -175,6 +131,56 @@ export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMet
       randomBytes: Math.max(base.apiKeys?.randomBytes ?? 0, overrides.apiKeys.randomBytes),
     },
   }
+  // Mark the config so downstream `AuthRoot.strict()` knows to assert
+  // the strict checks. Read-only; cast to never to keep this off the
+  // public type surface.
+  Object.defineProperty(out, '__compliancePreset', {
+    value: preset,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  })
+  return out
+}
+
+/**
+ * Resolve any compliance preset attached to a config via
+ * `applyCompliancePreset`. Returns null when the config was not
+ * processed by that helper. Used by `AuthRoot.strict()` to
+ * auto-invoke `assertComplianceStrict` so operators do not have to
+ * remember the second call.
+ */
+export function readCompliancePreset(cfg: unknown): Compliance.IPreset | Compliance.IPreset[] | null {
+  if (typeof cfg !== 'object' || cfg === null) return null
+  if (!('__compliancePreset' in cfg)) return null
+  const value = cfg.__compliancePreset
+  if (isPreset(value)) return value
+  if (Array.isArray(value)) {
+    const presets: Compliance.IPreset[] = []
+    for (const v of value) {
+      if (!isPreset(v)) return null
+      presets.push(v)
+    }
+    return presets.length > 0 ? presets : null
+  }
+  return null
+}
+
+const PRESET_VALUES: ReadonlySet<string> = new Set<Compliance.IPreset>(['gdpr', 'hipaa', 'soc2', 'fips'])
+
+function isPreset(v: unknown): v is Compliance.IPreset {
+  return typeof v === 'string' && PRESET_VALUES.has(v)
+}
+
+/**
+ * Max of two AAL values without an `as 1 | 2 | 3` cast. `Math.max`
+ * returns `number`; TS cannot narrow it back to the literal union, so
+ * we dispatch explicitly. The cases are mutually exclusive in [1, 3].
+ */
+function maxAal(a: 1 | 2 | 3, b: 1 | 2 | 3): 1 | 2 | 3 {
+  if (a === 3 || b === 3) return 3
+  if (a === 2 || b === 2) return 2
+  return 1
 }
 
 /**
@@ -185,11 +191,9 @@ export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMet
  *
  * Caller supplies `wired` flags describing what is hooked up; library
  * cannot introspect every adapter at the type level.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function assertComplianceStrict(opts: {
-  preset: CompliancePreset | CompliancePreset[]
+  preset: Compliance.IPreset | Compliance.IPreset[]
   wired: {
     dataAtRest: boolean
     mailerChannel: boolean
@@ -220,15 +224,23 @@ export function assertComplianceStrict(opts: {
 
 /**
  * Namespace merge for Compliance. Co-locates the config + input +
- * output shapes via TS namespace declaration. Consumers can write either
- * the flat name (CompliancePreset) or the namespaced form
- * (Compliance.IPreset); both resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * output shapes via TS namespace declaration.
  */
 export namespace Compliance {
-  /** Alias for the flat `CompliancePreset` type. */
-  export type IPreset = CompliancePreset
-  /** Alias for the flat `ComplianceOverrides` type. */
-  export type IOverrides = ComplianceOverrides
+  export type IPreset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
+
+  export interface IOverrides {
+    passwords: { minLength: number }
+    sessions: { ttlMs: number; absoluteTtlMs: number; freshnessMs: number }
+    mfa: { backupCodeCount: number }
+    apiKeys: { randomBytes: number }
+    /** Names of strict() checks the preset insists on. */
+    requiredStrictChecks: string[]
+    /** Minimum AAL enforced on every session created during signin. */
+    minAal: 1 | 2 | 3
+    /** When true, dataAtRest adapter required at boot. */
+    requireDataAtRest: boolean
+    /** When true, mailer / channel adapter required for any provider that needs it. */
+    requireChannelForReset: boolean
+  }
 }
