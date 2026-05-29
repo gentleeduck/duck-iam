@@ -2,31 +2,28 @@
  * Integration tests for the SQLite Drizzle OP stores. Uses bun:sqlite
  * via drizzle-orm/bun-sqlite so no extra peer-dep needs to be installed.
  *
- * Confirms every store satisfies the OidcOP.* contract identically to
- * the memory stores in `__tests__/op.test.ts`.
+ * Skipped under Node (vitest in CI). Bun's test runner picks it up
+ * automatically; CI Node runs see an empty describe block and move on.
  */
 
-// @ts-expect-error - bun:sqlite is a runtime-only module; the workspace
-// doesn't ship bun-types, so the import is invisible to tsc. At runtime
-// the test executes on bun and the binding resolves normally.
-import { Database } from 'bun:sqlite'
-import { drizzle } from 'drizzle-orm/bun-sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   createDrizzleSqliteOidcOpStores,
   gcDrizzleSqliteOidcOp,
-  oidcAccessTokensTable,
-  oidcClientsTable,
-  oidcCodesTable,
-  oidcConsentsTable,
-  oidcRefreshTokensTable,
 } from '../sqlite'
 
-function makeStores() {
+// biome-ignore lint/suspicious/noExplicitAny: globalThis.Bun is the canonical runtime probe
+const IS_BUN = typeof (globalThis as any).Bun !== 'undefined'
+
+// describe.skipIf works in both bun:test and vitest; falsy-skips when not bun.
+const onlyBun = IS_BUN ? describe : describe.skip
+
+async function makeStores() {
+  // Dynamic require so vitest (under Node) never resolves bun:sqlite at all.
+  // biome-ignore lint/suspicious/noExplicitAny: dynamic import of bun-only module
+  const { Database } = (await import('bun:sqlite' as any)) as { Database: new (path: string) => { exec(sql: string): void } }
+  const { drizzle } = await import('drizzle-orm/bun-sqlite')
   const sqlite = new Database(':memory:')
-  // Bare-bones DDL mirroring the drizzle-defined schema. We hand-roll the
-  // CREATE TABLE statements rather than relying on drizzle migrations so
-  // the test stays standalone.
   sqlite.exec(`
     CREATE TABLE oidc_clients (
       client_id TEXT PRIMARY KEY,
@@ -80,13 +77,14 @@ function makeStores() {
       PRIMARY KEY (identity_id, client_id)
     );
   `)
-  const db = drizzle(sqlite)
+  // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database satisfies drizzle's expected shape at runtime
+  const db = drizzle(sqlite as any)
   return { sqlite, db, stores: createDrizzleSqliteOidcOpStores(db) }
 }
 
-describe('createDrizzleSqliteOidcOpStores - clients', () => {
+onlyBun('createDrizzleSqliteOidcOpStores - clients', () => {
   it('round-trips a client', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     await stores.clients.insert({
       client_id: 'app',
       client_secret_hash: 'hash',
@@ -106,14 +104,14 @@ describe('createDrizzleSqliteOidcOpStores - clients', () => {
   })
 
   it('returns null for unknown client', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     expect(await stores.clients.findById('nope')).toBeNull()
   })
 })
 
-describe('createDrizzleSqliteOidcOpStores - codes', () => {
+onlyBun('createDrizzleSqliteOidcOpStores - codes', () => {
   it('consume is single-use', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     await stores.codes.insert({
       code: 'c1',
       client_id: 'app',
@@ -134,7 +132,7 @@ describe('createDrizzleSqliteOidcOpStores - codes', () => {
   })
 
   it('expired code returns null', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     await stores.codes.insert({
       code: 'c2',
       client_id: 'app',
@@ -153,9 +151,9 @@ describe('createDrizzleSqliteOidcOpStores - codes', () => {
   })
 })
 
-describe('createDrizzleSqliteOidcOpStores - access tokens', () => {
+onlyBun('createDrizzleSqliteOidcOpStores - access tokens', () => {
   it('insert + find + revoke lifecycle', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     await stores.accessTokens.insert({
       token_hash: 'h1',
       client_id: 'app',
@@ -171,7 +169,7 @@ describe('createDrizzleSqliteOidcOpStores - access tokens', () => {
   })
 
   it('expired token is dropped on read', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     await stores.accessTokens.insert({
       token_hash: 'h-exp',
       client_id: 'app',
@@ -184,9 +182,9 @@ describe('createDrizzleSqliteOidcOpStores - access tokens', () => {
   })
 })
 
-describe('createDrizzleSqliteOidcOpStores - refresh tokens', () => {
+onlyBun('createDrizzleSqliteOidcOpStores - refresh tokens', () => {
   it('consume rotates and reuse triggers family revoke', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     const familyId = 'fam-1'
     await stores.refreshTokens.insert({
       token_hash: 'rt-1',
@@ -207,9 +205,9 @@ describe('createDrizzleSqliteOidcOpStores - refresh tokens', () => {
   })
 })
 
-describe('createDrizzleSqliteOidcOpStores - consents', () => {
+onlyBun('createDrizzleSqliteOidcOpStores - consents', () => {
   it('upsert replaces scope on second call', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     await stores.consents.upsert({
       identity_id: 'u',
       client_id: 'app',
@@ -230,7 +228,7 @@ describe('createDrizzleSqliteOidcOpStores - consents', () => {
   })
 
   it('different (identity, client) pairs do not collide', async () => {
-    const { stores } = makeStores()
+    const { stores } = await makeStores()
     await stores.consents.upsert({ identity_id: 'a', client_id: 'app', scope: ['openid'], grantedAt: 1 })
     await stores.consents.upsert({ identity_id: 'b', client_id: 'app', scope: ['openid'], grantedAt: 1 })
     expect(await stores.consents.find('a', 'app')).not.toBeNull()
@@ -238,9 +236,9 @@ describe('createDrizzleSqliteOidcOpStores - consents', () => {
   })
 })
 
-describe('gcDrizzleSqliteOidcOp', () => {
+onlyBun('gcDrizzleSqliteOidcOp', () => {
   it('prunes expired codes / access tokens / consumed refresh tokens', async () => {
-    const { stores, db } = makeStores()
+    const { stores, db } = await makeStores()
     const now = Date.now()
     await stores.codes.insert({
       code: 'gc-code',
