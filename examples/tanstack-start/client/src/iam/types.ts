@@ -69,7 +69,7 @@ export interface AppCtx extends DotPath.IDefaultContext {
 	resource: {
 		type: string;
 		id?: string;
-		attributes: {};
+		attributes: Record<string, unknown>;
 	};
 	resourceAttributes: {
 		post: {

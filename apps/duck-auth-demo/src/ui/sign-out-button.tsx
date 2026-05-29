@@ -3,9 +3,9 @@
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
+import { useSignOut } from '@gentleduck/auth/client/react'
 import { Button } from '@gentleduck/registry-ui/button'
 import type { ComponentProps } from 'react'
-import { useSignOut } from '@gentleduck/auth/client/react'
 
 /**
  * `<SignOutButton />` — Button that calls `useSignOut`. Inherits the

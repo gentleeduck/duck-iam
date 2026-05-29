@@ -2,7 +2,7 @@
   <img src="./public/logo-dark.svg" alt="gentleduck/iam + auth" width="120"/>
 </p>
 
-<h1 align="center">@gentleduck/auth + @gentleduck/iam</h1>
+<h1 align="center">@gentleduck/iam</h1>
 
 <p align="center">
   Authentication and authorization for TypeScript. Framework-agnostic. Batteries included. No hosted plane.
