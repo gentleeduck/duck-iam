@@ -1,9 +1,5 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
-import { randomToken } from '../../core/crypto'
+import { getProfileString, isRevoked, isSoftDeleted } from '../../core/credential-utils'
+import { randomToken, timingSafeEqual } from '../../core/crypto'
 import { AuthErrorObject } from '../../core/errors'
 import type { TenantContext } from '../../core/types/context'
 import type { Credential } from '../../core/types/credential'
@@ -16,8 +12,6 @@ import type { Session } from '../../core/types/session'
  * Strict mode rejects this adapter when `env: 'production'`.
  *
  * Multi-tenant: tenantId filters every query so tests can verify isolation.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
   readonly identities: Identity.IStore<Profile>
@@ -48,19 +42,19 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
     return {
       findById: async (id, ctx) => {
         const i = store.get(id)
-        return i && filter(i, ctx) && !i.deletedAt ? i : null
+        return i && filter(i, ctx) && !isSoftDeleted(i) ? i : null
       },
       findByEmail: async (email, ctx) => {
         for (const i of store.values()) {
-          if (!filter(i, ctx) || i.deletedAt) continue
-          const e = (i.profile as { email?: string } | undefined)?.email
+          if (!filter(i, ctx) || isSoftDeleted(i)) continue
+          const e = getProfileString(i.profile, 'email')
           if (e === email) return i
         }
         return null
       },
       findByProviderSub: async (providerId, sub, ctx) => {
         for (const i of store.values()) {
-          if (!filter(i, ctx) || i.deletedAt) continue
+          if (!filter(i, ctx) || isSoftDeleted(i)) continue
           if (i.providers.some((p) => p.providerId === providerId && p.providerSub === sub)) {
             return i
           }
@@ -68,12 +62,28 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         return null
       },
       create: async (input, ctx) => {
+        // Atomic provider-sub uniqueness scan to close the race between
+        // two concurrent first-OAuth-callbacks on the same (providerId, sub).
+        const providers = input.providers ?? []
+        for (const link of providers) {
+          if (link.providerSub === undefined) continue
+          for (const other of store.values()) {
+            if (filter(other, ctx) === false || isSoftDeleted(other)) continue
+            if (other.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
+              throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+                providerId: link.providerId,
+                detail: 'provider sub already linked to a different identity',
+              })
+            }
+          }
+        }
         const now = Date.now()
+        // SQL adapter parity: prefer explicit input.tenantId, fall back to ctx.
         const id: Identity.IIdentity<Profile> = {
           ...input,
           id: randomToken(16),
-          tenantId: ctx.tenantId,
-          providers: input.providers ?? [],
+          tenantId: input.tenantId ?? ctx.tenantId,
+          providers,
           version: 1,
           createdAt: now,
           updatedAt: now,
@@ -110,7 +120,10 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         if (!cur.deletedAt || cur.deletedAt < Date.now()) {
           throw new AuthErrorObject('AUTH/GRACE_EXPIRED')
         }
-        const next = { ...cur, deletedAt: undefined } as Identity.IIdentity<Profile>
+        // Destructure-and-omit drops the `deletedAt` key entirely
+        // (better than `deletedAt: undefined`, which is rejected by
+        // `exactOptionalPropertyTypes` and forced the legacy cast).
+        const { deletedAt: _deletedAt, ...next } = cur
         store.set(id, next)
         return next
       },
@@ -120,6 +133,21 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
       link: async (identityId, link, _ctx) => {
         const cur = store.get(identityId)
         if (!cur) return
+        // Atomic uniqueness check under JS single-threading; closes the
+        // TOCTOU window in `findByProviderSub` -> `link`. SQL adapters
+        // enforce the equivalent via UNIQUE(providerId, providerSub).
+        if (link.providerSub !== undefined) {
+          for (const [otherId, other] of store) {
+            if (otherId === identityId) continue
+            if (filter(other, _ctx) === false || isSoftDeleted(other)) continue
+            if (other.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
+              throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+                providerId: link.providerId,
+                detail: 'provider sub already linked to a different identity',
+              })
+            }
+          }
+        }
         store.set(identityId, { ...cur, providers: [...cur.providers, link] })
       },
       unlink: async (identityId, providerId, _ctx) => {
@@ -212,31 +240,35 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         }
         return null
       },
-      findByHashedSecret: async (secretHash, kind) => {
-        // Prefer the freshest LIVE row matching (kind, hash). If none live,
-        // fall back to the freshest revoked one so callers can distinguish
-        // AUTH/APIKEY_REVOKED from AUTH/APIKEY_INVALID. Live rows always win
-        // over revoked rows of the same (kind, hash).
+      findByHashedSecret: async (secretHash, kind, ctx) => {
+        // Prefer freshest live; fall back to revoked so callers can disambiguate.
+        // timingSafeEqual defeats byte-by-byte hash oracles. Tenant filter
+        // matches SQL adapter semantics: undefined ctx tenant = global match;
+        // set ctx tenant = exact match (or global rows when row.tenantId is unset).
         let live: Credential.ICredential | null = null
-        let revoked: Credential.ICredential | null = null
+        let revokedRow: Credential.ICredential | null = null
         for (const c of store.values()) {
-          if (c.kind !== kind || c.secret !== secretHash) continue
-          if (c.revokedAt) {
-            if (!revoked || c.createdAt > revoked.createdAt) revoked = c
+          if (c.kind !== kind) continue
+          if (!timingSafeEqual(c.secret, secretHash)) continue
+          if (ctx?.tenantId !== undefined && c.tenantId !== undefined && c.tenantId !== ctx.tenantId) continue
+          if (isRevoked(c)) {
+            if (!revokedRow || c.createdAt > revokedRow.createdAt) revokedRow = c
           } else {
             if (!live || c.createdAt > live.createdAt) live = c
           }
         }
-        return live ?? revoked
+        return live ?? revokedRow
       },
-      upsert: async (input) => {
+      upsert: async (input, ctx) => {
         const id = randomToken(16)
         const now = Date.now()
+        // SQL adapter parity: inherit tenantId from ctx when input doesn't set it.
         const c: Credential.ICredential = {
           id,
           version: 1,
           createdAt: now,
           ...input,
+          ...(input.tenantId === undefined && ctx?.tenantId !== undefined && { tenantId: ctx.tenantId }),
         }
         store.set(id, c)
         return c
@@ -258,6 +290,17 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         store.set(id, next)
         return next
       },
+      patchMetadata: async (id, patch) => {
+        const cur = store.get(id)
+        if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+        const next: Credential.ICredential = {
+          ...cur,
+          metadata: { ...(cur.metadata ?? {}), ...patch },
+          version: cur.version + 1,
+        }
+        store.set(id, next)
+        return next
+      },
       revoke: async (id) => {
         const cur = store.get(id)
         if (!cur) return
@@ -271,10 +314,7 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
           if (c.identityId === identityId && c.kind === kind) store.delete(c.id)
         }
       },
-      // Extension consumed by the OAuth refresh-reuse detector. Marks every
-      // member of an oauth token family revoked atomically. Production
-      // adapters add a `(kind, metadata.familyId)` index + bulk update;
-      // memory adapter walks every row.
+      // OAuth refresh-reuse hook; memory walks every row (prod indexes by familyId).
       __familyRevoke: async (familyId: string) => {
         const now = Date.now()
         for (const c of store.values()) {
@@ -303,8 +343,17 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         return [...this._memberships.values()].filter((m) => m.orgId === orgId && !m.leftAt)
       },
       addMember: async (m) => {
+        // CAS under JS single-threading; SQL uses partial UNIQUE on (orgId, identityId).
+        const key = `${m.orgId}:${m.identityId}`
+        const cur = this._memberships.get(key)
+        if (cur && cur.leftAt === undefined) {
+          throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+            providerId: 'orgs',
+            detail: 'identity already a member of this org',
+          })
+        }
         const full: Org.IMembership = { ...m, joinedAt: Date.now() }
-        this._memberships.set(`${m.orgId}:${m.identityId}`, full)
+        this._memberships.set(key, full)
         return full
       },
       removeMember: async (orgId, identityId) => {
@@ -319,5 +368,37 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         this._memberships.set(key, { ...cur, roles })
       },
     }
+  }
+}
+
+/**
+ * Storage helper that returns the in-memory `{ identities, sessions,
+ * credentials }` triple ready for {@link defineAuth} or directly into
+ * `AuthRoot.stores`.
+ *
+ * Equivalent to `new MemoryAuthAdapter()` and destructuring the three
+ * sub-stores by hand - but slots into the array/factory style that
+ * matches duck-iam's `defineRole(...)` and better-auth's `passkey()`.
+ *
+ * **Dev / test only.** No persistence; data evaporates on restart.
+ * Use the SQL or Redis adapters in production.
+ *
+ * @example
+ * ```ts
+ * import { memoryStorage } from '@gentleduck/auth/adapters/memory'
+ *
+ * defineAuth({ storage: memoryStorage(), ... })
+ * ```
+ */
+export const memoryStorage = <Profile = unknown>(): {
+  identities: MemoryAuthAdapter<Profile>['identities']
+  sessions: MemoryAuthAdapter<Profile>['sessions']
+  credentials: MemoryAuthAdapter<Profile>['credentials']
+} => {
+  const adapter = new MemoryAuthAdapter<Profile>()
+  return {
+    credentials: adapter.credentials,
+    identities: adapter.identities,
+    sessions: adapter.sessions,
   }
 }
