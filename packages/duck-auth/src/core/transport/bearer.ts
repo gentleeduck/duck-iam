@@ -1,30 +1,16 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { Provider } from '../types/provider'
 import type { Session } from '../types/session'
 import type { Transport } from '../types/transport'
 
-export interface BearerTransportConfig {
-  /** Header name. Default `Authorization`. */
-  header?: string
-  /** Scheme prefix; whitespace-separated from the token. Default `Bearer`. */
-  scheme?: string
-}
-
 /**
  * Bearer transport - `Authorization: Bearer <opaque>` header. Native/mobile, API keys.
  * Issue returns a JSON intent carrying the token; client is responsible for persisting it.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class BearerTransport implements Transport.ITransport {
   private readonly _header: string
   private readonly _scheme: string
 
-  constructor(cfg: BearerTransportConfig = {}) {
+  constructor(cfg: BearerTransport.IConfig = {}) {
     this._header = cfg.header ?? 'authorization'
     this._scheme = cfg.scheme ?? 'Bearer'
   }
@@ -32,9 +18,17 @@ export class BearerTransport implements Transport.ITransport {
   extract(req: { headers: Headers }): string | null {
     const raw = req.headers.get(this._header)
     if (!raw) return null
-    const expected = `${this._scheme} `
-    if (!raw.startsWith(expected)) return null
-    return raw.slice(expected.length).trim() || null
+    // Case-insensitive scheme match (RFC 7235 2.1).
+    const schemePrefix = `${this._scheme.toLowerCase()} `
+    const head = raw.slice(0, schemePrefix.length)
+    if (head.toLowerCase() !== schemePrefix) return null
+    const token = raw.slice(schemePrefix.length).trim()
+    if (!token) return null
+    // 4KB cap covers large JWTs; refuses multi-MB DoS headers.
+    if (token.length > 4096) return null
+    // Reject multi-header smuggling (Headers.get joins with `, `).
+    if (token.includes(',')) return null
+    return token
   }
 
   issue(sid: string, session: Session.ISession): Provider.Intent[] {
@@ -55,14 +49,13 @@ export class BearerTransport implements Transport.ITransport {
 
 /**
  * Namespace merge for BearerTransport. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging. Consumers can
- * write either the flat name (e.g. BearerTransportConfig) or the
- * namespaced form (BearerTransport.IConfig); both
- * resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * shapes alongside the class via TS class+namespace merging.
  */
 export namespace BearerTransport {
-  /** Alias for the flat `BearerTransportConfig` type. */
-  export type IConfig = BearerTransportConfig
+  export interface IConfig {
+    /** Header name. Default `Authorization`. */
+    header?: string
+    /** Scheme prefix; whitespace-separated from the token. Default `Bearer`. */
+    scheme?: string
+  }
 }
