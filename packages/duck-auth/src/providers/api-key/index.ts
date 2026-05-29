@@ -1,57 +1,46 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { AuthErrorObject } from '../../core/errors'
 import type { ApiKeysFacet } from '../../core/facets/apikeys'
 import type { Provider } from '../../core/types/provider'
 
 /**
- * Configuration for the `api-key` sign-in provider.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the api-key provider. Every type lives inside
+ * the namespace.
  */
-export interface ApiKeyProviderOptions {
-  /** Bound `ApiKeysFacet`. The provider delegates verify + scope checks. */
-  apiKeys: ApiKeysFacet
-  /** Per-key rate-limit key prefix. Default `signin:api-key:`. */
-  limiterKeyPrefix?: string
-  /**
-   * Scopes every request must hold. Use sparingly; per-route scope
-   * checks should call `apiKeys.requireScopes(scopes, [...])` instead.
-   */
-  requireScopes?: string[]
-}
+export namespace ApiKeyProvider {
+  /** Config knobs for {@link apiKey}. */
+  export interface IOptions {
+    /** Bound `ApiKeysFacet`. Provider delegates verify + scope checks. */
+    apiKeys: ApiKeysFacet
+    /** Per-key rate-limit key prefix. Default `signin:api-key:`. */
+    limiterKeyPrefix?: string
+    /**
+     * Scopes every request must hold. Use sparingly; per-route scope
+     * checks should call `apiKeys.requireScopes(scopes, [...])`.
+     */
+    requireScopes?: string[]
+  }
 
-export interface ApiKeyBeginInput {
-  /** No-op; api-key has no challenge round-trip. Kept for surface parity. */
-  hint?: never
-}
+  /** Input to begin (no-op for api-key). */
+  export interface IBeginInput {
+    hint?: never
+  }
 
-export interface ApiKeyCompleteInput {
-  /** Plaintext key (`ak_live_...`); typically carried in `X-Api-Key` or `Authorization: Bearer ...`. */
-  token: string
+  /** Input to complete. */
+  export interface ICompleteInput {
+    /** Plaintext key (`ak_live_...`). */
+    token: string
+  }
 }
 
 /**
  * `api-key` provider - bearer-style sign-in for service-to-service
  * callers. The provider verifies the plaintext token via `ApiKeysFacet`,
  * applies the configured per-key rate-limit, and emits a `startSession`
- * Intent with `kind: 'apikey'` + `aal: 1` (api-key auth is single-factor
- * by definition).
- *
- * Sign-in surface:
- *   - begin: no-op; api-key flows have no challenge round-trip
- *   - complete: hashes the plaintext + delegates to ApiKeysFacet.verify;
- *     applies rate-limit; emits startSession with the resolved
- *     identityId + factor `api-key`
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Intent with `kind: 'apikey'` + `aal: 1`.
  */
 export function apiKey<Profile = unknown>(
-  opts: ApiKeyProviderOptions,
-): Provider.IProvider<ApiKeyBeginInput, ApiKeyCompleteInput, Profile> {
+  opts: ApiKeyProvider.IOptions,
+): Provider.IProvider<ApiKeyProvider.IBeginInput, ApiKeyProvider.ICompleteInput, Profile> {
   const prefix = opts.limiterKeyPrefix ?? 'signin:api-key:'
   return {
     id: 'api-key',
@@ -62,11 +51,12 @@ export function apiKey<Profile = unknown>(
     },
 
     async complete(ctx, input): Promise<Provider.Intent[]> {
-      if (!input.token) {
+      // typeof-guard prevents sha256(non-string) throwing TypeError before the
+      // rate limiter can fire (caller would see 500 instead of 401, plus the
+      // call would bypass the per-token brute-force quota).
+      if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 512) {
         throw new AuthErrorObject('AUTH/APIKEY_INVALID')
       }
-      // Rate-limit per-key (sha-256 the token so we never hand a plaintext
-      // identifier to the limiter store).
       const keyHash = ctx.crypto.sha256(input.token).slice(0, 16)
       const rl = await ctx.limiter.consume(`${prefix}${keyHash}`)
       if (!rl.ok) {
@@ -75,6 +65,12 @@ export function apiKey<Profile = unknown>(
         })
       }
       const verified = await opts.apiKeys.verify(input.token, ctx.tenant)
+      // A tenant-bound api-key must NOT identify-confirm on a different (or empty)
+      // tenant scope; otherwise the resulting session lacks the key's tenancy
+      // while the caller still holds proof-of-key for that tenant.
+      if (verified.tenantId !== undefined && ctx.tenant.tenantId !== verified.tenantId) {
+        throw new AuthErrorObject('AUTH/APIKEY_INVALID')
+      }
       if (opts.requireScopes && opts.requireScopes.length > 0) {
         opts.apiKeys.requireScopes(verified.scopes, opts.requireScopes)
       }
@@ -89,19 +85,4 @@ export function apiKey<Profile = unknown>(
       ]
     },
   }
-}
-
-/**
- * Namespace merge for the `api-key` provider exports. Co-locates the
- * options + input/output shapes alongside the factory.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace ApiKeyProvider {
-  /** Alias for `ApiKeyProviderOptions`. */
-  export type IOptions = ApiKeyProviderOptions
-  /** Alias for `ApiKeyBeginInput`. */
-  export type IBeginInput = ApiKeyBeginInput
-  /** Alias for `ApiKeyCompleteInput`. */
-  export type ICompleteInput = ApiKeyCompleteInput
 }

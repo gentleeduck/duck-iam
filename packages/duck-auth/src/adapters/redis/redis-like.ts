@@ -1,56 +1,51 @@
 /**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the Redis-compatible client contract. Every type
+ * lives inside the namespace so consumers reach for
+ * `RedisLike.IClient` rather than a flat name.
  */
-
-/**
- * Minimal Redis interface the auth adapters consume. Both `ioredis` and
- * `@upstash/redis` already implement this surface, so consumers wire
- * their existing client without an extra peerDep cost.
- *
- * Methods follow Redis semantics:
- *   - `get` returns the value (string) or null
- *   - `set` with `EX ttlSec` writes with TTL; `NX` makes it conditional
- *   - `del` returns 1 when a key was removed, 0 otherwise
- *   - `expire` (re)sets TTL on an existing key
- *   - `scan` matches keys by pattern (cursor-based)
- *
- * Production runs use ioredis or @upstash/redis; tests use the in-tree
- * `FakeRedis` implementation that satisfies the same shape.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface RedisLike {
-  /** GET key -> value | null */
-  get(key: string): Promise<string | null>
-  /** SET key value [EX seconds] [NX] -> 'OK' | null (null = NX failed) */
-  set(key: string, value: string, opts?: { ex?: number; nx?: boolean }): Promise<'OK' | null>
-  /** DEL key... -> count */
-  del(...keys: string[]): Promise<number>
-  /** EXPIRE key seconds -> 1 | 0 */
-  expire(key: string, seconds: number): Promise<number>
-  /** SCAN cursor MATCH pattern COUNT n -> [nextCursor, keys] */
-  scan(cursor: string, opts?: { match?: string; count?: number }): Promise<[string, string[]]>
-  /** INCR key -> new value (creates key=1 if missing) */
-  incr(key: string): Promise<number>
-  /** SADD key member... -> added count */
-  sadd(key: string, ...members: string[]): Promise<number>
-  /** SREM key member... -> removed count */
-  srem(key: string, ...members: string[]): Promise<number>
-  /** SMEMBERS key -> array of members (empty when key missing) */
-  smembers(key: string): Promise<string[]>
-  /** EVAL script numKeys keys... args... -> result */
-  eval?(script: string, opts: { keys: string[]; args: string[] }): Promise<unknown>
+export namespace RedisLike {
+  /**
+   * Minimal Redis interface the auth adapters consume. Both `ioredis`
+   * and `@upstash/redis` already implement this surface; consumers
+   * wire their existing client without an extra peerDep cost.
+   *
+   * Methods follow Redis semantics:
+   *   - `get` returns the value (string) or null
+   *   - `set` with `EX ttlSec` writes with TTL; `NX` makes it conditional
+   *   - `del` returns 1 when a key was removed, 0 otherwise
+   *   - `expire` (re)sets TTL on an existing key
+   *   - `scan` matches keys by pattern (cursor-based)
+   */
+  export interface IClient {
+    /** GET key -> value | null */
+    get(key: string): Promise<string | null>
+    /** SET key value [EX seconds] [NX] -> 'OK' | null (null = NX failed) */
+    set(key: string, value: string, opts?: { ex?: number; nx?: boolean }): Promise<'OK' | null>
+    /** DEL key... -> count */
+    del(...keys: string[]): Promise<number>
+    /** EXPIRE key seconds -> 1 | 0 */
+    expire(key: string, seconds: number): Promise<number>
+    /** SCAN cursor MATCH pattern COUNT n -> [nextCursor, keys] */
+    scan(cursor: string, opts?: { match?: string; count?: number }): Promise<[string, string[]]>
+    /** INCR key -> new value (creates key=1 if missing) */
+    incr(key: string): Promise<number>
+    /** SADD key member... -> added count */
+    sadd(key: string, ...members: string[]): Promise<number>
+    /** SREM key member... -> removed count */
+    srem(key: string, ...members: string[]): Promise<number>
+    /** SMEMBERS key -> array of members (empty when key missing) */
+    smembers(key: string): Promise<string[]>
+    /** EVAL script numKeys keys... args... -> result */
+    eval?(script: string, opts: { keys: string[]; args: string[] }): Promise<unknown>
+  }
 }
 
 /**
  * In-process Redis substitute. Used by tests and by apps that need the
  * adapter shape without a real Redis dependency at runtime. Same surface
  * as ioredis / upstash; TTLs honored via setTimeout cleanup on read.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export class FakeRedis implements RedisLike {
+export class FakeRedis implements RedisLike.IClient {
   private readonly _data = new Map<string, { value: string; expiresAt: number | null }>()
   private readonly _sets = new Map<string, Set<string>>()
   private readonly _channels = new Map<string, Set<(channel: string, message: string) => void | Promise<void>>>()
@@ -64,8 +59,6 @@ export class FakeRedis implements RedisLike {
 
   /**
    * `RedisLike.get` substitute. Returns null on miss or after TTL elapsed.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async get(key: string): Promise<string | null> {
     this._maybeExpire(key)
@@ -75,8 +68,6 @@ export class FakeRedis implements RedisLike {
   /**
    * `RedisLike.set` with optional `EX` (TTL seconds) + `NX` (only-if-absent).
    * Returns 'OK' on success, null when NX condition fails.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async set(key: string, value: string, opts: { ex?: number; nx?: boolean } = {}): Promise<'OK' | null> {
     this._maybeExpire(key)
@@ -90,8 +81,6 @@ export class FakeRedis implements RedisLike {
 
   /**
    * `RedisLike.del` variadic. Returns count of keys actually removed.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async del(...keys: string[]): Promise<number> {
     let deleted = 0
@@ -104,8 +93,6 @@ export class FakeRedis implements RedisLike {
   /**
    * `RedisLike.expire` (re)sets TTL on a live key. Returns 1 on success,
    * 0 when the key does not exist.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async expire(key: string, seconds: number): Promise<number> {
     this._maybeExpire(key)
@@ -118,8 +105,6 @@ export class FakeRedis implements RedisLike {
   /**
    * `RedisLike.scan` cursor pagination. Match patterns honor `*` wildcard.
    * Walks both string keys and set keys (real Redis SCAN is type-agnostic).
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async scan(cursor: string, opts: { match?: string; count?: number } = {}): Promise<[string, string[]]> {
     const all = [...new Set<string>([...this._data.keys(), ...this._sets.keys()])]
@@ -143,8 +128,6 @@ export class FakeRedis implements RedisLike {
 
   /**
    * `RedisLike.incr` atomic increment. Creates the key at 1 when missing.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async incr(key: string): Promise<number> {
     this._maybeExpire(key)
@@ -160,8 +143,6 @@ export class FakeRedis implements RedisLike {
 
   /**
    * `RedisLike.sadd` variadic. Returns count of new members.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async sadd(key: string, ...members: string[]): Promise<number> {
     let set = this._sets.get(key)
@@ -181,8 +162,6 @@ export class FakeRedis implements RedisLike {
 
   /**
    * `RedisLike.srem` variadic. Returns count of removed members.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async srem(key: string, ...members: string[]): Promise<number> {
     const set = this._sets.get(key)
@@ -197,8 +176,6 @@ export class FakeRedis implements RedisLike {
 
   /**
    * `RedisLike.smembers`. Returns empty array when key missing.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async smembers(key: string): Promise<string[]> {
     return [...(this._sets.get(key) ?? [])]
@@ -208,8 +185,6 @@ export class FakeRedis implements RedisLike {
    * Pub/sub stub matching `RedisPubSubClient.publish`. Fans out the
    * payload to every subscriber on `channel`. Returns the number of
    * subscribers that received it.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async publish(channel: string, message: string): Promise<number> {
     const set = this._channels.get(channel)
@@ -223,8 +198,6 @@ export class FakeRedis implements RedisLike {
   /**
    * Pub/sub stub matching `RedisPubSubClient.subscribe`. Registers the
    * handler against `channel`; returns an async unsubscribe.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async subscribe(
     channel: string,
@@ -243,20 +216,51 @@ export class FakeRedis implements RedisLike {
   }
 }
 
-/** Trivial glob-to-regex for Redis MATCH semantics. */
-function matchGlob(input: string, pattern: string): boolean {
-  const re = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`)
-  return re.test(input)
-}
-
 /**
- * Namespace merge for the RedisLike contract. Co-locates the adapter
- * contract + fake under one symbol so consumers import either shape with
- * a single line.
+ * linear-time glob matcher for Redis MATCH semantics (only `*`
+ * supported; the legacy regex-construction approach was vulnerable to
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ *  (1) ReDoS - multiple `*`s in a pattern compile to multiple `.*`
+ *      segments. A pattern like `a*a*a*a*a*X` matched against
+ *      `aaaaaaaaaaY` (no terminal `X`) drives JS's backtracking
+ *      regex engine into super-linear time. Defense in depth even
+ *      though MATCH patterns are normally operator-controlled.
+ *
+ *  (2) Crashes - the escape only covered `[.+^${}()|[]\\]`, leaving
+ *      `?` unescaped. A pattern containing `?` (e.g. `?$`) compiled
+ *      to an INVALID regex and threw SyntaxError on `new RegExp(...)`,
+ *      crashing the scan() loop.
+ *
+ * Both go away with a textbook two-pointer iterative matcher: O(n*m)
+ * worst case (vs. exponential for the regex), and unknown characters
+ * in the pattern are treated as literals (no parser to crash). Length
+ * caps add a final ceiling.
  */
-export namespace RedisLike {
-  /** Alias for the `RedisLike` interface (preserves the dual export). */
-  export type IClient = RedisLike
+const MATCH_GLOB_INPUT_MAX = 4096
+const MATCH_GLOB_PATTERN_MAX = 256
+function matchGlob(input: string, pattern: string): boolean {
+  if (input.length > MATCH_GLOB_INPUT_MAX) return false
+  if (pattern.length > MATCH_GLOB_PATTERN_MAX) return false
+  let i = 0
+  let p = 0
+  let starIdx = -1
+  let matchIdx = 0
+  while (i < input.length) {
+    if (p < pattern.length && pattern[p] === '*') {
+      starIdx = p
+      matchIdx = i
+      p++
+    } else if (p < pattern.length && pattern[p] === input[i]) {
+      i++
+      p++
+    } else if (starIdx !== -1) {
+      p = starIdx + 1
+      matchIdx++
+      i = matchIdx
+    } else {
+      return false
+    }
+  }
+  while (p < pattern.length && pattern[p] === '*') p++
+  return p === pattern.length
 }

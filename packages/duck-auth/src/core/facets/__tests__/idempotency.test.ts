@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from '../idempotency'
 
@@ -85,5 +80,60 @@ describe('IdempotencyFacet.handle', () => {
 
   it('headerName surfaces the configured header for adapter use', () => {
     expect(facet.headerName).toBe('idempotency-key')
+  })
+
+  it('concurrent same-key callers - executor runs exactly once', async () => {
+    // Use a slow executor so the second handle() lands while the first is in flight.
+    let calls = 0
+    const exec = async () => {
+      calls++
+      await new Promise((r) => setTimeout(r, 80))
+      return { status: 200, body: { n: calls }, createdAt: Date.now() }
+    }
+    const [a, b] = await Promise.all([facet.handle('k', {}, exec), facet.handle('k', {}, exec)])
+    expect(calls).toBe(1)
+    expect(a.body).toEqual({ n: 1 })
+    expect(b.body).toEqual({ n: 1 })
+  })
+
+  it('when the originator crashes, the loser returns 409 (does not re-execute)', async () => {
+    // Pre-claim the slot in the store with no follow-up put() (simulates a
+    // worker that won the race then died before completing the executor).
+    // The facet weaves identity scope into the stored key, so the
+    // synthetic pre-claim must use the same prefix.
+    await store.claim('_anon::orphan-k', DEFAULT_IDEMPOTENCY_CONFIG.ttlMs, {})
+    const exec = vi.fn(async () => ({ status: 200, body: { ran: true }, createdAt: Date.now() }))
+    const tightFacet = new IdempotencyFacet(store, { ...DEFAULT_IDEMPOTENCY_CONFIG, pollTimeoutMs: 100 })
+    const r = await tightFacet.handle('orphan-k', {}, exec)
+    expect(exec).not.toHaveBeenCalled()
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ error: 'idempotency-conflict' })
+  })
+
+  it('identity scoping - Alice and Bob can use the same key without collision', async () => {
+    const facet2 = new IdempotencyFacet(store, DEFAULT_IDEMPOTENCY_CONFIG)
+    const aExec = vi.fn(async () => ({ status: 200, body: { who: 'alice' }, createdAt: Date.now() }))
+    const bExec = vi.fn(async () => ({ status: 200, body: { who: 'bob' }, createdAt: Date.now() }))
+    const a = await facet2.handle('same-key', {}, aExec, { identityId: 'alice' })
+    const b = await facet2.handle('same-key', {}, bExec, { identityId: 'bob' })
+    expect(aExec).toHaveBeenCalledOnce()
+    expect(bExec).toHaveBeenCalledOnce()
+    expect(a.body).toEqual({ who: 'alice' })
+    expect(b.body).toEqual({ who: 'bob' })
+  })
+
+  it('identity scoping - same identity replaying same key gets the cached response (not re-executed)', async () => {
+    const facet2 = new IdempotencyFacet(store, DEFAULT_IDEMPOTENCY_CONFIG)
+    const exec = vi.fn(async () => ({ status: 200, body: { ok: true }, createdAt: Date.now() }))
+    await facet2.handle('k', {}, exec, { identityId: 'alice' })
+    await facet2.handle('k', {}, exec, { identityId: 'alice' })
+    expect(exec).toHaveBeenCalledOnce()
+  })
+
+  it('MemoryIdempotencyStore.get filters its own tombstone (matches Redis semantics)', async () => {
+    await store.claim('k-tomb', 60_000, {})
+    // After claim() the entry exists but the put() has not landed.
+    // get() must report null so handle() does not serve the tombstone.
+    expect(await store.get('k-tomb', {})).toBeNull()
   })
 })

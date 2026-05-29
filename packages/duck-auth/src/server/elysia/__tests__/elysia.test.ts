@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { AuthRoot } from '../../../core/auth'
@@ -10,7 +5,7 @@ import { ScryptHasher } from '../../../core/password/scrypt'
 import { CookieTransport } from '../../../core/transport/cookie'
 import { MemoryLimiter } from '../../../limiters/memory'
 import { password } from '../../../providers/password'
-import { type ElysiaLikeContext, elysiaProviderBegin, elysiaSession, elysiaSignIn, elysiaSignOut } from '../index'
+import { type ElysiaAdapter, elysiaProviderBegin, elysiaSession, elysiaSignIn, elysiaSignOut } from '../index'
 
 interface MyProfile {
   email: string
@@ -38,7 +33,11 @@ function buildAuth() {
   return { auth, adapter }
 }
 
-function ctx(body: unknown = {}, params: Record<string, string> = {}, headers: HeadersInit = {}): ElysiaLikeContext {
+function ctx(
+  body: unknown = {},
+  params: Record<string, string> = {},
+  headers: HeadersInit = {},
+): ElysiaAdapter.IContext {
   return {
     request: new Request('https://app/auth/x', { method: 'POST', headers }),
     body,

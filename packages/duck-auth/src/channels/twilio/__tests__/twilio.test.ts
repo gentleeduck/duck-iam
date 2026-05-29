@@ -1,11 +1,6 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import type { Identity } from '../../../core/types/identity'
-import { TwilioChannel, type TwilioClientLike } from '../index'
+import { TwilioChannel } from '../index'
 
 function makeIdentity(phone: string | undefined): Identity.IIdentity<unknown> {
   return {
@@ -18,7 +13,7 @@ function makeIdentity(phone: string | undefined): Identity.IIdentity<unknown> {
   }
 }
 
-function makeClient(impl?: TwilioClientLike['messages']['create']): TwilioClientLike {
+function makeClient(impl?: TwilioChannel.IClient['messages']['create']): TwilioChannel.IClient {
   return {
     messages: {
       create: vi.fn(impl ?? (async () => ({ sid: 'SM1', errorCode: null, errorMessage: null }))),

@@ -1,9 +1,4 @@
 /**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
-/**
  * React client - hooks + provider wrapping the vanilla AuthClient. Keeps
  * React itself as a peerDep so the auth core has no React in its graph.
  *
@@ -20,8 +15,6 @@
  *   return <button onClick={() => signIn.mutate({ providerId: 'password', input: { ... } })}>...</button>
  * }
  * ```
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 import {
   createContext,
@@ -34,43 +27,27 @@ import {
   useRef,
   useState,
 } from 'react'
-import {
-  type AuthClient,
-  type AuthClientConfig,
-  createAuthClient,
-  type SessionResult,
-  type SignInOptions,
-  type SignInResult,
-} from '../vanilla'
+import { createAuthClient, type VanillaClient } from '../vanilla'
 
 // --- context ----------------------------------------------------------
 
 interface AuthContextValue<Profile = unknown> {
-  client: AuthClient<Profile>
-  state: SessionResult<Profile>
+  client: VanillaClient.IClient<Profile>
+  state: VanillaClient.ISessionResult<Profile>
   status: 'loading' | 'authed' | 'guest'
-  refresh(): Promise<SessionResult<Profile>>
+  refresh(): Promise<VanillaClient.ISessionResult<Profile>>
 }
 
 const AuthContext = createContext<AuthContextValue<unknown> | null>(null)
 
-export interface AuthProviderProps extends AuthClientConfig {
-  children: ReactNode
-  /** Optional pre-built client; overrides cfg. */
-  client?: AuthClient<unknown>
-  /** Disable the initial automatic /session fetch on mount. */
-  noInitialFetch?: boolean
-}
-
 /**
  * `AuthProvider`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function AuthProvider(props: AuthProviderProps): ReturnType<typeof createElement> {
+export function AuthProvider(props: ReactClient.IProviderProps): ReturnType<typeof createElement> {
   const { children, client: externalClient, noInitialFetch, ...cfg } = props
+  // biome-ignore lint/correctness/useExhaustiveDependencies: cfg is a destructured spread; only baseUrl matters for client identity.
   const client = useMemo(() => externalClient ?? createAuthClient(cfg), [externalClient, cfg.baseUrl])
-  const [state, setState] = useState<SessionResult<unknown>>({ session: null, identity: null })
+  const [state, setState] = useState<VanillaClient.ISessionResult<unknown>>({ session: null, identity: null })
   const [status, setStatus] = useState<'loading' | 'authed' | 'guest'>(noInitialFetch ? 'guest' : 'loading')
   const subscribed = useRef(false)
 
@@ -113,29 +90,15 @@ function useAuthCtx<Profile = unknown>(): AuthContextValue<Profile> {
 
 // --- hooks ------------------------------------------------------------
 
-export interface UseSessionResult<Profile = unknown> {
-  data: SessionResult<Profile>
-  status: 'loading' | 'authed' | 'guest'
-  refresh(): Promise<SessionResult<Profile>>
-}
-
 /**
  * `useSession`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function useSession<Profile = unknown>(): UseSessionResult<Profile> {
+export function useSession<Profile = unknown>(): ReactClient.IUseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, status: ctx.status, refresh: ctx.refresh }
 }
 
-export interface MutationResult<I, O> {
-  mutate(input: I): Promise<O>
-  loading: boolean
-  error: unknown | null
-}
-
-function useMutation<I, O>(fn: (input: I) => Promise<O>): MutationResult<I, O> {
+function useMutation<I, O>(fn: (input: I) => Promise<O>): ReactClient.IMutationResult<I, O> {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown | null>(null)
   const mutate = useCallback(
@@ -158,56 +121,60 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): MutationResult<I, O> {
 
 /**
  * `useSignIn`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function useSignIn<Profile = unknown>(): MutationResult<SignInOptions, SignInResult<Profile>> {
+export function useSignIn<Profile = unknown>(): ReactClient.IMutationResult<
+  VanillaClient.ISignInOptions,
+  VanillaClient.ISignInResult<Profile>
+> {
   const { client } = useAuthCtx<Profile>()
-  return useMutation((opts: SignInOptions) => client.signIn(opts))
+  return useMutation((opts: VanillaClient.ISignInOptions) => client.signIn(opts))
 }
 
 /**
  * `useSignOut`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function useSignOut(): MutationResult<void, { ok: true }> {
+export function useSignOut(): ReactClient.IMutationResult<void, { ok: true }> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
 /**
  * `useBeginProvider`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function useBeginProvider(): MutationResult<{ id: string; input?: unknown }, { body: unknown }> {
+export function useBeginProvider(): ReactClient.IMutationResult<{ id: string; input?: unknown }, { body: unknown }> {
   const { client } = useAuthCtx()
   return useMutation(({ id, input }) => client.beginProvider(id, input))
 }
 
 /**
  * `useAuthClient`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function useAuthClient<Profile = unknown>(): AuthClient<Profile> {
+export function useAuthClient<Profile = unknown>(): VanillaClient.IClient<Profile> {
   return useAuthCtx<Profile>().client
 }
 
 /**
  * Namespace merge for ReactClient. Co-locates the config + input +
- * output shapes via TS namespace declaration. Consumers can write either
- * the flat name (AuthProviderProps) or the namespaced form
- * (ReactClient.IProviderProps); both resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * output shapes via TS namespace declaration.
  */
 export namespace ReactClient {
-  /** Alias for the flat `AuthProviderProps` type. */
-  export type IProviderProps = AuthProviderProps
-  /** Alias for the flat `UseSessionResult<Profile = unknown>` type. */
-  export type IUseSessionResult<Profile = unknown> = UseSessionResult<Profile>
-  /** Alias for the flat `MutationResult<I, O>` type. */
-  export type IMutationResult<I, O> = MutationResult<I, O>
+  export interface IProviderProps extends VanillaClient.IConfig {
+    children?: ReactNode
+    /** Optional pre-built client; overrides cfg. */
+    client?: VanillaClient.IClient<unknown>
+    /** Disable the initial automatic /session fetch on mount. */
+    noInitialFetch?: boolean
+  }
+
+  export interface IUseSessionResult<Profile = unknown> {
+    data: VanillaClient.ISessionResult<Profile>
+    status: 'loading' | 'authed' | 'guest'
+    refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+  }
+
+  export interface IMutationResult<I, O> {
+    mutate(input: I): Promise<O>
+    loading: boolean
+    error: unknown | null
+  }
 }

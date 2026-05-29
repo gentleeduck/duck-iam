@@ -1,6 +1,5 @@
 // @ts-nocheck
 /**
- * @packageDocumentation
  * Reference Drizzle ORM (Postgres) implementation of the SqlBridge
  * contract. Drop into your project, install the peerDeps, swap in your
  * own column / schema customizations, then hand the bridge to
@@ -13,62 +12,84 @@
  * Required peerDeps (consumer side):
  *   bun add drizzle-orm pg
  *   bun add -D drizzle-kit @types/pg
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import type { SqlBridge } from '@gentleduck/auth/adapters/sql'
 import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { bigint, integer, pgTable, text } from 'drizzle-orm/pg-core'
+import { bigint, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
 
 // ---------------------------------------------------------------------
 // Schema definitions
 // ---------------------------------------------------------------------
 
-export const identitiesTable = pgTable('auth_identities', {
-  id: text('id').primaryKey(),
-  tenantId: text('tenant_id'),
-  profile: text('profile'),
-  providers: text('providers').notNull().default('[]'),
-  version: integer('version').notNull().default(1),
-  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-  updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
-  deletedAt: bigint('deleted_at', { mode: 'number' }),
-})
+export const identitiesTable = pgTable(
+  'auth_identities',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id'),
+    profile: text('profile'),
+    providers: text('providers').notNull().default('[]'),
+    version: integer('version').notNull().default(1),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    updatedAt: bigint('updated_at', { mode: 'number' }).notNull(),
+    deletedAt: bigint('deleted_at', { mode: 'number' }),
+  },
+  (t) => ({
+    tenantIdx: index('auth_identities_tenant').on(t.tenantId),
+    deletedAtIdx: index('auth_identities_deleted_at').on(t.deletedAt),
+  }),
+)
 
-export const credentialsTable = pgTable('auth_credentials', {
-  id: text('id').primaryKey(),
-  identityId: text('identity_id').notNull(),
-  tenantId: text('tenant_id'),
-  kind: text('kind').notNull(),
-  secret: text('secret').notNull(),
-  metadata: text('metadata'),
-  version: integer('version').notNull().default(1),
-  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-  lastUsedAt: bigint('last_used_at', { mode: 'number' }),
-  expiresAt: bigint('expires_at', { mode: 'number' }),
-  revokedAt: bigint('revoked_at', { mode: 'number' }),
-})
+export const credentialsTable = pgTable(
+  'auth_credentials',
+  {
+    id: text('id').primaryKey(),
+    identityId: text('identity_id').notNull(),
+    tenantId: text('tenant_id'),
+    kind: text('kind').notNull(),
+    secret: text('secret').notNull(),
+    metadata: text('metadata'),
+    version: integer('version').notNull().default(1),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    lastUsedAt: bigint('last_used_at', { mode: 'number' }),
+    expiresAt: bigint('expires_at', { mode: 'number' }),
+    revokedAt: bigint('revoked_at', { mode: 'number' }),
+  },
+  (t) => ({
+    identityIdx: index('auth_credentials_identity').on(t.identityId),
+    // Bridge contract: findByHashedSecret(kind, secret) is O(1).
+    kindSecretIdx: index('auth_credentials_kind_secret').on(t.kind, t.secret),
+    tenantIdx: index('auth_credentials_tenant').on(t.tenantId),
+  }),
+)
 
-export const sessionsTable = pgTable('auth_sessions', {
-  id: text('id').primaryKey(),
-  identityId: text('identity_id'),
-  tenantId: text('tenant_id'),
-  kind: text('kind').notNull(),
-  aal: integer('aal').notNull(),
-  factors: text('factors').notNull().default('[]'),
-  csrfHash: text('csrf_hash'),
-  ip: text('ip'),
-  userAgent: text('user_agent'),
-  fingerprint: text('fingerprint'),
-  createdAt: bigint('created_at', { mode: 'number' }).notNull(),
-  rotatedAt: bigint('rotated_at', { mode: 'number' }).notNull(),
-  expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
-  absoluteExpiresAt: bigint('absolute_expires_at', { mode: 'number' }).notNull(),
-  fresh: integer('fresh').notNull(),
-  actingAs: text('acting_as'),
-})
+export const sessionsTable = pgTable(
+  'auth_sessions',
+  {
+    id: text('id').primaryKey(),
+    identityId: text('identity_id'),
+    tenantId: text('tenant_id'),
+    kind: text('kind').notNull(),
+    aal: integer('aal').notNull(),
+    factors: text('factors').notNull().default('[]'),
+    csrfHash: text('csrf_hash'),
+    ip: text('ip'),
+    userAgent: text('user_agent'),
+    fingerprint: text('fingerprint'),
+    createdAt: bigint('created_at', { mode: 'number' }).notNull(),
+    rotatedAt: bigint('rotated_at', { mode: 'number' }).notNull(),
+    expiresAt: bigint('expires_at', { mode: 'number' }).notNull(),
+    absoluteExpiresAt: bigint('absolute_expires_at', { mode: 'number' }).notNull(),
+    fresh: integer('fresh').notNull(),
+    actingAs: text('acting_as'),
+  },
+  (t) => ({
+    identityIdx: index('auth_sessions_identity').on(t.identityId),
+    expiresIdx: index('auth_sessions_expires').on(t.expiresAt),
+    absoluteExpiresIdx: index('auth_sessions_absolute_expires').on(t.absoluteExpiresAt),
+  }),
+)
 
 // ---------------------------------------------------------------------
 // Bridge factory
@@ -95,21 +116,25 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       },
       findByEmail: async (email, tenantId) => {
         // Profile is JSON-encoded; cheapest portable extraction is server-side json operators.
+        // Tenant-scope: null tenant_id rows are "global identities"
+        // reachable from any tenant, matching findById's semantics.
         const rows = await db.execute(
           sql`select * from ${identitiesTable}
               where (profile::jsonb)->>'email' = ${email}
                 and deleted_at is null
-                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
+                and (tenant_id is null or ${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
               limit 1`,
         )
         return (rows.rows[0] as never) ?? null
       },
       findByProviderSub: async (providerId, sub, tenantId) => {
+        // `${...}` (no `.raw`) binds as $N; .raw would be SQLi.
+        const matchPattern = JSON.stringify([{ providerId, providerSub: sub }])
         const rows = await db.execute(
           sql`select * from ${identitiesTable}
-              where (providers::jsonb) @> ${sql.raw(JSON.stringify([{ providerId, providerSub: sub }]))}::jsonb
+              where (providers::jsonb) @> ${matchPattern}::jsonb
                 and deleted_at is null
-                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
+                and (tenant_id is null or ${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
               limit 1`,
         )
         return (rows.rows[0] as never) ?? null
@@ -150,18 +175,22 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         await db.delete(sessionsTable).where(eq(sessionsTable.identityId, id))
         await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
       },
-      insertProviderLink: async (identityId, providerId, providerSub, addedAt, _tenantId) => {
-        const newLink = { providerId, providerSub, addedAt }
+      insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
+        // see findByProviderSub comment - drop `sql.raw` so
+        // `providerId` / `providerSub` / `addedAt` are bound as a
+        // parameter, not raw text.
+        const newLink = JSON.stringify([{ providerId, providerSub, addedAt }])
         await db.execute(
           sql`update ${identitiesTable}
               set providers = (
                 select jsonb_agg(distinct elem)
-                from jsonb_array_elements(providers::jsonb || ${sql.raw(JSON.stringify([newLink]))}::jsonb) elem
+                from jsonb_array_elements(providers::jsonb || ${newLink}::jsonb) elem
               )::text
-              where id = ${identityId}`,
+              where id = ${identityId}
+                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)`,
         )
       },
-      deleteProviderLink: async (identityId, providerId, _tenantId) => {
+      deleteProviderLink: async (identityId, providerId, tenantId) => {
         await db.execute(
           sql`update ${identitiesTable}
               set providers = (
@@ -169,13 +198,23 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
                 from jsonb_array_elements(providers::jsonb) elem
                 where (elem->>'providerId') != ${providerId}
               )
-              where id = ${identityId}`,
+              where id = ${identityId}
+                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)`,
         )
       },
-      merge: async (survivorId, dupId, _tenantId) => {
-        await db.update(credentialsTable).set({ identityId: survivorId }).where(eq(credentialsTable.identityId, dupId))
-        await db.update(sessionsTable).set({ identityId: survivorId }).where(eq(sessionsTable.identityId, dupId))
-        await db.delete(identitiesTable).where(eq(identitiesTable.id, dupId))
+      merge: async (survivorId, dupId, tenantId) => {
+        // Cascade is tenant-scoped: cross-tenant merge attempts are no-ops.
+        await db
+          .update(credentialsTable)
+          .set({ identityId: survivorId })
+          .where(and(eq(credentialsTable.identityId, dupId), tenantWhere(credentialsTable, tenantId)))
+        await db
+          .update(sessionsTable)
+          .set({ identityId: survivorId })
+          .where(and(eq(sessionsTable.identityId, dupId), tenantWhere(sessionsTable, tenantId)))
+        await db
+          .delete(identitiesTable)
+          .where(and(eq(identitiesTable.id, dupId), tenantWhere(identitiesTable, tenantId)))
       },
     },
     credentials: {

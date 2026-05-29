@@ -1,43 +1,11 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { AuthErrorObject } from '../errors'
 import type { Events } from '../types/events'
 import type { Session } from '../types/session'
 
-/**
- * Reaction the hijack-detection policy applies when the request's
- * fingerprint diverges from the session's fingerprint.
- *
- *   ignore  - log the signal via `suspicious` event but allow the request
- *   rotate  - rotate the SID (force fresh transport issue) but allow
- *             the request after rotation
- *   mfa     - throw AUTH/STEP_UP_REQUIRED so the route surfaces a
- *             challenge; session continues at the current AAL until
- *             step-up satisfies
- *   revoke  - throw AUTH/SESSION_REVOKED + caller revokes the session
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export type HijackReaction = 'ignore' | 'rotate' | 'mfa' | 'revoke'
-
-export interface HijackPolicyConfig {
-  /** Reaction on IP change. Default 'rotate'. */
-  onIpChange?: HijackReaction
-  /** Reaction on User-Agent change. Default 'mfa'. */
-  onUserAgentChange?: HijackReaction
-}
-
-const DEFAULT_HIJACK_POLICY: Required<HijackPolicyConfig> = {
+const DEFAULT_HIJACK_POLICY: Required<HijackFacet.IPolicyConfig> = {
   onIpChange: 'rotate',
   onUserAgentChange: 'mfa',
 }
-
-export type HijackEvaluation =
-  | { ok: true }
-  | { ok: false; reaction: HijackReaction; signal: 'ip-change' | 'user-agent-change'; from: string; to: string }
 
 /**
  * Hijack-detection facet. Stateless beyond the configured reactions; the
@@ -46,15 +14,13 @@ export type HijackEvaluation =
  *
  * DESIGN section T1. Emits the canonical `suspicious` event regardless
  * of the reaction so audit pipelines see every drift.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class HijackFacet {
-  private readonly _policy: Required<HijackPolicyConfig>
+  private readonly _policy: Required<HijackFacet.IPolicyConfig>
 
   constructor(
     private readonly _events: Events.IBus,
-    cfg: HijackPolicyConfig = {},
+    cfg: HijackFacet.IPolicyConfig = {},
   ) {
     this._policy = {
       onIpChange: cfg.onIpChange ?? DEFAULT_HIJACK_POLICY.onIpChange,
@@ -69,57 +35,84 @@ export class HijackFacet {
    *
    * Always emits `suspicious` on drift, even when the configured reaction
    * is 'ignore', so the audit pipeline sees every change.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
-  async evaluate(session: Session.ISession, request: { ip?: string; userAgent?: string }): Promise<HijackEvaluation> {
-    // IP change
-    if (request.ip !== undefined && session.ip !== undefined && request.ip !== session.ip) {
-      await this._events.emit('suspicious', {
-        ...(session.identityId && { identityId: session.identityId }),
+  async evaluate(
+    session: Session.ISession,
+    request: { ip?: string; userAgent?: string },
+  ): Promise<HijackFacet.IEvaluation> {
+    // Evaluate IP + UA drift independently and return the strongest
+    // reaction. One-sided absence (missing baseline or stripped header)
+    // is downgraded to `'rotate'` so audit fires without forcing step-up.
+    type DriftSignal = 'ip-change' | 'user-agent-change'
+    const drifts: Array<{
+      signal: DriftSignal
+      reaction: HijackFacet.IReaction
+      from: string
+      to: string
+      score: number
+    }> = []
+
+    const ipDrift = isDrift(session.ip, request.ip)
+    if (ipDrift) {
+      const reaction =
+        ipDrift === 'asymmetric' ? downgradeForAsymmetric(this._policy.onIpChange) : this._policy.onIpChange
+      drifts.push({
         signal: 'ip-change',
+        reaction,
+        from: session.ip ?? '',
+        to: request.ip ?? '',
         score: 0.6,
-        meta: { from: session.ip, to: request.ip },
       })
-      if (this._policy.onIpChange !== 'ignore') {
-        return {
-          ok: false,
-          reaction: this._policy.onIpChange,
-          signal: 'ip-change',
-          from: session.ip,
-          to: request.ip,
-        }
-      }
     }
-    // User-Agent change
-    if (request.userAgent !== undefined && session.userAgent !== undefined && request.userAgent !== session.userAgent) {
+    const uaDrift = isDrift(session.userAgent, request.userAgent)
+    if (uaDrift) {
+      const reaction =
+        uaDrift === 'asymmetric'
+          ? downgradeForAsymmetric(this._policy.onUserAgentChange)
+          : this._policy.onUserAgentChange
+      drifts.push({
+        signal: 'user-agent-change',
+        reaction,
+        from: session.userAgent ?? '',
+        to: request.userAgent ?? '',
+        score: 0.8,
+      })
+    }
+
+    if (drifts.length === 0) return { ok: true }
+
+    // Cap diagnostic strings (UA / IP) at 256 chars before emit so
+    // multi-KB headers cannot bloat OpenTelemetry / webhook payloads.
+    for (const d of drifts) {
       await this._events.emit('suspicious', {
         ...(session.identityId && { identityId: session.identityId }),
-        signal: 'user-agent-change',
-        score: 0.8,
-        meta: { from: session.userAgent, to: request.userAgent },
+        signal: d.signal,
+        score: d.score,
+        meta: { from: clipForDiagnostic(d.from), to: clipForDiagnostic(d.to) },
       })
-      if (this._policy.onUserAgentChange !== 'ignore') {
-        return {
-          ok: false,
-          reaction: this._policy.onUserAgentChange,
-          signal: 'user-agent-change',
-          from: session.userAgent,
-          to: request.userAgent,
-        }
-      }
     }
-    return { ok: true }
+
+    // Pick the strongest reaction. Precedence: revoke > mfa > rotate > ignore.
+    const severity: Record<HijackFacet.IReaction, number> = { ignore: 0, rotate: 1, mfa: 2, revoke: 3 }
+    drifts.sort((a, b) => severity[b.reaction] - severity[a.reaction])
+    const winner = drifts[0]
+    // drifts.length === 0 already early-returned above; this narrows for TS.
+    if (!winner || winner.reaction === 'ignore') return { ok: true }
+    return {
+      ok: false,
+      reaction: winner.reaction,
+      signal: winner.signal,
+      from: clipForDiagnostic(winner.from),
+      to: clipForDiagnostic(winner.to),
+    }
   }
 
   /**
    * Translate a reaction into the throw the caller should bubble.
    * `'rotate'` is non-throwing; caller schedules a rotation via
    * SessionsFacet.rotateOrCreate({ purpose: 're-auth' }).
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
-  applyReaction(reaction: HijackReaction): void {
+  applyReaction(reaction: HijackFacet.IReaction): void {
     if (reaction === 'mfa') {
       throw new AuthErrorObject('AUTH/STEP_UP_REQUIRED', {
         challenge: { reason: 'hijack-policy' },
@@ -131,20 +124,60 @@ export class HijackFacet {
   }
 }
 
+/** Compare a session baseline to a request value, three-state.
+ *
+ *   - `null`        - no drift (either both undefined or both equal)
+ *   - `'mismatch'`  - both defined, different values
+ *   - `'asymmetric'`- one defined, the other not (treated as a softer drift) */
+function isDrift(baseline: string | undefined, current: string | undefined): null | 'mismatch' | 'asymmetric' {
+  if (baseline === current) return null
+  if (baseline === undefined || current === undefined) return 'asymmetric'
+  return 'mismatch'
+}
+
+/** Asymmetric drift (one side missing) is downgraded one notch so a
+ * UA-less guest session does not force MFA on every request. Caller can
+ * still configure `'ignore'` explicitly to suppress entirely. */
+function downgradeForAsymmetric(reaction: HijackFacet.IReaction): HijackFacet.IReaction {
+  if (reaction === 'revoke' || reaction === 'mfa') return 'rotate'
+  return reaction
+}
+
+/**
+ * cap a caller-supplied diagnostic string
+ * (IP or User-Agent) for safe inclusion in events + return value.
+ * Long values appended with `...(truncated)` so operators see the
+ * partial value but downstream sinks aren't asked to log/transmit a
+ * 8 KiB UA per drift. The clip is content-preserving for typical
+ * inputs (<=256 chars round-trip unchanged).
+ */
+const DIAGNOSTIC_MAX_LEN = 256
+function clipForDiagnostic(s: string): string {
+  if (s.length <= DIAGNOSTIC_MAX_LEN) return s
+  return `${s.slice(0, DIAGNOSTIC_MAX_LEN)}...(truncated)`
+}
+
 /**
  * Namespace merge for HijackFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging. Consumers can
- * write either the flat name (e.g. HijackPolicyConfig) or the
- * namespaced form (HijackFacet.IPolicyConfig); both
- * resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * shapes alongside the class via TS class+namespace merging.
  */
 export namespace HijackFacet {
-  /** Alias for the flat `HijackPolicyConfig` type. */
-  export type IPolicyConfig = HijackPolicyConfig
-  /** Alias for the flat `HijackReaction` type. */
-  export type IReaction = HijackReaction
-  /** Alias for the flat `HijackEvaluation` type. */
-  export type IEvaluation = HijackEvaluation
+  export interface IPolicyConfig {
+    /** Reaction on IP change. Default 'rotate'. */
+    onIpChange?: HijackFacet.IReaction
+    /** Reaction on User-Agent change. Default 'mfa'. */
+    onUserAgentChange?: HijackFacet.IReaction
+  }
+
+  export type IReaction = 'ignore' | 'rotate' | 'mfa' | 'revoke'
+
+  export type IEvaluation =
+    | { ok: true }
+    | {
+        ok: false
+        reaction: HijackFacet.IReaction
+        signal: 'ip-change' | 'user-agent-change'
+        from: string
+        to: string
+      }
 }

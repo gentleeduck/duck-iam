@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { MemoryLimiter } from '../../../limiters/memory'
@@ -36,7 +31,7 @@ function buildAuth(): {
   return { auth, adapter }
 }
 
-describe('FlowsFacet - signup state machine (DESIGN section 34)', () => {
+describe('FlowsFacet - signup state machine', () => {
   let auth: AuthRoot<MyProfile>
   let adapter: MemoryAuthAdapter<MyProfile>
 
@@ -133,7 +128,7 @@ describe('FlowsFacet - signup state machine (DESIGN section 34)', () => {
   })
 })
 
-describe('FlowsFacet - impersonation (DESIGN section 38)', () => {
+describe('FlowsFacet - impersonation', () => {
   let auth: AuthRoot<MyProfile>
   let adminId: string
   let targetId: string
@@ -190,6 +185,51 @@ describe('FlowsFacet - impersonation (DESIGN section 38)', () => {
     ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
   })
 
+  it('rejects oversize reason (>256 chars) with IMPERSONATE_FORBIDDEN', async () => {
+    const big = 'A'.repeat(257)
+    await expect(
+      auth.flows.impersonate({
+        realSid: adminSid,
+        targetIdentityId: targetId,
+        reason: big,
+        authorize: async () => true,
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
+  })
+
+  it('rejects empty reason', async () => {
+    await expect(
+      auth.flows.impersonate({
+        realSid: adminSid,
+        targetIdentityId: targetId,
+        reason: '',
+        authorize: async () => true,
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
+  })
+
+  it('rejects non-string reason without crashing', async () => {
+    await expect(
+      auth.flows.impersonate({
+        realSid: adminSid,
+        targetIdentityId: targetId,
+        reason: 42 as unknown as string,
+        authorize: async () => true,
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
+  })
+
+  it('accepts reason at the 256-char cap (boundary)', async () => {
+    const sized = 'A'.repeat(256)
+    const out = await auth.flows.impersonate({
+      realSid: adminSid,
+      targetIdentityId: targetId,
+      reason: sized,
+      authorize: async () => true,
+    })
+    expect(out.session.actingAs?.reason).toBe(sized)
+  })
+
   it('TTL capped at 1 hour even when caller supplies longer', async () => {
     const out = await auth.flows.impersonate({
       realSid: adminSid,
@@ -217,5 +257,24 @@ describe('FlowsFacet - impersonation (DESIGN section 38)', () => {
     await expect(auth.flows.releaseImpersonation(adminSid)).rejects.toMatchObject({
       code: 'AUTH/IMPERSONATE_EXPIRED',
     })
+  })
+
+  it('resolveBySid honors actingAs.expiresAt (impersonation cap enforced)', async () => {
+    const out = await auth.flows.impersonate({
+      realSid: adminSid,
+      targetIdentityId: targetId,
+      reason: 'x',
+      authorize: async () => true,
+    })
+    // Fast-forward actingAs.expiresAt into the past. Mirrors a normal
+    // TTL elapse without waiting an hour.
+    const row = await auth.sessions.getBySid(out.sid)
+    if (!row?.actingAs) throw new Error('expected actingAs')
+    ;(row.actingAs as { expiresAt: number }).expiresAt = Date.now() - 1
+    // Re-fetch via resolveSession: should delete + return null.
+    const resolved = await auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${out.sid}` }) })
+    expect(resolved).toBeNull()
+    // Row should be gone.
+    expect(await auth.sessions.getBySid(out.sid)).toBeNull()
   })
 })

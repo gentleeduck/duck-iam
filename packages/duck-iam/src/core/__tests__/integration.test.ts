@@ -143,7 +143,7 @@ describe('Integration: config -> engine -> evaluate', () => {
     expect(result.issues.filter((i) => i.type === 'error')).toHaveLength(0)
   })
 
-  describe('admin write-path validation (SEC-043)', () => {
+  describe('admin write-path validation', () => {
     const adapter = () => new MemoryAdapter({ roles: [viewer], assignments: {} })
 
     it('savePolicy throws when validatePolicy reports errors', async () => {
@@ -186,7 +186,7 @@ describe('Integration: config -> engine -> evaluate', () => {
       ).rejects.toThrow(/policy rejected by validator/)
     })
 
-    it('throw text contains validator code + path, not attacker-controlled value (SEC-052)', async () => {
+    it('throw text contains validator code + path, not attacker-controlled value', async () => {
       const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
       const hostileValue = '<script>alert(1)</script>__SECRET__'
       try {

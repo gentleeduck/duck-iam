@@ -77,9 +77,20 @@ describe('Next.js adapter - handler primitives', () => {
         body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
       }),
     )
-    const sid = decodeURIComponent((signin.headers.get('set-cookie')?.match(/^duck-sid=([^;]+)/)?.[1] ?? '') as string)
+    // signin issues both SID + CSRF cookies; replay both on signout.
+    const setCookieJoined = signin.headers.get('set-cookie') ?? ''
+    const sid = decodeURIComponent(setCookieJoined.match(/duck-sid=([^;,]+)/)?.[1] ?? '')
+    const csrfToken = decodeURIComponent(setCookieJoined.match(/__Host-duck-csrf=([^;,]+)/)?.[1] ?? '')
+    expect(csrfToken).not.toBe('')
     const out = await nextSignOut(auth)(
-      new Request('https://x/api/auth/signout', { method: 'POST', headers: { cookie: `duck-sid=${sid}` } }),
+      new Request('https://x/api/auth/signout', {
+        method: 'POST',
+        headers: {
+          cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
+          'x-csrf-token': csrfToken,
+          'sec-fetch-site': 'same-origin',
+        },
+      }),
     )
     expect(out.status).toBe(200)
     expect((await adapter.sessions.listByIdentity(identity.id)).length).toBe(0)

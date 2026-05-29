@@ -161,7 +161,7 @@ describe('METHOD_ACTION_MAP', () => {
   })
 })
 
-describe('errorToAuditString (SEC-047)', () => {
+describe('errorToAuditString', () => {
   it('returns class name when includeMessage is omitted (default safe)', () => {
     expect(errorToAuditString(new TypeError('boom'))).toBe('TypeError')
   })

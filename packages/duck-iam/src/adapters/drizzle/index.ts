@@ -423,20 +423,28 @@ export class DrizzleAdapter<
     const row = await this._selectFirst<AttrRow>(this._t.attrs, this._t.attrs.subjectId, subjectId)
     if (!row) return {}
     const data = row.data
-    if (typeof data !== 'string') return (data as Primitives.Attributes) ?? {}
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(data)
-    } catch (err) {
-      // Corruption is not "no attributes" - surface so the engine fails closed.
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
-      throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (JSON parse failed)`)
+    if (typeof data === 'string') {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(data)
+      } catch (err) {
+        // Corruption is not "no attributes" - surface so the engine fails closed.
+        this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
+        throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (JSON parse failed)`)
+      }
+      return this._validateAttributesShape(parsed, subjectId)
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
+    if (data === null || data === undefined) return {}
+    return this._validateAttributesShape(data, subjectId)
+  }
+
+  private _validateAttributesShape(value: unknown, subjectId: string): Primitives.Attributes {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
+      this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object (got ${got})`), subjectId)
       throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (not a JSON object)`)
     }
-    return parsed as Primitives.Attributes
+    return value as Primitives.Attributes
   }
 
   /**

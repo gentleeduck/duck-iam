@@ -52,7 +52,7 @@ function tokenFrom(url: string): string {
   return new URL(url).searchParams.get('token') ?? ''
 }
 
-describe('FlowsFacet - step-up (DESIGN section 6)', () => {
+describe('FlowsFacet - step-up', () => {
   it('checkStepUp returns satisfied:true for an AAL=2 fresh session', async () => {
     const { auth } = buildAuth()
     const { session } = await auth.sessions.create({
@@ -126,7 +126,7 @@ describe('FlowsFacet - step-up (DESIGN section 6)', () => {
   })
 })
 
-describe('FlowsFacet - password reset (DESIGN section 33.1)', () => {
+describe('FlowsFacet - password reset', () => {
   it('requestPasswordReset for unknown email returns ok (no enumeration)', async () => {
     const { auth, channel } = buildAuth()
     const r = await auth.flows.requestPasswordReset({
@@ -262,5 +262,60 @@ describe('FlowsFacet - password reset (DESIGN section 33.1)', () => {
     await expect(auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })).rejects.toMatchObject({
       code: 'AUTH/RECOVERY_TOKEN_EXPIRED',
     })
+  })
+
+  it('completePasswordReset rejects email-verification tokens (cross-kind confusion)', async () => {
+    const { auth, channel, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'old-password-9')
+
+    // Mint an email-verification token directly via the flow.
+    await auth.flows.requestEmailVerification({
+      identityId: identity.id,
+      channels: { email: channel },
+    })
+    const verifyToken = tokenFrom(channel.sent[0]?.url ?? '')
+
+    // Attacker tries to use it for a password reset. Must be refused.
+    await expect(
+      auth.flows.completePasswordReset({ token: verifyToken, newPassword: 'evil-password' }),
+    ).rejects.toMatchObject({
+      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+    })
+
+    // Original password still works.
+    const verify = await auth.passwords.verify(identity.id, 'old-password-9')
+    expect(verify.ok).toBe(true)
+
+    void adapter
+  })
+
+  it('completePasswordReset rejects account-deletion tokens', async () => {
+    const { auth, channel, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'old-password-9')
+
+    await auth.flows.requestAccountDeletion({
+      identityId: identity.id,
+      channels: { email: channel },
+    })
+    const deleteToken = tokenFrom(channel.sent[0]?.url ?? '')
+
+    await expect(
+      auth.flows.completePasswordReset({ token: deleteToken, newPassword: 'evil-password' }),
+    ).rejects.toMatchObject({ code: 'AUTH/RECOVERY_TOKEN_INVALID' })
+
+    void adapter
+  })
+
+  it('completePasswordReset rejects signup-flow tokens', async () => {
+    const { auth } = buildAuth()
+    // Start a signup-flow which mints a recovery+metadata.kind='signup-flow' row.
+    const begin = await auth.flows.beginSignUp({ email: 'fresh@x.com' })
+    expect(begin.flowToken).toBeDefined()
+
+    await expect(
+      auth.flows.completePasswordReset({ token: begin.flowToken, newPassword: 'evil-password' }),
+    ).rejects.toMatchObject({ code: 'AUTH/RECOVERY_TOKEN_INVALID' })
   })
 })

@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * gRPC server adapter. gRPC is binary + bidirectional; the auth lib
  * exposes the AuthRoot flows over standard unary RPCs by wrapping the
  * service handlers in interceptors that:
@@ -9,8 +8,6 @@
  *
  * The actual `@grpc/grpc-js` server is lazy-loaded as a peerDep; this
  * module ships the interceptor + handler factories only.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import type { AuthRoot } from '../../core/auth'
@@ -19,47 +16,9 @@ import type { Identity } from '../../core/types/identity'
 import type { Session } from '../../core/types/session'
 
 /**
- * Narrow subset of `@grpc/grpc-js` Metadata we need.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface GrpcMetadataLike {
-  get(key: string): Array<string | Buffer>
-  set(key: string, value: string | Buffer): void
-}
-
-/**
- * Narrow subset of `@grpc/grpc-js` ServerUnaryCall. The library uses
- * the same `metadata` + `getPeer` for every call type so this same
- * shape covers all four streaming directions.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface GrpcUnaryCallLike<Req = unknown> {
-  metadata: GrpcMetadataLike
-  request: Req
-  /** Mutation slots for the interceptor; downstream handlers read them. */
-  session?: Session.ISession
-  identity?: Identity.IIdentity<unknown> | null
-}
-
-export type GrpcCallback<Res = unknown> = (
-  error: { code: number; message: string; metadata?: GrpcMetadataLike } | null,
-  response?: Res,
-) => void
-
-/** gRPC unary handler signature. */
-export type GrpcUnaryHandler<Req = unknown, Res = unknown> = (
-  call: GrpcUnaryCallLike<Req>,
-  callback: GrpcCallback<Res>,
-) => void
-
-/**
  * Subset of gRPC status codes we map AuthErrorObject onto. Mirrors
  * `grpc.status.*` enum without forcing the peerDep on consumers that
  * just want the auth wrapper.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export const GRPC_STATUS = {
   OK: 0,
@@ -84,8 +43,6 @@ export const GRPC_STATUS = {
 /**
  * Map an HTTP status (the shape AuthError.status carries) onto the
  * closest gRPC status code per the gRPC HTTP gateway convention.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function httpStatusToGrpc(status: number): number {
   if (status === 401) return GRPC_STATUS.UNAUTHENTICATED
@@ -108,14 +65,12 @@ export function httpStatusToGrpc(status: number): number {
  *     `call.identity`
  *   - when `required: true` (default) AND no session resolves, replies
  *     with UNAUTHENTICATED via the callback (handler not invoked)
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function withAuth<Req, Res>(
   auth: AuthRoot,
-  handler: GrpcUnaryHandler<Req, Res>,
+  handler: GrpcAdapter.IUnaryHandler<Req, Res>,
   opts: { required?: boolean; headerName?: string } = {},
-): GrpcUnaryHandler<Req, Res> {
+): GrpcAdapter.IUnaryHandler<Req, Res> {
   const required = opts.required ?? true
   const headerName = opts.headerName ?? 'authorization'
   return (call, callback) => {
@@ -155,10 +110,8 @@ export function withAuth<Req, Res>(
  * `auth.resolveSession` accepts it unchanged. Only the configured
  * `headerName` (and `cookie`, since some grpc-web bridges forward it)
  * are projected; metadata is otherwise small.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-function metadataToHeaders(metadata: GrpcMetadataLike, headerName: string): Headers {
+function metadataToHeaders(metadata: GrpcAdapter.IMetadata, headerName: string): Headers {
   const out = new Headers()
   const auth = metadata.get(headerName)
   for (const v of auth) out.append(headerName, typeof v === 'string' ? v : v.toString('utf8'))
@@ -169,16 +122,28 @@ function metadataToHeaders(metadata: GrpcMetadataLike, headerName: string): Head
 
 /**
  * Namespace merge for the gRPC adapter surface.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace GrpcAdapter {
-  /** Alias for `GrpcUnaryHandler`. */
-  export type IUnaryHandler<Req = unknown, Res = unknown> = GrpcUnaryHandler<Req, Res>
-  /** Alias for `GrpcUnaryCallLike`. */
-  export type IUnaryCall<Req = unknown> = GrpcUnaryCallLike<Req>
-  /** Alias for `GrpcCallback`. */
-  export type ICallback<Res = unknown> = GrpcCallback<Res>
-  /** Alias for `GrpcMetadataLike`. */
-  export type IMetadata = GrpcMetadataLike
+  export type IUnaryHandler<Req = unknown, Res = unknown> = (
+    call: GrpcAdapter.IUnaryCall<Req>,
+    callback: GrpcAdapter.ICallback<Res>,
+  ) => void
+
+  export interface IUnaryCall<Req = unknown> {
+    metadata: GrpcAdapter.IMetadata
+    request: Req
+    /** Mutation slots for the interceptor; downstream handlers read them. */
+    session?: Session.ISession
+    identity?: Identity.IIdentity<unknown> | null
+  }
+
+  export type ICallback<Res = unknown> = (
+    error: { code: number; message: string; metadata?: GrpcAdapter.IMetadata } | null,
+    response?: Res,
+  ) => void
+
+  export interface IMetadata {
+    get(key: string): Array<string | Buffer>
+    set(key: string, value: string | Buffer): void
+  }
 }

@@ -1,11 +1,6 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import type { Identity } from '../../../core/types/identity'
-import { SmtpChannel, type SmtpTransporterLike } from '../index'
+import { SmtpChannel } from '../index'
 
 function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   return {
@@ -18,7 +13,7 @@ function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   }
 }
 
-function makeTransporter(impl?: SmtpTransporterLike['sendMail']): SmtpTransporterLike {
+function makeTransporter(impl?: SmtpChannel.ITransporter['sendMail']): SmtpChannel.ITransporter {
   return {
     sendMail: vi.fn(impl ?? (async () => ({ messageId: 'mid-1' }))),
   }

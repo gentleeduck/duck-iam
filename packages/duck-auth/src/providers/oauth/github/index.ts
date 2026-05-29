@@ -1,34 +1,31 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
+import { AuthErrorObject } from '../../../core/errors'
 import type { Provider } from '../../../core/types/provider'
-import { OAuthClient, type OAuthEndpoints } from '../core/client'
-import { type OAuthBeginInput, type OAuthCompleteInput, type OAuthOptionsBase, oauthProvider } from '../core/provider'
+import { OAuthClient } from '../core/client'
+import { type OAuthProvider, oauthProvider } from '../core/provider'
+import { getUserinfoNumericIdAsString, getUserinfoString } from '../core/userinfo'
 
-const GITHUB_ENDPOINTS: OAuthEndpoints = {
+const GITHUB_ENDPOINTS: OAuthClient.IEndpoints = {
   authorizationEndpoint: 'https://github.com/login/oauth/authorize',
   tokenEndpoint: 'https://github.com/login/oauth/access_token',
   userinfoEndpoint: 'https://api.github.com/user',
 }
 
 /**
- * GitHub-specific OAuth options. Extends the shared `OAuthOptionsBase` so
- * every IdP provider shares the same call-site shape; only IdP-specific
- * fields land here.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the GitHub OAuth provider. Every type lives
+ * inside the namespace.
  */
-export interface GitHubOAuthOptions<Profile = unknown> extends OAuthOptionsBase<Profile> {
-  /** Default `['read:user', 'user:email']`. */
-  scopes?: string[]
+export namespace GithubOAuth {
+  /** GitHub-specific options. Extends `OAuthProvider.IOptionsBase`. */
+  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+    /** Default `['read:user', 'user:email']`. */
+    scopes?: string[]
+  }
 }
 
 /** GitHub OAuth 2.0 provider. */
 export function github<Profile = unknown>(
-  opts: GitHubOAuthOptions<Profile>,
-): Provider.IProvider<OAuthBeginInput, OAuthCompleteInput, Profile> {
+  opts: GithubOAuth.IOptions<Profile>,
+): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
   const client = new OAuthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
@@ -47,30 +44,23 @@ export function github<Profile = unknown>(
       profileToIdentityProfile: opts.profileToIdentityProfile,
     }),
     async fetchProfile(tokens, c) {
-      const info = (await c.userinfo(tokens.access_token)) as {
-        id: number
-        email?: string | null
-        name?: string | null
-        avatar_url?: string | null
+      const info = await c.userinfo(tokens.access_token)
+      // Safe-extract: `String(info.id)` on null id would collide all bad ids onto one sub.
+      const sub = getUserinfoNumericIdAsString(info, 'id')
+      if (sub === undefined) {
+        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          providerId: 'github',
+          detail: 'GitHub userinfo missing numeric id',
+        })
       }
-      const out: { sub: string; email?: string; name?: string; avatarUrl?: string } = {
-        sub: String(info.id),
-      }
-      if (info.email) out.email = info.email
-      if (info.name) out.name = info.name
-      if (info.avatar_url) out.avatarUrl = info.avatar_url
+      const out: { sub: string; email?: string; name?: string; avatarUrl?: string } = { sub }
+      const email = getUserinfoString(info, 'email')
+      if (email !== undefined) out.email = email
+      const name = getUserinfoString(info, 'name')
+      if (name !== undefined) out.name = name
+      const avatar = getUserinfoString(info, 'avatar_url')
+      if (avatar !== undefined) out.avatarUrl = avatar
       return out
     },
   })
-}
-
-/**
- * Namespace merge for `GithubOAuth`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace GithubOAuth {
-  /** Alias for the flat `GitHubOAuthOptions` type. */
-  export type IGitHubOAuthOptions = GitHubOAuthOptions
 }

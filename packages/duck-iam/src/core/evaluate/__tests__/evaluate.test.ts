@@ -252,7 +252,7 @@ describe('evaluate() - multi-policy', () => {
 })
 
 describe('hierarchical resources in evaluation', () => {
-  it('SEC-007: bare "dashboard" rule does NOT match dashboard.users (require dashboard.*)', () => {
+  it('bare "dashboard" rule does NOT match dashboard.users (require dashboard.*)', () => {
     const policy: AccessControl.IPolicy = {
       id: 'hierarchy',
       name: 'Hierarchy',
@@ -544,11 +544,11 @@ describe('cross-policy combine', () => {
   })
 })
 
-describe('fast path: literal-only resource patterns (SEC-007)', () => {
+describe('fast path: literal-only resource patterns', () => {
   // Bare literal patterns must NOT match sub-resources. Authors that want
   // recursive grants must use `:*` / `.*` explicitly.
 
-  it('colon: bare "org" only matches request "org" (SEC-007)', () => {
+  it('colon: bare "org" only matches request "org"', () => {
     const policy: AccessControl.IPolicy = {
       id: 'parent-colon',
       name: 'Parent Colon',
@@ -563,7 +563,7 @@ describe('fast path: literal-only resource patterns (SEC-007)', () => {
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(false)
   })
 
-  it('colon: explicit "org:*" matches sub-resources (SEC-007)', () => {
+  it('colon: explicit "org:*" matches sub-resources', () => {
     const policy: AccessControl.IPolicy = {
       id: 'wild-colon',
       name: 'Wild Colon',
@@ -576,7 +576,7 @@ describe('fast path: literal-only resource patterns (SEC-007)', () => {
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(true)
   })
 
-  it('dot: bare "dashboard" only matches request "dashboard" (SEC-007)', () => {
+  it('dot: bare "dashboard" only matches request "dashboard"', () => {
     const policy: AccessControl.IPolicy = {
       id: 'parent-dot',
       name: 'Parent Dot',
@@ -600,7 +600,7 @@ describe('fast path: literal-only resource patterns (SEC-007)', () => {
   })
 })
 
-describe('policy targets: dot-pattern resources (SEC-036)', () => {
+describe('policy targets: dot-pattern resources', () => {
   // Regression: when `matchesResource` was tightened to literal-only for
   // bare patterns, `policyApplies` / `policyTargetsMatch` silently failed
   // for dot-wildcard targets like `dashboard.*`. `matchesResource` must

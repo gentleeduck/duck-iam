@@ -1,17 +1,12 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { AuthRoot } from '../../../core/auth'
 import { ScryptHasher } from '../../../core/password/scrypt'
 import { JwtTransport } from '../../../core/transport/jwt'
 import { MemoryLimiter } from '../../../limiters/memory'
-import { GRPC_STATUS, type GrpcMetadataLike, type GrpcUnaryCallLike, httpStatusToGrpc, withAuth } from '../index'
+import { GRPC_STATUS, type GrpcAdapter, httpStatusToGrpc, withAuth } from '../index'
 
-function makeMetadata(initial: Record<string, string> = {}): GrpcMetadataLike {
+function makeMetadata(initial: Record<string, string> = {}): GrpcAdapter.IMetadata {
   const store = new Map<string, string[]>()
   for (const [k, v] of Object.entries(initial)) store.set(k.toLowerCase(), [v])
   return {
@@ -74,7 +69,7 @@ describe('withAuth interceptor', () => {
   it('UNAUTHENTICATED when no token + required:true (default)', async () => {
     const handler = vi.fn()
     const wrapped = withAuth(env.auth, handler)
-    const call: GrpcUnaryCallLike<unknown> = {
+    const call: GrpcAdapter.IUnaryCall<unknown> = {
       metadata: makeMetadata(),
       request: {},
     }
@@ -91,7 +86,7 @@ describe('withAuth interceptor', () => {
   it('required:false + no token -> handler invoked with no session attached', async () => {
     const handler = vi.fn((call, cb) => cb(null, { ok: true }))
     const wrapped = withAuth(env.auth, handler, { required: false })
-    const call: GrpcUnaryCallLike<unknown> = {
+    const call: GrpcAdapter.IUnaryCall<unknown> = {
       metadata: makeMetadata(),
       request: {},
     }
@@ -117,7 +112,7 @@ describe('withAuth interceptor', () => {
 
     const handler = vi.fn((call, cb) => cb(null, { ok: true }))
     const wrapped = withAuth(env.auth, handler)
-    const call: GrpcUnaryCallLike<unknown> = {
+    const call: GrpcAdapter.IUnaryCall<unknown> = {
       metadata: makeMetadata({ authorization: `Bearer ${jwt}` }),
       request: {},
     }
@@ -137,7 +132,7 @@ describe('withAuth interceptor', () => {
       required: false,
       headerName: 'x-api-key',
     })
-    const call: GrpcUnaryCallLike<unknown> = {
+    const call: GrpcAdapter.IUnaryCall<unknown> = {
       metadata: makeMetadata({ 'x-api-key': 'no-real-key' }),
       request: {},
     }

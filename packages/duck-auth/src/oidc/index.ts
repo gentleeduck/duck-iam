@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * OIDC discovery document generator + standard route handlers. Emits
  * the canonical `/.well-known/openid-configuration` body so apps that
  * issue JWT access tokens via `JwtTransport` look like an OIDC OP to
@@ -7,93 +6,44 @@
  *
  * The lib does NOT mount the route - framework adapters wire it; this
  * module ships the document shape + a JWKS pass-through.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { AuthErrorObject } from '../core/errors'
 
 /**
- * Subset of `JwtTransport` the discovery generator depends on. Lets
- * the discovery module stay isolated from the transport import cycle.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface JwtTransportLike {
-  jwks(): { keys: Array<Record<string, unknown>> }
-}
-
-/**
- * Caller-supplied config for the discovery document.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface OidcDiscoveryConfig {
-  /** Required. Public issuer URL (no trailing slash). */
-  issuer: string
-  /** Mount prefix for the auth routes; default `/auth`. */
-  prefix?: string
-  /**
-   * Path to the JWKS endpoint your framework adapter exposes. Default
-   * `/.well-known/jwks.json`.
-   */
-  jwksPath?: string
-  /** Algorithms advertised. Should match the JwtTransport keys. */
-  signingAlgs?: Array<'HS256' | 'ES256' | 'RS256'>
-  /** OAuth2 scopes the server is willing to honor. */
-  scopesSupported?: string[]
-  /** Default `['code']`; add `'token'`/`'id_token'` to enable hybrid flows. */
-  responseTypesSupported?: string[]
-  /** Default `['authorization_code', 'refresh_token', 'client_credentials']`. */
-  grantTypesSupported?: string[]
-  /** Default `['public', 'pairwise']`. */
-  subjectTypesSupported?: string[]
-  /** Extra fields merged at the top level (for OIDC profiles or extensions). */
-  extraClaims?: Record<string, unknown>
-}
-
-/**
- * Canonical OIDC discovery document shape. Loose to keep the surface
- * future-proof; required fields are explicit, extras are passthrough.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface OidcDiscoveryDocument {
-  issuer: string
-  authorization_endpoint: string
-  token_endpoint: string
-  userinfo_endpoint: string
-  jwks_uri: string
-  end_session_endpoint: string
-  registration_endpoint?: string
-  scopes_supported: string[]
-  response_types_supported: string[]
-  grant_types_supported: string[]
-  subject_types_supported: string[]
-  id_token_signing_alg_values_supported: string[]
-  token_endpoint_auth_methods_supported: string[]
-  code_challenge_methods_supported: string[]
-  [extra: string]: unknown
-}
-
-/**
  * Build the discovery document. Pass-through `extraClaims` lets apps
  * append OIDC profile fields (e.g. `request_object_signing_alg_values_supported`
  * for the JAR profile) without forking this module.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function buildOidcDiscovery(cfg: OidcDiscoveryConfig): OidcDiscoveryDocument {
+export function buildOidcDiscovery(cfg: OidcDiscovery.IConfig): OidcDiscovery.IDocument {
   if (!cfg.issuer) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
       detail: 'buildOidcDiscovery requires a non-empty issuer',
     })
   }
-  const issuer = cfg.issuer.replace(/\/$/, '')
+  // Reject non-http(s) schemes; normalise so issuer claim matches RP computation
+  // (OIDC core 16.18 requires HTTPS in production).
+  let parsed: URL
+  try {
+    parsed = new URL(cfg.issuer)
+  } catch {
+    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      detail: `buildOidcDiscovery: issuer '${cfg.issuer}' is not a valid URL`,
+    })
+  }
+  if (parsed.protocol !== 'https:' && !cfg.allowHttp) {
+    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      detail: `buildOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
+    })
+  }
+  const canonicalPath = parsed.pathname.replace(/\/+$/, '')
+  const issuer = `${parsed.origin}${canonicalPath}`
   const prefix = cfg.prefix ?? '/auth'
   const jwks = cfg.jwksPath ?? '/.well-known/jwks.json'
   const algs = cfg.signingAlgs ?? ['HS256']
-  const doc: OidcDiscoveryDocument = {
+  // Spread `extraClaims` first so canonical fields cannot be shadowed.
+  const doc: OidcDiscovery.IDocument = {
+    ...(cfg.extraClaims ?? {}),
     issuer,
     authorization_endpoint: `${issuer}${prefix}/oauth/authorize`,
     token_endpoint: `${issuer}${prefix}/oauth/token`,
@@ -105,9 +55,11 @@ export function buildOidcDiscovery(cfg: OidcDiscoveryConfig): OidcDiscoveryDocum
     grant_types_supported: cfg.grantTypesSupported ?? ['authorization_code', 'refresh_token', 'client_credentials'],
     subject_types_supported: cfg.subjectTypesSupported ?? ['public'],
     id_token_signing_alg_values_supported: algs,
-    token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'none'],
+    token_endpoint_auth_methods_supported: cfg.tokenEndpointAuthMethodsSupported ?? [
+      'client_secret_basic',
+      'client_secret_post',
+    ],
     code_challenge_methods_supported: ['S256'],
-    ...(cfg.extraClaims ?? {}),
   }
   return doc
 }
@@ -116,11 +68,9 @@ export function buildOidcDiscovery(cfg: OidcDiscoveryConfig): OidcDiscoveryDocum
  * Express / Hono / Fastify / Koa friendly handler builder. Returns a
  * factory that produces the JSON body + a JWKS body the adapter can
  * mount under `/.well-known/jwks.json` directly.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function buildOidcRoutes(opts: { config: OidcDiscoveryConfig; transport: JwtTransportLike }): {
-  discovery: OidcDiscoveryDocument
+export function buildOidcRoutes(opts: { config: OidcDiscovery.IConfig; transport: OidcDiscovery.IJwtTransport }): {
+  discovery: OidcDiscovery.IDocument
   jwks: { keys: Array<Record<string, unknown>> }
 } {
   const discovery = buildOidcDiscovery(opts.config)
@@ -129,15 +79,261 @@ export function buildOidcRoutes(opts: { config: OidcDiscoveryConfig; transport: 
 }
 
 /**
- * Namespace merge for the discovery surface.
+ * RP-side OIDC discovery fetcher with an in-process LRU cache (DESIGN
+ * §23 Q5). Used by OAuth providers that consume an upstream OIDC
+ * provider's discovery document so we don't re-fetch on every signin.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Default TTL 1 hour, capacity 32 issuers - matches the realistic
+ * fan-out for a single duck-auth deployment. Tune via
+ * `OidcDiscovery.configureCache({ ttlMs, capacity })` once at boot.
+ *
+ * rejects non-HTTPS issuer URLs unless `allowHttp` is passed.
+ * Validates the response body's `issuer` claim equals the requested
+ * issuer (per RFC 8414 §3.3) - defeats a tampered upstream from
+ * redirecting RPs to an attacker JWKS.
+ */
+export async function fetchOidcDiscovery(
+  issuer: string,
+  opts: {
+    fetch?: typeof globalThis.fetch
+    allowHttp?: boolean
+    ttlMs?: number
+    /** Skip the cache lookup; still writes the result. Use for forced refresh. */
+    bypassCache?: boolean
+  } = {},
+): Promise<OidcDiscovery.IDocument> {
+  let parsed: URL
+  try {
+    parsed = new URL(issuer)
+  } catch {
+    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      providerId: 'oidc',
+      detail: `fetchOidcDiscovery: issuer ${issuer} is not a valid URL`,
+    })
+  }
+  if (parsed.protocol !== 'https:' && !opts.allowHttp) {
+    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      providerId: 'oidc',
+      detail: `fetchOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
+    })
+  }
+  const canonical = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
+  const cacheKey = canonical
+  if (!opts.bypassCache) {
+    const hit = _discoveryCache.get(cacheKey)
+    if (hit && hit.expiresAt > Date.now()) return hit.doc
+  }
+  const fetchImpl = opts.fetch ?? globalThis.fetch
+  const url = `${canonical}/.well-known/openid-configuration`
+  const res = await fetchImpl(url, { redirect: 'error' })
+  if (!res.ok) {
+    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      providerId: 'oidc',
+      detail: `fetchOidcDiscovery ${url} returned ${res.status}`,
+    })
+  }
+  const raw: unknown = await res.json()
+  const doc = parseDiscoveryDoc(raw)
+  if (!doc) {
+    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      providerId: 'oidc',
+      detail: `fetchOidcDiscovery ${url}: malformed discovery document`,
+    })
+  }
+  // the upstream's `issuer` claim MUST equal the requested issuer
+  // (RFC 8414 §3.3). Defeats an attacker who can hijack the well-known
+  // endpoint from redirecting RPs to an attacker-controlled JWKS.
+  if (doc.issuer.replace(/\/+$/, '') !== canonical) {
+    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      providerId: 'oidc',
+      detail: `fetchOidcDiscovery: issuer mismatch (requested ${canonical}, got ${doc.issuer})`,
+    })
+  }
+  const ttlMs = opts.ttlMs ?? _discoveryTtlMs
+  _discoveryCache.set(cacheKey, { doc, expiresAt: Date.now() + ttlMs })
+  // Evict over capacity (insertion-order LRU; Map preserves order).
+  while (_discoveryCache.size > _discoveryCapacity) {
+    const oldest = _discoveryCache.keys().next().value
+    if (oldest === undefined) break
+    _discoveryCache.delete(oldest)
+  }
+  return doc
+}
+
+/**
+ * structural validator for an OIDC discovery document. Required
+ * fields (issuer + the 4 core endpoints + jwks_uri + the 5 algorithm
+ * arrays) must be present and the right primitive type; everything
+ * else stays in the index signature. Returns `null` on any
+ * shape mismatch so the caller surfaces PROVIDER_FAILED rather than
+ * trusting a casted blob and crashing downstream.
+ */
+function parseDiscoveryDoc(raw: unknown): OidcDiscovery.IDocument | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
+  const requireString = (key: string): string | null => {
+    const v: unknown = Reflect.get(raw, key)
+    return typeof v === 'string' && v.length > 0 ? v : null
+  }
+  const requireStringArray = (key: string): string[] | null => {
+    const v: unknown = Reflect.get(raw, key)
+    if (!Array.isArray(v)) return null
+    const out: string[] = []
+    for (const item of v) {
+      if (typeof item !== 'string') return null
+      out.push(item)
+    }
+    return out
+  }
+  const issuer = requireString('issuer')
+  const authorization_endpoint = requireString('authorization_endpoint')
+  const token_endpoint = requireString('token_endpoint')
+  const userinfo_endpoint = requireString('userinfo_endpoint')
+  const jwks_uri = requireString('jwks_uri')
+  const end_session_endpoint = requireString('end_session_endpoint')
+  if (
+    issuer === null ||
+    authorization_endpoint === null ||
+    token_endpoint === null ||
+    userinfo_endpoint === null ||
+    jwks_uri === null ||
+    end_session_endpoint === null
+  ) {
+    return null
+  }
+  const scopes_supported = requireStringArray('scopes_supported')
+  const response_types_supported = requireStringArray('response_types_supported')
+  const grant_types_supported = requireStringArray('grant_types_supported')
+  const subject_types_supported = requireStringArray('subject_types_supported')
+  const id_token_signing_alg_values_supported = requireStringArray('id_token_signing_alg_values_supported')
+  const token_endpoint_auth_methods_supported = requireStringArray('token_endpoint_auth_methods_supported')
+  const code_challenge_methods_supported = requireStringArray('code_challenge_methods_supported')
+  if (
+    scopes_supported === null ||
+    response_types_supported === null ||
+    grant_types_supported === null ||
+    subject_types_supported === null ||
+    id_token_signing_alg_values_supported === null ||
+    token_endpoint_auth_methods_supported === null ||
+    code_challenge_methods_supported === null
+  ) {
+    return null
+  }
+  const reg: unknown = Reflect.get(raw, 'registration_endpoint')
+  if (reg !== undefined && (typeof reg !== 'string' || reg.length === 0)) return null
+  const out: OidcDiscovery.IDocument = {
+    issuer,
+    authorization_endpoint,
+    token_endpoint,
+    userinfo_endpoint,
+    jwks_uri,
+    end_session_endpoint,
+    scopes_supported,
+    response_types_supported,
+    grant_types_supported,
+    subject_types_supported,
+    id_token_signing_alg_values_supported,
+    token_endpoint_auth_methods_supported,
+    code_challenge_methods_supported,
+  }
+  if (typeof reg === 'string') out.registration_endpoint = reg
+  // Preserve unknown extras (extension fields, custom claims).
+  for (const [k, v] of Object.entries(raw)) {
+    if (!(k in out)) out[k] = v
+  }
+  return out
+}
+
+interface DiscoveryCacheEntry {
+  doc: OidcDiscovery.IDocument
+  expiresAt: number
+}
+let _discoveryTtlMs = 60 * 60 * 1000
+let _discoveryCapacity = 32
+const _discoveryCache = new Map<string, DiscoveryCacheEntry>()
+
+/**
+ * Tune the RP-side discovery cache. Called once at boot; affects
+ * every subsequent `fetchOidcDiscovery` call across the process.
+ */
+export function configureOidcDiscoveryCache(opts: { ttlMs?: number; capacity?: number }): void {
+  if (opts.ttlMs !== undefined) _discoveryTtlMs = opts.ttlMs
+  if (opts.capacity !== undefined) _discoveryCapacity = opts.capacity
+}
+
+/** Drop every cached discovery doc; useful for tests + ops rotation. */
+export function flushOidcDiscoveryCache(): void {
+  _discoveryCache.clear()
+}
+
+/**
+ * Namespace merge for the discovery surface.
  */
 export namespace OidcDiscovery {
-  /** Alias for `OidcDiscoveryConfig`. */
-  export type IConfig = OidcDiscoveryConfig
-  /** Alias for `OidcDiscoveryDocument`. */
-  export type IDocument = OidcDiscoveryDocument
-  /** Alias for `JwtTransportLike`. */
-  export type IJwtTransport = JwtTransportLike
+  export interface IConfig {
+    /** Required. Public issuer URL (no trailing slash). */
+    issuer: string
+    /** Mount prefix for the auth routes; default `/auth`. */
+    prefix?: string
+    /**
+     * Path to the JWKS endpoint your framework adapter exposes. Default
+     * `/.well-known/jwks.json`.
+     */
+    jwksPath?: string
+    /** Algorithms advertised. Should match the JwtTransport keys. */
+    signingAlgs?: Array<'HS256' | 'ES256' | 'RS256'>
+    /** OAuth2 scopes the server is willing to honor. */
+    scopesSupported?: string[]
+    /** Default `['code']`; add `'token'`/`'id_token'` to enable hybrid flows. */
+    responseTypesSupported?: string[]
+    /** Default `['authorization_code', 'refresh_token', 'client_credentials']`. */
+    grantTypesSupported?: string[]
+    /** Default `['public', 'pairwise']`. */
+    subjectTypesSupported?: string[]
+    /**
+     * `token_endpoint_auth_methods_supported`. Default
+     * `['client_secret_basic', 'client_secret_post']`. Pass `[..., 'none']`
+     * to advertise that the token endpoint accepts unauthenticated calls
+     * (only safe when paired with PKCE-protected `authorization_code`).
+     * `'none'` is no longer the default because consumers that drive
+     * their token endpoint's accepted-method set from this discovery
+     * doc would otherwise accept unauthenticated `client_credentials`
+     * exchanges - which the spec forbids.
+     */
+    tokenEndpointAuthMethodsSupported?: string[]
+    /**
+     * Permit a non-HTTPS `issuer`. Dev-only. OIDC core §16.18 requires
+     * HTTPS in production. Default false; explicit opt-in here so the
+     * misconfig is visible in code review.
+     */
+    allowHttp?: boolean
+    /**
+     * Extra fields merged at the top level (for OIDC profiles or
+     * extensions). Spread BEFORE the canonical fields so a misconfigured
+     * caller cannot shadow `issuer`, `jwks_uri`, `token_endpoint`, etc.
+     * via this hatch.
+     */
+    extraClaims?: Record<string, unknown>
+  }
+
+  export interface IDocument {
+    issuer: string
+    authorization_endpoint: string
+    token_endpoint: string
+    userinfo_endpoint: string
+    jwks_uri: string
+    end_session_endpoint: string
+    registration_endpoint?: string
+    scopes_supported: string[]
+    response_types_supported: string[]
+    grant_types_supported: string[]
+    subject_types_supported: string[]
+    id_token_signing_alg_values_supported: string[]
+    token_endpoint_auth_methods_supported: string[]
+    code_challenge_methods_supported: string[]
+    [extra: string]: unknown
+  }
+
+  export interface IJwtTransport {
+    jwks(): { keys: Array<Record<string, unknown>> }
+  }
 }

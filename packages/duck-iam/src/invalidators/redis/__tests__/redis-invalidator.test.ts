@@ -38,7 +38,7 @@ function makeBus(): {
   }
 }
 
-describe('createRedisInvalidator (SEC-005)', () => {
+describe('createRedisInvalidator', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
@@ -185,7 +185,7 @@ describe('createRedisInvalidator (SEC-005)', () => {
     expect(() => createRedisInvalidator({ client: makeBus().client, tenantId: '' })).toThrow(/tenantId/)
   })
 
-  it('rejects v:1 envelope in unsigned mode (SEC-046)', () => {
+  it('rejects v:1 envelope in unsigned mode', () => {
     const bus = makeBus()
     const ch = `t-v1-no-secret-${Math.random().toString(36).slice(2)}`
     const inv = createRedisInvalidator({ channel: ch, client: bus.client })
@@ -230,7 +230,7 @@ describe('createRedisInvalidator (SEC-005)', () => {
     expect(src).toMatch(/\btimingSafeEqual\b/)
   })
 
-  it('warn-coalesce window: bursts of drops surface a single warn + suppressed count (SEC-032)', () => {
+  it('warn-coalesce window: bursts of drops surface a single warn + suppressed count', () => {
     // First drop warns and opens a 60s window; further drops in the window
     // are counted but silent; the next drop after the window warns again
     // with the suppressed count.
@@ -266,7 +266,7 @@ describe('createRedisInvalidator (SEC-005)', () => {
     expect(received).toEqual([])
   })
 
-  describe('SEC-031 pre-auth DoS guard', () => {
+  describe('pre-auth DoS guard', () => {
     it('drops oversize wire message pre-parse (>16 KB)', () => {
       const bus = makeBus()
       const ch = `t-oversize-${Math.random().toString(36).slice(2)}`
@@ -284,18 +284,14 @@ describe('createRedisInvalidator (SEC-005)', () => {
       expect(msgs.some((m: string) => m.includes('oversize wire message'))).toBe(true)
     })
 
-    it('drops surrogate-heavy payload that bypasses .length cap (SEC-034)', () => {
+    it('drops surrogate-heavy payload that bypasses .length cap', () => {
       const bus = makeBus()
       const ch = `t-utf8-bytes-${Math.random().toString(36).slice(2)}`
       const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
       const received: EngineTypes.IInvalidateEvent[] = []
       inv.subscribe((e) => received.push(e))
 
-      // Build a 5000-char payload of 4-byte UTF-8 chars (each character
-      // outside the BMP encodes to 4 bytes UTF-8 but 2 UTF-16 code units).
-      // U+1F600 ("😀") is a canonical 4-byte UTF-8 code point.
-      // `s.length` ≈ 10000 (UTF-16 code units), `Buffer.byteLength` ≈ 20000
-      // bytes - well past the 16 KB cap when wrapped in a JSON string.
+      // 4-byte UTF-8 payload: byte count past 16KB cap while .length stays small.
       const fourByteChar = '\u{1F600}'
       const surrogateBlob = JSON.stringify({ junk: fourByteChar.repeat(5000) })
       expect(Buffer.byteLength(surrogateBlob, 'utf8')).toBeGreaterThan(16 * 1024)

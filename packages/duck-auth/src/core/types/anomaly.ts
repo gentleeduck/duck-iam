@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { Identity } from './identity'
 import type { Session } from './session'
 
@@ -10,9 +5,7 @@ import type { Session } from './session'
  * Anomaly-detection adapter contract. Each detector evaluates a request
  * + session and returns zero or more signals. Apps register one or more
  * detectors; AuthRoot aggregates the scores and emits `suspicious` when
- * thresholds trip. DESIGN section T2.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * thresholds trip
  */
 export namespace Anomaly {
   export type Kind = 'impossible-travel' | 'new-device' | 'high-velocity' | 'off-hours' | 'concurrent-geo'

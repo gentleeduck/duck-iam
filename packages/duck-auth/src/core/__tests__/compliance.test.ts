@@ -1,10 +1,5 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it } from 'vitest'
-import { applyCompliancePreset, assertComplianceStrict, resolveCompliance } from '../compliance'
+import { applyCompliancePreset, assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
 
 describe('resolveCompliance', () => {
   it('returns defaults when no preset', () => {
@@ -105,5 +100,46 @@ describe('assertComplianceStrict', () => {
         wired: { dataAtRest: true, mailerChannel: true, auditListener: false, fipsValidatedHasher: false },
       }),
     ).toThrow()
+  })
+})
+
+describe('readCompliancePreset - SEC: brand validation', () => {
+  it('returns null when cfg is not an object', () => {
+    expect(readCompliancePreset(null)).toBeNull()
+    expect(readCompliancePreset(undefined)).toBeNull()
+    expect(readCompliancePreset('hipaa')).toBeNull()
+    expect(readCompliancePreset(42)).toBeNull()
+  })
+
+  it('returns null when the __compliancePreset key is missing', () => {
+    expect(readCompliancePreset({})).toBeNull()
+    expect(readCompliancePreset({ other: 'value' })).toBeNull()
+  })
+
+  it('returns a valid string preset', () => {
+    expect(readCompliancePreset({ __compliancePreset: 'hipaa' })).toBe('hipaa')
+    expect(readCompliancePreset({ __compliancePreset: 'fips' })).toBe('fips')
+  })
+
+  it('returns a valid preset array', () => {
+    expect(readCompliancePreset({ __compliancePreset: ['gdpr', 'soc2'] })).toEqual(['gdpr', 'soc2'])
+  })
+
+  it('returns null when the brand value is an unknown string (e.g. tampered)', () => {
+    expect(readCompliancePreset({ __compliancePreset: 'evil-preset' })).toBeNull()
+  })
+
+  it('returns null when the brand value is a non-string (object/number)', () => {
+    expect(readCompliancePreset({ __compliancePreset: { fake: true } })).toBeNull()
+    expect(readCompliancePreset({ __compliancePreset: 1 })).toBeNull()
+  })
+
+  it('returns null when an array contains a non-preset entry', () => {
+    expect(readCompliancePreset({ __compliancePreset: ['gdpr', 'evil-preset'] })).toBeNull()
+    expect(readCompliancePreset({ __compliancePreset: ['hipaa', 42] })).toBeNull()
+  })
+
+  it('returns null on an empty array (would otherwise have run no checks under "presets")', () => {
+    expect(readCompliancePreset({ __compliancePreset: [] })).toBeNull()
   })
 })

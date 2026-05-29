@@ -67,7 +67,7 @@ describe('createMetricsAggregator', () => {
     expect(s).toEqual({ total: 0, allow: 0, deny: 0, failOpen: 0, p50: 0, p95: 0, p99: 0, max: 0, samples: 0 })
   })
 
-  it('counts failOpen as a subset of allow (SEC-044)', () => {
+  it('counts failOpen as a subset of allow', () => {
     const m = createMetricsAggregator()
     // 5 normal allows
     for (let i = 0; i < 5; i++) m.record(fakeEvent(1, true, false))
@@ -82,7 +82,7 @@ describe('createMetricsAggregator', () => {
     expect(s.total).toBe(10)
   })
 
-  it('reset zeroes failOpen counter (SEC-044)', () => {
+  it('reset zeroes failOpen counter', () => {
     const m = createMetricsAggregator()
     m.record(fakeEvent(1, true, true))
     m.reset()

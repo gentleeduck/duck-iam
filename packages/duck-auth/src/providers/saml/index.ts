@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * SAML 2.0 Service Provider. Wraps `@node-saml/node-saml` (lazy
  * peerDep) for the SP-initiated browser SSO profile: begin -> redirect
  * to IdP SSO endpoint with SAMLRequest, complete -> validate the
@@ -9,99 +8,101 @@
  * Why lazy peerDep: SAML XML parsing + signature verification is
  * heavyweight (~2 MB after node_modules); apps that do not offer
  * enterprise SSO should not pay for it.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { AuthErrorObject } from '../../core/errors'
 import type { Provider } from '../../core/types/provider'
 
-/**
- * Subset of `@node-saml/node-saml` we depend on. Both v4 + v5 satisfy
- * this shape; consumers without the peerDep get AUTH/MISCONFIGURED on
- * first call.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface SamlClientLike {
-  getAuthorizeUrlAsync(relayState: string, host: string, opts: Record<string, unknown>): Promise<string>
-  validatePostResponseAsync(body: { SAMLResponse: string }): Promise<{
-    profile: SamlProfile | null
-    loggedOut: boolean
-  }>
-}
+// 1 MiB cap on SAML response; larger XML inputs are adversarial.
+const SAML_RESPONSE_MAX = 1_048_576
+// SAML 2.0 binding spec caps RelayState at 80 bytes; 256 is generous
+// to accommodate apps that pack a serialized state object.
+const SAML_RELAY_STATE_MAX = 256
+// DNS hostname max is 253 chars (RFC 1035).
+const SAML_HOST_MAX = 253
 
 /**
- * Subset of node-saml's profile we extract. The actual shape has 30+
- * attributes; we project onto the OAuth-style `{ sub, email?, name? }`
- * shape the rest of the auth lib expects.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface of the SAML provider. Every type lives inside the
+ * namespace so consumers reach for `SamlProvider.IOptions` /
+ * `SamlProvider.IProfile` rather than a flat name.
  */
-export interface SamlProfile {
-  nameID: string
-  nameIDFormat?: string
-  email?: string
-  attributes?: Record<string, string | string[]>
-}
+export namespace SamlProvider {
+  /**
+   * Subset of `@node-saml/node-saml` we depend on. Both v4 + v5 satisfy
+   * this shape; consumers without the peerDep get AUTH/MISCONFIGURED
+   * on first call.
+   */
+  export interface IClient {
+    getAuthorizeUrlAsync(relayState: string, host: string, opts: Record<string, unknown>): Promise<string>
+    validatePostResponseAsync(body: { SAMLResponse: string }): Promise<{
+      profile: IProfile | null
+      loggedOut: boolean
+    }>
+  }
 
-/**
- * Config knobs for the SAML SP provider.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface SamlProviderOptions<Profile = unknown> {
   /**
-   * Provider id reported back to consumers (e.g. `'okta'`, `'azure-saml'`).
-   * Default `'saml'`.
+   * Subset of node-saml's profile we extract. Library projects 30+
+   * attributes onto the OAuth-style `{ sub, email?, name? }` shape the
+   * rest of the auth lib expects.
    */
-  providerId?: string
-  /**
-   * Pre-built `SamlClientLike` (the `@node-saml/node-saml` SAML class
-   * instance). Required - SAML configuration is too varied to express
-   * declaratively without depending on the library types directly.
-   */
-  client: SamlClientLike
-  /**
-   * Callback URL the IdP POSTs the SAMLResponse to. Must exactly match
-   * the AssertionConsumerService URL registered with the IdP.
-   */
-  callbackUrl: string
-  /**
-   * Translate the SAML profile into the app's `Profile` shape. Default
-   * uses `{ email, name }` when present.
-   */
-  profileToIdentityProfile?: (profile: SamlProfile) => Profile
-  /**
-   * onSignIn hook fires after a successful SAMLResponse. Use to
-   * just-in-time-provision identities (lookup by `nameID` or
-   * `email`, create if missing, return identityId).
-   */
-  onSignIn: (input: { profile: SamlProfile; tenantId?: string }) => Promise<{ identityId: string }>
-}
+  export interface IProfile {
+    nameID: string
+    nameIDFormat?: string
+    email?: string
+    attributes?: Record<string, string | string[]>
+  }
 
-export interface SamlBeginInput {
-  /** Caller-supplied relay state (CSRF guard); echoed back unmodified by IdP. */
-  relayState: string
-  /** Host the IdP redirects to (your app's origin). */
-  host: string
-}
+  /** Config knobs for {@link samlProvider}. */
+  export interface IOptions<Profile = unknown> {
+    /**
+     * Provider id reported back to consumers (e.g. `'okta'`,
+     * `'azure-saml'`). Default `'saml'`.
+     */
+    providerId?: string
+    /**
+     * Pre-built `IClient` (the `@node-saml/node-saml` SAML class
+     * instance). Required - SAML configuration is too varied to
+     * express declaratively without depending on the library types.
+     */
+    client: IClient
+    /**
+     * Callback URL the IdP POSTs the SAMLResponse to. Must exactly
+     * match the AssertionConsumerService URL registered with the IdP.
+     */
+    callbackUrl: string
+    /** Translate the SAML profile into the app's `Profile` shape. */
+    profileToIdentityProfile?: (profile: IProfile) => Profile
+    /**
+     * onSignIn hook fires after a successful SAMLResponse. Use to
+     * just-in-time provision identities (lookup by `nameID` or
+     * `email`, create if missing, return identityId).
+     */
+    onSignIn: (input: { profile: IProfile; tenantId?: string }) => Promise<{ identityId: string }>
+  }
 
-export interface SamlCompleteInput {
-  /** Raw SAMLResponse param from the IdP POST. */
-  SAMLResponse: string
+  /** Input to {@link samlProvider}.begin. */
+  export interface IBeginInput {
+    /** Caller-supplied relay state (CSRF guard); echoed back by IdP. */
+    relayState: string
+    /** Host the IdP redirects to (your app's origin). */
+    host: string
+  }
+
+  /** Input to {@link samlProvider}.complete. */
+  export interface ICompleteInput {
+    /** Raw SAMLResponse param from the IdP POST. */
+    SAMLResponse: string
+  }
 }
 
 /**
  * Build a SAML provider. Returns the standard `Provider.IProvider`
  * shape so it slots into AuthRoot.providers.register alongside the
  * password / OAuth providers.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function samlProvider<Profile = unknown>(
-  opts: SamlProviderOptions<Profile>,
-): Provider.IProvider<SamlBeginInput, SamlCompleteInput, Profile> {
+  opts: SamlProvider.IOptions<Profile>,
+): Provider.IProvider<SamlProvider.IBeginInput, SamlProvider.ICompleteInput, Profile> {
   if (!opts.client) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
       detail: 'samlProvider requires a pre-built `client` (@node-saml/node-saml SAML instance)',
@@ -123,9 +124,27 @@ export function samlProvider<Profile = unknown>(
     kind: 'oauth',
 
     async begin(_ctx, input): Promise<Provider.Intent[]> {
-      if (!input.relayState || !input.host) {
+      // Cap caller-supplied strings before they flow into IdP URL/headers.
+      if (
+        typeof input.relayState !== 'string' ||
+        input.relayState.length === 0 ||
+        input.relayState.length > SAML_RELAY_STATE_MAX ||
+        input.relayState.includes('\r') ||
+        input.relayState.includes('\n')
+      ) {
         throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-          detail: 'saml.begin requires relayState + host',
+          detail: 'saml.begin requires relayState (1-256 chars, no CR/LF)',
+        })
+      }
+      if (
+        typeof input.host !== 'string' ||
+        input.host.length === 0 ||
+        input.host.length > SAML_HOST_MAX ||
+        input.host.includes('\r') ||
+        input.host.includes('\n')
+      ) {
+        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+          detail: 'saml.begin requires host (1-253 chars, no CR/LF)',
         })
       }
       const url = await opts.client.getAuthorizeUrlAsync(input.relayState, input.host, {})
@@ -133,27 +152,54 @@ export function samlProvider<Profile = unknown>(
     },
 
     async complete(ctx, input): Promise<Provider.Intent[]> {
-      if (!input.SAMLResponse) {
+      // cap SAMLResponse BEFORE handing it to
+      // `validatePostResponseAsync` so adversarial multi-MB XML cannot
+      // reach the parser. Real responses are 5-30 KiB; 1 MiB is generous.
+      if (
+        typeof input.SAMLResponse !== 'string' ||
+        input.SAMLResponse.length === 0 ||
+        input.SAMLResponse.length > SAML_RESPONSE_MAX
+      ) {
+        // Generic detail: do NOT echo size / type - the attacker
+        // already knows what they sent, the legit caller bumped the cap.
         throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
           providerId,
-          detail: 'missing SAMLResponse',
+          detail: 'invalid SAMLResponse',
         })
       }
-      let validated: { profile: SamlProfile | null; loggedOut: boolean }
+      let validated: { profile: SamlProvider.IProfile | null; loggedOut: boolean }
       try {
         validated = await opts.client.validatePostResponseAsync({
           SAMLResponse: input.SAMLResponse,
         })
       } catch (err) {
+        // Emit the real reason to operator audit; respond with a
+        // generic detail so XML snippets do not reach the wire.
+        const reason = err instanceof Error ? err.message : String(err)
+        await ctx.events.emit('signin.failed', { providerId, reason })
         throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
           providerId,
-          detail: err instanceof Error ? err.message : String(err),
+          detail: 'SAMLResponse validation failed',
         })
       }
       if (validated.loggedOut || !validated.profile) {
         throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
           providerId,
           detail: 'IdP returned a logout response, not a sign-in',
+        })
+      }
+      // Reject blank/oversize nameID; it drives JIT identity provisioning and
+      // an empty value would collapse distinct accounts onto one row, while
+      // an oversize one would bloat downstream identity-store writes.
+      if (
+        typeof validated.profile.nameID !== 'string' ||
+        validated.profile.nameID.length === 0 ||
+        validated.profile.nameID.length > 512
+      ) {
+        await ctx.events.emit('signin.failed', { providerId, reason: 'saml profile missing/invalid nameID' })
+        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          providerId,
+          detail: 'invalid SAML profile',
         })
       }
 
@@ -171,22 +217,4 @@ export function samlProvider<Profile = unknown>(
       ]
     },
   }
-}
-
-/**
- * Namespace merge for the SAML provider surface.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace SamlProvider {
-  /** Alias for `SamlProviderOptions`. */
-  export type IOptions = SamlProviderOptions
-  /** Alias for `SamlBeginInput`. */
-  export type IBeginInput = SamlBeginInput
-  /** Alias for `SamlCompleteInput`. */
-  export type ICompleteInput = SamlCompleteInput
-  /** Alias for `SamlProfile`. */
-  export type IProfile = SamlProfile
-  /** Alias for `SamlClientLike`. */
-  export type IClient = SamlClientLike
 }

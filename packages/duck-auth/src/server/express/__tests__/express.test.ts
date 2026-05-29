@@ -229,11 +229,28 @@ describe('mounted handlers - end-to-end', () => {
       r.res,
     )
     const sid = decodeURIComponent((r.headers['set-cookie']?.[0]?.match(/^duck-sid=([^;]+)/)?.[1] ?? '') as string)
+    // signin emits __Host-duck-csrf alongside the session cookie;
+    // replay both on signout + attach the matching x-csrf-token header
+    // to satisfy the double-submit check on the now-authenticated route.
+    const csrfCookieSetHeader = r.headers['set-cookie']?.find((h) => h.startsWith('__Host-duck-csrf='))
+    const csrfToken = decodeURIComponent(csrfCookieSetHeader?.match(/^__Host-duck-csrf=([^;]+)/)?.[1] ?? '')
+    expect(csrfToken).not.toBe('')
     const sessionsBefore = await adapter.sessions.listByIdentity(identity.id)
     expect(sessionsBefore).toHaveLength(1)
 
     const outR = mockRes()
-    await mountSignOut(auth)({ method: 'POST', url: '/auth/signout', headers: { cookie: `duck-sid=${sid}` } }, outR.res)
+    await mountSignOut(auth)(
+      {
+        method: 'POST',
+        url: '/auth/signout',
+        headers: {
+          cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
+          'x-csrf-token': csrfToken,
+          'sec-fetch-site': 'same-origin',
+        },
+      },
+      outR.res,
+    )
     expect(outR.status).toBe(200)
     expect(outR.headers['set-cookie']?.[0]).toMatch(/^duck-sid=/)
     expect(outR.headers['set-cookie']?.[0]).toContain('Max-Age=0')

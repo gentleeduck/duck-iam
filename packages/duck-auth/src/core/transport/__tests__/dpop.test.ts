@@ -1,28 +1,16 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  bindPayloadToDPoP,
-  computeJwkThumbprint,
-  type DPoPClaims,
-  type DPoPJsonWebKey,
-  DPoPVerifier,
-  MemoryDPoPNonceStore,
-} from '../dpop'
+import { bindPayloadToDPoP, computeJwkThumbprint, DPoPVerifier, MemoryDPoPNonceStore } from '../dpop'
 
 interface KeyPair {
-  publicJwk: DPoPJsonWebKey
+  publicJwk: DPoPVerifier.IJsonWebKey
   privateKey: KeyObject
 }
 
 function generateES256KeyPair(): KeyPair {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
   return {
-    publicJwk: publicKey.export({ format: 'jwk' }) as DPoPJsonWebKey,
+    publicJwk: publicKey.export({ format: 'jwk' }) as DPoPVerifier.IJsonWebKey,
     privateKey,
   }
 }
@@ -52,13 +40,13 @@ function derToJoseEs256(der: Buffer): Buffer {
   return Buffer.concat([rPad, sPad])
 }
 
-function mintDpopProof(kp: KeyPair, claims: Partial<DPoPClaims> & { htm: string; htu: string }): string {
+function mintDpopProof(kp: KeyPair, claims: Partial<DPoPVerifier.IClaims> & { htm: string; htu: string }): string {
   const header = {
     alg: 'ES256',
     typ: 'dpop+jwt',
     jwk: kp.publicJwk,
   }
-  const payload: DPoPClaims = {
+  const payload: DPoPVerifier.IClaims = {
     jti: 'jti-' + Math.random().toString(36).slice(2),
     htm: claims.htm,
     htu: claims.htu,
@@ -191,6 +179,52 @@ describe('DPoPVerifier', () => {
     ).rejects.toMatchObject({ code: 'AUTH/DPOP_INVALID' })
   })
 
+  it('rejects authed-request proof that omits ath (RFC 9449 §4.3)', async () => {
+    // No ath in the proof, but the caller IS passing an access token.
+    const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x' })
+    await expect(
+      verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' }, 'access-token-xyz'),
+    ).rejects.toMatchObject({ code: 'AUTH/DPOP_INVALID', meta: { reason: 'ath required when access token present' } })
+  })
+
+  it('rejects a proof carrying ath when no access token is supplied (replay defense)', async () => {
+    const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', ath: 'whatever' })
+    await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'ath unexpected (no access token in request)' },
+    })
+  })
+
+  it('enforces expectedNonce when configured (RFC 9449 §8/9)', async () => {
+    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'wrong-nonce' })
+    await expect(v.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'nonce mismatch' },
+    })
+  })
+
+  it('passes when proof nonce matches expectedNonce', async () => {
+    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'srv-nonce-1' })
+    const r = await v.verify(proof, { method: 'GET', url: 'https://api.test/x' })
+    expect(r.jkt).toBeTruthy()
+  })
+
+  it('expectedNonce thunk lets ops rotate the challenge', async () => {
+    let nonce = 'srv-nonce-old'
+    const v = new DPoPVerifier({ expectedNonce: () => nonce })
+    const proof1 = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'srv-nonce-old' })
+    await expect(v.verify(proof1, { method: 'GET', url: 'https://api.test/x' })).resolves.toBeDefined()
+    // Rotate the nonce server-side; the old one no longer satisfies.
+    nonce = 'srv-nonce-new'
+    const proof2 = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/y', nonce: 'srv-nonce-old' })
+    await expect(v.verify(proof2, { method: 'GET', url: 'https://api.test/y' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'nonce mismatch' },
+    })
+  })
+
   it('htu normalization strips query + fragment', async () => {
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x' })
     const result = await verifier.verify(proof, {
@@ -199,11 +233,121 @@ describe('DPoPVerifier', () => {
     })
     expect(result.jkt).toBeTruthy()
   })
+
+  // Claim-type strictness: ensures non-string/non-number iat/htm/htu
+  // are rejected before NaN math or .toUpperCase()/new URL crashes.
+  function mintWithRawClaims(payload: Record<string, unknown>): string {
+    const header = { alg: 'ES256', typ: 'dpop+jwt', jwk: kp.publicJwk }
+    const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`
+    const signer = createSign('SHA256')
+    signer.update(signingInput)
+    signer.end()
+    const sig = derToJoseEs256(signer.sign(kp.privateKey))
+    return `${signingInput}.${base64url(sig)}`
+  }
+
+  it('rejects a proof whose iat is missing (would bypass freshness via NaN math)', async () => {
+    const proof = mintWithRawClaims({
+      jti: 'jti-no-iat',
+      htm: 'GET',
+      htu: 'https://api.test/x',
+      // iat intentionally omitted
+    })
+    await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'iat missing or not a finite number' },
+    })
+  })
+
+  it('rejects a proof whose iat is a string', async () => {
+    const proof = mintWithRawClaims({
+      jti: 'jti-str-iat',
+      htm: 'GET',
+      htu: 'https://api.test/x',
+      iat: String(Math.floor(Date.now() / 1000)),
+    })
+    await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'iat missing or not a finite number' },
+    })
+  })
+
+  it('rejects a proof whose htm is a non-string (would throw raw TypeError)', async () => {
+    const proof = mintWithRawClaims({
+      jti: 'jti-obj-htm',
+      htm: { evil: 'object' },
+      htu: 'https://api.test/x',
+      iat: Math.floor(Date.now() / 1000),
+    })
+    await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'htm missing or not a string' },
+    })
+  })
+
+  it('rejects a proof whose htu is a non-string', async () => {
+    const proof = mintWithRawClaims({
+      jti: 'jti-obj-htu',
+      htm: 'GET',
+      htu: { evil: 'object' },
+      iat: Math.floor(Date.now() / 1000),
+    })
+    await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'htu missing or not a string' },
+    })
+  })
+
+  it('rejects a proof whose ath is a non-string (would slip past identity-comparison check)', async () => {
+    const proof = mintWithRawClaims({
+      jti: 'jti-obj-ath',
+      htm: 'GET',
+      htu: 'https://api.test/x',
+      iat: Math.floor(Date.now() / 1000),
+      ath: { evil: 'object' },
+    })
+    await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'ath not a string' },
+    })
+  })
+
+  it('rejects a proof whose nonce is a non-string', async () => {
+    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const proof = mintWithRawClaims({
+      jti: 'jti-obj-nonce',
+      htm: 'GET',
+      htu: 'https://api.test/x',
+      iat: Math.floor(Date.now() / 1000),
+      nonce: { evil: 'object' },
+    })
+    await expect(v.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'nonce not a string' },
+    })
+  })
+
+  it('rejects a proof whose payload is a JSON array (not an object)', async () => {
+    // Mint a proof whose payload encodes to a JSON array. Without the
+    // `isPlainObject` parser guard, destructuring would yield all-undefined
+    // claims and the verifier path would surface obscure errors.
+    const header = { alg: 'ES256', typ: 'dpop+jwt', jwk: kp.publicJwk }
+    const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(['not', 'an', 'object']))}`
+    const signer = createSign('SHA256')
+    signer.update(signingInput)
+    signer.end()
+    const sig = derToJoseEs256(signer.sign(kp.privateKey))
+    const proof = `${signingInput}.${base64url(sig)}`
+    await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
+      code: 'AUTH/DPOP_INVALID',
+      meta: { reason: 'malformed payload' },
+    })
+  })
 })
 
 describe('computeJwkThumbprint', () => {
   it('is deterministic across calls with the same JWK', () => {
-    const jwk: DPoPJsonWebKey = {
+    const jwk: DPoPVerifier.IJsonWebKey = {
       kty: 'EC',
       crv: 'P-256',
       x: 'f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU',
@@ -256,5 +400,46 @@ describe('MemoryDPoPNonceStore', () => {
     await store.recordSeen('jti-1', 10)
     await new Promise((r) => setTimeout(r, 15))
     expect(await store.recordSeen('jti-1', 60_000)).toBe(true)
+  })
+
+  it('prune is linear in expired-prefix (CPU DoS defense - 10k entries does not stall)', async () => {
+    // The legacy prune iterated the entire map on every recordSeen,
+    // turning each call under load into an O(N) sweep. With the
+    // insertion-order break-on-non-expired loop, a typical call walks
+    // only the freshly-expired prefix.
+    const store = new MemoryDPoPNonceStore()
+    // Seed 10k entries with the SAME short TTL - uniform TTL is the
+    // contract under which the early-break is correct.
+    for (let i = 0; i < 10_000; i++) {
+      await store.recordSeen(`old-${i}`, 1)
+    }
+    // Let them all expire.
+    await new Promise((r) => setTimeout(r, 5))
+    // One-shot prune of 10k expired entries must finish under 200ms.
+    const start = performance.now()
+    expect(await store.recordSeen('fresh', 60_000)).toBe(true)
+    const firstElapsed = performance.now() - start
+    expect(firstElapsed).toBeLessThan(200)
+    // A subsequent recordSeen should be O(1) - map is now empty plus
+    // the single fresh entry which isn't yet expired (so the loop
+    // immediately breaks).
+    const start2 = performance.now()
+    expect(await store.recordSeen('another-fresh', 60_000)).toBe(true)
+    expect(performance.now() - start2).toBeLessThan(10)
+  })
+
+  it('stops pruning at the first non-expired entry (does not touch fresh entries)', async () => {
+    // Construct: 3 fresh entries first, then attempt prune - the loop
+    // must NOT delete them.
+    const store = new MemoryDPoPNonceStore()
+    await store.recordSeen('fresh-1', 60_000)
+    await store.recordSeen('fresh-2', 60_000)
+    await store.recordSeen('fresh-3', 60_000)
+    // Trigger the prune via a recordSeen call.
+    await store.recordSeen('trigger', 60_000)
+    // All previously inserted jtis should still be marked as seen.
+    expect(await store.recordSeen('fresh-1', 60_000)).toBe(false)
+    expect(await store.recordSeen('fresh-2', 60_000)).toBe(false)
+    expect(await store.recordSeen('fresh-3', 60_000)).toBe(false)
   })
 })

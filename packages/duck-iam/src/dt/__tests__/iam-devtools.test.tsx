@@ -5,6 +5,36 @@ import { IamDevtools } from '../iam-devtools-panel'
 import type { IDevtoolsEngine } from '../lib/types'
 
 /**
+ * Compatibility shim: bun's test runner doesn't ship `vi.stubGlobal`. Track
+ * stubbed keys ourselves so the afterEach block can restore them when the
+ * vitest helpers are absent.
+ */
+const _stubbedGlobals: Array<{ key: PropertyKey; prior: unknown; had: boolean }> = []
+function stubGlobalCompat(key: string, value: unknown): void {
+  const helper = (vi as { stubGlobal?: (k: string, v: unknown) => void }).stubGlobal
+  if (typeof helper === 'function') {
+    helper(key, value)
+    return
+  }
+  const g = globalThis as Record<string, unknown>
+  _stubbedGlobals.push({ key, prior: g[key], had: Object.hasOwn(g, key) })
+  g[key] = value
+}
+function unstubAllCompat(): void {
+  const u = (vi as { unstubAllGlobals?: () => void }).unstubAllGlobals
+  if (typeof u === 'function') {
+    u()
+    return
+  }
+  const g = globalThis as Record<string, unknown>
+  while (_stubbedGlobals.length) {
+    const e = _stubbedGlobals.pop()!
+    if (e.had) g[e.key as string] = e.prior
+    else delete g[e.key as string]
+  }
+}
+
+/**
  * Build a minimal `IDevtoolsEngine`-shaped object carrying an optional `mode`.
  * Methods reject so any panel that slips past the guard would fail loudly in
  * a test; the guard tests below assert nothing slips past.
@@ -38,7 +68,7 @@ describe('IamDevtools production guard', () => {
   const ORIGINAL_NODE_ENV = process.env.NODE_ENV
 
   afterEach(() => {
-    vi.unstubAllGlobals()
+    unstubAllCompat()
     process.env.NODE_ENV = ORIGINAL_NODE_ENV
   })
 
@@ -71,39 +101,37 @@ describe('IamDevtools production guard', () => {
   })
 
   it('renders when `process` is undefined and engine mode is development (raw-browser bundle)', () => {
-    // SEC-021: a positive engine-mode signal is required when `process` is
-    // unshimmed. With `mode === 'development'` the panel mounts.
-    vi.stubGlobal('process', undefined)
+    stubGlobalCompat('process', undefined)
     const engine = makeMockEngine('development')
     const html = renderToString(React.createElement(IamDevtools, { engine }))
     expect(html).toContain('iam-dt-btn-wrap')
   })
 
   it('blocks even when `process` is undefined if engine mode is production', () => {
-    vi.stubGlobal('process', undefined)
+    stubGlobalCompat('process', undefined)
     const engine = makeMockEngine('production')
     const html = renderToString(React.createElement(IamDevtools, { engine, initialIsOpen: true }))
     expect(html).toBe('')
   })
 
-  it('SEC-021: BLOCKS when `process` is undefined AND engine mode is unset (default-block)', () => {
-    // Previous fail-open path: no NODE_ENV + no engine.mode → rendered.
+  it('BLOCKS when `process` is undefined AND engine mode is unset (default-block)', () => {
+    // Previous fail-open path: no NODE_ENV + no engine.mode -> rendered.
     // New default-block path: absence of any positive `development` signal
     // means the panel never mounts.
-    vi.stubGlobal('process', undefined)
+    stubGlobalCompat('process', undefined)
     const engine = makeMockEngine(undefined)
     const html = renderToString(React.createElement(IamDevtools, { engine, initialIsOpen: true }))
     expect(html).toBe('')
   })
 
-  it('SEC-021: renders when NODE_ENV is development even if engine mode is unset', () => {
+  it('renders when NODE_ENV is development even if engine mode is unset', () => {
     process.env.NODE_ENV = 'development'
     const engine = makeMockEngine(undefined)
     const html = renderToString(React.createElement(IamDevtools, { engine }))
     expect(html).toContain('iam-dt-btn-wrap')
   })
 
-  it('SEC-021: BLOCKS when NODE_ENV is "test" and engine mode is unset', () => {
+  it('BLOCKS when NODE_ENV is "test" and engine mode is unset', () => {
     // Tests deliberately set NODE_ENV=test - without an engine positive
     // signal the guard must still block.
     process.env.NODE_ENV = 'test'

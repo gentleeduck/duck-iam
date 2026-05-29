@@ -1,57 +1,18 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { AuthRoot } from './auth'
 import type { Events } from './types/events'
 import type { Provider } from './types/provider'
 
 /**
- * Plugin contract. Authors ship a plugin that may register providers,
- * subscribe events, and add custom facets onto `auth.plugins.<id>.*`.
- *
- * DESIGN section 10. Plugins are first-class - installed via `auth.use(plugin)`
- * which wires their providers + events into the AuthRoot atomically.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface AuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  /** Stable id; library refuses duplicate ids. */
-  id: string
-  /** Optional providers to register at install time. */
-  providers?: Provider.IProvider<unknown, unknown, Profile>[]
-  /** Optional event subscriptions; library auto-attaches on install. */
-  events?: Partial<{ [K in keyof Events.EventMap]: (p: Events.EventMap[K]) => void | Promise<void> }>
-  /**
-   * Optional install hook. Runs once at `auth.use()` time. Receives the
-   * AuthRoot so the plugin can read config or wire additional facets.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
-  install?(auth: AuthRoot<Profile, Tenant, OrgMeta>): void | Promise<void>
-  /**
-   * Optional custom facet exposed under `auth.plugins.facets[id]`. Authors
-   * keep this surface narrow + typed via their own export.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
-  facet?: unknown
-}
-
-/**
  * Plugin registry. Generic over the AuthRoot generics so `install` does not
  * need a cast at the call site; `AuthRoot.use(plugin)` forwards its own
  * generics unchanged.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  private readonly _plugins = new Map<string, AuthPlugin<Profile, Tenant, OrgMeta>>()
+  private readonly _plugins = new Map<string, PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>>()
   private readonly _eventUnsubs: Array<() => void> = []
 
   /** All installed plugins keyed by id. */
-  get installed(): ReadonlyMap<string, AuthPlugin<Profile, Tenant, OrgMeta>> {
+  get installed(): ReadonlyMap<string, PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>> {
     return this._plugins
   }
 
@@ -60,10 +21,14 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
 
   /**
    * Install a plugin atomically.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
-  async install(auth: AuthRoot<Profile, Tenant, OrgMeta>, plugin: AuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
+  async install(
+    auth: AuthRoot<Profile, Tenant, OrgMeta>,
+    plugin: PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>,
+  ): Promise<void> {
+    if (typeof plugin?.id !== 'string' || plugin.id.length === 0 || plugin.id.length > 128) {
+      throw new Error('@gentleduck/auth: plugin.id must be a non-empty string <=128 chars')
+    }
     if (this._plugins.has(plugin.id)) {
       throw new Error(`@gentleduck/auth: plugin "${plugin.id}" already installed`)
     }
@@ -92,8 +57,6 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
 
   /**
    * Tear down every event subscription wired by installed plugins.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   dispose(): void {
     for (const unsub of this._eventUnsubs) unsub()
@@ -104,10 +67,24 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
 /**
  * Namespace merge for `PluginRegistry`. Co-locates the flat type exports
  * alongside the primary symbol via TS class+namespace merging.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace PluginRegistry {
-  /** Alias for the flat `AuthPlugin` type. */
-  export type IAuthPlugin = AuthPlugin
+  export interface IAuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknown> {
+    /** Stable id; library refuses duplicate ids. */
+    id: string
+    /** Optional providers to register at install time. */
+    providers?: Provider.IProvider<unknown, unknown, Profile>[]
+    /** Optional event subscriptions; library auto-attaches on install. */
+    events?: Partial<{ [K in keyof Events.EventMap]: (p: Events.EventMap[K]) => void | Promise<void> }>
+    /**
+     * Optional install hook. Runs once at `auth.use()` time. Receives the
+     * AuthRoot so the plugin can read config or wire additional facets.
+     */
+    install?(auth: AuthRoot<Profile, Tenant, OrgMeta>): void | Promise<void>
+    /**
+     * Optional custom facet exposed under `auth.plugins.facets[id]`. Authors
+     * keep this surface narrow + typed via their own export.
+     */
+    facet?: unknown
+  }
 }

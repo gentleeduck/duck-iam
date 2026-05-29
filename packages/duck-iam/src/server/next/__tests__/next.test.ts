@@ -55,7 +55,7 @@ describe('withAccess', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
-  it('throws at construction when getUserId is omitted (SEC-101)', () => {
+  it('throws at construction when getUserId is omitted', () => {
     const handler = vi.fn(async () => Response.json({ ok: true }))
     expect(() => withAccess(engine, 'delete', 'post', handler)).toThrow(/getUserId is required/)
   })
@@ -245,7 +245,7 @@ describe('createNextMiddleware', () => {
   })
 })
 
-describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
+describe('createAdminHandlers onAdminMutation', () => {
   const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
 
   function makeAdminReq(opts: { method: string; url?: string; body?: unknown }): Request {
@@ -258,7 +258,7 @@ describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
     return new Request(url, init)
   }
 
-  it('csrfCheck rejecting blocks mutation with 403, authorize never called (SEC-103)', async () => {
+  it('csrfCheck rejecting blocks mutation with 403, authorize never called', async () => {
     const engine = makeEngine()
     let authorizeCalled = false
     let savedPolicy = false
@@ -383,7 +383,7 @@ describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
     errSpy.mockRestore()
   })
 
-  it('SEC-039: redactPath rewrites event.path before the hook is called', async () => {
+  it('redactPath rewrites event.path before the hook is called', async () => {
     const engine = makeEngine()
     const events: Array<{ path: string }> = []
     const h = createAdminHandlers(engine, {
@@ -403,7 +403,7 @@ describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
     expect(events[0]!.path).not.toMatch(/role-tenant-acme/)
   })
 
-  it('SEC-040: onAuditHookError receives thrown error and event', async () => {
+  it('onAuditHookError receives thrown error and event', async () => {
     const engine = makeEngine()
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const captured: Array<{ err: unknown; event: { action: string; target: string } }> = []
@@ -433,7 +433,7 @@ describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
     errSpy.mockRestore()
   })
 
-  it('SEC-041: event.error defaults to the error class name', async () => {
+  it('event.error defaults to the error class name', async () => {
     const engine = makeEngine()
     const events: Array<{ success: boolean; error?: string }> = []
     class PolicyValidationError extends Error {
@@ -459,7 +459,7 @@ describe('createAdminHandlers onAdminMutation (SEC-010)', () => {
     expect(events[0]!.error).not.toMatch(/password/)
   })
 
-  it('SEC-041: includeErrorMessage:true restores err.message', async () => {
+  it('includeErrorMessage:true restores err.message', async () => {
     const engine = makeEngine()
     const events: Array<{ error?: string }> = []
     const original = engine.admin.savePolicy

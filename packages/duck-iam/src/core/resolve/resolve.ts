@@ -93,7 +93,7 @@ export function resolve(
 
   for (const seg of segments) {
     if (node == null || typeof node !== 'object') return null
-    node = (node as Record<string, unknown>)[seg]
+    node = Reflect.get(node, seg)
   }
 
   return node === undefined ? null : (node as Primitives.AttributeValue)

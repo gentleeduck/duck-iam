@@ -125,7 +125,7 @@ describe('matchesResource()', () => {
     expect(matchesResource('org:*', 'user')).toBe(false)
   })
 
-  it('bare pattern does NOT match sub-resources (SEC-007)', () => {
+  it('bare pattern does NOT match sub-resources', () => {
     // Breaking change vs prior behaviour: a bare "org" no longer implicitly
     // grants on "org:project". Authors must opt in with "org:*".
     expect(matchesResource('org', 'org:project')).toBe(false)
@@ -133,16 +133,16 @@ describe('matchesResource()', () => {
     expect(matchesResource('org', 'organization')).toBe(false)
   })
 
-  it('bare pattern still matches the literal resource (SEC-007)', () => {
+  it('bare pattern still matches the literal resource', () => {
     expect(matchesResource('org', 'org')).toBe(true)
   })
 
-  it('":*" suffix matches children (SEC-007)', () => {
+  it('":*" suffix matches children', () => {
     expect(matchesResource('org:*', 'org:billing')).toBe(true)
     expect(matchesResource('org:*', 'org:project:doc')).toBe(true)
   })
 
-  it('nested ":*" only matches under the named branch (SEC-007)', () => {
+  it('nested ":*" only matches under the named branch', () => {
     expect(matchesResource('org:billing:*', 'org:billing:invoice')).toBe(true)
     expect(matchesResource('org:billing:*', 'org:secrets:invoice')).toBe(false)
   })
@@ -150,22 +150,22 @@ describe('matchesResource()', () => {
   // `matchesResource` is called directly by `policyApplies` /
   // `policyTargetsMatch`, so dot-pattern targets must match dot-style
   // request resources here. Colon-pattern behaviour is unchanged.
-  it('dot wildcard: dashboard.* matches dot children (SEC-036)', () => {
+  it('dot wildcard: dashboard.* matches dot children', () => {
     expect(matchesResource('dashboard.*', 'dashboard.users')).toBe(true)
     expect(matchesResource('dashboard.*', 'dashboard.users.list')).toBe(true)
   })
 
-  it('dot wildcard does NOT match bare literal nor sibling-prefix (SEC-036)', () => {
+  it('dot wildcard does NOT match bare literal nor sibling-prefix', () => {
     expect(matchesResource('dashboard.*', 'dashboard')).toBe(false)
     expect(matchesResource('dashboard.*', 'dashboard-x')).toBe(false)
   })
 
-  it('colon wildcard still matches after SEC-036 (regression check)', () => {
+  it('colon wildcard still matches (regression check)', () => {
     expect(matchesResource('org:billing:*', 'org:billing:invoice')).toBe(true)
     expect(matchesResource('org:billing:*', 'org:billing')).toBe(false)
   })
 
-  it('separator-mismatched prefixes do not cross-match (SEC-036)', () => {
+  it('separator-mismatched prefixes do not cross-match', () => {
     // dot pattern must not match colon-separated resource (and vice versa).
     expect(matchesResource('a.b.*', 'a:b:c')).toBe(false)
     expect(matchesResource('a:b:*', 'a.b.c')).toBe(false)
@@ -189,7 +189,7 @@ describe('matchesResourceHierarchical()', () => {
     expect(matchesResourceHierarchical('dashboard.*', 'dashboard')).toBe(false)
   })
 
-  it('bare pattern does NOT match dot-children (SEC-007)', () => {
+  it('bare pattern does NOT match dot-children', () => {
     // Breaking change vs prior behaviour - bare "dashboard" only matches
     // the literal "dashboard". Authors must use "dashboard.*" for recursion.
     expect(matchesResourceHierarchical('dashboard', 'dashboard.users')).toBe(false)
@@ -197,7 +197,7 @@ describe('matchesResourceHierarchical()', () => {
     expect(matchesResourceHierarchical('dashboard', 'dashboards')).toBe(false)
   })
 
-  it('nested ".*" only matches under the named branch (SEC-007)', () => {
+  it('nested ".*" only matches under the named branch', () => {
     expect(matchesResourceHierarchical('dashboard.users.*', 'dashboard.users.settings')).toBe(true)
     expect(matchesResourceHierarchical('dashboard.users.*', 'dashboard.admin.settings')).toBe(false)
   })

@@ -25,6 +25,24 @@ describe('PasswordsFacet', () => {
     it('common-list check is case-insensitive', async () => {
       await expect(facet.set('u', 'PASSWORD1')).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
     })
+
+    it('rejects passwords longer than maxLength to prevent argon2/scrypt DoS', async () => {
+      // A multi-megabyte "password" forces the hasher to process the
+      // whole blob (several seconds of CPU per attempt). The cap stops
+      // it at the strength gate, never reaching the hasher.
+      const huge = 'x'.repeat(2048)
+      await expect(facet.set('u', huge)).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
+    })
+
+    it('verify also rejects over-long plaintext (returns ok:false without hashing)', async () => {
+      // Set a legitimate password first, then try to verify with a
+      // pathologically long input. The verify path must short-circuit
+      // before invoking the hasher.
+      await facet.set('u', 'correct-horse-battery')
+      const huge = 'x'.repeat(10_000)
+      const r = await facet.verify('u', huge)
+      expect(r.ok).toBe(false)
+    })
   })
 
   describe('set + verify happy path', () => {

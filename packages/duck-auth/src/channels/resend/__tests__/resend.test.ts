@@ -1,11 +1,6 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import type { Identity } from '../../../core/types/identity'
-import { ResendChannel, type ResendClientLike } from '../index'
+import { ResendChannel } from '../index'
 
 function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   return {
@@ -18,7 +13,7 @@ function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   }
 }
 
-function makeClient(impl?: ResendClientLike['emails']['send']): ResendClientLike {
+function makeClient(impl?: ResendChannel.IClient['emails']['send']): ResendChannel.IClient {
   return {
     emails: {
       send: vi.fn(impl ?? (async () => ({ data: { id: 'rs-1' }, error: null }))),

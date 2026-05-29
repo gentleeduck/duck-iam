@@ -1,63 +1,72 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
+import { isCredentialExpired } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
 import type { Channel } from '../../core/types/channel'
 import type { Provider } from '../../core/types/provider'
+import { isSafeCallbackPath } from '../../core/url-validators'
 
-export interface MagicLinkProviderOptions<Profile = unknown> {
-  /** Channel implementations keyed by their `kind`. */
-  channels: { email?: Channel.IChannel; sms?: Channel.IChannel; webpush?: Channel.IChannel }
-  /** Library uses this to find the identity given an email. */
-  findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-  /**
-   * Optional auto-create - if no identity matches the email, create one on
-   * link request. Default false (caller wires its own signup flow).
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
-   */
-  autoCreateIdentity?: boolean
-  /** Used as the `profile` payload when autoCreating; library supplies email automatically. */
-  autoCreateProfile?: (email: string) => Profile
-  /** TTL of magic-link token in ms. Default 10 minutes. */
-  ttlMs?: number
-  /** Per-email rate limit prefix. Default 'magic-link:request:'. */
-  limiterKeyPrefix?: string
-  /** Path the link lands on; sid appended as `?token=`. */
-  callbackPath?: string
-}
+/**
+ * Public surface for the magic-link provider. Every type lives inside
+ * the namespace.
+ */
+export namespace MagicLinkProvider {
+  /** Config knobs for {@link magicLink}. */
+  export interface IOptions<Profile = unknown> {
+    /** Channel implementations keyed by their `kind`. */
+    channels: { email?: Channel.IChannel; sms?: Channel.IChannel; webpush?: Channel.IChannel }
+    /** Library uses this to find the identity given an email. */
+    findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
+    /**
+     * Optional auto-create - if no identity matches the email, create
+     * one on link request. Default false.
+     */
+    autoCreateIdentity?: boolean
+    /** Used as the `profile` payload when autoCreating. */
+    autoCreateProfile?: (email: string) => Profile
+    /** TTL of magic-link token in ms. Default 10 minutes. */
+    ttlMs?: number
+    /** Per-email rate limit prefix. Default 'magic-link:request:'. */
+    limiterKeyPrefix?: string
+    /** Path the link lands on; sid appended as `?token=`. */
+    callbackPath?: string
+  }
 
-export interface MagicLinkBeginInput {
-  email: string
-  channel?: 'email' | 'sms' | 'webpush'
-}
+  /** Input to begin. */
+  export interface IBeginInput {
+    email: string
+    channel?: 'email' | 'sms' | 'webpush'
+  }
 
-export interface MagicLinkCompleteInput {
-  token: string
+  /** Input to complete. */
+  export interface ICompleteInput {
+    token: string
+  }
 }
 
 /**
  * Magic-link provider - passwordless. Two phases:
  *
- *   begin    {email} -> rate-limit, find-or-(auto)create identity, mint a
- *                      single-use 32-byte token (hashed at rest), persist
- *                      as credential kind='magic-link' with expiresAt,
- *                      dispatch via the configured channel. Returns a
- *                      generic `{ok:true}` (no enumeration via response).
+ *   begin    {email} -> rate-limit, find-or-(auto)create identity, mint
+ *                      a single-use 32-byte token (hashed at rest),
+ *                      persist + dispatch via configured channel.
  *
- *   complete {token} -> hash, findByHashedSecret('magic-link'), validate
- *                      expiry + non-revoked, REVOKE on use (single-use),
+ *   complete {token} -> hash, findByHashedSecret('magic-link'),
+ *                      validate expiry + non-revoked, REVOKE on use,
  *                      return startSession intent.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export function magicLink<Profile = unknown>(
-  opts: MagicLinkProviderOptions<Profile>,
-): Provider.IProvider<MagicLinkBeginInput, MagicLinkCompleteInput, Profile> {
+  opts: MagicLinkProvider.IOptions<Profile>,
+): Provider.IProvider<MagicLinkProvider.IBeginInput, MagicLinkProvider.ICompleteInput, Profile> {
   const ttlMs = opts.ttlMs ?? 10 * 60 * 1000
   const prefix = opts.limiterKeyPrefix ?? 'magic-link:request:'
+  // Refuse a misconfigured callbackPath at construction so a typo like
+  // `//evil.com` cannot turn the magic-link URL into a cross-origin redirect
+  // that exfiltrates the token (browser resolves `https://app//evil.com?...`
+  // as `https://evil.com?...`).
+  if (opts.callbackPath !== undefined && !isSafeCallbackPath(opts.callbackPath)) {
+    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      detail: 'magic-link.callbackPath must be a same-origin path (starts with `/`, no `//`, no CR/LF, <=256 chars)',
+    })
+  }
   const callbackPath = opts.callbackPath ?? '/auth/magic-link/callback'
 
   return {
@@ -65,8 +74,15 @@ export function magicLink<Profile = unknown>(
     kind: 'magic-link',
     async begin(ctx, input) {
       const { email } = input
-      const channelKind = input.channel ?? 'email'
-      if (typeof email !== 'string' || email.length === 0) {
+      const requestedChannel = input.channel ?? 'email'
+      // Whitelist the channel kind so a hostile caller can't echo arbitrary
+      // strings back through AUTH/MISCONFIGURED detail.
+      const channelKind: 'email' | 'sms' | 'webpush' =
+        requestedChannel === 'email' || requestedChannel === 'sms' || requestedChannel === 'webpush'
+          ? requestedChannel
+          : 'email'
+      // RFC 5321 254-char cap; protects limiter store + downstream lookups.
+      if (typeof email !== 'string' || email.length === 0 || email.length > 254) {
         throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
       }
       const channel = opts.channels[channelKind]
@@ -76,20 +92,23 @@ export function magicLink<Profile = unknown>(
         })
       }
 
-      const limited = await ctx.limiter.consume(`${prefix}${email.toLowerCase()}`)
+      // Canonical (trim + lowercase) so rate-limit + identity lookup +
+      // stored credential metadata all share one key.
+      const emailCanonical = email.trim().toLowerCase()
+      const limited = await ctx.limiter.consume(`${prefix}${emailCanonical}`)
       if (!limited.ok) {
         throw new AuthErrorObject('AUTH/RATE_LIMITED', {
           retryAfter: Math.max(0, Math.ceil((limited.resetAt - Date.now()) / 1000)),
         })
       }
 
-      let identityId: string | null = (await opts.findIdentityByEmail(email, ctx.tenant.tenantId))?.id ?? null
+      let identityId: string | null = (await opts.findIdentityByEmail(emailCanonical, ctx.tenant.tenantId))?.id ?? null
       if (!identityId) {
         if (!opts.autoCreateIdentity) {
-          // Enumeration-safe: respond as if we sent something.
           return [{ type: 'json', status: 200, body: { ok: true } }]
         }
-        const profile = (opts.autoCreateProfile?.(email) ?? ({ email } as unknown as Profile)) as Profile
+        const profile = (opts.autoCreateProfile?.(emailCanonical) ??
+          ({ email: emailCanonical } as unknown as Profile)) as Profile
         const created = await ctx.stores.identities.create(
           { profile, providers: [{ providerId: 'magic-link', addedAt: Date.now() }] },
           ctx.tenant,
@@ -105,7 +124,7 @@ export function magicLink<Profile = unknown>(
           identityId,
           kind: 'magic-link',
           secret: tokenHash,
-          metadata: { email, channel: channelKind },
+          metadata: { email: emailCanonical, channel: channelKind },
           expiresAt: now + ttlMs,
         },
         ctx.tenant,
@@ -113,39 +132,69 @@ export function magicLink<Profile = unknown>(
 
       const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
       const identityRow = await ctx.stores.identities.findById(identityId, ctx.tenant)
-      if (!identityRow) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
-      const result = await channel.send({
-        identity: identityRow,
-        templateId: 'magic-link',
-        vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
-        tenant: ctx.tenant,
-      })
-      if (!result.ok) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      // Fire-and-forget the channel dispatch so the wire response shape
+      // and latency match between existing- and unknown-identity branches.
+      if (!identityRow) {
+        // Race; silent ack avoids existence-state leak.
+        await ctx.events.emit('signin.failed', {
           providerId: 'magic-link',
-          detail: result.error ?? 'channel send failed',
+          reason: 'identity row missing after upsert; race window',
         })
+        return [{ type: 'json', status: 200, body: { ok: true } }]
       }
+      void channel
+        .send({
+          identity: identityRow,
+          templateId: 'magic-link',
+          vars: { url, ttlMin: Math.round(ttlMs / 60_000) },
+          tenant: ctx.tenant,
+        })
+        .then(async (result) => {
+          if (!result.ok) {
+            // Do not forward channel error metadata; it can carry the
+            // rendered message body (and therefore the token URL).
+            await ctx.events.emit('signin.failed', {
+              providerId: 'magic-link',
+              reason: 'channel.send rejected delivery',
+            })
+          }
+        })
+        .catch(async (err) => {
+          await ctx.events.emit('signin.failed', {
+            providerId: 'magic-link',
+            reason: `channel.send threw: ${err instanceof Error ? err.message : String(err)}`,
+          })
+        })
       return [{ type: 'json', status: 200, body: { ok: true } }]
     },
 
     async complete(ctx, input) {
       const { token } = input
-      if (typeof token !== 'string' || token.length === 0) {
+      // 256-char cap to refuse multi-MB sha256 DoS.
+      if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
         throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
       }
       const hash = ctx.crypto.sha256(token)
       const row = await ctx.stores.credentials.findByHashedSecret(hash, 'magic-link', ctx.tenant)
       const now = Date.now()
-      if (!row || row.revokedAt) {
+      // Explicit `!== undefined`: falsy check would let `revokedAt: 0` slip past.
+      if (!row || row.revokedAt !== undefined) {
         throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
       }
-      if (row.expiresAt !== undefined && row.expiresAt < now) {
-        // Best-effort cleanup, ignore failure.
+      if (isCredentialExpired(row, now)) {
         void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
         throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_EXPIRED')
       }
-      // Single-use: revoke immediately. Even a same-tick replay sees revokedAt.
+      // CAS-claim the row so concurrent requests with the same token
+      // produce one session; loser sees AUTH/RECOVERY_TOKEN_INVALID.
+      try {
+        await ctx.stores.credentials.rotate(row.id, row.secret, row.version, ctx.tenant)
+      } catch (err) {
+        if (err instanceof AuthErrorObject && err.code === 'AUTH/STALE_WRITE') {
+          throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+        }
+        throw err
+      }
       await ctx.stores.credentials.revoke(row.id, ctx.tenant)
       return [
         {
@@ -157,21 +206,4 @@ export function magicLink<Profile = unknown>(
       ]
     },
   }
-}
-
-/**
- * Namespace merge for MagicLinkProvider. Co-locates the config + input +
- * output shapes via TS namespace declaration. Consumers can write either
- * the flat name (MagicLinkProviderOptions) or the namespaced form
- * (MagicLinkProvider.IOptions); both resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace MagicLinkProvider {
-  /** Alias for the flat `MagicLinkProviderOptions<Profile = unknown>` type. */
-  export type IOptions<Profile = unknown> = MagicLinkProviderOptions<Profile>
-  /** Alias for the flat `MagicLinkBeginInput` type. */
-  export type IBeginInput = MagicLinkBeginInput
-  /** Alias for the flat `MagicLinkCompleteInput` type. */
-  export type ICompleteInput = MagicLinkCompleteInput
 }

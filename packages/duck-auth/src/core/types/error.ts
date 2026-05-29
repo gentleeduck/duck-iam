@@ -5,9 +5,7 @@ import type { Session } from './session'
  * Codes are stable; statuses are fixed per code and never variable. UIs
  * switch on `code`, not on status or message.
  *
- * DESIGN section 40 - full taxonomy enumeration.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * full taxonomy enumeration.
  */
 export namespace AuthError {
   /** Stable string id of an error; used as the discriminant. */
