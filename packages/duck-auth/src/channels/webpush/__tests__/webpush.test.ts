@@ -1,18 +1,13 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import type { Identity } from '../../../core/types/identity'
-import { type PushSubscriptionShape, WebPushChannel, type WebPushModuleLike } from '../index'
+import { WebPushChannel } from '../index'
 
-const SUB: PushSubscriptionShape = {
+const SUB: WebPushChannel.ISubscription = {
   endpoint: 'https://fcm.googleapis.com/x',
   keys: { p256dh: 'PUBLIC', auth: 'AUTH' },
 }
 
-function makeIdentity(subscription: PushSubscriptionShape | undefined): Identity.IIdentity<unknown> {
+function makeIdentity(subscription: WebPushChannel.ISubscription | undefined): Identity.IIdentity<unknown> {
   return {
     id: 'ident-1',
     profile: subscription ? { pushSubscription: subscription } : {},
@@ -23,7 +18,7 @@ function makeIdentity(subscription: PushSubscriptionShape | undefined): Identity
   }
 }
 
-function makeModule(impl?: WebPushModuleLike['sendNotification']): WebPushModuleLike {
+function makeModule(impl?: WebPushChannel.IModule['sendNotification']): WebPushChannel.IModule {
   return {
     setVapidDetails: vi.fn(),
     sendNotification: vi.fn(impl ?? (async () => ({ statusCode: 201 }))),
@@ -84,7 +79,7 @@ describe('WebPushChannel', () => {
       module: makeModule(),
       templates: () => ({ payload: 'x' }),
     })
-    const broken: PushSubscriptionShape = {
+    const broken: WebPushChannel.ISubscription = {
       endpoint: 'https://x',
       keys: { p256dh: '', auth: '' },
     }

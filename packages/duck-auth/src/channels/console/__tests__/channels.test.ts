@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { describe, expect, it, vi } from 'vitest'
 import type { Identity } from '../../../core/types/identity'
 import { ConsoleChannel, NoopChannel, TestChannel } from '../index'

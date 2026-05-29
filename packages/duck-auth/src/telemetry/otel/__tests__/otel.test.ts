@@ -1,21 +1,16 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryEvents } from '../../../core/events'
-import { type OtelCounterLike, type OtelHistogramLike, OtelInstrumentation, type OtelMeterLike } from '../index'
+import { OtelInstrumentation } from '../index'
 
 interface CapturedCounter {
   name: string
-  counter: OtelCounterLike
+  counter: OtelInstrumentation.ICounter
   adds: Array<{ value: number; attrs?: Record<string, string | number | boolean> }>
 }
 
-function makeMeter(): { meter: OtelMeterLike; counters: Map<string, CapturedCounter> } {
+function makeMeter(): { meter: OtelInstrumentation.IMeter; counters: Map<string, CapturedCounter> } {
   const counters = new Map<string, CapturedCounter>()
-  function makeCounter(name: string): OtelCounterLike {
+  function makeCounter(name: string): OtelInstrumentation.ICounter {
     const captured: CapturedCounter = {
       name,
       counter: {
@@ -28,10 +23,10 @@ function makeMeter(): { meter: OtelMeterLike; counters: Map<string, CapturedCoun
     counters.set(name, captured)
     return captured.counter
   }
-  const meter: OtelMeterLike = {
+  const meter: OtelInstrumentation.IMeter = {
     createCounter: (name) => makeCounter(name),
     createUpDownCounter: (name) => makeCounter(name),
-    createHistogram: (name): OtelHistogramLike => ({
+    createHistogram: (name): OtelInstrumentation.IHistogram => ({
       record: vi.fn(),
     }),
   }
@@ -40,7 +35,7 @@ function makeMeter(): { meter: OtelMeterLike; counters: Map<string, CapturedCoun
 
 describe('OtelInstrumentation', () => {
   let bus: InMemoryEvents
-  let meter: OtelMeterLike
+  let meter: OtelInstrumentation.IMeter
   let counters: Map<string, CapturedCounter>
   let cleanup: () => void
 
@@ -131,7 +126,7 @@ describe('OtelInstrumentation', () => {
   })
 
   it('refuses construction without a meter', () => {
-    expect(() => new OtelInstrumentation({ meter: null as unknown as OtelMeterLike })).toThrowError(
+    expect(() => new OtelInstrumentation({ meter: null as unknown as OtelInstrumentation.IMeter })).toThrowError(
       expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
     )
   })
