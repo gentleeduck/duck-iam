@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { AuthErrorObject } from '../errors'
 import type { Provider } from '../types/provider'
 
@@ -10,8 +5,6 @@ import type { Provider } from '../types/provider'
  * Providers facet - registry + dispatch. Holds the configured {@link Provider.IProvider}
  * list and routes `begin / complete` calls by id. Provider implementations are pure;
  * the framework adapter executes the Intent[] they return against the actual HTTP layer.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class ProvidersFacet<Profile = unknown> {
   private readonly _byId = new Map<string, Provider.IProvider<unknown, unknown, Profile>>()
@@ -65,12 +58,7 @@ export class ProvidersFacet<Profile = unknown> {
 
 /**
  * Namespace merge for ProvidersFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging. Consumers can
- * write either the flat name (e.g. X) or the
- * namespaced form (ProvidersFacet.IFoo); both
- * resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * shapes alongside the class via TS class+namespace merging.
  */
 export namespace ProvidersFacet {
   // No flat type aliases for this facet (class-only public surface).

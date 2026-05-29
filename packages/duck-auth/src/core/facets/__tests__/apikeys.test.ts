@@ -63,6 +63,47 @@ describe('ApiKeysFacet', () => {
       const { plaintext } = await facet.create('user-1', { name: 'k', scopes: [], expiresAt: Date.now() - 1 })
       await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
     })
+
+    describe('defensive guards against malformed adapter rows', () => {
+      async function createAndGrabRow(): Promise<{
+        plaintext: string
+        row: NonNullable<Awaited<ReturnType<typeof adapter.credentials.findByHashedSecret>>>
+      }> {
+        const { plaintext } = await facet.create('user-1', { name: 'k', scopes: ['read'] })
+        const row = await adapter.credentials.findByHashedSecret(sha256(plaintext), 'api-key', {})
+        if (!row) throw new Error('row missing')
+        return { plaintext, row }
+      }
+
+      it('revokedAt === 0 (legitimate epoch number) surfaces as revoked (previously slipped past `if (row.revokedAt)`)', async () => {
+        const { plaintext, row } = await createAndGrabRow()
+        row.revokedAt = 0
+        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+      })
+
+      it('revokedAt as a non-numeric value surfaces as revoked', async () => {
+        const { plaintext, row } = await createAndGrabRow()
+        // @ts-expect-error: SEC test intentionally violates the typed shape
+        row.revokedAt = 'compromised-marker'
+        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+      })
+
+      it('non-numeric expiresAt is treated as expired (NaN-bypass defense - would have accepted expired key)', async () => {
+        const { plaintext, row } = await createAndGrabRow()
+        // @ts-expect-error: SEC test intentionally violates the typed shape
+        row.expiresAt = 'not-a-number'
+        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+      })
+
+      it('list() filters out keys with revokedAt === 0 (previously visible via `!r.revokedAt`)', async () => {
+        const { plaintext, row } = await createAndGrabRow()
+        row.revokedAt = 0
+        const visible = await facet.list('user-1')
+        expect(visible.find((k) => k.id === row.id)).toBeUndefined()
+        // Sanity: verify is also fail-closed.
+        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+      })
+    })
   })
 
   describe('rotate', () => {

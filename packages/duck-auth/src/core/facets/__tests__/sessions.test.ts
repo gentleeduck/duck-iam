@@ -249,4 +249,63 @@ describe('resolveBySid()', () => {
       code: 'AUTH/SESSION_REVOKED',
     })
   })
+
+  describe('NaN-bypass defenses against malformed adapter rows', () => {
+    async function setupLiveSession(): Promise<{
+      adapter: MemoryAuthAdapter
+      facet: SessionsFacet
+      sid: string
+      hash: string
+    }> {
+      const adapter = new MemoryAuthAdapter()
+      const events = new InMemoryEvents()
+      const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
+      const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
+      return { adapter, facet, sid, hash: sha256(sid) }
+    }
+
+    it('resolveBySid treats NaN expiresAt as expired (central gate fail-closed)', async () => {
+      const { adapter, hash, sid } = await setupLiveSession()
+      await adapter.sessions.update(hash, { expiresAt: Number.NaN })
+      expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+      expect(await adapter.sessions.getByHash(hash)).toBeNull()
+    })
+
+    it('resolveBySid treats non-numeric expiresAt as expired', async () => {
+      const { adapter, hash, sid } = await setupLiveSession()
+      // @ts-expect-error: SEC test intentionally violates the typed shape
+      await adapter.sessions.update(hash, { expiresAt: 'forever' })
+      expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+      expect(await adapter.sessions.getByHash(hash)).toBeNull()
+    })
+
+    it('resolveBySid treats NaN absoluteExpiresAt as expired', async () => {
+      const { adapter, hash, sid } = await setupLiveSession()
+      await adapter.sessions.update(hash, { absoluteExpiresAt: Number.NaN })
+      expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+      expect(await adapter.sessions.getByHash(hash)).toBeNull()
+    })
+
+    it('resolveBySid treats non-finite actingAs.expiresAt as past cap (impersonation TTL defense)', async () => {
+      const { adapter, hash, sid } = await setupLiveSession()
+      await adapter.sessions.update(hash, {
+        actingAs: {
+          realIdentityId: 'admin',
+          startedAt: Date.now(),
+          reason: 'support',
+          // @ts-expect-error: SEC test intentionally violates the typed shape
+          expiresAt: 'unbounded',
+        },
+      })
+      expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+      expect(await adapter.sessions.getByHash(hash)).toBeNull()
+    })
+
+    it('touch() treats NaN absoluteExpiresAt as expired and hard-deletes', async () => {
+      const { adapter, facet, hash, sid } = await setupLiveSession()
+      await adapter.sessions.update(hash, { absoluteExpiresAt: Number.NaN })
+      expect(await facet.touch(sid)).toBeNull()
+      expect(await adapter.sessions.getByHash(hash)).toBeNull()
+    })
+  })
 })
