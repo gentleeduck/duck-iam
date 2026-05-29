@@ -110,3 +110,4 @@ audit-auth/
 # .md that ships with the package.
 packages/duck-auth/**/*.md
 !packages/duck-auth/README.md
+.stryker-tmp/
