@@ -1,25 +1,5 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { AuthErrorObject } from '../errors'
 import type { Events } from '../types/events'
-
-/**
- * Per-tenant operational mode snapshot. Persisted in-process for the
- * memory tier; multi-instance fleets should swap in a Redis-backed
- * store that emits maintenance.on / maintenance.off via pub/sub so
- * every node converges within seconds of the toggle.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface OperationsState {
-  /** When true, every mounted route returns 503 except session/healthz. */
-  maintenance: { on: boolean; message?: string; retryAfterSec?: number; since?: number }
-  /** When true, reads succeed but every mutating route returns 423. */
-  readOnly: { on: boolean; since?: number }
-}
 
 /**
  * Operations facet. Drives the two ambient deploy switches every
@@ -35,11 +15,9 @@ export interface OperationsState {
  *   cutovers, DR drills, freeze windows.
  *
  * DESIGN section O1 + O2.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class OperationsFacet {
-  private _state: OperationsState = {
+  private _state: OperationsFacet.IState = {
     maintenance: { on: false },
     readOnly: { on: false },
   }
@@ -47,7 +25,7 @@ export class OperationsFacet {
   constructor(private readonly _events: Events.IBus) {}
 
   /** Read the current state snapshot. */
-  snapshot(): OperationsState {
+  snapshot(): OperationsFacet.IState {
     return {
       maintenance: { ...this._state.maintenance },
       readOnly: { ...this._state.readOnly },
@@ -57,8 +35,6 @@ export class OperationsFacet {
   /**
    * Toggle maintenance mode. Emits `maintenance.on` / `maintenance.off`
    * so multi-instance fleets can subscribe and propagate.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async maintenance(on: boolean, opts: { message?: string; retryAfterSec?: number } = {}): Promise<void> {
     if (on) {
@@ -90,8 +66,6 @@ export class OperationsFacet {
    *
    * @param method HTTP method (POST/GET/...)
    * @param exempt routes that should pass through unaffected (e.g. /healthz, /session)
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   assertOperationsForRoute(method: string, exempt: { healthz?: boolean; session?: boolean } = {}): void {
     if (exempt.healthz || exempt.session) return
@@ -116,14 +90,13 @@ function isMutatingMethod(method: string): boolean {
 
 /**
  * Namespace merge for OperationsFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging. Consumers can
- * write either the flat name (e.g. OperationsState) or the
- * namespaced form (OperationsFacet.IState); both
- * resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * shapes alongside the class via TS class+namespace merging.
  */
 export namespace OperationsFacet {
-  /** Alias for the flat `OperationsState` type. */
-  export type IState = OperationsState
+  export interface IState {
+    /** When true, every mounted route returns 503 except session/healthz. */
+    maintenance: { on: boolean; message?: string; retryAfterSec?: number; since?: number }
+    /** When true, reads succeed but every mutating route returns 423. */
+    readOnly: { on: boolean; since?: number }
+  }
 }

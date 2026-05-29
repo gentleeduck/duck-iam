@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { MemoryLimiter } from '../../../limiters/memory'

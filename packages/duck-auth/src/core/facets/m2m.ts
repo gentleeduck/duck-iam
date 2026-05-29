@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * Machine-to-machine (M2M) grant facet. Implements the OAuth 2.0
  * `client_credentials` grant against the existing api-key store so
  * service accounts can mint JWT access tokens with the supplied
@@ -10,8 +9,6 @@
  * The grant verifies `client_id`+`client_secret`, mints a JWT via the
  * supplied JwtTransport, and returns the standard
  * `{ access_token, token_type, expires_in, scope }` token envelope.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { AuthErrorObject } from '../errors'
@@ -21,54 +18,9 @@ import type { Transport } from '../types/transport'
 import type { ApiKeysFacet } from './apikeys'
 import type { SessionsFacet } from './sessions'
 
-/**
- * Config knobs for `M2MFacet`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface M2MFacetConfig {
-  /** Lifetime of the issued access token, ms. Default 1 hour. */
-  ttlMs: number
-  /**
-   * When true, restrict the requested scopes to the intersection of
-   * (requested, key.scopes); when false, refuse the grant when the key
-   * lacks any requested scope. Default `'intersect'`.
-   */
-  scopeMode: 'intersect' | 'strict'
-}
-
-export const DEFAULT_M2M_CONFIG: M2MFacetConfig = {
+export const DEFAULT_M2M_CONFIG: M2MFacet.IConfig = {
   ttlMs: 60 * 60 * 1000,
   scopeMode: 'intersect',
-}
-
-/**
- * Input to {@link M2MFacet.exchange}. Mirrors the OAuth2 form-body
- * fields per RFC 6749 section 4.4.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface M2MExchangeInput {
-  /** Plaintext client id; for duck-auth this is the api-key id surfaced at creation. */
-  clientId: string
-  /** Plaintext client secret; sha-256 hashed for lookup. */
-  clientSecret: string
-  /** Optional space-separated OAuth2 scope string. */
-  scope?: string
-  /** Tenant scope. */
-  tenantId?: string
-}
-
-/**
- * Standard token-endpoint response shape per RFC 6749 section 5.1.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface M2MTokenResponse {
-  access_token: string
-  token_type: 'Bearer'
-  expires_in: number
-  scope: string
 }
 
 /**
@@ -77,24 +29,27 @@ export interface M2MTokenResponse {
  * route that calls `exchange()` on a body shaped like
  * `{ grant_type:'client_credentials', client_id, client_secret, scope }`.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * **Revocation latency.** The issued access token is a stateless JWT
+ * good until its `exp`. Revoking the api-key only stops *future*
+ * exchanges; tokens issued during the prior `cfg.ttlMs` window (default
+ * 1h) keep verifying. For promptly-revocable tokens, shorten `ttlMs`,
+ * or wire a JTI denylist via a custom transport, or front the resource
+ * server with a token-introspection step.
  */
 export class M2MFacet {
   constructor(
     private readonly _apiKeys: ApiKeysFacet,
     private readonly _sessions: SessionsFacet,
     private readonly _transport: Transport.ITransport,
-    private readonly _cfg: M2MFacetConfig = DEFAULT_M2M_CONFIG,
+    private readonly _cfg: M2MFacet.IConfig = DEFAULT_M2M_CONFIG,
   ) {}
 
   /**
    * Run the client_credentials exchange. Returns the standard OAuth2
    * token envelope on success; throws AUTH/APIKEY_INVALID /
    * AUTH/APIKEY_REVOKED / AUTH/APIKEY_SCOPE_INSUFFICIENT on failure.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
-  async exchange(input: M2MExchangeInput): Promise<M2MTokenResponse> {
+  async exchange(input: M2MFacet.IExchangeInput): Promise<M2MFacet.ITokenResponse> {
     if (!input.clientId || !input.clientSecret) {
       throw new AuthErrorObject('AUTH/APIKEY_INVALID')
     }
@@ -105,8 +60,28 @@ export class M2MFacet {
       // a valid secret tied to a different client_id).
       throw new AuthErrorObject('AUTH/APIKEY_INVALID')
     }
+    // Refuse cross-tenant token minting; if caller omits tenantId,
+    // fall back to the credential's own so `tid` is correct.
+    if (input.tenantId !== undefined && verified.tenantId !== undefined && input.tenantId !== verified.tenantId) {
+      throw new AuthErrorObject('AUTH/APIKEY_INVALID')
+    }
+    const effectiveTenantId = input.tenantId ?? verified.tenantId
 
-    const requested = input.scope ? input.scope.split(/\s+/).filter(Boolean) : []
+    // Cap scope (4KB / 64 tokens) before split since it's attacker-controllable.
+    let requested: string[] = []
+    if (input.scope) {
+      if (typeof input.scope !== 'string' || input.scope.length > 4096) {
+        throw new AuthErrorObject('AUTH/APIKEY_SCOPE_INSUFFICIENT', {
+          detail: 'scope parameter exceeds size cap',
+        })
+      }
+      requested = input.scope.split(/\s+/).filter(Boolean)
+      if (requested.length > 64) {
+        throw new AuthErrorObject('AUTH/APIKEY_SCOPE_INSUFFICIENT', {
+          detail: 'scope parameter contains too many tokens',
+        })
+      }
+    }
     const granted = this._resolveScopes(requested, verified.scopes)
 
     // Mint a service-account session; transport.issue produces the JWT.
@@ -116,7 +91,7 @@ export class M2MFacet {
       kind: 'apikey',
       aal: 1,
       factors: [{ method: 'api-key', completedAt: now }],
-      ...(input.tenantId !== undefined && { tenantId: input.tenantId }),
+      ...(effectiveTenantId !== undefined && { tenantId: effectiveTenantId }),
     })
     // Cap the session's expiry at the M2M ttl so the issued JWT lifetime
     // tracks the configured M2M policy rather than the SessionsFacet default.
@@ -124,23 +99,29 @@ export class M2MFacet {
       ...session,
       expiresAt: Math.min(session.expiresAt, now + this._cfg.ttlMs),
     }
-    const intents = this._transport.issue(sid, issuedSession, { fresh: true, absolute: false })
+    // Project granted scope onto the JWT or `scopeMode: intersect` is wire-noop.
+    const intents = this._transport.issue(sid, issuedSession, {
+      fresh: true,
+      absolute: false,
+      scope: granted.join(' '),
+    })
     const jsonIntent = intents.find((i): i is Extract<Provider.Intent, { type: 'json' }> => i.type === 'json')
     if (!jsonIntent) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: 'M2MFacet requires JwtTransport (or equivalent) - cookie transports do not work here',
       })
     }
-    const body = jsonIntent.body as { access_token?: string; expires_in?: number }
-    if (!body.access_token) {
+    // Validate body shape; transport must emit `{access_token, expires_in?}`.
+    const parsedBody = parseM2MBody(jsonIntent.body)
+    if (!parsedBody) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: 'transport did not emit an access_token; check JwtTransport config',
       })
     }
     return {
-      access_token: body.access_token,
+      access_token: parsedBody.access_token,
       token_type: 'Bearer',
-      expires_in: body.expires_in ?? Math.floor(this._cfg.ttlMs / 1000),
+      expires_in: parsedBody.expires_in ?? Math.floor(this._cfg.ttlMs / 1000),
       scope: granted.join(' '),
     }
   }
@@ -165,14 +146,55 @@ export class M2MFacet {
 /**
  * Namespace merge for `M2MFacet`. Co-locates config + IO shapes
  * alongside the class.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace M2MFacet {
-  /** Alias for `M2MFacetConfig`. */
-  export type IConfig = M2MFacetConfig
-  /** Alias for `M2MExchangeInput`. */
-  export type IExchangeInput = M2MExchangeInput
-  /** Alias for `M2MTokenResponse`. */
-  export type ITokenResponse = M2MTokenResponse
+  export interface IConfig {
+    /** Lifetime of the issued access token, ms. Default 1 hour. */
+    ttlMs: number
+    /**
+     * When true, restrict the requested scopes to the intersection of
+     * (requested, key.scopes); when false, refuse the grant when the key
+     * lacks any requested scope. Default `'intersect'`.
+     */
+    scopeMode: 'intersect' | 'strict'
+  }
+
+  export interface IExchangeInput {
+    /** Plaintext client id; for duck-auth this is the api-key id surfaced at creation. */
+    clientId: string
+    /** Plaintext client secret; sha-256 hashed for lookup. */
+    clientSecret: string
+    /** Optional space-separated OAuth2 scope string. */
+    scope?: string
+    /** Tenant scope. */
+    tenantId?: string
+  }
+
+  export interface ITokenResponse {
+    access_token: string
+    token_type: 'Bearer'
+    expires_in: number
+    scope: string
+  }
+}
+
+/**
+ * validate the transport's emitted JSON intent body shape without
+ * an `as { access_token?, expires_in? }` cast. The body comes from a
+ * transport's `issue()` return - in practice JwtTransport - but the
+ * type is `unknown`. A non-finite `expires_in` would propagate `NaN`
+ * into the client-credentials response and downstream
+ * `Date.now() + expires_in * 1000` clients would see never-expiring
+ * tokens; reject up-front.
+ */
+function parseM2MBody(raw: unknown): { access_token: string; expires_in?: number } | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
+  if (!('access_token' in raw)) return null
+  const accessToken = raw.access_token
+  if (typeof accessToken !== 'string' || accessToken.length === 0) return null
+  const expiresInRaw = 'expires_in' in raw ? raw.expires_in : undefined
+  if (expiresInRaw !== undefined && (typeof expiresInRaw !== 'number' || !Number.isFinite(expiresInRaw))) return null
+  const out: { access_token: string; expires_in?: number } = { access_token: accessToken }
+  if (expiresInRaw !== undefined) out.expires_in = expiresInRaw
+  return out
 }

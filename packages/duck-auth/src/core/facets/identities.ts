@@ -1,8 +1,4 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
+import { getProfileString } from '../credential-utils'
 import { AuthErrorObject } from '../errors'
 import type { TenantContext } from '../types/context'
 import type { Credential } from '../types/credential'
@@ -10,23 +6,9 @@ import type { Events } from '../types/events'
 import type { Identity } from '../types/identity'
 import type { Session } from '../types/session'
 
-export interface IdentitiesFacetConfig {
-  /** Grace before hard-purge after softDelete. Default 7 days. */
-  softDeleteGracePeriodMs: number
-}
-
-export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacetConfig = {
+export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacet.IConfig = {
   softDeleteGracePeriodMs: 7 * 24 * 60 * 60 * 1000,
-}
-
-export interface ExportBlob<Profile> {
-  identity: Identity.IIdentity<Profile>
-  credentials: Array<Omit<Credential.ICredential, 'secret'>>
-  /** Live + recently-revoked sessions. Empty when caller skips sessions store. */
-  sessions: Array<Omit<Session.ISession, 'csrfHash'>>
-  /** GDPR Article 20 envelope: schema version + export timestamp. */
-  schemaVersion: '1'
-  exportedAt: number
+  profileMaxBytes: 16 * 1024,
 }
 
 /**
@@ -34,15 +16,25 @@ export interface ExportBlob<Profile> {
  * Optimistic locking discipline: every write that mutates `Identity` flows
  * through `update(expectedVersion)`; callers that pass a stale version see
  * `AUTH/STALE_WRITE` and decide retry/surface.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export class IdentitiesFacet<Profile = unknown> {
   constructor(
     private readonly _store: Identity.IStore<Profile>,
     private readonly _events: Events.IBus,
-    private readonly _cfg: IdentitiesFacetConfig = DEFAULT_IDENTITIES_CONFIG,
+    private readonly _cfg: IdentitiesFacet.IConfig = DEFAULT_IDENTITIES_CONFIG,
   ) {}
+
+  /**
+   * Public read of the configured soft-delete grace period. Sibling
+   * facets (FlowsFacet.requestAccountDeletion) need it to compute the
+   * caller-visible `restorableUntil` deadline; the legacy approach
+   * reached into `_cfg` via an `as unknown as { _cfg }` double-cast
+   * which both broke encapsulation and was an unsafe runtime assumption
+   * (other constructors might not have the same private name). Read-only.
+   */
+  get softDeleteGracePeriodMs(): number {
+    return this._cfg.softDeleteGracePeriodMs
+  }
 
   // --- lookup -----------------------------------------------------------
 
@@ -51,7 +43,10 @@ export class IdentitiesFacet<Profile = unknown> {
   }
 
   async getByEmail(email: string, ctx: TenantContext = {}): Promise<Identity.IIdentity<Profile> | null> {
-    return this._store.findByEmail(email, ctx)
+    // RFC 5321 cap + typeof guard: prevents multi-MB lookups + non-string crashes
+    // before reaching adapter.
+    if (typeof email !== 'string' || email.length === 0 || email.length > 254) return null
+    return this._store.findByEmail(email.trim().toLowerCase(), ctx)
   }
 
   async getByProviderSub(
@@ -59,6 +54,9 @@ export class IdentitiesFacet<Profile = unknown> {
     sub: string,
     ctx: TenantContext = {},
   ): Promise<Identity.IIdentity<Profile> | null> {
+    // Defensive caps; both keys flow into SQL `=`-comparisons + JSONB extracts.
+    if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 128) return null
+    if (typeof sub !== 'string' || sub.length === 0 || sub.length > 512) return null
     return this._store.findByProviderSub(providerId, sub, ctx)
   }
 
@@ -68,6 +66,7 @@ export class IdentitiesFacet<Profile = unknown> {
     input: { profile?: Profile; tenantId?: string; providers?: Identity.ProviderLink[] },
     ctx: TenantContext = {},
   ): Promise<Identity.IIdentity<Profile>> {
+    if (input.profile !== undefined) this._assertProfileWithinCap(input.profile)
     const created = await this._store.create(
       {
         providers: input.providers ?? [],
@@ -89,7 +88,42 @@ export class IdentitiesFacet<Profile = unknown> {
     const cur = await this._store.findById(id, ctx)
     if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
     const nextProfile = { ...(cur.profile ?? {}), ...profilePatch } as Profile
+    this._assertProfileWithinCap(nextProfile)
     return this._store.update(id, { profile: nextProfile }, expectedVersion, ctx)
+  }
+
+  /**
+   * bound the serialized profile size to defend the identity store
+   * (and every downstream `findById` / `findByEmail` that materializes
+   * it) from amplification. With no cap, an attacker who can drive a
+   * sign-up route or profile-update flow can store multi-MB profiles
+   * indefinitely - each read amplifies the per-request cost and the
+   * underlying row balloons. JSON byte length (UTF-8) is the right
+   * proxy: it matches what gets serialized to the database column,
+   * encrypted at rest, and emitted over the wire. Default 16 KiB
+   * comfortably accommodates typical profiles (email + display name +
+   * picture URL + locale + a few custom fields) without leaving the
+   * door open to multi-MB blobs. Operators with richer schemas can
+   * raise via `profiles.profileMaxBytes`.
+   */
+  private _assertProfileWithinCap(profile: Profile): void {
+    const cap = this._cfg.profileMaxBytes
+    if (cap === undefined || cap <= 0) return
+    let bytes: number
+    try {
+      bytes = Buffer.byteLength(JSON.stringify(profile) ?? '', 'utf8')
+    } catch {
+      // JSON.stringify can throw on circular refs / BigInt. Fail closed
+      // - the operator should not store unserializable values anyway.
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        detail: 'identity profile is not JSON-serializable',
+      })
+    }
+    if (bytes > cap) {
+      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        detail: `identity profile exceeds size cap (${bytes} > ${cap} bytes)`,
+      })
+    }
   }
 
   // --- provider linking ------------------------------------------------
@@ -159,8 +193,6 @@ export class IdentitiesFacet<Profile = unknown> {
    * Bulk import. Used for migrations from legacy systems. Skips already-existing
    * identities by email (mode='skipExisting') or merges into existing
    * (mode='merge'). Returns counts so caller can surface to ops.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async bulkCreate(
     rows: Array<{
@@ -177,7 +209,8 @@ export class IdentitiesFacet<Profile = unknown> {
     let failed = 0
     for (const row of rows) {
       try {
-        const email = (row.profile as { email?: string } | undefined)?.email
+        // Cast-free extraction + case-fold for bulk-import dedup.
+        const email = extractEmail(row.profile)
         const existing = email ? await this._store.findByEmail(email, ctx) : null
         if (existing && mode === 'skipExisting') {
           skipped++
@@ -212,15 +245,13 @@ export class IdentitiesFacet<Profile = unknown> {
    * tokens, recovery code hashes, and other credential `secret` fields are
    * always stripped. Sessions are exported separately by Sessions facet if
    * the consumer wants them.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
   async exportAll(
     id: string,
     credentials: Credential.IStore,
     ctx: TenantContext = {},
     opts: { sessions?: Session.IStore } = {},
-  ): Promise<ExportBlob<Profile>> {
+  ): Promise<IdentitiesFacet.IExportBlob<Profile>> {
     const identity = await this._store.findById(id, ctx)
     if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
     const creds = await credentials.listByIdentity(id, undefined, ctx)
@@ -238,19 +269,34 @@ export class IdentitiesFacet<Profile = unknown> {
    * Serialise an `ExportBlob` to a canonical JSON string suitable for
    * delivery to the user (file download / portable archive). Stable
    * key ordering across runs so checksum comparisons work.
-   *
-   * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
    */
-  static exportToJson<P>(blob: ExportBlob<P>): string {
+  static exportToJson<P>(blob: IdentitiesFacet.IExportBlob<P>): string {
     return JSON.stringify(blob, sortKeys, 2)
   }
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/**
+ * Normalize an email extracted from a caller-supplied Profile.
+ * Delegates the raw cast-free extraction to `getProfileString` from
+ * `credential-utils`; this wrapper adds the trim + lowercase that the
+ * dedup-by-email lookup requires.
+ */
+function extractEmail(profile: unknown): string | undefined {
+  const raw = getProfileString(profile, 'email')
+  if (raw === undefined) return undefined
+  const trimmed = raw.trim().toLowerCase()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
 function sortKeys(_key: string, value: unknown): unknown {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
+  if (isPlainObject(value)) {
     const sorted: Record<string, unknown> = {}
-    for (const k of Object.keys(value as Record<string, unknown>).sort()) {
-      sorted[k] = (value as Record<string, unknown>)[k]
+    for (const k of Object.keys(value).sort()) {
+      sorted[k] = value[k]
     }
     return sorted
   }
@@ -259,16 +305,27 @@ function sortKeys(_key: string, value: unknown): unknown {
 
 /**
  * Namespace merge for IdentitiesFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging. Consumers can
- * write either the flat name (e.g. IdentitiesFacetConfig) or the
- * namespaced form (IdentitiesFacet.IConfig); both
- * resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * shapes alongside the class via TS class+namespace merging.
  */
 export namespace IdentitiesFacet {
-  /** Alias for the flat `IdentitiesFacetConfig` type. */
-  export type IConfig = IdentitiesFacetConfig
-  /** Alias for the flat generic `ExportBlob<Profile>` type. */
-  export type IExportBlob<Profile = unknown> = ExportBlob<Profile>
+  export interface IConfig {
+    /** Grace before hard-purge after softDelete. Default 7 days. */
+    softDeleteGracePeriodMs: number
+    /**
+     * maximum serialized (JSON / UTF-8 bytes) size of a profile.
+     * Defaults to 16 KiB. Set to `0` to disable (not recommended -
+     * unbounded profiles are a storage / read-amplification DoS).
+     */
+    profileMaxBytes?: number
+  }
+
+  export interface IExportBlob<Profile> {
+    identity: Identity.IIdentity<Profile>
+    credentials: Array<Omit<Credential.ICredential, 'secret'>>
+    /** Live + recently-revoked sessions. Empty when caller skips sessions store. */
+    sessions: Array<Omit<Session.ISession, 'csrfHash'>>
+    /** GDPR Article 20 envelope: schema version + export timestamp. */
+    schemaVersion: '1'
+    exportedAt: number
+  }
 }
