@@ -50,31 +50,24 @@ Optional peer dependencies (install only what you wire):
 ## Quick start
 
 ```typescript
-import { AuthRoot, InMemoryEvents, ScryptHasher } from '@gentleduck/auth/core'
-import { CookieTransport } from '@gentleduck/auth/core/transport'
+import { defineAuth } from '@gentleduck/auth/core'
 import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { password } from '@gentleduck/auth/providers/password'
 
-const adapter = new MemoryAuthAdapter()
+const storage = new MemoryAuthAdapter()
 
-export const auth = new AuthRoot({
+export const auth = defineAuth({
   baseUrl: 'http://localhost:3000',
-  transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
-  stores: {
-    identities: adapter.identities,
-    sessions: adapter.sessions,
-    credentials: adapter.credentials,
-  },
-  events: new InMemoryEvents(),
+  storage,
   limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
-  passwords: { hasher: new ScryptHasher() },
+  providers: [
+    (a) => password({
+      findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
+      passwords: a.passwords,
+    }),
+  ],
 })
-
-auth.providers.register(password({
-  findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
-  passwords: auth.passwords,
-}))
 
 const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
 await auth.passwords.set(identity.id, 'correct-horse-battery')
@@ -85,6 +78,8 @@ const result = await auth.flows.signIn({
 })
 // result.session, result.sid, result.intents[]
 ```
+
+`defineAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, ScryptHasher, InMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthRoot` directly - both APIs accept the same primitives.
 
 ## Or scaffold it via the CLI
 
@@ -275,10 +270,17 @@ See [`SECURITY.md`](./SECURITY.md) for the STRIDE / OWASP ASVS mapping of every 
 
 Real deployments importing only what they wire end up at 25 - 60 KB total. The "import everything" worst case (`import * from '@gentleduck/auth'`) is not the intended usage.
 
-## Documentation
+## Docs
 
-Full docs, course, and API reference: [duck-auth docs](https://gentleduck.org/duck-auth)
+- Site: [gentleduck.org/duck-auth](https://gentleduck.org/duck-auth)
+- Reference app: [`apps/duck-auth-demo`](https://github.com/gentleeduck/duck-iam/tree/main/apps/duck-auth-demo) - every flow exercised end-to-end
+- Sibling repos: [`@gentleduck/iam`](https://www.npmjs.com/package/@gentleduck/iam), [`@gentleduck/ui`](https://github.com/gentleeduck/duck-ui), [`@gentleduck/upload`](https://github.com/gentleeduck/duck-upload), [`@gentleduck/md`](https://github.com/gentleeduck/duck-md)
+
+## Contributing
+
+PR checklist + style notes in the repo's [`CONTRIBUTING.md`](https://github.com/gentleeduck/duck-iam/blob/main/CONTRIBUTING.md).
+Security disclosures: [`SECURITY.md`](./SECURITY.md).
 
 ## License
 
-MIT - GentleDuck
+MIT. See [`LICENSE`](./LICENSE).
