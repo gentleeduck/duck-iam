@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { AuthRoot } from '../../../core/auth'
@@ -10,15 +5,15 @@ import { ScryptHasher } from '../../../core/password/scrypt'
 import { CookieTransport } from '../../../core/transport/cookie'
 import { MemoryLimiter } from '../../../limiters/memory'
 import { password } from '../../../providers/password'
-import { type KoaLikeContext, koaProviderBegin, koaSession, koaSignIn, koaSignOut } from '../index'
+import { type KoaAdapter, koaProviderBegin, koaSession, koaSignIn, koaSignOut } from '../index'
 
 function makeCtx(
-  overrides: Partial<KoaLikeContext['request']> & { params?: Record<string, string> } = {},
-): KoaLikeContext & {
+  overrides: Partial<KoaAdapter.IContext['request']> & { params?: Record<string, string> } = {},
+): KoaAdapter.IContext & {
   _headers: Map<string, string[]>
 } {
   const headers = new Map<string, string[]>()
-  const ctx: KoaLikeContext & { _headers: Map<string, string[]> } = {
+  const ctx: KoaAdapter.IContext & { _headers: Map<string, string[]> } = {
     request: {
       method: overrides.method ?? 'POST',
       url: overrides.url ?? '/auth/x',

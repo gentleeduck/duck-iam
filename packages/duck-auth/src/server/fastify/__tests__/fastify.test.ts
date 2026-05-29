@@ -1,8 +1,3 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAuthAdapter } from '../../../adapters/memory'
 import { AuthRoot } from '../../../core/auth'
@@ -11,8 +6,7 @@ import { CookieTransport } from '../../../core/transport/cookie'
 import { MemoryLimiter } from '../../../limiters/memory'
 import { password } from '../../../providers/password'
 import {
-  type FastifyLikeReply,
-  type FastifyLikeRequest,
+  type FastifyAdapter,
   fastifyProviderBegin,
   fastifySession,
   fastifySignIn,
@@ -20,13 +14,13 @@ import {
   registerFastifyAuth,
 } from '../index'
 
-function makeReply(): FastifyLikeReply & {
+function makeReply(): FastifyAdapter.IReply & {
   _status?: number
   _headers: Map<string, string[]>
   _body?: string
 } {
   const headers = new Map<string, string[]>()
-  const reply: FastifyLikeReply & {
+  const reply: FastifyAdapter.IReply & {
     _status?: number
     _headers: Map<string, string[]>
     _body?: string
@@ -88,7 +82,7 @@ describe('Fastify adapter', () => {
   it('signIn rejects missing providerId with INVALID_CREDENTIALS 400', async () => {
     const handler = fastifySignIn(auth)
     const reply = makeReply()
-    await handler({ method: 'POST', url: '/auth/signin', headers: {}, body: {} } as FastifyLikeRequest, reply)
+    await handler({ method: 'POST', url: '/auth/signin', headers: {}, body: {} } as FastifyAdapter.IRequest, reply)
     expect(reply._status).toBe(400)
     expect(reply._body).toContain('AUTH/INVALID_CREDENTIALS')
   })
@@ -107,7 +101,7 @@ describe('Fastify adapter', () => {
           providerId: 'password',
           input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
         },
-      } as FastifyLikeRequest,
+      } as FastifyAdapter.IRequest,
       reply,
     )
     expect(reply._status).toBe(200)
@@ -119,7 +113,7 @@ describe('Fastify adapter', () => {
   it('session returns null body when no cookie', async () => {
     const handler = fastifySession(auth)
     const reply = makeReply()
-    await handler({ method: 'GET', url: '/auth/session', headers: {} } as FastifyLikeRequest, reply)
+    await handler({ method: 'GET', url: '/auth/session', headers: {} } as FastifyAdapter.IRequest, reply)
     expect(reply._status).toBe(200)
     expect(JSON.parse(reply._body!)).toEqual({ session: null, identity: null })
   })
@@ -127,7 +121,7 @@ describe('Fastify adapter', () => {
   it('signOut clears the cookie even without a session', async () => {
     const handler = fastifySignOut(auth)
     const reply = makeReply()
-    await handler({ method: 'POST', url: '/auth/signout', headers: {} } as FastifyLikeRequest, reply)
+    await handler({ method: 'POST', url: '/auth/signout', headers: {} } as FastifyAdapter.IRequest, reply)
     const cookies = reply._headers.get('set-cookie') ?? []
     expect(cookies.length).toBeGreaterThan(0)
     expect(cookies[0]).toMatch(/Max-Age=0/i)
@@ -137,7 +131,7 @@ describe('Fastify adapter', () => {
     const handler = fastifyProviderBegin(auth)
     const reply = makeReply()
     await handler(
-      { method: 'POST', url: '/auth/providers//begin', headers: {}, body: {}, params: {} } as FastifyLikeRequest,
+      { method: 'POST', url: '/auth/providers//begin', headers: {}, body: {}, params: {} } as FastifyAdapter.IRequest,
       reply,
     )
     expect(reply._status).toBe(400)
