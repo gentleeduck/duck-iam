@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 /**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  *
  * Injects a minimal JSDoc block before any `export function` or `export
  * class method` that lacks one. Idempotent: skips functions that already
@@ -39,7 +37,6 @@ for (const file of files) {
       out.push(`${indent}/**`)
       out.push(`${indent} * \`${name}\`.`)
       out.push(`${indent} *`)
-      out.push(`${indent} * @author wildduck2 <https://github.com/gentleeduck/duck-iam>`)
       out.push(`${indent} */`)
       injected++
     }
