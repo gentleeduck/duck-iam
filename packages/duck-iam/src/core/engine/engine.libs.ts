@@ -82,20 +82,7 @@ export function runSingleFlightKeyed<K, T>(
   return pending
 }
 
-/**
- * Throw if the validate result has any `error`-type issue.
- *
- * Admin write paths run this before persisting so a hostile or buggy admin
- * UI cannot store a policy that the read-side validators (`_safeParsePolicy`
- * in file/redis/drizzle) would silently drop, leaving the tenant with zero
- * policies and the `defaultEffect` in charge of every request.
- *
- * The throw text omits attacker-controlled values (e.g. `algorithm`,
- * `operator`); only the validator code enum + dot-path are reflected, so an
- * operator who echoes `err.message` to an HTTP body or audit sink cannot
- * leak the submitted payload. Full structured issues remain available on
- * the validator result itself.
- */
+/** Throw if the validate result has any `error`-type issue. */
 function assertValidOrThrow(kind: 'policy' | 'role', result: Validate.IResult): void {
   if (result.valid) return
   const errs = result.issues
@@ -104,20 +91,79 @@ function assertValidOrThrow(kind: 'policy' | 'role', result: Validate.IResult): 
   throw new Error(`[@gentleduck/iam:engine] ${kind} rejected by validator - ${errs.join('; ')}`)
 }
 
-/**
- * Recursively freeze a policy's rules, condition groups, and condition leaves.
- *
- * The RBAC policy is shared across every evaluation, so any consumer that
- * mutates `policy.rules[0].actions` would silently corrupt subsequent
- * requests. Shallow `Object.freeze(rules)` only protects the array - not the
- * rule objects or their nested condition trees. This helper covers all
- * paths.
- *
- * @template TPolicy - Specific policy shape, preserved on return.
- *
- * @param policy - The policy to freeze in place.
- * @returns The same policy reference, frozen at every level.
- */
+function assertNonEmptyStringParam(name: string, value: unknown): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    const got = value === null ? 'null' : typeof value
+    throw new Error(`[@gentleduck/iam:engine] ${name} must be a non-empty string (got ${got})`)
+  }
+  // 1024-char cap so a hostile caller cannot bloat the adapter call (URL
+  // length on HTTP adapter, key length on Redis, JSON column size on SQL).
+  if (value.length > 1024) {
+    throw new Error(`[@gentleduck/iam:engine] ${name} exceeds 1024-char cap (got length ${value.length})`)
+  }
+}
+
+function assertOptionalNonEmptyStringParam(name: string, value: unknown): asserts value is string | undefined {
+  if (value === undefined) return
+  assertNonEmptyStringParam(name, value)
+}
+
+function assertAttributesParam(value: unknown): asserts value is Primitives.Attributes {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
+    throw new Error(`[@gentleduck/iam:engine] attributes must be a plain object (got ${got})`)
+  }
+  // 256 own-key cap so a hostile caller cannot push an unbounded attributes
+  // bag through setSubjectAttributes (would bloat the JSON column / Redis
+  // string + every downstream resolve()).
+  const keyCount = Object.keys(value).length
+  if (keyCount > 256) {
+    throw new Error(`[@gentleduck/iam:engine] attributes must have <=256 keys (got ${keyCount})`)
+  }
+  // Reject deep nesting: resolve() walks dot-paths to depth ~8 in practice.
+  // 16 is a safe ceiling that defends against stack-overflow when the
+  // walker recurses (and rejects pathological `{a:{a:{...}}}` shapes).
+  const depth = _measureDepth(value)
+  if (depth > 16) {
+    throw new Error(`[@gentleduck/iam:engine] attributes nesting depth ${depth} exceeds cap (16)`)
+  }
+}
+
+function _measureDepth(node: unknown, current = 0): number {
+  if (current > 32) return current
+  if (typeof node !== 'object' || node === null) return current
+  let max = current
+  if (Array.isArray(node)) {
+    for (const v of node) {
+      const d = _measureDepth(v, current + 1)
+      if (d > max) max = d
+      if (max > 32) return max
+    }
+  } else {
+    for (const v of Object.values(node)) {
+      const d = _measureDepth(v, current + 1)
+      if (d > max) max = d
+      if (max > 32) return max
+    }
+  }
+  return max
+}
+
+function formatErrInterp(value: unknown, maxLen = 64): string {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  const t = typeof value
+  if (t === 'string') {
+    const s = value as string
+    if (s.length <= maxLen) return `string '${s}'`
+    return `string '${s.slice(0, maxLen)}...' (length ${s.length})`
+  }
+  if (t === 'number' || t === 'boolean' || t === 'bigint') return `${t} ${String(value)}`
+  if (Array.isArray(value)) return `array (length ${value.length})`
+  return t
+}
+
+/** Recursively freeze a policy's rules, condition groups, and condition leaves. */
 export function deepFreezePolicy<TPolicy extends AccessControl.IPolicy>(policy: TPolicy): TPolicy {
   for (const rule of policy.rules) {
     if (Array.isArray(rule.actions)) Object.freeze(rule.actions)
@@ -130,20 +176,18 @@ export function deepFreezePolicy<TPolicy extends AccessControl.IPolicy>(policy: 
 }
 
 function freezeConditionGroup(group: AccessControl.IConditionGroup): void {
-  const obj = group as Record<
-    'all' | 'any' | 'none',
-    ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> | undefined
-  >
-  for (const key of ['all', 'any', 'none'] as const) {
-    const arr = obj[key]
-    if (!Array.isArray(arr)) continue
-    for (const item of arr) {
-      if ('field' in item) Object.freeze(item)
-      else freezeConditionGroup(item)
-    }
-    Object.freeze(arr)
-  }
+  if ('all' in group) freezeConditionArray(group.all)
+  if ('any' in group) freezeConditionArray(group.any)
+  if ('none' in group) freezeConditionArray(group.none)
   Object.freeze(group)
+}
+
+function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup>): void {
+  for (const item of arr) {
+    if ('field' in item) Object.freeze(item)
+    else freezeConditionGroup(item)
+  }
+  Object.freeze(arr)
 }
 /**
  * Enrich a subject's roles with scoped role assignments matching the request scope.
@@ -205,6 +249,7 @@ export function createAdmin<
       return adapter.listPolicies()
     },
     async getPolicy(id: string) {
+      assertNonEmptyStringParam('id', id)
       return adapter.getPolicy(id)
     },
     async savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>) {
@@ -214,6 +259,7 @@ export function createAdmin<
       engine.cache.invalidatePolicies()
     },
     async deletePolicy(id: string) {
+      assertNonEmptyStringParam('id', id)
       await adapter.deletePolicy(id)
       engine.cache.invalidatePolicies()
     },
@@ -221,6 +267,7 @@ export function createAdmin<
       return adapter.listRoles()
     },
     async getRole(id: string) {
+      assertNonEmptyStringParam('id', id)
       return adapter.getRole(id)
     },
     async saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
@@ -230,22 +277,32 @@ export function createAdmin<
       engine.cache.invalidateRoles(role.id)
     },
     async deleteRole(id: string) {
+      assertNonEmptyStringParam('id', id)
       await adapter.deleteRole(id)
       engine.cache.invalidateRoles(id as TRole)
     },
     async assignRole(subjectId: string, roleId: TRole, scope?: TScope) {
+      assertNonEmptyStringParam('subjectId', subjectId)
+      assertNonEmptyStringParam('roleId', roleId)
+      assertOptionalNonEmptyStringParam('scope', scope)
       await adapter.assignRole(subjectId, roleId, scope)
       engine.cache.invalidateSubject(subjectId)
     },
     async revokeRole(subjectId: string, roleId: TRole, scope?: TScope) {
+      assertNonEmptyStringParam('subjectId', subjectId)
+      assertNonEmptyStringParam('roleId', roleId)
+      assertOptionalNonEmptyStringParam('scope', scope)
       await adapter.revokeRole(subjectId, roleId, scope)
       engine.cache.invalidateSubject(subjectId)
     },
     async setAttributes(subjectId: string, attrs: Primitives.Attributes) {
+      assertNonEmptyStringParam('subjectId', subjectId)
+      assertAttributesParam(attrs)
       await adapter.setSubjectAttributes(subjectId, attrs)
       engine.cache.invalidateSubject(subjectId)
     },
     async getAttributes(subjectId: string) {
+      assertNonEmptyStringParam('subjectId', subjectId)
       return adapter.getSubjectAttributes(subjectId)
     },
     async export(): Promise<EngineTypes.ISnapshot<TAction, TResource, TRole, TScope>> {
@@ -262,8 +319,10 @@ export function createAdmin<
       options: EngineTypes.IImportOptions = {},
     ): Promise<EngineTypes.IImportResult> {
       if (snapshot?.schemaVersion !== 1) {
+        const incoming =
+          snapshot !== null && typeof snapshot === 'object' ? Reflect.get(snapshot, 'schemaVersion') : snapshot
         throw new Error(
-          `[@gentleduck/iam:engine] unsupported snapshot schemaVersion ${(snapshot as { schemaVersion?: unknown })?.schemaVersion}; expected 1`,
+          `[@gentleduck/iam:engine] unsupported snapshot schemaVersion ${formatErrInterp(incoming)}; expected 1`,
         )
       }
       const mode = options.mode ?? 'merge'

@@ -1,6 +1,7 @@
 export { validatePolicy, validateRole, validateRoles } from './validate'
 export {
   detectCatastrophicRegex,
+  MAX_CONDITION_VALUE_LENGTH,
   MAX_FIELD_LENGTH,
   MAX_UNBOUNDED_QUANTIFIERS,
   POLICY_LIMITS,
