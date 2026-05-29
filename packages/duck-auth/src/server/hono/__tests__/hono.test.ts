@@ -5,7 +5,7 @@ import { ScryptHasher } from '../../../core/password/scrypt'
 import { CookieTransport } from '../../../core/transport/cookie'
 import { MemoryLimiter } from '../../../limiters/memory'
 import { password } from '../../../providers/password'
-import { type HonoContextLike, honoSession, honoSignIn, honoSignOut } from '../index'
+import { type HonoAdapter, honoSession, honoSignIn, honoSignOut } from '../index'
 
 interface MyProfile {
   email: string
@@ -37,7 +37,7 @@ function makeCtx(
   method: string,
   url: string,
   init: { headers?: Record<string, string>; body?: unknown } = {},
-): HonoContextLike {
+): HonoAdapter.IContext {
   const req = new Request(`https://x${url}`, {
     method,
     headers: init.headers,
@@ -119,11 +119,22 @@ describe('Hono adapter - end-to-end', () => {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       }),
     )
-    const sid = decodeURIComponent(
-      (signinRes.headers.get('set-cookie')?.match(/^duck-sid=([^;]+)/)?.[1] ?? '') as string,
-    )
+    // signin now emits both __Host-duck-csrf and the SID; replay
+    // both on signout + attach the matching x-csrf-token header.
+    const setCookieJoined = signinRes.headers.get('set-cookie') ?? ''
+    const sid = decodeURIComponent(setCookieJoined.match(/duck-sid=([^;,]+)/)?.[1] ?? '')
+    const csrfToken = decodeURIComponent(setCookieJoined.match(/__Host-duck-csrf=([^;,]+)/)?.[1] ?? '')
+    expect(csrfToken).not.toBe('')
     expect((await adapter.sessions.listByIdentity(identity.id)).length).toBe(1)
-    const outRes = await honoSignOut(auth)(makeCtx('POST', '/auth/signout', { headers: { cookie: `duck-sid=${sid}` } }))
+    const outRes = await honoSignOut(auth)(
+      makeCtx('POST', '/auth/signout', {
+        headers: {
+          cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
+          'x-csrf-token': csrfToken,
+          'sec-fetch-site': 'same-origin',
+        },
+      }),
+    )
     expect(outRes.status).toBe(200)
     expect(outRes.headers.get('set-cookie')).toContain('Max-Age=0')
     expect((await adapter.sessions.listByIdentity(identity.id)).length).toBe(0)

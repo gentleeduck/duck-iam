@@ -1,59 +1,51 @@
-/**
- * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-
 import type { AuthRoot } from '../../core/auth'
-import { AuthErrorObject } from '../../core/errors'
+import { csrfGuard } from '../../core/csrf'
 import type { Provider } from '../../core/types/provider'
+import {
+  errorToHttp,
+  isSafeRedirectUrl,
+  nodeHeadersToFetch,
+  parseProviderBeginBody,
+  parseSignInBody,
+  serializeCookie,
+} from '../generic'
 
 /**
- * Express request shape - minimal duck-typed subset to avoid pulling the
- * Express type-graph into duck-auth. Apps providing their own type narrowing
- * to `Express.Request` / `Express.Response` get full inference at the call site.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Public surface for the Express adapter. Every type lives inside
+ * the namespace.
  */
-export interface ExpressLikeRequest {
-  method: string
-  url: string
-  headers: Record<string, string | string[] | undefined>
-  body?: unknown
-}
+export namespace ExpressAdapter {
+  /** Minimal duck-typed Express request subset. */
+  export interface IRequest {
+    method: string
+    url: string
+    headers: Record<string, string | string[] | undefined>
+    body?: unknown
+  }
 
-export interface ExpressLikeResponse {
-  status(code: number): ExpressLikeResponse
-  setHeader(name: string, value: string | number | string[]): ExpressLikeResponse
-  append(name: string, value: string): ExpressLikeResponse
-  json(body: unknown): ExpressLikeResponse
-  redirect(status: number, location: string): void
-  end(body?: string): void
-}
+  /** Minimal duck-typed Express response subset. */
+  export interface IResponse {
+    status(code: number): IResponse
+    setHeader(name: string, value: string | number | string[]): IResponse
+    append(name: string, value: string): IResponse
+    json(body: unknown): IResponse
+    redirect(status: number, location: string): void
+    end(body?: string): void
+  }
 
-export type Handler = (req: ExpressLikeRequest, res: ExpressLikeResponse) => Promise<void>
+  /** Express handler signature `(req, res) => Promise<void>`. */
+  export type IHandler = (req: IRequest, res: IResponse) => Promise<void>
+}
 
 /** Convert Express's flat `req.headers` object into a `Headers` instance. */
-export function toHeaders(headers: ExpressLikeRequest['headers']): Headers {
-  const h = new Headers()
-  for (const [k, v] of Object.entries(headers)) {
-    if (v === undefined) continue
-    if (Array.isArray(v)) {
-      for (const item of v) h.append(k, item)
-    } else {
-      h.set(k, v)
-    }
-  }
-  return h
-}
+export const toHeaders: (headers: ExpressAdapter.IRequest['headers']) => Headers = nodeHeadersToFetch
 
 /**
- * Execute an Intent[] against an ExpressLikeResponse. Mirrors the Web-Fetch
- * executor in `server/generic` but writes directly into Express's mutable
- * response object, since Express handlers don't return a `Response`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * Execute an Intent[] against an ExpressAdapter.IResponse. Mirrors the
+ * Web-Fetch executor in `server/generic` but writes directly into
+ * Express's mutable response object.
  */
-export function applyIntents(intents: Provider.Intent[], res: ExpressLikeResponse, baseStatus = 200): void {
+export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.IResponse, baseStatus = 200): void {
   let status = baseStatus
   let body: unknown = null
   let hasBody = false
@@ -69,6 +61,11 @@ export function applyIntents(intents: Provider.Intent[], res: ExpressLikeRespons
         break
       }
       case 'redirect': {
+        // see isSafeRedirectUrl in server/generic for rationale.
+        if (!isSafeRedirectUrl(intent.url)) {
+          res.status(500).json({ code: 'AUTH/MISCONFIGURED', detail: 'unsafe redirect URL rejected' })
+          return
+        }
         res.redirect(intent.status ?? 302, intent.url)
         return
       }
@@ -98,43 +95,21 @@ export function applyIntents(intents: Provider.Intent[], res: ExpressLikeRespons
   else res.end()
 }
 
-function serializeCookie(
-  name: string,
-  value: string,
-  opts: {
-    httpOnly?: boolean
-    secure?: boolean
-    sameSite?: 'strict' | 'lax' | 'none'
-    path?: string
-    domain?: string
-    maxAge?: number
-    expires?: Date
-  },
-): string {
-  const parts = [`${name}=${encodeURIComponent(value)}`]
-  if (opts.maxAge !== undefined) parts.push(`Max-Age=${opts.maxAge}`)
-  if (opts.expires) parts.push(`Expires=${opts.expires.toUTCString()}`)
-  if (opts.path) parts.push(`Path=${opts.path}`)
-  if (opts.domain) parts.push(`Domain=${opts.domain}`)
-  if (opts.httpOnly) parts.push('HttpOnly')
-  if (opts.secure) parts.push('Secure')
-  if (opts.sameSite) {
-    const cap = opts.sameSite.charAt(0).toUpperCase() + opts.sameSite.slice(1)
-    parts.push(`SameSite=${cap}`)
-  }
-  return parts.join('; ')
-}
-
-/** POST /auth/signin - `{ providerId, input }` body. */
-export function mountSignIn(auth: AuthRoot): Handler {
+/** POST /auth/signin - `{ providerId, input }` body. CSRF-guarded
+ * (Layer-1 Sec-Fetch-Site for the no-session case; Layer-2 double-submit
+ * for the post-rotation case if the route is re-entered with a stale
+ * SID). */
+export function mountSignIn(auth: AuthRoot): ExpressAdapter.IHandler {
   return async (req, res) => {
     try {
-      const body = (req.body ?? {}) as { providerId?: string; input?: unknown }
-      if (!body.providerId) {
+      const headers = toHeaders(req.headers)
+      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
+      const parsed = parseSignInBody(req.body)
+      if (!parsed) {
         applyIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }], res)
         return
       }
-      const result = await auth.flows.signIn({ providerId: body.providerId, input: body.input ?? {} })
+      const result = await auth.flows.signIn(parsed)
       applyIntents(result.intents, res, 200)
     } catch (err) {
       handleError(err, res)
@@ -142,11 +117,13 @@ export function mountSignIn(auth: AuthRoot): Handler {
   }
 }
 
-/** POST /auth/signout - reads the SID from the transport. */
-export function mountSignOut(auth: AuthRoot): Handler {
+/** POST /auth/signout - reads the SID from the transport. CSRF-guarded. */
+export function mountSignOut(auth: AuthRoot): ExpressAdapter.IHandler {
   return async (req, res) => {
     try {
-      const sid = auth.transport.extract({ headers: toHeaders(req.headers) })
+      const headers = toHeaders(req.headers)
+      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
+      const sid = auth.transport.extract({ headers })
       if (!sid) {
         applyIntents(auth.transport.revoke(), res, 200)
         return
@@ -159,16 +136,23 @@ export function mountSignOut(auth: AuthRoot): Handler {
   }
 }
 
-/** POST /auth/providers/:id/begin - driver for two-step flows (magic-link, oauth begin, etc.). */
-export function mountProviderBegin(auth: AuthRoot): Handler {
+/** POST /auth/providers/:id/begin - driver for two-step flows. CSRF-guarded. */
+export function mountProviderBegin(auth: AuthRoot): ExpressAdapter.IHandler {
   return async (req, res) => {
     try {
+      const headers = toHeaders(req.headers)
+      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
       const id = providerIdFromUrl(req.url, 'begin')
       if (!id) {
         applyIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }], res)
         return
       }
-      const intents = await auth.flows.beginProvider(id, req.body ?? {})
+      const body = parseProviderBeginBody(req.body)
+      if (body === null) {
+        applyIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }], res)
+        return
+      }
+      const intents = await auth.flows.beginProvider(id, body)
       applyIntents(intents, res, 200)
     } catch (err) {
       handleError(err, res)
@@ -177,7 +161,7 @@ export function mountProviderBegin(auth: AuthRoot): Handler {
 }
 
 /** GET /auth/session - returns the resolved session as JSON. */
-export function mountSession(auth: AuthRoot): Handler {
+export function mountSession(auth: AuthRoot): ExpressAdapter.IHandler {
   return async (req, res) => {
     try {
       const resolved = await auth.resolveSession({ headers: toHeaders(req.headers) })
@@ -192,38 +176,15 @@ export function mountSession(auth: AuthRoot): Handler {
   }
 }
 
-function handleError(err: unknown, res: ExpressLikeResponse): void {
-  if (err instanceof AuthErrorObject) {
-    res.status(err.status).json(err.toJSON())
-    return
-  }
-  // Unexpected: fail-closed so an unexpected throw never leaks internal state.
-  res.status(500).json({ code: 'AUTH/MISCONFIGURED', detail: 'internal error' })
+function handleError(err: unknown, res: ExpressAdapter.IResponse): void {
+  const { status, body } = errorToHttp(err)
+  res.status(status).json(body)
 }
 
 function providerIdFromUrl(url: string, suffix: string): string | null {
-  // /auth/providers/<id>/<suffix> - trivial parser, no regex backtracking.
   const path = url.split('?')[0] ?? ''
   const parts = path.split('/').filter(Boolean)
-  // Expect ['auth', 'providers', '<id>', '<suffix>']
   if (parts.length < 4) return null
   if (parts[parts.length - 1] !== suffix) return null
   return parts[parts.length - 2] ?? null
-}
-
-/**
- * Namespace merge for ExpressAdapter. Co-locates the config + input +
- * output shapes via TS namespace declaration. Consumers can write either
- * the flat name (ExpressLikeRequest) or the namespaced form
- * (ExpressAdapter.IRequest); both resolve to the same type.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export namespace ExpressAdapter {
-  /** Alias for the flat `ExpressLikeRequest` type. */
-  export type IRequest = ExpressLikeRequest
-  /** Alias for the flat `ExpressLikeResponse` type. */
-  export type IResponse = ExpressLikeResponse
-  /** Alias for the flat `Handler` type. */
-  export type IHandler = Handler
 }

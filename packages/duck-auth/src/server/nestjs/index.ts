@@ -1,5 +1,4 @@
 /**
- * @packageDocumentation
  * NestJS adapter. NestJS controllers receive `Request` + `Response`
  * (Express adapter) OR `FastifyRequest` + `FastifyReply`; this module
  * ships handler factories that work with either via a narrow
@@ -23,82 +22,26 @@
  *     me(@Req() req) { return (req as any).session }
  *   }
  *   ```
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import type { AuthRoot } from '../../core/auth'
 import { AuthErrorObject } from '../../core/errors'
 import type { Identity } from '../../core/types/identity'
 import type { Session } from '../../core/types/session'
-import { executeIntents } from '../generic'
+import {
+  errorToHttp,
+  executeIntents,
+  extractSetCookies,
+  nodeHeadersToFetch,
+  parseProviderBeginBody,
+  parseSignInBody,
+} from '../generic'
 
-/**
- * Narrow subset of NestJS request the adapter touches; works for both
- * Express + Fastify Nest platforms.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface NestLikeRequest {
-  method: string
-  url?: string
-  headers: Record<string, string | string[] | undefined>
-  body?: unknown
-  params?: Record<string, string>
-  /** Mutation slot for the guard - the resolved session lands here. */
-  session?: Session.ISession
-  /** Mutation slot for the guard - the resolved identity lands here. */
-  identity?: Identity.IIdentity<unknown> | null
-}
+const toFetchHeaders: (headers: NestAdapter.IRequest['headers']) => Headers = nodeHeadersToFetch
 
-/**
- * Narrow subset of NestJS reply. Express + Fastify both satisfy
- * `status(n).set(k,v).send(body)`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface NestLikeReply {
-  status(code: number): NestLikeReply
-  setHeader?(name: string, value: string | string[]): NestLikeReply
-  set?(name: string, value: string | string[]): NestLikeReply
-  send(body: unknown): unknown
-}
-
-export type NestAuthHandler = (req: NestLikeRequest, reply: NestLikeReply) => Promise<unknown>
-
-/**
- * NestJS guard contract subset. Apps wrap `makeAuthGuard(auth)` in a
- * proper `@Injectable()` class when they need Nest DI plumbing.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
- */
-export interface NestLikeGuard {
-  canActivate(context: NestExecutionContextLike): Promise<boolean>
-}
-
-export interface NestExecutionContextLike {
-  switchToHttp(): { getRequest<T = NestLikeRequest>(): T }
-}
-
-function toFetchHeaders(headers: NestLikeRequest['headers']): Headers {
-  const h = new Headers()
-  for (const [k, v] of Object.entries(headers)) {
-    if (v === undefined) continue
-    if (Array.isArray(v)) {
-      for (const item of v) h.append(k, String(item))
-    } else {
-      h.set(k, String(v))
-    }
-  }
-  return h
-}
-
-async function forward(response: Response, reply: NestLikeReply): Promise<unknown> {
+async function forward(response: Response, reply: NestAdapter.IReply): Promise<unknown> {
   reply.status(response.status)
-  const setCookies = (response.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie
-    ? (response.headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
-    : []
-  for (const cookie of setCookies) {
+  for (const cookie of extractSetCookies(response)) {
     if (reply.setHeader) reply.setHeader('set-cookie', cookie)
     else if (reply.set) reply.set('set-cookie', cookie)
   }
@@ -111,33 +54,24 @@ async function forward(response: Response, reply: NestLikeReply): Promise<unknow
   return reply.send(body)
 }
 
-function handleError(err: unknown, reply: NestLikeReply): unknown {
-  if (err instanceof AuthErrorObject) {
-    reply.status(err.status)
-    if (reply.setHeader) reply.setHeader('content-type', 'application/json; charset=utf-8')
-    return reply.send(JSON.stringify(err.toJSON()))
-  }
-  reply.status(500)
+function handleError(err: unknown, reply: NestAdapter.IReply): unknown {
+  const { status, body } = errorToHttp(err)
+  reply.status(status)
   if (reply.setHeader) reply.setHeader('content-type', 'application/json; charset=utf-8')
-  return reply.send(JSON.stringify({ code: 'AUTH/MISCONFIGURED', detail: 'internal error' }))
+  return reply.send(JSON.stringify(body))
 }
 
 /**
  * Nest handler for the sign-in route.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function nestSignIn(auth: AuthRoot): NestAuthHandler {
+export function nestSignIn(auth: AuthRoot): NestAdapter.IHandler {
   return async (req, reply) => {
     try {
-      const body = (req.body ?? {}) as { providerId?: string; input?: unknown }
-      if (!body.providerId) {
+      const parsed = parseSignInBody(req.body)
+      if (!parsed) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
       }
-      const result = await auth.flows.signIn({
-        providerId: body.providerId,
-        input: body.input ?? {},
-      })
+      const result = await auth.flows.signIn(parsed)
       return forward(executeIntents(result.intents), reply)
     } catch (err) {
       return handleError(err, reply)
@@ -147,10 +81,8 @@ export function nestSignIn(auth: AuthRoot): NestAuthHandler {
 
 /**
  * Nest handler for sign-out.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function nestSignOut(auth: AuthRoot): NestAuthHandler {
+export function nestSignOut(auth: AuthRoot): NestAdapter.IHandler {
   return async (req, reply) => {
     try {
       const sid = auth.transport.extract({ headers: toFetchHeaders(req.headers) })
@@ -165,10 +97,8 @@ export function nestSignOut(auth: AuthRoot): NestAuthHandler {
 
 /**
  * Nest handler for the session-introspection route.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function nestSession(auth: AuthRoot): NestAuthHandler {
+export function nestSession(auth: AuthRoot): NestAdapter.IHandler {
   return async (req, reply) => {
     try {
       const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
@@ -187,17 +117,19 @@ export function nestSession(auth: AuthRoot): NestAuthHandler {
 
 /**
  * Nest handler for the per-provider begin step.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function nestProviderBegin(auth: AuthRoot): NestAuthHandler {
+export function nestProviderBegin(auth: AuthRoot): NestAdapter.IHandler {
   return async (req, reply) => {
     try {
       const id = req.params?.id
       if (!id) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }]), reply)
       }
-      const intents = await auth.flows.beginProvider(id, (req.body ?? {}) as unknown)
+      const body = parseProviderBeginBody(req.body)
+      if (body === null) {
+        return forward(executeIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
+      }
+      const intents = await auth.flows.beginProvider(id, body)
       return forward(executeIntents(intents), reply)
     } catch (err) {
       return handleError(err, reply)
@@ -219,14 +151,12 @@ export function nestProviderBegin(auth: AuthRoot): NestAuthHandler {
  *     canActivate = makeAuthGuard(this.auth).canActivate
  *   }
  *   ```
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function makeAuthGuard(auth: AuthRoot, opts: { required?: boolean } = {}): NestLikeGuard {
+export function makeAuthGuard(auth: AuthRoot, opts: { required?: boolean } = {}): NestAdapter.IGuard {
   const required = opts.required ?? true
   return {
     async canActivate(ctx) {
-      const req = ctx.switchToHttp().getRequest<NestLikeRequest>()
+      const req = ctx.switchToHttp().getRequest<NestAdapter.IRequest>()
       const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
       if (!resolved) {
         if (required) {
@@ -243,18 +173,34 @@ export function makeAuthGuard(auth: AuthRoot, opts: { required?: boolean } = {})
 
 /**
  * Namespace merge for `NestAdapter`.
- *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace NestAdapter {
-  /** Alias for `NestAuthHandler`. */
-  export type IHandler = NestAuthHandler
-  /** Alias for `NestLikeRequest`. */
-  export type IRequest = NestLikeRequest
-  /** Alias for `NestLikeReply`. */
-  export type IReply = NestLikeReply
-  /** Alias for `NestLikeGuard`. */
-  export type IGuard = NestLikeGuard
-  /** Alias for the flat `NestExecutionContextLike` type. */
-  export type INestExecutionContextLike = NestExecutionContextLike
+  export type IHandler = (req: NestAdapter.IRequest, reply: NestAdapter.IReply) => Promise<unknown>
+
+  export interface IRequest {
+    method: string
+    url?: string
+    headers: Record<string, string | string[] | undefined>
+    body?: unknown
+    params?: Record<string, string>
+    /** Mutation slot for the guard - the resolved session lands here. */
+    session?: Session.ISession
+    /** Mutation slot for the guard - the resolved identity lands here. */
+    identity?: Identity.IIdentity<unknown> | null
+  }
+
+  export interface IReply {
+    status(code: number): NestAdapter.IReply
+    setHeader?(name: string, value: string | string[]): NestAdapter.IReply
+    set?(name: string, value: string | string[]): NestAdapter.IReply
+    send(body: unknown): unknown
+  }
+
+  export interface IGuard {
+    canActivate(context: NestAdapter.INestExecutionContextLike): Promise<boolean>
+  }
+
+  export interface INestExecutionContextLike {
+    switchToHttp(): { getRequest<T = NestAdapter.IRequest>(): T }
+  }
 }
