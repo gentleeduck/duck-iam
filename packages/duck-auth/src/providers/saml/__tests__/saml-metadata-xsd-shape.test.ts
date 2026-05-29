@@ -27,7 +27,9 @@ const VALID_NAMEID_FORMATS = [
   'urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName',
 ]
 
-function buildBasicMetadata(overrides: Partial<{ entityId: string; acsUrl: string; sloUrl: string; signingCert: string }> = {}) {
+function buildBasicMetadata(
+  overrides: Partial<{ entityId: string; acsUrl: string; sloUrl: string; signingCert: string }> = {},
+) {
   return buildSpMetadata({
     metadata: {
       entityId: overrides.entityId ?? 'https://app.example.com',

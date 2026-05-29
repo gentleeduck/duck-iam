@@ -186,10 +186,7 @@ describe('RFC 6749 §5.2 - error response shape', () => {
   })
 
   it('error code is one of the registered values (RFC 6749 §5.2)', async () => {
-    const out = await op.token(
-      { grant_type: 'unsupported_grant' },
-      new Headers(),
-    )
+    const out = await op.token({ grant_type: 'unsupported_grant' }, new Headers())
     expect('error' in out).toBe(true)
     if ('error' in out) {
       const validErrors = [
@@ -207,20 +204,14 @@ describe('RFC 6749 §5.2 - error response shape', () => {
   })
 
   it('error_description is a string when present (RFC 6749 §5.2)', async () => {
-    const out = await op.token(
-      { grant_type: 'unsupported_grant' },
-      new Headers(),
-    )
+    const out = await op.token({ grant_type: 'unsupported_grant' }, new Headers())
     if ('error' in out && out.error_description !== undefined) {
       expect(typeof out.error_description).toBe('string')
     }
   })
 
   it('JSON-serialises without circular references', async () => {
-    const out = await op.token(
-      { grant_type: 'unsupported_grant' },
-      new Headers(),
-    )
+    const out = await op.token({ grant_type: 'unsupported_grant' }, new Headers())
     expect(() => JSON.stringify(out)).not.toThrow()
   })
 })
@@ -340,10 +331,7 @@ describe('RFC 7662 §2 - introspection response shape', () => {
     })
     if (!client_secret) throw new Error('expected secret')
     const basic = Buffer.from(`resource:${client_secret}`).toString('base64')
-    const result = await op.introspect(
-      { token: 'never-issued' },
-      new Headers({ authorization: `Basic ${basic}` }),
-    )
+    const result = await op.introspect({ token: 'never-issued' }, new Headers({ authorization: `Basic ${basic}` }))
     expect(result.active).toBe(false)
     // RFC 7662 §2.2 - "active" is the only REQUIRED field
     expect(Object.keys(result)).toContain('active')

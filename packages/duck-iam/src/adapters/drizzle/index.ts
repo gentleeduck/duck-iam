@@ -197,7 +197,9 @@ export class DrizzleAdapter<
     }
     const policy = parsePolicyRow<TAction, TResource, TRole>(candidate)
     if (policy === null) {
-      const issues = validatePolicy(candidate).issues.map((i) => i.message).join('; ')
+      const issues = validatePolicy(candidate)
+        .issues.map((i) => i.message)
+        .join('; ')
       this._reportPolicyError(new Error(`Invalid policy "${row.id}": ${issues}`), row.id)
       return null
     }
@@ -235,7 +237,9 @@ export class DrizzleAdapter<
     }
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(candidate)
     if (role === null) {
-      const issues = validateRole(candidate).issues.map((i) => i.message).join('; ')
+      const issues = validateRole(candidate)
+        .issues.map((i) => i.message)
+        .join('; ')
       this._reportPolicyError(new Error(`Invalid role "${row.id}": ${issues}`), row.id)
       return null
     }

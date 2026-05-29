@@ -68,11 +68,7 @@ describe('emitMetrics', () => {
   })
 })
 
-function fakeReq(
-  subjectId = 's',
-  action = 'a',
-  resourceType = 'r',
-): Request.IAccessRequest<string, string, string> {
+function fakeReq(subjectId = 's', action = 'a', resourceType = 'r'): Request.IAccessRequest<string, string, string> {
   return {
     subject: { id: subjectId, roles: [], attributes: {} },
     action,

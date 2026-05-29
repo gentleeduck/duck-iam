@@ -9,9 +9,7 @@
 import { createHmac } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
-import { AuthRoot } from '@gentleduck/auth/core'
-import { ScryptHasher } from '@gentleduck/auth/core'
-import { CookieTransport } from '@gentleduck/auth/core'
+import { AuthRoot, CookieTransport, ScryptHasher } from '@gentleduck/auth/core'
 import { createOidcOP } from '@gentleduck/auth/oidc/op'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -256,7 +254,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (req.method === 'POST' && path === '/introspect') {
     const body = parseForm(await readBody(req))
     const out = await op.introspect(
-      { token: body.token ?? '', ...(body.token_type_hint ? { token_type_hint: body.token_type_hint as 'access_token' | 'refresh_token' } : {}) },
+      {
+        token: body.token ?? '',
+        ...(body.token_type_hint ? { token_type_hint: body.token_type_hint as 'access_token' | 'refresh_token' } : {}),
+      },
       reqHeaders(req),
     )
     return sendJson(res, 200, out)
@@ -265,7 +266,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (req.method === 'POST' && path === '/revoke') {
     const body = parseForm(await readBody(req))
     await op.revoke(
-      { token: body.token ?? '', ...(body.token_type_hint ? { token_type_hint: body.token_type_hint as 'access_token' | 'refresh_token' } : {}) },
+      {
+        token: body.token ?? '',
+        ...(body.token_type_hint ? { token_type_hint: body.token_type_hint as 'access_token' | 'refresh_token' } : {}),
+      },
       reqHeaders(req),
     )
     return sendJson(res, 200, {})

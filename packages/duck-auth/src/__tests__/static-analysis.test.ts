@@ -14,7 +14,7 @@
  * each test explains the threat.
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -59,13 +59,7 @@ function linesContaining(file: FileScan, pattern: RegExp): string[] {
   return hits
 }
 
-const SECURITY_PATHS = [
-  'core/',
-  'providers/',
-  'oidc/op/',
-  'oidc/index.ts',
-  'transport/',
-]
+const SECURITY_PATHS = ['core/', 'providers/', 'oidc/op/', 'oidc/index.ts', 'transport/']
 
 function isSecurityPath(path: string): boolean {
   return SECURITY_PATHS.some((p) => path.includes(p))
@@ -87,10 +81,7 @@ describe('No Math.random in security paths', () => {
     )
     // Acceptable uses (instance IDs, dev channels). Update this list only
     // after confirming the use is non-cryptographic.
-    const acceptableHints = [
-      'instanceId',
-      'messageId',
-    ]
+    const acceptableHints = ['instanceId', 'messageId']
     for (const offender of offenders) {
       const ok = acceptableHints.some((hint) => offender.includes(hint))
       expect(ok, `unaccounted Math.random in ${offender}`).toBe(true)
@@ -99,14 +90,7 @@ describe('No Math.random in security paths', () => {
 })
 
 describe('No bespoke timing-unsafe compares on secrets', () => {
-  const SECRET_FIELD_NAMES = [
-    'tokenHash',
-    'secretHash',
-    'clientSecret',
-    'codeChallenge',
-    'code_verifier',
-    'verifier',
-  ]
+  const SECRET_FIELD_NAMES = ['tokenHash', 'secretHash', 'clientSecret', 'codeChallenge', 'code_verifier', 'verifier']
 
   it('does not compare secret-named fields with ===', () => {
     const offenders: string[] = []
@@ -138,7 +122,9 @@ describe('Recovery / signup / reset tokens are sha256-hashed at rest', () => {
     // The presence of `secret: secretHash` and the absence of
     // `secret: token,` (raw token written directly) is the structural
     // invariant. The actual hash function is in core/crypto.ts.
-    const tokenWriteFiles = filesMatching((f) => /flows\/(.*-reset|.*-verification|signup|account-deletion)\.ts$/.test(f.path))
+    const tokenWriteFiles = filesMatching((f) =>
+      /flows\/(.*-reset|.*-verification|signup|account-deletion)\.ts$/.test(f.path),
+    )
     for (const f of tokenWriteFiles) {
       // Each file must import sha256 (or randomBytes) before it can write a token.
       const importsCrypto = /from '..\/..\/crypto'|from '..\/..\/..\/core\/crypto'/.test(f.contents)

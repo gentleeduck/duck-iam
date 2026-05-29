@@ -140,7 +140,9 @@ describe('loadRoles', () => {
 describe('loadRbacPolicy', () => {
   it('builds + caches a deep-frozen RBAC policy from roles', async () => {
     const deps = makeDeps()
-    deps.adapter.listRoles = async () => [{ id: 'viewer', name: 'viewer', permissions: [{ action: 'read', resource: 'post' }] }]
+    deps.adapter.listRoles = async () => [
+      { id: 'viewer', name: 'viewer', permissions: [{ action: 'read', resource: 'post' }] },
+    ]
     const policy = await loadRbacPolicy(deps)
     expect(Object.isFrozen(policy)).toBe(true)
     expect(deps.rbacPolicyCache.get('rbac')).toBe(policy)
@@ -159,8 +161,12 @@ describe('loadRbacPolicy', () => {
 describe('loadAllPolicies', () => {
   it('merges user policies with the synthesised RBAC policy when RBAC has rules', async () => {
     const deps = makeDeps()
-    deps.adapter.listPolicies = async () => [{ id: 'user', name: 'user', algorithm: 'deny-overrides' as const, rules: [] }]
-    deps.adapter.listRoles = async () => [{ id: 'viewer', name: 'viewer', permissions: [{ action: 'read', resource: 'post' }] }]
+    deps.adapter.listPolicies = async () => [
+      { id: 'user', name: 'user', algorithm: 'deny-overrides' as const, rules: [] },
+    ]
+    deps.adapter.listRoles = async () => [
+      { id: 'viewer', name: 'viewer', permissions: [{ action: 'read', resource: 'post' }] },
+    ]
     const merged = await loadAllPolicies(deps)
     expect(merged.length).toBe(2)
     expect(merged[0]?.id).not.toBe('user') // rbac prefixed
@@ -168,7 +174,9 @@ describe('loadAllPolicies', () => {
 
   it('omits the RBAC policy when it has no rules (avoids default-deny under AND combine)', async () => {
     const deps = makeDeps()
-    deps.adapter.listPolicies = async () => [{ id: 'user', name: 'user', algorithm: 'deny-overrides' as const, rules: [] }]
+    deps.adapter.listPolicies = async () => [
+      { id: 'user', name: 'user', algorithm: 'deny-overrides' as const, rules: [] },
+    ]
     deps.adapter.listRoles = async () => []
     const merged = await loadAllPolicies(deps)
     expect(merged.length).toBe(1)

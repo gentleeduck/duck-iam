@@ -15,11 +15,7 @@ import { MemoryLimiter } from '../../../limiters/memory'
 import { AuthRoot } from '../../auth'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
-import {
-  cancelAccountDeletion,
-  completeAccountDeletion,
-  requestAccountDeletion,
-} from '../flows/account-deletion'
+import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../flows/account-deletion'
 import { completeEmailVerification, requestEmailVerification } from '../flows/email-verification'
 import { impersonate, releaseImpersonation } from '../flows/impersonate'
 import { completePasswordReset, requestPasswordReset } from '../flows/password-reset'
@@ -66,9 +62,9 @@ describe('flows/password-reset.ts - direct exports', () => {
   })
 
   it('completePasswordReset rejects an unknown token', async () => {
-    await expect(
-      completePasswordReset(auth.flows, { token: 'unknown', newPassword: 'p' }),
-    ).rejects.toMatchObject({ code: 'AUTH/RECOVERY_TOKEN_INVALID' })
+    await expect(completePasswordReset(auth.flows, { token: 'unknown', newPassword: 'p' })).rejects.toMatchObject({
+      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+    })
   })
 
   it('direct call matches class-method call (no extra side effects)', async () => {
@@ -148,9 +144,9 @@ describe('flows/signup.ts - direct exports', () => {
   })
 
   it('advanceSignUp rejects unknown token directly', async () => {
-    await expect(
-      advanceSignUp(auth.flows, { flowToken: 'unknown', stage: 'email-verified' }),
-    ).rejects.toMatchObject({ code: 'AUTH/SIGNUP_TOKEN_INVALID' })
+    await expect(advanceSignUp(auth.flows, { flowToken: 'unknown', stage: 'email-verified' })).rejects.toMatchObject({
+      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+    })
   })
 
   it('rejects oversize email at beginSignUp', async () => {
@@ -239,17 +235,17 @@ describe('flows/provider-link.ts - direct exports', () => {
   })
 
   it('linkProvider rejects invalid providerId', async () => {
-    await expect(
-      linkProvider(auth.flows, { identityId: 'x', providerId: '', providerSub: 's' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    await expect(linkProvider(auth.flows, { identityId: 'x', providerId: '', providerSub: 's' })).rejects.toMatchObject(
+      { code: 'AUTH/PROVIDER_FAILED' },
+    )
   })
 
   it('unlinkProvider lockout guard refuses to leave identity with no factors', async () => {
     const ident = await auth.identities.create({ profile: { email: 'c@x.com' } })
     await linkProvider(auth.flows, { identityId: ident.id, providerId: 'github', providerSub: 'gh-1' })
-    await expect(
-      unlinkProvider(auth.flows, { identityId: ident.id, providerId: 'github' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    await expect(unlinkProvider(auth.flows, { identityId: ident.id, providerId: 'github' })).rejects.toMatchObject({
+      code: 'AUTH/PROVIDER_FAILED',
+    })
   })
 
   it('unlinkProvider allows lockout when allowLockout: true', async () => {

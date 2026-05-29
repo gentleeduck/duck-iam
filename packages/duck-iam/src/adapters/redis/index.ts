@@ -126,7 +126,9 @@ export class RedisAdapter<
     }
     const policy = parsePolicyRow<TAction, TResource, TRole>(parsed)
     if (policy === null) {
-      const issues = validatePolicy(parsed).issues.map((i) => i.message).join('; ')
+      const issues = validatePolicy(parsed)
+        .issues.map((i) => i.message)
+        .join('; ')
       this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
       return null
     }
@@ -143,7 +145,9 @@ export class RedisAdapter<
     }
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(parsed)
     if (role === null) {
-      const issues = validateRole(parsed).issues.map((i) => i.message).join('; ')
+      const issues = validateRole(parsed)
+        .issues.map((i) => i.message)
+        .join('; ')
       this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
       return null
     }

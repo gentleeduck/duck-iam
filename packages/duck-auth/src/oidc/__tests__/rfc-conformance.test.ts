@@ -98,7 +98,21 @@ describe('OAuth 2.0 PKCE (RFC 7636) - code_challenge_methods_supported', () => {
 describe('id_token signing algs - real-RP expectations', () => {
   it('default HS256 is in the JWA registered set (RFC 7518 §3.1)', () => {
     const doc = buildOidcDiscovery({ issuer: HTTPS_ISSUER })
-    const jwa = ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512', 'PS256', 'PS384', 'PS512', 'EdDSA']
+    const jwa = [
+      'HS256',
+      'HS384',
+      'HS512',
+      'RS256',
+      'RS384',
+      'RS512',
+      'ES256',
+      'ES384',
+      'ES512',
+      'PS256',
+      'PS384',
+      'PS512',
+      'EdDSA',
+    ]
     for (const alg of doc.id_token_signing_alg_values_supported) {
       expect(jwa).toContain(alg)
     }

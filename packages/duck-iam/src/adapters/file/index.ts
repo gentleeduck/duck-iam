@@ -1,6 +1,11 @@
 import * as nodePath from 'node:path'
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
-import { parsePolicyRow as parsePolicyRowShared, parseRoleRow as parseRoleRowShared, validatePolicy, validateRole } from '../../core/validate'
+import {
+  parsePolicyRow as parsePolicyRowShared,
+  parseRoleRow as parseRoleRowShared,
+  validatePolicy,
+  validateRole,
+} from '../../core/validate'
 
 export namespace File {
   /**
@@ -312,7 +317,9 @@ export class FileAdapter<
           if (policy !== null) {
             policies[rowId] = policy
           } else {
-            const issues = validatePolicy(p).issues.map((i) => i.message).join('; ')
+            const issues = validatePolicy(p)
+              .issues.map((i) => i.message)
+              .join('; ')
             this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
           }
         }
@@ -323,7 +330,9 @@ export class FileAdapter<
           if (role !== null) {
             roles[rowId] = role
           } else {
-            const issues = validateRole(r).issues.map((i) => i.message).join('; ')
+            const issues = validateRole(r)
+              .issues.map((i) => i.message)
+              .join('; ')
             this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
           }
         }
