@@ -7,6 +7,13 @@ export namespace DotPath {
    *
    * @template T      - The object type to extract paths from.
    * @template Prefix - Internal accumulator for the current path prefix (do not set manually).
+   *
+   * @example
+   * ```ts
+   * type Ctx = { subject: { id: string; attributes: { status: string } } }
+   * type Paths = DotPath.DotPaths<Ctx>
+   * // = 'subject' | 'subject.id' | 'subject.attributes' | 'subject.attributes.status'
+   * ```
    */
   export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
     ? never
@@ -27,6 +34,13 @@ export namespace DotPath {
    *
    * @template T - The object type to resolve within.
    * @template P - A dot-separated path string (e.g. `'subject.attributes.status'`).
+   *
+   * @example
+   * ```ts
+   * type Ctx = { subject: { attributes: { status: 'active' | 'banned' } } }
+   * type V = DotPath.PathValue<Ctx, 'subject.attributes.status'>
+   * // = 'active' | 'banned'
+   * ```
    */
   export type PathValue<T, P extends string> = P extends `${infer K}.${infer Rest}`
     ? K extends keyof T
@@ -40,6 +54,15 @@ export namespace DotPath {
    * Context-wide path: typed paths only when closed; accepts `string` when an open attribute bag is present.
    *
    * @template T - The context type to extract paths from.
+   *
+   * @example
+   * ```ts
+   * type ClosedCtx = { subject: { id: string } }
+   * type Paths1 = DotPath.FlexibleDotPaths<ClosedCtx>     // = 'subject' | 'subject.id'
+   *
+   * type OpenCtx = { subject: { attributes: DotPath.IAnyAttributes } }
+   * type Paths2 = DotPath.FlexibleDotPaths<OpenCtx>       // accepts any string too
+   * ```
    */
   export type FlexibleDotPaths<T> = true extends HasOpenIndex<T> ? DotPaths<T> | (string & {}) : DotPaths<T>
 
@@ -47,6 +70,13 @@ export namespace DotPath {
    * `$`-prefixed context paths for cross-references; e.g. `'$subject.id'`.
    *
    * @template TContext - The full evaluation context type.
+   *
+   * @example
+   * ```ts
+   * type Ctx = { subject: { id: string; roles: string[] } }
+   * type Refs = DotPath.DollarPaths<Ctx>
+   * // = '$subject' | '$subject.id' | '$subject.roles'
+   * ```
    */
   export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
 
@@ -120,6 +150,12 @@ export namespace DotPath {
    * Dot-paths into subject attribute bag (used by `When.attr()`).
    *
    * @template TContext - The full evaluation context type.
+   *
+   * @example
+   * ```ts
+   * type Ctx = { subject: { attributes: { profile: { tier: string } } } }
+   * type Keys = DotPath.SubjectAttrs<Ctx>     // = 'profile' | 'profile.tier'
+   * ```
    */
   export type SubjectAttrs<TContext> = AttrPaths<SubjectAttrShape<TContext>>
 
@@ -127,6 +163,12 @@ export namespace DotPath {
    * Dot-paths into resource attribute bag (used by `When.resourceAttr()`); see {@link ResolvedResourceAttrPaths}.
    *
    * @template TContext - The full evaluation context type.
+   *
+   * @example
+   * ```ts
+   * type Ctx = { resource: { attributes: { ownerId: string; status: 'draft' | 'live' } } }
+   * type Keys = DotPath.ResourceAttrs<Ctx>    // = 'ownerId' | 'status'
+   * ```
    */
   export type ResourceAttrs<TContext> = AttrPaths<ResourceAttrShape<TContext>>
 
@@ -197,6 +239,12 @@ export namespace DotPath {
    *
    * @template T - The attribute-bag object type.
    * @template P - The dot-separated path string.
+   *
+   * @example
+   * ```ts
+   * type Bag = { profile: { tier: 'gold' | 'silver' } }
+   * type V = DotPath.AttrValue<Bag, 'profile.tier'>     // = 'gold' | 'silver'
+   * ```
    */
   export type AttrValue<T, P extends string> =
     T extends Record<string, unknown>
@@ -214,7 +262,20 @@ export namespace DotPath {
     [key: string]: Primitives.AttributeValue
   }
 
-  /** Default evaluation context shape with open attribute bags. */
+  /**
+   * Default evaluation context shape with open attribute bags.
+   *
+   * @example
+   * ```ts
+   * const ctx: DotPath.IDefaultContext = {
+   *   action: 'read',
+   *   subject: { id: 'u-1', roles: ['editor'], attributes: { tier: 'gold' } },
+   *   resource: { type: 'post', id: 'p-42', attributes: { ownerId: 'u-1' } },
+   *   environment: { hour: 14 },
+   *   scope: 'org-acme',
+   * }
+   * ```
+   */
   export interface IDefaultContext {
     /** The action being performed (e.g. `'read'`, `'update'`). */
     action: string

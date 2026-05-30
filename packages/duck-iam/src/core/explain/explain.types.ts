@@ -1,6 +1,20 @@
 import type { AccessControl, Primitives } from '../types'
 export namespace Explain {
-  /** Trace of a single leaf condition: field, operator, expected vs actual, and the result. */
+  /**
+   * Trace of a single leaf condition: field, operator, expected vs actual, and the result.
+   *
+   * @example
+   * ```ts
+   * const leaf: Explain.ILeafTrace = {
+   *   type: 'condition',
+   *   field: 'subject.attributes.tier',
+   *   operator: 'eq',
+   *   expected: 'gold',
+   *   actual: 'silver',
+   *   result: false,
+   * }
+   * ```
+   */
   export interface ILeafTrace {
     readonly type: 'condition'
     readonly field: string
@@ -12,7 +26,19 @@ export namespace Explain {
     readonly result: boolean
   }
 
-  /** Trace of a condition group (`all` / `any` / `none`): child traces + the group result. */
+  /**
+   * Trace of a condition group (`all` / `any` / `none`): child traces + the group result.
+   *
+   * @example
+   * ```ts
+   * const group: Explain.IGroupTrace = {
+   *   type: 'group',
+   *   logic: 'all',
+   *   result: false,
+   *   children: [leafA, leafB],
+   * }
+   * ```
+   */
   export interface IGroupTrace {
     readonly type: 'group'
     readonly logic: 'all' | 'any' | 'none'
@@ -20,10 +46,36 @@ export namespace Explain {
     readonly children: ReadonlyArray<ILeafTrace | IGroupTrace>
   }
 
-  /** Union of leaf and group traces - the recursive element type in explain output. */
+  /**
+   * Union of leaf and group traces - the recursive element type in explain output.
+   *
+   * @example
+   * ```ts
+   * function walk(trace: Explain.Trace): void {
+   *   if (trace.type === 'condition') console.log(trace.field, trace.result)
+   *   else trace.children.forEach(walk)
+   * }
+   * ```
+   */
   export type Trace = ILeafTrace | IGroupTrace
 
-  /** Trace of a single rule: action / resource / condition match status, plus the conditions tree. */
+  /**
+   * Trace of a single rule: action / resource / condition match status, plus the conditions tree.
+   *
+   * @example
+   * ```ts
+   * const rule: Explain.IRuleTrace = {
+   *   ruleId: 'admin-can-write',
+   *   effect: 'allow',
+   *   priority: 100,
+   *   actionMatch: true,
+   *   resourceMatch: true,
+   *   conditionsMet: true,
+   *   conditions: group,
+   *   matched: true,
+   * }
+   * ```
+   */
   export interface IRuleTrace {
     readonly ruleId: string
     readonly description?: string
@@ -36,7 +88,22 @@ export namespace Explain {
     readonly matched: boolean
   }
 
-  /** Trace of a single policy evaluation: targets, rule traces, combiner result. */
+  /**
+   * Trace of a single policy evaluation: targets, rule traces, combiner result.
+   *
+   * @example
+   * ```ts
+   * const policy: Explain.IPolicyTrace = {
+   *   policyId: 'docs-acl',
+   *   policyName: 'Documents ACL',
+   *   algorithm: 'deny-overrides',
+   *   targetMatch: true,
+   *   rules: [ruleTrace],
+   *   result: 'allow',
+   *   reason: 'admin-can-write matched',
+   * }
+   * ```
+   */
   export interface IPolicyTrace {
     readonly policyId: string
     readonly policyName: string
@@ -49,7 +116,15 @@ export namespace Explain {
     readonly decidingRule?: AccessControl.IRule
   }
 
-  /** Complete trace returned by `engine.explain()`. */
+  /**
+   * Complete trace returned by `engine.explain()`.
+   *
+   * @example
+   * ```ts
+   * const trace: Explain.IResult = await engine.explain('user-1', 'read', { type: 'post' })
+   * trace.policies.forEach((p) => console.log(p.policyId, p.result, p.reason))
+   * ```
+   */
   export interface IResult {
     readonly decision: AccessControl.IDecision
     readonly request: {
@@ -76,7 +151,18 @@ export namespace Explain {
     readonly summary: string
   }
 
-  /** Subject metadata passed to {@link explainEvaluation} for building the explain trace. */
+  /**
+   * Subject metadata passed to {@link explainEvaluation} for building the explain trace.
+   *
+   * @example
+   * ```ts
+   * const info: Explain.ISubjectInfo = {
+   *   subjectId: 'user-1',
+   *   originalRoles: ['editor'],
+   *   scopedRolesApplied: ['org-a:admin'],
+   * }
+   * ```
+   */
   export interface ISubjectInfo {
     subjectId: string
     originalRoles: readonly string[]

@@ -2,7 +2,15 @@ import type { Client } from './client'
 import type { Primitives } from './primitives'
 
 export namespace AccessControl {
-  /** The outcome a rule produces when it matches: grant or block access. */
+  /**
+   * The outcome a rule produces when it matches: grant or block access.
+   *
+   * @example
+   * ```ts
+   * const allow: AccessControl.Effect = 'allow'
+   * const deny:  AccessControl.Effect = 'deny'
+   * ```
+   */
   export type Effect = 'allow' | 'deny'
 
   /**
