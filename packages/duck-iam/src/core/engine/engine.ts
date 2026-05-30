@@ -20,21 +20,7 @@ import { type ILoaderDeps, loadAllPolicies, resolveSubject } from './engine.load
 import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
 import type { EngineTypes } from './engine.types'
 
-/**
- * Module-level flush of process-wide compiled-regex and resolved-path caches
- * (the `matches`-operator regex cache and dot-path segment cache).
- *
- * These caches are globals - every Engine in the process shares them. Multi-
- * tenant operators schedule this periodically to bound any single tenant's
- * eviction influence. Costs: the next request pays one compile per
- * matches-pattern and one segment-split per dot-path.
- *
- * @example
- * ```ts
- * import { flushSharedCaches } from '@gentleduck/iam'
- * setInterval(flushSharedCaches, 5 * 60 * 1000)
- * ```
- */
+/** Flush process-wide regex + dot-path caches; schedule periodically in multi-tenant deployments. */
 export function flushSharedCaches(): void {
   clearRegexCache()
   clearPathCache()
@@ -253,9 +239,7 @@ export class Engine<
     applyInvalidateEvent(this._cacheBag(), event)
   }
 
-  /**
-   * Release the invalidator subscription. Call when discarding the engine.
-   */
+  /** Release the invalidator subscription. Call when discarding the engine. */
   dispose(): void {
     this._invalidatorUnsub = disposeInvalidator(this._invalidatorUnsub).unsub
   }
@@ -745,9 +729,7 @@ export class Engine<
 
   private _admin?: EngineTypes.IAdmin<TAction, TResource, TRole, TScope>
 
-  /**
-   * Lazily-built admin interface for CRUD operations on policies, roles, subjects.
-   */
+  /** Lazily-built admin interface for CRUD operations on policies, roles, subjects. */
   get admin(): EngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
     this._admin ??= createAdmin<TAction, TResource, TRole, TScope>(this._adapter, this)
     return this._admin

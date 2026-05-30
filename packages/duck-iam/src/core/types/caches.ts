@@ -1,15 +1,4 @@
-/**
- * Per-Engine evaluation caches.
- *
- * Threaded through every evaluator function so an Engine instance can own
- * its own regex + path caches instead of sharing module-globals with every
- * other Engine in the process.
- *
- * Backward compatibility: every consumer accepts `caches?` as the last
- * optional parameter. When omitted, the evaluator falls back to the
- * process-wide default caches (`regexCache` and `pathCache` exported from
- * `core/conditions/conditions.libs` and `core/resolve/resolve`).
- */
+/** Per-Engine evaluation caches; evaluators accept `caches?` to scope regex/path caches per instance. */
 export interface IEvalCaches {
   /** Compiled-regex LRU shared by the `matches` operator. */
   regex: Map<string, RegExp>
@@ -18,8 +7,7 @@ export interface IEvalCaches {
 }
 
 /**
- * Construct a fresh pair of evaluation caches. Engine instances call this
- * once at construction and pass the result down on every authorize call.
+ * Construct a fresh pair of evaluation caches.
  *
  * @returns A new {@link IEvalCaches} with empty maps.
  */

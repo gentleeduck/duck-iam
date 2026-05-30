@@ -1,49 +1,12 @@
 import type { Primitives } from './primitives'
 
-/**
- * Dot-path type machinery for typed attribute access and `$`-resolved references.
- *
- * Two parallel families of types live in this namespace:
- *
- * 1. **Context-wide paths**: `DotPaths`, `PathValue`, `DollarPaths` walk an entire
- *    evaluation context (`{ subject, resource, environment, ... }`) producing
- *    string unions like `'subject.attributes.status'` and `'$subject.id'`.
- *
- * 2. **Attribute-bag paths**: `SubjectAttrs`, `ResourceAttrs`, `EnvAttrs` walk
- *    only the inner attribute objects of a context. Returns dot-path string
- *    unions used by `When.attr()`, `When.resourceAttr()`, `When.env()` so a
- *    nested attribute bag can be addressed as `'profile.tier'` without the
- *    consumer wiring `keyof` themselves.
- *
- * Pair each attribute path with its shape extractor (`SubjectAttrShape`,
- * `ResourceAttrShape`, `EnvAttrShape`) and `AttrValueAt` / `AttrValue` to
- * resolve the value type at a chosen path.
- */
+/** Dot-path type machinery: context-wide paths (`DotPaths`, `PathValue`, `DollarPaths`) and attribute-bag paths. */
 export namespace DotPath {
-  // ============================================================
-  // Section 1: Context-wide dot-path machinery
-  // ============================================================
-
   /**
-   * Recursively expands every dot-separated path through `T`.
-   *
-   * Returns a string-literal union of every reachable property path. Arrays
-   * are treated as leaves (no `length`, `push`, ...). Function-valued
-   * properties are skipped.
-   *
-   * Bails out to `never` when `T` has a string index signature
-   * (`Record<string, ...>`) to prevent infinite recursion and union pollution.
-   * Use {@link FlexibleDotPaths} when the bail-out should accept arbitrary
-   * strings while preserving autocomplete for known paths.
+   * String-literal union of every reachable path through `T`; arrays are leaves; index-signatures bail to `never`.
    *
    * @template T      - The object type to extract paths from.
    * @template Prefix - Internal accumulator for the current path prefix (do not set manually).
-   * @example
-   * ```ts
-   * type Ctx = { subject: { id: string; attributes: { status: string } } }
-   * type Paths = DotPath.DotPaths<Ctx>
-   * // = 'subject' | 'subject.id' | 'subject.attributes' | 'subject.attributes.status'
-   * ```
    */
   export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
     ? never
@@ -60,18 +23,10 @@ export namespace DotPath {
       }[keyof T & string]
 
   /**
-   * Resolves the value type at a context-wide dot-separated path within `T`.
-   *
-   * Returns `never` when the path doesn't exist.
+   * Value type at a context-wide dot path within `T`; `never` if the path does not exist.
    *
    * @template T - The object type to resolve within.
    * @template P - A dot-separated path string (e.g. `'subject.attributes.status'`).
-   * @example
-   * ```ts
-   * type Ctx = { subject: { attributes: { status: 'active' | 'banned' } } }
-   * type V = DotPath.PathValue<Ctx, 'subject.attributes.status'>
-   * // = 'active' | 'banned'
-   * ```
    */
   export type PathValue<T, P extends string> = P extends `${infer K}.${infer Rest}`
     ? K extends keyof T
@@ -82,30 +37,16 @@ export namespace DotPath {
       : never
 
   /**
-   * Smart context-wide path type. Preserves autocomplete for known paths and
-   * accepts arbitrary strings when the context has open-ended attribute bags.
-   *
-   * - Typed context (no string index signatures): only specific literal paths
-   *   compile; typos are errors.
-   * - {@link IDefaultContext} / open attribute bags: known structural paths
-   *   plus `(string & {})` so the IDE suggests `subject.id`, `resource.type`,
-   *   etc. while still allowing arbitrary attribute paths.
+   * Context-wide path: typed paths only when closed; accepts `string` when an open attribute bag is present.
    *
    * @template T - The context type to extract paths from.
    */
   export type FlexibleDotPaths<T> = true extends HasOpenIndex<T> ? DotPaths<T> | (string & {}) : DotPaths<T>
 
   /**
-   * `$`-prefixed context-wide paths. Used in condition value parameters so the
-   * IDE autocompletes cross-references like `'$subject.id'`.
+   * `$`-prefixed context paths for cross-references; e.g. `'$subject.id'`.
    *
    * @template TContext - The full evaluation context type.
-   * @example
-   * ```ts
-   * type Ctx = { subject: { id: string; roles: string[] } }
-   * type Refs = DotPath.DollarPaths<Ctx>
-   * // = '$subject' | '$subject.id' | '$subject.roles'
-   * ```
    */
   export type DollarPaths<TContext> = `$${DotPaths<TContext>}`
 
@@ -136,11 +77,7 @@ export namespace DotPath {
     | (Extract<TValue, string> extends never ? never : StringConditionValue<TContext, Extract<TValue, string>>)
 
   /**
-   * Resolves the value type at any context-wide dot-path, falling back to
-   * {@link Primitives.AttributeValue} when the resolved type doesn't match.
-   *
-   * Used by `When.check()` to constrain its `value` parameter to the type at
-   * the requested path.
+   * Value at a context dot-path; falls back to {@link Primitives.AttributeValue} on mismatch.
    *
    * @template TContext - The full evaluation context type.
    * @template P        - A dot-separated path string.
@@ -155,30 +92,21 @@ export namespace DotPath {
   // ============================================================
 
   /**
-   * Extracts the raw subject attribute bag object from a context. Returns
-   * `never` when the context lacks the `subject.attributes` shape.
-   *
-   * Pair with {@link AttrValue} to resolve the value type at a dot-path.
+   * Subject attribute-bag from a context; `never` when missing.
    *
    * @template TContext - The full evaluation context type.
    */
   export type SubjectAttrShape<TContext> = TContext extends { subject: { attributes: infer A } } ? A : never
 
   /**
-   * Extracts the raw resource attribute bag object from a context. Returns
-   * `never` when the context lacks the `resource.attributes` shape.
-   *
-   * Pair with {@link AttrValue} to resolve the value type at a dot-path.
+   * Resource attribute-bag from a context; `never` when missing.
    *
    * @template TContext - The full evaluation context type.
    */
   export type ResourceAttrShape<TContext> = TContext extends { resource: { attributes: infer A } } ? A : never
 
   /**
-   * Extracts the raw environment object from a context. Returns `never` when
-   * the context lacks the `environment` shape.
-   *
-   * Pair with {@link AttrValue} to resolve the value type at a dot-path.
+   * Environment bag from a context; `never` when missing.
    *
    * @template TContext - The full evaluation context type.
    */
@@ -189,26 +117,21 @@ export namespace DotPath {
   // ============================================================
 
   /**
-   * Dot-paths into the subject's attribute bag. Used as the typed `key`
-   * parameter on `When.attr()`. Returns a string-literal union covering every
-   * leaf and intermediate object path inside `TContext.subject.attributes`.
+   * Dot-paths into subject attribute bag (used by `When.attr()`).
    *
    * @template TContext - The full evaluation context type.
    */
   export type SubjectAttrs<TContext> = AttrPaths<SubjectAttrShape<TContext>>
 
   /**
-   * Dot-paths into the resource's attribute bag. Used as the typed `key`
-   * parameter on `When.resourceAttr()`. Per-resource narrowing is handled by
-   * {@link ResolvedResourceAttrPaths}; this type covers the simple, single-shape case.
+   * Dot-paths into resource attribute bag (used by `When.resourceAttr()`); see {@link ResolvedResourceAttrPaths}.
    *
    * @template TContext - The full evaluation context type.
    */
   export type ResourceAttrs<TContext> = AttrPaths<ResourceAttrShape<TContext>>
 
   /**
-   * Dot-paths into the environment object. Used as the typed `key` parameter
-   * on `When.env()`.
+   * Dot-paths into environment (used by `When.env()`).
    *
    * @template TContext - The full evaluation context type.
    */
@@ -219,21 +142,9 @@ export namespace DotPath {
   // ============================================================
 
   /**
-   * Extracts the per-resource attribute map from a context when one is
-   * declared via the `resourceAttributes` field. Returns `never` otherwise.
+   * Per-resource attribute map declared via `resourceAttributes`; `never` when absent.
    *
    * @template TContext - The full evaluation context type.
-   * @example
-   * ```ts
-   * interface AppContext {
-   *   resourceAttributes: {
-   *     post: { ownerId: string; status: 'draft' | 'published' }
-   *     comment: { ownerId: string; body: string }
-   *   }
-   * }
-   * type Map = DotPath.ResourceAttrMap<AppContext>
-   * // = { post: { ownerId: string; status: ... }; comment: { ownerId: string; body: string } }
-   * ```
    */
   // biome-ignore lint/suspicious/noExplicitAny: infer constraint needs any for broad matching
   export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: infer M extends Record<string, any> }
@@ -241,13 +152,7 @@ export namespace DotPath {
     : never
 
   /**
-   * Resolves the resource attribute SHAPE for one resource, a union of
-   * resources, or the `'*'` wildcard.
-   *
-   * 1. If `resourceAttributes` is declared, look up by resource type and
-   *    return that object. `'*'` or unknown keys union all per-resource
-   *    attribute objects via {@link MergedResourceAttrs}.
-   * 2. Otherwise fall back to {@link ResourceAttrShape}.
+   * Resource attribute shape narrowed to `TResource`; falls back to merged union for `'*'` / unknown.
    *
    * @template TContext  - The full evaluation context type.
    * @template TResource - The resource type string (or `'*'` for all resources).
@@ -260,9 +165,7 @@ export namespace DotPath {
         : MergedResourceAttrs<ResourceAttrMap<TContext>>
 
   /**
-   * Dot-paths into the resolved per-resource attribute shape. Used as the
-   * typed `key` parameter on `When.resourceAttr()` when per-resource
-   * narrowing is in effect.
+   * Dot-paths into {@link ResolvedResourceAttrs}; typed `key` for `When.resourceAttr()`.
    *
    * @template TContext  - The full evaluation context type.
    * @template TResource - The resource type string (or `'*'` for all resources).
@@ -276,8 +179,7 @@ export namespace DotPath {
   // ============================================================
 
   /**
-   * Walks a dot-path inside an attribute-bag object and returns the value type
-   * at the leaf. Returns `never` when the path is invalid.
+   * Value at a dot-path inside an attribute-bag; `never` on invalid path.
    *
    * @template T - The attribute-bag object type.
    * @template P - The dot-separated path string.
@@ -291,13 +193,7 @@ export namespace DotPath {
       : never
 
   /**
-   * Constrained dot-path value lookup with {@link Primitives.AttributeValue}
-   * fallback. Used by `When.attr()`, `When.resourceAttr()`, and `When.env()`
-   * to type the `value` parameter against the chosen key.
-   *
-   * - When `T` is a typed Record and `P` resolves to an attribute-compatible
-   *   leaf, returns the leaf type (undefined stripped).
-   * - Otherwise falls back to `Primitives.AttributeValue`.
+   * Constrained value lookup at `P` in attribute bag `T`; falls back to {@link Primitives.AttributeValue}.
    *
    * @template T - The attribute-bag object type.
    * @template P - The dot-separated path string.
@@ -313,28 +209,12 @@ export namespace DotPath {
   // Section 7: Default attribute bag + context shapes
   // ============================================================
 
-  /**
-   * Marker interface for open-ended attribute bags.
-   *
-   * Using an interface with a string index (instead of `Record<string, ...>`)
-   * gives `keyof IAnyAttributes = string` while preventing {@link DotPaths}
-   * from recursing into every possible string key. The index signature
-   * returns {@link Primitives.AttributeValue} so `.attr()` / `.env()` infer
-   * the correct value type.
-   */
+  /** Marker for open-ended attribute bags; index signature returns {@link Primitives.AttributeValue}. */
   export interface IAnyAttributes {
     [key: string]: Primitives.AttributeValue
   }
 
-  /**
-   * Default evaluation context shape used when no custom context type is
-   * provided. Attribute bags use {@link IAnyAttributes} so any string key is
-   * accepted without compile-time narrowing.
-   *
-   * Extend this interface with your application's attribute shapes and pass
-   * it to `createAccessConfig({ context: {} as unknown as YourContext })` for
-   * full type-safe IntelliSense.
-   */
+  /** Default evaluation context shape with open attribute bags. */
   export interface IDefaultContext {
     /** The action being performed (e.g. `'read'`, `'update'`). */
     action: string
@@ -367,14 +247,9 @@ export namespace DotPath {
   // ============================================================
 
   /**
-   * Builds a dot-path string union into an attribute-bag object `T`. Leaves
-   * become bare keys; plain-object branches expand to `K | K.<inner>` so
-   * `{ profile: { tier: string } }` yields `'profile' | 'profile.tier'`.
+   * Dot-path string union into attribute-bag `T`; widens to `string` for open bags.
    *
-   * Open bags ({@link IAnyAttributes} via the `string` index signature)
-   * widen to `string` so any key is accepted - matches the legacy
-   * `keyof IAnyAttributes` behaviour and keeps autocomplete neutral.
-   * Returns `never` when `T` isn't an object at all.
+   * @template T - The attribute-bag object type.
    */
   type AttrPaths<T> =
     T extends Record<string, unknown>

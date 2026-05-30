@@ -22,24 +22,10 @@ export const MAX_UNBOUNDED_QUANTIFIERS = 4
 export const MAX_BOUNDED_QUANTIFIER = 1_000
 
 /**
- * Pure-JS heuristic for catastrophic-backtracking regex patterns. Cheap
- * enough to run at validate-time on every `matches` operator, and tight
- * enough to refuse the common ReDoS shapes:
- *   - nested quantifiers: `(a+)+`, `(a*)*`, `(a+)*`, `(a*)+`
- *   - alternation inside a quantifier: `(a|a)+`, `(foo|bar)*`
- *   - more than {@link MAX_UNBOUNDED_QUANTIFIERS} unbounded quantifiers in
- *     a single pattern
- *   - backreference followed by a quantifier (`(\w+)\1+`, `(?<n>\w+)\k<n>+`)
- *   - bounded quantifier with large upper bound (`a{1,1000000}`)
- *   - lookaround group containing a quantifier (`(?=(a+)+)`)
- *
- * Not a complete safe-regex linter - it deliberately errs on the side of
- * rejection. Patterns deemed unsafe should not even compile, so the runtime
- * never sees them.
+ * Cheap heuristic for catastrophic-backtracking regex (nested quantifiers, large bounds, backref-quantifier, etc).
  *
  * @param pattern - Raw regex source.
- * @returns `{ safe: true }` when the pattern looks benign, otherwise
- *   `{ safe: false, reason }` with a short human-readable reason.
+ * @returns `{ safe: true }` when the pattern looks benign, otherwise `{ safe: false, reason }`.
  */
 export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
   if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
@@ -193,14 +179,10 @@ export const MAX_FIELD_LENGTH = 256
 
 /** Max allowed length for a string `value` on a condition. */
 export const MAX_CONDITION_VALUE_LENGTH = 1024
-/**
- * Valid combining algorithm names.
- */
+/** Valid combining algorithm names. */
 export const VALID_ALGORITHMS = new Set(['deny-overrides', 'allow-overrides', 'first-match', 'highest-priority'])
 
-/**
- * Valid rule effect values.
- */
+/** Valid rule effect values. */
 export const VALID_EFFECTS = new Set(['allow', 'deny'])
 
 /**
@@ -234,9 +216,7 @@ export function isResolvablePath(path: string): boolean {
   return !!root && ALLOWED_ROOTS.has(root)
 }
 
-/**
- * Set of valid condition operator names supported by the condition evaluator.
- */
+/** Set of valid condition operator names supported by the condition evaluator. */
 export const VALID_OPERATORS = new Set([
   'eq',
   'neq',
@@ -258,11 +238,7 @@ export const VALID_OPERATORS = new Set([
 ])
 
 /**
- * Validate a single condition item (leaf or group).
- *
- * A leaf condition must have a non-empty `field` string and a valid `operator`.
- * If the item does not contain a `field` key it is treated as a condition group
- * and delegated to {@link validateConditionGroup}.
+ * Validate one condition item (leaf or group); groups delegate to {@link validateConditionGroup}.
  *
  * @param input  - The condition item to validate.
  * @param path   - Dot-path prefix used in reported issues.
@@ -361,10 +337,7 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
 }
 
 /**
- * Validate a condition group (`all`, `any`, or `none`).
- *
- * The group must be an object containing exactly one of the keys `all`, `any`,
- * or `none`, whose value must be an array of condition items.
+ * Validate a condition group `{ all | any | none: ConditionItem[] }`; depth-bounded.
  *
  * @param input  - The condition group to validate.
  * @param path   - Dot-path prefix used in reported issues.
@@ -420,14 +393,10 @@ export function validateConditionGroup(input: unknown, path: string, issues: Val
 }
 
 /**
- * Validate the shape of a single rule object.
+ * Validate a Rule's shape (id, effect, priority, actions, resources, optional conditions).
  *
- * Checks that all required fields (`id`, `effect`, `priority`, `actions`,
- * `resources`) are present and have the correct types. Optionally validates
- * nested `conditions` via {@link validateConditionGroup}.
- *
- * @param input - The rule object to validate.
- * @param path - Dot-path prefix used in reported issues.
+ * @param input  - The rule object to validate.
+ * @param path   - Dot-path prefix used in reported issues.
  * @param issues - Array to push validation issues into.
  */
 export function validateRuleShape(input: unknown, path: string, issues: Validate.IIssue[]): void {

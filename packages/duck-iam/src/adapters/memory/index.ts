@@ -27,23 +27,12 @@ export namespace Memory {
 }
 
 /**
- * Provides an in-memory {@link Adapter.IAdapter} backed by `Map` storage.
- *
- * Suited to tests, prototypes, and single-process apps without persistence
- * needs. Replace with a database-backed adapter for production.
+ * In-memory {@link Adapter.IAdapter} backed by `Map` storage; tests + prototypes only.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
- * @example
- * ```ts
- * const adapter = new MemoryAdapter({
- *   policies: [policy],
- *   roles: [role],
- *   assignments: { 'user-1': ['admin'] },
- * })
- * ```
  */
 export class MemoryAdapter<
   TAction extends string = string,

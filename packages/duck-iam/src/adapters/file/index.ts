@@ -53,9 +53,7 @@ export namespace File {
     realpath?(path: string): Promise<string>
   }
 
-  /**
-   * Describes initialization options for {@link FileAdapter}.
-   */
+  /** Describes initialization options for {@link FileAdapter}. */
   export interface IInit {
     /**
      * Specifies the **absolute** path of the JSON store file.
@@ -118,22 +116,12 @@ export namespace File {
 }
 
 /**
- * Persists the access store as a single JSON file with read-through cache.
- *
- * Single-writer model: concurrent writers against the same file clobber each
- * other without external locking. Use only for CLIs, dev fixtures, and single
- * process apps with modest policy counts.
+ * Persists the access store as a single JSON file; single-writer model (no external locking).
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
- * @example
- * ```ts
- * import * as fs from 'node:fs/promises'
- * const adapter = new FileAdapter({ path: '/var/lib/iam/store.json', fs })
- * await adapter.savePolicy(policy)
- * ```
  */
 /**
  * Process-wide latch for the missing-rootDir warning. The warning text is the
@@ -161,15 +149,7 @@ export class FileAdapter<
   // for a symlink after first read and redirect subsequent writes.
 
   /**
-   * Creates a new file-backed adapter.
-   *
-   * Validates `init.path` synchronously:
-   * - resolves to an absolute path via `path.resolve`,
-   * - rejects relative paths and `..` segments after normalization,
-   * - when `init.rootDir` is provided, requires the path to live under it.
-   *
-   * The symlink-escape check happens lazily on first read/write (because it
-   * needs `realpath`, which is async) - see `_assertWithinRoot`.
+   * Create the adapter; synchronously validates `init.path` for absoluteness, `..`, and `rootDir` containment.
    *
    * @param init - Provides the store path and filesystem driver.
    */

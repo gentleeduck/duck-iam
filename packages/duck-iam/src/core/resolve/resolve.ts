@@ -1,9 +1,7 @@
 import type { Primitives, Request } from '../types'
 // Bare resource patterns (no `:*` / `.*` suffix) match ONLY the literal
 // resource; recursive matching requires the explicit `:*` / `.*` suffix.
-/**
- * Top-level path prefixes accepted by {@link resolve}.
- */
+/** Top-level path prefixes accepted by {@link resolve}. */
 export const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
 
 /** Property names refused at any segment - blocks prototype-pollution lookups. */
@@ -61,17 +59,7 @@ function getSegments(path: string, cache: Map<string, string[] | null> = pathCac
 }
 
 /**
- * Resolves dot-path field references against an {@link Request.IAccessRequest}.
- *
- * Supported paths:
- *   subject.id, subject.roles, subject.attributes.*
- *   resource.type, resource.id, resource.attributes.*
- *   environment.*
- *   action (shorthand for the action string)
- *   scope (shorthand for the scope string)
- *
- * Security: only allows traversal under subject/resource/environment.
- * Blocks __proto__, constructor, and prototype access.
+ * Resolve a dot-path field against an {@link Request.IAccessRequest}; blocks `__proto__` / `constructor` / `prototype`.
  *
  * @param request - The access request providing root data.
  * @param path    - Dot-path string starting with an allowed root or shorthand.
@@ -120,24 +108,7 @@ export function matchesAction(pattern: string, action: string): boolean {
 }
 
 /**
- * Tests if a resource type matches a pattern. Hierarchical separators are
- * `:` and `.`, treated symmetrically - the trailing-wildcard arm picks the
- * separator from the pattern.
- *
- * Matching rules:
- * - `"*"` matches every resource.
- * - A bare pattern (no `:*` / `.*` suffix) matches ONLY the literal resource.
- *   `"org"` matches `"org"` but NOT `"org:project"`; `"dashboard"` matches
- *   `"dashboard"` but NOT `"dashboard.users"`.
- * - A `":*"` suffix matches anything under that colon-prefix recursively:
- *   `"org:*"` matches `"org:project"` / `"org:project:doc"`.
- * - A `".*"` suffix matches anything under that dot-prefix recursively:
- *   `"dashboard.*"` matches `"dashboard.users"` / `"dashboard.users.list"`.
- * - Separator-mismatched prefixes do NOT match: `"a.b.*"` does NOT match
- *   `"a:b:c"`, and `"a:b:*"` does NOT match `"a.b.c"`.
- *
- * Also used by target matchers (`policyApplies`, `policyTargetsMatch`) for
- * `targets.resources`, so dot-pattern targets work here too.
+ * Match a resource type against a pattern. Bare = literal; `:*` / `.*` suffixes match recursively under the separator.
  *
  * @param pattern      - Resource pattern from a rule.
  * @param resourceType - The literal resource type from the request.
@@ -159,17 +130,7 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
 }
 
 /**
- * Tests if a resource type matches a pattern using dot-notation hierarchy.
- *
- * Matching rules:
- * - `"*"` matches everything.
- * - A bare pattern (no `.*` suffix) matches ONLY the literal resource -
- *   `"dashboard"` matches `"dashboard"` but NOT `"dashboard.users"`.
- * - A `".*"` suffix matches anything under that prefix recursively -
- *   `"dashboard.*"` matches `"dashboard.users"` and
- *   `"dashboard.users.settings"` but NOT `"dashboard"` itself.
- * - Wildcards apply at the position they appear: `"dashboard.users.*"`
- *   matches `"dashboard.users.settings"` but not `"dashboard.admin.x"`.
+ * Match a resource type against a dot-notation hierarchical pattern; `*` global, `prefix.*` recursive subtree.
  *
  * @param pattern      - Resource pattern from a rule (dot-notation).
  * @param resourceType - The literal resource type from the request.

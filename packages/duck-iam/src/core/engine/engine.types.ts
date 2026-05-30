@@ -80,9 +80,7 @@ export namespace EngineTypes {
     readonly roles: readonly AccessControl.IRole<TAction, TResource, TRole, TScope>[]
   }
 
-  /**
-   * Options for {@link IAdmin.import}.
-   */
+  /** Options for {@link IAdmin.import}. */
   export interface IImportOptions {
     readonly mode?: 'merge' | 'replace'
   }
@@ -290,9 +288,7 @@ export namespace EngineTypes {
     | { readonly kind: 'roles'; readonly roleId?: TRole }
     | { readonly kind: 'subject'; readonly subjectId: string }
 
-  /**
-   * Output of `engine.healthCheck()`. Wire to your `/healthz` route.
-   */
+  /** Output of `engine.healthCheck()`. Wire to your `/healthz` route. */
   export interface IHealth {
     /** Overall result; `false` means the orchestrator should pull this instance. */
     readonly ok: boolean

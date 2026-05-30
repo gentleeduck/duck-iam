@@ -80,21 +80,12 @@ interface PrismaLike {
 }
 
 /**
- * Persists the access store via a Prisma Client.
- *
- * Expects four models: `accessPolicy`, `accessRole`, `accessAssignment`, and
- * `accessSubjectAttr`. JSON columns are handled natively by Prisma.
+ * Prisma-backed adapter; expects `accessPolicy`, `accessRole`, `accessAssignment`, `accessSubjectAttr` models.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
- * @example
- * ```ts
- * import { PrismaClient } from '@prisma/client'
- * const adapter = new PrismaAdapter(new PrismaClient())
- * await adapter.savePolicy(policy)
- * ```
  */
 export class PrismaAdapter<
   TAction extends string = string,

@@ -1,17 +1,8 @@
 import type { Engine } from '../core'
 /**
- * Provides an LRU (Least Recently Used) cache with TTL-based expiration.
- *
- * Used internally by the {@link Engine} to cache policies, roles, and
- * resolved subjects. Relies on `Map` insertion order for LRU eviction.
+ * LRU cache with TTL expiration; relies on `Map` insertion order. Used by {@link Engine} for policies/roles/subjects.
  *
  * @template V - Type of cached values.
- * @example
- * ```ts
- * const cache = new LRUCache<string>(100, 60_000)
- * cache.set('user:42', 'admin')
- * cache.get('user:42') // 'admin'
- * ```
  */
 export class LRUCache<V> {
   private _map = new Map<string, { value: V; expiresAt: number }>()
@@ -21,20 +12,11 @@ export class LRUCache<V> {
   private _misses = 0
 
   /**
-   * Constructs a new cache with the given capacity and TTL.
-   *
    * @param maxSize - Sets the maximum number of entries before LRU eviction.
    * @param ttlMs - Sets time-to-live in milliseconds for each entry.
    * @throws `RangeError` when `maxSize < 1` or `ttlMs < 0`.
-   * @example
-   * ```ts
-   * const cache = new LRUCache<Policy>(500, 30_000)
-   * ```
    */
   constructor(maxSize: number, ttlMs: number) {
-    // INFO-A: reject non-finite (NaN/Infinity) inputs. `NaN < 1` is false so
-    // the prior check silently accepted NaN, leaving eviction comparisons
-    // permanently NaN and the cache effectively unbounded.
     if (!Number.isFinite(maxSize) || maxSize < 1) throw new RangeError('LRUCache maxSize must be a finite number >= 1')
     if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError('LRUCache ttlMs must be a finite number >= 0')
     this._maxSize = maxSize
@@ -42,8 +24,7 @@ export class LRUCache<V> {
   }
 
   /**
-   * Retrieves the cached value when present and not expired, otherwise `undefined`.
-   * Refreshes LRU recency on hit and updates hit/miss counters.
+   * Get + refresh LRU; `undefined` when missing or expired.
    *
    * @param key - Looks up the entry under this cache key.
    * @returns The stored value, or `undefined` when missing or expired.
@@ -66,25 +47,19 @@ export class LRUCache<V> {
     return entry.value
   }
 
-  /**
-   * Returns hit/miss counters and current size since the last reset.
-   *
-   * @returns Object exposing `hits`, `misses`, and `size` fields.
-   */
+  /** Hit/miss counters + current size. */
   get stats(): { hits: number; misses: number; size: number } {
     return { hits: this._hits, misses: this._misses, size: this._map.size }
   }
 
-  /**
-   * Zeroes the hit and miss counters without clearing stored entries.
-   */
+  /** Zeroes the hit and miss counters without clearing stored entries. */
   resetStats(): void {
     this._hits = 0
     this._misses = 0
   }
 
   /**
-   * Stores a value with the configured TTL. Evicts the oldest entry when at capacity.
+   * Set + TTL refresh; evicts the oldest at capacity.
    *
    * @param key - Stores the entry under this cache key.
    * @param value - Associates this value with the key.
@@ -92,7 +67,6 @@ export class LRUCache<V> {
   set(key: string, value: V): void {
     this._map.delete(key)
     if (this._map.size >= this._maxSize) {
-      // Evict oldest
       const first = this._map.keys().next().value
       if (first !== undefined) this._map.delete(first)
     }
@@ -100,7 +74,7 @@ export class LRUCache<V> {
   }
 
   /**
-   * Removes a single entry.
+   * Remove a single entry.
    *
    * @param key - Removes the entry stored under this cache key.
    * @returns `true` when the entry existed and was deleted.
@@ -109,28 +83,16 @@ export class LRUCache<V> {
     return this._map.delete(key)
   }
 
-  /**
-   * Removes all entries from the cache. Does not reset stat counters.
-   */
+  /** Clears entries without resetting stat counters. */
   clear(): void {
     this._map.clear()
   }
 
-  /**
-   * Returns the current number of entries in the cache.
-   *
-   * @returns Current entry count.
-   */
   get size(): number {
     return this._map.size
   }
 
-  /**
-   * Iterates over non-expired entries. Does not refresh LRU order.
-   * Use for targeted invalidation, not as a primary read path.
-   *
-   * @returns Generator yielding `[key, value]` tuples for live entries.
-   */
+  /** Iterate non-expired entries; does NOT refresh LRU order. */
   *entries(): IterableIterator<[string, V]> {
     const now = Date.now()
     for (const [key, entry] of this._map) {

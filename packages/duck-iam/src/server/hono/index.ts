@@ -28,9 +28,7 @@ type HonoNext = () => Promise<void>
 /** Hono middleware function. */
 type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | undefined>
 
-/**
- * Hono server integration types. Type-only namespace - zero bundle cost.
- */
+/** Hono server integration types. Type-only namespace - zero bundle cost. */
 export namespace Hono {
   /**
    * Describes options for the Hono {@link accessMiddleware} and {@link guard}.
@@ -63,9 +61,7 @@ export namespace Hono {
    */
   export type IAdminAuthorize = (c: HonoContext) => boolean | Promise<boolean>
 
-  /**
-   * Describes options for {@link bindAdminRouter}. `authorize` is required.
-   */
+  /** Describes options for {@link bindAdminRouter}. `authorize` is required. */
   export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
@@ -85,9 +81,7 @@ export namespace Hono {
     onAdminMutation?: AdminAudit.Hook
   }
 
-  /**
-   * Describes the minimal Hono router surface used by {@link bindAdminRouter}.
-   */
+  /** Describes the minimal Hono router surface used by {@link bindAdminRouter}. */
   export interface IRouterLike {
     get(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
     put(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown

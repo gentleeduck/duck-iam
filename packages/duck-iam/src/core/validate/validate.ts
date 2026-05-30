@@ -7,21 +7,10 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 /**
- * Validate role definitions for common configuration mistakes.
- *
- * Checks for:
- * - Duplicate role IDs
- * - Dangling `inherits` references (role inherits from non-existent role)
- * - Circular inheritance chains (detected and reported as warnings since they're handled at runtime)
- * - Roles with no permissions and no inheritance
+ * Validate role defs: duplicate ids, dangling/circular inherits, empty roles.
  *
  * @param roles - The role definitions to validate.
  * @returns A {@link Validate.IResult} listing any issues found.
- * @example
- * ```ts
- * const result = validateRoles(roles)
- * if (!result.valid) console.error(result.issues)
- * ```
  */
 export function validateRoles(roles: readonly AccessControl.IRole[]): Validate.IResult {
   const issues: Validate.IIssue[] = []
@@ -116,12 +105,7 @@ export function validateRoles(roles: readonly AccessControl.IRole[]): Validate.I
   }
 }
 
-/**
- * Longest path from `roleId` up through `inherits`. Single mutable `seen` set
- * with pop-on-return - O(nodes) allocations instead of O(nodes^2) for the
- * naive copy-the-set approach. Cycles are cut by `seen`; depth is capped at
- * `MAX_INHERITANCE_DEPTH + 1` to keep validation cheap on hostile input.
- */
+/** Longest path from `roleId` up through `inherits`; cycles cut by `seen`, depth capped at `MAX_INHERITANCE_DEPTH + 1`. */
 function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessControl.IRole>): number {
   const seen = new Set<string>()
   function walk(id: string, depth: number): number {
@@ -142,28 +126,10 @@ function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessCon
 }
 
 /**
- * Validate a policy object from an untrusted source (database, API, admin dashboard).
- *
- * Deeply validates the entire policy structure including:
- * - Required fields: id, name, algorithm, rules
- * - Valid combining algorithm
- * - Each rule: id, effect, priority, actions, resources, conditions
- * - Valid operators in conditions
- * - Correct condition group structure (all/any/none with arrays)
- *
- * Use this before feeding dynamic policies to the engine:
- *
- *   const result = validatePolicy(jsonFromDatabase);
- *   if (!result.valid) throw new Error(result.issues.map(i => i.message).join(', '));
- *   engine.admin.savePolicy(jsonFromDatabase as AccessControl.IPolicy);
+ * Deep-validate an untrusted policy (id, name, algorithm, rules, conditions).
  *
  * @param input - The candidate policy object (typically parsed JSON or an admin form payload).
  * @returns A {@link Validate.IResult} with `valid: false` when any error issue was emitted.
- * @example
- * ```ts
- * const result = validatePolicy(jsonFromDatabase)
- * if (!result.valid) throw new Error(result.issues.map(i => i.message).join(', '))
- * ```
  */
 export function validatePolicy(input: unknown): Validate.IResult {
   const issues: Validate.IIssue[] = []
@@ -273,12 +239,7 @@ export function validatePolicy(input: unknown): Validate.IResult {
 }
 
 /**
- * Validate a single role object from an untrusted source (database, API, admin dashboard).
- *
- * Lightweight shape guard for adapter read-paths - confirms `id` is a non-empty
- * string, `permissions` is an array, and (if present) `inherits` is an array of
- * strings. Adapters call this after `JSON.parse` to drop tampered rows before
- * they reach the evaluator.
+ * Shape guard for a single Role: `id` non-empty, `permissions` array, optional `inherits: string[]`.
  *
  * @param input - The candidate role object (typically parsed JSON).
  * @returns A {@link Validate.IResult} with `valid: false` when any error issue was emitted.
@@ -337,15 +298,11 @@ export function validateRole(input: unknown): Validate.IResult {
 }
 
 /**
- * Parse a single policy row. Returns the typed row when validation
- * passes, null otherwise. Use from adapters (file/redis/drizzle/prisma)
- * so the boundary between `unknown` (from JSON / SQL) and the typed
- * domain crosses through a single function instead of a scatter of
- * `as AccessControl.IPolicy<...>` casts.
+ * Parse a single policy row from `unknown`; returns the typed row or `null` on validation failure.
  *
- * The TAction / TResource / TRole generics are TS-only constraints
- * that runtime validation cannot verify; the adapter trusts the strings
- * because the same library wrote them via `savePolicy`.
+ * @template TAction   - Action string union (TS-only constraint; trusted at the adapter boundary).
+ * @template TResource - Resource string union (TS-only constraint; trusted at the adapter boundary).
+ * @template TRole     - Role string union (TS-only constraint; trusted at the adapter boundary).
  */
 export function parsePolicyRow<
   TAction extends string = string,
@@ -356,9 +313,7 @@ export function parsePolicyRow<
   return raw as AccessControl.IPolicy<TAction, TResource, TRole>
 }
 
-/**
- * Parse a single role row. Mirror of {@link parsePolicyRow}.
- */
+/** Parse a single role row. Mirror of {@link parsePolicyRow}. */
 export function parseRoleRow<
   TAction extends string = string,
   TResource extends string = string,

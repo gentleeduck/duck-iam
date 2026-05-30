@@ -107,9 +107,7 @@ function isScalar(v: Primitives.AttributeValue | undefined): v is Primitives.Sca
   return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
 }
 
-/**
- * Record mapping every supported operator to its implementation function.
- */
+/** Record mapping every supported operator to its implementation function. */
 export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
   eq: (f, v) => f === v,
   neq: (f, v) => f !== v,
@@ -170,9 +168,7 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
   },
 }
 
-/**
- * Maximum nesting depth for condition groups to prevent stack overflow.
- */
+/** Maximum nesting depth for condition groups to prevent stack overflow. */
 export const MAX_CONDITION_DEPTH = 10
 
 /**

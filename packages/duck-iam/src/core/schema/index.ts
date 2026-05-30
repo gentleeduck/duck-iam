@@ -1,24 +1,5 @@
 import type { AccessControl } from '../types'
-/**
- * JSON Schema (Draft 2020-12) for a duck-iam {@link AccessControl.IPolicy}.
- *
- * Useful for:
- *  - non-TypeScript consumers validating policies at the wire boundary
- *  - editor tooling (VS Code / IntelliJ schema-driven JSON completion)
- *  - admin dashboards generating policy forms
- *
- * Schema is hand-authored to mirror `core/types/access-control.ts` instead of
- * derived from the TS types - the type system uses generic type parameters
- * (`TAction`, `TResource`) which can't be reflected at runtime. The shape here
- * uses `string` for those slots; tighten via `$ref` or `enum` in your own
- * downstream schema if you know the closed sets.
- *
- * Updates: when adding a field to {@link AccessControl.IPolicy} / {@link AccessControl.IRule} / {@link AccessControl.ICondition}, add it
- * here AND ensure {@link validatePolicy} covers it. The two are intentionally
- * separate - JSON Schema is for external boundaries, `validatePolicy` is for
- * internal call sites that also need semantic checks (resolvable paths,
- * cartesian limits, etc.).
- */
+/** JSON Schema (Draft 2020-12) for {@link AccessControl.IPolicy}; tighten action/resource slots via `$ref` downstream. */
 export const POLICY_JSON_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://gentleduck.dev/duck-iam/policy.schema.json',

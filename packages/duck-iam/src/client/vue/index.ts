@@ -21,9 +21,7 @@
 import type { Client } from '../../core/types'
 import { buildPermissionKey } from '../../shared/keys'
 
-/**
- * Vue injection key for the access control state.
- */
+/** Vue injection key for the access control state. */
 export const ACCESS_INJECTION_KEY = Symbol('duck-iam')
 
 // Vue is a peer dep; consumers inject their own Vue via createVueAccess(vue).

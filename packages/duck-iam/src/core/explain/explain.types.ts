@@ -1,8 +1,6 @@
 import type { AccessControl, Primitives } from '../types'
 export namespace Explain {
-  /**
-   * Trace of a single leaf condition: field, operator, expected vs actual, and the result.
-   */
+  /** Trace of a single leaf condition: field, operator, expected vs actual, and the result. */
   export interface ILeafTrace {
     readonly type: 'condition'
     readonly field: string
@@ -14,9 +12,7 @@ export namespace Explain {
     readonly result: boolean
   }
 
-  /**
-   * Trace of a condition group (`all` / `any` / `none`): child traces + the group result.
-   */
+  /** Trace of a condition group (`all` / `any` / `none`): child traces + the group result. */
   export interface IGroupTrace {
     readonly type: 'group'
     readonly logic: 'all' | 'any' | 'none'
@@ -24,14 +20,10 @@ export namespace Explain {
     readonly children: ReadonlyArray<ILeafTrace | IGroupTrace>
   }
 
-  /**
-   * Union of leaf and group traces - the recursive element type in explain output.
-   */
+  /** Union of leaf and group traces - the recursive element type in explain output. */
   export type Trace = ILeafTrace | IGroupTrace
 
-  /**
-   * Trace of a single rule: action / resource / condition match status, plus the conditions tree.
-   */
+  /** Trace of a single rule: action / resource / condition match status, plus the conditions tree. */
   export interface IRuleTrace {
     readonly ruleId: string
     readonly description?: string
@@ -44,9 +36,7 @@ export namespace Explain {
     readonly matched: boolean
   }
 
-  /**
-   * Trace of a single policy evaluation: targets, rule traces, combiner result.
-   */
+  /** Trace of a single policy evaluation: targets, rule traces, combiner result. */
   export interface IPolicyTrace {
     readonly policyId: string
     readonly policyName: string
@@ -59,9 +49,7 @@ export namespace Explain {
     readonly decidingRule?: AccessControl.IRule
   }
 
-  /**
-   * Complete trace returned by `engine.explain()`.
-   */
+  /** Complete trace returned by `engine.explain()`. */
   export interface IResult {
     readonly decision: AccessControl.IDecision
     readonly request: {
@@ -88,9 +76,7 @@ export namespace Explain {
     readonly summary: string
   }
 
-  /**
-   * Subject metadata passed to {@link explainEvaluation} for building the explain trace.
-   */
+  /** Subject metadata passed to {@link explainEvaluation} for building the explain trace. */
   export interface ISubjectInfo {
     subjectId: string
     originalRoles: readonly string[]
