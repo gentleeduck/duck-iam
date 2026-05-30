@@ -2,7 +2,7 @@ import { Server } from '@hocuspocus/server'
 import { onAuthenticate } from './auth-hook'
 import { onLoadDocument, onStoreDocument } from './store-hook'
 
-const server = Server.configure({
+const server = new Server({
   port: 8888,
   onAuthenticate,
   onLoadDocument,

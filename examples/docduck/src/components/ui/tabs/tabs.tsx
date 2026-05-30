@@ -1,7 +1,7 @@
 'use client'
 
 import { cn } from '@gentleduck/libs/cn'
-import { type Direction, useDirection } from '@gentleduck/primitives/direction'
+import { type IDirection, useDirection } from '@gentleduck/primitives/direction'
 import { MountMinimal } from '@gentleduck/primitives/mount'
 import * as React from 'react'
 
@@ -29,7 +29,7 @@ export interface TabsProps extends Omit<React.HTMLProps<HTMLDivElement>, 'defaul
 
 const Tabs = React.forwardRef<HTMLDivElement, TabsProps>(
   ({ value, defaultValue, onValueChange, dir, ...props }, ref) => {
-    const direction = useDirection(dir as Direction)
+    const direction = useDirection(dir as IDirection.Kind)
     const [activeItem, setActiveItem] = React.useState<string>(defaultValue ?? value ?? '')
     const tabsId = React.useId()
 
