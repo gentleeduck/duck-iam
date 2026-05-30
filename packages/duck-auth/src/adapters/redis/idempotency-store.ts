@@ -3,10 +3,6 @@ import type { TenantContext } from '../../core/types/context'
 import type { Idempotency } from '../../core/types/idempotency'
 import type { RedisLike } from './redis-like'
 
-/**
- * Public surface for the Redis-backed idempotency store. Every type
- * lives inside the namespace.
- */
 export namespace RedisIdempotencyStore {
   /** Config knobs for {@link RedisIdempotencyStore}. */
   export interface IConfig {
@@ -70,8 +66,8 @@ export class RedisIdempotencyStore implements Idempotency.IStore {
    * race; false when a prior claim is still alive.
    */
   async claim(key: string, ttlMs: number, ctx: TenantContext): Promise<boolean> {
-    // NaN/Infinity/huge ttl would make Math.ceil(NaN/1000)=NaN → Math.max(1,NaN)=NaN
-    // → Redis would reject. Clamp to a sane window.
+    // NaN/Infinity/huge ttl would make Math.ceil(NaN/1000)=NaN -> Math.max(1,NaN)=NaN
+    // -> Redis would reject. Clamp to a sane window.
     const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     const ex = Math.max(1, Math.ceil(safeMs / 1000))
     const tombstone: Idempotency.ICachedResponse = {
@@ -100,48 +96,13 @@ export class RedisIdempotencyStore implements Idempotency.IStore {
     )
   }
 
-  /**
-   * Drop a key. Used by tests + flush operations.
-   */
+  /** Drop a key. Used by tests + flush operations. */
   async delete(key: string, ctx: TenantContext): Promise<void> {
     await this._redis.del(this._k(key, ctx))
   }
 }
 
-/**
- * structural parser for `RedisIdempotencyStore`
- * entries. The prior implementation did `JSON.parse(raw) as
- * Idempotency.ICachedResponse` - a cast that lied about Redis-returned
- * `unknown`. Concrete failures the cast masked:
- *
- *  - `raw = '{}'` (corrupted entry / schema drift) -> `parsed.status`
- *    undefined -> tombstone check `=== 0` false -> returns the empty
- *    object as a "successful cached response" to the facet, which
- *    serves it to the client.
- *  - `raw = 'null'` -> `JSON.parse('null') === null` -> the next line
- *    `parsed.status` throws TypeError, propagates to the caller, becomes
- *    HTTP 500 instead of a benign cache miss.
- *  - `raw = '[]'` / `raw = '42'` / `raw = '"oops"'` -> similar - accessing
- *    `.status` either throws or returns undefined.
- *  - `raw = '{"status":"200","body":...}'` (string instead of number) ->
- *    cast accepts it; downstream framework code that calls `res.status(parsed.status)`
- *    receives a string and behaves unpredictably.
- *  - `raw = '<truncated json'` -> `JSON.parse` throws SyntaxError ->
- *    surfaces as 500.
- *
- * Threat-model note: matches the parser pattern applied across duck-auth
- * (`parseStoredSession`, `parseStoredDPoPNonce`, `parseWebauthnMfaMetadata`).
- * Defense in depth - if an attacker has Redis write access they can mint
- * arbitrary cached responses anyway; this catches the far more common
- * causes (corruption / schema drift / wrong-type accidents) safely.
- *
- * Returns `null` on any structural failure so the caller fail-closes
- * (treats the entry as missing -> falls through to executor + claim).
- *
- * The returned object is constructed field-by-field so no `as` cast is
- * needed; every output field has been narrowed to its target type via
- * `typeof` / `isFiniteNumber`.
- */
+/** Structural parser for Redis idempotency entries; `null` on any malformed shape. */
 function parseStoredIdempotencyEntry(raw: string): Idempotency.ICachedResponse | null {
   let obj: unknown
   try {

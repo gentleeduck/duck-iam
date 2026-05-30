@@ -117,7 +117,7 @@ export class RememberMeFacet {
         credentialId: r.id,
         createdAt: r.createdAt,
         expiresAt: r.expiresAt,
-        metadata: r.metadata as Record<string, unknown> | undefined,
+        metadata: r.metadata,
       }))
   }
 
@@ -137,10 +137,6 @@ export class RememberMeFacet {
   }
 }
 
-/**
- * Namespace merge for `RememberMeFacet`. Co-locates config + result
- * shapes alongside the class.
- */
 export namespace RememberMeFacet {
   export interface IConfig {
     /** Cookie / token TTL in ms. Default 90 days. */

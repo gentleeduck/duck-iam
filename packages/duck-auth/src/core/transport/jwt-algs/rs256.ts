@@ -1,7 +1,4 @@
-/**
- * RS256: RSA-SHA256 sign + verify via node:crypto.
- */
-
+/** RS256: RSA-SHA256 sign + verify via node:crypto. */
 import { createSign, createVerify } from 'node:crypto'
 
 export function signRs256(key: string, signingInput: string): string {

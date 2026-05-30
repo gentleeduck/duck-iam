@@ -1,20 +1,4 @@
-/**
- * Svelte client - exposes the vanilla AuthClient as a set of Svelte
- * stores via the duck-typed `Readable` contract (`{ subscribe }`).
- * Doesn't import `svelte` directly, so the auth core stays
- * framework-free; consumers `import` these from
- * `@gentleduck/auth/client/svelte` exactly like a normal Svelte
- * store.
- *
- * @example
- * ```svelte
- * <script lang="ts">
- *   import { createAuthStore } from '@gentleduck/auth/client/svelte'
- *   const auth = createAuthStore({ baseUrl: '/auth' })
- *   $: ({ session, identity } = $auth.state)
- * </script>
- * ```
- */
+/** Svelte client - exposes the vanilla AuthClient as duck-typed `Readable` stores. */
 import { createAuthClient, type VanillaClient } from '../vanilla'
 
 /**
@@ -64,9 +48,6 @@ export function createAuthStore<Profile = unknown>(
   }
 }
 
-/**
- * Namespace merge for SvelteClient.
- */
 export namespace SvelteClient {
   /**
    * The minimal Svelte-store contract. Compatible with

@@ -2,10 +2,6 @@ import { AuthErrorObject } from '../../core/errors'
 import type { Session } from '../../core/types/session'
 import type { RedisLike } from './redis-like'
 
-/**
- * Public surface for the Redis-backed session store. Every type lives
- * inside the namespace.
- */
 export namespace RedisSessionStore {
   /** Config knobs for {@link RedisSessionStore}. */
   export interface IConfig {
@@ -162,25 +158,7 @@ export class RedisSessionStore implements Session.IStore {
   }
 }
 
-/**
- * structural validator for a stored session blob. Replaces the
- * `JSON.parse(raw) as Session.ISession` cast - a corrupted/tampered
- * Redis entry (e.g. a row whose `expiresAt` is a string `"never"`)
- * would otherwise survive the cast, then downstream comparisons like
- * `session.expiresAt < Date.now()` would do `"never" < N -> NaN-style
- * comparison -> false`, bypassing the expiry check and treating the
- * (expired) session as valid.
- *
- * Threat-model note: Redis writes are normally library-only - if an
- * attacker has Redis write access, they can mint arbitrary sessions
- * anyway. This is defense in depth + consistent with the parser
- * pattern applied across duck-auth.
- *
- * Validates the SEC-critical fields (`id`, `expiresAt`,
- * `absoluteExpiresAt`); the structural rest is trusted (operator
- * controls writes). Returns null on JSON.parse throw OR any
- * critical-field shape mismatch so the caller fail-closes.
- */
+/** Structural validator for a stored Redis session; SEC-critical fields enforced, rest is trusted. */
 function parseStoredSession(raw: string): Session.ISession | null {
   let obj: unknown
   try {
@@ -195,8 +173,5 @@ function parseStoredSession(raw: string): Session.ISession | null {
   if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null
   const absoluteExpiresAt: unknown = Reflect.get(obj, 'absoluteExpiresAt')
   if (typeof absoluteExpiresAt !== 'number' || !Number.isFinite(absoluteExpiresAt)) return null
-  // Critical fields validated; pass through the full row. The caller
-  // operates on additional fields (kind, aal, factors, etc.) that we
-  // trust because Redis writes go through this library.
   return obj as Session.ISession
 }

@@ -30,8 +30,6 @@ export class InMemoryEvents implements Events.IBus {
       try {
         await handler(payload)
       } catch (err) {
-        // Buggy listener must never escape into the caller's fail-closed path.
-        // eslint-disable-next-line no-console
         console.error(`[@gentleduck/auth] events listener for "${event}" threw:`, err)
       }
     }

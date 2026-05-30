@@ -36,16 +36,7 @@ export namespace Credential {
     findByHashedSecret(secretHash: string, kind: Kind, ctx: TenantContext): Promise<ICredential | null>
     upsert(input: Omit<ICredential, 'id' | 'version' | 'createdAt'>, ctx: TenantContext): Promise<ICredential>
     rotate(id: string, newSecret: string, expectedVersion: number, ctx: TenantContext): Promise<ICredential>
-    /**
-     * Shallow-merge `patch` into the row's `metadata` and bump `version`.
-     * Atomic in the sense that no caller observes a half-written row:
-     * implementations either compose the new metadata server-side
-     * (SQL `jsonb || $patch` / Redis `JSON.MERGE`) or read-modify-write
-     * inside a transaction. Used by `MfaFacet.confirmTotpEnrollment`
-     * (flip `confirmed`) and `passkey` verify (advance `counter`).
-     *
-     * Throws `AUTH/UNAUTHENTICATED` if `id` is unknown.
-     */
+    /** Atomic shallow-merge `patch` into `metadata` + version bump. Throws `AUTH/UNAUTHENTICATED` if `id` is unknown. */
     patchMetadata(id: string, patch: Record<string, unknown>, ctx: TenantContext): Promise<ICredential>
     revoke(id: string, ctx: TenantContext): Promise<void>
     delete(id: string, ctx: TenantContext): Promise<void>

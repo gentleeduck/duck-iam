@@ -105,10 +105,6 @@ export function withAuth<Profile = unknown>(defaults: StorybookAuth.IState<Profi
   }
 }
 
-/**
- * Namespace merge for `withAuth`. Holds the state shape consumers pass
- * to the decorator.
- */
 export namespace StorybookAuth {
   /**
    * The state the decorator should reflect. Both `identity` and

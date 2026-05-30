@@ -1,10 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { randomToken } from '../../../core/crypto'
 
-/**
- * Public surface for the OAuth `state` parameter helpers. Every type
- * lives inside the namespace.
- */
 export namespace OAuthState {
   /**
    * Signed `state` parameter payload. Carries the PKCE verifier + an
@@ -28,9 +24,7 @@ export namespace OAuthState {
   }
 }
 
-/**
- * Sign a state payload into the OAuth `state` parameter string.
- */
+/** Sign a state payload into the OAuth `state` parameter string. */
 export function signState(payload: OAuthState.IPayload, secret: string): string {
   const json = JSON.stringify(payload)
   const body = Buffer.from(json, 'utf8').toString('base64url')

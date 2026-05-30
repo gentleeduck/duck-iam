@@ -220,7 +220,6 @@ export function createDrizzleSqliteAuthBridge(db: BetterSQLite3Database): SqlBri
           .limit(1)
         const cur = rows[0]
         if (!cur) return
-        // see insertProviderLink comment.
         const arr = parseProviderLinks(cur.providers)
         const next = arr.filter((p) => p.providerId !== providerId)
         await db
@@ -377,19 +376,9 @@ export function createDrizzleSqliteAuthBridge(db: BetterSQLite3Database): SqlBri
 // new AuthRoot({ stores, ... })
 
 /**
- * Storage helper that folds `better-sqlite3 -> drizzle -> bridge ->
- * stores` into a single call. Returns `{ identities, sessions,
- * credentials }` for {@link defineAuth}.
+ * Storage helper folding `better-sqlite3 -> drizzle -> bridge -> stores`. Accepts path, Database, or BetterSQLite3Database.
  *
- * Accepts a file path (defaults to `:memory:` if omitted), a
- * pre-built `Database`, or a pre-constructed `BetterSQLite3Database`.
- *
- * @example
- * ```ts
- * import { drizzleSqliteStorage } from '@gentleduck/auth/adapters/drizzle/sqlite'
- *
- * defineAuth({ storage: drizzleSqliteStorage('./duck.db'), ... })
- * ```
+ * @template Profile - Identity profile shape.
  */
 export const drizzleSqliteStorage = <Profile = unknown>(
   input: string | BetterSQLite3Database | { prepare: (sql: string) => unknown },

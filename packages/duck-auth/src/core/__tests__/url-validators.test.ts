@@ -59,6 +59,15 @@ describe('isSafeCallbackPath', () => {
     ])('rejects %s (CR/LF)', (value) => {
       expect(isSafeCallbackPath(value)).toBe(false)
     })
+
+    it.each([
+      ['/path\tHost: evil'],
+      ['/path\x00trunc'],
+      ['/path\x1bescape'],
+      ['/path\x7fdel'],
+    ])('rejects %s (C0 control / DEL)', (value) => {
+      expect(isSafeCallbackPath(value)).toBe(false)
+    })
   })
 
   describe('rejects malformed inputs', () => {

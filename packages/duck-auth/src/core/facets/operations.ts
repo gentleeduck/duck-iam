@@ -88,10 +88,6 @@ function isMutatingMethod(method: string): boolean {
   return m === 'POST' || m === 'PUT' || m === 'PATCH' || m === 'DELETE'
 }
 
-/**
- * Namespace merge for OperationsFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace OperationsFacet {
   export interface IState {
     /** When true, every mounted route returns 503 except session/healthz. */

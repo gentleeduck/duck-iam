@@ -143,10 +143,6 @@ export class M2MFacet {
   }
 }
 
-/**
- * Namespace merge for `M2MFacet`. Co-locates config + IO shapes
- * alongside the class.
- */
 export namespace M2MFacet {
   export interface IConfig {
     /** Lifetime of the issued access token, ms. Default 1 hour. */

@@ -223,7 +223,6 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
           .limit(1)
         const cur = rows[0]
         if (!cur) return
-        // see insertProviderLink comment.
         const arr = parseProviderLinks(cur.providers)
         const next = arr.filter((p) => p.providerId !== providerId)
         await db
@@ -380,19 +379,9 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
 // new AuthRoot({ stores, ... })
 
 /**
- * Storage helper that folds `mysql2 pool -> drizzle -> bridge -> stores`
- * into a single call. Returns `{ identities, sessions, credentials }`
- * for {@link defineAuth}.
+ * Storage helper folding `mysql2 pool -> drizzle -> bridge -> stores`. Accepts connection string, mysql2 pool, or MySql2Database.
  *
- * Accepts a connection-string, a pre-built `mysql2` pool, or a
- * pre-constructed `MySql2Database`.
- *
- * @example
- * ```ts
- * import { drizzleMysqlStorage } from '@gentleduck/auth/adapters/drizzle/mysql'
- *
- * defineAuth({ storage: drizzleMysqlStorage(process.env.DATABASE_URL!), ... })
- * ```
+ * @template Profile - Identity profile shape.
  */
 export const drizzleMysqlStorage = <Profile = unknown>(
   input: string | MySql2Database | { execute: () => unknown },

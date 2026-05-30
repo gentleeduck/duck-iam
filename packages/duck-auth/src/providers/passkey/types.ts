@@ -1,7 +1,3 @@
-/**
- * Public surface for the passkey provider's helper types. Every type
- * lives inside the namespace.
- */
 export namespace PasskeyTypes {
   /**
    * Subset of `@simplewebauthn/server` we depend on. Kept narrow so

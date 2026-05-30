@@ -103,15 +103,7 @@ export function verifyCsrf(opts: {
 
 const CSRF_TOKEN_MAX = 256
 
-/**
- * detect a Bearer-scheme Authorization header
- * with the same semantics as {@link BearerTransport.extract} so the
- * CSRF guard and the transport agree on what counts as a bearer
- * request. Returns true only when the header starts with the
- * case-insensitive scheme `bearer ` AND does not contain a comma -
- * matching multi-value entries are refused by the transport, so the
- * guard should not treat them as bearer either.
- */
+/** True for an `Authorization: Bearer ...` header without `,` (matches `BearerTransport.extract`). */
 function hasBearerAuthorization(headers: Headers): boolean {
   const raw = headers.get('authorization')
   if (!raw) return false
@@ -121,25 +113,7 @@ function hasBearerAuthorization(headers: Headers): boolean {
   return head.toLowerCase() === SCHEME
 }
 
-/**
- * Convenience guard for framework adapters. Resolves the session via
- * the supplied AuthRoot, extracts the CSRF token from the request
- * headers, and calls `verifyCsrf`. Throws `AUTH/CSRF` on miss.
- *
- * `safe` methods (GET/HEAD/OPTIONS/TRACE) and Bearer-authenticated
- * requests pass through without validation. Use the lower-level
- * `verifyCsrf` directly when an adapter needs custom routing of the
- * CSRF source (e.g. body-field token instead of header).
- *
- * @example
- * ```ts
- * // express
- * app.post('/auth/signin', async (req, res, next) => {
- *   try { await csrfGuard(auth, req) } catch (e) { return next(e) }
- *   // ... call auth.flows.signIn
- * })
- * ```
- */
+/** Framework-adapter guard: resolves session + verifies CSRF; throws `AUTH/CSRF` on miss. Safe methods + bearer pass through. */
 export async function csrfGuard(
   auth: {
     resolveSession(
@@ -169,10 +143,6 @@ export async function csrfGuard(
   })
 }
 
-/**
- * Namespace merge for Csrf. Co-locates the config + input +
- * output shapes via TS namespace declaration.
- */
 export namespace Csrf {
   export interface IConfig {
     /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`. */

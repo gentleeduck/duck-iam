@@ -32,6 +32,7 @@ import {
   errorToHttp,
   executeIntents,
   extractSetCookies,
+  isValidProviderId,
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
@@ -61,9 +62,7 @@ function handleError(err: unknown, reply: NestAdapter.IReply): unknown {
   return reply.send(JSON.stringify(body))
 }
 
-/**
- * Nest handler for the sign-in route.
- */
+/** Nest handler for the sign-in route. */
 export function nestSignIn(auth: AuthRoot): NestAdapter.IHandler {
   return async (req, reply) => {
     try {
@@ -79,9 +78,7 @@ export function nestSignIn(auth: AuthRoot): NestAdapter.IHandler {
   }
 }
 
-/**
- * Nest handler for sign-out.
- */
+/** Nest handler for sign-out. */
 export function nestSignOut(auth: AuthRoot): NestAdapter.IHandler {
   return async (req, reply) => {
     try {
@@ -95,9 +92,7 @@ export function nestSignOut(auth: AuthRoot): NestAdapter.IHandler {
   }
 }
 
-/**
- * Nest handler for the session-introspection route.
- */
+/** Nest handler for the session-introspection route. */
 export function nestSession(auth: AuthRoot): NestAdapter.IHandler {
   return async (req, reply) => {
     try {
@@ -115,14 +110,12 @@ export function nestSession(auth: AuthRoot): NestAdapter.IHandler {
   }
 }
 
-/**
- * Nest handler for the per-provider begin step.
- */
+/** Nest handler for the per-provider begin step. */
 export function nestProviderBegin(auth: AuthRoot): NestAdapter.IHandler {
   return async (req, reply) => {
     try {
       const id = req.params?.id
-      if (!id) {
+      if (!isValidProviderId(id)) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }]), reply)
       }
       const body = parseProviderBeginBody(req.body)
@@ -171,9 +164,6 @@ export function makeAuthGuard(auth: AuthRoot, opts: { required?: boolean } = {})
   }
 }
 
-/**
- * Namespace merge for `NestAdapter`.
- */
 export namespace NestAdapter {
   export type IHandler = (req: NestAdapter.IRequest, reply: NestAdapter.IReply) => Promise<unknown>
 

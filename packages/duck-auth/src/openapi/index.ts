@@ -1,22 +1,6 @@
-/**
- * OpenAPI 3.1 reference spec for the routes the framework adapters
- * mount. Routes are framework-defined (the lib is HTTP-agnostic) so
- * this surfaces the canonical contract apps can publish or hand to a
- * code-gen pipeline.
- *
- * Usage:
- * ```ts
- * import { buildOpenApiSpec, renderOpenApiYaml } from '@gentleduck/auth/openapi'
- * const spec = buildOpenApiSpec({ baseUrl: 'https://app.test', title: 'My App Auth' })
- * await fs.writeFile('openapi.yaml', renderOpenApiYaml(spec))
- * ```
- */
+/** OpenAPI 3.1 spec emitter for the framework-adapter routes. */
 
-/**
- * Build the OpenAPI 3.1 spec for the configured providers. Returns a
- * plain object the caller serializes with `JSON.stringify` or
- * `renderOpenApiYaml`.
- */
+/** Build the OpenAPI 3.1 spec for the configured providers. */
 export function buildOpenApiSpec(config: OpenApi.IConfig): OpenApi.ISpec {
   const title = config.title ?? 'Auth API'
   const version = config.version ?? '0.1.0'
@@ -357,9 +341,6 @@ function routePost(opts: {
   return route
 }
 
-/**
- * Namespace merge for `buildOpenApiSpec` config.
- */
 export namespace OpenApi {
   export interface IConfig {
     /** Server URL the routes are mounted under. */

@@ -19,9 +19,7 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
   /** Mounted facets keyed by plugin id; consumer-side narrowing required. */
   readonly facets: Record<string, unknown> = {}
 
-  /**
-   * Install a plugin atomically.
-   */
+  /** Install a plugin atomically. */
   async install(
     auth: AuthRoot<Profile, Tenant, OrgMeta>,
     plugin: PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>,
@@ -55,19 +53,13 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
     }
   }
 
-  /**
-   * Tear down every event subscription wired by installed plugins.
-   */
+  /** Tear down every event subscription wired by installed plugins. */
   dispose(): void {
     for (const unsub of this._eventUnsubs) unsub()
     this._eventUnsubs.length = 0
   }
 }
 
-/**
- * Namespace merge for `PluginRegistry`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- */
 export namespace PluginRegistry {
   export interface IAuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     /** Stable id; library refuses duplicate ids. */

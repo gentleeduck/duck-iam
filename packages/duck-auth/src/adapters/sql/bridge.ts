@@ -1,18 +1,3 @@
-/**
- * Public surface for the SQL bridge contract. Consumers implement
- * `SqlBridge.IBridge` against any ORM (Drizzle, Kysely, Prisma, raw
- * pg, mysql2, better-sqlite3, ...) to back the Identity + Credential +
- * Session stores without forcing the auth lib to take a hard ORM
- * dependency.
- *
- * The interface intentionally stays at the row level - one method per
- * store operation - so the adapter does not invent its own query DSL.
- * Consumers translate each method to their ORM of choice.
- *
- * Tenant scoping: every method receives `tenantId` (or undefined).
- * Bridge implementations MUST scope every query by tenantId so a
- * tenant cannot read another tenant's rows.
- */
 export namespace SqlBridge {
   /** Aggregate bridge consumers wire into `createSqlAuthStores`. */
   export interface IBridge {
@@ -78,9 +63,7 @@ export namespace SqlBridge {
     deleteByKind(identityId: string, kind: string, tenantId: string | undefined): Promise<void>
   }
 
-  /**
-   * Bridge for the `sessions` table. Primary lookup is by sha256(sid).
-   */
+  /** Bridge for the `sessions` table. Primary lookup is by sha256(sid). */
   export interface ISession {
     insert(row: ISessionRow): Promise<void>
     findByHash(sidHash: string): Promise<ISessionRow | null>

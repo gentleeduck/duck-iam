@@ -1,9 +1,5 @@
 import { AuthErrorObject } from '../../../core/errors'
 
-/**
- * Public surface for the OAuth client. Every type lives inside the
- * namespace.
- */
 export namespace OAuthClient {
   /**
    * OIDC / OAuth2 endpoints. Supplied directly (Google, GitHub,
@@ -277,15 +273,7 @@ async function readJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
-/**
- * validator for OAuth2 token-endpoint responses (RFC 6749 §5.1).
- * Replaces an `as OAuthClient.ITokenResponse` cast over IdP-supplied
- * JSON. A non-numeric `expires_in` was particularly dangerous: callers
- * compute `accessTokenExpiresAt = Date.now() + expires_in * 1000`, and
- * `Date.now() + NaN === NaN` would persist a never-expiring access
- * token into the family metadata (where {@link parseFamilyMetadata}
- * now rejects it on read, but the write should also fail closed).
- */
+/** Validator for OAuth2 token-endpoint responses (RFC 6749 section 5.1). */
 function parseTokenResponse(raw: unknown): OAuthClient.ITokenResponse | null {
   if (!isPlainObject(raw)) return null
   const { access_token, token_type, expires_in, refresh_token, id_token, scope } = raw

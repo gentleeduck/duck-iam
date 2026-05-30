@@ -7,10 +7,6 @@ import { getProfileString } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
 import type { Channel } from '../../core/types/channel'
 
-/**
- * Public surface for the Resend channel. Every type lives inside the
- * namespace.
- */
 export namespace ResendChannel {
   /**
    * Subset of the `resend` package surface we depend on. Both the v3

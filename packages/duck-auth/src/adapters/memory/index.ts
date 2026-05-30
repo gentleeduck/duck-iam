@@ -372,23 +372,9 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
 }
 
 /**
- * Storage helper that returns the in-memory `{ identities, sessions,
- * credentials }` triple ready for {@link defineAuth} or directly into
- * `AuthRoot.stores`.
+ * Storage helper returning the in-memory `{ identities, sessions, credentials }` triple. Dev / test only.
  *
- * Equivalent to `new MemoryAuthAdapter()` and destructuring the three
- * sub-stores by hand - but slots into the array/factory style that
- * matches duck-iam's `defineRole(...)` and better-auth's `passkey()`.
- *
- * **Dev / test only.** No persistence; data evaporates on restart.
- * Use the SQL or Redis adapters in production.
- *
- * @example
- * ```ts
- * import { memoryStorage } from '@gentleduck/auth/adapters/memory'
- *
- * defineAuth({ storage: memoryStorage(), ... })
- * ```
+ * @template Profile - Identity profile shape.
  */
 export const memoryStorage = <Profile = unknown>(): {
   identities: MemoryAuthAdapter<Profile>['identities']

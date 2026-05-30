@@ -1,30 +1,5 @@
-/**
- * Vue client - Composition-API plugin + composables wrapping the
- * vanilla AuthClient. `vue` is an OPTIONAL peerDep; this module
- * resolves Vue at runtime via `globalThis.__VUE__` / dynamic import
- * so a non-Vue app pays no overhead.
- *
- * @example
- * ```ts
- * // main.ts
- * import { createApp } from 'vue'
- * import { createAuthVuePlugin } from '@gentleduck/auth/client/vue'
- *
- * createApp(App).use(createAuthVuePlugin({ baseUrl: '/auth' })).mount('#app')
- * ```
- * ```vue
- * <script setup lang="ts">
- *   import { useSession, useSignIn } from '@gentleduck/auth/client/vue'
- *   const session = useSession()
- *   const signIn = useSignIn()
- * </script>
- * ```
- */
+/** Vue 3 plugin + composables; `vue` is an OPTIONAL peerDep resolved lazily. */
 import { createAuthClient, type VanillaClient } from '../vanilla'
-
-// avoid a direct `import` of `vue` so a consumer who doesn't
-// install Vue can still bundle the auth core without a missing-module
-// error. We resolve the Composition API at the entry points below.
 
 /**
  * Build a Vue 3 plugin that installs the auth client + composables.
@@ -65,9 +40,7 @@ function useAuthCtx<Profile = unknown>(): VueClient.IInjected<Profile> {
   return ctx
 }
 
-/**
- * `useSession`.
- */
+/** `useSession`. */
 export function useSession<Profile = unknown>(): VueClient.IUseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, refresh: ctx.refresh, status: ctx.status }
@@ -92,9 +65,7 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): VueClient.IMutationRes
   return { error, loading, mutate }
 }
 
-/**
- * `useSignIn`.
- */
+/** `useSignIn`. */
 export function useSignIn<Profile = unknown>(): VueClient.IMutationResult<
   VanillaClient.ISignInOptions,
   VanillaClient.ISignInResult<Profile>
@@ -103,17 +74,13 @@ export function useSignIn<Profile = unknown>(): VueClient.IMutationResult<
   return useMutation((opts: VanillaClient.ISignInOptions) => client.signIn(opts))
 }
 
-/**
- * `useSignOut`.
- */
+/** `useSignOut`. */
 export function useSignOut(): VueClient.IMutationResult<void, { ok: true }> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
-/**
- * `useAuthClient`.
- */
+/** `useAuthClient`. */
 export function useAuthClient<Profile = unknown>(): VanillaClient.IClient<Profile> {
   return useAuthCtx<Profile>().client
 }
@@ -133,9 +100,6 @@ function loadVueSync(): VueClient.IVueModule {
   }
 }
 
-/**
- * Namespace merge for VueClient.
- */
 export namespace VueClient {
   /** Minimal `Ref<T>` surface compatible with Vue 3 `vue.ref`. */
   export interface IRef<T> {

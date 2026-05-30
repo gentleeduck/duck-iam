@@ -1,14 +1,4 @@
-/**
- * Argon2id-backed password hasher. Compliance presets (HIPAA / SOC2 /
- * FIPS) require it; v0.1 default is the built-in scrypt because Argon2
- * needs the native `@node-rs/argon2` peerDep. Consumers wire this
- * hasher explicitly:
- *
- * ```ts
- * import { Argon2idHasher } from '@gentleduck/auth/core'
- * new AuthRoot({ passwords: { hasher: new Argon2idHasher() }, ... })
- * ```
- */
+/** Argon2id-backed password hasher (compliance presets); needs `@node-rs/argon2` peerDep. */
 
 import { AuthErrorObject } from '../errors'
 import type { Hasher } from '../types/hasher'
@@ -63,17 +53,7 @@ async function loadArgon2(): Promise<NodeRsArgon2Module> {
   }
 }
 
-/**
- * Argon2id hasher. v0.1 lazy-imports `@node-rs/argon2`; if the peerDep is
- * missing, the first hash() / verify() call throws AUTH/MISCONFIGURED
- * with install instructions. Compliance presets (HIPAA / SOC2 / FIPS)
- * wire this hasher and force the upgraded parameter set.
- *
- * Encoded format follows the standard Argon2 PHC string:
- *   `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`
- * self-describing across parameter rotations; `needsRehash` compares the
- * embedded `m / t / p` to the current params.
- */
+/** Argon2id hasher; lazy-imports `@node-rs/argon2` and encodes the PHC string `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`. */
 export class Argon2idHasher implements Hasher.IHasher {
   readonly id = 'argon2id'
   private readonly _params: Argon2idHasher.IParams
@@ -123,9 +103,7 @@ export class Argon2idHasher implements Hasher.IHasher {
   }
 }
 
-/**
- * Namespace merge - Argon2idHasher.IParams alongside the class.
- */
+/** Namespace merge - Argon2idHasher.IParams alongside the class. */
 export namespace Argon2idHasher {
   export interface IParams {
     /** Memory cost in KiB. Default 19_456 (19 MiB). FIPS preset uses 65_536. */

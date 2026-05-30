@@ -15,10 +15,6 @@ import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type
 import { timingSafeEqual } from '../crypto'
 import { AuthErrorObject } from '../errors'
 
-/**
- * Public surface for the DPoP verifier. Every type lives inside the
- * namespace.
- */
 export namespace DPoPVerifier {
   /**
    * RFC 7517 JSON Web Key shape. Re-declared because Node's
@@ -52,9 +48,7 @@ export namespace DPoPVerifier {
 
   /** Config knobs for {@link DPoPVerifier}. */
   export interface IConfig {
-    /**
-     * Tolerated clock skew between client + server, ms. Default 30s.
-     */
+    /** Tolerated clock skew between client + server, ms. Default 30s. */
     clockSkewMs?: number
     /**
      * Freshness window applied to `iat` (ms). Proofs older than this
@@ -72,7 +66,7 @@ export namespace DPoPVerifier {
      */
     acceptedAlgs?: Array<'ES256' | 'EdDSA' | 'RS256' | 'PS256'>
     /**
-     * Server-supplied nonce challenge (RFC 9449 §8/9). When set, the
+     * Server-supplied nonce challenge (RFC 9449 section 8/9). When set, the
      * proof's `nonce` claim MUST match. Pass a string for a static
      * nonce or a thunk that returns the current nonce (e.g. rotated
      * every minute). Useful for multi-pod deployments where jti store
@@ -113,23 +107,7 @@ export namespace DPoPVerifier {
 export class MemoryDPoPNonceStore implements DPoPVerifier.INonceStore {
   private readonly _seen = new Map<string, number>()
 
-  /**
-   * Mark a `jti`. Lazily prunes the map on each call so memory growth
-   * is bounded by the freshness window plus epsilon.
-   *
-   * prune iterates in Map insertion order and breaks at the first
-   * non-expired entry. Under uniform TTL (the normal case - `ttlMs`
-   * is `freshnessMs + clockSkewMs` per verifier) insertion order equals
-   * expiry order, so this O(prefix) loop replaces an O(N) full scan
-   * that would otherwise turn every recordSeen call under load into a
-   * 1M-iteration sweep (CPU DoS). If callers share a store across
-   * multiple verifiers with heterogeneous TTLs, some out-of-order
-   * expired entries can linger; they are bounded by the longest TTL
-   * and harmless - `has(jti)` returns true for a jti whose freshness
-   * window has already passed, so DPoP rejects with "already seen"
-   * (false positive on the rare cross-verifier reuse, never a
-   * security failure).
-   */
+  /** Mark `jti`. Lazy prune assumes uniform TTL; cross-TTL stragglers fail closed (false-positive). */
   async recordSeen(jti: string, ttlMs: number): Promise<boolean> {
     const now = Date.now()
     for (const [k, expiresAt] of this._seen) {
@@ -177,9 +155,6 @@ export class DPoPVerifier {
     if (typeof dpopHeader !== 'string' || dpopHeader.length === 0) {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'missing DPoP header' })
     }
-    // DPoP proofs are JWS over a small payload (htm/htu/iat/jti/nonce/ath).
-    // Real proofs are 600-1200 bytes; 8192 generous. Refuse multi-MB blob first
-    // to avoid base64-decode + JSON-parse over a hostile payload.
     if (dpopHeader.length > 8192) {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'DPoP header too large' })
     }
@@ -224,7 +199,7 @@ export class DPoPVerifier {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'proof outside freshness window' })
     }
 
-    // RFC 9449 §4.3: bind the proof to the access token via `ath` when
+    // RFC 9449 section 4.3: bind the proof to the access token via `ath` when
     // one is present; refuse a stray `ath` when it is not.
     if (accessToken !== undefined) {
       if (typeof accessToken !== 'string' || accessToken.length === 0 || accessToken.length > 4096) {
@@ -307,13 +282,7 @@ function isJsonWebKey(v: unknown): v is DPoPVerifier.IJsonWebKey {
   return v.kty === 'EC' || v.kty === 'OKP' || v.kty === 'RSA'
 }
 
-/**
- * validate the decoded DPoP header without `as` casts. The header
- * is attacker-controlled (signature covers it, but the attacker mints
- * the proof in token-theft / malicious-client scenarios). Type errors
- * here previously surfaced as raw `TypeError` from method calls on
- * unexpected shapes.
- */
+/** Validate the decoded DPoP header. */
 function parseDpopHeader(raw: unknown, acceptedAlgs: ReadonlySet<string>): ParseResult<DpopHeaderShape> {
   if (!isPlainObject(raw)) {
     return { ok: false, reason: 'bad typ; expected dpop+jwt' }

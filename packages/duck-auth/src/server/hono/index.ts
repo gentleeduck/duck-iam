@@ -1,6 +1,13 @@
 import type { AuthRoot } from '../../core/auth'
 import { csrfGuard } from '../../core/csrf'
-import { errorToHttp, executeIntents, parseBodyStringField, parseProviderBeginBody, parseSignInBody } from '../generic'
+import {
+  errorToHttp,
+  executeIntents,
+  isValidProviderId,
+  parseBodyStringField,
+  parseProviderBeginBody,
+  parseSignInBody,
+} from '../generic'
 
 function reqHeaders(ctx: HonoAdapter.IContext): Headers {
   return ctx.req.raw.headers
@@ -10,9 +17,7 @@ function reqMethod(ctx: HonoAdapter.IContext): string {
   return ctx.req.raw.method
 }
 
-/**
- * `honoSignIn`. CSRF-guarded.
- */
+/** `honoSignIn`. CSRF-guarded. */
 export function honoSignIn(auth: AuthRoot): HonoAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -29,9 +34,7 @@ export function honoSignIn(auth: AuthRoot): HonoAdapter.IHandler {
   }
 }
 
-/**
- * `honoSignOut`. CSRF-guarded.
- */
+/** `honoSignOut`. CSRF-guarded. */
 export function honoSignOut(auth: AuthRoot): HonoAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -46,9 +49,7 @@ export function honoSignOut(auth: AuthRoot): HonoAdapter.IHandler {
   }
 }
 
-/**
- * `honoSession`.
- */
+/** `honoSession`. */
 export function honoSession(auth: AuthRoot): HonoAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -66,15 +67,13 @@ export function honoSession(auth: AuthRoot): HonoAdapter.IHandler {
   }
 }
 
-/**
- * `honoProviderBegin`.
- */
+/** `honoProviderBegin`. */
 export function honoProviderBegin(auth: AuthRoot): HonoAdapter.IHandler {
   return async (ctx) => {
     try {
       await csrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
       const id = ctx.req.param('id')
-      if (!id) {
+      if (!isValidProviderId(id)) {
         return executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
       }
       const body = parseProviderBeginBody(await ctx.req.json().catch(() => null))
@@ -97,10 +96,6 @@ function handleError(err: unknown): Response {
   })
 }
 
-/**
- * Namespace merge for HonoAdapter. Co-locates the config + input +
- * output shapes via TS namespace declaration.
- */
 export namespace HonoAdapter {
   export type IHandler = (ctx: HonoAdapter.IContext) => Promise<Response>
 
@@ -116,12 +111,7 @@ export namespace HonoAdapter {
   }
 }
 
-/**
- * Convert a native Hono Context into the structural
- * {@link HonoAdapter.IContext} the per-handler exports above expect.
- * Exported so consumers wiring routes by hand can avoid the 30-line
- * boilerplate; {@link mountHono} folds this for the common case.
- */
+/** Convert a native Hono Context into the structural {@link HonoAdapter.IContext}. */
 export function toHonoAdapterCtx(c: {
   req: {
     method: string
@@ -153,53 +143,11 @@ export function toHonoAdapterCtx(c: {
   }
 }
 
-/**
- * Register every duck-auth route on a Hono `app` in one call.
- *
- * Mounts the following routes (under `opts.prefix`, default `/auth`):
- *
- * ```
- * POST   /signin                   -> honoSignIn(auth)
- * POST   /signout                  -> honoSignOut(auth)
- * GET    /session                  -> honoSession(auth)
- * POST   /providers/:id/begin      -> honoProviderBegin(auth)
- * GET    /providers/:provider/callback   -> flows.signIn(provider, { code, state })
- * GET    /magic-link/verify        -> flows.signIn('magic-link', { token })
- * POST   /passkey/begin            -> flows.beginProvider('passkey', body)
- * POST   /passkey/complete         -> flows.signIn('passkey', body)
- * POST   /mfa/totp/begin           -> mfa.beginTotpEnrollment
- * POST   /mfa/totp/confirm         -> mfa.confirmTotpEnrollment
- * POST   /mfa/totp/verify          -> mfa.verifyTotp
- * POST   /mfa/totp/remove          -> mfa.removeTotp
- * POST   /mfa/backup-codes/regenerate
- * ```
- *
- * `opts.skip` (`['passkey'] | ['totp'] | ['oauth'] | ['magic-link']`)
- * omits the routes in that group when the consumer doesn't expose
- * those flows publicly. `opts.cors` flips on a permissive CORS
- * middleware scoped to the auth routes only.
- *
- * Pass a duck-typed `app` (`{ get, post }`) so we avoid pulling Hono
- * into the auth lib's type graph (Hono stays a peer dep).
- *
- * @example
- * ```ts
- * import { Hono } from 'hono'
- * import { mountHono } from '@gentleduck/auth/server/hono'
- * import { auth } from './auth'
- *
- * const app = new Hono()
- * mountHono(app, auth)
- *
- * // Or with overrides:
- * mountHono(app, auth, { prefix: '/api/auth', skip: ['passkey'] })
- * ```
- */
+/** Register every duck-auth route on a Hono `app`. `opts.skip` omits route groups; `opts.cors` mounts a scoped CORS middleware. */
 export function mountHono(app: MountHono.IApp, auth: AuthRoot, opts: MountHono.IOptions = {}): void {
   const prefix = opts.prefix ?? '/auth'
   const skip = new Set(opts.skip ?? [])
 
-  // Core routes are always on.
   app.post(`${prefix}/signin`, (c) => honoSignIn(auth)(toHonoAdapterCtx(c)))
   app.post(`${prefix}/signout`, (c) => honoSignOut(auth)(toHonoAdapterCtx(c)))
   app.get(`${prefix}/session`, (c) => honoSession(auth)(toHonoAdapterCtx(c)))
@@ -207,8 +155,6 @@ export function mountHono(app: MountHono.IApp, auth: AuthRoot, opts: MountHono.I
 
   if (!skip.has('oauth')) {
     app.get(`${prefix}/providers/:provider/callback`, async (c) => {
-      // `as string` cast hid the fact that c.req.param can return
-      // undefined when the URL doesn't match. Validate explicitly.
       const provider = c.req.param('provider')
       if (typeof provider !== 'string' || provider.length === 0) {
         return executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
@@ -253,8 +199,6 @@ export function mountHono(app: MountHono.IApp, auth: AuthRoot, opts: MountHono.I
     })
     app.post(`${prefix}/passkey/complete`, async (c) => {
       try {
-        // body is provider-specific input - passkey provider validates
-        // shape internally. The legacy `as unknown` cast was cosmetic.
         const body: unknown = await c.req.json().catch(() => ({}))
         const result = await auth.flows.signIn({ input: body, providerId: 'passkey' })
         return executeIntents(result.intents)
@@ -353,9 +297,6 @@ function jsonResponse(status: number, body: unknown): Response {
   })
 }
 
-/**
- * Namespace merge for {@link mountHono}.
- */
 export namespace MountHono {
   /** Subset of Hono's `Context` we use in handlers. */
   export interface IHonoCtx {

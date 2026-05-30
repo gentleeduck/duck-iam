@@ -165,10 +165,6 @@ function parseCookie(header: string, name: string): string | null {
   return found
 }
 
-/**
- * Namespace merge for CookieTransport. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace CookieTransport {
   export interface IConfig {
     /**

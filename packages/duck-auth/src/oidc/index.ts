@@ -1,21 +1,8 @@
-/**
- * OIDC discovery-doc + JWKS helper. Emits the canonical
- * `/.well-known/openid-configuration` body and a JWKS pass-through so
- * apps that issue JWTs via `JwtTransport` look like an OP at the
- * discovery layer.
- *
- * For the full OAuth2/OIDC OP (`/authorize`, `/token`, `/userinfo`,
- * introspection, revocation) wire up `createOidcOP` from
- * `@gentleduck/auth/oidc/op`.
- */
+/** OIDC discovery-doc + JWKS helper. For the full OP, see `@gentleduck/auth/oidc/op`. */
 
 import { AuthErrorObject } from '../core/errors'
 
-/**
- * Build the discovery document. Pass-through `extraClaims` lets apps
- * append OIDC profile fields (e.g. `request_object_signing_alg_values_supported`
- * for the JAR profile) without forking this module.
- */
+/** Build the discovery document; `extraClaims` is appended verbatim. */
 export function buildOidcDiscovery(cfg: OidcDiscovery.IConfig): OidcDiscovery.IDocument {
   if (!cfg.issuer) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
@@ -82,20 +69,7 @@ export function buildOidcRoutes(opts: { config: OidcDiscovery.IConfig; transport
   return { discovery, jwks }
 }
 
-/**
- * RP-side OIDC discovery fetcher with an in-process LRU cache (DESIGN
- * §23 Q5). Used by OAuth providers that consume an upstream OIDC
- * provider's discovery document so we don't re-fetch on every signin.
- *
- * Default TTL 1 hour, capacity 32 issuers - matches the realistic
- * fan-out for a single duck-auth deployment. Tune via
- * `OidcDiscovery.configureCache({ ttlMs, capacity })` once at boot.
- *
- * rejects non-HTTPS issuer URLs unless `allowHttp` is passed.
- * Validates the response body's `issuer` claim equals the requested
- * issuer (per RFC 8414 §3.3) - defeats a tampered upstream from
- * redirecting RPs to an attacker JWKS.
- */
+/** RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects non-HTTPS unless `allowHttp`. */
 export async function fetchOidcDiscovery(
   issuer: string,
   opts: {
@@ -145,7 +119,7 @@ export async function fetchOidcDiscovery(
     })
   }
   // the upstream's `issuer` claim MUST equal the requested issuer
-  // (RFC 8414 §3.3). Defeats an attacker who can hijack the well-known
+  // (RFC 8414 section 3.3). Defeats an attacker who can hijack the well-known
   // endpoint from redirecting RPs to an attacker-controlled JWKS.
   if (doc.issuer.replace(/\/+$/, '') !== canonical) {
     throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
@@ -164,14 +138,7 @@ export async function fetchOidcDiscovery(
   return doc
 }
 
-/**
- * structural validator for an OIDC discovery document. Required
- * fields (issuer + the 4 core endpoints + jwks_uri + the 5 algorithm
- * arrays) must be present and the right primitive type; everything
- * else stays in the index signature. Returns `null` on any
- * shape mismatch so the caller surfaces PROVIDER_FAILED rather than
- * trusting a casted blob and crashing downstream.
- */
+/** Structural validator for an OIDC discovery doc; `null` on any required-field shape mismatch. */
 function parseDiscoveryDoc(raw: unknown): OidcDiscovery.IDocument | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   const requireString = (key: string): string | null => {
@@ -269,9 +236,6 @@ export function flushOidcDiscoveryCache(): void {
   _discoveryCache.clear()
 }
 
-/**
- * Namespace merge for the discovery surface.
- */
 export namespace OidcDiscovery {
   export interface IConfig {
     /** Required. Public issuer URL (no trailing slash). */
@@ -293,16 +257,7 @@ export namespace OidcDiscovery {
     grantTypesSupported?: string[]
     /** Default `['public', 'pairwise']`. */
     subjectTypesSupported?: string[]
-    /**
-     * `token_endpoint_auth_methods_supported`. Default
-     * `['client_secret_basic', 'client_secret_post']`. Pass `[..., 'none']`
-     * to advertise that the token endpoint accepts unauthenticated calls
-     * (only safe when paired with PKCE-protected `authorization_code`).
-     * `'none'` is no longer the default because consumers that drive
-     * their token endpoint's accepted-method set from this discovery
-     * doc would otherwise accept unauthenticated `client_credentials`
-     * exchanges - which the spec forbids.
-     */
+    /** Default `['client_secret_basic', 'client_secret_post']`; add `'none'` for PKCE-only public clients. */
     tokenEndpointAuthMethodsSupported?: string[]
     /**
      * Advertise a `registration_endpoint` (RFC 7591). Set when the
@@ -311,7 +266,7 @@ export namespace OidcDiscovery {
      */
     registrationEndpoint?: string
     /**
-     * Permit a non-HTTPS `issuer`. Dev-only. OIDC core §16.18 requires
+     * Permit a non-HTTPS `issuer`. Dev-only. OIDC core section 16.18 requires
      * HTTPS in production. Default false; explicit opt-in here so the
      * misconfig is visible in code review.
      */

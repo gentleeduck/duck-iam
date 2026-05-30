@@ -13,7 +13,7 @@
 
 import type { AuthRoot } from '../../core/auth'
 import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '../../core/credential-utils'
-import { randomToken, sha256 } from '../../core/crypto'
+import { randomToken, sha256, timingSafeEqual } from '../../core/crypto'
 import type { Identity } from '../../core/types/identity'
 import {
   MemoryAccessTokenStore,
@@ -44,6 +44,17 @@ const DEFAULT_TTLS = {
   refreshToken: 30 * 24 * 3600,
   code: 600,
   idToken: 3600,
+}
+const SCOPE_STRING_MAX = 4096
+const SCOPE_TOKEN_MAX = 64
+
+function parseScopeString(raw: unknown): string[] | { error: string } {
+  if (raw === undefined || raw === null || raw === '') return []
+  if (typeof raw !== 'string') return { error: 'scope must be a string' }
+  if (raw.length > SCOPE_STRING_MAX) return { error: 'scope too long' }
+  const tokens = raw.split(/\s+/).filter((s) => s.length > 0)
+  if (tokens.length > SCOPE_TOKEN_MAX) return { error: 'too many scopes' }
+  return tokens
 }
 
 /**
@@ -139,7 +150,7 @@ export class OidcOPRoot<Profile = unknown> {
         return { status: 401, body: { error: 'unauthorized', error_description: 'initial access token required' } }
       }
       const presented = auth.slice(7).trim()
-      if (!constantTimeEqual(presented, this.dcrConfig.initialAccessToken)) {
+      if (!timingSafeEqual(presented, this.dcrConfig.initialAccessToken)) {
         return { status: 401, body: { error: 'unauthorized', error_description: 'invalid initial access token' } }
       }
     }
@@ -188,8 +199,11 @@ export class OidcOPRoot<Profile = unknown> {
         body: { error: 'invalid_client_metadata', error_description: 'unsupported token_endpoint_auth_method' },
       }
     }
-    const scopeStr = (req.scope ?? 'openid').trim()
-    const scopeArr = scopeStr.split(/\s+/).filter((s) => s.length > 0)
+    const parsedScope = parseScopeString((req.scope ?? 'openid').trim())
+    if (!Array.isArray(parsedScope)) {
+      return { status: 400, body: { error: 'invalid_client_metadata', error_description: parsedScope.error } }
+    }
+    const scopeArr = parsedScope
     if (!scopeArr.includes(REQUIRED_SCOPE)) scopeArr.unshift(REQUIRED_SCOPE)
     for (const s of scopeArr) {
       if (!this.supportedScopes.includes(s)) {
@@ -271,7 +285,16 @@ export class OidcOPRoot<Profile = unknown> {
         body: { error: 'unauthorized_client', state: req.state },
       }
     }
-    const requested = (req.scope ?? '').split(/\s+/).filter((s) => s.length > 0)
+    const parsedScope = parseScopeString(req.scope)
+    if (!Array.isArray(parsedScope)) {
+      return {
+        kind: 'error',
+        status: 302,
+        redirectUri: req.redirect_uri,
+        body: { error: 'invalid_scope', error_description: parsedScope.error, state: req.state },
+      }
+    }
+    const requested = parsedScope
     if (!requested.includes(REQUIRED_SCOPE)) {
       return {
         kind: 'error',
@@ -498,11 +521,12 @@ export class OidcOPRoot<Profile = unknown> {
     if (row.client_id !== client.client_id) return { error: 'invalid_grant' }
     let scope = row.scope
     if (req.scope) {
-      const requested = req.scope.split(/\s+/).filter((s) => s.length > 0)
-      for (const s of requested) {
+      const parsedScope = parseScopeString(req.scope)
+      if (!Array.isArray(parsedScope)) return { error: 'invalid_scope', error_description: parsedScope.error }
+      for (const s of parsedScope) {
         if (!row.scope.includes(s)) return { error: 'invalid_scope', error_description: `scope '${s}' not original` }
       }
-      scope = requested
+      scope = parsedScope
     }
     return this.issueTokens({
       client,
@@ -681,16 +705,13 @@ export class OidcOPRoot<Profile = unknown> {
         return { client }
       case 'client_secret_basic':
         if (!clientSecretFromBasic) return { error: 'invalid_client', error_description: 'Basic auth required' }
-        if (
-          !client.client_secret_hash ||
-          !constantTimeEqual(sha256(clientSecretFromBasic), client.client_secret_hash)
-        ) {
+        if (!client.client_secret_hash || !timingSafeEqual(sha256(clientSecretFromBasic), client.client_secret_hash)) {
           return { error: 'invalid_client' }
         }
         return { client }
       case 'client_secret_post':
         if (!req.client_secret) return { error: 'invalid_client', error_description: 'client_secret required in body' }
-        if (!client.client_secret_hash || !constantTimeEqual(sha256(req.client_secret), client.client_secret_hash)) {
+        if (!client.client_secret_hash || !timingSafeEqual(sha256(req.client_secret), client.client_secret_hash)) {
           return { error: 'invalid_client' }
         }
         return { client }
@@ -700,9 +721,7 @@ export class OidcOPRoot<Profile = unknown> {
   }
 }
 
-/**
- * Convenience factory with sensible memory-store defaults.
- */
+/** Convenience factory with sensible memory-store defaults. */
 export function createOidcOP<Profile = unknown>(args: {
   auth: AuthRoot<Profile>
   config: OidcOP.IConfig
@@ -752,17 +771,20 @@ function assertValidRedirect(uri: string): void {
     throw new Error(`registerClient: redirect_uri '${uri}' is not a valid absolute URL`)
   }
   if (url.hash !== '') throw new Error(`registerClient: redirect_uri must not include a fragment`)
-  // Localhost http allowed; other http forbidden.
-  if (url.protocol === 'http:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+  if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
     throw new Error(`registerClient: non-loopback http redirect_uri rejected: ${uri}`)
   }
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
 }
 
 function verifyPkceS256(verifier: string, expectedChallenge: string): boolean {
   if (verifier.length < 43 || verifier.length > 128) return false
   // RFC 7636: base64url(SHA256(verifier))
   const computed = base64urlSha256(verifier)
-  return constantTimeEqual(computed, expectedChallenge)
+  return timingSafeEqual(computed, expectedChallenge)
 }
 
 function base64urlSha256(input: string): string {
@@ -771,15 +793,6 @@ function base64urlSha256(input: string): string {
   const hex = sha256(input)
   const bytes = Buffer.from(hex, 'hex')
   return bytes.toString('base64url')
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  let diff = 0
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  }
-  return diff === 0
 }
 
 function filterGrantTypes(input: string[]): OidcOP.IGrantType[] {

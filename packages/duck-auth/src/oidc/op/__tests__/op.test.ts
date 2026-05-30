@@ -105,6 +105,27 @@ describe('OidcOPRoot.registerClient', () => {
     })
     expect(out.client_id).toBe('dev')
   })
+
+  it('allows http://[::1] (IPv6 loopback, RFC 8252)', async () => {
+    const op = buildOp(buildAuth())
+    const out = await op.registerClient({
+      client_id: 'dev-v6',
+      redirect_uris: ['http://[::1]:3000/cb'],
+      token_endpoint_auth_method: 'none',
+    })
+    expect(out.client_id).toBe('dev-v6')
+  })
+
+  it('rejects non-loopback http (e.g. http://example.com)', async () => {
+    const op = buildOp(buildAuth())
+    await expect(
+      op.registerClient({
+        client_id: 'bad',
+        redirect_uris: ['http://example.com/cb'],
+        token_endpoint_auth_method: 'none',
+      }),
+    ).rejects.toThrow(/non-loopback/)
+  })
 })
 
 describe('OidcOPRoot.authorize gate', () => {
@@ -186,6 +207,60 @@ describe('OidcOPRoot.authorize gate', () => {
     if (result.kind === 'error') {
       expect(result.body.error).toBe('unsupported_response_type')
       expect(result.status).toBe(302)
+    }
+  })
+
+  it('rejects oversize scope (DoS cap)', async () => {
+    const op = buildOp(buildAuth())
+    await op.registerClient({
+      client_id: 'spa',
+      redirect_uris: ['http://localhost/cb'],
+      token_endpoint_auth_method: 'none',
+    })
+    const { challenge } = pkceVerifierAndChallenge()
+    const huge = 'openid '.repeat(2000)
+    const result = await op.authorize(
+      {
+        client_id: 'spa',
+        redirect_uri: 'http://localhost/cb',
+        response_type: 'code',
+        scope: huge,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+      },
+      { headers: new Headers() },
+    )
+    expect(result.kind).toBe('error')
+    if (result.kind === 'error') {
+      expect(result.body.error).toBe('invalid_scope')
+      expect(result.body.error_description).toMatch(/too long|too many/)
+    }
+  })
+
+  it('rejects scope with too many tokens (DoS cap)', async () => {
+    const op = buildOp(buildAuth())
+    await op.registerClient({
+      client_id: 'spa',
+      redirect_uris: ['http://localhost/cb'],
+      token_endpoint_auth_method: 'none',
+    })
+    const { challenge } = pkceVerifierAndChallenge()
+    const many = Array.from({ length: 100 }, (_, i) => `s${i}`).join(' ')
+    const result = await op.authorize(
+      {
+        client_id: 'spa',
+        redirect_uri: 'http://localhost/cb',
+        response_type: 'code',
+        scope: many,
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+      },
+      { headers: new Headers() },
+    )
+    expect(result.kind).toBe('error')
+    if (result.kind === 'error') {
+      expect(result.body.error).toBe('invalid_scope')
+      expect(result.body.error_description).toMatch(/too many/)
     }
   })
 

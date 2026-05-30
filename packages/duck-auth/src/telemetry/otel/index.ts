@@ -185,10 +185,6 @@ export async function getAuthOtelMeter(name = '@gentleduck/auth'): Promise<OtelI
   }
 }
 
-/**
- * Namespace merge for `OtelInstrumentation`. Co-locates config + meter
- * + instrument contracts alongside the class.
- */
 export namespace OtelInstrumentation {
   export interface IConfig {
     /**

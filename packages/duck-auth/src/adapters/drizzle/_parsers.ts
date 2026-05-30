@@ -50,10 +50,6 @@ export function parseProviderLinks(raw: string | null | undefined): DrizzleProvi
   return out
 }
 
-/**
- * Namespace merge for `ParseProviderLinks`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- */
 export namespace ParseProviderLinks {
   /** Alias for the flat `DrizzleProviderLink` type. */
   export type IDrizzleProviderLink = DrizzleProviderLink

@@ -12,18 +12,7 @@ const DEFAULT_OVERRIDES: Compliance.IOverrides = {
   requireChannelForReset: false,
 }
 
-/**
- * Resolve overrides for a preset. Multiple presets compose by taking the
- * stricter value at each field.
- *
- * @example
- * ```ts
- * const cfg = resolveCompliance(['gdpr', 'soc2'])
- * // cfg.minAal === 1 (gdpr)
- * // cfg.requireDataAtRest === true (gdpr)
- * // cfg.requiredStrictChecks includes both gdpr + soc2 lists
- * ```
- */
+/** Resolve overrides for one or more presets; multiple presets compose by taking the stricter field. */
 export function resolveCompliance(
   presets: Compliance.IPreset | Compliance.IPreset[] | undefined,
 ): Compliance.IOverrides {
@@ -95,14 +84,7 @@ function mergeStricter(a: Compliance.IOverrides, b: Compliance.IOverrides): Comp
   }
 }
 
-/**
- * Apply preset overrides to a user-supplied AuthRoot config.
- * Returns a fresh config object; never mutates the input.
- *
- * The stricter rule wins for every field: a preset that bumps password
- * minLength to 12 takes precedence over a user setting of 8; a preset
- * that caps session TTL to 1h takes precedence over a user setting of 7d.
- */
+/** Apply preset overrides to an AuthRoot config; never mutates input, stricter rule wins per field. */
 export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMeta = unknown>(
   base: AuthRoot.IConfig<Profile, Tenant, OrgMeta>,
   preset: Compliance.IPreset | Compliance.IPreset[],
@@ -183,15 +165,7 @@ function maxAal(a: 1 | 2 | 3, b: 1 | 2 | 3): 1 | 2 | 3 {
   return 1
 }
 
-/**
- * Validate that an AuthRoot's runtime state satisfies the compliance
- * preset's strict checks. Called from {@link AuthRoot.strict} when
- * compliance is configured. Throws AUTH/MISCONFIGURED with the failure
- * list when any check fails.
- *
- * Caller supplies `wired` flags describing what is hooked up; library
- * cannot introspect every adapter at the type level.
- */
+/** Validate runtime wiring against a compliance preset; throws `AUTH/MISCONFIGURED` listing every gap. */
 export function assertComplianceStrict(opts: {
   preset: Compliance.IPreset | Compliance.IPreset[]
   wired: {
@@ -222,10 +196,6 @@ export function assertComplianceStrict(opts: {
   }
 }
 
-/**
- * Namespace merge for Compliance. Co-locates the config + input +
- * output shapes via TS namespace declaration.
- */
 export namespace Compliance {
   export type IPreset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
 

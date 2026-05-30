@@ -120,9 +120,6 @@ function metadataToHeaders(metadata: GrpcAdapter.IMetadata, headerName: string):
   return out
 }
 
-/**
- * Namespace merge for the gRPC adapter surface.
- */
 export namespace GrpcAdapter {
   export type IUnaryHandler<Req = unknown, Res = unknown> = (
     call: GrpcAdapter.IUnaryCall<Req>,

@@ -20,11 +20,6 @@ const SAML_RELAY_STATE_MAX = 256
 // DNS hostname max is 253 chars (RFC 1035).
 const SAML_HOST_MAX = 253
 
-/**
- * Public surface of the SAML provider. Every type lives inside the
- * namespace so consumers reach for `SamlProvider.IOptions` /
- * `SamlProvider.IProfile` rather than a flat name.
- */
 export namespace SamlProvider {
   /**
    * Subset of `@node-saml/node-saml` we depend on. Both v4 + v5 satisfy

@@ -1,10 +1,8 @@
 import type { AuthRoot } from '../../core/auth'
 import { csrfGuard } from '../../core/csrf'
-import { errorToHttp, executeIntents, parseProviderBeginBody, parseSignInBody } from '../generic'
+import { errorToHttp, executeIntents, isValidProviderId, parseProviderBeginBody, parseSignInBody } from '../generic'
 
-/**
- * `nextSignIn`. CSRF-guarded.
- */
+/** `nextSignIn`. CSRF-guarded. */
 export function nextSignIn(auth: AuthRoot): NextAdapter.IHandler {
   return async (req) => {
     try {
@@ -21,9 +19,7 @@ export function nextSignIn(auth: AuthRoot): NextAdapter.IHandler {
   }
 }
 
-/**
- * `nextSignOut`. CSRF-guarded.
- */
+/** `nextSignOut`. CSRF-guarded. */
 export function nextSignOut(auth: AuthRoot): NextAdapter.IHandler {
   return async (req) => {
     try {
@@ -38,9 +34,7 @@ export function nextSignOut(auth: AuthRoot): NextAdapter.IHandler {
   }
 }
 
-/**
- * `nextSession`.
- */
+/** `nextSession`. */
 export function nextSession(auth: AuthRoot): NextAdapter.IHandler {
   return async (req) => {
     try {
@@ -62,6 +56,9 @@ export function nextSession(auth: AuthRoot): NextAdapter.IHandler {
 export function nextProviderBegin(auth: AuthRoot, providerId: string): NextAdapter.IHandler {
   return async (req) => {
     try {
+      if (!isValidProviderId(providerId)) {
+        return executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
+      }
       await csrfGuard(auth, { method: req.method, headers: req.headers })
       const body = parseProviderBeginBody(await req.json().catch(() => null))
       if (body === null) {
@@ -129,10 +126,6 @@ function handleError(err: unknown): Response {
   return Response.json(body, { status })
 }
 
-/**
- * Namespace merge for NextAdapter. Co-locates the config + input +
- * output shapes via TS namespace declaration.
- */
 export namespace NextAdapter {
   export type IHandler = (req: Request) => Promise<Response>
 }

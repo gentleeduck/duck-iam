@@ -1,14 +1,7 @@
 import type { TenantContext } from './context'
 import type { Identity } from './identity'
 
-/**
- * Outbound message channel - email, SMS, web-push. Library ships the contract;
- * adapters (resend / postmark / sendgrid / smtp / twilio / vonage / webpush)
- * ship in `src/channels/<kind>/<provider>`.
- *
- * Channels never accept plaintext secrets - magic-link URLs are pre-signed by
- * the library before reaching the channel; templates only receive safe vars.
- */
+/** Outbound message channel (email / SMS / web-push). Library pre-signs URLs; templates get safe vars only. */
 export namespace Channel {
   export type Kind = 'email' | 'sms' | 'webpush'
 

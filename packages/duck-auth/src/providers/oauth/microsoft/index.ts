@@ -1,7 +1,4 @@
-/**
- * Microsoft Entra ID (formerly Azure AD) OAuth 2.0 / OIDC provider.
- */
-
+/** Microsoft Entra ID (formerly Azure AD) OAuth 2.0 / OIDC provider. */
 import { AuthErrorObject } from '../../../core/errors'
 import type { Provider } from '../../../core/types/provider'
 import { OAuthClient } from '../core/client'
@@ -16,10 +13,6 @@ function endpointsFor(tenant: string): OAuthClient.IEndpoints {
   }
 }
 
-/**
- * Public surface for the Microsoft OAuth provider. Every type lives
- * inside the namespace.
- */
 export namespace MicrosoftOAuth {
   /** Microsoft Entra ID-specific options. */
   export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {

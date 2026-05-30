@@ -7,10 +7,6 @@
 import { AuthErrorObject } from '../../core/errors'
 import type { Channel } from '../../core/types/channel'
 
-/**
- * Public surface for the Web Push channel. Every type lives inside
- * the namespace.
- */
 export namespace WebPushChannel {
   /** Standard Push API subscription shape. */
   export interface ISubscription {

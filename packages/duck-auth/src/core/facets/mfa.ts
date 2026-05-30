@@ -224,9 +224,6 @@ export class MfaFacet {
     })
     if (!v.verified || !v.registrationInfo) throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
     const cred = v.registrationInfo.credential
-    // `cred.publicKey` is already typed `Uint8Array` by the loaded
-    // webauthn module's type definition - the legacy `as Uint8Array`
-    // cast was redundant.
     const row = await this._credentials.upsert(
       {
         identityId,
@@ -281,7 +278,7 @@ export class MfaFacet {
     if (typeof opts.response !== 'object' || opts.response === null) return false
     const idRaw: unknown = Reflect.get(opts.response, 'id')
     // WebAuthn credential IDs are base64url-encoded random bytes (<255 raw bytes
-    // per spec → ~340 chars max). 1024 is generous; rejects multi-MB attacker IDs.
+    // per spec -> ~340 chars max). 1024 is generous; rejects multi-MB attacker IDs.
     if (typeof idRaw !== 'string' || idRaw.length === 0 || idRaw.length > 1024) return false
     const credId = idRaw
     const cred = await this._credentials.findByHashedSecret(credId, 'webauthn-mfa', ctx)
@@ -305,7 +302,7 @@ export class MfaFacet {
       requireUserVerification: (opts.userVerification ?? 'preferred') === 'required',
     })
     if (!v.verified) return false
-    // counter-rollback detection per WebAuthn L2 §6.1.3. Reject when
+    // counter-rollback detection per WebAuthn L2 section 6.1.3. Reject when
     // the new count regresses (only when the authenticator advances them).
     // Number.isFinite gates against NaN/Infinity from a buggy authenticator
     // that would otherwise let `NaN !== 0 && NaN <= old` fall through false
@@ -369,10 +366,6 @@ export class MfaFacet {
   }
 }
 
-/**
- * Namespace merge for MfaFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 /**
  * structural validator for the WebAuthn-MFA credential metadata
  * row. Replaces the `(cred.metadata ?? {}) as { publicKey?: string; ... }`

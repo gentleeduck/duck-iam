@@ -1,11 +1,4 @@
-/**
- * Data-at-rest encryption adapter. Field-level encrypt/decrypt for
- * sensitive Identity.profile fields (SSN, DOB, phone) without forcing
- * every consumer onto the same KMS. Library calls encrypt/decrypt with
- * a (field, identityId) context so adapters can derive per-record keys
- * via envelope encryption against AWS KMS / GCP KMS / Vault / etc.
- *
- */
+/** Data-at-rest encryption adapter; field-level encrypt/decrypt with `(field, identityId)` AAD context. */
 export namespace DataAtRest {
   export interface IContext {
     /** Field name in Identity.profile that's being encrypted. */

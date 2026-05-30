@@ -1,19 +1,7 @@
 #!/usr/bin/env node
 /**
- * Lightweight CLI for `@gentleduck/auth`. Subcommands:
- *
- *   - init <directory>: scaffold a starter `auth.ts` + env template
- *   - doctor: read the local `auth.ts`, instantiate it, run AuthRoot.strict()
- *   - keys generate hs256: emit a fresh HS256 secret for JwtTransport
- *   - keys generate ec256: emit an ES256 keypair (PEM) for DPoP signing
- *   - keys rotate hs256: emit a NEW HS256 secret + rollover snippet
- *   - migrate <pg|mysql|sqlite>: emit CREATE TABLE DDL for the SqlBridge schema
- *   - emit-openapi: import local auth.ts and print the OpenAPI 3.1 spec
- *
- * Designed to run via `bunx @gentleduck/auth` or `npx @gentleduck/auth`
- * without an explicit install. Intentionally has zero hard dependencies
- * beyond Node built-ins so the CLI runs even when the consumer has not
- * yet installed peerDeps.
+ * CLI for `@gentleduck/auth`. Subcommands: `init`, `doctor`, `keys generate <hs256|ec256>`,
+ * `keys rotate hs256`, `migrate <pg|mysql|sqlite>`, `emit-openapi`. Zero hard deps.
  */
 
 import { generateKeyPairSync, randomBytes } from 'node:crypto'
@@ -215,16 +203,7 @@ function findAuthFile(): string | undefined {
   return undefined
 }
 
-/**
- * `duck-auth keys generate <hs256|ec256>` subcommand. Emits fresh signing
- * material to stdout.
- *
- * `duck-auth keys rotate hs256` emits a NEW signing key plus a JwtTransport
- * config snippet that keeps the previous key in `verifyKeys` so in-flight
- * JWTs validate during the rollover window. Caller supplies the previous
- * kid via `--prev-kid=<kid>` (default `k1`) and the new kid via
- * `--new-kid=<kid>` (default `k$(epoch)`).
- */
+/** `duck-auth keys generate|rotate <hs256|ec256>`; rotate prints a rollover snippet keeping the prev kid in verifyKeys. */
 async function cmdKeys(args: string[]): Promise<number> {
   const verb = args[0]
   if (verb !== 'generate' && verb !== 'rotate') {
@@ -294,16 +273,7 @@ async function cmdKeys(args: string[]): Promise<number> {
   return 0
 }
 
-/**
- * `duck-auth migrate <pg|mysql|sqlite>` subcommand. Emits the CREATE TABLE
- * DDL matching the row shapes declared in `SqlBridge.{IIdentityRow,
- * ICredentialRow, ISessionRow}` so consumers can run it via psql /
- * mysql / sqlite without hand-translating from the types file.
- *
- * Flags:
- *   --prefix=<name>  Table-name prefix (default `auth_`).
- *   --out=<path>     Write to a file instead of stdout.
- */
+/** `duck-auth migrate <pg|mysql|sqlite> [--prefix=auth_] [--out=path]` emits SqlBridge CREATE TABLE DDL. */
 async function cmdMigrate(args: string[]): Promise<number> {
   const dialect = args.find((a) => !a.startsWith('--')) as 'pg' | 'mysql' | 'sqlite' | undefined
   if (!dialect || !['pg', 'mysql', 'sqlite'].includes(dialect)) {
@@ -341,15 +311,7 @@ function resolveOutPath(relative: string): string | null {
   return absolute
 }
 
-/**
- * `duck-auth emit-openapi` subcommand. Dynamic-imports the local
- * `auth.ts`, looks for an exported `openapi` builder or instantiates
- * `buildOpenApiDocument(auth)`, and prints the JSON spec.
- *
- * Flags:
- *   --out=<path>  Write to a file instead of stdout.
- *   <auth-path>   Override default auth.ts lookup.
- */
+/** `duck-auth emit-openapi [auth-path] [--out=path]` prints the OpenAPI JSON for the local auth.ts. */
 async function cmdEmitOpenapi(args: string[]): Promise<number> {
   const positional = args.find((a) => !a.startsWith('--'))
   const pathArg = positional ?? findAuthFile()

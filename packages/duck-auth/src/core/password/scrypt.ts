@@ -45,18 +45,7 @@ function parse(encoded: string): { N: number; r: number; p: number; salt: Buffer
   }
 }
 
-/**
- * ScryptHasher - built into Node, zero deps. v0.1 default.
- *
- * Trade-offs vs Argon2id:
- *  - scrypt does not have the memory-hard "lanes" parameter (no `p` analogue
- *    for true thread parallelism on a single hash)
- *  - constant-time verify via `timingSafeEqual` on the derived key
- *  - format is self-describing for future param rotation
- *
- * Compliance presets (HIPAA/SOC2/FIPS in v1.x) require swapping this for
- * Argon2id; that lands in `core/password/argon2.ts` as a sibling impl.
- */
+/** ScryptHasher - built into Node, zero deps; v0.1 default. Swap for Argon2id for compliance presets. */
 export class ScryptHasher implements Hasher.IHasher {
   readonly id = 'scrypt'
   private readonly _params: ScryptHasher.IScryptParams
@@ -105,10 +94,6 @@ export class ScryptHasher implements Hasher.IHasher {
   }
 }
 
-/**
- * Namespace merge for `ScryptHasher`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- */
 export namespace ScryptHasher {
   export interface IScryptParams {
     /** CPU/memory cost (must be a power of two). Default 2^17 = 131072. */

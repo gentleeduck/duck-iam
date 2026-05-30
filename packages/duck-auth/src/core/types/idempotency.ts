@@ -1,13 +1,6 @@
 import type { TenantContext } from './context'
 
-/**
- * Idempotency-key store contract. Used by mutating routes (signin,
- * signout, oauth callback, magic-link complete, etc.) to dedupe
- * client-side retries without double-charging the side-effects.
- *
- * Memory adapter ships in-tree; production swaps in a Redis-backed
- * store with `SET NX EX` for atomic put-if-absent semantics.
- */
+/** Idempotency-key store contract; Redis adapter uses `SET NX EX` for atomic put-if-absent. */
 export namespace Idempotency {
   /** Snapshot persisted under an idempotency key. */
   export interface ICachedResponse {

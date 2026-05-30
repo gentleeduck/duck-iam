@@ -209,7 +209,6 @@ export class IdentitiesFacet<Profile = unknown> {
     let failed = 0
     for (const row of rows) {
       try {
-        // Cast-free extraction + case-fold for bulk-import dedup.
         const email = extractEmail(row.profile)
         const existing = email ? await this._store.findByEmail(email, ctx) : null
         if (existing && mode === 'skipExisting') {
@@ -279,12 +278,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-/**
- * Normalize an email extracted from a caller-supplied Profile.
- * Delegates the raw cast-free extraction to `getProfileString` from
- * `credential-utils`; this wrapper adds the trim + lowercase that the
- * dedup-by-email lookup requires.
- */
+/** Trim + lowercase the `email` field off a profile; `undefined` when absent or non-string. */
 function extractEmail(profile: unknown): string | undefined {
   const raw = getProfileString(profile, 'email')
   if (raw === undefined) return undefined
@@ -303,10 +297,6 @@ function sortKeys(_key: string, value: unknown): unknown {
   return value
 }
 
-/**
- * Namespace merge for IdentitiesFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace IdentitiesFacet {
   export interface IConfig {
     /** Grace before hard-purge after softDelete. Default 7 days. */

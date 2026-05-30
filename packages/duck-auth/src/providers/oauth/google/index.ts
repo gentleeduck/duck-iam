@@ -11,10 +11,6 @@ const GOOGLE_ENDPOINTS: OAuthClient.IEndpoints = {
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
 }
 
-/**
- * Public surface for the Google OAuth provider. Every type lives
- * inside the namespace.
- */
 export namespace GoogleOAuth {
   /** Google-specific options. Extends `OAuthProvider.IOptionsBase`. */
   export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {

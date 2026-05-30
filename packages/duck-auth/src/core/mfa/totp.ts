@@ -83,7 +83,7 @@ export function totpAt(secretB32: string, stepIndex: number, params: Totp.IParam
   // RFC 4226 section 5.3 - 8-byte big-endian counter.
   buf.writeBigUInt64BE(BigInt(stepIndex))
   const hmac = createHmac(params.algorithm, secret).update(buf).digest()
-  // Dynamic truncation per RFC 4226 §5.3 - low nibble of the last byte
+  // Dynamic truncation per RFC 4226 section 5.3 - low nibble of the last byte
   // picks a 4-byte offset; readUInt32BE then yields the truncated code
   // without per-byte `!` assertions.
   const off = hmac.readUInt8(hmac.length - 1) & 0x0f
@@ -124,10 +124,6 @@ export function verifyTotp(
   return matched
 }
 
-/**
- * Namespace merge for Totp. Co-locates the config + input +
- * output shapes via TS namespace declaration.
- */
 export namespace Totp {
   export interface IParams {
     digits: 6
