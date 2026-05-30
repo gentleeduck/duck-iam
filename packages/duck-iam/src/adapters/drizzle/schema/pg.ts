@@ -1,27 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 
-/**
- * PostgreSQL schema for duck-iam Drizzle adapter.
- *
- * Import these tables into your db.ts and pass them to DrizzleAdapter:
- *
- * ```ts
- * import { drizzle } from 'drizzle-orm/node-postgres'
- * import { eq, and } from 'drizzle-orm'
- * import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
- * import { accessPolicies, accessRoles, accessAssignments, accessSubjectAttrs } from '@gentleduck/iam/adapters/drizzle/schema/pg'
- *
- * const db = drizzle(pool)
- * const adapter = new DrizzleAdapter({
- *   db,
- *   tables: { policies: accessPolicies, roles: accessRoles, assignments: accessAssignments, attrs: accessSubjectAttrs },
- *   ops: { eq, and },
- * })
- * ```
- *
- * Generate migrations with `drizzle-kit generate` against this schema.
- */
+/** PostgreSQL schema for the duck-iam Drizzle adapter; run `drizzle-kit generate` against this file. */
 
 /**
  * Defines the Drizzle Postgres table for stored policies.

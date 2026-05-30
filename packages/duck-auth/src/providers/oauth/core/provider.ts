@@ -5,10 +5,6 @@ import type { OAuthClient } from './client'
 import { generatePkce } from './pkce'
 import { buildState, signState, verifyState } from './state'
 
-/**
- * Public surface for the generic OAuth provider. Every type lives
- * inside the namespace.
- */
 export namespace OAuthProvider {
   /**
    * Canonical profile shape after a provider extracts it from

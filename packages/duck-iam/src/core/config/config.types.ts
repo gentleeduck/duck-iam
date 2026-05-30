@@ -92,9 +92,7 @@ export namespace Config {
       config: EngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
     ) => Engine<TAction, TResource, TRole, TScope, TMode>
 
-    /**
-     * Compile-time-typed pass-through for `engine.permissions()` inputs.
-     */
+    /** Compile-time-typed pass-through for `engine.permissions()` inputs. */
     checks: <const T extends readonly Client.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => T
 
     /** Role validation: duplicate IDs, dangling inherits, circular inheritance, empty roles. */

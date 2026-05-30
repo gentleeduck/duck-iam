@@ -78,30 +78,7 @@ export class OrgsFacet<OrgMeta = unknown> {
   }
 }
 
-/**
- * bound the `roles: string[]` input that
- * `addMember` + `setRoles` accept from app code. The list is
- * caller-supplied (almost always derived from an HTTP request body)
- * and is persisted verbatim into the membership row, then read back
- * into iam Subject attributes. Without bounds:
- *
- *  - oversize array (e.g. 1 M entries) -> memory burn on persist +
- *    retrieve + iam Subject projection.
- *  - oversize per-role string -> bloats the row, complicates indexing
- *    in SQL adapters (`text` column with no length limit).
- *  - mixed-type entries (`[42, null, 'admin']`) -> iam Subject sees
- *    `roles: (string | number | null)[]` typed as `string[]`; policy
- *    comparisons behave unpredictably.
- *
- * The sanitizer filters per-entry: drops non-strings, drops empty
- * strings, drops oversize strings (>128 chars). Caps the array at 64
- * entries - matches the m2m scope-count cap so
- * adopters don't have to remember two different magic numbers. The
- * surface is silent (returns the trimmed list, no throw) because
- * `setRoles` is typically called from an admin UI and a hard error
- * for "one of these 65 roles is the 65th" surprises users; the
- * trimmed list still reflects the intent.
- */
+/** Bounds for `roles: string[]` on `addMember` + `setRoles`; silent per-entry filter, no throw. */
 const ROLES_MAX_COUNT = 64
 const ROLE_MAX_LENGTH = 128
 
@@ -117,10 +94,6 @@ function sanitizeRoles(raw: unknown): string[] {
   return out
 }
 
-/**
- * Namespace merge for OrgsFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace OrgsFacet {
   // No flat type aliases for this facet (class-only public surface).
 }

@@ -9,11 +9,6 @@ import { getProfileString } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
 import type { Channel } from '../../core/types/channel'
 
-/**
- * Public surface for the SMTP channel. Every type lives inside the
- * namespace so consumers reach for `SmtpChannel.IConfig` /
- * `SmtpChannel.ITransporter` instead of a flat name.
- */
 export namespace SmtpChannel {
   /**
    * Subset of the nodemailer transporter API we depend on. Any
@@ -87,9 +82,6 @@ export class SmtpChannel implements Channel.IChannel {
    * can retry / escalate without exception escape.
    */
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
-    // cast-free email extraction - rejects non-string `email`
-    // (would otherwise have propagated into the SMTP `To:` header
-    // via the cast, with unpredictable downstream behavior).
     const to = getProfileString(input.identity.profile, 'email')
     if (!to) {
       return { ok: false, error: 'identity has no email; SmtpChannel cannot deliver' }

@@ -43,9 +43,7 @@ function anySignal(signals: AbortSignal[]): AbortSignal | undefined {
   }
   return ctrl.signal
 }
-/**
- * HTTP adapter integration types. Type-only namespace - zero bundle cost.
- */
+/** HTTP adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace Http {
   /**
    * Describes the configuration for {@link HttpAdapter}.
@@ -196,7 +194,7 @@ function _isPrivateHost(hostname: string): boolean {
       if (dotted) return _isPrivateHost(dotted)
       return false
     }
-    // IPv4-compatible IPv6 (deprecated RFC4291 §2.5.5.1) - `::a.b.c.d`.
+    // IPv4-compatible IPv6 (deprecated RFC4291 section 2.5.5.1) - `::a.b.c.d`.
     // Node canonicalises these to hex too, but cover textual form for
     // completeness.
     if (lower.startsWith('::') && lower.includes('.')) {
@@ -233,20 +231,7 @@ function _isPrivateHost(hostname: string): boolean {
   return false
 }
 
-/**
- * Normalise a hostname for allowlist comparison.
- *
- * - Lower-cases.
- * - Strips a single trailing FQDN dot (`example.com.` -> `example.com`).
- * - Converts a Unicode hostname (anything outside ASCII) to its WHATWG-URL
- *   punycode form by round-tripping through `new URL`. Node's `URL` parser
- *   already returns the `xn--` form for `parsed.hostname`, so this only
- *   matters when an `allowedHosts` entry was authored in Unicode (e.g.
- *   `münchen.de`) while the URL host is `xn--mnchen-3ya.de`.
- *
- * Invalid input falls back to the lowercased + dot-stripped string so a
- * malformed allowlist entry never silently widens the match.
- */
+/** Lowercase, strip trailing FQDN dot, IDN -> punycode via `new URL`; invalid input falls back to lowercased input. */
 function _normaliseHostForAllowlist(host: string): string {
   let h = host.toLowerCase()
   if (h.endsWith('.')) h = h.slice(0, -1)

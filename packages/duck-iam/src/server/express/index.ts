@@ -40,9 +40,7 @@ interface ExpressRouterLike {
   delete(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
 }
 
-/**
- * Express server integration types. Type-only namespace - zero bundle cost.
- */
+/** Express server integration types. Type-only namespace - zero bundle cost. */
 export namespace Express {
   /**
    * Describes options for {@link accessMiddleware} and {@link guard}.
@@ -78,9 +76,7 @@ export namespace Express {
    */
   export type IAdminAuthorize = (req: Req) => boolean | Promise<boolean>
 
-  /**
-   * Describes options for {@link adminRouter}. `authorize` is required.
-   */
+  /** Describes options for {@link adminRouter}. `authorize` is required. */
   export interface IAdminRouterOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize

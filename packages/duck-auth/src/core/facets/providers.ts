@@ -56,10 +56,6 @@ export class ProvidersFacet<Profile = unknown> {
   }
 }
 
-/**
- * Namespace merge for ProvidersFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace ProvidersFacet {
   // No flat type aliases for this facet (class-only public surface).
 }

@@ -16,10 +16,6 @@ const DISCORD_ENDPOINTS: OAuthClient.IEndpoints = {
   revocationEndpoint: 'https://discord.com/api/oauth2/token/revoke',
 }
 
-/**
- * Public surface for the Discord OAuth provider. Every type lives
- * inside the namespace.
- */
 export namespace DiscordOAuth {
   /** Discord-specific options. */
   export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
@@ -28,9 +24,7 @@ export namespace DiscordOAuth {
   }
 }
 
-/**
- * Discord OAuth 2.0 provider factory.
- */
+/** Discord OAuth 2.0 provider factory. */
 export function discord<Profile = unknown>(
   opts: DiscordOAuth.IOptions<Profile>,
 ): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {

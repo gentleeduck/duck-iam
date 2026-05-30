@@ -4,29 +4,11 @@ import type { DataAtRest } from '../types/dataAtRest'
 import type { Kms } from '../types/kms'
 
 /**
- * Envelope-encryption `DataAtRest.IAdapter` driven by any
- * `Kms.IProvider`. Each call to `encrypt` requests a fresh DEK from
- * the KMS, encrypts the plaintext locally with AES-256-GCM, and
- * stores both the wrapped DEK and the ciphertext together. `decrypt`
- * unwraps the DEK via the KMS and runs the AES-GCM inverse locally.
+ * Envelope-encryption `DataAtRest.IAdapter` driven by any `Kms.IProvider`.
+ * Per-record DEK + AES-256-GCM locally; `{identityId, field}` is pinned in
+ * the KMS encryption context (AAD) to defeat ciphertext relocation.
  *
- * This is the production path documented in DESIGN §1 ("KMS adapters
- * via contract"). For dev / low-throughput / no-KMS deployments,
- * `AesGcmDataAtRest` remains the reference implementation.
- *
- * Ciphertext layout (versioned with `kms-env$v1`):
- *
- *     kms-env$v1$<keyId>$<wrappedB64u>$<ivB64u>$<tagB64u>$<ctB64u>
- *
- * The `keyId` is whatever the provider returns from `generateDataKey`
- * and is informational only - `decryptDataKey` is what actually
- * resolves the DEK (and many KMSes can do that across rotations).
- *
- * The encryption context passed to the KMS includes
- * `{identityId, field}` so the KMS itself enforces that a wrapped
- * DEK can only be unwrapped for the same record it was generated
- * for. This is the *AAD pin* that protects against ciphertext
- * relocation attacks across rows.
+ * Ciphertext layout: `kms-env$v1$<keyId>$<wrappedB64u>$<ivB64u>$<tagB64u>$<ctB64u>`.
  */
 export class KmsEnvelopeDataAtRest implements DataAtRest.IAdapter {
   readonly id: string
@@ -107,9 +89,6 @@ export class KmsEnvelopeDataAtRest implements DataAtRest.IAdapter {
   }
 }
 
-/**
- * Namespace merge for KmsEnvelopeDataAtRest.
- */
 export namespace KmsEnvelopeDataAtRest {
   export interface IConfig {
     kms: Kms.IProvider

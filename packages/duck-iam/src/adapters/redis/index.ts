@@ -1,9 +1,7 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 
-/**
- * Redis adapter integration types. Type-only namespace - zero bundle cost.
- */
+/** Redis adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace Redis {
   /**
    * Describes the minimal Redis client surface used by {@link RedisAdapter}.
@@ -24,23 +22,11 @@ export namespace Redis {
     sadd(key: string, ...members: string[]): Promise<number>
     srem(key: string, ...members: string[]): Promise<number>
     smembers(key: string): Promise<string[]>
-    /**
-     * Optional Lua EVAL surface for cross-process atomic read-modify-write
-     * on assignments. When present, the adapter uses Lua for migration;
-     * when absent, falls back to the single-process `_runSerialised` chain
-     * (still correct for single-process deployments).
-     *
-     * Both ioredis (`eval(script, keysLen, ...keysAndArgs)`) and node-redis
-     * v4+ implement this signature shape when invoked with a pre-flattened
-     * `[script, numkeys, ...keys, ...args]`. The library targets the ioredis
-     * positional shape; node-redis users can wrap with an adapter.
-     */
+    /** Optional Lua EVAL for cross-process atomic RMW on assignments; targets ioredis positional shape. */
     eval?(script: string, numkeys: number, ...keysAndArgs: string[]): Promise<unknown>
   }
 
-  /**
-   * Describes the configuration required to construct a {@link RedisAdapter}.
-   */
+  /** Describes the configuration required to construct a {@link RedisAdapter}. */
   export interface IConfig {
     /** Provides the Redis client instance (ioredis, node-redis v4+, or compatible). */
     client: ILike
@@ -57,27 +43,13 @@ export namespace Redis {
 }
 
 /**
- * Persists the access store inside Redis using hashes and sets.
- *
- * Storage layout (with optional `keyPrefix`):
- * - `${prefix}policies` hash: policyId -> JSON(policy)
- * - `${prefix}roles` hash: roleId -> JSON(role)
- * - `${prefix}assignments:${id}` set: members are `roleId\x00scope` (NUL byte separator)
- * - `${prefix}attrs:${subjectId}` string: JSON(attributes)
- *
- * Suited to distributed deployments needing shared state. Pair with the
- * engine's LRU cache for hot reads.
+ * Redis-backed adapter using hashes + sets. Layout (with `keyPrefix`):
+ * `${p}policies` (hash), `${p}roles` (hash), `${p}assignments:${id}` (set: `roleId\x00scope`), `${p}attrs:${id}` (JSON).
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
- * @example
- * ```ts
- * import Redis from 'ioredis'
- * const adapter = new RedisAdapter({ client: new Redis(), keyPrefix: 'iam:' })
- * await adapter.savePolicy(policy)
- * ```
  */
 export class RedisAdapter<
   TAction extends string = string,
@@ -289,18 +261,7 @@ export class RedisAdapter<
     })
   }
 
-  /**
-   * Cross-process atomic migration via Redis EVAL. Lua scripts run
-   * atomically in Redis - no other command interleaves between the SADD
-   * and SREM, so a concurrent `revokeRole` from a sibling process cannot
-   * resurrect an assignment. Requires `client.eval` (ioredis, node-redis
-   * v4+); falls back to single-process serialisation when absent.
-   *
-   * Script semantics: for each legacy member in ARGV, decode (split on
-   * space) into role + scope, re-encode (NUL separator), SADD the migrated
-   * form, SREM the legacy form. ARGV format is pairs `[migratedMember,
-   * legacyMember]` so the adapter does the encode/decode in JS.
-   */
+  /** Cross-process atomic legacy-assignment migration via Redis EVAL; ARGV pairs `[migrated, legacy]`. */
   private static readonly _MIGRATE_LUA = `
     local key = KEYS[1]
     for i = 1, #ARGV, 2 do

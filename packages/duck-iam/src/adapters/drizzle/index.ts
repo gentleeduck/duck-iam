@@ -1,9 +1,7 @@
 import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 
-/**
- * Row shapes returned by Drizzle queries.
- */
+/** Row shapes returned by Drizzle queries. */
 interface PolicyRow {
   id: string
   name: string
@@ -38,12 +36,23 @@ interface AttrRow {
   data: string | unknown
 }
 
-/**
- * Drizzle adapter integration types. Type-only namespace - zero bundle cost.
- */
+/** Drizzle adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace Drizzle {
   /**
    * Describes the wiring required to instantiate a {@link DrizzleAdapter}.
+   *
+   * @example
+   * ```ts
+   * import { drizzle } from 'drizzle-orm/node-postgres'
+   * import { eq, and } from 'drizzle-orm'
+   * import { accessPolicies, accessRoles, accessAssignments, accessSubjectAttrs } from './schema'
+   *
+   * const config: Drizzle.IConfig = {
+   *   db: drizzle(pool),
+   *   tables: { policies: accessPolicies, roles: accessRoles, assignments: accessAssignments, attrs: accessSubjectAttrs },
+   *   ops: { eq, and },
+   * }
+   * ```
    */
   export interface IConfig {
     /** Provides the Drizzle database instance with select/insert/delete builders. */
@@ -98,21 +107,21 @@ interface DrizzleInsert {
 }
 
 /**
- * Persists the access store via Drizzle ORM queries.
- *
- * Requires four tables (policies, roles, assignments, subject attributes). JSON
- * columns (rules, permissions, targets, metadata) are serialized on write and
- * parsed on read automatically.
+ * Drizzle-backed adapter; needs 4 tables (policies, roles, assignments, subject attributes) and `{ eq, and }` ops.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
+ *
  * @example
  * ```ts
  * import { drizzle } from 'drizzle-orm/node-postgres'
  * import { eq, and } from 'drizzle-orm'
+ * import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+ *
  * const adapter = new DrizzleAdapter({ db: drizzle(pool), tables, ops: { eq, and } })
+ * const engine = new Engine({ adapter })
  * ```
  */
 export class DrizzleAdapter<

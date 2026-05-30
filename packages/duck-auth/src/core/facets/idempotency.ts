@@ -151,10 +151,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
 }
 
-/**
- * Namespace merge for IdempotencyFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace IdempotencyFacet {
   export interface IConfig {
     /** TTL for cached responses, ms. Default 24 hours per RFC draft. */

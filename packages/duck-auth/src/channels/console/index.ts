@@ -5,11 +5,6 @@
 
 import type { Channel } from '../../core/types/channel'
 
-/**
- * Public surface for the console channel. Every type lives inside the
- * namespace so consumers reach for `ConsoleChannel.IConfig` /
- * `ConsoleChannel.ISink` instead of a flat name.
- */
 export namespace ConsoleChannel {
   /**
    * Sink function signature. Default writes to process.stdout via
@@ -83,9 +78,7 @@ export class NoopChannel implements Channel.IChannel {
     this.id = cfg.id ?? 'noop'
   }
 
-  /**
-   * Drop the send on the floor. Always returns ok with a stub message id.
-   */
+  /** Drop the send on the floor. Always returns ok with a stub message id. */
   async send(_input: Channel.SendInput): Promise<Channel.SendResult> {
     return { ok: true, providerMessageId: `noop:${Date.now()}` }
   }

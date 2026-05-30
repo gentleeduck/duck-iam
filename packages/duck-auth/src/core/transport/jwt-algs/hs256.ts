@@ -1,7 +1,4 @@
-/**
- * HS256: HMAC-SHA256 sign + constant-time verify.
- */
-
+/** HS256: HMAC-SHA256 sign + constant-time verify. */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
 export function signHs256(key: string, signingInput: string): string {

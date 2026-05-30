@@ -39,9 +39,7 @@ interface NestExecutionContext {
 /** Metadata key for the @Authorize decorator. */
 export const ACCESS_METADATA_KEY = 'duck-iam:authorize'
 
-/**
- * NestJS server integration types. Type-only namespace - zero bundle cost.
- */
+/** NestJS server integration types. Type-only namespace - zero bundle cost. */
 export namespace Nest {
   /**
    * Describes the metadata payload attached by the {@link Authorize} decorator.
@@ -85,14 +83,10 @@ export namespace Nest {
     onError?: (err: Error, request: NestRequest) => boolean
   }
 
-  /**
-   * Required guard callback for the admin controller methods.
-   */
+  /** Required guard callback for the admin controller methods. */
   export type IAdminAuthorize = (request: NestRequest) => boolean | Promise<boolean>
 
-  /**
-   * Describes options for {@link createAdminOperations}. `authorize` is required.
-   */
+  /** Describes options for {@link createAdminOperations}. `authorize` is required. */
   export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin operation. */
     authorize: IAdminAuthorize

@@ -1,10 +1,6 @@
 import type { Limiter } from '../../core/types/limiter'
 import type { RedisLike } from './redis-like'
 
-/**
- * Public surface for the Redis-backed limiter. Every type lives inside
- * the namespace.
- */
 export namespace RedisLimiter {
   /** Config knobs for {@link RedisLimiter}. */
   export interface IConfig {
@@ -70,9 +66,7 @@ export class RedisLimiter implements Limiter.ILimiter {
     return { ok: true, remaining: Math.max(0, this._max - count), resetAt }
   }
 
-  /**
-   * Drop a bucket. Used by tests + explicit unlock paths.
-   */
+  /** Drop a bucket. Used by tests + explicit unlock paths. */
   async reset(key: string): Promise<void> {
     await this._redis.del(this._k(key))
   }

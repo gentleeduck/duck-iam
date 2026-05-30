@@ -191,24 +191,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     await this.plugins.install(this, plugin)
   }
 
-  /**
-   * Boot-time strict validation. Throws `AUTH/MISCONFIGURED` if any
-   * production footgun is detected
-   *
-   * Checks (production only):
-   *  - Limiter wired (no NoopLimiter)
-   *  - CookieTransport with secure: true
-   *  - Memory adapter rejected (use redis/drizzle/prisma in prod)
-   *  - At least one provider registered
-   *  - When passwords provider registered, hasher must NOT be the default
-   *    scrypt (compliance presets need Argon2id - emit warning in v0.1
-   *    until Argon2 hasher ships; non-blocking yet)
-   *  - Mailer required when magic-link / password-reset capabilities exist
-   *    (caller decides based on registered providers; library can't see
-   *    the channel registry from here - operators wire the check at
-   *    construction time)
-   *  - At least one `lockout` event handler subscribed
-   */
+  /** Boot-time strict validation; throws `AUTH/MISCONFIGURED` on any production footgun. */
   strict(opts: { env: 'development' | 'production' | 'test' }): void {
     if (opts.env !== 'production') return
 
@@ -297,10 +280,6 @@ export class NoopLimiter implements LimiterNs.ILimiter {
   async reset(_key: string): Promise<void> {}
 }
 
-/**
- * Namespace merge for `AuthRoot`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- */
 export namespace AuthRoot {
   export interface IConfig<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     baseUrl: string

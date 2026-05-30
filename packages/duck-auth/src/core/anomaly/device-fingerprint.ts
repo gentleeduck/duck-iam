@@ -1,20 +1,8 @@
-/**
- * Device-fingerprint anomaly detector. Emits a `new-device` signal
- * the first time an identity is seen with a particular UA + IP
- * subnet + (optional) accept-language tuple.
- *
- * Why not the full Session.fingerprint? Session-level fingerprint is
- * for hijack detection within a single session; this detector tracks
- * the cross-session set of devices an identity has used so a NEW
- * device can prompt step-up MFA.
- */
+/** Device-fingerprint detector: emit `new-device` on first sight of (identity, ua+ipSubnet). */
 
 import type { Anomaly } from '../types/anomaly'
 
-/**
- * Reference in-memory `DeviceFingerprintStore`. Single-process; tests
- * + dev use this. Production wires Redis-backed implementation.
- */
+/** Reference in-memory device-fingerprint store; production wires Redis. */
 export class MemoryDeviceFingerprintStore implements DeviceFingerprint.IStore {
   private readonly _known = new Map<string, Set<string>>()
 
@@ -42,16 +30,12 @@ export class MemoryDeviceFingerprintStore implements DeviceFingerprint.IStore {
   }
 }
 
-/**
- * Default fingerprint composer: sha-256 of `${ua}|${ipSubnet}` where
- * the IP subnet is the /24 (IPv4) or /48 (IPv6) prefix. Coarse on
- * purpose; we want roaming inside a household / coffee shop to not
- * flip the signal, but a different country / ISP to flip it.
- */
+/** sha256(`${ua}|${ipSubnet}`); /24 IPv4, /48 IPv6. Roaming-tolerant, ISP-sensitive. */
 function defaultCompose(req: Anomaly.RequestSnapshot, sha256: (s: string) => string): string | null {
   const ua = req.userAgent?.trim()
   const ip = req.ip
   if (!ua || !ip) return null
+  if (ua.length > 1024 || ip.length > 64) return null
   return sha256(`${ua}|${ipSubnet(ip)}`)
 }
 
@@ -64,18 +48,13 @@ function ipSubnet(ip: string): string {
   return `${expandIpv6(ip).split(':').slice(0, 3).join(':')}::`
 }
 
-/** Expand a compressed IPv6 address (`::1`, `2001:db8::1`, etc) to its
- * canonical 8-hextet form, with each hextet zero-padded to 4 chars.
- * Returns the input unchanged when expansion fails (legacy IPv4-mapped
- * notations etc) - the consumer hashes the result so a partial expand
- * still groups consistently. */
+/** Expand a compressed IPv6 (`::1`) to its 8-hextet padded form; returns input on parse failure. */
 function expandIpv6(addr: string): string {
   const idx = addr.indexOf('::')
   const parts =
     idx === -1
       ? addr.split(':')
       : (() => {
-          // Cast-free split-on-first-occurrence; slice is always `string`.
           const head = addr.slice(0, idx)
           const tail = addr.slice(idx + 2)
           const headParts = head ? head.split(':') : []
@@ -95,7 +74,6 @@ function expandIpv6(addr: string): string {
  */
 export function deviceFingerprintDetector(cfg: DeviceFingerprint.IConfig): Anomaly.IDetector {
   const score = cfg.score ?? 0.7
-  // Reject NaN/Infinity score; NaN > threshold == false (permissive bypass).
   if (!Number.isFinite(score) || score < 0 || score > 1) {
     throw new Error(`deviceFingerprintDetector: score must be a finite number in [0, 1] (got ${score})`)
   }
@@ -128,9 +106,6 @@ export function deviceFingerprintDetector(cfg: DeviceFingerprint.IConfig): Anoma
   }
 }
 
-/**
- * Namespace merge for the new-device detector exports.
- */
 export namespace DeviceFingerprint {
   export interface IConfig {
     /**

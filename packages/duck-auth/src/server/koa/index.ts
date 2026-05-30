@@ -16,6 +16,7 @@ import {
   errorToHttp,
   executeIntents,
   extractSetCookies,
+  isValidProviderId,
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
@@ -52,9 +53,7 @@ function handleError(err: unknown, ctx: KoaAdapter.IContext): void {
   ctx.body = JSON.stringify(body)
 }
 
-/**
- * Koa handler for the sign-in route.
- */
+/** Koa handler for the sign-in route. */
 export function koaSignIn(auth: AuthRoot): KoaAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -70,9 +69,7 @@ export function koaSignIn(auth: AuthRoot): KoaAdapter.IHandler {
   }
 }
 
-/**
- * Koa handler for sign-out.
- */
+/** Koa handler for sign-out. */
 export function koaSignOut(auth: AuthRoot): KoaAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -89,9 +86,7 @@ export function koaSignOut(auth: AuthRoot): KoaAdapter.IHandler {
   }
 }
 
-/**
- * Koa handler for the session-introspection route.
- */
+/** Koa handler for the session-introspection route. */
 export function koaSession(auth: AuthRoot): KoaAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -107,14 +102,12 @@ export function koaSession(auth: AuthRoot): KoaAdapter.IHandler {
   }
 }
 
-/**
- * Koa handler for the per-provider begin step.
- */
+/** Koa handler for the per-provider begin step. */
 export function koaProviderBegin(auth: AuthRoot): KoaAdapter.IHandler {
   return async (ctx) => {
     try {
       const id = ctx.params?.id
-      if (!id) {
+      if (!isValidProviderId(id)) {
         await forward(executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }]), ctx)
         return
       }
@@ -131,9 +124,6 @@ export function koaProviderBegin(auth: AuthRoot): KoaAdapter.IHandler {
   }
 }
 
-/**
- * Namespace merge for `KoaAdapter`.
- */
 export namespace KoaAdapter {
   export type IHandler = (ctx: KoaAdapter.IContext) => Promise<void>
 

@@ -25,7 +25,11 @@ export async function requestEmailVerification<Profile>(
     return { ok: true }
   }
 
-  const channel = opts.channel ?? 'email'
+  const requestedChannel = opts.channel ?? 'email'
+  const channel: 'email' | 'sms' | 'webpush' =
+    requestedChannel === 'email' || requestedChannel === 'sms' || requestedChannel === 'webpush'
+      ? requestedChannel
+      : 'email'
   const channelImpl = opts.channels[channel]
   if (!channelImpl) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {

@@ -58,24 +58,26 @@ export class AuthErrorObject<C extends AuthErrorObject.IAuthErrorCode = AuthErro
 
   /** Wire-safe envelope for response bodies - never leaks `meta` keys flagged sensitive. */
   toJSON(): { code: C; status: number } & Record<string, unknown> {
-    // Filter sensitive meta keys at the serialisation boundary so the
-    // wire contract holds even when callers attach secrets to meta.
-    const safeMeta: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(this.meta)) {
-      if (SENSITIVE_META_KEYS.has(k.toLowerCase())) continue
-      safeMeta[k] = v
-    }
+    const safeMeta = scrubSensitive(this.meta) as Record<string, unknown>
     return { code: this.code, status: this.status, ...safeMeta }
   }
 }
 
-/**
- * denylist of `meta` keys that must never reach the HTTP wire via
- * `AuthErrorObject.toJSON()`. Lower-cased before lookup so common
- * variations (`Password`, `SECRET`, etc.) are also filtered. The list
- * is conservative - additions are free, removals require re-auditing
- * every callsite that attached the key.
- */
+function scrubSensitive(value: unknown, depth = 0): unknown {
+  if (depth > 8) return '[depth-cap]'
+  if (Array.isArray(value)) return value.map((v) => scrubSensitive(v, depth + 1))
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) {
+      if (SENSITIVE_META_KEYS.has(k.toLowerCase())) continue
+      out[k] = scrubSensitive(v, depth + 1)
+    }
+    return out
+  }
+  return value
+}
+
+/** Lower-cased meta keys stripped from `toJSON()` output. */
 const SENSITIVE_META_KEYS: ReadonlySet<string> = new Set([
   'secret',
   'password',
@@ -92,10 +94,6 @@ const SENSITIVE_META_KEYS: ReadonlySet<string> = new Set([
   'tokenhash',
 ])
 
-/**
- * Namespace merge for `AuthErrorObject`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- */
 export namespace AuthErrorObject {
   export type IAuthError =
     | { code: 'AUTH/UNAUTHENTICATED'; status: 401 }

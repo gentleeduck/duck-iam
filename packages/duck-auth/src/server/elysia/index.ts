@@ -12,7 +12,7 @@
  */
 
 import type { AuthRoot } from '../../core/auth'
-import { errorToHttp, executeIntents, parseProviderBeginBody, parseSignInBody } from '../generic'
+import { errorToHttp, executeIntents, isValidProviderId, parseProviderBeginBody, parseSignInBody } from '../generic'
 
 function handleError(err: unknown): Response {
   const { status, body } = errorToHttp(err)
@@ -22,9 +22,7 @@ function handleError(err: unknown): Response {
   })
 }
 
-/**
- * Elysia handler for the sign-in route.
- */
+/** Elysia handler for the sign-in route. */
 export function elysiaSignIn(auth: AuthRoot): ElysiaAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -40,9 +38,7 @@ export function elysiaSignIn(auth: AuthRoot): ElysiaAdapter.IHandler {
   }
 }
 
-/**
- * Elysia handler for sign-out.
- */
+/** Elysia handler for sign-out. */
 export function elysiaSignOut(auth: AuthRoot): ElysiaAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -56,9 +52,7 @@ export function elysiaSignOut(auth: AuthRoot): ElysiaAdapter.IHandler {
   }
 }
 
-/**
- * Elysia handler for the session-introspection route.
- */
+/** Elysia handler for the session-introspection route. */
 export function elysiaSession(auth: AuthRoot): ElysiaAdapter.IHandler {
   return async (ctx) => {
     try {
@@ -76,14 +70,12 @@ export function elysiaSession(auth: AuthRoot): ElysiaAdapter.IHandler {
   }
 }
 
-/**
- * Elysia handler for the per-provider begin step.
- */
+/** Elysia handler for the per-provider begin step. */
 export function elysiaProviderBegin(auth: AuthRoot): ElysiaAdapter.IHandler {
   return async (ctx) => {
     try {
       const id = ctx.params?.id
-      if (!id) {
+      if (!isValidProviderId(id)) {
         return executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
       }
       const body = parseProviderBeginBody(ctx.body)
@@ -98,9 +90,6 @@ export function elysiaProviderBegin(auth: AuthRoot): ElysiaAdapter.IHandler {
   }
 }
 
-/**
- * Namespace merge for `ElysiaAdapter`.
- */
 export namespace ElysiaAdapter {
   export type IHandler = (ctx: ElysiaAdapter.IContext) => Promise<Response>
 

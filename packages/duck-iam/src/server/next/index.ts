@@ -24,9 +24,7 @@ type RouteContext = { params: Promise<Record<string, string>> | Record<string, s
 /** Next.js App Router route handler signature. */
 type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response>
 
-/**
- * Next.js server integration types. Type-only namespace - zero bundle cost.
- */
+/** Next.js server integration types. Type-only namespace - zero bundle cost. */
 export namespace Next {
   /**
    * Describes options for {@link withAccess}.
@@ -85,9 +83,7 @@ export namespace Next {
    */
   export type IAdminAuthorize = (req: Request) => boolean | Promise<boolean>
 
-  /**
-   * Describes options for {@link createAdminHandlers}. `authorize` is required.
-   */
+  /** Describes options for {@link createAdminHandlers}. `authorize` is required. */
   export interface IAdminOptions extends AdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize

@@ -16,10 +16,6 @@ const LINKEDIN_ENDPOINTS: OAuthClient.IEndpoints = {
   userinfoEndpoint: 'https://api.linkedin.com/v2/userinfo',
 }
 
-/**
- * Public surface for the LinkedIn OAuth provider. Every type lives
- * inside the namespace.
- */
 export namespace LinkedInOAuth {
   /** LinkedIn-specific options. */
   export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
@@ -28,9 +24,7 @@ export namespace LinkedInOAuth {
   }
 }
 
-/**
- * LinkedIn OIDC provider factory.
- */
+/** LinkedIn OIDC provider factory. */
 export function linkedin<Profile = unknown>(
   opts: LinkedInOAuth.IOptions<Profile>,
 ): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {

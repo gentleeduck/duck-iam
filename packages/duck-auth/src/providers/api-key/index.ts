@@ -2,10 +2,6 @@ import { AuthErrorObject } from '../../core/errors'
 import type { ApiKeysFacet } from '../../core/facets/apikeys'
 import type { Provider } from '../../core/types/provider'
 
-/**
- * Public surface for the api-key provider. Every type lives inside
- * the namespace.
- */
 export namespace ApiKeyProvider {
   /** Config knobs for {@link apiKey}. */
   export interface IOptions {
@@ -74,7 +70,6 @@ export function apiKey<Profile = unknown>(
       if (opts.requireScopes && opts.requireScopes.length > 0) {
         opts.apiKeys.requireScopes(verified.scopes, opts.requireScopes)
       }
-      void verified.keyId
       return [
         {
           type: 'startSession',

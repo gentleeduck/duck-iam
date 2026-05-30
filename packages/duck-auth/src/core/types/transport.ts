@@ -21,17 +21,7 @@ export namespace Transport {
     fresh: boolean
     /** Whether the absolute TTL is being hit (forces re-auth instead of refresh). */
     absolute: boolean
-    /**
-     * Space-separated OAuth-style scope string to embed in the issued
-     * bearer. JwtTransport copies this into the JWT's `scope` claim so
-     * resource servers can authorize without a separate scope lookup.
-     * CookieTransport ignores it (the session row carries scope state
-     * out-of-band).
-     *
-     * Used by `M2MFacet.exchange` to project the granted scope set onto
-     * the wire; without this, `scopeMode: intersect/strict` is
-     * bookkeeping only.
-     */
+    /** OAuth-style scope string embedded in the bearer (JWT `scope` claim); CookieTransport ignores. */
     scope?: string
     /**
      * Plaintext CSRF token to emit alongside the session cookie. Minted

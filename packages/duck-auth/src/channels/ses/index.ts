@@ -7,10 +7,6 @@ import { getProfileString } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
 import type { Channel } from '../../core/types/channel'
 
-/**
- * Public surface for the SES channel. Every type lives inside the
- * namespace.
- */
 export namespace SesChannel {
   /** Subset of the SES v3 SDK we depend on. */
   export interface IClient {
@@ -78,9 +74,7 @@ export class SesChannel implements Channel.IChannel {
     this.id = cfg.id ?? 'ses'
   }
 
-  /**
-   * Render the template, build a SendEmailCommand, hand to SES.
-   */
+  /** Render the template, build a SendEmailCommand, hand to SES. */
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     const to = getProfileString(input.identity.profile, 'email')
     if (!to) {

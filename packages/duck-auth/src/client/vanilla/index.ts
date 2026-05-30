@@ -1,9 +1,7 @@
 import type { Identity } from '../../core/types/identity'
 import type { Session } from '../../core/types/session'
 
-/**
- * `createAuthClient`.
- */
+/** `createAuthClient`. */
 export function createAuthClient<Profile = unknown>(cfg: VanillaClient.IConfig = {}): VanillaClient.IClient<Profile> {
   const baseUrl = (cfg.baseUrl ?? '/auth').replace(/\/$/, '')
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)
@@ -20,7 +18,6 @@ export function createAuthClient<Profile = unknown>(cfg: VanillaClient.IConfig =
       try {
         fn(state)
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error('[@gentleduck/auth/client/vanilla] observer threw:', err)
       }
     }
@@ -85,10 +82,6 @@ export function createAuthClient<Profile = unknown>(cfg: VanillaClient.IConfig =
   }
 }
 
-/**
- * Namespace merge for VanillaClient. Co-locates the config + input +
- * output shapes via TS namespace declaration.
- */
 export namespace VanillaClient {
   export interface IConfig {
     /** Mount point on the server. Default `/auth`. */

@@ -171,8 +171,6 @@ export function createDrizzlePgAuthBridge<const TSchema extends Record<string, u
         await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
-        // see findByProviderSub comment - drop `sql.raw` so
-        // `providerId` / `providerSub` are parameterized, not raw.
         const newLink = JSON.stringify([{ providerId, providerSub, addedAt }])
         await db.execute(
           sql`update ${identitiesTable}
@@ -328,28 +326,9 @@ export function createDrizzlePgAuthBridge<const TSchema extends Record<string, u
 }
 
 /**
- * Storage helper that folds `Pool -> drizzle -> bridge -> stores` into
- * a single call. Returns the `{ identities, sessions, credentials }`
- * triple ready for {@link defineAuth} (or `AuthRoot.stores` directly).
+ * Storage helper folding `Pool -> drizzle -> bridge -> stores`. Accepts connection string, `pg.Pool`, or `NodePgDatabase`.
  *
- * Accepts either a connection-string, an existing `pg.Pool`, or a
- * pre-constructed `NodePgDatabase`. Each branch picks up the right
- * shape without any user-side casting.
- *
- * @example
- * ```ts
- * import { drizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
- *
- * defineAuth({ storage: drizzlePgStorage(process.env.DATABASE_URL!), ... })
- * ```
- *
- * @example
- * ```ts
- * // Reuse an existing pool
- * import { Pool } from 'pg'
- * const pool = new Pool({ connectionString: ... })
- * defineAuth({ storage: drizzlePgStorage(pool), ... })
- * ```
+ * @template Profile - Identity profile shape.
  */
 export function drizzlePgStorage<const Profile>(
   input: string | NodePgPoolLike | NodePgDatabase,

@@ -16,6 +16,7 @@ import {
   errorToHttp,
   executeIntents,
   extractSetCookies,
+  isValidProviderId,
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
@@ -52,9 +53,7 @@ function handleError(err: unknown, reply: FastifyAdapter.IReply): FastifyAdapter
   return reply
 }
 
-/**
- * Fastify handler for the sign-in route.
- */
+/** Fastify handler for the sign-in route. */
 export function fastifySignIn(auth: AuthRoot): FastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
@@ -70,9 +69,7 @@ export function fastifySignIn(auth: AuthRoot): FastifyAdapter.IHandler {
   }
 }
 
-/**
- * Fastify handler for sign-out.
- */
+/** Fastify handler for sign-out. */
 export function fastifySignOut(auth: AuthRoot): FastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
@@ -86,9 +83,7 @@ export function fastifySignOut(auth: AuthRoot): FastifyAdapter.IHandler {
   }
 }
 
-/**
- * Fastify handler for the session-introspection route.
- */
+/** Fastify handler for the session-introspection route. */
 export function fastifySession(auth: AuthRoot): FastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
@@ -115,7 +110,7 @@ export function fastifyProviderBegin(auth: AuthRoot): FastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
       const id = req.params?.id
-      if (!id) {
+      if (!isValidProviderId(id)) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }]), reply)
       }
       const body = parseProviderBeginBody(req.body)
@@ -150,10 +145,6 @@ export function registerFastifyAuth(
   fastify.post(`${prefix}/providers/:id/begin`, fastifyProviderBegin(auth))
 }
 
-/**
- * Namespace merge for `FastifyAdapter`. Co-locates the loose handler
- * + request / reply shapes alongside the factories.
- */
 export namespace FastifyAdapter {
   export type IHandler = (
     req: FastifyAdapter.IRequest,

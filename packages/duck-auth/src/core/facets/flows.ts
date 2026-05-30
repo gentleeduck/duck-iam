@@ -384,10 +384,6 @@ function isProviderIdSafe(providerId: unknown): providerId is string {
   return typeof providerId === 'string' && providerId.length > 0 && providerId.length <= 128
 }
 
-/**
- * Namespace merge for FlowsFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace FlowsFacet {
   export interface IConfig {
     /** What `signIn` calls SessionsFacet.rotateOrCreate with by default. */

@@ -40,9 +40,7 @@ interface AuthContextValue<Profile = unknown> {
 
 const AuthContext = createContext<AuthContextValue<unknown> | null>(null)
 
-/**
- * `AuthProvider`.
- */
+/** `AuthProvider`. */
 export function AuthProvider(props: ReactClient.IProviderProps): ReturnType<typeof createElement> {
   const { children, client: externalClient, noInitialFetch, ...cfg } = props
   // biome-ignore lint/correctness/useExhaustiveDependencies: cfg is a destructured spread; only baseUrl matters for client identity.
@@ -90,9 +88,7 @@ function useAuthCtx<Profile = unknown>(): AuthContextValue<Profile> {
 
 // --- hooks ------------------------------------------------------------
 
-/**
- * `useSession`.
- */
+/** `useSession`. */
 export function useSession<Profile = unknown>(): ReactClient.IUseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, status: ctx.status, refresh: ctx.refresh }
@@ -119,9 +115,7 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): ReactClient.IMutationR
   return { mutate, loading, error }
 }
 
-/**
- * `useSignIn`.
- */
+/** `useSignIn`. */
 export function useSignIn<Profile = unknown>(): ReactClient.IMutationResult<
   VanillaClient.ISignInOptions,
   VanillaClient.ISignInResult<Profile>
@@ -130,33 +124,23 @@ export function useSignIn<Profile = unknown>(): ReactClient.IMutationResult<
   return useMutation((opts: VanillaClient.ISignInOptions) => client.signIn(opts))
 }
 
-/**
- * `useSignOut`.
- */
+/** `useSignOut`. */
 export function useSignOut(): ReactClient.IMutationResult<void, { ok: true }> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
-/**
- * `useBeginProvider`.
- */
+/** `useBeginProvider`. */
 export function useBeginProvider(): ReactClient.IMutationResult<{ id: string; input?: unknown }, { body: unknown }> {
   const { client } = useAuthCtx()
   return useMutation(({ id, input }) => client.beginProvider(id, input))
 }
 
-/**
- * `useAuthClient`.
- */
+/** `useAuthClient`. */
 export function useAuthClient<Profile = unknown>(): VanillaClient.IClient<Profile> {
   return useAuthCtx<Profile>().client
 }
 
-/**
- * Namespace merge for ReactClient. Co-locates the config + input +
- * output shapes via TS namespace declaration.
- */
 export namespace ReactClient {
   export interface IProviderProps extends VanillaClient.IConfig {
     children?: ReactNode

@@ -14,55 +14,11 @@ import type { Session } from './types/session'
 import type { Transport } from './types/transport'
 
 /**
- * Friendly constructor that builds an {@link AuthRoot} from a flat
- * config: storage destructured, providers as an array of called
- * factories, channels grouped under one field, OAuth `stateSigningSecret`
- * hoisted to the root. Mirrors the duck-iam `defineRole(...).build()`
- * convention and the better-auth `betterAuth({ plugins: [...] })`
- * shape.
- *
- * Behavior:
- *
- * 1. **`storage`** - accepts the three-store triple produced by any
- *    storage helper (`memoryStorage()`, `drizzlePgStorage(...)`, etc.).
- *    Plugged into `AuthRoot.stores` verbatim.
- *
- * 2. **`providers`** - array of `Provider.IProvider | false | null |
- *    undefined`. Falsy entries are skipped so consumers can write
- *    `process.env.GOOGLE_CLIENT_ID && google({ ... })` without an
- *    extra `.filter(Boolean)`.
- *
- * 3. **`oauth.stateSigningSecret`** - currently informational; the
- *    OAuth provider factories still receive their own `stateSigningSecret`
- *    explicitly per-call. Recording it on the config lets future
- *    helper layers fill missing per-provider secrets without breaking
- *    today's call sites.
- *
- * 4. **`transport`** defaults to `new CookieTransport({ name:
- *    'duck-sid' })` when omitted.
- *
- * 5. **`hasher`** defaults to `new ScryptHasher()` (Node built-in,
- *    zero peerDep). Pass `argon2id()` for production.
- *
- * 6. **`limiter`** has no default - if omitted, `AuthRoot` uses its
- *    own internal `NoopLimiter` which `strict({ env: 'production' })`
- *    rejects. Wire `memoryLimiter()` for dev or a Redis-backed
- *    limiter for production.
- *
- * 7. **`plugins`** - array of `Plugin` objects; `auth.plugins.use(p)`
- *    is called for each.
- *
- * 8. **`strict`** - optional. When set to `'production'` etc., runs
- *    `auth.strict({ env })` at the end of construction so misconfig
- *    fails fast at boot rather than at first request.
+ * Friendly {@link AuthRoot} constructor from a flat config. Falsy entries in
+ * `providers` are skipped; `strict: 'production'` runs `auth.strict()` at boot.
  *
  * @example
  * ```ts
- * import { defineAuth } from '@gentleduck/auth/core'
- * import { drizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
- * import { cookieTransport, memoryLimiter, argon2id, consoleChannel } from '@gentleduck/auth/core'
- * import { password, magicLink, google, github, passkey } from '@gentleduck/auth/providers'
- *
  * export const auth = defineAuth({
  *   baseUrl: 'http://localhost:8787',
  *   storage: drizzlePgStorage(process.env.DATABASE_URL!),
@@ -70,12 +26,7 @@ import type { Transport } from './types/transport'
  *   limiter: memoryLimiter({ max: 30, windowMs: 60_000 }),
  *   hasher: argon2id(),
  *   channels: { email: consoleChannel() },
- *   providers: [
- *     password(),
- *     magicLink({ autoCreateIdentity: true }),
- *     process.env.GOOGLE_CLIENT_ID && google({ clientId, clientSecret, redirectUri, stateSigningSecret }),
- *     passkey({ rpID: 'localhost', rpName: 'demo' }),
- *   ],
+ *   providers: [password(), magicLink({ autoCreateIdentity: true })],
  *   strict: process.env.NODE_ENV === 'production' ? 'production' : 'development',
  * })
  * ```
@@ -127,20 +78,8 @@ export function defineAuth<Profile = unknown, Tenant = string, OrgMeta = unknown
   return auth
 }
 
-/**
- * Namespace merge for {@link defineAuth}. Holds the config shape.
- */
 export namespace DefineAuth {
-  /**
-   * A skipped-or-included provider entry. Any falsy value
-   * (`false | null | undefined | ''`) is silently dropped so
-   * consumers can write `process.env.X && google(...)` directly.
-   *
-   * Functions (thunks) receive the constructed `AuthRoot` so they
-   * can resolve `auth.passwords` / `auth.identities` etc. without
-   * the chicken-and-egg of needing the root before the array is
-   * defined. The thunk's return value may itself be falsy.
-   */
+  /** A skipped-or-included provider entry; falsy values dropped, thunks receive the constructed AuthRoot. */
   export type IProviderEntry<Profile> =
     | Provider.IProvider<unknown, unknown, Profile>
     | false

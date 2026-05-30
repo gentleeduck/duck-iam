@@ -523,9 +523,7 @@ function normalizeForwardedFor(raw: string | undefined): string | undefined {
   return trimmed
 }
 
-/**
- * Maps HTTP methods to default access actions used by the framework adapters.
- */
+/** Maps HTTP methods to default access actions used by the framework adapters. */
 export const METHOD_ACTION_MAP: Readonly<Record<string, string>> = {
   GET: 'read',
   HEAD: 'read',

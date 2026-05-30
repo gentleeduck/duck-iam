@@ -1,8 +1,3 @@
-/**
- * Public surface for the Redis-compatible client contract. Every type
- * lives inside the namespace so consumers reach for
- * `RedisLike.IClient` rather than a flat name.
- */
 export namespace RedisLike {
   /**
    * Minimal Redis interface the auth adapters consume. Both `ioredis`
@@ -57,9 +52,7 @@ export class FakeRedis implements RedisLike.IClient {
     }
   }
 
-  /**
-   * `RedisLike.get` substitute. Returns null on miss or after TTL elapsed.
-   */
+  /** `RedisLike.get` substitute. Returns null on miss or after TTL elapsed. */
   async get(key: string): Promise<string | null> {
     this._maybeExpire(key)
     return this._data.get(key)?.value ?? null
@@ -79,9 +72,7 @@ export class FakeRedis implements RedisLike.IClient {
     return 'OK'
   }
 
-  /**
-   * `RedisLike.del` variadic. Returns count of keys actually removed.
-   */
+  /** `RedisLike.del` variadic. Returns count of keys actually removed. */
   async del(...keys: string[]): Promise<number> {
     let deleted = 0
     for (const k of keys) {
@@ -126,9 +117,7 @@ export class FakeRedis implements RedisLike.IClient {
     return [nextCursor, matched]
   }
 
-  /**
-   * `RedisLike.incr` atomic increment. Creates the key at 1 when missing.
-   */
+  /** `RedisLike.incr` atomic increment. Creates the key at 1 when missing. */
   async incr(key: string): Promise<number> {
     this._maybeExpire(key)
     const entry = this._data.get(key)
@@ -141,9 +130,7 @@ export class FakeRedis implements RedisLike.IClient {
     return next
   }
 
-  /**
-   * `RedisLike.sadd` variadic. Returns count of new members.
-   */
+  /** `RedisLike.sadd` variadic. Returns count of new members. */
   async sadd(key: string, ...members: string[]): Promise<number> {
     let set = this._sets.get(key)
     if (!set) {
@@ -160,9 +147,7 @@ export class FakeRedis implements RedisLike.IClient {
     return added
   }
 
-  /**
-   * `RedisLike.srem` variadic. Returns count of removed members.
-   */
+  /** `RedisLike.srem` variadic. Returns count of removed members. */
   async srem(key: string, ...members: string[]): Promise<number> {
     const set = this._sets.get(key)
     if (!set) return 0
@@ -174,9 +159,7 @@ export class FakeRedis implements RedisLike.IClient {
     return removed
   }
 
-  /**
-   * `RedisLike.smembers`. Returns empty array when key missing.
-   */
+  /** `RedisLike.smembers`. Returns empty array when key missing. */
   async smembers(key: string): Promise<string[]> {
     return [...(this._sets.get(key) ?? [])]
   }

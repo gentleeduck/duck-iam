@@ -7,10 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import {
-  createDrizzleSqliteOidcOpStores,
-  gcDrizzleSqliteOidcOp,
-} from '../sqlite'
+import { createDrizzleSqliteOidcOpStores, gcDrizzleSqliteOidcOp } from '../sqlite'
 
 // biome-ignore lint/suspicious/noExplicitAny: globalThis.Bun is the canonical runtime probe
 const IS_BUN = typeof (globalThis as any).Bun !== 'undefined'
@@ -21,7 +18,9 @@ const onlyBun = IS_BUN ? describe : describe.skip
 async function makeStores() {
   // Dynamic require so vitest (under Node) never resolves bun:sqlite at all.
   // biome-ignore lint/suspicious/noExplicitAny: dynamic import of bun-only module
-  const { Database } = (await import('bun:sqlite' as any)) as { Database: new (path: string) => { exec(sql: string): void } }
+  const { Database } = (await import('bun:sqlite' as any)) as {
+    Database: new (path: string) => { exec(sql: string): void }
+  }
   const { drizzle } = await import('drizzle-orm/bun-sqlite')
   const sqlite = new Database(':memory:')
   sqlite.exec(`

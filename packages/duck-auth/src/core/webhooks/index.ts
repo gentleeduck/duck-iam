@@ -154,7 +154,6 @@ export class WebhookDeliverer {
     // Refuse oversize payloads at dispatch so a runaway event source can't
     // POST multi-MB bodies to every endpoint (would multiply outbound load).
     if (body.length > 1_048_576) {
-      // eslint-disable-next-line no-console
       console.error(`[@gentleduck/auth] webhook payload for "${name}" exceeds 1 MiB cap; dropping`)
       return false
     }
@@ -305,9 +304,6 @@ const EVERY_EVENT: Events.EventName[] = [
   'maintenance.off',
 ]
 
-/**
- * Namespace merge for the webhook surface.
- */
 export namespace WebhookDeliverer {
   export interface IConfig {
     endpoints: WebhookDeliverer.IEndpoint[]

@@ -19,25 +19,9 @@ import type { Credential } from '../types/credential'
  */
 const BACKUP_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
-/**
- * Generate a backup code of exactly `length` characters drawn from the
- * 32-char readable alphabet via **CSPRNG rejection sampling**.
- *
- * every character of the produced code is sourced from
- * `crypto.randomBytes`. The prior implementation used
- * `randomToken().charCodeAt() % alphabet.length` for the bulk of the
- * code (modulo-bias over a non-uniform input distribution) and
- * `Math.random()` to top off the last character (a predictable PRNG
- * whose internal state recovers from a handful of outputs). Combined,
- * those flaws reduced the nominal `32^8 ~ 40 bits` entropy to roughly
- * 30 bits effective - online-brute-forceable.
- *
- * Rejection sampling: a uniform `byte ∈ [0, 256)` yields a uniform
- * `byte % 32` ONLY for `byte < 224` (8 multiples of 32). Reject the
- * top 32 codepoints to eliminate modulo bias entirely.
- */
+/** CSPRNG-rejection-sampling backup code (no modulo bias) over a 32-char readable alphabet. */
 function generateBackupCode(_crypto: { randomToken(b: number): string }, length: number): string {
-  void _crypto // retained for the type contract; we go straight to the CSPRNG here
+  void _crypto
   let out = ''
   while (out.length < length) {
     // Over-sample so we rarely loop more than once even with rejection.
@@ -156,10 +140,6 @@ export class BackupCodesFacet {
   }
 }
 
-/**
- * Namespace merge for `BackupCodesFacet`. Co-locates the config alongside
- * the class via TS class+namespace merging.
- */
 export namespace BackupCodesFacet {
   export interface IConfig {
     /** Number of codes minted per call to `generate`. Default 10. */

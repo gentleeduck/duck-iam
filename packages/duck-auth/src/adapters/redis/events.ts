@@ -1,10 +1,6 @@
 import type { Events } from '../../core/types/events'
 import type { RedisLike } from './redis-like'
 
-/**
- * Public surface for the Redis pub/sub event bus. Every type lives
- * inside the namespace.
- */
 export namespace RedisEvents {
   /**
    * Redis-like client extended with pub/sub. Both `ioredis` and
@@ -112,7 +108,6 @@ export class RedisEvents implements Events.IBus {
       try {
         await handler(payload)
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error(`[@gentleduck/auth] RedisEvents listener for "${event}" threw:`, err)
       }
     }

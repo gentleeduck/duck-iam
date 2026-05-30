@@ -62,9 +62,7 @@ export class TurnstileVerifier implements Captcha.IVerifier {
   }
 }
 
-/**
- * hCaptcha verifier. Hits `https://api.hcaptcha.com/siteverify`.
- */
+/** hCaptcha verifier. Hits `https://api.hcaptcha.com/siteverify`. */
 export class HCaptchaVerifier implements Captcha.IVerifier {
   readonly id = 'hcaptcha'
   private readonly _secret: string
@@ -82,9 +80,7 @@ export class HCaptchaVerifier implements Captcha.IVerifier {
     this._endpoint = cfg.endpoint ?? 'https://api.hcaptcha.com/siteverify'
   }
 
-  /**
-   * Verify an hCaptcha token via the siteverify endpoint.
-   */
+  /** Verify an hCaptcha token via the siteverify endpoint. */
   async verify(input: Captcha.IVerifyInput): Promise<Captcha.IVerifyResult> {
     if (!input.token) return { success: false, errorCodes: ['missing-input-response'] }
     const body = new URLSearchParams({
@@ -193,15 +189,7 @@ export class NullCaptchaVerifier implements Captcha.IVerifier {
   }
 }
 
-/**
- * validators for siteverify provider responses. Captcha is a bot
- * defense - a malicious or buggy provider response must NOT silently
- * pass the gate. The previous `as { success: boolean; ... }` cast
- * trusted truthy non-boolean values: a provider returning
- * `{ success: "true" }` (string), `{ success: 1 }` (number), or even
- * `{ success: {} }` (object - truthy!) would have satisfied the
- * `success: parsed.success` assignment and propagated as success.
- */
+/** Validators for siteverify provider responses. */
 interface ParsedSiteVerifyBasic {
   success: boolean
   errorCodes?: string[]
@@ -262,9 +250,6 @@ function parseSiteVerifyRecaptchaV3(raw: unknown): ParsedSiteVerifyRecaptchaV3 |
   return out
 }
 
-/**
- * Namespace merge for the captcha surface.
- */
 export namespace Captcha {
   export interface IVerifier {
     readonly id: string

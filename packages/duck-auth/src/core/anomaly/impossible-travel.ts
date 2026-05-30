@@ -25,33 +25,23 @@ export function impossibleTravelDetector(opts: {
   config?: Partial<ImpossibleTravel.IConfig>
 }): Anomaly.IDetector {
   const cfg: ImpossibleTravel.IConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
-  // reject pathological maxKmPerHour at construction so the
-  // detector cannot silently turn into a permissive bypass.
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
     throw new Error(`impossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`)
   }
   return {
     id: 'impossible-travel',
     async evaluate({ identity, req }) {
-      // explicit `=== undefined` checks. Truthy `!req.geo?.lat`
-      // also rejected lat===0 (Equator), suppressing legit signals from
-      // West Africa / Gulf of Guinea; same for lon===0 (Prime Meridian).
+      // `=== undefined` (not truthy) so lat/lon=0 stays a valid signal.
       if (req.geo?.lat === undefined || req.geo?.lon === undefined) return []
-      // Number.isFinite refuses string/NaN/Infinity from a buggy geo resolver;
-      // would otherwise poison Math.sin / Math.cos and propagate NaN through
-      // haversine.
       if (!Number.isFinite(req.geo.lat) || !Number.isFinite(req.geo.lon)) return []
       const last = await opts.getLastSeen(identity.id)
       if (!last) return []
       if (!Number.isFinite(last.lat) || !Number.isFinite(last.lon) || !Number.isFinite(last.at)) return []
       const elapsedMs = req.now - last.at
-      // Negative elapsed (clock skew) would make negative speed <= max (bypass).
+      // Math.abs handles negative clock skew; otherwise negative speed <= max == bypass.
       if (Math.abs(elapsedMs) < cfg.minElapsedMs) return []
       const distanceKm = haversineKm({ lat: last.lat, lon: last.lon }, { lat: req.geo.lat, lon: req.geo.lon })
       const speedKmH = distanceKm / (Math.abs(elapsedMs) / 3_600_000)
-      // NaN / Infinity from upstream math bugs must NOT bypass.
-      // NaN <= anything is false -> fall-through default would emit a
-      // signal with score=Infinity; clamp to deny instead.
       if (!Number.isFinite(speedKmH)) return []
       if (speedKmH <= cfg.maxKmPerHour) return []
       const overshoot = speedKmH / cfg.maxKmPerHour
@@ -74,10 +64,6 @@ export function impossibleTravelDetector(opts: {
   }
 }
 
-/**
- * Namespace merge for ImpossibleTravel. Co-locates the config + input +
- * output shapes via TS namespace declaration.
- */
 export namespace ImpossibleTravel {
   export interface IConfig {
     /** Max speed (km/h) above which the gap counts as suspicious. Default 900. */

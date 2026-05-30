@@ -1,34 +1,7 @@
 import { AuthErrorObject } from '../errors'
 import type { Kms } from '../types/kms'
 
-/**
- * Reference `Kms.IProvider` for AWS KMS. Lazy-loads
- * `@aws-sdk/client-kms` so AWS SDK is an OPTIONAL peerDep - the rest
- * of duck-auth never pulls it in. Wire this into
- * `KmsEnvelopeDataAtRest` to get production-grade field-level
- * encryption against a real KMS.
- *
- * The two calls map onto the AWS API one-to-one:
- *   - `generateDataKey` -> `GenerateDataKey` with `KeySpec=AES_256`
- *   - `decryptDataKey`  -> `Decrypt`
- *
- * Encryption context is forwarded directly to AWS, which validates
- * it on Decrypt (CIPHER-MISMATCH on any drift). The default behavior
- * follows AWS' guidance - bind the wrapped DEK to the record it
- * protects so leaking a single ciphertext does not let an attacker
- * unwrap DEKs for other rows.
- *
- * Usage:
- *
- *     import { KmsClient } from '@aws-sdk/client-kms'
- *     const provider = new AwsKmsProvider({
- *       keyId: 'alias/duck-auth-data-at-rest',
- *       client: new KmsClient({ region: 'us-east-1' }),
- *     })
- *     const dataAtRest = new KmsEnvelopeDataAtRest({ kms: provider })
- *
- * For unit tests, pass a mock `IKmsLike` via `cfg.client`.
- */
+/** Reference `Kms.IProvider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
 export class AwsKmsProvider implements Kms.IProvider {
   readonly id = 'aws-kms'
   private readonly _keyId: string
@@ -100,9 +73,6 @@ function toUint8(v: Uint8Array | Buffer | ArrayBuffer): Uint8Array {
   return new Uint8Array(v as ArrayBuffer)
 }
 
-/**
- * Namespace merge for AwsKmsProvider.
- */
 export namespace AwsKmsProvider {
   export interface IKmsLike {
     send(command: unknown): Promise<unknown>

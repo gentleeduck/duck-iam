@@ -39,10 +39,6 @@ export class MemoryLimiter implements Limiter.ILimiter {
   }
 }
 
-/**
- * Namespace merge for `MemoryLimiter`. Co-locates the flat type exports
- * alongside the primary symbol via TS class+namespace merging.
- */
 export namespace MemoryLimiter {
   export interface IConfig {
     /** Max consumed weight before further consume() returns ok:false. Default 10. */

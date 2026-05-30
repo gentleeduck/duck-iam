@@ -124,6 +124,7 @@ export class PasswordsFacet {
    * parameter upgrade rolls out as users sign in.
    */
   async rehash(identityId: string, plaintext: string, ctx: TenantContext = {}): Promise<void> {
+    if (plaintext.length > this._cfg.maxLength) return
     const rows = await this._credentials.listByIdentity(identityId, 'password', ctx)
     const row = rows.find((c) => !isRevoked(c))
     if (!row) return
@@ -132,10 +133,6 @@ export class PasswordsFacet {
   }
 }
 
-/**
- * Namespace merge for PasswordsFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace PasswordsFacet {
   export interface IConfig {
     /**

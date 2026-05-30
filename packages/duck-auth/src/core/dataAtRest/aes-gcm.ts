@@ -120,10 +120,6 @@ function normalizeKey(masterKey: Buffer | string): Buffer {
   return key.subarray(0, 32)
 }
 
-/**
- * Namespace merge for AesGcmDataAtRest. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace AesGcmDataAtRest {
   export interface IConfig {
     /** Stable key id; written into every ciphertext. Used for rotation. */

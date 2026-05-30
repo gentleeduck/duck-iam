@@ -157,10 +157,6 @@ function clipForDiagnostic(s: string): string {
   return `${s.slice(0, DIAGNOSTIC_MAX_LEN)}...(truncated)`
 }
 
-/**
- * Namespace merge for HijackFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace HijackFacet {
   export interface IPolicyConfig {
     /** Reaction on IP change. Default 'rotate'. */

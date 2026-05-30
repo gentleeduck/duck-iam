@@ -2,10 +2,6 @@ import { AuthErrorObject } from '../../core/errors'
 import type { PasswordsFacet } from '../../core/facets/passwords'
 import type { Provider } from '../../core/types/provider'
 
-/**
- * Public surface for the password provider. Every type lives inside
- * the namespace.
- */
 export namespace PasswordProvider {
   /** Config knobs for {@link password}. */
   export interface IOptions {

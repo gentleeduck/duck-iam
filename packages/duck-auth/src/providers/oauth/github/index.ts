@@ -10,10 +10,6 @@ const GITHUB_ENDPOINTS: OAuthClient.IEndpoints = {
   userinfoEndpoint: 'https://api.github.com/user',
 }
 
-/**
- * Public surface for the GitHub OAuth provider. Every type lives
- * inside the namespace.
- */
 export namespace GithubOAuth {
   /** GitHub-specific options. Extends `OAuthProvider.IOptionsBase`. */
   export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {

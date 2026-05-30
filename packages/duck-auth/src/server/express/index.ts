@@ -4,16 +4,13 @@ import type { Provider } from '../../core/types/provider'
 import {
   errorToHttp,
   isSafeRedirectUrl,
+  isValidProviderId,
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
   serializeCookie,
 } from '../generic'
 
-/**
- * Public surface for the Express adapter. Every type lives inside
- * the namespace.
- */
 export namespace ExpressAdapter {
   /** Minimal duck-typed Express request subset. */
   export interface IRequest {
@@ -143,7 +140,7 @@ export function mountProviderBegin(auth: AuthRoot): ExpressAdapter.IHandler {
       const headers = toHeaders(req.headers)
       await csrfGuard(auth, { method: req.method ?? 'POST', headers })
       const id = providerIdFromUrl(req.url, 'begin')
-      if (!id) {
+      if (!isValidProviderId(id)) {
         applyIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }], res)
         return
       }

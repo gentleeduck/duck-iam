@@ -137,7 +137,7 @@ export namespace OidcOP {
     allowHttp?: boolean
   }
 
-  /** OAuth2-style standard error codes per RFC 6749 §5.2 / OIDC core §3.1.2.6. */
+  /** OAuth2-style standard error codes per RFC 6749 section 5.2 / OIDC core section 3.1.2.6. */
   export type IErrorCode =
     | 'invalid_request'
     | 'invalid_client'

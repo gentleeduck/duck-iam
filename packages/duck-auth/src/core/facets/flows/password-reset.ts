@@ -24,7 +24,11 @@ export async function requestPasswordReset<Profile>(
   },
 ): Promise<{ ok: true }> {
   const { email } = opts.input
-  const channelKind = opts.input.channel ?? 'email'
+  const requestedChannel = opts.input.channel ?? 'email'
+  const channelKind: 'email' | 'sms' | 'webpush' =
+    requestedChannel === 'email' || requestedChannel === 'sms' || requestedChannel === 'webpush'
+      ? requestedChannel
+      : 'email'
   const ttlMs = opts.input.ttlMs ?? 30 * 60 * 1000
   const callbackPath = isSafeCallbackPath(opts.input.callbackPath) ? opts.input.callbackPath : '/auth/reset-password'
   const ctx = flows._ctxFactory(opts.tenantId)

@@ -27,10 +27,6 @@ const APPLE_ENDPOINTS: OAuthClient.IEndpoints = {
   revocationEndpoint: 'https://appleid.apple.com/auth/revoke',
 }
 
-/**
- * Public surface for the Apple OAuth provider. Every type lives
- * inside the namespace.
- */
 export namespace AppleOAuth {
   /**
    * Apple-specific options. `clientSecret` from
@@ -101,24 +97,7 @@ function derToJose(der: Buffer, halfLen: number): Buffer {
   return Buffer.concat([rPad, sPad])
 }
 
-/**
- * Decode an id_token payload (claims only; signature verification not done).
- *
- * the prior code returned `JSON.parse(...)`
- * directly as the declared type - a structural lie over Apple-returned
- * JSON. A malformed id_token with `sub: 42` (number) would have flowed
- * downstream into `findByProviderSub('apple', 42, ...)` with type-
- * confused values; on SQL adapters the lookup would coerce `42` to the
- * string `'42'` and could collide with another identity whose legitimate
- * sub happens to be `'42'`. The signature side of the trust model is
- * "we got this id_token from Apple's token endpoint over TLS after
- * authenticating with client_secret JWT" - that's enough to skip
- * signature verification, but NOT enough to skip claim-shape
- * validation against malformed responses.
- *
- * Exported (vs prior module-private) so tests can drive it without
- * mocking a full Apple OAuth callback round-trip.
- */
+/** Decode + shape-validate an Apple id_token payload (signature is verified upstream by TLS+client_secret). */
 export function decodeIdToken(idToken: string): { sub: string; email?: string; email_verified?: boolean } | null {
   const parts = idToken.split('.')
   if (parts.length !== 3) return null
@@ -145,9 +124,7 @@ export function decodeIdToken(idToken: string): { sub: string; email?: string; e
   return out
 }
 
-/**
- * Sign in with Apple provider factory.
- */
+/** Sign in with Apple provider factory. */
 export function apple<Profile = unknown>(
   opts: AppleOAuth.IOptions<Profile>,
 ): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
@@ -195,11 +172,6 @@ export function apple<Profile = unknown>(
   })
 }
 
-/**
- * Augment the AppleOAuth namespace with the client_secret helper for
- * advanced callers who want to pre-mint the JWT out-of-band.
- */
-// eslint-disable-next-line @typescript-eslint/no-namespace
 export namespace AppleOAuth {
   /** Re-export of the client_secret JWT helper for advanced callers. */
   export const generateClientSecret = generateAppleClientSecret

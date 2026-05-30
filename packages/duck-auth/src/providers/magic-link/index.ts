@@ -4,10 +4,6 @@ import type { Channel } from '../../core/types/channel'
 import type { Provider } from '../../core/types/provider'
 import { isSafeCallbackPath } from '../../core/url-validators'
 
-/**
- * Public surface for the magic-link provider. Every type lives inside
- * the namespace.
- */
 export namespace MagicLinkProvider {
   /** Config knobs for {@link magicLink}. */
   export interface IOptions<Profile = unknown> {

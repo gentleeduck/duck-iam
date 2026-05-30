@@ -13,9 +13,16 @@
 export function isSafeCallbackPath(value: unknown): value is string {
   if (typeof value !== 'string') return false
   if (value.length === 0 || value.length > 256) return false
-  if (value.includes('\r') || value.includes('\n')) return false
+  if (hasControlChar(value)) return false
   if (!value.startsWith('/')) return false
   if (value.startsWith('//')) return false
   if (value.startsWith('/\\')) return false
   return true
+}
+function hasControlChar(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c <= 0x1f || c === 0x7f) return true
+  }
+  return false
 }

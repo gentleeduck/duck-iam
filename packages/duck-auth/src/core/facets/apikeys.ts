@@ -35,9 +35,6 @@ export class ApiKeysFacet {
     opts: { name: string; scopes: string[]; expiresAt?: number; tenantId?: string },
     ctx: TenantContext = {},
   ): Promise<ApiKeysFacet.ICreatedApiKey> {
-    // Cap human-supplied fields so they don't bloat the credential row.
-    // Empty name is allowed because rotate() carries over `meta.name` which
-    // the parser coerces to '' on malformed legacy rows.
     if (typeof opts.name !== 'string' || opts.name.length > 128) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'apikeys.create: name must be a string <=128 chars' })
     }
@@ -79,25 +76,21 @@ export class ApiKeysFacet {
   /** List the api keys belonging to an identity. No plaintext returned. */
   async list(identityId: string, ctx: TenantContext = {}): Promise<ApiKeysFacet.IApiKey[]> {
     const rows = await this._credentials.listByIdentity(identityId, 'api-key', ctx)
-    return (
-      rows
-        // Explicit `=== undefined`: falsy would let `revokedAt: 0` slip past.
-        .filter((r) => r.revokedAt === undefined)
-        .map((r) => {
-          // parseApiKeyMetadata fail-closes on malformed shapes; `as` would crash requireScopes.
-          const meta = parseApiKeyMetadata(r.metadata)
-          const k: ApiKeysFacet.IApiKey = {
-            id: r.id,
-            identityId: r.identityId,
-            name: meta.name,
-            scopes: meta.scopes,
-            createdAt: r.createdAt,
-          }
-          if (r.lastUsedAt !== undefined) k.lastUsedAt = r.lastUsedAt
-          if (r.expiresAt !== undefined) k.expiresAt = r.expiresAt
-          return k
-        })
-    )
+    return rows
+      .filter((r) => r.revokedAt === undefined)
+      .map((r) => {
+        const meta = parseApiKeyMetadata(r.metadata)
+        const k: ApiKeysFacet.IApiKey = {
+          id: r.id,
+          identityId: r.identityId,
+          name: meta.name,
+          scopes: meta.scopes,
+          createdAt: r.createdAt,
+        }
+        if (r.lastUsedAt !== undefined) k.lastUsedAt = r.lastUsedAt
+        if (r.expiresAt !== undefined) k.expiresAt = r.expiresAt
+        return k
+      })
   }
 
   /** Revoke an api key by row id. Used by UI "delete key" flow. */
@@ -114,7 +107,6 @@ export class ApiKeysFacet {
     if (!existing || existing.kind !== 'api-key') {
       throw new AuthErrorObject('AUTH/APIKEY_INVALID')
     }
-    // structural parser; see list() comment.
     const meta = parseApiKeyMetadata(existing.metadata)
     await this._credentials.revoke(keyId, ctx)
     return this.create(
@@ -149,18 +141,9 @@ export class ApiKeysFacet {
     const hash = this._crypto.sha256(plaintext)
     const row = await this._credentials.findByHashedSecret(hash, 'api-key', ctx)
     if (!row) throw new AuthErrorObject('AUTH/APIKEY_INVALID')
-    // `if (row.revokedAt)` treated `revokedAt: 0` as not-revoked;
-    // also let through non-numeric values from buggy adapters. Compare
-    // to `undefined` so any set value fails closed as revoked.
     if (row.revokedAt !== undefined) throw new AuthErrorObject('AUTH/APIKEY_REVOKED')
-    // defense against malformed `expiresAt` from a buggy adapter.
-    // Centralized via `isCredentialExpired`.
-    if (isCredentialExpired(row)) {
-      throw new AuthErrorObject('AUTH/APIKEY_REVOKED')
-    }
-    // Best-effort lastUsedAt update; ignore failure.
+    if (isCredentialExpired(row)) throw new AuthErrorObject('AUTH/APIKEY_REVOKED')
     void this._credentials.rotate(row.id, row.secret, row.version, ctx).catch(() => {})
-    // Parser guarantees `string[]` scopes; `as` cast accepted type-confused rows.
     const meta = parseApiKeyMetadata(row.metadata)
     return {
       identityId: row.identityId,
@@ -176,9 +159,6 @@ export class ApiKeysFacet {
    */
   requireScopes(have: string[], required: string[]): void {
     if (!Array.isArray(have) || !Array.isArray(required)) {
-      // Fail-closed on shape mismatch; a buggy caller passing non-arrays
-      // would otherwise crash with `.filter is not a function` or pass
-      // type-confused values into the comparison.
       throw new AuthErrorObject('AUTH/APIKEY_SCOPE_INSUFFICIENT', { required: [], have: [] })
     }
     const missing = required.filter((s) => !have.includes(s))
@@ -191,10 +171,6 @@ export class ApiKeysFacet {
   }
 }
 
-/**
- * Namespace merge for ApiKeysFacet. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace ApiKeysFacet {
   export interface IConfig {
     /** Token prefix; used to namespace by env. Default 'ak_live_'. */
@@ -222,34 +198,7 @@ export namespace ApiKeysFacet {
   }
 }
 
-/**
- * structural parser for the API-key
- * credential's `metadata` field. Previously read via
- * `row.metadata as { name?: string; scopes?: string[] } | undefined` -
- * a lie. Concrete failures the cast masked:
- *
- *  - `metadata: { scopes: 'admin' }` (string, not array, from a buggy
- *    adapter or schema drift) - the cast happily typed it as `string[]`;
- *    downstream `requireScopes(have).filter(...)` throws TypeError
- *    because strings have no `.filter`. Surfaces as HTTP 500.
- *  - `metadata: { scopes: [1, 2, 3] }` (numbers) - type-confused
- *    `.includes('admin')` returns false (correct fail-closed for this
- *    case) but the typing lie propagated into iam Subject attributes,
- *    where a policy comparing `subject.scopes` to a known string set
- *    behaves unpredictably.
- *  - `metadata: { name: 42 }` - non-string name flowed into the public
- *    API surface; UIs serialize `key.name` into HTML, etc.
- *  - `metadata: null` - fine for the optional-chain, but `metadata: 'oops'`
- *    (string) - the cast forgave it and `meta?.scopes` returned `undefined`.
- *    Same end-state as null. No security issue here, just inconsistent.
- *
- * Returns concrete defaults (`{ name: '', scopes: [] }`) instead of
- * `undefined` so call sites are guaranteed-typed: the caller never
- * needs to write `meta?.scopes ?? []`. Scope entries that aren't
- * strings are filtered out individually - a `scopes: ['admin', 42]`
- * leaks `['admin']` and drops the bad value (defense in depth without
- * full rejection).
- */
+/** Parser for api-key `metadata`. Returns `{ name: '', scopes: [] }` on any malformed input. */
 function parseApiKeyMetadata(meta: unknown): { name: string; scopes: string[] } {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
     return { name: '', scopes: [] }

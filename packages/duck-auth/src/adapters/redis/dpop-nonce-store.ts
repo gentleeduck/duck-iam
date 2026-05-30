@@ -1,10 +1,6 @@
 import type { DPoPVerifier } from '../../core/transport/dpop'
 import type { RedisLike } from './redis-like'
 
-/**
- * Public surface for the Redis-backed DPoP nonce store. Every type
- * lives inside the namespace.
- */
 export namespace RedisDPoPNonceStore {
   /** Config knobs for {@link RedisDPoPNonceStore}. */
   export interface IConfig {

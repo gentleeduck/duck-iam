@@ -11,21 +11,9 @@ import { signHs256, verifyHs256 } from './jwt-algs/hs256'
 import { signRs256, verifyRs256 } from './jwt-algs/rs256'
 
 /**
- * JwtTransport - stateless transport for edge / serverless deployments.
- * Verifies tokens locally so resolveSession() avoids a store hit on the
- * hot path. Algorithms: HS256 (HMAC), ES256 (P-256), RS256 (RSA),
- * EdDSA (Ed25519) - all via `node:crypto`, no `jose` dependency.
- *
- * Token shape: standard JWT `<header>.<payload>.<sig>` base64url-encoded.
- * Header is `{ alg, typ: 'JWT', kid }` with `alg` pinned per-kid to
- * defeat alg-confusion (RFC 8725 §3.1).
- *
- * Live JWKS rotation: `rotateSignKey()` promotes a new signing key;
- * `retireVerifyKey(kid)` removes a retired key after its overlap window.
- *
- * Refresh tokens are issued as opaque cookies (the persisted half of the
- * dual transport) and rotated server-side. Reuse detection at refresh
- * time follows the same family-id mechanism as OAuth refresh tokens.
+ * `JwtTransport` - stateless transport (edge / serverless) backed by `node:crypto`.
+ * Algorithms: HS256, ES256, RS256, EdDSA. Alg is pinned per-kid to defeat alg-confusion
+ * (RFC 8725 section 3.1). Refresh tokens are opaque cookies rotated server-side.
  */
 
 const DEFAULT_REFRESH_COOKIE = '__Host-duck-refresh'
@@ -53,13 +41,7 @@ interface JwtPayload {
   acting_as?: Session.ActingAs
   /** Session kind (`'user' | 'apikey' | 'guest'`). Preserved so M2M tokens round-trip correctly. */
   knd?: Session.Kind
-  /**
-   * Session rotation timestamp, seconds since epoch. Used by `verify()`
-   * to compute `session.fresh = now - rotatedAt < freshnessMs`. Without
-   * this claim, `verify()` would have to assume `fresh: true` for every
-   * still-valid JWT, defeating the AAL-2 freshness gate that protects
-   * privileged operations like password reset with TOTP.
-   */
+  /** Session rotation timestamp (epoch s); drives `session.fresh = now - rotatedAt < freshnessMs`. */
   frsh?: number
   /**
    * OAuth-style scope string (space-separated). Emitted when
@@ -105,22 +87,7 @@ function jwsVerify(alg: JwtTransport.IJwtAlg, key: string, signingInput: string,
   }
 }
 
-/**
- * validators for the JWT header + payload. JSON-parsed claims are
- * attacker-controlled bytes; declaring them as a typed shape via `let
- * x: Shape = JSON.parse(...)` is a TS-only assertion that does NOT
- * validate at runtime. Previously this allowed:
- *
- *  - a missing/non-numeric `exp` to silently bypass expiry
- *    (`undefined < nowSec` is `NaN < N === false`),
- *  - a non-array `factors` to crash `verify()` with `TypeError: .map`,
- *  - a non-string entry in `factors` to slip through `as FactorMethod`
- *    and land in the reconstructed session,
- *  - a non-1/2/3 `aal` value to land in the session and skew AAL gates.
- *
- * The parsers below accept only well-formed JWTs; any rejection makes
- * `verify()` return `null` (matching the pre-existing failure contract).
- */
+/** Runtime validators for JWT header + payload; any rejection makes `verify()` return `null`. */
 const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<Session.FactorMethod>([
   'password',
   'passkey',
@@ -189,6 +156,7 @@ function parseJwtPayload(raw: unknown): JwtPayload | null {
   if (typeof sid !== 'string') return null
   if (aal !== 1 && aal !== 2 && aal !== 3) return null
   if (!Array.isArray(factors)) return null
+  if (factors.length > 16) return null
   const narrowedFactors: Session.FactorMethod[] = []
   for (const f of factors) {
     if (!isFactorMethod(f)) return null
@@ -409,9 +377,6 @@ export class JwtTransport implements Transport.ITransport {
     } catch {
       return null
     }
-    // parser rejects missing/non-numeric exp, non-array factors,
-    // non-string factor entries, and non-1/2/3 aal - each of which
-    // previously either bypassed a check or crashed `verify()`.
     const payload = parseJwtPayload(rawPayload)
     if (!payload) return null
 
@@ -519,10 +484,6 @@ export class JwtTransport implements Transport.ITransport {
 // Re-export for parity with cookie/bearer transports.
 export { randomToken, sha256 }
 
-/**
- * Namespace merge for JwtTransport. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace JwtTransport {
   export interface IConfig {
     /**

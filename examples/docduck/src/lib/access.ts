@@ -1,5 +1,5 @@
 import { type Adapter, createAccessConfig } from '@gentleduck/iam'
-import { DrizzleAdapter, type DrizzleConfig } from '@gentleduck/iam/adapters/drizzle'
+import { type Drizzle, DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from './db'
 import { accessAssignments, accessPolicies, accessRoles, accessSubjectAttrs } from './db/schema'
@@ -118,7 +118,7 @@ const baseAdapter = new DrizzleAdapter({
     attrs: accessSubjectAttrs,
   },
   ops: { eq, and },
-} as unknown as DrizzleConfig) as unknown as Adapter<AppAction, AppResource, string, string>
+} as unknown as Drizzle.IConfig) as unknown as Adapter.IAdapter<AppAction, AppResource, string, string>
 
 // Create a proxy that intercepts getSubjectRoles to only return unscoped assignments
 const adapter = new Proxy(baseAdapter, {

@@ -1,9 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { EngineTypes } from '../../core/engine/engine.types'
 
-/**
- * Redis invalidator integration types. Type-only namespace - zero bundle cost.
- */
+/** Redis invalidator integration types. Type-only namespace - zero bundle cost. */
 export namespace RedisInvalidator {
   /**
    * Describes the minimum pub/sub surface needed by the Redis invalidator.
@@ -42,9 +40,7 @@ export namespace RedisInvalidator {
     unsubscribe?(channel: string): void | Promise<void>
   }
 
-  /**
-   * Configures {@link createRedisInvalidator}.
-   */
+  /** Configures {@link createRedisInvalidator}. */
   export interface IConfig {
     /** Redis pub/sub adapter implementing {@link IPubSubLike}. */
     client: IPubSubLike

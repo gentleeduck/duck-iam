@@ -47,10 +47,6 @@ export class BearerTransport implements Transport.ITransport {
   }
 }
 
-/**
- * Namespace merge for BearerTransport. Co-locates the config + input + output
- * shapes alongside the class via TS class+namespace merging.
- */
 export namespace BearerTransport {
   export interface IConfig {
     /** Header name. Default `Authorization`. */

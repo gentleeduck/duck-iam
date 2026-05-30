@@ -1,8 +1,6 @@
 import type { EngineTypes } from '../../core/engine/engine.types'
 
-/**
- * Metrics observability types. Type-only namespace - zero bundle cost.
- */
+/** Metrics observability types. Type-only namespace - zero bundle cost. */
 export namespace Metrics {
   /**
    * Aggregates the engine's `onMetrics` events in-process.
@@ -26,15 +24,11 @@ export namespace Metrics {
      * @returns Immutable {@link ISnapshot} summarising the rolling window.
      */
     snapshot(): ISnapshot
-    /**
-     * Resets counters and clears the rolling sample buffer.
-     */
+    /** Resets counters and clears the rolling sample buffer. */
     reset(): void
   }
 
-  /**
-   * Immutable snapshot of aggregated metrics over the rolling window.
-   */
+  /** Immutable snapshot of aggregated metrics over the rolling window. */
   export interface ISnapshot {
     /** Total events recorded since the last reset. */
     readonly total: number
@@ -60,9 +54,7 @@ export namespace Metrics {
     readonly samples: number
   }
 
-  /**
-   * Configures {@link createMetricsAggregator}.
-   */
+  /** Configures {@link createMetricsAggregator}. */
   export interface IConfig {
     /**
      * Maximum number of duration samples kept in the rolling window. Higher

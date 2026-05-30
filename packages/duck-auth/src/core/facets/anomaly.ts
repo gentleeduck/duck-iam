@@ -151,10 +151,6 @@ export class AnomalyFacet {
   }
 }
 
-/**
- * Namespace merge for AnomalyFacet. Co-locates config + result + decision
- * types alongside the class.
- */
 export namespace AnomalyFacet {
   /** Recommended response for the caller after evaluating signals. */
   export type IDecision = 'allow' | 'step-up' | 'deny'

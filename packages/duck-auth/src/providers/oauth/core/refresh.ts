@@ -1,15 +1,11 @@
 import { isRevoked } from '../../../core/credential-utils'
-import { randomToken, sha256 } from '../../../core/crypto'
+import { sha256 } from '../../../core/crypto'
 import { AuthErrorObject } from '../../../core/errors'
 import type { TenantContext } from '../../../core/types/context'
 import type { Credential } from '../../../core/types/credential'
 import type { Events } from '../../../core/types/events'
 import type { OAuthClient } from './client'
 
-/**
- * Public surface for the OAuth refresh-token rotation helpers. Every
- * type lives inside the namespace.
- */
 export namespace OAuthRefresh {
   /**
    * Refresh-token family metadata. Persisted under `kind: 'oauth'`
@@ -75,8 +71,7 @@ export async function refreshOauthToken(opts: {
   }
 
   // Claim the row via CAS on `version` before the (slow) exchange so
-  // concurrent refreshes serialise (RFC 6749 §10.4 reuse detection).
-  void randomToken
+  // concurrent refreshes serialise (RFC 6749 section 10.4 reuse detection).
   try {
     await opts.credentials.rotate(row.id, row.secret, row.version, opts.tenant)
   } catch (err) {
@@ -163,14 +158,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-/**
- * runtime validator for OAuth refresh-token family metadata.
- * Replaces an `as OAuthRefresh.IFamilyMetadata | undefined` cast that
- * trusted whatever the credential store returned. Each required field
- * is typeof-checked; optional numeric fields must be finite numbers
- * (defending against `NaN > N === false` expiry bypass). Extra fields
- * the operator may have stored under the index signature are preserved.
- */
+/** Runtime validator for OAuth refresh-token family metadata. */
 function parseFamilyMetadata(meta: unknown): OAuthRefresh.IFamilyMetadata | null {
   if (!isPlainObject(meta)) return null
   const { provider, sub, familyId, generation, accessToken, accessTokenExpiresAt, revokedAt } = meta

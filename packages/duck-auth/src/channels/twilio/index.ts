@@ -8,10 +8,6 @@ import { getProfileString } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
 import type { Channel } from '../../core/types/channel'
 
-/**
- * Public surface for the Twilio SMS channel. Every type lives inside
- * the namespace.
- */
 export namespace TwilioChannel {
   /** Subset of the Twilio SDK we depend on. */
   export interface IClient {
@@ -110,9 +106,7 @@ export class TwilioChannel implements Channel.IChannel {
     }
   }
 
-  /**
-   * Render template, send via Twilio. Returns ok:false on any error.
-   */
+  /** Render template, send via Twilio. Returns ok:false on any error. */
   async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     const to = getProfileString(input.identity.profile, 'phone')
     if (!to) {

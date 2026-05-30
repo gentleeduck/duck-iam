@@ -9,10 +9,6 @@ import type { PasskeyTypes } from './types'
 export { MemoryPasskeyChallengeStore } from './challenge-store'
 export type { PasskeyTypes } from './types'
 
-/**
- * Public surface for the passkey provider. Every type lives inside
- * the namespace.
- */
 export namespace PasskeyProvider {
   /** Config knobs for {@link passkey}. */
   export interface IOptions {
@@ -74,22 +70,7 @@ async function loadWebAuthn(
   }
 }
 
-/**
- * Encode an identity ID as a stable 32-byte WebAuthn `user.id`.
- *
- * WebAuthn caps `user.id` at 1-64 bytes. Long identity IDs
- * (composite/namespaced IDs like `tenant:user`, ULIDs, hashed handles)
- * exceed that and get silently truncated by browsers; two distinct
- * identities sharing the first 64 bytes would register passkeys under
- * the SAME userHandle, colliding on the authenticator and surfacing
- * the wrong identity on discoverable-credential sign-in. Hashing to a
- * fixed-length sha-256 digest makes the userHandle deterministic per
- * identity and never overflows.
- *
- * The mapping is one-way: `userHandle -> identityId` resolution is
- * done by looking up the credential row whose `metadata.userHandle`
- * matches, not by reversing the hash.
- */
+/** sha-256 of identity id - stable 32-byte WebAuthn `user.id` (cap is 1-64 bytes; long ids would collide). */
 function userIdBytes(identityId: string): Uint8Array {
   return new Uint8Array(createHash('sha256').update(identityId, 'utf8').digest())
 }
@@ -177,7 +158,7 @@ export function passkey<Profile = unknown>(
       const responseObj = input.response as { id?: string }
       const credentialId = responseObj.id
       // WebAuthn credential IDs are base64url-encoded random bytes (<255 raw
-      // bytes per spec → ~340 chars max); 1024 is generous + refuses attacker
+      // bytes per spec -> ~340 chars max); 1024 is generous + refuses attacker
       // multi-MB IDs.
       if (typeof credentialId !== 'string' || credentialId.length === 0 || credentialId.length > 1024) {
         throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
@@ -227,7 +208,7 @@ export function passkey<Profile = unknown>(
         throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
       }
 
-      // Counter rollback detection (WebAuthn L2 §6.1.3). `newCounter === 0`
+      // Counter rollback detection (WebAuthn L2 section 6.1.3). `newCounter === 0`
       // means the authenticator does not track a counter; allowed.
       // Number.isFinite gates against NaN/Infinity that would short-circuit
       // both `!== 0` and `<= oldCounter` comparisons.
@@ -261,9 +242,7 @@ export function passkey<Profile = unknown>(
   }
 }
 
-/**
- * Issue a registration ceremony.
- */
+/** Issue a registration ceremony. */
 export async function beginPasskeyRegistration(
   opts: PasskeyProvider.IOptions,
   input: { identityId: string; userName: string; userDisplayName?: string; sessionId: string },
@@ -345,33 +324,7 @@ function base64UrlDecode(s: string): Uint8Array {
   return new Uint8Array(Buffer.from(s, 'base64url'))
 }
 
-/**
- * structural parser for a passkey credential's
- * `metadata` field. Replaces an `as { publicKey?, counter?, transports? }`
- * cast that trusted whatever the credential store returned. Concrete
- * failures the cast masked:
- *
- *  - `metadata.publicKey: 42` (non-string from schema drift) ->
- *    `base64UrlDecode(42)` either throws (Buffer.from(non-string)) or
- *    produces an empty buffer -> webauthn verify path receives a key it
- *    cannot use -> `verification.verified === false` -> AUTH/PASSKEY_MISMATCH
- *    (lucky safe), but the path runs slow and burns CPU.
- *  - `metadata.counter: 'abc'` (non-numeric string from a buggy
- *    migration or hand-crafted row) -> `newCounter <= 'abc'` evaluates
- *    `number <= NaN` which is `false`, so the rollback defense never
- *    fires. A cloned authenticator presenting an old counter is
- *    accepted. SILENT counter-rollback bypass.
- *  - `metadata.counter: 10n` (BigInt from a Postgres int8 read) ->
- *    same: `newCounter <= 10n` throws TypeError.
- *  - `metadata.transports: 'usb'` (string instead of array) -> webauthn
- *    library iterates the value, may crash on `.forEach` not being a
- *    function.
- *
- * Returns `null` on missing publicKey or unparseable counter; the
- * caller throws `AUTH/PASSKEY_MISMATCH` (same code the cast already
- * produced for the empty case). `counter` defaults to 0 when missing
- * (legal per spec; cloud-synced passkeys often skip it).
- */
+/** Parser for a passkey credential's `metadata`; `null` on missing publicKey or unparseable counter. */
 function parsePasskeyMetadata(
   meta: Credential.ICredential['metadata'],
 ): { publicKey: string; counter: number; transports?: string[] } | null {

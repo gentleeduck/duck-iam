@@ -1,26 +1,8 @@
-/**
- * i18n message catalogue for `@gentleduck/auth`. Maps error codes +
- * channel template ids to localised strings.
- *
- * Two integration shapes ship out the box:
- *   - `I18nMessageCatalog`: zero-dep nested-object catalogue (works
- *     anywhere; tests + simple apps)
- *   - `LinguiResolver`: adapter for `@lingui/core` so apps already on
- *     Lingui drop in their existing message catalogue + plural rules
- *
- * Apps wire a resolver into FlowsFacet template-resolver hooks (the
- * password-reset / email-verification / account-deletion / magic-link
- * flows all accept a `(templateId, vars) -> { subject, body }`
- * callback) so the same flow renders the user's preferred locale.
- */
+/** i18n catalogue: zero-dep `I18nMessageCatalog` and Lingui adapter. */
 
 import { AuthErrorObject } from '../core/errors'
 
-/**
- * Zero-dep i18n catalogue. Templates may contain `{{var}}` placeholders;
- * `vars` substitution is a single regex pass (no escaping, no plural
- * rules, no nesting - those need a real library like Lingui).
- */
+/** Zero-dep i18n catalogue. `{{var}}` placeholders only; no escaping / plural rules. */
 export class I18nMessageCatalog implements I18n.IResolver {
   private readonly _messages: I18n.ICatalogShape
   private readonly _defaultLocale: string
@@ -56,18 +38,7 @@ export class I18nMessageCatalog implements I18n.IResolver {
   }
 }
 
-/**
- * Lingui adapter. Forwards `t()` to Lingui's `i18n._()` which handles
- * ICU pluralisation + interpolation + locale-fallback chain via
- * Lingui's catalogue. Apps that already wire Lingui at app boot just
- * pass `i18n` straight in here.
- *
- * Locale management:
- *   - When `opts.locale` is passed, the resolver activates it on the
- *     underlying i18n then restores the prior locale. Lingui calls
- *     happening concurrently on the same i18n instance can race; for
- *     concurrent locale switches build one resolver per request.
- */
+/** Lingui adapter. Forwards `t()` to `i18n._()`; concurrent locale switches need one resolver per request. */
 export class LinguiResolver implements I18n.IResolver {
   constructor(private readonly _i18n: I18n.ILingui) {
     if (!_i18n || typeof _i18n._ !== 'function') {
@@ -128,9 +99,6 @@ export const DEFAULT_EN_MESSAGES: Record<string, string> = {
   'account-deletion.body': 'Confirm deletion: {{url}} (expires in {{ttlMin}} minutes).',
 }
 
-/**
- * Namespace merge for the i18n surface.
- */
 export namespace I18n {
   export interface IResolver {
     /** Resolve a message id under the chosen locale; falls back to the default locale. */

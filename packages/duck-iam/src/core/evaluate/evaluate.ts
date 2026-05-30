@@ -113,25 +113,14 @@ export function evaluatePolicy(
 }
 
 /**
- * Combine decisions across multiple policies according to `combine`.
- *
- * - `'and'` (default): every policy must allow. First deny short-circuits.
- * - `'allow-overrides'`: any allowing policy wins, regardless of denies elsewhere.
- * - `'first-applicable'`: first policy whose targets+rules fired a non-default
- *   decision wins. Useful when policies are ordered by specificity.
+ * Combine decisions across multiple policies per `combine` (`'and'` | `'allow-overrides'` | `'first-applicable'`).
  *
  * @param policies      All policies to evaluate.
  * @param request       The access request.
  * @param defaultEffect Effect when no rule fires within a policy.
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
- * @param onPolicyError Invoked when a single policy throws; the offending policy
- *   is treated as NotApplicable so the rest still evaluate.
+ * @param onPolicyError Invoked when a single policy throws; offender treated as NotApplicable.
  * @returns The merged {@link AccessControl.IDecision} across all policies.
- * @example
- * ```ts
- * const decision = evaluate(policies, request, 'deny', 'and')
- * if (!decision.allowed) console.warn(decision.reason)
- * ```
  */
 export function evaluate(
   policies: AccessControl.IPolicy[],
@@ -234,21 +223,12 @@ export function evaluate(
 }
 
 /**
- * Fast (production-mode) single-policy evaluation.
- *
- * Returns `true` / `false` when the policy applies; returns `null` when the
- * policy's targets don't match the request (NotApplicable - the cross-policy
- * combine treats it as neutral, not as the default effect).
- *
- * Avoids the trace path's per-call allocations (no `matched[]`, no
- * `{ rule, effect }` objects, no intermediate arrays). Condition evaluation
- * itself can still allocate; "zero-allocation" applies to the combiner shell.
+ * Fast (production-mode) single-policy evaluation; allocation-light combiner shell.
  *
  * @param policy        The policy to evaluate.
  * @param request       The access request.
  * @param defaultEffect Effect to use when no rules match (defaults to `'deny'`).
- * @returns `true` / `false` for an applicable allow / deny, `null` when the
- *   policy is NotApplicable for this request.
+ * @returns `true` / `false` for an applicable allow / deny, `null` when NotApplicable.
  */
 export function evaluatePolicyFast(
   policy: AccessControl.IPolicy,
@@ -358,19 +338,13 @@ export function evaluatePolicyFast(
 }
 
 /**
- * Fast multi-policy evaluation - returns a plain boolean.
- *
- * Mirrors {@link evaluate}'s `combine` modes. `'first-applicable'` is not
- * supported here (the policy-fast path returns a tri-state but cannot
- * distinguish "rule fired" from "default applied" - the `Engine` constructor
- * refuses the combination at boot).
+ * Fast multi-policy evaluation returning a boolean; mirrors {@link evaluate}'s `combine` modes (no `first-applicable`).
  *
  * @param policies      All policies to evaluate.
  * @param request       The access request.
  * @param defaultEffect Effect to use when no rules fire (defaults to `'deny'`).
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
- * @param onPolicyError Invoked when a single policy throws; the offending policy
- *   is treated as NotApplicable so the rest still evaluate.
+ * @param onPolicyError Invoked when a single policy throws; offender treated as NotApplicable.
  * @returns `true` when the final verdict is allow, `false` otherwise.
  */
 export function evaluateFast(

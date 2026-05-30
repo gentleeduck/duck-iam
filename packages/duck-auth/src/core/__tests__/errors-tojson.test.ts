@@ -82,4 +82,36 @@ describe('AuthErrorObject.toJSON - SEC: sensitive meta key denylist', () => {
     })
     expect(err.toJSON().clientSecret).toBeUndefined()
   })
+
+  it('scrubs sensitive keys at depth (nested objects)', () => {
+    const err = new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      providerId: 'oauth:test',
+      user: { id: 'u1', password: 'leaked', email: 'a@x.com' },
+    })
+    expect(err.toJSON()).toEqual({
+      code: 'AUTH/PROVIDER_FAILED',
+      status: 400,
+      providerId: 'oauth:test',
+      user: { id: 'u1', email: 'a@x.com' },
+    })
+  })
+
+  it('scrubs sensitive keys inside arrays', () => {
+    const err = new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      providerId: 'oauth:test',
+      attempts: [
+        { ts: 1, password: 'x' },
+        { ts: 2, password: 'y' },
+      ],
+    })
+    expect(err.toJSON().attempts).toEqual([{ ts: 1 }, { ts: 2 }])
+  })
+
+  it('caps recursion depth to a finite value', () => {
+    // Build a deeply nested object - recursion guard should stop scrubbing.
+    let nested: Record<string, unknown> = { secret: 'leaf' }
+    for (let i = 0; i < 20; i++) nested = { child: nested }
+    const err = new AuthErrorObject('AUTH/MISCONFIGURED', nested)
+    expect(() => err.toJSON()).not.toThrow()
+  })
 })
