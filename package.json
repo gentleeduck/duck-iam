@@ -72,7 +72,8 @@
     "@gentleduck/variants": "0.1.23",
     "@gentleduck/vim": "0.2.1",
     "get-tsconfig": "5.0.0-beta.5",
-    "kysely": "^0.28.17"
+    "kysely": "^0.28.17",
+    "uuid": "^14.0.0"
   },
   "workspaces": {
     "packages": [

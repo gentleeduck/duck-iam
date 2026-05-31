@@ -10,9 +10,9 @@
  * Usage: bun run benchmark
  */
 
-import { execSync } from 'node:child_process'
-import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 
 const OUT_DIR = join(import.meta.dirname, '..', 'public', 'benchmarks')
 mkdirSync(OUT_DIR, { recursive: true })
@@ -28,13 +28,7 @@ interface SubpathSize {
 
 function gzippedSize(absPath: string): number {
   try {
-    statSync(absPath)
-  } catch {
-    return 0
-  }
-  try {
-    const out = execSync(`gzip -c < "${absPath}" | wc -c`, { encoding: 'utf-8' }).trim()
-    return Number.parseInt(out, 10)
+    return gzipSync(readFileSync(absPath)).length
   } catch {
     return 0
   }
@@ -64,7 +58,7 @@ function bundleSize(entryRelPath: string): number {
     total += gzippedSize(f)
     let content: string
     try {
-      content = execSync(`cat "${f}"`, { encoding: 'utf-8' })
+      content = readFileSync(f, 'utf-8')
     } catch {
       continue
     }

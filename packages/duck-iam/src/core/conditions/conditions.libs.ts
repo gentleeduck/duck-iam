@@ -83,7 +83,15 @@ export function clearRegexCache(): void {
   regexCache.clear()
 }
 
+// Patterns containing nested quantifiers — `(a+)+`, `(a*)*`, `(a|aa)+` — are
+// the textbook ReDoS shape that turns into super-linear backtracking. The cheap
+// detection here rejects the obvious forms before they reach `new RegExp`.
+// It is not a complete catastrophic-backtracking analyser; the length cap in
+// `matches` keeps the residual risk bounded.
+const NESTED_QUANTIFIER_RE = /\([^)]*[*+?][^)]*\)[*+?{]/
+
 export function getCachedRegex(pattern: string, cache: Map<string, RegExp> = regexCache): RegExp | null {
+  if (NESTED_QUANTIFIER_RE.test(pattern)) return null
   const cached = cache.get(pattern)
   if (cached) {
     cache.delete(pattern)
