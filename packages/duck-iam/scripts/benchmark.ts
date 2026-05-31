@@ -7,9 +7,9 @@
  * Usage: bun run benchmark
  */
 
-import { execSync } from 'node:child_process'
-import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { MemoryAdapter } from '../src/adapters/memory'
 import { Engine } from '../src/core/engine/engine'
 import { evaluate, evaluatePolicy } from '../src/core/evaluate'
@@ -236,8 +236,7 @@ function measureExportSize(entryPath: string): number {
 
   // For entry files, also include shared chunks they import
   try {
-    const gz = execSync(`cat "${fullPath}" | gzip -c | wc -c`, { encoding: 'utf-8' }).trim()
-    return Number.parseInt(gz, 10)
+    return gzipSync(readFileSync(fullPath)).length
   } catch {
     return 0
   }
@@ -262,7 +261,7 @@ function measureEntryWithDeps(entryFile: string): number {
       if (f === undefined) break
       let content: string
       try {
-        content = execSync(`cat "${f}"`, { encoding: 'utf-8' })
+        content = readFileSync(f, 'utf-8')
       } catch {
         continue
       }
@@ -285,15 +284,8 @@ function measureEntryWithDeps(entryFile: string): number {
         }
       }
     }
-    const gz = execSync(
-      `cat ${Array.from(seen)
-        .map((f) => `"${f}"`)
-        .join(' ')} | gzip -c | wc -c`,
-      {
-        encoding: 'utf-8',
-      },
-    ).trim()
-    return Number.parseInt(gz, 10)
+    const buffers = Array.from(seen).map((f) => readFileSync(f))
+    return gzipSync(Buffer.concat(buffers)).length
   } catch {
     return 0
   }
