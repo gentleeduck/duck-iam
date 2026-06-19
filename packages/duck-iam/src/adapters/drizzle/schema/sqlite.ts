@@ -29,7 +29,7 @@ import type { AccessControl } from '../../../core/types'
  */
 
 /** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
-const COMBINE_ALGORITHMS = [
+export const COMBINE_ALGORITHMS = [
   'deny-overrides',
   'allow-overrides',
   'first-match',

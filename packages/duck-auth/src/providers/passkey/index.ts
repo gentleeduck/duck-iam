@@ -164,7 +164,7 @@ export function passkey<Profile = unknown>(
         throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
       }
       const cred = await ctx.stores.credentials.findByHashedSecret(credentialId, 'passkey', ctx.tenant)
-      if (!cred || cred.kind !== 'passkey' || cred.revokedAt) {
+      if (cred?.kind !== 'passkey' || cred.revokedAt) {
         throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
       }
 

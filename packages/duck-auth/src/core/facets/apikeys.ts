@@ -104,7 +104,7 @@ export class ApiKeysFacet {
    */
   async rotate(keyId: string, ctx: TenantContext = {}): Promise<ApiKeysFacet.ICreatedApiKey> {
     const existing = await this._credentials.findById(keyId, ctx)
-    if (!existing || existing.kind !== 'api-key') {
+    if (existing?.kind !== 'api-key') {
       throw new AuthErrorObject('AUTH/APIKEY_INVALID')
     }
     const meta = parseApiKeyMetadata(existing.metadata)
