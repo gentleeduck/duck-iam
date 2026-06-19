@@ -228,6 +228,8 @@
         "drizzle-orm": "^0.45.2",
         "easy-rbac": "^4.0.0",
         "motion": "^12.40.0",
+        "react": "^19.2.7",
+        "react-dom": "^19.2.7",
         "role-acl": "^4.5.4",
         "tsdown": "^0.22.3",
         "typescript": "catalog:",
@@ -294,8 +296,8 @@
     "@gentleduck/vim": "0.2.1",
     "get-tsconfig": "5.0.0-beta.5",
     "kysely": "^0.28.17",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
   },
   "catalog": {
     "@changesets/cli": "^2.31.0",
@@ -341,8 +343,8 @@
     "react19": {
       "@types/react": "19.2.14",
       "@types/react-dom": "19.2.3",
-      "react": "^19.2.4",
-      "react-dom": "^19.2.4",
+      "react": "^19.2.7",
+      "react-dom": "^19.2.7",
     },
   },
   "packages": {

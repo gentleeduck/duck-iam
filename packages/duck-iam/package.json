@@ -334,6 +334,8 @@
     "drizzle-orm": "^0.45.2",
     "easy-rbac": "^4.0.0",
     "motion": "^12.40.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "role-acl": "^4.5.4",
     "tsdown": "^0.22.3",
     "typescript": "catalog:",
