@@ -1,5 +1,21 @@
 # @gentleduck/iam
 
+## 3.2.0
+
+### Minor Changes
+
+- f77fb5a: Harden and type the Drizzle adapter schemas (pg, mysql, sqlite).
+
+  - Add `json: 'native' | 'string'` adapter option. `'native'` (default) writes plain objects to `jsonb`/`json` columns so payloads stay queryable; `'string'` JSON-stringifies for SQLite/text columns. The read path accepts both, so switching is migration-safe.
+  - Type every JSON column with `$type<>()` against the `AccessControl` types; constrain `algorithm` with a Postgres enum, a MySQL enum, and a SQLite CHECK.
+  - Add CHECK constraints (non-blank name/subject, `version >= 1`), `created_by` / `updated_by` audit columns, GIN indexes (pg), partial indexes for scoped rows (pg/sqlite), and a `roleId` index.
+  - Collapse NULL scopes in unique constraints (`NULLS NOT DISTINCT` on pg, `COALESCE(scope, '')` on mysql/sqlite) so duplicate global rows are rejected.
+  - Name every constraint (`pk_`, `fk_`, `uq_`, `idx_`, `ch_`).
+
+  Fixes: pg `inherits` was `text[]` but the shared adapter writes JSON, so it is now `jsonb`; the MySQL timestamp default was a static import-time snapshot and is now per-row `CURRENT_TIMESTAMP(3)`.
+
+  Migration note: regenerate migrations with `drizzle-kit generate`. SQLite users must pass `json: 'string'`.
+
 ## 3.1.0
 
 ### Minor Changes
@@ -9,9 +25,11 @@
   Engine structure cleanup + adapter validation hardening.
 
   ## New exports
+
   - **`parsePolicyRow` / `parseRoleRow`** from `@gentleduck/iam/core/validate`. Helpers for custom-adapter authors: take an `unknown` row, return the typed `AccessControl.IPolicy<...>` / `AccessControl.IRole<...>` when structurally valid, or `null` to drop the row. Replaces the pattern of calling `validatePolicy(row)` then casting `row as IPolicy<...>`.
 
   ## Internal refactors (no public API change)
+
   - `engine.ts` split into five single-purpose modules under `core/engine/`:
     - `engine.invalidation.ts` - cross-instance + in-flight cache invalidation
     - `engine.loaders.ts` - cache-fronted loaders with single-flight coalescing + adapter timeout + max-row guards
@@ -22,9 +40,11 @@
   - `core/explain` is now lazy-loaded by `engine.explain()` via dynamic `import()`. Production-mode bundles drop the explain chunk entirely.
 
   ## Tests
+
   - 50 new direct unit tests for the extracted engine helpers (invalidation, hooks, stats, lifecycle, loaders). The class-method shims are proved to delegate to the extracted free functions, not just rename.
 
   ## Documentation
+
   - `AUDIT-RESULTS.md` checked in. 0 runtime advisories.
   - The two reported workspace-level vulnerabilities affecting `@gentleduck/iam` are both in `role-acl` (a benchmark competitor in `devDependencies` only); never installed by consumers.
 
@@ -37,6 +57,7 @@
 ### Patch Changes
 
 - 1f5ac74: **@gentleduck/auth**: end-to-end input + tenant + config-time hardening sweep.
+
   - Provider entry-point caps + typeof guards (api-key, magic-link, oauth, passkey, password, saml). Magic-link `callbackPath` validated at construction (refuses protocol-relative + CR/LF). OAuth `redirectUri` + endpoint URLs validated. SAML `relayState` + `host` CR/LF guard.
   - Facet input caps (flows, sessions, mfa, apikeys, identities, idempotency). `isProviderIdSafe` guard in `signIn` / `beginProvider`. CAS-claim on recovery + signup. Email canonicalization (`trim().toLowerCase()`) shared between rate-limit + lookup + stored metadata.
   - Transport hardening: 4 KB bearer cap, 8 KB DPoP cap, 16 KB cookie-header cap, cookie name RFC 6265 validation. JWT `signKey.kid` + `signKey.key` validation. `Number.isFinite` on iat / nonce / counter rollback. timingSafeEqual on `ath` + `nonce`.
@@ -50,6 +71,7 @@
   - READMEs: parallel structure across both packages, local logo + LICENSE for npm rendering.
 
   **@gentleduck/iam**: defense-in-depth + adapter hardening + vitest compat shim.
+
   - `engine.libs.assertNonEmptyStringParam`: enforce 1024-char cap. `assertAttributesParam`: 256-key + depth-16 caps. `engine.permissions()`: refuse batches >1024. `engine.can()` / `check()` / `explain()`: subjectId typeof + length-cap; fail-closed in production.
   - File adapter dicts now `Object.create(null)` (prototype-pollution defense). `setSubjectAttributes('__proto__', ...)` no longer pollutes Object.prototype.
   - HTTP adapter: streaming `readBodyCapped` + `readJsonCapped<T>` so multi-GB remote bodies cannot OOM before slice. ID-length caps. Backoff overflow cap. SSRF `redirect: 'error'`.
