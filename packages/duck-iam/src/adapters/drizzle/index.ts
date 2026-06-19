@@ -74,6 +74,18 @@ export namespace Drizzle {
       and: (...conditions: unknown[]) => unknown
     }
     /**
+     * JSON column encoding strategy.
+     *
+     * - `'native'` (default) writes plain objects/arrays so Postgres `jsonb`
+     *   and MySQL `json` columns store queryable JSON (enables GIN indexes,
+     *   `jsonb_typeof` checks, and avoids double-encoding).
+     * - `'string'` `JSON.stringify`s every payload - required for SQLite, whose
+     *   columns are TEXT, or any deployment storing JSON in a text column.
+     *
+     * The read path accepts both shapes, so switching is migration-safe.
+     */
+    json?: 'native' | 'string'
+    /**
      * Invoked when a stored row fails JSON parse or shape validation. The
      * malformed row is dropped from the result set; the rest are returned
      * intact. Wire this to your alerting pipeline so corrupt rows do not
@@ -135,6 +147,7 @@ export class DrizzleAdapter<
   private _t: Drizzle.IConfig['tables']
   private _eq: Drizzle.IConfig['ops']['eq']
   private _and: Drizzle.IConfig['ops']['and']
+  private _json: 'native' | 'string'
   private _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
 
   /**
@@ -147,6 +160,7 @@ export class DrizzleAdapter<
     this._t = config.tables
     this._eq = config.ops.eq
     this._and = config.ops.and
+    this._json = config.json ?? 'native'
     this._onPolicyError = config.onPolicyError
   }
 
@@ -293,7 +307,7 @@ export class DrizzleAdapter<
    * @returns Resolves once the upsert completes.
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
-    const data = serializePolicy(p)
+    const data = serializePolicy(p, this._json)
     await this._db.insert(this._t.policies).values(data).onConflictDoUpdate({ target: this._t.policies.id, set: data })
   }
 
@@ -345,7 +359,7 @@ export class DrizzleAdapter<
    * @returns Resolves once the upsert completes.
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
-    const data = serializeRole(r)
+    const data = serializeRole(r, this._json)
     await this._db.insert(this._t.roles).values(data).onConflictDoUpdate({ target: this._t.roles.id, set: data })
   }
 
@@ -473,7 +487,8 @@ export class DrizzleAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), subjectId)
       existing = {}
     }
-    const merged = JSON.stringify({ ...existing, ...attrs })
+    const mergedObj = { ...existing, ...attrs }
+    const merged = this._json === 'string' ? JSON.stringify(mergedObj) : mergedObj
     await this._db
       .insert(this._t.attrs)
       .values({ subjectId, data: merged })
@@ -481,28 +496,37 @@ export class DrizzleAdapter<
   }
 }
 
-/** Converts a Policy object into a flat record with JSON-stringified columns for storage. */
-function serializePolicy(p: AccessControl.IPolicy): Record<string, unknown> {
+/**
+ * Encodes a JSON payload for storage: `JSON.stringify` in `'string'` mode
+ * (SQLite / text columns), or the value untouched in `'native'` mode so
+ * Drizzle hands a real object to a `jsonb`/`json` column.
+ */
+function encodeJson(value: unknown, mode: 'native' | 'string'): unknown {
+  return mode === 'string' ? JSON.stringify(value) : value
+}
+
+/** Converts a Policy object into a flat record for storage under the given JSON mode. */
+function serializePolicy(p: AccessControl.IPolicy, json: 'native' | 'string'): Record<string, unknown> {
   return {
     id: p.id,
     name: p.name,
     description: p.description ?? null,
     version: p.version ?? 1,
     algorithm: p.algorithm,
-    rules: JSON.stringify(p.rules),
-    targets: p.targets ? JSON.stringify(p.targets) : null,
+    rules: encodeJson(p.rules, json),
+    targets: p.targets ? encodeJson(p.targets, json) : null,
   }
 }
 
-/** Converts a Role object into a flat record with JSON-stringified columns for storage. */
-function serializeRole(r: AccessControl.IRole): Record<string, unknown> {
+/** Converts a Role object into a flat record for storage under the given JSON mode. */
+function serializeRole(r: AccessControl.IRole, json: 'native' | 'string'): Record<string, unknown> {
   return {
     id: r.id,
     name: r.name,
     description: r.description ?? null,
-    permissions: JSON.stringify(r.permissions),
-    inherits: JSON.stringify(r.inherits ?? []),
+    permissions: encodeJson(r.permissions, json),
+    inherits: encodeJson(r.inherits ?? [], json),
     scope: r.scope ?? null,
-    metadata: r.metadata ? JSON.stringify(r.metadata) : null,
+    metadata: r.metadata ? encodeJson(r.metadata, json) : null,
   }
 }

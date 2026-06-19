@@ -178,9 +178,18 @@ describe('DrizzleAdapter', () => {
       expect(list[0]?.targets).toEqual({ actions: ['read'] })
     })
 
-    it('rules and targets stored as JSON strings', async () => {
+    it('rules and targets stored as native JSON by default', async () => {
       await adapter.savePolicy(policy)
       const raw = mock.tables.policies[0]!
+      expect(raw.rules).toEqual([])
+      expect(raw.targets).toEqual({ actions: ['read'] })
+    })
+
+    it('rules and targets stringified in json:string mode', async () => {
+      const m = makeDrizzleMock()
+      const a = new DrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
+      await a.savePolicy(policy)
+      const raw = m.tables.policies[0]!
       expect(typeof raw.rules).toBe('string')
       expect(typeof raw.targets).toBe('string')
       expect(JSON.parse(raw.rules as string)).toEqual([])
@@ -246,9 +255,19 @@ describe('DrizzleAdapter', () => {
       metadata: { color: 'blue' },
     }
 
-    it('saveRole serializes JSON columns', async () => {
+    it('saveRole stores native JSON columns by default', async () => {
       await adapter.saveRole(role)
       const raw = mock.tables.roles[0]!
+      expect(raw.permissions).toEqual([{ action: 'write', resource: 'post' }])
+      expect(raw.inherits).toEqual(['viewer'])
+      expect(raw.metadata).toEqual({ color: 'blue' })
+    })
+
+    it('saveRole stringifies JSON columns in json:string mode', async () => {
+      const m = makeDrizzleMock()
+      const a = new DrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
+      await a.saveRole(role)
+      const raw = m.tables.roles[0]!
       expect(typeof raw.permissions).toBe('string')
       expect(typeof raw.inherits).toBe('string')
       expect(typeof raw.metadata).toBe('string')
@@ -280,7 +299,7 @@ describe('DrizzleAdapter', () => {
     it('saveRole normalizes empty inherits', async () => {
       await adapter.saveRole({ id: 'r1' as Ro, name: 'R', permissions: [] })
       const raw = mock.tables.roles[0]!
-      expect(raw.inherits).toBe(JSON.stringify([]))
+      expect(raw.inherits).toEqual([])
       expect(raw.scope).toBeNull()
       expect(raw.metadata).toBeNull()
     })
@@ -353,8 +372,15 @@ describe('DrizzleAdapter', () => {
       await adapter.setSubjectAttributes('user-1', { plan: 'pro' })
       const got = await adapter.getSubjectAttributes('user-1')
       expect(got).toEqual({ team: 'A', plan: 'pro' })
-      // Stored as string
-      expect(typeof mock.tables.attrs[0]?.data).toBe('string')
+      expect(mock.tables.attrs[0]?.data).toEqual({ team: 'A', plan: 'pro' })
+    })
+
+    it('setSubjectAttributes stringifies in json:string mode', async () => {
+      const m = makeDrizzleMock()
+      const a = new DrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
+      await a.setSubjectAttributes('user-1', { team: 'A' })
+      expect(typeof m.tables.attrs[0]?.data).toBe('string')
+      expect(await a.getSubjectAttributes('user-1')).toEqual({ team: 'A' })
     })
 
     it('getSubjectAttributes parses string blob', async () => {

@@ -1,84 +1,144 @@
-import { datetime, index, int, json, mysqlTable, uniqueIndex, varchar } from 'drizzle-orm/mysql-core'
+import { sql } from 'drizzle-orm'
+import {
+  check,
+  datetime,
+  foreignKey,
+  index,
+  int,
+  json,
+  mysqlEnum,
+  mysqlTable,
+  primaryKey,
+  unique,
+  uniqueIndex,
+  varchar,
+} from 'drizzle-orm/mysql-core'
+import type { AccessControl, Primitives } from '../../../core/types'
 
 /**
- * MySQL schema for duck-iam Drizzle adapter.
+ * MySQL schema for the duck-iam Drizzle adapter.
  *
- * MySQL has no native array type - `inherits` is stored as a JSON array
- * (the adapter handles JSON.parse automatically).
+ * With the adapter's default `json: 'native'` mode, payload columns hold real
+ * `json`; columns are typed with `$type<>()` for read-path safety. CHECK
+ * constraints are enforced on MySQL 8.0.16+ and parsed-but-ignored below that.
+ *
+ * MySQL has no partial indexes and treats NULL as distinct in unique keys, so
+ * global rows (NULL scope) are de-duplicated via a `COALESCE(scope, '')`
+ * functional unique index - keeping uniqueness without changing the adapter's
+ * `scope == null` = global semantics.
+ *
+ * No soft-delete columns; `created_by` / `updated_by` carry audit actors (left
+ * NULL by the adapter - set via triggers or admin writes). See the Postgres
+ * schema for fuller notes. Constraint naming: `pk_` `fk_` `uq_` `idx_` `ch_`.
  */
 
-/**
- * Defines the Drizzle MySQL table for stored policies.
- *
- * JSON columns (`rules`, `targets`) carry the policy payload.
- */
-export const accessPolicies = mysqlTable('access_policies', {
-  id: varchar('id', { length: 191 }).primaryKey(),
-  name: varchar('name', { length: 191 }).notNull(),
-  description: varchar('description', { length: 1024 }),
-  version: int('version').notNull().default(1),
-  algorithm: varchar('algorithm', { length: 32 }).notNull().default('deny-overrides'),
-  rules: json('rules').notNull(),
-  targets: json('targets'),
-  createdAt: datetime('created_at', { fsp: 3 }).notNull().default(new Date()),
-  updatedAt: datetime('updated_at', { fsp: 3 })
-    .notNull()
-    .default(new Date())
-    .$onUpdate(() => new Date()),
-})
+/** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
+const COMBINE_ALGORITHMS = [
+  'deny-overrides',
+  'allow-overrides',
+  'first-match',
+  'highest-priority',
+] as const satisfies readonly AccessControl.CombiningAlgorithm[]
 
-/**
- * Defines the Drizzle MySQL table for stored roles.
- *
- * `inherits` is JSON since MySQL has no native array type.
- */
-export const accessRoles = mysqlTable('access_roles', {
-  id: varchar('id', { length: 191 }).primaryKey(),
-  name: varchar('name', { length: 191 }).notNull(),
-  description: varchar('description', { length: 1024 }),
-  permissions: json('permissions').notNull(),
-  inherits: json('inherits').notNull(),
-  scope: varchar('scope', { length: 191 }),
-  metadata: json('metadata'),
-  createdAt: datetime('created_at', { fsp: 3 }).notNull().default(new Date()),
-  updatedAt: datetime('updated_at', { fsp: 3 })
-    .notNull()
-    .default(new Date())
-    .$onUpdate(() => new Date()),
-})
+/** Per-row current timestamp with millisecond precision. */
+const nowMs = sql`CURRENT_TIMESTAMP(3)`
 
-/**
- * Defines the Drizzle MySQL table for subject-to-role assignments.
- *
- * Unique on `(subject_id, role_id, scope)`.
- */
-export const accessAssignments = mysqlTable(
-  'access_assignments',
+/** Stored ABAC policies. */
+export const accessPolicies = mysqlTable(
+  'access_policies',
   {
-    id: varchar('id', { length: 191 })
-      .primaryKey()
-      .$defaultFn(() => crypto.randomUUID()),
-    subjectId: varchar('subject_id', { length: 191 }).notNull(),
-    roleId: varchar('role_id', { length: 191 }).notNull(),
-    scope: varchar('scope', { length: 191 }),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(new Date()),
+    id: varchar('id', { length: 191 }).notNull(),
+    name: varchar('name', { length: 191 }).notNull(),
+    description: varchar('description', { length: 1024 }),
+    version: int('version').notNull().default(1),
+    algorithm: mysqlEnum('algorithm', COMBINE_ALGORITHMS).notNull().default('deny-overrides'),
+    rules: json('rules').$type<AccessControl.IRule[]>().notNull(),
+    targets: json('targets').$type<NonNullable<AccessControl.IPolicy['targets']>>(),
+    createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
   },
   (t) => [
-    uniqueIndex('access_assignments_subject_role_scope_idx').on(t.subjectId, t.roleId, t.scope),
-    index('access_assignments_subject_idx').on(t.subjectId),
+    primaryKey({ name: 'pk_access_policies', columns: [t.id] }),
+    unique('uq_access_policies_name').on(t.name),
+    check('ch_access_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_access_policies_version_positive', sql`${t.version} >= 1`),
   ],
 )
 
-/**
- * Defines the Drizzle MySQL table for per-subject attribute bags.
- *
- * One row per subject.
- */
-export const accessSubjectAttrs = mysqlTable('access_subject_attrs', {
-  subjectId: varchar('subject_id', { length: 191 }).primaryKey(),
-  data: json('data').notNull(),
-  updatedAt: datetime('updated_at', { fsp: 3 })
-    .notNull()
-    .default(new Date())
-    .$onUpdate(() => new Date()),
-})
+/** Stored RBAC roles. `inherits` is a JSON array of parent role IDs. */
+export const accessRoles = mysqlTable(
+  'access_roles',
+  {
+    id: varchar('id', { length: 191 }).notNull(),
+    name: varchar('name', { length: 191 }).notNull(),
+    description: varchar('description', { length: 1024 }),
+    permissions: json('permissions').$type<AccessControl.IPermission[]>().notNull(),
+    inherits: json('inherits').$type<string[]>().notNull(),
+    scope: varchar('scope', { length: 191 }),
+    metadata: json('metadata').$type<Primitives.Attributes>(),
+    createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    primaryKey({ name: 'pk_access_roles', columns: [t.id] }),
+    // COALESCE collapses NULL scopes so global roles are unique by name too.
+    uniqueIndex('uq_access_roles_name_scope').on(t.name, sql`(coalesce(${t.scope}, ''))`),
+    index('idx_access_roles_scope').on(t.scope),
+    check('ch_access_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
+  ],
+)
+
+/** Subject-to-role assignments. NULL scope is a global (unscoped) grant. */
+export const accessAssignments = mysqlTable(
+  'access_assignments',
+  {
+    id: varchar('id', { length: 191 }).$defaultFn(() => crypto.randomUUID()),
+    subjectId: varchar('subject_id', { length: 191 }).notNull(),
+    roleId: varchar('role_id', { length: 191 }).notNull(),
+    scope: varchar('scope', { length: 191 }),
+    createdBy: varchar('created_by', { length: 191 }),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+  },
+  (t) => [
+    primaryKey({ name: 'pk_access_assignments', columns: [t.id] }),
+    foreignKey({
+      name: 'fk_access_assignments_role',
+      columns: [t.roleId],
+      foreignColumns: [accessRoles.id],
+    }).onDelete('cascade'),
+    // COALESCE collapses NULL scopes so duplicate global grants conflict.
+    uniqueIndex('uq_access_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`(coalesce(${t.scope}, ''))`),
+    index('idx_access_assignments_subject').on(t.subjectId),
+    index('idx_access_assignments_role').on(t.roleId),
+    check('ch_access_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+  ],
+)
+
+/** Per-subject attribute bags, one row per subject. */
+export const accessSubjectAttrs = mysqlTable(
+  'access_subject_attrs',
+  {
+    subjectId: varchar('subject_id', { length: 191 }).notNull(),
+    data: json('data').$type<Primitives.Attributes>().notNull(),
+    updatedBy: varchar('updated_by', { length: 191 }),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    primaryKey({ name: 'pk_access_subject_attrs', columns: [t.subjectId] }),
+    check('ch_access_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+  ],
+)

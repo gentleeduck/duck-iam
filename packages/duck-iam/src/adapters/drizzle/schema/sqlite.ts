@@ -1,88 +1,147 @@
 import { sql } from 'drizzle-orm'
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import {
+  check,
+  foreignKey,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core'
+import type { AccessControl } from '../../../core/types'
 
 /**
- * SQLite schema for duck-iam Drizzle adapter.
+ * SQLite schema for the duck-iam Drizzle adapter.
  *
- * SQLite has no native JSON or array type - JSON columns (rules, permissions,
- * targets, metadata, inherits, data) are stored as TEXT and the adapter
- * serializes/deserializes them automatically.
+ * SQLite has no native JSON or array type, so every payload column is TEXT and
+ * the adapter must run in `json: 'string'` mode (`new DrizzleAdapter({ ...,
+ * json: 'string' })`). Columns are typed with `$type<string>()` to reflect the
+ * stored JSON text. `algorithm` is constrained via a CHECK.
+ *
+ * SQLite treats NULL as distinct in unique indexes, so global rows (NULL scope)
+ * are de-duplicated via a `COALESCE(scope, '')` expression unique index.
+ *
+ * No soft-delete columns; `created_by` / `updated_by` carry audit actors (left
+ * NULL by the adapter). See the Postgres schema for fuller notes. Constraint
+ * naming: `pk_` `fk_` `uq_` `idx_` `ch_`.
  */
 
-/**
- * Defines the Drizzle SQLite table for stored policies.
- *
- * JSON payloads are TEXT and parsed by the adapter.
- */
-export const accessPolicies = sqliteTable('access_policies', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  version: integer('version').notNull().default(1),
-  algorithm: text('algorithm').notNull().default('deny-overrides'),
-  rules: text('rules').notNull(),
-  targets: text('targets'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`)
-    .$onUpdate(() => new Date()),
-})
+/** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
+const COMBINE_ALGORITHMS = [
+  'deny-overrides',
+  'allow-overrides',
+  'first-match',
+  'highest-priority',
+] as const satisfies readonly AccessControl.CombiningAlgorithm[]
 
-/**
- * Defines the Drizzle SQLite table for stored roles.
- *
- * `inherits` is JSON TEXT defaulting to `'[]'`.
- */
-export const accessRoles = sqliteTable('access_roles', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  permissions: text('permissions').notNull(),
-  inherits: text('inherits').notNull().default('[]'),
-  scope: text('scope'),
-  metadata: text('metadata'),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`)
-    .$onUpdate(() => new Date()),
-})
+/** Per-row epoch-millisecond timestamp. */
+const nowMs = sql`(unixepoch() * 1000)`
 
-/**
- * Defines the Drizzle SQLite table for subject-to-role assignments.
- *
- * Unique on `(subject_id, role_id, scope)`.
- */
-export const accessAssignments = sqliteTable(
-  'access_assignments',
+/** Stored ABAC policies. JSON payloads are TEXT and parsed by the adapter. */
+export const accessPolicies = sqliteTable(
+  'access_policies',
   {
-    id: text('id')
-      .primaryKey()
-      .$defaultFn(() => crypto.randomUUID()),
-    subjectId: text('subject_id').notNull(),
-    roleId: text('role_id')
+    id: text('id').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    version: integer('version').notNull().default(1),
+    algorithm: text('algorithm').$type<AccessControl.CombiningAlgorithm>().notNull().default('deny-overrides'),
+    rules: text('rules').$type<string>().notNull(),
+    targets: text('targets').$type<string>(),
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
-      .references(() => accessRoles.id, { onDelete: 'cascade' }),
-    scope: text('scope'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(sql`(unixepoch() * 1000)`),
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
   },
   (t) => [
-    uniqueIndex('access_assignments_subject_role_scope_idx').on(t.subjectId, t.roleId, t.scope),
-    index('access_assignments_subject_idx').on(t.subjectId),
+    primaryKey({ name: 'pk_access_policies', columns: [t.id] }),
+    unique('uq_access_policies_name').on(t.name),
+    check(
+      'ch_access_policies_algorithm_valid',
+      sql`${t.algorithm} IN ('deny-overrides','allow-overrides','first-match','highest-priority')`,
+    ),
+    check('ch_access_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_access_policies_version_positive', sql`${t.version} >= 1`),
   ],
 )
 
-/**
- * Defines the Drizzle SQLite table for per-subject attribute bags.
- *
- * JSON TEXT stored under `data`.
- */
-export const accessSubjectAttrs = sqliteTable('access_subject_attrs', {
-  subjectId: text('subject_id').primaryKey(),
-  data: text('data').notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`)
-    .$onUpdate(() => new Date()),
-})
+/** Stored RBAC roles. `inherits` is JSON TEXT defaulting to `'[]'`. */
+export const accessRoles = sqliteTable(
+  'access_roles',
+  {
+    id: text('id').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    permissions: text('permissions').$type<string>().notNull(),
+    inherits: text('inherits').$type<string>().notNull().default('[]'),
+    scope: text('scope'),
+    metadata: text('metadata').$type<string>(),
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    primaryKey({ name: 'pk_access_roles', columns: [t.id] }),
+    // COALESCE collapses NULL scopes so global roles are unique by name too.
+    uniqueIndex('uq_access_roles_name_scope').on(t.name, sql`coalesce(${t.scope}, '')`),
+    // Scoped roles only.
+    index('idx_access_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
+    check('ch_access_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
+  ],
+)
+
+/** Subject-to-role assignments. NULL scope is a global (unscoped) grant. */
+export const accessAssignments = sqliteTable(
+  'access_assignments',
+  {
+    id: text('id').$defaultFn(() => crypto.randomUUID()),
+    subjectId: text('subject_id').notNull(),
+    roleId: text('role_id').notNull(),
+    scope: text('scope'),
+    createdBy: text('created_by'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+  },
+  (t) => [
+    primaryKey({ name: 'pk_access_assignments', columns: [t.id] }),
+    foreignKey({
+      name: 'fk_access_assignments_role',
+      columns: [t.roleId],
+      foreignColumns: [accessRoles.id],
+    }).onDelete('cascade'),
+    // COALESCE collapses NULL scopes so duplicate global grants conflict.
+    uniqueIndex('uq_access_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`coalesce(${t.scope}, '')`),
+    index('idx_access_assignments_subject').on(t.subjectId),
+    index('idx_access_assignments_role').on(t.roleId),
+    // Scoped assignments only.
+    index('idx_access_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
+    check('ch_access_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+  ],
+)
+
+/** Per-subject attribute bags, one row per subject. JSON TEXT under `data`. */
+export const accessSubjectAttrs = sqliteTable(
+  'access_subject_attrs',
+  {
+    subjectId: text('subject_id').notNull(),
+    data: text('data').$type<string>().notNull(),
+    updatedBy: text('updated_by'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    primaryKey({ name: 'pk_access_subject_attrs', columns: [t.subjectId] }),
+    check('ch_access_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+  ],
+)
