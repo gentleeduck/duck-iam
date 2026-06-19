@@ -10,8 +10,8 @@
   "dependencies": {
     "@gentleduck/iam": "workspace:*",
     "next": "^16.1.1",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@types/node": "22.19.3",

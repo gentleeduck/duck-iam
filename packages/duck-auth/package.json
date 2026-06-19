@@ -577,10 +577,10 @@
     "@aws-sdk/client-kms": ">=3 <4",
     "@gentleduck/iam": "workspace:*",
     "@node-rs/argon2": ">=2 <3",
-    "@simplewebauthn/server": ">=10 <14",
-    "drizzle-orm": ">=0.30 <2",
+    "@simplewebauthn/server": "^13.3.1",
+    "drizzle-orm": "^0.45.2",
     "react": "^18 || ^19",
-    "solid-js": "^1",
+    "solid-js": "^1.9.13",
     "svelte": "^4 || ^5",
     "vue": "^3"
   },
@@ -618,12 +618,12 @@
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",
-    "@node-rs/argon2": ">=2 <3",
-    "@types/react": "^19.2.14",
-    "react": "^19.2.6",
-    "tsdown": "catalog:",
+    "@node-rs/argon2": "2.0.2",
+    "@types/react": "^19.2.17",
+    "react": "^19.2.7",
+    "tsdown": "^0.22.3",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": ">=22.0.0"
