@@ -7,7 +7,8 @@
     "noPropertyAccessFromIndexSignature": false,
     "noImplicitOverride": false,
     "verbatimModuleSyntax": false,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "types": ["@types/node"],
   },
   "exclude": ["node_modules", "dist", "examples.ts"],
   "extends": "@gentleduck/typescript-config/internal-package.json",
