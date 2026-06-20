@@ -21,9 +21,9 @@ import { RuleBuilder } from './rule'
  *
  * @example
  * ```typescript
- * import { policy } from '@gentleduck/iam'
+ * import { definePolicy } from '@gentleduck/iam'
  *
- * const weekendDeny = policy('deny-weekends')
+ * const weekendDeny = definePolicy('deny-weekends')
  *   .name('Deny on Weekends')
  *   .desc('Block all write operations on weekends')
  *   .version(1)
@@ -124,7 +124,7 @@ export class PolicyBuilder<
    *
    * @example
    * ```typescript
-   * policy('write-restrictions')
+   * definePolicy('write-restrictions')
    *   .target({
    *     actions: ['create', 'update', 'delete'],
    *     resources: ['post', 'comment'],
@@ -149,7 +149,7 @@ export class PolicyBuilder<
    *
    * @example
    * ```typescript
-   * policy('ip-guard')
+   * definePolicy('ip-guard')
    *   .rule('block-bad-ips', r => r
    *     .deny()
    *     .on('*')
@@ -191,7 +191,7 @@ export class PolicyBuilder<
    *   .when(w => w.resourceAttr('status', 'eq', 'draft'))
    *   .build()
    *
-   * policy('post-access').addRule(denyDrafts)
+   * definePolicy('post-access').addRule(denyDrafts)
    * ```
    * @returns `this` for chaining.
    */
@@ -238,7 +238,9 @@ export class PolicyBuilder<
  * Creates a new {@link PolicyBuilder} for the given policy ID.
  *
  * This is the primary entry point for defining ABAC policies. Prefer this
- * factory over constructing `PolicyBuilder` directly.
+ * factory over constructing `PolicyBuilder` directly. When using
+ * `createAccessConfig`, use `access.definePolicy()` instead to get type-safe
+ * action, resource, and role constraints.
  *
  * @template TAction   - Union of valid action strings.
  * @template TResource - Union of valid resource strings.
@@ -251,9 +253,9 @@ export class PolicyBuilder<
  *
  * @example
  * ```typescript
- * import { policy } from '@gentleduck/iam'
+ * import { definePolicy } from '@gentleduck/iam'
  *
- * const maintenanceMode = policy('maintenance-mode')
+ * const maintenanceMode = definePolicy('maintenance-mode')
  *   .name('Maintenance Mode')
  *   .desc('Deny all writes when the maintenance flag is active')
  *   .algorithm('deny-overrides')
@@ -266,7 +268,7 @@ export class PolicyBuilder<
  *   .build()
  * ```
  */
-export const policy = <
+export const definePolicy = <
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,

@@ -76,7 +76,7 @@ export namespace Config {
     defineRole: (id: TRole) => RoleBuilder<TAction, TResource, TRole, TScope, TContext>
 
     /** Typed {@link PolicyBuilder}; rules constrained to declared actions/resources/roles. */
-    policy: (id: string) => PolicyBuilder<TAction, TResource, TRole, TScope, TContext>
+    definePolicy: (id: string) => PolicyBuilder<TAction, TResource, TRole, TScope, TContext>
 
     /** Typed standalone {@link RuleBuilder} for composing rules across policies. */
     defineRule: (id: string) => RuleBuilder<TAction, TResource, TScope, TRole, TContext>

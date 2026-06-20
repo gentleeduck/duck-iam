@@ -70,7 +70,7 @@ const commentDelete = access
 	.build();
 
 export const blogPolicy = access
-	.policy("blog")
+	.definePolicy("blog")
 	.addRule(workspaceGate)
 	.addRule(denyDraftRead)
 	.addRule(publishWindow)

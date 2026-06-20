@@ -57,7 +57,7 @@ export function createAccessConfig<
 
     defineRole: (id: TRole) => new RoleBuilder<TAction, TResource, TRole, TScope, TContext>(id),
 
-    policy: (id: string) => new PolicyBuilder<TAction, TResource, TRole, TScope, TContext>(id),
+    definePolicy: (id: string) => new PolicyBuilder<TAction, TResource, TRole, TScope, TContext>(id),
 
     defineRule: (id: string) => new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id),
 

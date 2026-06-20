@@ -65,7 +65,7 @@ export const allRoles = [viewer, editor, admin, owner]
 // ── ABAC Policies ──────────────────────────────────────────────────
 
 export const docOwnershipPolicy = access
-  .policy('doc-ownership')
+  .definePolicy('doc-ownership')
   .name('Document Ownership')
   .desc('Editors can only update/delete their own documents; admins/owners bypass')
   .target({ actions: ['update', 'delete'], resources: ['document'] })
@@ -80,7 +80,7 @@ export const docOwnershipPolicy = access
   .build()
 
 export const publicDocsPolicy = access
-  .policy('public-docs')
+  .definePolicy('public-docs')
   .name('Public Documents')
   .desc('Public documents are readable by any workspace member')
   .target({ actions: ['read'], resources: ['document'] })

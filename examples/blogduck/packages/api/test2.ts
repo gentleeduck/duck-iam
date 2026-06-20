@@ -39,7 +39,7 @@ export const access = createAccessConfig({
   context: {} as unknown as AppContext,
 })
 
-const { defineRole, validateRoles, policy } = access
+const { defineRole, validateRoles, definePolicy } = access
 
 // --- Roles ---
 
@@ -101,7 +101,7 @@ if (!validation.valid) {
 
 // --- Policies ---
 
-export const bannedUserPolicy = policy('banned-users')
+export const bannedUserPolicy = definePolicy('banned-users')
   .name('Banned Users')
   .desc('Hard block on banned accounts')
   .algorithm('deny-overrides')
@@ -117,7 +117,7 @@ export const bannedUserPolicy = policy('banned-users')
   )
   .build()
 
-export const publishedOnlyPolicy = policy('published-only')
+export const publishedOnlyPolicy = definePolicy('published-only')
   .name('Published Content Only')
   .desc('Guests and members can only read published posts')
   .algorithm('deny-overrides')
@@ -137,7 +137,7 @@ export const publishedOnlyPolicy = policy('published-only')
   )
   .build()
 
-export const maintenancePolicy = policy('maintenance-mode')
+export const maintenancePolicy = definePolicy('maintenance-mode')
   .name('Maintenance Mode')
   .desc('Deny all write operations when maintenance flag is on')
   .algorithm('deny-overrides')
@@ -155,7 +155,7 @@ export const maintenancePolicy = policy('maintenance-mode')
   )
   .build()
 
-export const businessHoursPolicy = policy('business-hours')
+export const businessHoursPolicy = definePolicy('business-hours')
   .name('Business Hours Only')
   .desc('Writes are only allowed between 9am-5pm on weekdays')
   .algorithm('first-match')
@@ -193,7 +193,7 @@ export const businessHoursPolicy = policy('business-hours')
   .rule('allow-in-hours', (r) => r.allow().on('*').of('*'))
   .build()
 
-export const dashboardPolicy = policy('dashboard-access')
+export const dashboardPolicy = definePolicy('dashboard-access')
   .name('Dashboard Access')
   .desc('Only admins and above can access the dashboard')
   .algorithm('deny-overrides')
@@ -209,7 +209,7 @@ export const dashboardPolicy = policy('dashboard-access')
 // -- Resource-narrowed policies (resourceAttr narrows by .of()) --
 
 // .of('post') narrows resourceAttr to post keys: 'ownerId' | 'status' | 'title'
-export const postTitlePolicy = policy('post-title-required')
+export const postTitlePolicy = definePolicy('post-title-required')
   .name('Post Title Required')
   .desc('Deny creating posts without a title')
   .algorithm('deny-overrides')
@@ -226,7 +226,7 @@ export const postTitlePolicy = policy('post-title-required')
   .build()
 
 // .of('comment') narrows resourceAttr to comment keys: 'ownerId' | 'body'
-export const commentLengthPolicy = policy('comment-body-required')
+export const commentLengthPolicy = definePolicy('comment-body-required')
   .name('Comment Body Required')
   .desc('Deny empty comments')
   .algorithm('deny-overrides')
@@ -243,7 +243,7 @@ export const commentLengthPolicy = policy('comment-body-required')
   .build()
 
 // .of('user') narrows resourceAttr to user keys: 'email' | 'status'
-export const userEmailPolicy = policy('user-email-access')
+export const userEmailPolicy = definePolicy('user-email-access')
   .name('User Email Access')
   .desc('Only admins can read user email addresses')
   .algorithm('deny-overrides')
@@ -262,7 +262,7 @@ export const userEmailPolicy = policy('user-email-access')
   .build()
 
 // .of('dashboard') narrows resourceAttr to dashboard keys: 'name'
-export const dashboardNamePolicy = policy('dashboard-named')
+export const dashboardNamePolicy = definePolicy('dashboard-named')
   .name('Dashboard Named Access')
   .desc('Deny access to unnamed dashboards for non-admins')
   .algorithm('deny-overrides')
@@ -281,7 +281,7 @@ export const dashboardNamePolicy = policy('dashboard-named')
   .build()
 
 // .of('*') shows all keys across all resources: ownerId, status, title, body, email, name
-export const globalOwnerPolicy = policy('global-owner')
+export const globalOwnerPolicy = definePolicy('global-owner')
   .name('Global Owner Check')
   .desc('Deny non-owners from deleting any resource')
   .algorithm('deny-overrides')
@@ -396,7 +396,7 @@ const _perms = await engine.permissions(
 //   '$environment.hour'            -- an environment value (autocompleted)
 
 // 1. Using $ with .resourceAttr() -- compare resource owner to current user
-const _ownerPolicy = policy('dollar-owner-demo')
+const _ownerPolicy = definePolicy('dollar-owner-demo')
   .name('Owner Only Updates')
   .desc('Only the owner can update their own posts')
   .algorithm('deny-overrides')
@@ -413,7 +413,7 @@ const _ownerPolicy = policy('dollar-owner-demo')
   .build()
 
 // 2. Using $ with .attr() -- compare subject attribute to a resource attribute
-const _matchStatusPolicy = policy('dollar-status-demo')
+const _matchStatusPolicy = definePolicy('dollar-status-demo')
   .name('Status Match')
   .desc('Deny if subject status matches the resource status (e.g. both banned)')
   .algorithm('deny-overrides')
@@ -430,7 +430,7 @@ const _matchStatusPolicy = policy('dollar-status-demo')
   .build()
 
 // 3. Using $ with .check() -- full dot-path on both sides
-const _crossAttrPolicy = policy('dollar-cross-attr-demo')
+const _crossAttrPolicy = definePolicy('dollar-cross-attr-demo')
   .name('Cross-Attribute Check')
   .desc('Compare any two fields from the request context')
   .algorithm('deny-overrides')
@@ -447,7 +447,7 @@ const _crossAttrPolicy = policy('dollar-cross-attr-demo')
   .build()
 
 // 4. Using $ with .env() -- compare environment value to a resource attribute
-const _envCrossRefPolicy = policy('dollar-env-demo')
+const _envCrossRefPolicy = definePolicy('dollar-env-demo')
   .name('Env Cross-Reference')
   .desc('Deny if current IP matches a resource attribute')
   .algorithm('deny-overrides')

@@ -21,7 +21,7 @@ describe('createAccessConfig()', () => {
   })
 
   it('policy returns a PolicyBuilder', () => {
-    const p = config.policy('test-policy').name('Test').build()
+    const p = config.definePolicy('test-policy').name('Test').build()
     expect(p.id).toBe('test-policy')
     expect(p.name).toBe('Test')
   })

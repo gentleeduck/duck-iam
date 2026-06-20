@@ -97,7 +97,7 @@ describe('Integration: config -> engine -> evaluate', () => {
     // A deny-overrides policy that only targets delete+post and has both
     // a conditional deny and a fallback allow
     const denyDraftPolicy = access
-      .policy('deny-draft-delete')
+      .definePolicy('deny-draft-delete')
       .name('No deleting drafts')
       .algorithm('deny-overrides')
       .target({ actions: ['delete'], resources: ['post'] })

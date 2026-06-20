@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DotPath } from '../../types'
-import { defineRole, defineRule, PolicyBuilder, policy, RoleBuilder, RuleBuilder, When, when } from '..'
+import { definePolicy, defineRole, defineRule, PolicyBuilder, RoleBuilder, RuleBuilder, When, when } from '..'
 
 interface TypedBuilderContext {
   action: 'read' | 'update'
@@ -362,8 +362,8 @@ describe('RoleBuilder', () => {
 })
 
 describe('factory functions', () => {
-  it('policy() creates a PolicyBuilder', () => {
-    const p = policy('test').build()
+  it('definePolicy() creates a PolicyBuilder', () => {
+    const p = definePolicy('test').build()
     expect(p.id).toBe('test')
   })
 
