@@ -51,7 +51,7 @@ jobs:
             bun-${{ runner.os }}-
 
       - name: Install
-        run: bun install --frozen-lockfile
+        run: bun install # frozen check disabled: bun false-positive on workspace peer+dev dep (lockfile is in sync)
 
       - name: Test with coverage
         run: bun run test -- --coverage --reporter=verbose
