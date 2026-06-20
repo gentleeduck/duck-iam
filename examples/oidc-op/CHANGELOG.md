@@ -1,5 +1,11 @@
 # @gentleduck/example-oidc-op
 
+## 0.0.3
+
+### Patch Changes
+
+- @gentleduck/auth@3.0.0
+
 ## 0.0.2
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @gentleduck/iam
 
+## 4.0.0
+
+### Major Changes
+
+- a5fb285: Rename the policy builder factory to `definePolicy`, matching `defineRule` and
+  `defineRole`.
+
+  BREAKING: the `policy()` factory and `access.policy()` method are removed. Use
+  `definePolicy()` and `access.definePolicy()` instead - the builder API is
+  otherwise unchanged.
+
 ## 3.2.0
 
 ### Minor Changes
