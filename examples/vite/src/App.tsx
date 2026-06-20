@@ -50,7 +50,7 @@ function App() {
               <a href="https://react.dev/" target="_blank" rel="noopener">
                 {/* biome-ignore lint/performance/noImgElement: vite app, not next - <img> is correct */}
                 <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
+                Learn React
               </a>
             </li>
           </ul>
