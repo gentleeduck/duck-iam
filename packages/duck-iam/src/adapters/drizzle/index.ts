@@ -1,40 +1,30 @@
+import type { SQL, SQLWrapper } from 'drizzle-orm'
+import type { MySqlDatabase } from 'drizzle-orm/mysql-core'
+import type { MySqlTableWithColumns } from 'drizzle-orm/mysql-core/table'
+import type { PgDatabase } from 'drizzle-orm/pg-core'
+import type { PgTableWithColumns } from 'drizzle-orm/pg-core/table'
+import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
+import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
-
-/** Row shapes returned by IamDrizzle queries. */
-interface PolicyRow {
-  id: string
-  name: string
-  description: string | null
-  version: number
-  algorithm: string
-  rules: string | unknown
-  targets: string | unknown | null
-}
-
-/** Database row shape for the roles table. */
-interface RoleRow {
-  id: string
-  name: string
-  description: string | null
-  permissions: string | unknown
-  inherits: string | unknown | null
-  scope: string | null
-  metadata: string | unknown | null
-}
-
-/** Database row shape for the role-to-subject assignments table. */
-interface AssignmentRow {
-  subjectId: string
-  roleId: string
-  scope: string | null
-}
-
-/** Database row shape for the subject attributes table. */
-interface AttrRow {
-  subjectId: string
-  data: string | unknown
-}
+import type {
+  iamAssignments as AssignmentMysql,
+  iamSubjectAttrs as AttrMysql,
+  iamPolicies as PolicyMysql,
+  iamRoles as RoleMysql,
+} from './schema/mysql'
+import type {
+  iamAssignments as AssignmentPg,
+  iamSubjectAttrs as AttrPg,
+  iamPolicies as PolicyPg,
+  iamRoles as RolePg,
+} from './schema/pg'
+import type {
+  iamAssignments as AssignmentSqlite,
+  iamSubjectAttrs as AttrSqlite,
+  iamPolicies as PolicySqlite,
+  iamRoles as RoleSqlite,
+} from './schema/sqlite'
 
 /** IamDrizzle adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamDrizzle {
@@ -54,24 +44,20 @@ export namespace IamDrizzle {
    * }
    * ```
    */
-  export interface IConfig {
+  export interface IConfig<TDb extends AnyDrizzleDb = AnyDrizzleDb> {
     /** Provides the IamDrizzle database instance with select/insert/delete builders. */
-    db: {
-      select: () => { from: (table: unknown) => DrizzleQuery }
-      insert: (table: unknown) => { values: (data: Record<string, unknown>) => DrizzleInsert }
-      delete: (table: unknown) => { where: (condition: unknown) => Promise<unknown> }
-    }
+    db: TDb
     /** Provides references to the four IamDrizzle table schemas used by the adapter. */
     tables: {
-      policies: DrizzleTable
-      roles: DrizzleTable
-      assignments: DrizzleTable
-      attrs: DrizzleTable
+      policies: DbTableFor<TDb>
+      roles: DbTableFor<TDb>
+      assignments: DbTableFor<TDb>
+      attrs: DbTableFor<TDb>
     }
     /** Provides IamDrizzle operator functions for building WHERE clauses. */
     ops: {
       eq: (col: unknown, val: unknown) => unknown
-      and: (...conditions: unknown[]) => unknown
+      and: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
     }
     /**
      * JSON column encoding strategy.
@@ -93,29 +79,52 @@ export namespace IamDrizzle {
      */
     onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
   }
-}
 
-/** Minimal shape of a IamDrizzle table object with optional column references. */
-interface DrizzleTable {
-  id?: unknown
-  subjectId?: unknown
-  roleId?: unknown
-  scope?: unknown
-  [key: string]: unknown
-}
+  /** Row shapes returned by IamDrizzle queries. */
+  export type PolicyRow =
+    | typeof PolicyPg.$inferSelect
+    | typeof PolicyMysql.$inferSelect
+    | typeof PolicySqlite.$inferSelect
+  /** Database row shape for the roles table. */
+  export type RoleRow = typeof RolePg.$inferSelect | typeof RoleMysql.$inferSelect | typeof RoleSqlite.$inferSelect
 
-/** Minimal shape of a chainable IamDrizzle SELECT query. */
-interface DrizzleQuery {
-  where: (condition: unknown) => { limit: (n: number) => Promise<Record<string, unknown>[]> }
-  limit: (n: number) => Promise<Record<string, unknown>[]>
-  then: (onfulfilled: (value: Record<string, unknown>[]) => unknown) => Promise<unknown>
-  [Symbol.iterator]?: unknown
-}
+  /** Database row shape for the role-to-subject assignments table. */
+  export type AssignmentRow =
+    | typeof AssignmentPg.$inferSelect
+    | typeof AssignmentMysql.$inferSelect
+    | typeof AssignmentSqlite.$inferSelect
 
-/** Minimal shape of a chainable IamDrizzle INSERT query with conflict handling. */
-interface DrizzleInsert {
-  onConflictDoUpdate: (args: { target: unknown; set: Record<string, unknown> }) => Promise<unknown>
-  onConflictDoNothing: () => Promise<unknown>
+  /** Database row shape for the subject attributes table. */
+  export type AttrRow = typeof AttrPg.$inferSelect | typeof AttrMysql.$inferSelect | typeof AttrSqlite.$inferSelect
+
+  export type DrizzleTable = PgTableWithColumns<any> | MySqlTableWithColumns<any> | SQLiteTableWithColumns<any>
+
+  /**
+   * Structural db interface — all supported Drizzle instances satisfy this.
+   * Using a structural interface (not a union) lets TypeScript call
+   * `db.select()` on a generic `TDb extends AnyDrizzleDb` without the
+   * "each member of the union has incompatible signatures" error.
+   */
+  export interface AnyDrizzleDb {
+    select(...args: any[]): any
+    insert(table: any): any
+    delete(table: any): any
+  }
+
+  /**
+   * Maps a concrete db instance to its matching table type so that
+   * passing a pg db with sqlite tables is a compile error.
+   * Falls back to `any` when `TDb` is the bare structural default —
+   * this keeps `IamDrizzle.IConfig` (no type args) permissive for tests/mocks.
+   */
+  export type DbTableFor<TDb extends AnyDrizzleDb> =
+    TDb extends PgDatabase<any, any, any>
+      ? PgTableWithColumns<any>
+      : TDb extends MySqlDatabase<any, any, any, any>
+        ? MySqlTableWithColumns<any>
+        : TDb extends BaseSQLiteDatabase<any, any, any, any>
+          ? SQLiteTableWithColumns<any>
+          : any
 }
 
 /**
@@ -141,10 +150,11 @@ export class IamDrizzleAdapter<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TDb extends IamDrizzle.AnyDrizzleDb = IamDrizzle.AnyDrizzleDb,
 > implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
-  private _db: IamDrizzle.IConfig['db']
-  private _t: IamDrizzle.IConfig['tables']
+  private _db: TDb
+  private _t: IamDrizzle.IConfig<TDb>['tables']
   private _eq: IamDrizzle.IConfig['ops']['eq']
   private _and: IamDrizzle.IConfig['ops']['and']
   private _json: 'native' | 'string'
@@ -155,7 +165,7 @@ export class IamDrizzleAdapter<
    *
    * @param config - Provides the IamDrizzle db, tables, and operator functions.
    */
-  constructor(config: IamDrizzle.IConfig) {
+  constructor(config: IamDrizzle.IConfig<TDb>) {
     this._db = config.db
     this._t = config.tables
     this._eq = config.ops.eq
@@ -169,15 +179,19 @@ export class IamDrizzleAdapter<
    * the module edge into one place. IamDrizzle's `select().from()` returns
    * untyped rows; row shapes are pinned at the boundary here.
    */
-  private async _selectAll<T>(table: unknown): Promise<T[]> {
-    return (await this._db.select().from(table)) as unknown as T[]
+  private async _selectAll<T>(table: IamDrizzle.DrizzleTable): Promise<T[]> {
+    return await this._db.select().from(table)
   }
-  private async _selectFirst<T>(table: unknown, whereCol: unknown, whereVal: unknown): Promise<T | undefined> {
-    const rows = (await this._db.select().from(table).where(this._eq(whereCol, whereVal)).limit(1)) as unknown as T[]
+  private async _selectFirst<T>(
+    table: IamDrizzle.DrizzleTable,
+    whereCol: unknown,
+    whereVal: unknown,
+  ): Promise<T | undefined> {
+    const rows = await this._db.select().from(table).where(this._eq(whereCol, whereVal)).limit(1)
     return rows[0]
   }
-  private async _selectWhere<T>(table: unknown, whereCol: unknown, whereVal: unknown): Promise<T[]> {
-    return (await this._db.select().from(table).where(this._eq(whereCol, whereVal))) as unknown as T[]
+  private async _selectWhere<T>(table: IamDrizzle.DrizzleTable, whereCol: unknown, whereVal: unknown): Promise<T[]> {
+    return await this._db.select().from(table).where(this._eq(whereCol, whereVal))
   }
 
   private _reportPolicyError(err: Error, rowId: string): void {
@@ -193,7 +207,7 @@ export class IamDrizzleAdapter<
    * Parse a row's JSON columns + validate the policy shape. Returns `null` on
    * any failure (parse error or invalid shape) so the caller can drop the row.
    */
-  private _safeParsePolicy(row: PolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _safeParsePolicy(row: IamDrizzle.PolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> | null {
     let parsedRules: unknown
     let parsedTargets: unknown
     try {
@@ -229,7 +243,7 @@ export class IamDrizzleAdapter<
     return policy
   }
 
-  private _safeParseRole(row: RoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _safeParseRole(row: IamDrizzle.RoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
     let permissions: unknown
     let inherits: unknown
     let metadata: unknown
@@ -276,7 +290,7 @@ export class IamDrizzleAdapter<
    * @returns All policies parsed from the policies table.
    */
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    const rows = await this._selectAll<PolicyRow>(this._t.policies)
+    const rows = await this._selectAll<IamDrizzle.PolicyRow>(this._t.policies)
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
     for (const row of rows) {
       const parsed = this._safeParsePolicy(row)
@@ -296,7 +310,7 @@ export class IamDrizzleAdapter<
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
-    const row = await this._selectFirst<PolicyRow>(this._t.policies, this._t.policies.id, id)
+    const row = await this._selectFirst<IamDrizzle.PolicyRow>(this._t.policies, this._t.policies.id, id)
     return row ? this._safeParsePolicy(row) : null
   }
 
@@ -328,7 +342,7 @@ export class IamDrizzleAdapter<
    * @returns All roles parsed from the roles table.
    */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    const rows = await this._selectAll<RoleRow>(this._t.roles)
+    const rows = await this._selectAll<IamDrizzle.RoleRow>(this._t.roles)
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const row of rows) {
       const parsed = this._safeParseRole(row)
@@ -348,7 +362,7 @@ export class IamDrizzleAdapter<
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
-    const row = await this._selectFirst<RoleRow>(this._t.roles, this._t.roles.id, id)
+    const row = await this._selectFirst<IamDrizzle.RoleRow>(this._t.roles, this._t.roles.id, id)
     return row ? this._safeParseRole(row) : null
   }
 
@@ -381,7 +395,11 @@ export class IamDrizzleAdapter<
    * @returns Deduplicated array of role IDs.
    */
   async getSubjectRoles(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
-    const rows = await this._selectWhere<AssignmentRow>(this._t.assignments, this._t.assignments.subjectId, subjectId)
+    const rows = await this._selectWhere<IamDrizzle.AssignmentRow>(
+      this._t.assignments,
+      this._t.assignments.subjectId,
+      subjectId,
+    )
     // Unscoped (global) roles only - mirrors file/memory/redis adapters.
     return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
   }
@@ -397,7 +415,11 @@ export class IamDrizzleAdapter<
     subjectId: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
-    const rows = await this._selectWhere<AssignmentRow>(this._t.assignments, this._t.assignments.subjectId, subjectId)
+    const rows = await this._selectWhere<IamDrizzle.AssignmentRow>(
+      this._t.assignments,
+      this._t.assignments.subjectId,
+      subjectId,
+    )
     return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
   }
 
@@ -432,7 +454,7 @@ export class IamDrizzleAdapter<
       this._eq(this._t.assignments.roleId, roleId),
     ]
     if (scope) conditions.push(this._eq(this._t.assignments.scope, scope))
-    await this._db.delete(this._t.assignments).where(this._and(...conditions))
+    await this._db.delete(this._t.assignments).where(this._and(...(conditions as (SQLWrapper | undefined)[])))
   }
 
   /**
@@ -443,7 +465,7 @@ export class IamDrizzleAdapter<
    * @returns The subject's attributes or `{}` when none are recorded.
    */
   async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
-    const row = await this._selectFirst<AttrRow>(this._t.attrs, this._t.attrs.subjectId, subjectId)
+    const row = await this._selectFirst<IamDrizzle.AttrRow>(this._t.attrs, this._t.attrs.subjectId, subjectId)
     if (!row) return {}
     const data = row.data
     if (typeof data === 'string') {

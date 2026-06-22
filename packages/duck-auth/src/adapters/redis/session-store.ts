@@ -4,9 +4,9 @@ import type { AuthRedisLike } from './redis-like'
 
 export namespace AuthRedisSessionStore {
   /** Config knobs for {@link AuthRedisSessionStore}. */
-  export interface IConfig {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or FakeRedis). */
-    redis: AuthRedisLike.IClient
+  export interface IConfig<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient> {
+    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    redis: TRedis
     /**
      * Key namespace prefix. Default: `auth`. Final keys:
      *   `${prefix}:sess:{sessionId}`
@@ -27,12 +27,14 @@ export namespace AuthRedisSessionStore {
  * the plaintext sid (see SessionsFacet) so the primary key + lookup
  * key are the same value.
  */
-export class AuthRedisSessionStore implements AuthSession.IStore {
-  private readonly _redis: AuthRedisLike.IClient
+export class AuthRedisSessionStore<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient>
+  implements AuthSession.IStore
+{
+  private readonly _redis: TRedis
   private readonly _prefix: string
   private readonly _maxTtlSec: number
 
-  constructor(cfg: AuthRedisSessionStore.IConfig) {
+  constructor(cfg: AuthRedisSessionStore.IConfig<TRedis>) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth'
     this._maxTtlSec = cfg.maxTtlSec ?? 30 * 24 * 60 * 60

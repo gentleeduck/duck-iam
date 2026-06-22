@@ -11,26 +11,26 @@
  * module owns the state machine.
  */
 
-import type { AuthEngine } from '../../core/auth'
 import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '../../core/credential-utils'
 import { authRandomToken, authSha256, authTimingSafeEqual } from '../../core/crypto'
+import type { AuthEngine } from '../../core/engine'
 import type { AuthIdentity } from '../../core/types/identity'
 import {
   AuthMemoryAccessTokenStore,
+  AuthMemoryClientStore,
   AuthMemoryCodeStore,
   AuthMemoryConsentStore,
   AuthMemoryRefreshTokenStore,
-  MemoryClientStore,
 } from './stores'
 import type { AuthOidcOP } from './types'
 
 export type { AuthOidcOP } from './types'
 export {
   AuthMemoryAccessTokenStore,
+  AuthMemoryClientStore,
   AuthMemoryCodeStore,
   AuthMemoryConsentStore,
   AuthMemoryRefreshTokenStore,
-  MemoryClientStore,
 }
 
 interface IDeps<Profile> {
@@ -757,7 +757,7 @@ export function authCreateOidcOP<Profile = unknown>(args: {
     args.config,
     {
       auth: args.auth,
-      clients: args.stores?.clients ?? new MemoryClientStore(),
+      clients: args.stores?.clients ?? new AuthMemoryClientStore(),
       codes: args.stores?.codes ?? new AuthMemoryCodeStore(),
       accessTokens: args.stores?.accessTokens ?? new AuthMemoryAccessTokenStore(),
       refreshTokens: args.stores?.refreshTokens ?? new AuthMemoryRefreshTokenStore(),

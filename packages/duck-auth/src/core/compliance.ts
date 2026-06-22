@@ -1,4 +1,4 @@
-import type { AuthEngine } from './auth'
+import type { AuthEngineTypes } from './engine'
 import { AuthErrorObject } from './errors'
 
 const DEFAULT_OVERRIDES: AuthCompliance.IOverrides = {
@@ -86,9 +86,9 @@ function mergeStricter(a: AuthCompliance.IOverrides, b: AuthCompliance.IOverride
 
 /** Apply preset overrides to an AuthEngine config; never mutates input, stricter rule wins per field. */
 export function authApplyCompliancePreset<Profile = unknown, Tenant = string, OrgMeta = unknown>(
-  base: AuthEngine.IConfig<Profile, Tenant, OrgMeta>,
+  base: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>,
   preset: AuthCompliance.IPreset | AuthCompliance.IPreset[],
-): AuthEngine.IConfig<Profile, Tenant, OrgMeta> {
+): AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta> {
   const overrides = authResolveCompliance(preset)
   // Attach the resolved overrides via `__compliancePreset` so
   // `AuthEngine.strict` can apply `authAssertComplianceStrict` automatically.

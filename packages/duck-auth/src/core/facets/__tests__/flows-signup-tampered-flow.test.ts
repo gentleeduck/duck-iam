@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { AuthEngine } from '../../auth'
 import { authSha256 } from '../../crypto'
-import { ScryptHasher } from '../../password/scrypt'
+import { AuthEngine } from '../../engine'
+import { AuthScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
 
 interface ProfileShape {
@@ -12,7 +12,7 @@ interface ProfileShape {
 }
 
 function build() {
-  const adapter = new MemoryAdapter<ProfileShape>()
+  const adapter = new AuthMemoryAdapter<ProfileShape>()
   const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'https://app.test',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -22,13 +22,13 @@ function build() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 async function plantFlowRow(
-  adapter: MemoryAdapter<ProfileShape>,
+  adapter: AuthMemoryAdapter<ProfileShape>,
   identityId: string,
   metadata: unknown,
 ): Promise<string> {
@@ -48,7 +48,7 @@ async function plantFlowRow(
 
 describe('flows signup - tampered flow metadata', () => {
   let auth: AuthEngine<ProfileShape>
-  let adapter: MemoryAdapter<ProfileShape>
+  let adapter: AuthMemoryAdapter<ProfileShape>
   let identityId: string
 
   beforeEach(async () => {

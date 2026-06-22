@@ -5,16 +5,16 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { AuthInMemoryEvents } from '../../events'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
 
 describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)', () => {
-  let adapter: MemoryAdapter
+  let adapter: AuthMemoryAdapter
   let facet: MfaFacet
 
   beforeEach(() => {
-    adapter = new MemoryAdapter()
+    adapter = new AuthMemoryAdapter()
     facet = new MfaFacet(adapter.credentials, new AuthInMemoryEvents(), DEFAULT_MFA_CONFIG)
   })
 

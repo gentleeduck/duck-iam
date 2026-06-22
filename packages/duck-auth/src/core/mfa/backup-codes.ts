@@ -35,7 +35,7 @@ function generateBackupCode(_crypto: { authRandomToken(b: number): string }, len
   return out
 }
 
-export const DEFAULT_BACKUP_CODES_CONFIG: BackupCodesFacet.IConfig = {
+export const DEFAULT_BACKUP_CODES_CONFIG: AuthBackupCodesFacet.IConfig = {
   count: 10,
   byteLength: 5,
   groupFour: true,
@@ -47,14 +47,14 @@ export const DEFAULT_BACKUP_CODES_CONFIG: BackupCodesFacet.IConfig = {
  * directly; not auto-mounted on `AuthEngine` because the lib does not
  * assume the application surfaces this MFA fallback.
  */
-export class BackupCodesFacet {
+export class AuthBackupCodesFacet {
   constructor(
     private readonly _credentials: AuthCredential.IStore,
     private readonly _crypto: {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
     },
-    private readonly _cfg: BackupCodesFacet.IConfig = DEFAULT_BACKUP_CODES_CONFIG,
+    private readonly _cfg: AuthBackupCodesFacet.IConfig = DEFAULT_BACKUP_CODES_CONFIG,
   ) {}
 
   /**
@@ -140,7 +140,7 @@ export class BackupCodesFacet {
   }
 }
 
-export namespace BackupCodesFacet {
+export namespace AuthBackupCodesFacet {
   export interface IConfig {
     /** Number of codes minted per call to `generate`. Default 10. */
     count: number

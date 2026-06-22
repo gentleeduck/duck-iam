@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/engine'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../../../providers/password'
@@ -55,8 +55,8 @@ function mockRes() {
 }
 
 function buildAuth() {
-  const adapter = new MemoryAdapter<MyProfile>()
-  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),

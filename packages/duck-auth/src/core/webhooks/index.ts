@@ -17,9 +17,9 @@ import type { AuthEvents } from '../types/events'
  * Subscribe the bus, sign + POST each emit to the configured endpoints,
  * retry with exponential backoff, dead-letter on permanent failure.
  */
-export class WebhookDeliverer {
+export class AuthWebhookDeliverer {
   private readonly _endpoints: Array<
-    Required<Omit<WebhookDeliverer.IEndpoint, 'events' | 'signatureHeader' | 'id'>> & {
+    Required<Omit<AuthWebhookDeliverer.IEndpoint, 'events' | 'signatureHeader' | 'id'>> & {
       events: AuthEvents.EventName[] | '*'
       signatureHeader: string
       id: string
@@ -29,18 +29,18 @@ export class WebhookDeliverer {
   private readonly _backoffMs: number
   private readonly _timeoutMs: number
   private readonly _fetch: typeof globalThis.fetch
-  private readonly _deadLetter: WebhookDeliverer.IDeadLetterSink | undefined
+  private readonly _deadLetter: AuthWebhookDeliverer.IDeadLetterSink | undefined
 
-  constructor(cfg: WebhookDeliverer.IConfig) {
+  constructor(cfg: AuthWebhookDeliverer.IConfig) {
     if (!cfg.endpoints?.length) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'WebhookDeliverer requires at least one endpoint',
+        detail: 'AuthWebhookDeliverer requires at least one endpoint',
       })
     }
     for (const e of cfg.endpoints) {
       if (!e.url || !e.secret) {
         throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-          detail: 'WebhookDeliverer endpoint requires both url + secret',
+          detail: 'AuthWebhookDeliverer endpoint requires both url + secret',
         })
       }
       // SSRF guard; rejects non-HTTPS + loopback/private/link-local/metadata hosts.
@@ -159,7 +159,7 @@ export class WebhookDeliverer {
     }
     // HMAC covers the body + timestamp so verifiers can reject replays
     // outside a freshness window without trusting the body claim.
-    const signature = signWebhookBody(endpoint.secret, body, timestamp)
+    const signature = authSignWebhookBody(endpoint.secret, body, timestamp)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this._timeoutMs)
     try {
@@ -244,7 +244,7 @@ function assertSafeWebhookUrl(rawUrl: string, allowInsecure: boolean): void {
 
 /**
  * Sign a webhook body for transport. Caller-side consumers verify via
- * `verifyWebhookSignature`. Algorithm: `sha256=` + lowercase hex
+ * `authVerifyWebhookSignature`. Algorithm: `sha256=` + lowercase hex
  * digest, matching the convention most webhook tooling uses. When
  * `timestamp` is supplied, the HMAC covers `${timestamp}.${body}` -
  * pair it with the `X-Duck-Timestamp` header so verifiers can reject
@@ -253,7 +253,7 @@ function assertSafeWebhookUrl(rawUrl: string, allowInsecure: boolean): void {
  * Two-arg form (no timestamp) is retained for backwards compatibility
  * with consumers that already verify body-only signatures.
  */
-export function signWebhookBody(secret: string, body: string, timestamp?: number): string {
+export function authSignWebhookBody(secret: string, body: string, timestamp?: number): string {
   const payload = timestamp === undefined ? body : `${timestamp}.${body}`
   return `authSha256=${createHmac('sha256', secret).update(payload).digest('hex')}`
 }
@@ -264,7 +264,7 @@ export function signWebhookBody(secret: string, body: string, timestamp?: number
  * `X-Duck-Timestamp` header was supplied, pass `timestamp` + tolerance
  * to defend against replays. Default tolerance: 5 minutes.
  */
-export function verifyWebhookSignature(
+export function authVerifyWebhookSignature(
   secret: string,
   body: string,
   signature: string,
@@ -276,7 +276,7 @@ export function verifyWebhookSignature(
     const tolerance = opts.toleranceMs ?? 5 * 60_000
     if (Math.abs(Date.now() - opts.timestamp) > tolerance) return false
   }
-  const expected = signWebhookBody(secret, body, opts.timestamp)
+  const expected = authSignWebhookBody(secret, body, opts.timestamp)
   const a = Buffer.from(signature)
   const b = Buffer.from(expected)
   return a.length === b.length && timingSafeEqual(a, b)
@@ -304,9 +304,9 @@ const EVERY_EVENT: AuthEvents.EventName[] = [
   'maintenance.off',
 ]
 
-export namespace WebhookDeliverer {
+export namespace AuthWebhookDeliverer {
   export interface IConfig {
-    endpoints: WebhookDeliverer.IEndpoint[]
+    endpoints: AuthWebhookDeliverer.IEndpoint[]
     /** Maximum delivery attempts before dead-lettering. Default 5. */
     maxAttempts?: number
     /** Base backoff in ms (exponential). Default 500ms (so 0.5s, 1s, 2s, 4s, 8s). */
@@ -316,7 +316,7 @@ export namespace WebhookDeliverer {
     /** Override fetch impl (tests). */
     fetch?: typeof globalThis.fetch
     /** Sink for permanently-failed deliveries. */
-    deadLetter?: WebhookDeliverer.IDeadLetterSink
+    deadLetter?: AuthWebhookDeliverer.IDeadLetterSink
     /**
      * Accept non-HTTPS endpoint URLs. Default false. Dev-only - leaves
      * webhook payloads readable on the wire. The SSRF guard still
@@ -343,7 +343,7 @@ export namespace WebhookDeliverer {
   }
 
   export interface IDeadLetterSink {
-    put(envelope: WebhookDeliverer.IDeadLetterEntry): Promise<void>
+    put(envelope: AuthWebhookDeliverer.IDeadLetterEntry): Promise<void>
   }
 
   export interface IDeadLetterEntry {

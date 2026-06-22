@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AuthInMemoryEvents } from '../../events'
-import { signWebhookBody, verifyWebhookSignature, WebhookDeliverer } from '../index'
+import { AuthWebhookDeliverer, authSignWebhookBody, authVerifyWebhookSignature } from '../index'
 
 function makeFetch(
   responses: Array<{ ok: boolean; throws?: boolean }>,
@@ -21,15 +21,15 @@ function makeFetch(
   return fn as never
 }
 
-describe('WebhookDeliverer', () => {
+describe('AuthWebhookDeliverer', () => {
   it('refuses construction without endpoints', () => {
-    expect(() => new WebhookDeliverer({ endpoints: [] })).toThrowError(
+    expect(() => new AuthWebhookDeliverer({ endpoints: [] })).toThrowError(
       expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
     )
   })
 
   it('refuses construction when an endpoint is missing url or secret', () => {
-    expect(() => new WebhookDeliverer({ endpoints: [{ url: '', secret: 'x' }] })).toThrowError(
+    expect(() => new AuthWebhookDeliverer({ endpoints: [{ url: '', secret: 'x' }] })).toThrowError(
       expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
     )
   })
@@ -37,7 +37,7 @@ describe('WebhookDeliverer', () => {
   it('attach + emit delivers a signed POST to the endpoint', async () => {
     const fetchStub = makeFetch([{ ok: true }])
     const bus = new AuthInMemoryEvents()
-    const d = new WebhookDeliverer({
+    const d = new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://hook.test/duck', secret: 'super-secret' }],
       backoffMs: 1,
       fetch: fetchStub,
@@ -62,11 +62,11 @@ describe('WebhookDeliverer', () => {
     const fetchA = makeFetch([{ ok: true }])
     const fetchB = makeFetch([{ ok: true }])
     const bus = new AuthInMemoryEvents()
-    new WebhookDeliverer({
+    new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://a.test', secret: 's', events: ['lockout'] }],
       fetch: fetchA,
     }).attach(bus)
-    new WebhookDeliverer({
+    new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://b.test', secret: 's', events: ['signin.success'] }],
       fetch: fetchB,
     }).attach(bus)
@@ -81,7 +81,7 @@ describe('WebhookDeliverer', () => {
       { ok: false }, // attempt 2
       { ok: true }, // attempt 3
     ])
-    const d = new WebhookDeliverer({
+    const d = new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://hook.test', secret: 's' }],
       maxAttempts: 5,
       backoffMs: 1,
@@ -93,8 +93,8 @@ describe('WebhookDeliverer', () => {
 
   it('dead-letters after exhausting attempts', async () => {
     const fetchStub = makeFetch([{ ok: false }, { ok: false }, { throws: true, ok: false }])
-    const dlq: WebhookDeliverer.IDeadLetterEntry[] = []
-    const d = new WebhookDeliverer({
+    const dlq: AuthWebhookDeliverer.IDeadLetterEntry[] = []
+    const d = new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://hook.test', secret: 's', id: 'edge' }],
       maxAttempts: 3,
       backoffMs: 1,
@@ -111,17 +111,17 @@ describe('WebhookDeliverer', () => {
     expect(dlq[0]!.attempts).toBe(3)
   })
 
-  it('signWebhookBody + verifyWebhookSignature round-trip; rejects tampered body', () => {
+  it('authSignWebhookBody + authVerifyWebhookSignature round-trip; rejects tampered body', () => {
     const body = JSON.stringify({ x: 1 })
-    const sig = signWebhookBody('s', body)
-    expect(verifyWebhookSignature('s', body, sig)).toBe(true)
-    expect(verifyWebhookSignature('s', body + '!', sig)).toBe(false)
-    expect(verifyWebhookSignature('different-secret', body, sig)).toBe(false)
+    const sig = authSignWebhookBody('s', body)
+    expect(authVerifyWebhookSignature('s', body, sig)).toBe(true)
+    expect(authVerifyWebhookSignature('s', body + '!', sig)).toBe(false)
+    expect(authVerifyWebhookSignature('different-secret', body, sig)).toBe(false)
   })
 
   it('honors custom signature header name', async () => {
     const fetchStub = makeFetch([{ ok: true }])
-    const d = new WebhookDeliverer({
+    const d = new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://hook.test', secret: 's', signatureHeader: 'X-My-Sig' }],
       fetch: fetchStub,
     })
@@ -134,7 +134,7 @@ describe('WebhookDeliverer', () => {
   it('refuses non-HTTPS endpoint by default', () => {
     expect(
       () =>
-        new WebhookDeliverer({
+        new AuthWebhookDeliverer({
           endpoints: [{ url: 'http://hook.test', secret: 's' }],
         }),
     ).toThrowError(/AUTH\/MISCONFIGURED/)
@@ -150,7 +150,7 @@ describe('WebhookDeliverer', () => {
   ])('refuses SSRF-risky host %s even with allowInsecure', (url) => {
     expect(
       () =>
-        new WebhookDeliverer({
+        new AuthWebhookDeliverer({
           endpoints: [{ url, secret: 's' }],
           allowInsecure: true,
         }),
@@ -174,7 +174,7 @@ describe('WebhookDeliverer', () => {
   ])('refuses SSRF-risky host %s (%s)', (url) => {
     expect(
       () =>
-        new WebhookDeliverer({
+        new AuthWebhookDeliverer({
           endpoints: [{ url, secret: 's' }],
           allowInsecure: true,
         }),
@@ -184,30 +184,30 @@ describe('WebhookDeliverer', () => {
   it('timestamp-bound signature round-trips + rejects replays outside window', async () => {
     const body = JSON.stringify({ x: 1 })
     const past = Date.now() - 10 * 60_000
-    const sig = signWebhookBody('s', body, past)
-    expect(verifyWebhookSignature('s', body, sig, { timestamp: past })).toBe(false)
+    const sig = authSignWebhookBody('s', body, past)
+    expect(authVerifyWebhookSignature('s', body, sig, { timestamp: past })).toBe(false)
     const fresh = Date.now()
-    const sigFresh = signWebhookBody('s', body, fresh)
-    expect(verifyWebhookSignature('s', body, sigFresh, { timestamp: fresh })).toBe(true)
+    const sigFresh = authSignWebhookBody('s', body, fresh)
+    expect(authVerifyWebhookSignature('s', body, sigFresh, { timestamp: fresh })).toBe(true)
   })
 
-  it('verifyWebhookSignature rejects NaN timestamp (would otherwise bypass freshness via `NaN > N === false`)', () => {
+  it('authVerifyWebhookSignature rejects NaN timestamp (would otherwise bypass freshness via `NaN > N === false`)', () => {
     // NaN timestamp (parseInt of missing header) would let `NaN > N == false` replay.
     const body = JSON.stringify({ x: 1 })
-    const sig = signWebhookBody('s', body, Date.now())
-    expect(verifyWebhookSignature('s', body, sig, { timestamp: Number.NaN })).toBe(false)
+    const sig = authSignWebhookBody('s', body, Date.now())
+    expect(authVerifyWebhookSignature('s', body, sig, { timestamp: Number.NaN })).toBe(false)
   })
 
-  it('verifyWebhookSignature rejects non-numeric timestamp from a buggy caller', () => {
+  it('authVerifyWebhookSignature rejects non-numeric timestamp from a buggy caller', () => {
     const body = JSON.stringify({ x: 1 })
-    const sig = signWebhookBody('s', body, Date.now())
+    const sig = authSignWebhookBody('s', body, Date.now())
     // @ts-expect-error: SEC test intentionally violates the typed shape
-    expect(verifyWebhookSignature('s', body, sig, { timestamp: 'recent' })).toBe(false)
+    expect(authVerifyWebhookSignature('s', body, sig, { timestamp: 'recent' })).toBe(false)
   })
 
   it('deliverer emits X-Duck-Timestamp header alongside signature', async () => {
     const fetchStub = makeFetch([{ ok: true }])
-    const d = new WebhookDeliverer({
+    const d = new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://hook.test', secret: 's' }],
       fetch: fetchStub,
     })

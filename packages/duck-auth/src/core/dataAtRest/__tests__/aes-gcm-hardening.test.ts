@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { AesGcmDataAtRest } from '../aes-gcm'
+import { AuthAesGcmDataAtRest } from '../aes-gcm'
 
-describe('AesGcmDataAtRest - decrypt hardening', () => {
+describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
   const KEY = 'a-very-long-master-key-that-is-32-bytes!!'
   const ctx = { identityId: 'identity-1', field: 'profile.email' }
 
-  function makeAdapter(): AesGcmDataAtRest {
-    return new AesGcmDataAtRest({ kid: 'k1', masterKey: KEY })
+  function makeAdapter(): AuthAesGcmDataAtRest {
+    return new AuthAesGcmDataAtRest({ kid: 'k1', masterKey: KEY })
   }
 
   it('round-trips a normal ciphertext', async () => {

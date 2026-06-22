@@ -5,9 +5,9 @@ import type { AuthRedisLike } from './redis-like'
 
 export namespace AuthRedisIdempotencyStore {
   /** Config knobs for {@link AuthRedisIdempotencyStore}. */
-  export interface IConfig {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or FakeRedis). */
-    redis: AuthRedisLike.IClient
+  export interface IConfig<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient> {
+    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    redis: TRedis
     /**
      * Key namespace prefix. Default: `auth:idem`. Composed key:
      * `${prefix}:{tenantId | _default}:{idempotencyKey}`.
@@ -30,11 +30,13 @@ const CLAIM_TOMBSTONE = Object.freeze({ status: 0, body: null }) as AuthIdempote
  * per-tenant key prefix; two tenants supplying the same AuthIdempotency-Key
  * cannot collide.
  */
-export class AuthRedisIdempotencyStore implements AuthIdempotency.IStore {
-  private readonly _redis: AuthRedisLike.IClient
+export class AuthRedisIdempotencyStore<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient>
+  implements AuthIdempotency.IStore
+{
+  private readonly _redis: TRedis
   private readonly _prefix: string
 
-  constructor(cfg: AuthRedisIdempotencyStore.IConfig) {
+  constructor(cfg: AuthRedisIdempotencyStore.IConfig<TRedis>) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:idem'
   }

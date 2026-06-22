@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/iam",
-  "version": "5.0.1",
+  "version": "5.1.0",
   "publishConfig": {
     "access": "public"
   },
@@ -335,6 +335,7 @@
     "drizzle-orm": "^0.45.2",
     "easy-rbac": "^4.0.0",
     "motion": "^12.40.0",
+    "pg": "^8.22.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "role-acl": "^4.5.4",

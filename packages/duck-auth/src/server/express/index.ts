@@ -1,5 +1,5 @@
-import type { AuthEngine } from '../../core/auth'
 import { authCsrfGuard } from '../../core/csrf'
+import type { AuthEngine } from '../../core/engine'
 import type { AuthProvider } from '../../core/types/provider'
 import {
   authErrorToHttp,

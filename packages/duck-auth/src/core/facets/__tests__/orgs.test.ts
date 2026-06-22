@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { AuthInMemoryEvents } from '../../events'
 import { OrgsFacet } from '../orgs'
 
 describe('OrgsFacet', () => {
-  let adapter: MemoryAdapter
+  let adapter: AuthMemoryAdapter
   let events: AuthInMemoryEvents
   let facet: OrgsFacet
 
   beforeEach(async () => {
-    adapter = new MemoryAdapter()
+    adapter = new AuthMemoryAdapter()
     events = new AuthInMemoryEvents()
     facet = new OrgsFacet(adapter.orgs, events)
     // Seed two orgs via the underlying adapter (no orgs.create() in the facet

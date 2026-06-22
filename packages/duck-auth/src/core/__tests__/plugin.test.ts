@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../adapters/memory'
+import { AuthMemoryAdapter } from '../../adapters/memory'
 import { AuthMemoryLimiter } from '../../limiters/memory'
-import { AuthEngine } from '../auth'
+import { AuthEngine } from '../engine'
 import { AuthCookieTransport } from '../transport/cookie'
 
 describe('Plugin system', () => {
   function buildAuth() {
-    const adapter = new MemoryAdapter()
+    const adapter = new AuthMemoryAdapter()
     return new AuthEngine({
       baseUrl: 'https://x',
       transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),

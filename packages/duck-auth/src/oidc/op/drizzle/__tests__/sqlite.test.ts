@@ -9,7 +9,6 @@
 import { describe, expect, it } from 'vitest'
 import { authCreateDrizzleSqliteOidcOpStores, authGcDrizzleSqliteOidcOp } from '../sqlite'
 
-// biome-ignore lint/suspicious/noExplicitAny: globalThis.Bun is the canonical runtime probe
 const IS_BUN = typeof (globalThis as any).Bun !== 'undefined'
 
 // describe.skipIf works in both bun:test and vitest; falsy-skips when not bun.
@@ -17,7 +16,6 @@ const onlyBun = IS_BUN ? describe : describe.skip
 
 async function makeStores() {
   // Dynamic require so vitest (under Node) never resolves bun:sqlite at all.
-  // biome-ignore lint/suspicious/noExplicitAny: dynamic import of bun-only module
   const { Database } = (await import('bun:sqlite' as any)) as {
     Database: new (path: string) => { exec(sql: string): void }
   }
@@ -76,7 +74,6 @@ async function makeStores() {
       PRIMARY KEY (identity_id, client_id)
     );
   `)
-  // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database satisfies drizzle's expected shape at runtime
   const db = drizzle(sqlite as any)
   return { sqlite, db, stores: authCreateDrizzleSqliteOidcOpStores(db) }
 }

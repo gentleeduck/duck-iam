@@ -11,7 +11,7 @@
  *   router.post('/auth/providers/:id/begin', authKoaProviderBegin(auth))
  */
 
-import type { AuthEngine } from '../../core/auth'
+import type { AuthEngine } from '../../core/engine'
 import {
   authErrorToHttp,
   authExecuteIntents,

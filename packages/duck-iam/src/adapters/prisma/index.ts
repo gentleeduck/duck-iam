@@ -1,81 +1,81 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow } from '../../core/validate'
 
-/**
- * Row shapes expected from Prisma models.
- * Your Prisma schema should match these column names.
- */
-interface PolicyRow {
-  id: string
-  name: string
-  description: string | null
-  version: number
-  algorithm: string
-  rules: unknown
-  targets: unknown | null
-}
-
-/** Database row shape for the `accessRole` Prisma model. */
-interface RoleRow {
-  id: string
-  name: string
-  description: string | null
-  permissions: unknown
-  inherits: string[] | null
-  scope: string | null
-  metadata: unknown | null
-}
-
-/** Database row shape for the `accessAssignment` Prisma model. */
-interface AssignmentRow {
-  subjectId: string
-  roleId: string
-  scope: string | null
-}
-
-/** Database row shape for the `accessSubjectAttr` Prisma model. */
-interface AttrRow {
-  subjectId: string
-  data: unknown
-}
-
-/**
- * Generic Prisma client type so we don't require @prisma/client as a hard dep.
- * Your PrismaClient just needs these models.
- */
-interface PrismaLike {
-  accessPolicy: {
-    findMany: (args?: unknown) => Promise<PolicyRow[]>
-    findUnique: (args: { where: { id: string } }) => Promise<PolicyRow | null>
-    upsert: (args: {
-      where: { id: string }
-      create: Record<string, unknown>
-      update: Record<string, unknown>
-    }) => Promise<PolicyRow>
-    delete: (args: { where: { id: string } }) => Promise<PolicyRow>
+/** IamPrisma adapter integration types. Type-only namespace - zero bundle cost. */
+export namespace IamPrisma {
+  /** Row shape returned by `prisma.accessPolicy` queries. */
+  export interface IPolicyRow {
+    id: string
+    name: string
+    description: string | null
+    version: number
+    algorithm: string
+    rules: unknown
+    targets: unknown | null
   }
-  accessRole: {
-    findMany: (args?: unknown) => Promise<RoleRow[]>
-    findUnique: (args: { where: { id: string } }) => Promise<RoleRow | null>
-    upsert: (args: {
-      where: { id: string }
-      create: Record<string, unknown>
-      update: Record<string, unknown>
-    }) => Promise<RoleRow>
-    delete: (args: { where: { id: string } }) => Promise<RoleRow>
+
+  /** Row shape returned by `prisma.accessRole` queries. */
+  export interface IRoleRow {
+    id: string
+    name: string
+    description: string | null
+    permissions: unknown
+    inherits: string[] | null
+    scope: string | null
+    metadata: unknown | null
   }
-  accessAssignment: {
-    findMany: (args: { where: { subjectId: string; scope?: string | null } }) => Promise<AssignmentRow[]>
-    create: (args: { data: Record<string, unknown> }) => Promise<AssignmentRow>
-    deleteMany: (args: { where: Record<string, unknown> }) => Promise<{ count: number }>
+
+  /** Row shape returned by `prisma.accessAssignment` queries. */
+  export interface IAssignmentRow {
+    subjectId: string
+    roleId: string
+    scope: string | null
   }
-  accessSubjectAttr: {
-    findUnique: (args: { where: { subjectId: string } }) => Promise<AttrRow | null>
-    upsert: (args: {
-      where: { subjectId: string }
-      create: Record<string, unknown>
-      update: Record<string, unknown>
-    }) => Promise<AttrRow>
+
+  /** Row shape returned by `prisma.accessSubjectAttr` queries. */
+  export interface IAttrRow {
+    subjectId: string
+    data: unknown
+  }
+
+  /**
+   * Generic Prisma client type so we don't require @prisma/client as a hard dep.
+   * Your PrismaClient just needs these models.
+   */
+  export interface ILike {
+    accessPolicy: {
+      findMany: (args?: unknown) => Promise<IPolicyRow[]>
+      findUnique: (args: { where: { id: string } }) => Promise<IPolicyRow | null>
+      upsert: (args: {
+        where: { id: string }
+        create: Record<string, unknown>
+        update: Record<string, unknown>
+      }) => Promise<IPolicyRow>
+      delete: (args: { where: { id: string } }) => Promise<IPolicyRow>
+    }
+    accessRole: {
+      findMany: (args?: unknown) => Promise<IRoleRow[]>
+      findUnique: (args: { where: { id: string } }) => Promise<IRoleRow | null>
+      upsert: (args: {
+        where: { id: string }
+        create: Record<string, unknown>
+        update: Record<string, unknown>
+      }) => Promise<IRoleRow>
+      delete: (args: { where: { id: string } }) => Promise<IRoleRow>
+    }
+    accessAssignment: {
+      findMany: (args: { where: { subjectId: string; scope?: string | null } }) => Promise<IAssignmentRow[]>
+      create: (args: { data: Record<string, unknown> }) => Promise<IAssignmentRow>
+      deleteMany: (args: { where: Record<string, unknown> }) => Promise<{ count: number }>
+    }
+    accessSubjectAttr: {
+      findUnique: (args: { where: { subjectId: string } }) => Promise<IAttrRow | null>
+      upsert: (args: {
+        where: { subjectId: string }
+        create: Record<string, unknown>
+        update: Record<string, unknown>
+      }) => Promise<IAttrRow>
+    }
   }
 }
 
@@ -86,20 +86,26 @@ interface PrismaLike {
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
+ * @template TPrisma - Constrains the Prisma client shape.
  */
 export class IamPrismaAdapter<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TPrisma extends IamPrisma.ILike = IamPrisma.ILike,
 > implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
+  private _prisma: TPrisma
+
   /**
    * Creates a new Prisma adapter.
    *
    * @param prisma - Provides the Prisma client instance with required models.
    */
-  constructor(private prisma: PrismaLike) {}
+  constructor(prisma: TPrisma) {
+    this._prisma = prisma
+  }
 
   /**
    * Lists every policy in the database.
@@ -108,7 +114,7 @@ export class IamPrismaAdapter<
    * @returns All policies parsed from `accessPolicy` rows.
    */
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    const rows = await this.prisma.accessPolicy.findMany()
+    const rows = await this._prisma.accessPolicy.findMany()
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
     for (const row of rows) {
       const policy = parsePolicyRow<TAction, TResource, TRole>(toPolicy(row))
@@ -128,7 +134,7 @@ export class IamPrismaAdapter<
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
-    const row = await this.prisma.accessPolicy.findUnique({ where: { id } })
+    const row = await this._prisma.accessPolicy.findUnique({ where: { id } })
     return row ? parsePolicyRow<TAction, TResource, TRole>(toPolicy(row)) : null
   }
 
@@ -140,7 +146,7 @@ export class IamPrismaAdapter<
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const data = fromPolicy(p)
-    await this.prisma.accessPolicy.upsert({
+    await this._prisma.accessPolicy.upsert({
       where: { id: p.id },
       create: data,
       update: data,
@@ -154,7 +160,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the delete completes.
    */
   async deletePolicy(id: string): Promise<void> {
-    await this.prisma.accessPolicy.delete({ where: { id } })
+    await this._prisma.accessPolicy.delete({ where: { id } })
   }
 
   /**
@@ -164,7 +170,7 @@ export class IamPrismaAdapter<
    * @returns All roles parsed from `accessRole` rows.
    */
   async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    const rows = await this.prisma.accessRole.findMany()
+    const rows = await this._prisma.accessRole.findMany()
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const row of rows) {
       const role = parseRoleRow<TAction, TResource, TRole, TScope>(toRole(row))
@@ -184,7 +190,7 @@ export class IamPrismaAdapter<
     id: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
-    const row = await this.prisma.accessRole.findUnique({ where: { id } })
+    const row = await this._prisma.accessRole.findUnique({ where: { id } })
     return row ? parseRoleRow<TAction, TResource, TRole, TScope>(toRole(row)) : null
   }
 
@@ -196,7 +202,7 @@ export class IamPrismaAdapter<
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = fromRole(r)
-    await this.prisma.accessRole.upsert({
+    await this._prisma.accessRole.upsert({
       where: { id: r.id },
       create: data,
       update: data,
@@ -210,7 +216,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the delete completes.
    */
   async deleteRole(id: string): Promise<void> {
-    await this.prisma.accessRole.delete({ where: { id } })
+    await this._prisma.accessRole.delete({ where: { id } })
   }
 
   /**
@@ -223,7 +229,7 @@ export class IamPrismaAdapter<
   async getSubjectRoles(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     // Unscoped (global) roles only. Scoped assignments are surfaced
     // separately via getSubjectScopedRoles.
-    const rows = await this.prisma.accessAssignment.findMany({
+    const rows = await this._prisma.accessAssignment.findMany({
       where: { subjectId, scope: null },
     })
     return [...new Set(rows.map((r) => r.roleId as TRole))]
@@ -240,7 +246,7 @@ export class IamPrismaAdapter<
     subjectId: string,
     _opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
-    const rows = await this.prisma.accessAssignment.findMany({
+    const rows = await this._prisma.accessAssignment.findMany({
       where: { subjectId },
     })
     return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
@@ -255,7 +261,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the row is inserted.
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    await this.prisma.accessAssignment.create({
+    await this._prisma.accessAssignment.create({
       data: { subjectId, roleId, scope: scope ?? null },
     })
   }
@@ -269,7 +275,7 @@ export class IamPrismaAdapter<
    * @returns Resolves once the delete completes.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    await this.prisma.accessAssignment.deleteMany({
+    await this._prisma.accessAssignment.deleteMany({
       where: { subjectId, roleId, ...(scope ? { scope } : {}) },
     })
   }
@@ -282,7 +288,7 @@ export class IamPrismaAdapter<
    * @returns The subject's attributes or `{}` when none are recorded.
    */
   async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
-    const row = await this.prisma.accessSubjectAttr.findUnique({
+    const row = await this._prisma.accessSubjectAttr.findUnique({
       where: { subjectId },
     })
     if (!row) return {}
@@ -318,7 +324,7 @@ export class IamPrismaAdapter<
       existing = {}
     }
     const merged = { ...existing, ...attrs }
-    await this.prisma.accessSubjectAttr.upsert({
+    await this._prisma.accessSubjectAttr.upsert({
       where: { subjectId },
       create: { subjectId, data: merged },
       update: { data: merged },
@@ -326,8 +332,8 @@ export class IamPrismaAdapter<
   }
 }
 
-/** Converts a {@link PolicyRow} database row into a {@link AccessControl.IPolicy} domain object. */
-function toPolicy(row: PolicyRow): AccessControl.IPolicy {
+/** Converts a {@link IamPrisma.IPolicyRow} database row into a {@link AccessControl.IPolicy} domain object. */
+function toPolicy(row: IamPrisma.IPolicyRow): AccessControl.IPolicy {
   return {
     id: row.id,
     name: row.name,
@@ -352,8 +358,8 @@ function fromPolicy(p: AccessControl.IPolicy): Record<string, unknown> {
   }
 }
 
-/** Converts a {@link RoleRow} database row into a {@link AccessControl.IRole} domain object. */
-function toRole(row: RoleRow): AccessControl.IRole {
+/** Converts a {@link IamPrisma.IRoleRow} database row into a {@link AccessControl.IRole} domain object. */
+function toRole(row: IamPrisma.IRoleRow): AccessControl.IRole {
   return {
     id: row.id,
     name: row.name,

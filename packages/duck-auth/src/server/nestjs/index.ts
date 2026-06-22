@@ -24,7 +24,7 @@
  *   ```
  */
 
-import type { AuthEngine } from '../../core/auth'
+import type { AuthEngine } from '../../core/engine'
 import { AuthErrorObject } from '../../core/errors'
 import type { AuthIdentity } from '../../core/types/identity'
 import type { AuthSession } from '../../core/types/session'

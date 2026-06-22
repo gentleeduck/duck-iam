@@ -191,7 +191,6 @@ function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): AuthOidcO
 // Store factories
 // ---------------------------------------------------------------------
 
-// biome-ignore lint/suspicious/noExplicitAny: drizzle schema generic; bound by caller's PgDatabase
 type AnyPgDatabase = PgDatabase<PgQueryResultHKT, any>
 
 export function authCreateDrizzlePgOidcOpStores(db: AnyPgDatabase): {

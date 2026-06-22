@@ -38,16 +38,16 @@ import type { IamConfig } from './config.types'
 export function createIam<
   const TActions extends readonly string[],
   const TResources extends readonly string[],
-  const TScopes extends readonly string[] = readonly string[],
   const TRoles extends readonly string[] = readonly string[],
+  const TScopes extends readonly string[] = readonly string[],
   TContext extends object = DotPath.IDefaultContext,
 >(
-  input: IamConfig.IAccessConfigInput<TActions, TResources, TScopes, TRoles, TContext>,
-): IamConfig.IAccessConfig<TActions[number], TResources[number], TScopes[number], TRoles[number], TContext> {
+  input: IamConfig.IAccessConfigInput<TActions, TResources, TRoles, TScopes, TContext>,
+): IamConfig.IAccessConfig<TActions[number], TResources[number], TRoles[number], TScopes[number], TContext> {
   type TAction = TActions[number]
   type TResource = TResources[number]
-  type TScope = TScopes[number]
   type TRole = TRoles[number]
+  type TScope = TScopes[number]
 
   return {
     actions: input.actions,

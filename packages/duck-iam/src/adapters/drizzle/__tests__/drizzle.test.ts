@@ -1,3 +1,4 @@
+import type { SQL } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
@@ -136,7 +137,7 @@ function makeDrizzleMock(): {
     tables: tableRefs,
     ops: {
       eq: (col, val) => ({ type: 'eq', args: [col, val] }),
-      and: (...conditions) => ({ type: 'and', args: conditions }),
+      and: (...conditions) => ({ type: 'and', args: conditions }) as unknown as SQL<unknown>,
     },
   }
 

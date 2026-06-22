@@ -182,7 +182,8 @@
         "noVar": "error",
         "useGetterReturn": "error",
         "useIsArray": "error",
-        "useIterableCallbackReturn": "warn"
+        "useIterableCallbackReturn": "warn",
+        "noExplicitAny": "off"
       }
     }
   },
@@ -205,6 +206,16 @@
         "rules": {
           "performance": {
             "noImgElement": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/duck-auth/src/client/**"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useHookAtTopLevel": "off"
           }
         }
       }

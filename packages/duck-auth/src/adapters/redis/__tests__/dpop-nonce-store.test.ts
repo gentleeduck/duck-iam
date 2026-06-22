@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { AuthRedisDPoPNonceStore } from '../dpop-nonce-store'
-import { FakeRedis } from '../redis-like'
+import { AuthFakeRedis } from '../redis-like'
 
 describe('AuthRedisDPoPNonceStore', () => {
   it('first sight returns true, immediate replay returns false', async () => {
-    const redis = new FakeRedis()
+    const redis = new AuthFakeRedis()
     const store = new AuthRedisDPoPNonceStore({ redis, prefix: 'test:jti' })
     expect(await store.recordSeen('jti-1', 60_000)).toBe(true)
     expect(await store.recordSeen('jti-1', 60_000)).toBe(false)
   })
 
   it('expired entries free up the jti for reuse', async () => {
-    const redis = new FakeRedis()
+    const redis = new AuthFakeRedis()
     const store = new AuthRedisDPoPNonceStore({ redis, prefix: 'test:jti' })
     await store.recordSeen('jti-1', 1000)
     await new Promise((r) => setTimeout(r, 1100))
@@ -19,7 +19,7 @@ describe('AuthRedisDPoPNonceStore', () => {
   })
 
   it('different jtis are independent', async () => {
-    const redis = new FakeRedis()
+    const redis = new AuthFakeRedis()
     const store = new AuthRedisDPoPNonceStore({ redis, prefix: 'test:jti' })
     expect(await store.recordSeen('a', 60_000)).toBe(true)
     expect(await store.recordSeen('b', 60_000)).toBe(true)

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { authSha256 } from '../../../core/crypto'
 import { AuthInMemoryEvents } from '../../../core/events'
 import type { AuthOAuthClient } from '../core/client'
@@ -10,7 +10,7 @@ interface Profile {
 }
 
 describe('OAuth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
-  let adapter: MemoryAdapter<Profile>
+  let adapter: AuthMemoryAdapter<Profile>
   let events: AuthInMemoryEvents
   let identityId: string
 
@@ -33,7 +33,7 @@ describe('OAuth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
   }
 
   beforeEach(async () => {
-    adapter = new MemoryAdapter<Profile>()
+    adapter = new AuthMemoryAdapter<Profile>()
     events = new AuthInMemoryEvents()
     const i = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
     identityId = i.id

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256, authTimingSafeEqual } from '../../../core/crypto'
 import { AuthInMemoryEvents } from '../../../core/events'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
@@ -11,7 +11,7 @@ interface ProfileShape {
   email: string
 }
 
-function ctxFor(adapter: MemoryAdapter<ProfileShape>) {
+function ctxFor(adapter: AuthMemoryAdapter<ProfileShape>) {
   return {
     stores: {
       identities: adapter.identities,
@@ -62,7 +62,7 @@ function makeWebauthn(newCounter = 5): AuthPasskeyTypes.ISimpleWebAuthnServerMod
 }
 
 async function plantCredential(
-  adapter: MemoryAdapter<ProfileShape>,
+  adapter: AuthMemoryAdapter<ProfileShape>,
   identityId: string,
   metadata: unknown,
 ): Promise<void> {
@@ -78,13 +78,13 @@ async function plantCredential(
 }
 
 describe('passkey complete() - metadata parser', () => {
-  let adapter: MemoryAdapter<ProfileShape>
+  let adapter: AuthMemoryAdapter<ProfileShape>
   let identityId: string
   let opts: AuthPasskeyProvider.IOptions
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {
-    adapter = new MemoryAdapter<ProfileShape>()
+    adapter = new AuthMemoryAdapter<ProfileShape>()
     const id = await adapter.identities.create({ profile: { email: 'a@b' }, providers: [] }, {})
     identityId = id.id
     challengeStore = new AuthMemoryPasskeyChallengeStore()

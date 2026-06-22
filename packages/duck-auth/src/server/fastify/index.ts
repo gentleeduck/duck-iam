@@ -11,7 +11,7 @@
  *   fastify.post('/auth/providers/:id/begin', authFastifyProviderBegin(auth))
  */
 
-import type { AuthEngine } from '../../core/auth'
+import type { AuthEngine } from '../../core/engine'
 import {
   authErrorToHttp,
   authExecuteIntents,

@@ -27,9 +27,9 @@ export namespace IamRedis {
   }
 
   /** Describes the configuration required to construct a {@link IamRedisAdapter}. */
-  export interface IConfig {
+  export interface IConfig<TClient extends ILike = ILike> {
     /** Provides the IamRedis client instance (ioredis, node-redis v4+, or compatible). */
-    client: ILike
+    client: TClient
     /** Optional key prefix that namespaces every duck-iam key. */
     keyPrefix?: string
     /**
@@ -56,9 +56,10 @@ export class IamRedisAdapter<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TClient extends IamRedis.ILike = IamRedis.ILike,
 > implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
-  private _client: IamRedis.ILike
+  private _client: TClient
   private _prefix: string
   private _onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
   /**
@@ -77,7 +78,7 @@ export class IamRedisAdapter<
    *
    * @param config - Provides the client and optional key prefix.
    */
-  constructor(config: IamRedis.IConfig) {
+  constructor(config: IamRedis.IConfig<TClient>) {
     this._client = config.client
     this._prefix = config.keyPrefix ?? ''
     this._onPolicyError = config.onPolicyError

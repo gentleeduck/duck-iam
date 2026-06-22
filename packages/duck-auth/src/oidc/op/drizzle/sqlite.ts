@@ -178,7 +178,6 @@ function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): AuthOidcO
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: drizzle schema generic; bound by caller's BaseSQLiteDatabase
 type AnySQLiteDatabase = BaseSQLiteDatabase<'sync' | 'async', unknown, any>
 
 export function authCreateDrizzleSqliteOidcOpStores(db: AnySQLiteDatabase): {

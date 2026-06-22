@@ -1,4 +1,4 @@
-import type { AuthEngine } from './auth'
+import type { AuthEngine } from './engine'
 import type { AuthEvents } from './types/events'
 import type { AuthProvider } from './types/provider'
 

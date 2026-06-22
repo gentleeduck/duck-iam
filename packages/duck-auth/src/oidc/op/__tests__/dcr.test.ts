@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/engine'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { type AuthOidcOpRoot, authCreateOidcOP } from '../index'
 import type { AuthOidcOP } from '../types'
@@ -12,12 +12,12 @@ interface ProfileShape {
 }
 
 function buildAuth() {
-  const adapter = new MemoryAdapter<ProfileShape>()
+  const adapter = new AuthMemoryAdapter<ProfileShape>()
   return new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
     transport: new AuthCookieTransport({ name: 'duck-sid' }),
-    passwords: { hasher: new ScryptHasher() },
+    passwords: { hasher: new AuthScryptHasher() },
   })
 }
 

@@ -11,7 +11,7 @@
  *   app.post('/auth/providers/:id/begin', authElysiaProviderBegin(auth))
  */
 
-import type { AuthEngine } from '../../core/auth'
+import type { AuthEngine } from '../../core/engine'
 import {
   authErrorToHttp,
   authExecuteIntents,

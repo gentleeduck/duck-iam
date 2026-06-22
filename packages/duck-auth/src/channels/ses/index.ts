@@ -20,9 +20,9 @@ export namespace AuthSesChannel {
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
   /** Config knobs for {@link AuthSesChannel}. */
-  export interface IConfig {
+  export interface IConfig<TClient extends IClient = IClient> {
     /** Pre-built SESv3 client. Required. */
-    client: IClient
+    client: TClient
     /** From: address; must be on a verified SES identity. */
     from: string
     /** Template resolver invoked per send. */
@@ -54,12 +54,14 @@ async function loadSendEmailCommand(): Promise<new (input: unknown) => { input: 
  * SES channel implementation. Reads recipient email from
  * `identity.profile.email`; returns ok:false on any SES error.
  */
-export class AuthSesChannel implements AuthChannel.IChannel {
+export class AuthSesChannel<TClient extends AuthSesChannel.IClient = AuthSesChannel.IClient>
+  implements AuthChannel.IChannel
+{
   readonly kind: AuthChannel.Kind = 'email'
   readonly id: string
-  private readonly _cfg: AuthSesChannel.IConfig
+  private readonly _cfg: AuthSesChannel.IConfig<TClient>
 
-  constructor(cfg: AuthSesChannel.IConfig) {
+  constructor(cfg: AuthSesChannel.IConfig<TClient>) {
     if (!cfg.from) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: 'AuthSesChannel requires a non-empty `from` address (must be a verified SES identity)',

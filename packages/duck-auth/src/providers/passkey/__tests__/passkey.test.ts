@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256, authTimingSafeEqual } from '../../../core/crypto'
 import { AuthInMemoryEvents } from '../../../core/events'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
@@ -16,7 +16,7 @@ interface ProfileShape {
   email: string
 }
 
-function makeContext(adapter: MemoryAdapter<ProfileShape>) {
+function makeContext(adapter: AuthMemoryAdapter<ProfileShape>) {
   return {
     stores: {
       identities: adapter.identities,
@@ -71,14 +71,14 @@ function makeMockWebAuthn(): AuthPasskeyTypes.ISimpleWebAuthnServerModule {
 }
 
 describe('passkey provider - registration', () => {
-  let adapter: MemoryAdapter<ProfileShape>
+  let adapter: AuthMemoryAdapter<ProfileShape>
   let identityId: string
   let opts: AuthPasskeyProvider.IOptions
   let mockWebauthn: AuthPasskeyTypes.ISimpleWebAuthnServerModule
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {
-    adapter = new MemoryAdapter<ProfileShape>()
+    adapter = new AuthMemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
     identityId = identity.id
     mockWebauthn = makeMockWebAuthn()
@@ -151,14 +151,14 @@ describe('passkey provider - registration', () => {
 })
 
 describe('passkey provider - sign-in', () => {
-  let adapter: MemoryAdapter<ProfileShape>
+  let adapter: AuthMemoryAdapter<ProfileShape>
   let identityId: string
   let opts: AuthPasskeyProvider.IOptions
   let mockWebauthn: AuthPasskeyTypes.ISimpleWebAuthnServerModule
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {
-    adapter = new MemoryAdapter<ProfileShape>()
+    adapter = new AuthMemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
     identityId = identity.id
     mockWebauthn = makeMockWebAuthn()

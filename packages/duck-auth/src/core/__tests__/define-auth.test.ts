@@ -6,20 +6,20 @@ import { authGithub } from '../../providers/oauth/github'
 import { authGoogle } from '../../providers/oauth/google'
 import { authPasskey } from '../../providers/passkey'
 import { authPassword } from '../../providers/password'
-import { AuthEngine } from '../auth'
-import { defineAuth } from '../define-auth'
-import { Argon2idHasher } from '../password/argon2'
-import { ScryptHasher } from '../password/scrypt'
+import { createAuth } from '../config'
+import { AuthEngine } from '../engine'
+import { AuthArgon2idHasher } from '../password/argon2'
+import { AuthScryptHasher } from '../password/scrypt'
 import { AuthCookieTransport } from '../transport/cookie'
 
 interface Profile {
   email: string
 }
 
-describe('defineAuth', () => {
+describe('createAuth', () => {
   it('returns an AuthEngine instance with the supplied storage', () => {
     const storage = authMemoryStorage<Profile>()
-    const auth = defineAuth({ baseUrl: 'http://x', storage })
+    const auth = createAuth({ baseUrl: 'http://x', storage })
     expect(auth).toBeInstanceOf(AuthEngine)
     expect(auth.config.stores.identities).toBe(storage.identities)
     expect(auth.config.stores.sessions).toBe(storage.sessions)
@@ -27,7 +27,7 @@ describe('defineAuth', () => {
   })
 
   it('defaults transport to AuthCookieTransport with name "duck-sid"', () => {
-    const auth = defineAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>() })
+    const auth = createAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>() })
     expect(auth.transport).toBeDefined()
     // AuthCookieTransport sets a private _name; we observe via issue() output shape.
     expect(typeof auth.transport.extract).toBe('function')
@@ -35,31 +35,31 @@ describe('defineAuth', () => {
 
   it('respects explicit transport', () => {
     const custom = new AuthCookieTransport({ name: 'custom-sid' })
-    const auth = defineAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>(), transport: custom })
+    const auth = createAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>(), transport: custom })
     expect(auth.transport).toBe(custom)
   })
 
-  it('defaults hasher to ScryptHasher when not supplied', () => {
-    const auth = defineAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>() })
+  it('defaults hasher to AuthScryptHasher when not supplied', () => {
+    const auth = createAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>() })
     expect(auth.passwords).toBeDefined()
   })
 
   it('respects explicit hasher', () => {
-    const auth = defineAuth({
+    const auth = createAuth({
       baseUrl: 'http://x',
-      hasher: new ScryptHasher({ N: 1 << 10 }),
+      hasher: new AuthScryptHasher({ N: 1 << 10 }),
       storage: authMemoryStorage<Profile>(),
     })
     expect(auth.passwords).toBeDefined()
   })
 
-  it('Argon2idHasher is type-compatible with the hasher field', () => {
+  it('AuthArgon2idHasher is type-compatible with the hasher field', () => {
     // Argon2id throws at construction if @node-rs/argon2 missing; we
     // only care that the type slots in here.
     expect(() =>
-      defineAuth({
+      createAuth({
         baseUrl: 'http://x',
-        hasher: new Argon2idHasher(),
+        hasher: new AuthArgon2idHasher(),
         storage: authMemoryStorage<Profile>(),
       }),
     ).not.toThrow()
@@ -67,12 +67,12 @@ describe('defineAuth', () => {
 
   it('registers every provider in the array', () => {
     const storage = authMemoryStorage<Profile>()
-    const auth = defineAuth({
+    const auth = createAuth({
       baseUrl: 'http://x',
       providers: [
         authPassword({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
         }),
       ],
       storage,
@@ -82,7 +82,7 @@ describe('defineAuth', () => {
 
   it('silently skips false / null / undefined provider entries', () => {
     const storage = authMemoryStorage<Profile>()
-    const auth = defineAuth({
+    const auth = createAuth({
       baseUrl: 'http://x',
       providers: [
         false,
@@ -90,7 +90,7 @@ describe('defineAuth', () => {
         undefined,
         authPassword({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
         }),
       ],
       storage,
@@ -98,14 +98,14 @@ describe('defineAuth', () => {
     expect(auth.providers.list().map((p) => p.id)).toEqual(['password'])
   })
 
-  it('lets defineAuth carry the profile generic for nested providers', () => {
+  it('lets createAuth carry the profile generic for nested providers', () => {
     const storage = authMemoryStorage<Profile>()
-    const auth = defineAuth<Profile>({
+    const auth = createAuth<Profile>({
       baseUrl: 'http://x',
       providers: [
         authPassword({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
         }),
         authMagicLink({
           autoCreateIdentity: true,
@@ -146,13 +146,13 @@ describe('defineAuth', () => {
   })
 
   it('omitting providers leaves the registry empty', () => {
-    const auth = defineAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>() })
+    const auth = createAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>() })
     expect(auth.providers.list()).toEqual([])
   })
 
   it('strict("production") rejects a config without a limiter', () => {
     expect(() =>
-      defineAuth({
+      createAuth({
         baseUrl: 'http://x',
         storage: authMemoryStorage<Profile>(),
         strict: 'production',
@@ -162,7 +162,7 @@ describe('defineAuth', () => {
 
   it('strict("development") tolerates an under-configured setup', () => {
     expect(() =>
-      defineAuth({
+      createAuth({
         baseUrl: 'http://x',
         storage: authMemoryStorage<Profile>(),
         strict: 'development',
@@ -171,7 +171,7 @@ describe('defineAuth', () => {
   })
 
   it('passes through session / mfa / apiKeys / hijack knobs', () => {
-    const auth = defineAuth({
+    const auth = createAuth({
       apiKeys: { prefix: 'demo-' },
       baseUrl: 'http://x',
       mfa: { issuer: 'duck-demo' },

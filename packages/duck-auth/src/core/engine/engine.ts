@@ -1,29 +1,26 @@
-import { authRandomToken, authSha256, authTimingSafeEqual } from './crypto'
-import { AuthErrorObject } from './errors'
-import { AuthInMemoryEvents } from './events'
-import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from './facets/anomaly'
-import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from './facets/apikeys'
-import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
-import { HijackFacet } from './facets/hijack'
-import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from './facets/idempotency'
-import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from './facets/identities'
-import { DEFAULT_MFA_CONFIG, MfaFacet } from './facets/mfa'
-import { OperationsFacet } from './facets/operations'
-import { OrgsFacet } from './facets/orgs'
-import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
-import { ProvidersFacet } from './facets/providers'
-import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
-import { ScryptHasher } from './password/scrypt'
-import { AuthPluginRegistry } from './plugin'
-import type { AuthCredential } from './types/credential'
-import type { AuthEvents } from './types/events'
-import type { AuthHasher } from './types/hasher'
-import type { AuthIdentity } from './types/identity'
-import type { AuthLimiter, AuthLimiter as LimiterNs } from './types/limiter'
-import type { AuthOrg } from './types/org'
-import type { AuthProvider } from './types/provider'
-import type { AuthSession } from './types/session'
-import type { AuthTransport } from './types/transport'
+import { authRandomToken, authSha256, authTimingSafeEqual } from '../crypto'
+import { AuthErrorObject } from '../errors'
+import { AuthInMemoryEvents } from '../events'
+import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../facets/anomaly'
+import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../facets/apikeys'
+import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../facets/flows'
+import { HijackFacet } from '../facets/hijack'
+import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from '../facets/idempotency'
+import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../facets/identities'
+import { DEFAULT_MFA_CONFIG, MfaFacet } from '../facets/mfa'
+import { OperationsFacet } from '../facets/operations'
+import { OrgsFacet } from '../facets/orgs'
+import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from '../facets/passwords'
+import { ProvidersFacet } from '../facets/providers'
+import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../facets/sessions'
+import { AuthScryptHasher } from '../password/scrypt'
+import { AuthPluginRegistry } from '../plugin'
+import type { AuthEvents } from '../types/events'
+import type { AuthIdentity } from '../types/identity'
+import type { AuthLimiter as LimiterNs } from '../types/limiter'
+import type { AuthSession } from '../types/session'
+import type { AuthTransport } from '../types/transport'
+import type { AuthEngineTypes } from './engine.types'
 
 /**
  * Faceted authentication root. Composition surface only - every operation
@@ -31,7 +28,7 @@ import type { AuthTransport } from './types/transport'
  * Facets are added one at a time as features land.
  */
 export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  readonly config: AuthEngine.IConfig<Profile, Tenant, OrgMeta>
+  readonly config: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>
   readonly events: AuthEvents.IBus
   readonly transport: AuthTransport.ITransport
   readonly sessions: SessionsFacet
@@ -49,7 +46,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly hijack: HijackFacet
   readonly anomaly: AnomalyFacet
 
-  constructor(config: AuthEngine.IConfig<Profile, Tenant, OrgMeta>) {
+  constructor(config: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
     this.events = config.events ?? new AuthInMemoryEvents()
     this.transport = config.transport
@@ -64,7 +61,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
-    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
+    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new AuthScryptHasher(), {
       minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
       maxLength: config.passwords?.maxLength ?? DEFAULT_PASSWORDS_CONFIG.maxLength,
       rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
@@ -123,7 +120,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
    */
   async resolveSession(
     req: { headers: Headers },
-    opts: { expectedTenantId?: string; requestSnapshot?: import('./types/anomaly').AuthAnomaly.RequestSnapshot } = {},
+    opts: { expectedTenantId?: string; requestSnapshot?: import('../types/anomaly').AuthAnomaly.RequestSnapshot } = {},
   ): Promise<{
     session: AuthSession.ISession
     identity: AuthIdentity.IIdentity<Profile> | null
@@ -133,7 +130,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
      * branch on `anomaly.decision === 'deny'` / `'step-up'` /
      * `'allow'`; the field is absent when no detectors run.
      */
-    anomaly?: import('./facets/anomaly').AnomalyFacet.IResult
+    anomaly?: import('../facets/anomaly').AnomalyFacet.IResult
   } | null> {
     const token = this.transport.extract(req)
     if (!token) return null
@@ -144,7 +141,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     ): Promise<{
       session: AuthSession.ISession
       identity: AuthIdentity.IIdentity<Profile> | null
-      anomaly?: import('./facets/anomaly').AnomalyFacet.IResult
+      anomaly?: import('../facets/anomaly').AnomalyFacet.IResult
     }> => {
       // Auto-evaluate anomaly detectors so routes branch on a single field.
       if (opts.requestSnapshot && identity && this.anomaly.list().length > 0) {
@@ -257,8 +254,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
 }
 
 // Re-export SessionsFacet for consumers that want to type the facet directly.
-// `SessionsFacet.IConfig`, `.ICreateInput`, `.IRotateInput` ride along via class+namespace merge.
-export { SessionsFacet } from './facets/sessions'
+export { SessionsFacet } from '../facets/sessions'
 
 // Used by other facets that need the hashing scheme. Kept private to the package.
 export const __hashSid = authSha256
@@ -278,51 +274,4 @@ export class AuthNoopLimiter implements LimiterNs.ILimiter {
     return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: Date.now() + 60_000 }
   }
   async reset(_key: string): Promise<void> {}
-}
-
-export namespace AuthEngine {
-  export interface IConfig<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-    baseUrl: string
-    transport: AuthTransport.ITransport
-    stores: {
-      identities: AuthIdentity.IStore<Profile>
-      sessions: AuthSession.IStore
-      credentials: AuthCredential.IStore
-      orgs?: AuthOrg.IStore<OrgMeta>
-    }
-    limiter?: AuthLimiter.ILimiter
-    providers?: AuthProvider.IProvider<unknown, unknown, Profile>[]
-    events?: AuthEvents.IBus
-    session?: {
-      ttlMs?: number
-      absoluteTtlMs?: number
-      freshnessMs?: number
-    }
-    identities?: {
-      softDeleteGracePeriodMs?: number
-      /** SEC: max serialized (JSON UTF-8) profile size, in bytes. Default 16 KiB. Set to `0` to disable. */
-      profileMaxBytes?: number
-    }
-    passwords?: {
-      /** Min length, default 8. AuthCompliance presets bump to 12+. */
-      minLength?: number
-      /** Max length, default 1024. SEC: caps argon2/scrypt DoS surface. */
-      maxLength?: number
-      rejectCommon?: boolean
-      /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
-      hasher?: AuthHasher.IHasher
-    }
-    mfa?: {
-      /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */
-      issuer?: string
-      backupCodeCount?: number
-      backupCodeLen?: number
-    }
-    apiKeys?: {
-      prefix?: string
-      randomBytes?: number
-    }
-    hijack?: HijackFacet.IPolicyConfig
-    __tenantBrand?: Tenant
-  }
 }

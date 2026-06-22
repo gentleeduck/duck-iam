@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256 } from '../../crypto'
 import { AuthInMemoryEvents } from '../../events'
 import { ApiKeysFacet } from '../apikeys'
 
 function build() {
-  const adapter = new MemoryAdapter()
+  const adapter = new AuthMemoryAdapter()
   const events = new AuthInMemoryEvents()
   const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 })
   return { adapter, facet }
 }
 
-async function plantMalformedMetadata(adapter: MemoryAdapter, identityId: string, metadata: unknown) {
+async function plantMalformedMetadata(adapter: AuthMemoryAdapter, identityId: string, metadata: unknown) {
   // Direct adapter write to seed a row with a metadata shape that the
   // facet's create() method would never produce. Mirrors what a buggy
   // store / schema drift / pre-migration value looks like.
@@ -30,7 +30,7 @@ async function plantMalformedMetadata(adapter: MemoryAdapter, identityId: string
 }
 
 describe('ApiKeysFacet - metadata parser', () => {
-  let adapter: MemoryAdapter
+  let adapter: AuthMemoryAdapter
   let facet: ApiKeysFacet
   const identityId = 'identity-1'
 

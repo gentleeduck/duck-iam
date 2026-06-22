@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { authSha256 } from '../../crypto'
 import { AuthInMemoryEvents } from '../../events'
 import { totpAt } from '../../mfa/totp'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
 
 describe('MfaFacet - TOTP', () => {
-  let adapter: MemoryAdapter
+  let adapter: AuthMemoryAdapter
   let events: AuthInMemoryEvents
   let facet: MfaFacet
 
   beforeEach(() => {
-    adapter = new MemoryAdapter()
+    adapter = new AuthMemoryAdapter()
     events = new AuthInMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
   })
@@ -128,12 +128,12 @@ describe('MfaFacet - TOTP', () => {
 })
 
 describe('MfaFacet - backup codes', () => {
-  let adapter: MemoryAdapter
+  let adapter: AuthMemoryAdapter
   let events: AuthInMemoryEvents
   let facet: MfaFacet
 
   beforeEach(() => {
-    adapter = new MemoryAdapter()
+    adapter = new AuthMemoryAdapter()
     events = new AuthInMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
   })
@@ -174,7 +174,7 @@ describe('MfaFacet - backup codes', () => {
 })
 
 describe('MfaFacet - WebAuthn-MFA', () => {
-  let adapter: MemoryAdapter
+  let adapter: AuthMemoryAdapter
   let events: AuthInMemoryEvents
   let facet: MfaFacet
   let identityId: string
@@ -219,7 +219,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   }
 
   beforeEach(() => {
-    adapter = new MemoryAdapter()
+    adapter = new AuthMemoryAdapter()
     events = new AuthInMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
     identityId = 'user-wa-mfa-1'

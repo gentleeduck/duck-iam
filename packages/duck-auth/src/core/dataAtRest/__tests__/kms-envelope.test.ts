@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthKms } from '../../types/kms'
-import { KmsEnvelopeDataAtRest } from '../kms-envelope'
+import { AuthKmsEnvelopeDataAtRest } from '../kms-envelope'
 
 /** In-memory KMS that mimics AWS encryption-context semantics. */
 function makeFakeKms(): AuthKms.IProvider & {
@@ -32,10 +32,10 @@ function makeFakeKms(): AuthKms.IProvider & {
   return { decryptDataKey, generateDataKey, id: 'fake-kms' }
 }
 
-describe('KmsEnvelopeDataAtRest', () => {
+describe('AuthKmsEnvelopeDataAtRest', () => {
   it('roundtrips plaintext through envelope encryption', async () => {
     const kms = makeFakeKms()
-    const a = new KmsEnvelopeDataAtRest({ kms })
+    const a = new AuthKmsEnvelopeDataAtRest({ kms })
     const ct = await a.encrypt('top-secret', { field: 'ssn', identityId: 'u1' })
     expect(ct.split('$')[0]).toBe('kms-env')
     expect(ct.split('$')[1]).toBe('v1')
@@ -45,14 +45,14 @@ describe('KmsEnvelopeDataAtRest', () => {
 
   it('encryption-context mismatch (different identityId) fails decrypt', async () => {
     const kms = makeFakeKms()
-    const a = new KmsEnvelopeDataAtRest({ kms })
+    const a = new AuthKmsEnvelopeDataAtRest({ kms })
     const ct = await a.encrypt('hi', { field: 'ssn', identityId: 'u1' })
     await expect(a.decrypt(ct, { field: 'ssn', identityId: 'other' })).rejects.toThrow()
   })
 
   it('rejects malformed ciphertext', async () => {
     const kms = makeFakeKms()
-    const a = new KmsEnvelopeDataAtRest({ kms })
+    const a = new AuthKmsEnvelopeDataAtRest({ kms })
     await expect(a.decrypt('not-a-ciphertext', { field: 'f', identityId: 'i' })).rejects.toMatchObject({
       code: 'AUTH/MISCONFIGURED',
     })
@@ -68,20 +68,20 @@ describe('KmsEnvelopeDataAtRest', () => {
       }),
       id: 'bad-kms',
     }
-    const a = new KmsEnvelopeDataAtRest({ kms: badKms })
+    const a = new AuthKmsEnvelopeDataAtRest({ kms: badKms })
     await expect(a.encrypt('x', { field: 'f', identityId: 'i' })).rejects.toMatchObject({
       code: 'AUTH/MISCONFIGURED',
     })
   })
 
   it('id derives from the underlying provider', () => {
-    const a = new KmsEnvelopeDataAtRest({ kms: makeFakeKms() })
+    const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     expect(a.id).toBe('kms-envelope:fake-kms')
   })
 
   it('passes encryption context to the KMS on encrypt + decrypt', async () => {
     const kms = makeFakeKms()
-    const a = new KmsEnvelopeDataAtRest({ kms })
+    const a = new AuthKmsEnvelopeDataAtRest({ kms })
     await a.encrypt('x', { field: 'phone', identityId: 'id-7', tag: 'tenant-a' })
     expect(kms.generateDataKey).toHaveBeenCalledWith({ field: 'phone', identityId: 'id-7', tag: 'tenant-a' })
   })

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { AuthEngine } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
+import { AuthEngine } from '../../engine'
+import { AuthScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
 
 interface MyProfile {
@@ -11,9 +11,9 @@ interface MyProfile {
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
-  adapter: MemoryAdapter<MyProfile>
+  adapter: AuthMemoryAdapter<MyProfile>
 } {
-  const adapter = new MemoryAdapter<MyProfile>()
+  const adapter = new AuthMemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -23,14 +23,14 @@ function buildAuth(): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 describe('FlowsFacet - account linking', () => {
   let auth: AuthEngine<MyProfile>
-  let adapter: MemoryAdapter<MyProfile>
+  let adapter: AuthMemoryAdapter<MyProfile>
   let identityA: string
   let identityB: string
 

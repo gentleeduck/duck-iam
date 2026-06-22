@@ -25,8 +25,8 @@ export namespace IamConfig {
   export interface IAccessConfigInput<
     TActions extends readonly string[],
     TResources extends readonly string[],
-    TScopes extends readonly string[] = readonly string[],
     TRoles extends readonly string[] = readonly string[],
+    TScopes extends readonly string[] = readonly string[],
     TContext extends object = DotPath.IDefaultContext,
   > {
     /** Actions your application supports (`['create', 'read', ...]`). `as const`. */
@@ -61,8 +61,8 @@ export namespace IamConfig {
   export interface IAccessConfig<
     TAction extends string,
     TResource extends string,
-    TScope extends string = string,
     TRole extends string = string,
+    TScope extends string = string,
     TContext extends object = DotPath.IDefaultContext,
   > {
     readonly actions: readonly TAction[]
@@ -96,7 +96,7 @@ export namespace IamConfig {
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => T
 
     /** Role validation: duplicate IDs, dangling inherits, circular inheritance, empty roles. */
-    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[]) => IamValidate.IResult
+    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, TRole, TScope>[]) => IamValidate.IResult
 
     /**
      * IamValidate a policy object from an untrusted source (database, API, JSON).
@@ -104,32 +104,4 @@ export namespace IamConfig {
      */
     validatePolicy: (input: unknown) => IamValidate.IResult
   }
-
-  /**
-   * Extracts the union of action strings from a config input.
-   *
-   * @template S - Config input shape with an `actions` tuple.
-   */
-  export type InferAction<S extends { actions: readonly string[] }> = S['actions'][number]
-
-  /**
-   * Extracts the union of resource strings from a config input.
-   *
-   * @template S - Config input shape with a `resources` tuple.
-   */
-  export type InferResource<S extends { resources: readonly string[] }> = S['resources'][number]
-
-  /**
-   * Extracts the union of scope strings from a config input.
-   *
-   * @template S - Config input shape with a `scopes` tuple.
-   */
-  export type InferScope<S extends { scopes: readonly string[] }> = S['scopes'][number]
-
-  /**
-   * Extracts the union of role strings from a config input.
-   *
-   * @template S - Config input shape with a `roles` tuple.
-   */
-  export type InferRole<S extends { roles: readonly string[] }> = S['roles'][number]
 }

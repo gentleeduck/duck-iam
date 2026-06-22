@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { AuthRedisLimiter } from '../limiter'
-import { FakeRedis } from '../redis-like'
+import { AuthFakeRedis } from '../redis-like'
 
 describe('AuthRedisLimiter', () => {
-  let redis: FakeRedis
+  let redis: AuthFakeRedis
   let limiter: AuthRedisLimiter
 
   beforeEach(() => {
-    redis = new FakeRedis()
+    redis = new AuthFakeRedis()
     limiter = new AuthRedisLimiter({ redis, max: 3, windowMs: 60_000, prefix: 'test:rl' })
   })
 

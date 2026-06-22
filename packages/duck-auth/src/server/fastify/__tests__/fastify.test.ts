@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/engine'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../../../providers/password'
@@ -50,7 +50,7 @@ interface MyProfile {
 }
 
 function buildAuth() {
-  const adapter = new MemoryAdapter<MyProfile>()
+  const adapter = new AuthMemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -60,7 +60,7 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   auth.providers.register(
     authPassword({

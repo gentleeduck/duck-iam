@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { AuthEngine } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
+import { AuthEngine } from '../../engine'
+import { AuthScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
 import type { AuthChannel } from '../../types/channel'
 
@@ -10,8 +10,8 @@ interface MyProfile {
   email: string
 }
 
-function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyProfile> } {
-  const adapter = new MemoryAdapter<MyProfile>()
+function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: AuthMemoryAdapter<MyProfile> } {
+  const adapter = new AuthMemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -21,7 +21,7 @@ function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyPr
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }

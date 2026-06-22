@@ -40,7 +40,7 @@ export namespace AuthRedisLike {
  * adapter shape without a real Redis dependency at runtime. Same surface
  * as ioredis / upstash; TTLs honored via setTimeout cleanup on read.
  */
-export class FakeRedis implements AuthRedisLike.IClient {
+export class AuthFakeRedis implements AuthRedisLike.IClient {
   private readonly _data = new Map<string, { value: string; expiresAt: number | null }>()
   private readonly _sets = new Map<string, Set<string>>()
   private readonly _channels = new Map<string, Set<(channel: string, message: string) => void | Promise<void>>>()

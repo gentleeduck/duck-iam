@@ -2,7 +2,15 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { AuthErrorObject } from '../errors'
 import type { AuthDataAtRest } from '../types/dataAtRest'
 
-export class AesGcmDataAtRest implements AuthDataAtRest.IAdapter {
+/**
+ * AES-256-GCM `AuthDataAtRest.IAdapter`. Per-field DEK derived via
+ * `sha256(masterKey || identityId || field)`; each encrypt samples a
+ * fresh 12-byte IV. Key rotation is handled via `previousKeys` — old
+ * ciphertexts remain decryptable until re-encrypted under the current kid.
+ *
+ * Ciphertext layout: `aes-256-gcm$<kid>$<ivB64u>$<tagB64u>$<ctB64u>`.
+ */
+export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
   readonly id = 'aes-256-gcm'
   private readonly _currentKid: string
   /** Map of kid -> 32-byte master key. Includes the current key + every
@@ -10,7 +18,7 @@ export class AesGcmDataAtRest implements AuthDataAtRest.IAdapter {
    * always uses `_currentKid`. */
   private readonly _keys: Map<string, Buffer>
 
-  constructor(cfg: AesGcmDataAtRest.IConfig) {
+  constructor(cfg: AuthAesGcmDataAtRest.IConfig) {
     this._currentKid = cfg.kid
     this._keys = new Map()
     this._keys.set(cfg.kid, normalizeKey(cfg.masterKey))
@@ -18,7 +26,7 @@ export class AesGcmDataAtRest implements AuthDataAtRest.IAdapter {
     for (const k of cfg.previousKeys ?? []) {
       if (this._keys.has(k.kid)) {
         throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-          detail: `AesGcmDataAtRest: duplicate kid '${k.kid}' across current + previousKeys`,
+          detail: `AuthAesGcmDataAtRest: duplicate kid '${k.kid}' across current + previousKeys`,
         })
       }
       this._keys.set(k.kid, normalizeKey(k.masterKey))
@@ -114,13 +122,13 @@ function normalizeKey(masterKey: Buffer | string): Buffer {
   const key = typeof masterKey === 'string' ? Buffer.from(masterKey, 'utf8') : masterKey
   if (key.length < 32) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: `AesGcmDataAtRest: masterKey must be >= 32 bytes (was ${key.length})`,
+      detail: `AuthAesGcmDataAtRest: masterKey must be >= 32 bytes (was ${key.length})`,
     })
   }
   return key.subarray(0, 32)
 }
 
-export namespace AesGcmDataAtRest {
+export namespace AuthAesGcmDataAtRest {
   export interface IConfig {
     /** Stable key id; written into every ciphertext. Used for rotation. */
     kid: string

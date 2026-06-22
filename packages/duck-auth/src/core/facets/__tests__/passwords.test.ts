@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { ScryptHasher } from '../../password/scrypt'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthScryptHasher } from '../../password/scrypt'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from '../passwords'
 
 describe('PasswordsFacet', () => {
-  let adapter: MemoryAdapter
+  let adapter: AuthMemoryAdapter
   let facet: PasswordsFacet
-  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
+  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
 
   beforeEach(() => {
-    adapter = new MemoryAdapter()
+    adapter = new AuthMemoryAdapter()
     facet = new PasswordsFacet(adapter.credentials, fastHasher, DEFAULT_PASSWORDS_CONFIG)
   })
 
@@ -106,7 +106,7 @@ describe('PasswordsFacet', () => {
       // First set with the fast (weak) hasher.
       await facet.set('user-1', 'password-1234')
       // Now wire a stronger hasher into a new facet and re-verify.
-      const stronger = new ScryptHasher({ N: 1 << 12, keylen: 32 })
+      const stronger = new AuthScryptHasher({ N: 1 << 12, keylen: 32 })
       const strongerFacet = new PasswordsFacet(adapter.credentials, stronger, DEFAULT_PASSWORDS_CONFIG)
       const r = await strongerFacet.verify('user-1', 'password-1234')
       expect(r.ok).toBe(true)
@@ -121,7 +121,7 @@ describe('PasswordsFacet', () => {
       const before = beforeRows[0]
       if (!before) throw new Error('expected credential row')
 
-      const stronger = new ScryptHasher({ N: 1 << 12, keylen: 32 })
+      const stronger = new AuthScryptHasher({ N: 1 << 12, keylen: 32 })
       const strongerFacet = new PasswordsFacet(adapter.credentials, stronger, DEFAULT_PASSWORDS_CONFIG)
       await strongerFacet.rehash('user-1', 'password-1234')
 

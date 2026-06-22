@@ -18,11 +18,9 @@ export namespace DotPath {
   export type DotPaths<T, Prefix extends string = ''> = string extends keyof T
     ? never
     : {
-        // biome-ignore lint/suspicious/noExplicitAny: array/function guards require any for correct variance
         [K in keyof T & string]: T[K] extends readonly any[]
           ? `${Prefix}${K}`
-          : // biome-ignore lint/suspicious/noExplicitAny: contravariance prevents unknown here
-            T[K] extends (...args: any[]) => any
+          : T[K] extends (...args: any[]) => any
             ? never
             : T[K] extends object
               ? `${Prefix}${K}` | DotPaths<T[K], `${Prefix}${K}.`>
@@ -188,7 +186,6 @@ export namespace DotPath {
    *
    * @template TContext - The full evaluation context type.
    */
-  // biome-ignore lint/suspicious/noExplicitAny: infer constraint needs any for broad matching
   export type ResourceAttrMap<TContext> = TContext extends { resourceAttributes: infer M extends Record<string, any> }
     ? M
     : never
@@ -367,8 +364,7 @@ export namespace DotPath {
    * Internal helper for {@link MergedResourceAttrs}.
    */
   type AllResourceKeys<M> = M[keyof M] extends infer U
-    ? // biome-ignore lint/suspicious/noExplicitAny: must match broad record shapes
-      U extends Record<string, any>
+    ? U extends Record<string, any>
       ? keyof U & string
       : never
     : never

@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256 } from '../../crypto'
-import { BackupCodesFacet } from '../backup-codes'
+import { AuthBackupCodesFacet } from '../backup-codes'
 
-describe('BackupCodesFacet', () => {
-  let adapter: MemoryAdapter
-  let facet: BackupCodesFacet
+describe('AuthBackupCodesFacet', () => {
+  let adapter: AuthMemoryAdapter
+  let facet: AuthBackupCodesFacet
   let identityId: string
 
   beforeEach(async () => {
-    adapter = new MemoryAdapter()
-    facet = new BackupCodesFacet(adapter.credentials, { authRandomToken, authSha256 })
+    adapter = new AuthMemoryAdapter()
+    facet = new AuthBackupCodesFacet(adapter.credentials, { authRandomToken, authSha256 })
     const ident = await adapter.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
     identityId = ident.id
   })
@@ -77,7 +77,7 @@ describe('BackupCodesFacet', () => {
   })
 
   it('respects custom count config', async () => {
-    const small = new BackupCodesFacet(
+    const small = new AuthBackupCodesFacet(
       adapter.credentials,
       { authRandomToken, authSha256 },
       { count: 3, byteLength: 5, groupFour: true },

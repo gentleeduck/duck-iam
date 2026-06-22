@@ -9,11 +9,11 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { AuthEngine } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
+import { AuthEngine } from '../../engine'
+import { AuthScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../flows/account-deletion'
 import { completeEmailVerification, requestEmailVerification } from '../flows/email-verification'
@@ -28,20 +28,20 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new MemoryAdapter<MyProfile>()
+  const adapter = new AuthMemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 describe('flows/password-reset.ts - direct exports', () => {
   let auth: AuthEngine<MyProfile>
-  let adapter: MemoryAdapter<MyProfile>
+  let adapter: AuthMemoryAdapter<MyProfile>
   beforeEach(() => {
     ;({ auth, adapter } = build())
   })

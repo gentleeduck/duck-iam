@@ -179,7 +179,6 @@ function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): AuthOidcO
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: drizzle schema generic; bound by caller's MySqlDatabase
 type AnyMySqlDatabase = MySqlDatabase<MySqlQueryResultHKT, any, any>
 
 /**

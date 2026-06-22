@@ -6,19 +6,21 @@
 
 import type { AuthOidcOP } from './types'
 
-export class MemoryClientStore implements AuthOidcOP.IClientStore {
+/** In-memory `AuthOidcOP.IClientStore`. Maps `client_id` → registered client. */
+export class AuthMemoryClientStore implements AuthOidcOP.IClientStore {
   private rows = new Map<string, AuthOidcOP.IClient>()
   async findById(client_id: string): Promise<AuthOidcOP.IClient | null> {
     return this.rows.get(client_id) ?? null
   }
   async insert(c: AuthOidcOP.IClient): Promise<void> {
     if (this.rows.has(c.client_id)) {
-      throw new Error(`MemoryClientStore: client_id '${c.client_id}' already registered`)
+      throw new Error(`AuthMemoryClientStore: client_id '${c.client_id}' already registered`)
     }
     this.rows.set(c.client_id, c)
   }
 }
 
+/** In-memory `AuthOidcOP.ICodeStore`. Codes are single-use; `consume` deletes them. */
 export class AuthMemoryCodeStore implements AuthOidcOP.ICodeStore {
   private rows = new Map<string, AuthOidcOP.ICode>()
   async insert(c: AuthOidcOP.ICode): Promise<void> {
@@ -33,6 +35,7 @@ export class AuthMemoryCodeStore implements AuthOidcOP.ICodeStore {
   }
 }
 
+/** In-memory `AuthOidcOP.IAccessTokenStore`. Keyed by `token_hash`; expired tokens evicted lazily on read. */
 export class AuthMemoryAccessTokenStore implements AuthOidcOP.IAccessTokenStore {
   private rows = new Map<string, AuthOidcOP.IAccessToken>()
   async insert(t: AuthOidcOP.IAccessToken): Promise<void> {
@@ -52,6 +55,7 @@ export class AuthMemoryAccessTokenStore implements AuthOidcOP.IAccessTokenStore 
   }
 }
 
+/** In-memory `AuthOidcOP.IRefreshTokenStore`. Supports RTR family revocation via `revokeFamily`. */
 export class AuthMemoryRefreshTokenStore implements AuthOidcOP.IRefreshTokenStore {
   private rows = new Map<string, AuthOidcOP.IRefreshToken>()
   async insert(t: AuthOidcOP.IRefreshToken): Promise<void> {
@@ -85,6 +89,7 @@ export class AuthMemoryRefreshTokenStore implements AuthOidcOP.IRefreshTokenStor
   }
 }
 
+/** In-memory `AuthOidcOP.IConsentStore`. Keyed by `identityId:clientId` pair. */
 export class AuthMemoryConsentStore implements AuthOidcOP.IConsentStore {
   private rows = new Map<string, AuthOidcOP.IConsent>()
   private key(identity_id: string, client_id: string) {

@@ -3,9 +3,9 @@ import type { AuthRedisLike } from './redis-like'
 
 export namespace AuthRedisDPoPNonceStore {
   /** Config knobs for {@link AuthRedisDPoPNonceStore}. */
-  export interface IConfig {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or FakeRedis). */
-    redis: AuthRedisLike.IClient
+  export interface IConfig<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient> {
+    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    redis: TRedis
     /** Key namespace prefix. Default `auth:dpop:jti`. */
     prefix?: string
   }
@@ -18,11 +18,13 @@ export namespace AuthRedisDPoPNonceStore {
  *
  * Storage shape: `${prefix}:{jti}` = '1' with TTL = `ttlMs / 1000`.
  */
-export class AuthRedisDPoPNonceStore implements AuthDPoPVerifier.INonceStore {
-  private readonly _redis: AuthRedisLike.IClient
+export class AuthRedisDPoPNonceStore<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient>
+  implements AuthDPoPVerifier.INonceStore
+{
+  private readonly _redis: TRedis
   private readonly _prefix: string
 
-  constructor(cfg: AuthRedisDPoPNonceStore.IConfig) {
+  constructor(cfg: AuthRedisDPoPNonceStore.IConfig<TRedis>) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:dpop:jti'
   }

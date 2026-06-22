@@ -10,11 +10,11 @@ import type { AuthKms } from '../types/kms'
  *
  * Ciphertext layout: `kms-env$v1$<keyId>$<wrappedB64u>$<ivB64u>$<tagB64u>$<ctB64u>`.
  */
-export class KmsEnvelopeDataAtRest implements AuthDataAtRest.IAdapter {
+export class AuthKmsEnvelopeDataAtRest implements AuthDataAtRest.IAdapter {
   readonly id: string
   private readonly _kms: AuthKms.IProvider
 
-  constructor(cfg: KmsEnvelopeDataAtRest.IConfig) {
+  constructor(cfg: AuthKmsEnvelopeDataAtRest.IConfig) {
     this._kms = cfg.kms
     this.id = `kms-envelope:${cfg.kms.id}`
   }
@@ -89,7 +89,7 @@ export class KmsEnvelopeDataAtRest implements AuthDataAtRest.IAdapter {
   }
 }
 
-export namespace KmsEnvelopeDataAtRest {
+export namespace AuthKmsEnvelopeDataAtRest {
   export interface IConfig {
     kms: AuthKms.IProvider
   }

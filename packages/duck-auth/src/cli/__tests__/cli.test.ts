@@ -16,15 +16,15 @@ import {
 describe('duck-auth CLI - scaffold templates', () => {
   it('quickstart scaffold names the in-memory adapter + scrypt hasher', () => {
     const text = __scaffoldTemplate('quickstart')
-    expect(text).toContain('MemoryAdapter')
-    expect(text).toContain('ScryptHasher')
+    expect(text).toContain('AuthMemoryAdapter')
+    expect(text).toContain('AuthScryptHasher')
     expect(text).toContain('AuthCookieTransport')
   })
 
   it('production scaffold names Redis + Argon2id + AuthJwtTransport', () => {
     const text = __scaffoldTemplate('production')
     expect(text).toContain('AuthRedisSessionStore')
-    expect(text).toContain('Argon2idHasher')
+    expect(text).toContain('AuthArgon2idHasher')
     expect(text).toContain('AuthJwtTransport')
     expect(text).toContain("env: 'production'")
   })

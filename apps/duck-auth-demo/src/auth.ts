@@ -9,7 +9,7 @@
 
 import { authDrizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
 import { AuthConsoleChannel } from '@gentleduck/auth/channels/console'
-import { AuthArgon2idHasher, AuthCookieTransport, defineAuth } from '@gentleduck/auth/core'
+import { AuthArgon2idHasher, AuthCookieTransport, createAuth } from '@gentleduck/auth/core'
 import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { authMagicLink } from '@gentleduck/auth/providers/magic-link'
 import { authGithub } from '@gentleduck/auth/providers/oauth/github'
@@ -30,7 +30,7 @@ const storage = authDrizzlePgStorage<DemoProfile>(
   process.env.DATABASE_URL ?? 'postgres://duck:duck_dev_pw@localhost:5433/duck_auth_demo',
 )
 
-export const auth = defineAuth<DemoProfile>({
+export const auth = createAuth<DemoProfile>({
   baseUrl: BASE_URL,
   channels: { email: new AuthConsoleChannel() },
   hasher: new AuthArgon2idHasher(),

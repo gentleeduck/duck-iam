@@ -113,7 +113,6 @@ export namespace AuthVueClient {
   export interface IVueModule {
     ref<T>(value: T): IRef<T>
     inject(key: symbol): unknown
-    // biome-ignore lint/suspicious/noExplicitAny: keep this shape framework-agnostic.
     provide(key: symbol, value: any): void
   }
 

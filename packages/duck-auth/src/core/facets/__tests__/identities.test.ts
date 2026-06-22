@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { AuthInMemoryEvents } from '../../events'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../identities'
 
@@ -10,12 +10,12 @@ interface MyProfile {
 }
 
 describe('IdentitiesFacet', () => {
-  let adapter: MemoryAdapter<MyProfile>
+  let adapter: AuthMemoryAdapter<MyProfile>
   let events: AuthInMemoryEvents
   let facet: IdentitiesFacet<MyProfile>
 
   beforeEach(() => {
-    adapter = new MemoryAdapter<MyProfile>()
+    adapter = new AuthMemoryAdapter<MyProfile>()
     events = new AuthInMemoryEvents()
     facet = new IdentitiesFacet<MyProfile>(adapter.identities, events, DEFAULT_IDENTITIES_CONFIG)
   })

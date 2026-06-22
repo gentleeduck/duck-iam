@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { authSha256 } from '../../crypto'
 import { AuthInMemoryEvents } from '../../events'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions'
 
 describe('SessionsFacet', () => {
-  let adapter: MemoryAdapter
+  let adapter: AuthMemoryAdapter
   let events: AuthInMemoryEvents
   let facet: SessionsFacet
 
   beforeEach(() => {
-    adapter = new MemoryAdapter()
+    adapter = new AuthMemoryAdapter()
     events = new AuthInMemoryEvents()
     facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
   })
@@ -213,12 +213,12 @@ describe('SessionsFacet', () => {
 
 describe('resolveBySid()', () => {
   it('returns null for unknown SID', async () => {
-    const adapter = new MemoryAdapter()
+    const adapter = new AuthMemoryAdapter()
     expect(await resolveBySid('nope', adapter.sessions, adapter.identities, {})).toBeNull()
   })
 
   it('returns (session, identity) for a live SID with linked identity', async () => {
-    const adapter = new MemoryAdapter<{ email: string }>()
+    const adapter = new AuthMemoryAdapter<{ email: string }>()
     const events = new AuthInMemoryEvents()
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const identity = await adapter.identities.create({ profile: { email: 'x@y.com' }, providers: [] }, {})
@@ -229,7 +229,7 @@ describe('resolveBySid()', () => {
   })
 
   it('returns null and deletes an expired session', async () => {
-    const adapter = new MemoryAdapter()
+    const adapter = new AuthMemoryAdapter()
     const events = new AuthInMemoryEvents()
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
@@ -239,7 +239,7 @@ describe('resolveBySid()', () => {
   })
 
   it('throws AUTH/SESSION_REVOKED for a session whose identity was erased mid-life', async () => {
-    const adapter = new MemoryAdapter()
+    const adapter = new AuthMemoryAdapter()
     const events = new AuthInMemoryEvents()
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const identity = await adapter.identities.create({ providers: [] }, {})
@@ -252,12 +252,12 @@ describe('resolveBySid()', () => {
 
   describe('NaN-bypass defenses against malformed adapter rows', () => {
     async function setupLiveSession(): Promise<{
-      adapter: MemoryAdapter
+      adapter: AuthMemoryAdapter
       facet: SessionsFacet
       sid: string
       hash: string
     }> {
-      const adapter = new MemoryAdapter()
+      const adapter = new AuthMemoryAdapter()
       const events = new AuthInMemoryEvents()
       const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
       const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })

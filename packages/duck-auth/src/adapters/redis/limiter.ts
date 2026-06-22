@@ -3,9 +3,9 @@ import type { AuthRedisLike } from './redis-like'
 
 export namespace AuthRedisLimiter {
   /** Config knobs for {@link AuthRedisLimiter}. */
-  export interface IConfig {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or FakeRedis). */
-    redis: AuthRedisLike.IClient
+  export interface IConfig<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient> {
+    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    redis: TRedis
     /** Max consumed weight per window. Default 10. */
     max?: number
     /** Window size in ms. Default 15 minutes. */
@@ -21,13 +21,15 @@ export namespace AuthRedisLimiter {
  * Redis primary; for clustered Redis with cross-shard accuracy use a
  * Lua script (see `evalScript` below).
  */
-export class AuthRedisLimiter implements AuthLimiter.ILimiter {
-  private readonly _redis: AuthRedisLike.IClient
+export class AuthRedisLimiter<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient>
+  implements AuthLimiter.ILimiter
+{
+  private readonly _redis: TRedis
   private readonly _max: number
   private readonly _windowMs: number
   private readonly _prefix: string
 
-  constructor(cfg: AuthRedisLimiter.IConfig) {
+  constructor(cfg: AuthRedisLimiter.IConfig<TRedis>) {
     this._redis = cfg.redis
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000

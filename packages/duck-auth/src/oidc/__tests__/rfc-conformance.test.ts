@@ -124,10 +124,7 @@ describe('id_token signing algs - real-RP expectations', () => {
   })
 
   it('rejects "alg" outside the JWA registered set when custom-passed', () => {
-    expect(() =>
-      // biome-ignore lint/suspicious/noExplicitAny: deliberately passing a bogus alg to test the type-erased path
-      authBuildOidcDiscovery({ issuer: HTTPS_ISSUER, signingAlgs: ['HS128' as any] }),
-    ).not.toThrow() // We accept it (config-driven) but it won't pass the JWA assertion above
+    expect(() => authBuildOidcDiscovery({ issuer: HTTPS_ISSUER, signingAlgs: ['HS128' as any] })).not.toThrow() // We accept it (config-driven) but it won't pass the JWA assertion above
   })
 })
 

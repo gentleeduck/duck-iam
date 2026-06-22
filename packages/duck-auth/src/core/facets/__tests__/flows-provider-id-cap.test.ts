@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { AuthEngine } from '../../auth'
+import { AuthEngine } from '../../engine'
 import { AuthCookieTransport } from '../../transport/cookie'
 
 interface MyProfile {
@@ -9,7 +9,7 @@ interface MyProfile {
 }
 
 function buildAuth(): AuthEngine<MyProfile> {
-  const adapter = new MemoryAdapter<MyProfile>()
+  const adapter = new AuthMemoryAdapter<MyProfile>()
   return new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),

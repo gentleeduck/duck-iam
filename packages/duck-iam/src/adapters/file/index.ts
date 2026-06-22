@@ -54,7 +54,7 @@ export namespace IamFile {
   }
 
   /** Describes initialization options for {@link IamFileAdapter}. */
-  export interface IInit {
+  export interface IInit<TFS extends IFS = IFS> {
     /**
      * Specifies the **absolute** path of the JSON store file.
      *
@@ -82,7 +82,7 @@ export namespace IamFile {
      * Provides the filesystem driver. Pass `await import('node:fs/promises')`
      * in Node or Bun, or any object implementing {@link IFS} for tests.
      */
-    fs: IFS
+    fs: TFS
     /**
      * Invoked when a stored row fails JSON parse or shape validation. The
      * malformed row is dropped from the loaded state; the rest are returned
@@ -136,12 +136,13 @@ export class IamFileAdapter<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
+  TFS extends IamFile.IFS = IamFile.IFS,
 > implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
   private readonly _path: string
   private readonly _parentDir: string
   private readonly _rootDir: string | null
-  private readonly _fs: IamFile.IFS
+  private readonly _fs: TFS
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
   private _cache: IamFile.IState<TAction, TResource, TRole, TScope> | null = null
   private _loadInFlight: Promise<IamFile.IState<TAction, TResource, TRole, TScope>> | null = null
@@ -153,7 +154,7 @@ export class IamFileAdapter<
    *
    * @param init - Provides the store path and filesystem driver.
    */
-  constructor(init: IamFile.IInit) {
+  constructor(init: IamFile.IInit<TFS>) {
     // Reject raw `..`; path.resolve would silently collapse it.
     if (init.path.split(/[\\/]+/).includes('..')) {
       throw new Error(`[@gentleduck/iam:file] IamFileAdapter path contains a ".." segment: "${init.path}"`)

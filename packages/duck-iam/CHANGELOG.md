@@ -1,5 +1,17 @@
 # @gentleduck/iam
 
+## 5.1.0
+
+### Minor Changes
+
+- Restructure core into `engine/` and `config/` subfolders matching duck-iam patterns. Rename `defineAuth` → `createAuth` as primary entry point. Extract `AuthEngineTypes` and `AuthDefine` into dedicated types files. Add `Auth` prefix to all public classes.
+
+## 5.0.1
+
+### Patch Changes
+
+- fix: strip redundant iam/auth prefixes from public exports
+
 ## 5.0.0
 
 ### Major Changes

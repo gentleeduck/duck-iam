@@ -1,8 +1,9 @@
 /** Test helpers - `authCreateTest()` wires an in-memory AuthEngine for e2e-style tests. */
 
-import { MemoryAdapter } from '../adapters/memory'
-import { AuthEngine } from '../core/auth'
-import { ScryptHasher } from '../core/password/scrypt'
+import { AuthMemoryAdapter } from '../adapters/memory'
+import type { AuthEngineTypes } from '../core/engine'
+import { AuthEngine } from '../core/engine'
+import { AuthScryptHasher } from '../core/password/scrypt'
 import { AuthBearerTransport } from '../core/transport/bearer'
 import { AuthMemoryLimiter } from '../limiters/memory'
 
@@ -10,12 +11,12 @@ import { AuthMemoryLimiter } from '../limiters/memory'
 export function authCreateTest<Profile = unknown, Tenant = string, OrgMeta = unknown>(
   overrides: AuthTest.IOverrides<Profile, Tenant, OrgMeta> = {},
 ): AuthEngine<Profile, Tenant, OrgMeta> {
-  const adapter = overrides.adapter ?? new MemoryAdapter<Profile, OrgMeta>()
+  const adapter = overrides.adapter ?? new AuthMemoryAdapter<Profile, OrgMeta>()
   const transport = overrides.transport ?? new AuthBearerTransport()
   const limiter = overrides.limiter ?? new AuthMemoryLimiter({ max: 1000, windowMs: 60_000 })
-  const hasher = overrides.hasher ?? new ScryptHasher()
+  const hasher = overrides.hasher ?? new AuthScryptHasher()
 
-  const config: AuthEngine.IConfig<Profile, Tenant, OrgMeta> = {
+  const config: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta> = {
     baseUrl: overrides.baseUrl ?? 'http://localhost:0',
     transport,
     stores: {
@@ -35,19 +36,19 @@ export function authCreateTest<Profile = unknown, Tenant = string, OrgMeta = unk
 
 export namespace AuthTest {
   export interface IOverrides<Profile = unknown, _Tenant = string, OrgMeta = unknown> {
-    /** Drop-in replacement for the bundled MemoryAdapter. */
-    adapter?: MemoryAdapter<Profile, OrgMeta>
+    /** Drop-in replacement for the bundled AuthMemoryAdapter. */
+    adapter?: AuthMemoryAdapter<Profile, OrgMeta>
     /** Override the identities store individually (adapter still backs the rest). */
-    identities?: AuthEngine.IConfig<Profile>['stores']['identities']
-    sessions?: AuthEngine.IConfig<Profile>['stores']['sessions']
-    credentials?: AuthEngine.IConfig<Profile>['stores']['credentials']
-    orgs?: AuthEngine.IConfig<Profile, string, OrgMeta>['stores']['orgs']
-    transport?: AuthEngine.IConfig<Profile>['transport']
-    limiter?: AuthEngine.IConfig<Profile>['limiter']
-    events?: AuthEngine.IConfig<Profile>['events']
-    providers?: AuthEngine.IConfig<Profile>['providers']
-    passwords?: Omit<NonNullable<AuthEngine.IConfig<Profile>['passwords']>, 'hasher'>
-    hasher?: NonNullable<AuthEngine.IConfig<Profile>['passwords']>['hasher']
+    identities?: AuthEngineTypes.IConfig<Profile>['stores']['identities']
+    sessions?: AuthEngineTypes.IConfig<Profile>['stores']['sessions']
+    credentials?: AuthEngineTypes.IConfig<Profile>['stores']['credentials']
+    orgs?: AuthEngineTypes.IConfig<Profile, string, OrgMeta>['stores']['orgs']
+    transport?: AuthEngineTypes.IConfig<Profile>['transport']
+    limiter?: AuthEngineTypes.IConfig<Profile>['limiter']
+    events?: AuthEngineTypes.IConfig<Profile>['events']
+    providers?: AuthEngineTypes.IConfig<Profile>['providers']
+    passwords?: Omit<NonNullable<AuthEngineTypes.IConfig<Profile>['passwords']>, 'hasher'>
+    hasher?: NonNullable<AuthEngineTypes.IConfig<Profile>['passwords']>['hasher']
     baseUrl?: string
   }
 }

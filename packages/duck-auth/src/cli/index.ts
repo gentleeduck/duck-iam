@@ -65,12 +65,12 @@ function printHelp(): void {
  */
 function scaffoldTemplate(flavor: 'quickstart' | 'production'): string {
   if (flavor === 'quickstart') {
-    return `import { AuthEngine, AuthInMemoryEvents, ScryptHasher } from '@gentleduck/auth/core'
-import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
+    return `import { AuthEngine, AuthInMemoryEvents, AuthScryptHasher } from '@gentleduck/auth/core'
+import { AuthMemoryAdapter } from '@gentleduck/auth/adapters/memory'
 import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { AuthCookieTransport } from '@gentleduck/auth/core/transport'
 
-const adapter = new MemoryAdapter()
+const adapter = new AuthMemoryAdapter()
 
 export const auth = new AuthEngine({
   baseUrl: process.env.DUCK_AUTH_BASE_URL ?? 'http://localhost:3000',
@@ -82,12 +82,12 @@ export const auth = new AuthEngine({
   },
   events: new AuthInMemoryEvents(),
   limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-  passwords: { hasher: new ScryptHasher() },
+  passwords: { hasher: new AuthScryptHasher() },
 })
 `
   }
-  return `import { AuthEngine, Argon2idHasher } from '@gentleduck/auth/core'
-import { JwtTransport } from '@gentleduck/auth/core/transport'
+  return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/auth/core'
+import { AuthJwtTransport } from '@gentleduck/auth/core/transport'
 import { AuthRedisIdempotencyStore, AuthRedisLimiter, AuthRedisSessionStore } from '@gentleduck/auth/adapters/redis'
 import { Redis } from 'ioredis'
 
@@ -100,7 +100,7 @@ declare const credentials: never
 
 export const auth = new AuthEngine({
   baseUrl: process.env.DUCK_AUTH_BASE_URL!,
-  transport: new JwtTransport({
+  transport: new AuthJwtTransport({
     issuer: process.env.DUCK_AUTH_ISSUER!,
     signKey: { kid: 'k1', key: process.env.DUCK_AUTH_HS256_SECRET! },
     verifyKeys: [{ kid: 'k1', key: process.env.DUCK_AUTH_HS256_SECRET! }],
@@ -112,7 +112,7 @@ export const auth = new AuthEngine({
     credentials,
   },
   limiter: new AuthRedisLimiter({ redis, max: 5, windowMs: 60_000 }),
-  passwords: { hasher: new Argon2idHasher() },
+  passwords: { hasher: new AuthArgon2idHasher() },
   idempotency: { store: new AuthRedisIdempotencyStore({ redis }), ttlMs: 24 * 60 * 60 * 1000 },
   env: 'production',
 })
@@ -255,8 +255,8 @@ async function cmdKeys(args: string[]): Promise<number> {
   )
   process.stdout.write(`# 1. Store the new secret as DUCK_AUTH_HS256_SECRET_${newKid.toUpperCase()}:\n`)
   process.stdout.write(`${newSecret}\n\n`)
-  process.stdout.write('# 2. Update your JwtTransport config:\n')
-  process.stdout.write('# new JwtTransport({\n')
+  process.stdout.write('# 2. Update your AuthJwtTransport config:\n')
+  process.stdout.write('# new AuthJwtTransport({\n')
   process.stdout.write(
     `#   signKey: { kid: '${newKid}', key: process.env.DUCK_AUTH_HS256_SECRET_${newKid.toUpperCase()}! },\n`,
   )
