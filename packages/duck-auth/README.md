@@ -79,7 +79,7 @@ const result = await auth.flows.signIn({
 // result.session, result.sid, result.intents[]
 ```
 
-`createAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, ScryptHasher, InMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
+`createAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, AuthScryptHasher, AuthInMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
 
 ## Or scaffold it via the CLI
 
