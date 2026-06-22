@@ -22,7 +22,7 @@
     "@gentleduck/auth": "workspace:*",
     "@gentleduck/libs": "^1.0.0",
     "@gentleduck/registry-ui": "^0.4.4",
-    "@gentleduck/variants": "^0.1.23",
+    "@gentleduck/variants": "^1.0.0",
     "@node-rs/argon2": "2.0.2",
     "@simplewebauthn/server": "^13.3.0",
     "drizzle-orm": "^0.45.2",

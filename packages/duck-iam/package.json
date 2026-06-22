@@ -296,7 +296,7 @@
   "peerDependencies": {
     "@gentleduck/libs": "^1.0.0",
     "@gentleduck/registry-ui": "^0.4.3",
-    "@gentleduck/variants": "^0.1.23",
+    "@gentleduck/variants": "^1.0.0",
     "drizzle-orm": ">=0.30.0",
     "react": "^19.2.6"
   },
@@ -323,7 +323,7 @@
     "@gentleduck/registry-ui": "^0.4.4",
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
-    "@gentleduck/variants": "^0.1.23",
+    "@gentleduck/variants": "^1.0.0",
     "@gentleduck/vitest-config": "workspace:*",
     "@rbac/rbac": "^2.1.3",
     "@stryker-mutator/core": "^9.6.1",
