@@ -5,7 +5,7 @@
  * Console), so the diagnostic write is also wrapped.
  */
 
-import type { IamAccessControl, IamRequest } from '../types'
+import type { AccessControl, IamRequest } from '../types'
 import type { IamEngineTypes } from './engine.types'
 
 export async function safeHookCall(fn: () => unknown, hookName: string): Promise<void> {
@@ -26,7 +26,7 @@ export function emitMetrics<TAction extends string, TResource extends string, TS
   allowed: boolean,
   t0: number,
   failOpen: boolean,
-  mode: IamAccessControl.Mode,
+  mode: AccessControl.Mode,
 ): void {
   const hook = hooks.onMetrics
   if (!hook) return

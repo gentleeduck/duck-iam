@@ -1,8 +1,8 @@
 /** Test helpers - `authCreateTest()` wires an in-memory AuthEngine for e2e-style tests. */
 
-import { AuthMemoryAdapter } from '../adapters/memory'
+import { MemoryAdapter } from '../adapters/memory'
 import { AuthEngine } from '../core/auth'
-import { AuthScryptHasher } from '../core/password/scrypt'
+import { ScryptHasher } from '../core/password/scrypt'
 import { AuthBearerTransport } from '../core/transport/bearer'
 import { AuthMemoryLimiter } from '../limiters/memory'
 
@@ -10,10 +10,10 @@ import { AuthMemoryLimiter } from '../limiters/memory'
 export function authCreateTest<Profile = unknown, Tenant = string, OrgMeta = unknown>(
   overrides: AuthTest.IOverrides<Profile, Tenant, OrgMeta> = {},
 ): AuthEngine<Profile, Tenant, OrgMeta> {
-  const adapter = overrides.adapter ?? new AuthMemoryAdapter<Profile, OrgMeta>()
+  const adapter = overrides.adapter ?? new MemoryAdapter<Profile, OrgMeta>()
   const transport = overrides.transport ?? new AuthBearerTransport()
   const limiter = overrides.limiter ?? new AuthMemoryLimiter({ max: 1000, windowMs: 60_000 })
-  const hasher = overrides.hasher ?? new AuthScryptHasher()
+  const hasher = overrides.hasher ?? new ScryptHasher()
 
   const config: AuthEngine.IConfig<Profile, Tenant, OrgMeta> = {
     baseUrl: overrides.baseUrl ?? 'http://localhost:0',
@@ -35,8 +35,8 @@ export function authCreateTest<Profile = unknown, Tenant = string, OrgMeta = unk
 
 export namespace AuthTest {
   export interface IOverrides<Profile = unknown, _Tenant = string, OrgMeta = unknown> {
-    /** Drop-in replacement for the bundled AuthMemoryAdapter. */
-    adapter?: AuthMemoryAdapter<Profile, OrgMeta>
+    /** Drop-in replacement for the bundled MemoryAdapter. */
+    adapter?: MemoryAdapter<Profile, OrgMeta>
     /** Override the identities store individually (adapter still backs the rest). */
     identities?: AuthEngine.IConfig<Profile>['stores']['identities']
     sessions?: AuthEngine.IConfig<Profile>['stores']['sessions']

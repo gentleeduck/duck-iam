@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256, authTimingSafeEqual } from '../../../core/crypto'
 import { AuthInMemoryEvents } from '../../../core/events'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
@@ -9,7 +9,7 @@ interface MyProfile {
   email: string
 }
 
-function ctxFor(adapter: AuthMemoryAdapter<MyProfile>, events?: AuthInMemoryEvents) {
+function ctxFor(adapter: MemoryAdapter<MyProfile>, events?: AuthInMemoryEvents) {
   return {
     stores: {
       identities: adapter.identities,
@@ -36,10 +36,10 @@ function makeClient(overrides: Partial<AuthSamlProvider.IClient> = {}): AuthSaml
 }
 
 describe('samlProvider - input caps', () => {
-  let adapter: AuthMemoryAdapter<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter<MyProfile>()
+    adapter = new MemoryAdapter<MyProfile>()
   })
 
   describe('begin', () => {
@@ -135,7 +135,7 @@ describe('samlProvider - input caps', () => {
     })
 
     it('accepts SAMLResponse exactly at 1 MiB', async () => {
-      const adapterInner = new AuthMemoryAdapter<MyProfile>()
+      const adapterInner = new MemoryAdapter<MyProfile>()
       const ident = await adapterInner.identities.create({ profile: { email: 'u@x.com' }, providers: [] }, {})
       const client = makeClient()
       const provider = authSamlProvider({
@@ -319,7 +319,7 @@ describe('samlProvider - input caps', () => {
     })
 
     it('valid nameID flows through to onSignIn unchanged', async () => {
-      const adapterInner = new AuthMemoryAdapter<MyProfile>()
+      const adapterInner = new MemoryAdapter<MyProfile>()
       const ident = await adapterInner.identities.create({ profile: { email: 'u@x.com' }, providers: [] }, {})
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({

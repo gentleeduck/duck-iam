@@ -6,14 +6,14 @@
 
 import type { AuthOidcOP } from './types'
 
-export class AuthMemoryClientStore implements AuthOidcOP.IClientStore {
+export class MemoryClientStore implements AuthOidcOP.IClientStore {
   private rows = new Map<string, AuthOidcOP.IClient>()
   async findById(client_id: string): Promise<AuthOidcOP.IClient | null> {
     return this.rows.get(client_id) ?? null
   }
   async insert(c: AuthOidcOP.IClient): Promise<void> {
     if (this.rows.has(c.client_id)) {
-      throw new Error(`AuthMemoryClientStore: client_id '${c.client_id}' already registered`)
+      throw new Error(`MemoryClientStore: client_id '${c.client_id}' already registered`)
     }
     this.rows.set(c.client_id, c)
   }

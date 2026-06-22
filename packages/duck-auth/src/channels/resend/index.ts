@@ -60,7 +60,8 @@ async function loadResend(): Promise<{ Resend: new (key: string) => AuthResendCh
     return mod
   } catch {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: 'AuthResendChannel requires the `resend` peerDep. Install via `bun add resend` (or `npm install resend`).',
+      detail:
+        'AuthResendChannel requires the `resend` peerDep. Install via `bun add resend` (or `npm install resend`).',
     })
   }
 }

@@ -6,24 +6,24 @@
  */
 
 import type { IamLRUCache } from '../../shared/cache'
-import type { IamAccessControl, IamRequest } from '../types'
+import type { AccessControl, IamRequest } from '../types'
 import type { IamEngineTypes } from './engine.types'
 
 export interface IEngineCacheBag<TRole extends string = string> {
-  policyCache: IamLRUCache<IamAccessControl.IPolicy[]>
-  roleCache: IamLRUCache<IamAccessControl.IRole[]>
-  rbacPolicyCache: IamLRUCache<IamAccessControl.IPolicy>
-  mergedPolicyCache: IamLRUCache<IamAccessControl.IPolicy[]>
+  policyCache: IamLRUCache<AccessControl.IPolicy[]>
+  roleCache: IamLRUCache<AccessControl.IRole[]>
+  rbacPolicyCache: IamLRUCache<AccessControl.IPolicy>
+  mergedPolicyCache: IamLRUCache<AccessControl.IPolicy[]>
   subjectCache: IamLRUCache<IamRequest.ISubject>
   inFlight: IEngineInFlightBag
   invalidator?: IamEngineTypes.IInvalidator<TRole>
 }
 
 export interface IEngineInFlightBag {
-  policies: { value: Promise<IamAccessControl.IPolicy[]> | null }
-  roles: { value: Promise<IamAccessControl.IRole[]> | null }
-  rbac: { value: Promise<IamAccessControl.IPolicy> | null }
-  merged: { value: Promise<IamAccessControl.IPolicy[]> | null }
+  policies: { value: Promise<AccessControl.IPolicy[]> | null }
+  roles: { value: Promise<AccessControl.IRole[]> | null }
+  rbac: { value: Promise<AccessControl.IPolicy> | null }
+  merged: { value: Promise<AccessControl.IPolicy[]> | null }
   subjects: Map<string, Promise<IamRequest.ISubject>>
 }
 

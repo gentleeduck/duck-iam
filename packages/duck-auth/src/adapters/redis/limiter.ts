@@ -4,7 +4,7 @@ import type { AuthRedisLike } from './redis-like'
 export namespace AuthRedisLimiter {
   /** Config knobs for {@link AuthRedisLimiter}. */
   export interface IConfig {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    /** AuthRedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: AuthRedisLike.IClient
     /** Max consumed weight per window. Default 10. */
     max?: number

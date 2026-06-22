@@ -1,6 +1,6 @@
 import { bench, describe } from 'vitest'
 import type { IamRequest } from '../../types'
-import { iamMatchesAction, iamMatchesResource, iamMatchesResourceHierarchical, iamResolve } from '../resolve'
+import { matchesAction, matchesResource, matchesResourceHierarchical, resolve } from '../resolve'
 
 const req: IamRequest.IAccessRequest = {
   subject: { id: 'u1', roles: ['editor'], attributes: { status: 'active', level: 3 } },
@@ -9,72 +9,72 @@ const req: IamRequest.IAccessRequest = {
   environment: { ip: '10.0.0.1', timestamp: Date.now() },
 }
 
-describe('iamResolve', () => {
+describe('resolve', () => {
   bench('shorthand (action)', () => {
-    iamResolve(req, 'action')
+    resolve(req, 'action')
   })
 
   bench('one level (subject.id)', () => {
-    iamResolve(req, 'subject.id')
+    resolve(req, 'subject.id')
   })
 
   bench('two levels (subject.attributes.status)', () => {
-    iamResolve(req, 'subject.attributes.status')
+    resolve(req, 'subject.attributes.status')
   })
 
   bench('three levels (resource.attributes.ownerId)', () => {
-    iamResolve(req, 'resource.attributes.ownerId')
+    resolve(req, 'resource.attributes.ownerId')
   })
 
   bench('cache miss then hit (alternates)', () => {
     // Path cache should hit for repeat lookups.
-    iamResolve(req, 'subject.attributes.status')
-    iamResolve(req, 'resource.attributes.ownerId')
+    resolve(req, 'subject.attributes.status')
+    resolve(req, 'resource.attributes.ownerId')
   })
 })
 
-describe('iamMatchesAction', () => {
+describe('matchesAction', () => {
   bench('exact match', () => {
-    iamMatchesAction('read', 'read')
+    matchesAction('read', 'read')
   })
 
   bench('star wildcard', () => {
-    iamMatchesAction('*', 'read')
+    matchesAction('*', 'read')
   })
 
   bench('colon-prefix wildcard', () => {
-    iamMatchesAction('posts:*', 'posts:read')
+    matchesAction('posts:*', 'posts:read')
   })
 
   bench('no match', () => {
-    iamMatchesAction('read', 'write')
+    matchesAction('read', 'write')
   })
 })
 
-describe('iamMatchesResource', () => {
+describe('matchesResource', () => {
   bench('exact', () => {
-    iamMatchesResource('post', 'post')
+    matchesResource('post', 'post')
   })
 
   bench('parent-prefix (org -> org:project)', () => {
-    iamMatchesResource('org', 'org:project')
+    matchesResource('org', 'org:project')
   })
 
   bench('colon-wildcard', () => {
-    iamMatchesResource('org:*', 'org:project')
+    matchesResource('org:*', 'org:project')
   })
 })
 
-describe('iamMatchesResourceHierarchical', () => {
+describe('matchesResourceHierarchical', () => {
   bench('exact', () => {
-    iamMatchesResourceHierarchical('dashboard', 'dashboard')
+    matchesResourceHierarchical('dashboard', 'dashboard')
   })
 
   bench('parent-prefix (dashboard -> dashboard.users)', () => {
-    iamMatchesResourceHierarchical('dashboard', 'dashboard.users')
+    matchesResourceHierarchical('dashboard', 'dashboard.users')
   })
 
   bench('dot-wildcard', () => {
-    iamMatchesResourceHierarchical('dashboard.*', 'dashboard.users')
+    matchesResourceHierarchical('dashboard.*', 'dashboard.users')
   })
 })

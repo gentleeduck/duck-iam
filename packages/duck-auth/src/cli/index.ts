@@ -65,12 +65,12 @@ function printHelp(): void {
  */
 function scaffoldTemplate(flavor: 'quickstart' | 'production'): string {
   if (flavor === 'quickstart') {
-    return `import { AuthEngine, AuthInMemoryEvents, AuthScryptHasher } from '@gentleduck/auth/core'
-import { AuthMemoryAdapter } from '@gentleduck/auth/adapters/memory'
+    return `import { AuthEngine, AuthInMemoryEvents, ScryptHasher } from '@gentleduck/auth/core'
+import { MemoryAdapter } from '@gentleduck/auth/adapters/memory'
 import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { AuthCookieTransport } from '@gentleduck/auth/core/transport'
 
-const adapter = new AuthMemoryAdapter()
+const adapter = new MemoryAdapter()
 
 export const auth = new AuthEngine({
   baseUrl: process.env.DUCK_AUTH_BASE_URL ?? 'http://localhost:3000',
@@ -82,11 +82,11 @@ export const auth = new AuthEngine({
   },
   events: new AuthInMemoryEvents(),
   limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-  passwords: { hasher: new AuthScryptHasher() },
+  passwords: { hasher: new ScryptHasher() },
 })
 `
   }
-  return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/auth/core'
+  return `import { AuthEngine, Argon2idHasher } from '@gentleduck/auth/core'
 import { JwtTransport } from '@gentleduck/auth/core/transport'
 import { AuthRedisIdempotencyStore, AuthRedisLimiter, AuthRedisSessionStore } from '@gentleduck/auth/adapters/redis'
 import { Redis } from 'ioredis'
@@ -112,7 +112,7 @@ export const auth = new AuthEngine({
     credentials,
   },
   limiter: new AuthRedisLimiter({ redis, max: 5, windowMs: 60_000 }),
-  passwords: { hasher: new AuthArgon2idHasher() },
+  passwords: { hasher: new Argon2idHasher() },
   idempotency: { store: new AuthRedisIdempotencyStore({ redis }), ttlMs: 24 * 60 * 60 * 1000 },
   env: 'production',
 })

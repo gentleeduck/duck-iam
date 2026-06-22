@@ -4,13 +4,13 @@
  */
 
 import type { IamLRUCache } from '../../shared/cache'
-import type { IamAccessControl, IamRequest } from '../types'
+import type { AccessControl, IamRequest } from '../types'
 
 export interface IIamCachesForStats {
-  policyCache: IamLRUCache<IamAccessControl.IPolicy[]>
-  roleCache: IamLRUCache<IamAccessControl.IRole[]>
-  rbacPolicyCache: IamLRUCache<IamAccessControl.IPolicy>
-  mergedPolicyCache: IamLRUCache<IamAccessControl.IPolicy[]>
+  policyCache: IamLRUCache<AccessControl.IPolicy[]>
+  roleCache: IamLRUCache<AccessControl.IRole[]>
+  rbacPolicyCache: IamLRUCache<AccessControl.IPolicy>
+  mergedPolicyCache: IamLRUCache<AccessControl.IPolicy[]>
   subjectCache: IamLRUCache<IamRequest.ISubject>
 }
 

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/auth'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../../../providers/password'
@@ -50,7 +50,7 @@ interface MyProfile {
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -60,7 +60,7 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   auth.providers.register(
     authPassword({
@@ -131,7 +131,13 @@ describe('Fastify adapter', () => {
     const handler = authFastifyProviderBegin(auth)
     const reply = makeReply()
     await handler(
-      { method: 'POST', url: '/auth/providers//begin', headers: {}, body: {}, params: {} } as AuthFastifyAdapter.IRequest,
+      {
+        method: 'POST',
+        url: '/auth/providers//begin',
+        headers: {},
+        body: {},
+        params: {},
+      } as AuthFastifyAdapter.IRequest,
       reply,
     )
     expect(reply._status).toBe(400)

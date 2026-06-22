@@ -1,7 +1,7 @@
-import { type IamAdapter, createIam } from '@gentleduck/iam'
-import { IamDrizzleAdapter, type IamDrizzle } from '@gentleduck/iam/adapters/drizzle'
+import { createIam, type IamAdapter } from '@gentleduck/iam'
+import { type IamDrizzle, IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 import { and, eq } from 'drizzle-orm'
-import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs, db } from './db'
+import { db, iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from './db'
 
 // ── Config ──────────────────────────────────────────────────────
 

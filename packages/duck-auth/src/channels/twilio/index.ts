@@ -59,7 +59,8 @@ async function loadTwilio(): Promise<(sid: string, token: string) => AuthTwilioC
     return mod.default
   } catch {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: 'AuthTwilioChannel requires the `twilio` peerDep. Install via `bun add twilio` (or `npm install twilio`).',
+      detail:
+        'AuthTwilioChannel requires the `twilio` peerDep. Install via `bun add twilio` (or `npm install twilio`).',
     })
   }
 }

@@ -12,7 +12,7 @@ import {
   timestamp,
   unique,
 } from 'drizzle-orm/pg-core'
-import type { IamAccessControl, IamPrimitives } from '../../../core/types'
+import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
  * PostgreSQL schema for the duck-iam IamDrizzle adapter.
@@ -42,7 +42,7 @@ import type { IamAccessControl, IamPrimitives } from '../../../core/types'
  */
 
 /**
- * Postgres enum mirroring {@link IamAccessControl.CombiningAlgorithm}. The
+ * Postgres enum mirroring {@link AccessControl.CombiningAlgorithm}. The
  * `satisfies` clause turns any drift between this list and the engine union
  * into a compile error.
  */
@@ -51,7 +51,7 @@ export const combineAlgorithm = pgEnum('access_combine_algorithm', [
   'allow-overrides',
   'first-match',
   'highest-priority',
-] as const satisfies readonly IamAccessControl.CombiningAlgorithm[])
+] as const satisfies readonly AccessControl.CombiningAlgorithm[])
 
 /**
  * Stored ABAC policies. `rules` and `targets` carry the policy payload as
@@ -65,8 +65,8 @@ export const iamPolicies = pgTable(
     description: text('description'),
     version: integer('version').notNull().default(1),
     algorithm: combineAlgorithm('algorithm').notNull().default('deny-overrides'),
-    rules: jsonb('rules').$type<IamAccessControl.IRule[]>().notNull(),
-    targets: jsonb('targets').$type<NonNullable<IamAccessControl.IPolicy['targets']>>(),
+    rules: jsonb('rules').$type<AccessControl.IRule[]>().notNull(),
+    targets: jsonb('targets').$type<NonNullable<AccessControl.IPolicy['targets']>>(),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -95,7 +95,7 @@ export const iamRoles = pgTable(
     id: text('id').notNull(),
     name: text('name').notNull(),
     description: text('description'),
-    permissions: jsonb('permissions').$type<IamAccessControl.IPermission[]>().notNull(),
+    permissions: jsonb('permissions').$type<AccessControl.IPermission[]>().notNull(),
     inherits: jsonb('inherits').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     scope: text('scope'),
     metadata: jsonb('metadata').$type<IamPrimitives.Attributes>(),

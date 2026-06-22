@@ -53,7 +53,8 @@ describe('AuthWebPushChannel', () => {
 
   it('refuses construction without VAPID details', () => {
     expect(
-      () => new AuthWebPushChannel({ subject: '', publicKey: 'X', privateKey: 'Y', templates: () => ({ payload: '' }) }),
+      () =>
+        new AuthWebPushChannel({ subject: '', publicKey: 'X', privateKey: 'Y', templates: () => ({ payload: '' }) }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
   })
 

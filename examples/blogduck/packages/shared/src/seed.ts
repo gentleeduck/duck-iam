@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { allRoles } from './access'
-import { iamAssignments, iamRoles, db, posts, users } from './db'
+import { db, iamAssignments, iamRoles, posts, users } from './db'
 
 const dbPath = new URL('../data.db', import.meta.url).pathname
 const sqlite = new Database(dbPath)

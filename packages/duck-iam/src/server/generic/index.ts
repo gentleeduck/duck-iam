@@ -109,7 +109,7 @@ export namespace IamAdminAudit {
      */
     onAuditHookError?: (err: unknown, event: IEvent) => void
     /**
-     * IamWhen `true`, populate {@link IEvent.error} with `err.message`. The
+     * When `true`, populate {@link IEvent.error} with `err.message`. The
      * default is the error **class name** because downstream DB-driver
      * errors can carry credentials, query fragments, or SQL inside their
      * message. Only enable this if you control the throw sites and the
@@ -299,13 +299,13 @@ export async function iamRunAdminAuthz<TReq>(
  *
  * By default returns the constructor name of the thrown value (e.g.
  * `'Error'`, `'TypeError'`, `'PolicyValidationError'`) so credential-bearing
- * `err.message` strings never leak into audit sinks. IamWhen
+ * `err.message` strings never leak into audit sinks. When
  * `includeMessage === true`, returns `err.message` for `Error` instances and
  * `String(err)` otherwise. Non-Error throws (`undefined`, strings, numbers)
  * are handled defensively.
  *
  * @param err - The thrown value; may not be an `Error` instance.
- * @param includeMessage - IamWhen `true`, return the full message instead of the class name.
+ * @param includeMessage - When `true`, return the full message instead of the class name.
  * @returns A stable string suitable for {@link IamAdminAudit.IEvent.error}.
  */
 export function iamErrorToAuditString(err: unknown, includeMessage?: boolean): string {

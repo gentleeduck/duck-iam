@@ -1,10 +1,10 @@
 import * as nodePath from 'node:path'
-import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import {
-  iamParsePolicyRow as parsePolicyRowShared,
-  iamParseRoleRow as parseRoleRowShared,
-  iamValidatePolicy,
-  iamValidateRole,
+  validatePolicy,
+  validateRole,
+  parsePolicyRow as parsePolicyRowShared,
+  parseRoleRow as parseRoleRowShared,
 } from '../../core/validate'
 
 export namespace IamFile {
@@ -108,8 +108,8 @@ export namespace IamFile {
     TRole extends string,
     TScope extends string,
   > {
-    policies: Record<string, IamAccessControl.IPolicy<TAction, TResource, TRole>>
-    roles: Record<string, IamAccessControl.IRole<TAction, TResource, TRole, TScope>>
+    policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>>
+    roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>>
     assignments: Record<string, Array<{ role: TRole; scope?: TScope }>>
     attributes: Record<string, IamPrimitives.Attributes>
   }
@@ -290,27 +290,27 @@ export class IamFileAdapter<
 
         // IamValidate each row; drop malformed entries instead of returning them.
         // Null-proto so prototype-key reads/writes can't pollute the proto chain.
-        const policies: Record<string, IamAccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
+        const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
         const policiesRaw = isPlainObject(parsed.policies) ? parsed.policies : {}
         for (const [rowId, p] of Object.entries(policiesRaw)) {
-          const policy = iamParsePolicyRow<TAction, TResource, TRole>(p)
+          const policy = parsePolicyRow<TAction, TResource, TRole>(p)
           if (policy !== null) {
             policies[rowId] = policy
           } else {
-            const issues = iamValidatePolicy(p)
+            const issues = validatePolicy(p)
               .issues.map((i) => i.message)
               .join('; ')
             this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
           }
         }
-        const roles: Record<string, IamAccessControl.IRole<TAction, TResource, TRole, TScope>> = Object.create(null)
+        const roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>> = Object.create(null)
         const rolesRaw = isPlainObject(parsed.roles) ? parsed.roles : {}
         for (const [rowId, r] of Object.entries(rolesRaw)) {
-          const role = iamParseRoleRow<TAction, TResource, TRole, TScope>(r)
+          const role = parseRoleRow<TAction, TResource, TRole, TScope>(r)
           if (role !== null) {
             roles[rowId] = role
           } else {
-            const issues = iamValidateRole(r)
+            const issues = validateRole(r)
               .issues.map((i) => i.message)
               .join('; ')
             this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
@@ -369,7 +369,7 @@ export class IamFileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All stored policies.
    */
-  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const s = await this._loadState()
     return Object.values(s.policies)
   }
@@ -384,7 +384,7 @@ export class IamFileAdapter<
   async getPolicy(
     id: string,
     _opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
+  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const s = await this._loadState()
     return s.policies[id] ?? null
   }
@@ -395,7 +395,7 @@ export class IamFileAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the file is rewritten.
    */
-  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const s = await this._loadState()
     s.policies[p.id] = p
     await this._flush()
@@ -419,7 +419,9 @@ export class IamFileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All stored roles.
    */
-  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const s = await this._loadState()
     return Object.values(s.roles)
   }
@@ -434,7 +436,7 @@ export class IamFileAdapter<
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const s = await this._loadState()
     return s.roles[id] ?? null
   }
@@ -445,7 +447,7 @@ export class IamFileAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the file is rewritten.
    */
-  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const s = await this._loadState()
     s.roles[r.id] = r
     await this._flush()
@@ -483,7 +485,10 @@ export class IamFileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs for scoped assignments only.
    */
-  async getSubjectScopedRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
+  async getSubjectScopedRoles(
+    id: string,
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     const s = await this._loadState()
     const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
     return (s.assignments[id] ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
@@ -656,5 +661,5 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-const iamParsePolicyRow = parsePolicyRowShared
-const iamParseRoleRow = parseRoleRowShared
+const parsePolicyRow = parsePolicyRowShared
+const parseRoleRow = parseRoleRowShared

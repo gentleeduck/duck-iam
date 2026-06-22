@@ -26,7 +26,7 @@
 import { createElement, type JSX, type ReactNode } from 'react'
 import type { AuthIdentity } from '../../../core/types/identity'
 import type { AuthSession } from '../../../core/types/session'
-import { authCreateClient, type AuthVanillaClient } from '../../vanilla'
+import { type AuthVanillaClient, authCreateClient } from '../../vanilla'
 import { AuthProvider } from '../index'
 
 /** Default backend URL when a story opts into `live: true` without a custom `baseUrl`. */

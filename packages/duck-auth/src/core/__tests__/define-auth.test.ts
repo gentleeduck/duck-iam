@@ -8,8 +8,8 @@ import { authPasskey } from '../../providers/passkey'
 import { authPassword } from '../../providers/password'
 import { AuthEngine } from '../auth'
 import { defineAuth } from '../define-auth'
-import { AuthArgon2idHasher } from '../password/argon2'
-import { AuthScryptHasher } from '../password/scrypt'
+import { Argon2idHasher } from '../password/argon2'
+import { ScryptHasher } from '../password/scrypt'
 import { AuthCookieTransport } from '../transport/cookie'
 
 interface Profile {
@@ -39,7 +39,7 @@ describe('defineAuth', () => {
     expect(auth.transport).toBe(custom)
   })
 
-  it('defaults hasher to AuthScryptHasher when not supplied', () => {
+  it('defaults hasher to ScryptHasher when not supplied', () => {
     const auth = defineAuth({ baseUrl: 'http://x', storage: authMemoryStorage<Profile>() })
     expect(auth.passwords).toBeDefined()
   })
@@ -47,19 +47,19 @@ describe('defineAuth', () => {
   it('respects explicit hasher', () => {
     const auth = defineAuth({
       baseUrl: 'http://x',
-      hasher: new AuthScryptHasher({ N: 1 << 10 }),
+      hasher: new ScryptHasher({ N: 1 << 10 }),
       storage: authMemoryStorage<Profile>(),
     })
     expect(auth.passwords).toBeDefined()
   })
 
-  it('AuthArgon2idHasher is type-compatible with the hasher field', () => {
+  it('Argon2idHasher is type-compatible with the hasher field', () => {
     // Argon2id throws at construction if @node-rs/argon2 missing; we
     // only care that the type slots in here.
     expect(() =>
       defineAuth({
         baseUrl: 'http://x',
-        hasher: new AuthArgon2idHasher(),
+        hasher: new Argon2idHasher(),
         storage: authMemoryStorage<Profile>(),
       }),
     ).not.toThrow()
@@ -72,7 +72,7 @@ describe('defineAuth', () => {
       providers: [
         authPassword({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
         }),
       ],
       storage,
@@ -90,7 +90,7 @@ describe('defineAuth', () => {
         undefined,
         authPassword({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
         }),
       ],
       storage,
@@ -105,7 +105,7 @@ describe('defineAuth', () => {
       providers: [
         authPassword({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
         }),
         authMagicLink({
           autoCreateIdentity: true,

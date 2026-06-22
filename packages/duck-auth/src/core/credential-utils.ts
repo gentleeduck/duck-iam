@@ -21,7 +21,10 @@ export function getCredentialPurpose(row: Pick<AuthCredential.ICredential, 'meta
 }
 
 /** True when the row has an `expiresAt` that is malformed or in the past. */
-export function isCredentialExpired(row: Pick<AuthCredential.ICredential, 'expiresAt'>, now: number = Date.now()): boolean {
+export function isCredentialExpired(
+  row: Pick<AuthCredential.ICredential, 'expiresAt'>,
+  now: number = Date.now(),
+): boolean {
   return isExpiredAt(row.expiresAt, now)
 }
 

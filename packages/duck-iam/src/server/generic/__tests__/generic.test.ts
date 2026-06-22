@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
-import type { IamAccessControl } from '../../../core/types'
+import type { AccessControl } from '../../../core/types'
 import {
   createIamSubjectCan,
-  iamErrorToAuditString,
-  iamExtractEnvironment,
   generateIamPermissionMap,
   IAM_METHOD_ACTION_MAP,
+  iamErrorToAuditString,
+  iamExtractEnvironment,
 } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
@@ -15,7 +15,7 @@ type ResourceType = 'post' | 'comment'
 type RoleId = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [
@@ -24,7 +24,7 @@ const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = 
   ],
 }
 
-const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],

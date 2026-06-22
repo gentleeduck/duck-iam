@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/auth'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../../../providers/password'
-import { authMakeGuard, type AuthNestAdapter, authNestProviderBegin, authNestSession, authNestSignIn, authNestSignOut } from '../index'
+import {
+  type AuthNestAdapter,
+  authMakeGuard,
+  authNestProviderBegin,
+  authNestSession,
+  authNestSignIn,
+  authNestSignOut,
+} from '../index'
 
 function makeReply(): AuthNestAdapter.IReply & {
   _status?: number
@@ -43,7 +50,7 @@ interface MyProfile {
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -53,7 +60,7 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   auth.providers.register(
     authPassword({
@@ -119,7 +126,10 @@ describe('NestJS adapter - handlers', () => {
 
   it('providerBegin requires :id', async () => {
     const reply = makeReply()
-    await authNestProviderBegin(auth)({ method: 'POST', headers: {}, body: {}, params: {} } as AuthNestAdapter.IRequest, reply)
+    await authNestProviderBegin(auth)(
+      { method: 'POST', headers: {}, body: {}, params: {} } as AuthNestAdapter.IRequest,
+      reply,
+    )
     expect(reply._status).toBe(400)
     expect(reply._body).toContain('AUTH/PROVIDER_FAILED')
   })

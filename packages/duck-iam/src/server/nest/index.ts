@@ -1,10 +1,10 @@
 import type { IamEngine } from '../../core'
-import type { IamAccessControl, IamRequest } from '../../core/types'
+import type { AccessControl, IamRequest } from '../../core/types'
 import {
+  IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
   iamDefaultCsrfCheck,
   iamExtractEnvironment,
-  IAM_METHOD_ACTION_MAP,
   iamNoticeCsrfDefaultIfNeeded,
   iamWithAdminAudit,
 } from '../generic'
@@ -387,13 +387,13 @@ export function createIamAdminOperations<
       await gate(req)
       return engine.admin.listRoles()
     },
-    async savePolicy(req: NestRequest, body: IamAccessControl.IPolicy<TAction, TResource, TRole>) {
+    async savePolicy(req: NestRequest, body: AccessControl.IPolicy<TAction, TResource, TRole>) {
       return runMutation(req, 'replace', 'policy', (body as { id?: string } | undefined)?.id, async () => {
         await engine.admin.savePolicy(body)
         return { ok: true as const }
       })
     },
-    async saveRole(req: NestRequest, body: IamAccessControl.IRole<TAction, TResource, TRole, TScope>) {
+    async saveRole(req: NestRequest, body: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
       return runMutation(req, 'replace', 'role', (body as { id?: string } | undefined)?.id, async () => {
         await engine.admin.saveRole(body)
         return { ok: true as const }

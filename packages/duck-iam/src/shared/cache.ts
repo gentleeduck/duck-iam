@@ -17,7 +17,8 @@ export class IamLRUCache<V> {
    * @throws `RangeError` when `maxSize < 1` or `ttlMs < 0`.
    */
   constructor(maxSize: number, ttlMs: number) {
-    if (!Number.isFinite(maxSize) || maxSize < 1) throw new RangeError('IamLRUCache maxSize must be a finite number >= 1')
+    if (!Number.isFinite(maxSize) || maxSize < 1)
+      throw new RangeError('IamLRUCache maxSize must be a finite number >= 1')
     if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError('IamLRUCache ttlMs must be a finite number >= 0')
     this._maxSize = maxSize
     this._ttl = ttlMs

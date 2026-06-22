@@ -1,9 +1,9 @@
 import type { IamEngine } from '../../core'
-import type { IamAccessControl, IamRequest } from '../../core/types'
+import type { AccessControl, IamRequest } from '../../core/types'
 import {
+  IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
   iamDefaultCsrfCheck,
-  IAM_METHOD_ACTION_MAP,
   iamNoticeCsrfDefaultIfNeeded,
   iamRunAdminAuthz,
   iamWithAdminAudit,
@@ -275,11 +275,9 @@ export function iamBindAdminRouter<
   router.put(
     '/policies',
     mutate('replace', 'policy', undefined, async (c) => {
-      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as IamAccessControl.IPolicy<
-        TAction,
-        TResource,
-        TRole
-      >
+      const body = (await (
+        c as unknown as { req: { json(): Promise<unknown> } }
+      ).req.json()) as AccessControl.IPolicy<TAction, TResource, TRole>
       await engine.admin.savePolicy(body)
       return c.json({ ok: true })
     }),
@@ -287,7 +285,7 @@ export function iamBindAdminRouter<
   router.put(
     '/roles',
     mutate('replace', 'role', undefined, async (c) => {
-      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as IamAccessControl.IRole<
+      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as AccessControl.IRole<
         TAction,
         TResource,
         TRole,
@@ -365,7 +363,9 @@ export function iamGuard<
   engine: IamEngine<TAction, TResource, TRole, TScope>,
   action: TAction,
   resourceType: TResource,
-  opts: Pick<IamHono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & { scope?: TScope } = {},
+  opts: Pick<IamHono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & {
+    scope?: TScope
+  } = {},
 ): HonoMiddleware {
   const {
     // Read only from upstream-set `c.get('userId')`; never trust client headers.

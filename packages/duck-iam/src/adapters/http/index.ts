@@ -1,4 +1,4 @@
-import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 
 /** Brand symbol marking an error as retry-eligible. Internal to this adapter. */
 const TRANSIENT = Symbol('duck-iam.http.transient')
@@ -92,7 +92,7 @@ export namespace IamHttp {
      */
     circuitBreakerCooldownMs?: number
     /**
-     * Restricts the set of acceptable hosts for `baseUrl`. IamWhen set, the
+     * Restricts the set of acceptable hosts for `baseUrl`. When set, the
      * parsed URL must match an entry in the list or construction throws.
      *
      * Matching rules:
@@ -499,7 +499,7 @@ export class IamHttpAdapter<
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of policies returned by `GET /policies`.
    */
-  async listPolicies(opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     return this._request('/policies', undefined, opts)
   }
   /**
@@ -512,7 +512,7 @@ export class IamHttpAdapter<
   async getPolicy(
     id: string,
     opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
+  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
     return this._requestOrNull(`/policies/${encodeURIComponent(id)}`, undefined, opts)
   }
@@ -522,7 +522,7 @@ export class IamHttpAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the API acknowledges the write.
    */
-  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     await this._request('/policies', {
       method: 'PUT',
       body: JSON.stringify(p),
@@ -544,7 +544,9 @@ export class IamHttpAdapter<
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of roles returned by `GET /roles`.
    */
-  async listRoles(opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(
+    opts?: IamAdapter.IReadOptions,
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     return this._request('/roles', undefined, opts)
   }
   /**
@@ -557,7 +559,7 @@ export class IamHttpAdapter<
   async getRole(
     id: string,
     opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
     return this._requestOrNull(`/roles/${encodeURIComponent(id)}`, undefined, opts)
   }
@@ -567,7 +569,7 @@ export class IamHttpAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the API acknowledges the write.
    */
-  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     await this._request('/roles', { method: 'PUT', body: JSON.stringify(r) })
   }
   /**

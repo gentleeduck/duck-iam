@@ -9,11 +9,11 @@
  */
 
 import type { IamEngine } from '../../core'
-import type { IamAccessControl, IamClient, IamRequest } from '../../core/types'
+import type { AccessControl, IamClient, IamRequest } from '../../core/types'
 import {
+  IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
   iamDefaultCsrfCheck,
-  IAM_METHOD_ACTION_MAP,
   iamNoticeCsrfDefaultIfNeeded,
   iamRunAdminAuthz,
   iamWithAdminAudit,
@@ -456,12 +456,12 @@ export function createIamAdminHandlers<
     listPolicies: gate(async () => Response.json(await engine.admin.listPolicies())),
     listRoles: gate(async () => Response.json(await engine.admin.listRoles())),
     savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req) => {
-      const body = (await req.json()) as IamAccessControl.IPolicy<TAction, TResource, TRole>
+      const body = (await req.json()) as AccessControl.IPolicy<TAction, TResource, TRole>
       await engine.admin.savePolicy(body)
       return Response.json({ ok: true })
     }),
     saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req) => {
-      const body = (await req.json()) as IamAccessControl.IRole<TAction, TResource, TRole, TScope>
+      const body = (await req.json()) as AccessControl.IRole<TAction, TResource, TRole, TScope>
       await engine.admin.saveRole(body)
       return Response.json({ ok: true })
     }),

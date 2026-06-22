@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { authBuildSpMetadata, AuthSamlProvider, authSamlSloController } from '../index'
+import { AuthSamlProvider, authBuildSpMetadata, authSamlSloController } from '../index'
 
 function makeClient(overrides: Partial<AuthSamlProvider.IClient> = {}): AuthSamlProvider.IClient {
   return {

@@ -1,4 +1,4 @@
-import type { IamAccessControl, IamPrimitives, IamRequest } from '.'
+import type { AccessControl, IamPrimitives, IamRequest } from '.'
 export namespace IamAdapter {
   /**
    * Optional read-time cancellation token. The engine creates a controller per
@@ -24,11 +24,11 @@ export namespace IamAdapter {
     TRole extends string = string,
   > {
     /** Returns all stored policies. Called by the engine on cache miss. */
-    listPolicies(opts?: IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]>
+    listPolicies(opts?: IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
     /** Returns a single policy by ID, or `null` if not found. */
-    getPolicy(id: string, opts?: IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null>
+    getPolicy(id: string, opts?: IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
     /** Engine invalidates its policy cache after this call. */
-    savePolicy(policy: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
+    savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
     /** Engine invalidates its policy cache after this call. */
     deletePolicy(id: string): Promise<void>
   }
@@ -48,11 +48,11 @@ export namespace IamAdapter {
     TScope extends string = string,
   > {
     /** Returns all stored roles. Called by the engine on cache miss. */
-    listRoles(opts?: IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]>
+    listRoles(opts?: IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]>
     /** Returns a single role by ID, or `null` if not found. */
-    getRole(id: string, opts?: IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null>
+    getRole(id: string, opts?: IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
     /** Engine invalidates its role cache after this call. */
-    saveRole(role: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
+    saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
     /** Engine invalidates its role cache after this call. */
     deleteRole(id: string): Promise<void>
   }

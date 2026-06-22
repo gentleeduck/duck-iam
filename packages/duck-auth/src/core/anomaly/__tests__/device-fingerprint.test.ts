@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { authSha256 } from '../../crypto'
 import type { AuthIdentity } from '../../types/identity'
 import type { AuthSession } from '../../types/session'
-import { deviceFingerprintDetector, AuthMemoryDeviceFingerprintStore } from '../device-fingerprint'
+import { AuthMemoryDeviceFingerprintStore, deviceFingerprintDetector } from '../device-fingerprint'
 
 function ctx(overrides: Partial<{ ip: string; userAgent: string; identityId: string }> = {}) {
   return {

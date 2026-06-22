@@ -29,7 +29,7 @@ const lazyRequire = createRequire(import.meta.url)
 
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
-import { authCreateSqlStores, type AuthSqlBridge } from '../../sql'
+import { type AuthSqlBridge, authCreateSqlStores } from '../../sql'
 import { authParseProviderLinks } from '../_parsers'
 
 // ---------------------------------------------------------------------
@@ -188,7 +188,9 @@ export function authCreateDrizzleSqliteBridge(db: BetterSQLite3Database): AuthSq
       erase: async (id, tenantId) => {
         await db.delete(authCredentialsTable).where(eq(authCredentialsTable.identityId, id))
         await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, id))
-        await db.delete(authIdentitiesTable).where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
+        await db
+          .delete(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
         // Read-modify-write idempotency; not race-safe under concurrent
@@ -353,7 +355,10 @@ export function authCreateDrizzleSqliteBridge(db: BetterSQLite3Database): AuthSq
         await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, identityId))
       },
       deleteExpired: async (now) => {
-        const result = await db.delete(authSessionsTable).where(lt(authSessionsTable.absoluteExpiresAt, now)).returning()
+        const result = await db
+          .delete(authSessionsTable)
+          .where(lt(authSessionsTable.absoluteExpiresAt, now))
+          .returning()
         return result.length
       },
     },

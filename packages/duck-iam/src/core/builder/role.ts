@@ -1,23 +1,23 @@
-import type { IamAccessControl, IamDotPath, IamPrimitives } from '../types'
-import { iamValidateRole } from '../validate'
-import { IamWhen } from './when'
+import type { AccessControl, DotPath, IamPrimitives } from '../types'
+import { validateRole } from '../validate'
+import { When } from './when'
 
 /**
- * Fluent builder for constructing {@link IamAccessControl.IRole} objects in duck-iam.
+ * Fluent builder for constructing {@link AccessControl.IRole} objects in duck-iam.
  *
  * Roles are the RBAC side of duck-iam. Each role holds a set of
  * action/resource permissions and an optional inheritance chain. At evaluation
- * time, `iamRolesToPolicy()` converts every role into ABAC rules that flow through
+ * time, `rolesToPolicy()` converts every role into ABAC rules that flow through
  * the same engine as hand-written policies, so RBAC and ABAC compose.
  *
- * Prefer the {@link iamDefineRole} factory (or `access.iamDefineRole()` for type-safe
- * variants) over instantiating `IamRoleBuilder` directly.
+ * Prefer the {@link defineRole} factory (or `access.defineRole()` for type-safe
+ * variants) over instantiating `RoleBuilder` directly.
  *
  * @example
  * ```ts
- * import { iamDefineRole } from '@gentleduck/iam'
+ * import { defineRole } from '@gentleduck/iam'
  *
- * const editor = iamDefineRole('editor')
+ * const editor = defineRole('editor')
  *   .name('Editor')
  *   .desc('Full write access to posts and comments')
  *   .inherits('viewer')
@@ -30,21 +30,21 @@ import { IamWhen } from './when'
  *
  * @template TAction   - Union of valid action strings (e.g. `'read' | 'write'`)
  * @template TResource - Union of valid resource strings (e.g. `'post' | 'comment'`)
- * @template TRole       - Literal string type of the role ID (inferred by {@link iamDefineRole})
+ * @template TRole       - Literal string type of the role ID (inferred by {@link defineRole})
  * @template TScope    - Union of valid scope strings (e.g. `'org-1' | 'org-2'`)
  * @template TContext  - Shape of the full evaluation context for typed dot-paths
  */
-export class IamRoleBuilder<
+export class RoleBuilder<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-  TContext extends object = IamDotPath.IDefaultContext,
+  TContext extends object = DotPath.IDefaultContext,
 > {
   private _id: TRole
   private _name: string
   private _description?: string
-  private _permissions: IamAccessControl.IPermission<TAction, TResource, TScope>[] = []
+  private _permissions: AccessControl.IPermission<TAction, TResource, TScope>[] = []
   private _inherits: (TRole | (string & {}))[] = []
   private _scope?: TScope
   private _metadata?: IamPrimitives.Attributes
@@ -71,7 +71,7 @@ export class IamRoleBuilder<
   /**
    * Attaches a human-readable description to the role.
    *
-   * Stored on the {@link IamAccessControl.IRole} object for documentation purposes.
+   * Stored on the {@link AccessControl.IRole} object for documentation purposes.
    * Not used during policy evaluation.
    *
    * @param d - Description text
@@ -96,10 +96,10 @@ export class IamRoleBuilder<
    * @example
    * ```ts
    * // Single parent
-   * iamDefineRole('editor').inherits('viewer')
+   * defineRole('editor').inherits('viewer')
    *
    * // Multiple parents
-   * iamDefineRole('moderator').inherits('viewer', 'commenter')
+   * defineRole('moderator').inherits('viewer', 'commenter')
    * ```
    *
    * @param roleIds - IDs of the parent roles to inherit from
@@ -113,7 +113,7 @@ export class IamRoleBuilder<
   /**
    * Sets a default scope that applies to every permission in this role.
    *
-   * IamWhen `iamRolesToPolicy()` converts this role, each generated rule gets an
+   * When `rolesToPolicy()` converts this role, each generated rule gets an
    * additional condition `scope eq "<s>"`. The permission only fires when the
    * request's scope matches.
    *
@@ -122,7 +122,7 @@ export class IamRoleBuilder<
    *
    * @example
    * ```ts
-   * const orgEditor = iamDefineRole('org-editor')
+   * const orgEditor = defineRole('org-editor')
    *   .scope('org-1')
    *   .grant('create', 'post')
    *   .grant('update', 'post')
@@ -146,12 +146,12 @@ export class IamRoleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRole('viewer')
+   * defineRole('viewer')
    *   .grant('read', 'post')
    *   .grant('read', 'comment')
    *
    * // With permission-level scope
-   * iamDefineRole('hybrid')
+   * defineRole('hybrid')
    *   .grant('read', 'post')                     // global
    *   .grant('update', 'post', 'org-1')           // org-1 only
    *   .grant('create', 'comment', 'org-2')        // org-2 only
@@ -175,7 +175,7 @@ export class IamRoleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRole('hybrid')
+   * defineRole('hybrid')
    *   .grant('read', 'post')                    // global
    *   .grantScoped('org-1', 'update', 'post')   // org-1 only
    *   .grantScoped('org-2', 'create', 'comment') // org-2 only
@@ -194,19 +194,19 @@ export class IamRoleBuilder<
   /**
    * Grants a permission that only applies when a condition holds.
    *
-   * The callback receives a {@link IamWhen} builder. All conditions added inside
+   * The callback receives a {@link When} builder. All conditions added inside
    * the callback must hold simultaneously (`AND` semantics). Use
    * `w.isOwner()` as a shorthand for checking `resource.attributes.ownerId eq $subject.id`.
    *
    * @example
    * ```ts
-   * iamDefineRole('author')
+   * defineRole('author')
    *   .grant('read', 'post')
    *   .grantWhen('update', 'post', w => w.isOwner())
    *   .grantWhen('delete', 'post', w => w.isOwner())
    *
    * // Complex condition
-   * iamDefineRole('team-lead')
+   * defineRole('team-lead')
    *   .grantWhen('approve', 'expense', w => w
    *     .attr('department', 'eq', 'engineering')
    *     .resourceAttr('amount', 'lte', 10000)
@@ -215,17 +215,17 @@ export class IamRoleBuilder<
    *
    * @param action   - The action to permit conditionally
    * @param resource - The resource to permit conditionally
-   * @param fn       - Callback that builds the condition using a {@link IamWhen} builder
+   * @param fn       - Callback that builds the condition using a {@link When} builder
    * @returns `this` for chaining
    */
   grantWhen<R extends TResource | '*'>(
     action: TAction | '*',
     resource: R,
     fn: (
-      w: IamWhen<TAction, TResource, TRole, TScope, TContext, R>,
-    ) => IamWhen<TAction, TResource, TRole, TScope, TContext, R>,
+      w: When<TAction, TResource, TRole, TScope, TContext, R>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, R>,
   ): this {
-    const w = new IamWhen<TAction, TResource, TRole, TScope, TContext, R>()
+    const w = new When<TAction, TResource, TRole, TScope, TContext, R>()
     fn(w)
     this._permissions.push({ action, resource, conditions: w.buildAll() })
     return this
@@ -240,8 +240,8 @@ export class IamRoleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRole('super-admin').grantAll('*')  // all actions, all resources
-   * iamDefineRole('post-admin').grantAll('post') // all actions on posts only
+   * defineRole('super-admin').grantAll('*')  // all actions, all resources
+   * defineRole('post-admin').grantAll('post') // all actions on posts only
    * ```
    *
    * @param resource - The resource to grant all actions on, or `'*'` for all resources
@@ -259,7 +259,7 @@ export class IamRoleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRole('auditor')
+   * defineRole('auditor')
    *   .grantRead('post', 'comment', 'user', 'audit-log')
    * ```
    *
@@ -279,7 +279,7 @@ export class IamRoleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRole('content-manager')
+   * defineRole('content-manager')
    *   .grantCRUD('post')
    *   .grantCRUD('comment')
    * ```
@@ -297,13 +297,13 @@ export class IamRoleBuilder<
   /**
    * Attaches arbitrary metadata to the role.
    *
-   * Metadata is stored on the {@link IamAccessControl.IRole} object but is never consulted
+   * Metadata is stored on the {@link AccessControl.IRole} object but is never consulted
    * during policy evaluation. Use it for admin dashboards, audit logs,
    * UI labels, or any other application-level bookkeeping.
    *
    * @example
    * ```ts
-   * iamDefineRole('beta-tester')
+   * defineRole('beta-tester')
    *   .meta({ createdBy: 'system', tier: 'beta', maxSeats: 10 })
    *   .grant('read', 'beta-feature')
    * ```
@@ -317,15 +317,15 @@ export class IamRoleBuilder<
   }
 
   /**
-   * Finalises the builder and returns a plain {@link IamAccessControl.IRole} object.
+   * Finalises the builder and returns a plain {@link AccessControl.IRole} object.
    *
    * The returned object is a plain data record with no builder methods.
    * Pass it to `engine.admin.saveRole()` or `access.()`.
    *
-   * @returns A fully constructed {@link IamAccessControl.IRole}
+   * @returns A fully constructed {@link AccessControl.IRole}
    */
-  build(): IamAccessControl.IRole<TAction, TResource, TRole, TScope> {
-    const role: IamAccessControl.IRole<TAction, TResource, TRole, TScope> = {
+  build(): AccessControl.IRole<TAction, TResource, TRole, TScope> {
+    const role: AccessControl.IRole<TAction, TResource, TRole, TScope> = {
       id: this._id,
       name: this._name,
       description: this._description,
@@ -336,32 +336,34 @@ export class IamRoleBuilder<
     }
     // IamValidate at build time so callers wiring the adapter directly
     // still see the failure where the bug was introduced.
-    const result = iamValidateRole(role)
+    const result = validateRole(role)
     if (!result.valid) {
       const errs = result.issues
         .filter((i) => i.type === 'error')
         .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
-      throw new Error(`[@gentleduck/iam:builder] IamRoleBuilder.build(): role rejected by validator - ${errs.join('; ')}`)
+      throw new Error(
+        `[@gentleduck/iam:builder] RoleBuilder.build(): role rejected by validator - ${errs.join('; ')}`,
+      )
     }
     return role
   }
 }
 
 /**
- * Creates a new {@link IamRoleBuilder} for the given role ID.
+ * Creates a new {@link RoleBuilder} for the given role ID.
  *
  * The role ID is preserved as a literal type (`TId`) so that references to
  * it in `.inherits()` calls and adapter lookups remain type-safe when using
  * `createIam`.
  *
  * For type-safe action, resource, and scope constraints, use
- * `access.iamDefineRole()` returned by `createIam()` instead.
+ * `access.defineRole()` returned by `createIam()` instead.
  *
  * @example
  * ```ts
- * import { iamDefineRole } from '@gentleduck/iam'
+ * import { defineRole } from '@gentleduck/iam'
  *
- * const viewer = iamDefineRole('viewer')
+ * const viewer = defineRole('viewer')
  *   .name('Viewer')
  *   .desc('Read-only access to published content')
  *   .grant('read', 'post')
@@ -370,7 +372,7 @@ export class IamRoleBuilder<
  * ```
  *
  * @param id - Unique identifier for this role
- * @returns A new {@link IamRoleBuilder} instance typed to the given ID
+ * @returns A new {@link RoleBuilder} instance typed to the given ID
  *
  * @template TId       - Inferred literal type of the role ID
  * @template TAction   - Union of valid action strings (defaults to `string`)
@@ -378,12 +380,12 @@ export class IamRoleBuilder<
  * @template TScope    - Union of valid scope strings (defaults to `string`)
  * @template TContext  - Shape of the full evaluation context for typed dot-paths
  */
-export const iamDefineRole = <
+export const defineRole = <
   const TRole extends string,
   const TAction extends string = string,
   const TResource extends string = string,
   const TScope extends string = string,
-  TContext extends object = IamDotPath.IDefaultContext,
+  TContext extends object = DotPath.IDefaultContext,
 >(
   id: TRole,
-) => new IamRoleBuilder<TAction, TResource, TRole, TScope, TContext>(id)
+) => new RoleBuilder<TAction, TResource, TRole, TScope, TContext>(id)

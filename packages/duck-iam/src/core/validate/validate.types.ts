@@ -35,9 +35,9 @@ export namespace IamValidate {
     readonly code: ValidationCode
     /** Human-readable description. */
     readonly message: string
-    /** Role ID involved, iamWhen emitted by role validation. */
+    /** Role ID involved, when emitted by role validation. */
     readonly roleId?: string
-    /** Dot-path into the offending field, iamWhen emitted by policy validation. */
+    /** Dot-path into the offending field, when emitted by policy validation. */
     readonly path?: string
   }
 

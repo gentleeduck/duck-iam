@@ -1,33 +1,33 @@
-import type { IamAccessControl, IamRequest } from '../types'
+import type { AccessControl, IamRequest } from '../types'
 import { tracePolicy } from './explain.libs'
-import type { IamExplain } from './explain.types'
+import type { Explain } from './explain.types'
 /**
  * Produce a detailed evaluation trace for debugging authorization decisions.
  * Every policy is traced (no short-circuit) so callers can see the full picture;
- * `combine` controls which trace produces the final {@link IamAccessControl.IDecision}.
+ * `combine` controls which trace produces the final {@link AccessControl.IDecision}.
  *
  * @param policies      All policies to trace.
  * @param request       The access request.
  * @param defaultEffect Effect when no rule fires inside any policy.
  * @param subjectInfo   Subject metadata (id, roles, scoped roles applied).
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
- * @returns A full {@link IamExplain.IResult} describing every policy trace and the final decision.
+ * @returns A full {@link Explain.IResult} describing every policy trace and the final decision.
  */
-export function iamExplainEvaluation(
-  policies: IamAccessControl.IPolicy[],
+export function explainEvaluation(
+  policies: AccessControl.IPolicy[],
   request: IamRequest.IAccessRequest,
-  defaultEffect: IamAccessControl.Effect,
-  subjectInfo: IamExplain.ISubjectInfo,
-  combine: IamAccessControl.PolicyCombine = 'and',
-): IamExplain.IResult {
+  defaultEffect: AccessControl.Effect,
+  subjectInfo: Explain.ISubjectInfo,
+  combine: AccessControl.PolicyCombine = 'and',
+): Explain.IResult {
   const start = performance.now()
 
   const policyTraces = policies.map((p) => tracePolicy(p, request, defaultEffect))
 
-  let finalEffect: IamAccessControl.Effect = defaultEffect
+  let finalEffect: AccessControl.Effect = defaultEffect
   let finalReason = 'No policies configured'
   let finalPolicy: string | undefined
-  let finalRule: IamAccessControl.IRule | undefined
+  let finalRule: AccessControl.IRule | undefined
 
   if (policies.length > 0) {
     const decided = decideFinal(policyTraces, defaultEffect, combine)
@@ -37,7 +37,7 @@ export function iamExplainEvaluation(
     finalRule = decided.rule
   }
 
-  const decision: IamAccessControl.IDecision = {
+  const decision: AccessControl.IDecision = {
     allowed: finalEffect === 'allow',
     effect: finalEffect,
     rule: finalRule,
@@ -70,16 +70,16 @@ export function iamExplainEvaluation(
 
 /** Resolve the final decision across all policy traces under the given combine mode. */
 function decideFinal(
-  traces: readonly IamExplain.IPolicyTrace[],
-  defaultEffect: IamAccessControl.Effect,
-  combine: IamAccessControl.PolicyCombine,
-): { effect: IamAccessControl.Effect; reason: string; policy?: string; rule?: IamAccessControl.IRule } {
+  traces: readonly Explain.IPolicyTrace[],
+  defaultEffect: AccessControl.Effect,
+  combine: AccessControl.PolicyCombine,
+): { effect: AccessControl.Effect; reason: string; policy?: string; rule?: AccessControl.IRule } {
   // NotApplicable traces (targets didn't match) are skipped in every mode  -
   // they contribute nothing to the cross-policy combine.
   const applicable = traces.filter((t) => t.targetMatch)
 
   if (combine === 'and') {
-    let lastAllow: IamExplain.IPolicyTrace | null = null
+    let lastAllow: Explain.IPolicyTrace | null = null
     for (const pt of applicable) {
       if (pt.result !== 'allow') {
         return { effect: 'deny', reason: pt.reason, policy: pt.policyId, rule: pt.decidingRule }
@@ -90,7 +90,7 @@ function decideFinal(
       return { effect: 'allow', reason: lastAllow.reason, policy: lastAllow.policyId, rule: lastAllow.decidingRule }
     }
   } else if (combine === 'allow-overrides') {
-    let lastDeny: IamExplain.IPolicyTrace | null = null
+    let lastDeny: Explain.IPolicyTrace | null = null
     for (const pt of applicable) {
       if (pt.result === 'allow') {
         return { effect: 'allow', reason: pt.reason, policy: pt.policyId, rule: pt.decidingRule }
@@ -119,9 +119,9 @@ function decideFinal(
 
 /** Build a human-readable multi-line summary of the evaluation trace. */
 function buildSummary(
-  decision: IamAccessControl.IDecision,
-  policyTraces: IamExplain.IPolicyTrace[],
-  info: IamExplain.ISubjectInfo,
+  decision: AccessControl.IDecision,
+  policyTraces: Explain.IPolicyTrace[],
+  info: Explain.ISubjectInfo,
   req: IamRequest.IAccessRequest,
 ): string {
   const verb = decision.allowed ? 'ALLOWED' : 'DENIED'

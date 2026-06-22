@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IamAccessControl } from '../../../core/types'
+import type { AccessControl } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { IamFile, IamFileAdapter } from '../index'
 
@@ -59,7 +59,7 @@ afterEach(() => {
 // runs against an empty store.
 runAdapterCompliance('IamFileAdapter', () => new IamFileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never)
 
-const policy: IamAccessControl.IPolicy<Action, Resource, Role> = {
+const policy: AccessControl.IPolicy<Action, Resource, Role> = {
   id: 'p1',
   name: 'Allow Read',
   algorithm: 'deny-overrides',

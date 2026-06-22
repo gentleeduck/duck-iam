@@ -1,4 +1,4 @@
-import type { IamAccessControl } from '../../core/types'
+import type { AccessControl } from '../../core/types'
 import type { IamIDevtoolsEngine } from './types'
 
 /**
@@ -46,7 +46,7 @@ export function isDevtoolsBlocked(engine: IamIDevtoolsEngine): boolean {
   return !isDevtoolsAllowed(engine)
 }
 
-function readEngineMode(engine: IamIDevtoolsEngine): IamAccessControl.Mode | undefined {
+function readEngineMode(engine: IamIDevtoolsEngine): AccessControl.Mode | undefined {
   const candidate = engine as {
     mode?: unknown
     config?: { mode?: unknown }

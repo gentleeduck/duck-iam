@@ -1,5 +1,5 @@
-import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
-import { iamParsePolicyRow, iamParseRoleRow, iamValidatePolicy, iamValidateRole } from '../../core/validate'
+import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 
 /** IamRedis adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamRedis {
@@ -88,7 +88,7 @@ export class IamRedisAdapter<
    * shape mismatch and routes the failure through `onPolicyError` (or the
    * console as a last resort) so the malformed row never reaches the engine.
    */
-  private _safeParsePolicy(raw: string, rowId: string): IamAccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
@@ -96,9 +96,9 @@ export class IamRedisAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
       return null
     }
-    const policy = iamParsePolicyRow<TAction, TResource, TRole>(parsed)
+    const policy = parsePolicyRow<TAction, TResource, TRole>(parsed)
     if (policy === null) {
-      const issues = iamValidatePolicy(parsed)
+      const issues = validatePolicy(parsed)
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
@@ -107,7 +107,7 @@ export class IamRedisAdapter<
     return policy
   }
 
-  private _safeParseRole(raw: string, rowId: string): IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _safeParseRole(raw: string, rowId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
@@ -115,9 +115,9 @@ export class IamRedisAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
       return null
     }
-    const role = iamParseRoleRow<TAction, TResource, TRole, TScope>(parsed)
+    const role = parseRoleRow<TAction, TResource, TRole, TScope>(parsed)
     if (role === null) {
-      const issues = iamValidateRole(parsed)
+      const issues = validateRole(parsed)
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
@@ -295,9 +295,9 @@ export class IamRedisAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies decoded from the `policies` hash.
    */
-  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const entries = await this._client.hgetall(this._policiesKey())
-    const out: IamAccessControl.IPolicy<TAction, TResource, TRole>[] = []
+    const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
     for (const [rowId, raw] of Object.entries(entries)) {
       const parsed = this._safeParsePolicy(raw, rowId)
       if (parsed) out.push(parsed)
@@ -315,7 +315,7 @@ export class IamRedisAdapter<
   async getPolicy(
     id: string,
     _opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
+  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const value = await this._client.hget(this._policiesKey(), id)
     return value ? this._safeParsePolicy(value, id) : null
   }
@@ -326,7 +326,7 @@ export class IamRedisAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the HSET completes.
    */
-  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     await this._client.hset(this._policiesKey(), p.id, JSON.stringify(p))
   }
 
@@ -346,9 +346,11 @@ export class IamRedisAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles decoded from the `roles` hash.
    */
-  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const entries = await this._client.hgetall(this._rolesKey())
-    const out: IamAccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
+    const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const [rowId, raw] of Object.entries(entries)) {
       const parsed = this._safeParseRole(raw, rowId)
       if (parsed) out.push(parsed)
@@ -366,7 +368,7 @@ export class IamRedisAdapter<
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const value = await this._client.hget(this._rolesKey(), id)
     return value ? this._safeParseRole(value, id) : null
   }
@@ -377,7 +379,7 @@ export class IamRedisAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the HSET completes.
    */
-  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     await this._client.hset(this._rolesKey(), r.id, JSON.stringify(r))
   }
 

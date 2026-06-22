@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { authCreateTest, type AuthTest } from '../index'
+import { type AuthTest, authCreateTest } from '../index'
 
 describe('authCreateTest()', () => {
   it('returns a usable AuthEngine with default in-memory adapters', () => {

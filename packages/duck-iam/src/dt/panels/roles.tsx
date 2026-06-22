@@ -1,5 +1,5 @@
 import React from 'react'
-import type { IamAccessControl } from '../../core/types'
+import type { AccessControl } from '../../core/types'
 import { ChevronDown, ChevronRight, CornerUpRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
@@ -7,7 +7,7 @@ import { Alert, Badge, Button } from '../components/ui'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
 export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
-  const [roles, setRoles] = React.useState<IamAccessControl.IRole[]>([])
+  const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [filter, setFilter] = React.useState('')
@@ -111,7 +111,7 @@ export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   )
 }
 
-function PermRow({ perm }: { perm: IamAccessControl.IPermission }) {
+function PermRow({ perm }: { perm: AccessControl.IPermission }) {
   const [open, setOpen] = React.useState(false)
   const hasDetail = !!perm.conditions || !!perm.scope
   return (

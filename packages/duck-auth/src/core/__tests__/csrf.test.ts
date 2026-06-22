@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { authSha256 } from '../crypto'
-import { authBuildCsrfCookieOptions, authCsrfGuard, AUTH_DEFAULT_CSRF_CONFIG, authIssueCsrfToken, authVerifyCsrf } from '../csrf'
+import {
+  AUTH_DEFAULT_CSRF_CONFIG,
+  authBuildCsrfCookieOptions,
+  authCsrfGuard,
+  authIssueCsrfToken,
+  authVerifyCsrf,
+} from '../csrf'
 
 describe('CSRF', () => {
   describe('authIssueCsrfToken / authBuildCsrfCookieOptions', () => {

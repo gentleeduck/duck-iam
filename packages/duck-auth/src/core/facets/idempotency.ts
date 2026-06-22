@@ -50,7 +50,12 @@ export class MemoryIdempotencyStore implements AuthIdempotency.IStore {
     return true
   }
 
-  async put(key: string, response: AuthIdempotency.ICachedResponse, ttlMs: number, ctx: AuthTenantContext): Promise<void> {
+  async put(
+    key: string,
+    response: AuthIdempotency.ICachedResponse,
+    ttlMs: number,
+    ctx: AuthTenantContext,
+  ): Promise<void> {
     // Same NaN-bypass defense as claim(): clamp ttl to a sane window.
     const safeTtl = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     const now = Date.now()

@@ -1,5 +1,5 @@
-import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
-import { iamParsePolicyRow, iamParseRoleRow } from '../../core/validate'
+import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import { parsePolicyRow, parseRoleRow } from '../../core/validate'
 
 /**
  * Row shapes expected from Prisma models.
@@ -107,11 +107,11 @@ export class IamPrismaAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies parsed from `accessPolicy` rows.
    */
-  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = await this.prisma.accessPolicy.findMany()
-    const out: IamAccessControl.IPolicy<TAction, TResource, TRole>[] = []
+    const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
     for (const row of rows) {
-      const policy = iamParsePolicyRow<TAction, TResource, TRole>(toPolicy(row))
+      const policy = parsePolicyRow<TAction, TResource, TRole>(toPolicy(row))
       if (policy !== null) out.push(policy)
     }
     return out
@@ -127,9 +127,9 @@ export class IamPrismaAdapter<
   async getPolicy(
     id: string,
     _opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
+  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const row = await this.prisma.accessPolicy.findUnique({ where: { id } })
-    return row ? iamParsePolicyRow<TAction, TResource, TRole>(toPolicy(row)) : null
+    return row ? parsePolicyRow<TAction, TResource, TRole>(toPolicy(row)) : null
   }
 
   /**
@@ -138,7 +138,7 @@ export class IamPrismaAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the upsert completes.
    */
-  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const data = fromPolicy(p)
     await this.prisma.accessPolicy.upsert({
       where: { id: p.id },
@@ -163,11 +163,13 @@ export class IamPrismaAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles parsed from `accessRole` rows.
    */
-  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this.prisma.accessRole.findMany()
-    const out: IamAccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
+    const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const row of rows) {
-      const role = iamParseRoleRow<TAction, TResource, TRole, TScope>(toRole(row))
+      const role = parseRoleRow<TAction, TResource, TRole, TScope>(toRole(row))
       if (role !== null) out.push(role)
     }
     return out
@@ -183,9 +185,9 @@ export class IamPrismaAdapter<
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const row = await this.prisma.accessRole.findUnique({ where: { id } })
-    return row ? iamParseRoleRow<TAction, TResource, TRole, TScope>(toRole(row)) : null
+    return row ? parseRoleRow<TAction, TResource, TRole, TScope>(toRole(row)) : null
   }
 
   /**
@@ -194,7 +196,7 @@ export class IamPrismaAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the upsert completes.
    */
-  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = fromRole(r)
     await this.prisma.accessRole.upsert({
       where: { id: r.id },
@@ -326,21 +328,21 @@ export class IamPrismaAdapter<
   }
 }
 
-/** Converts a {@link PolicyRow} database row into a {@link IamAccessControl.IPolicy} domain object. */
-function toPolicy(row: PolicyRow): IamAccessControl.IPolicy {
+/** Converts a {@link PolicyRow} database row into a {@link AccessControl.IPolicy} domain object. */
+function toPolicy(row: PolicyRow): AccessControl.IPolicy {
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
     version: row.version,
-    algorithm: row.algorithm as IamAccessControl.IPolicy['algorithm'],
-    rules: row.rules as IamAccessControl.IPolicy['rules'],
-    targets: (row.targets as IamAccessControl.IPolicy['targets']) ?? undefined,
+    algorithm: row.algorithm as AccessControl.IPolicy['algorithm'],
+    rules: row.rules as AccessControl.IPolicy['rules'],
+    targets: (row.targets as AccessControl.IPolicy['targets']) ?? undefined,
   }
 }
 
-/** Converts a {@link IamAccessControl.IPolicy} domain object into a flat record suitable for Prisma create/update. */
-function fromPolicy(p: IamAccessControl.IPolicy): Record<string, unknown> {
+/** Converts a {@link AccessControl.IPolicy} domain object into a flat record suitable for Prisma create/update. */
+function fromPolicy(p: AccessControl.IPolicy): Record<string, unknown> {
   return {
     id: p.id,
     name: p.name,
@@ -352,21 +354,21 @@ function fromPolicy(p: IamAccessControl.IPolicy): Record<string, unknown> {
   }
 }
 
-/** Converts a {@link RoleRow} database row into a {@link IamAccessControl.IRole} domain object. */
-function toRole(row: RoleRow): IamAccessControl.IRole {
+/** Converts a {@link RoleRow} database row into a {@link AccessControl.IRole} domain object. */
+function toRole(row: RoleRow): AccessControl.IRole {
   return {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
-    permissions: row.permissions as IamAccessControl.IRole['permissions'],
+    permissions: row.permissions as AccessControl.IRole['permissions'],
     inherits: row.inherits ?? [],
     scope: row.scope ?? undefined,
-    metadata: (row.metadata as IamAccessControl.IRole['metadata']) ?? undefined,
+    metadata: (row.metadata as AccessControl.IRole['metadata']) ?? undefined,
   }
 }
 
-/** Converts a {@link IamAccessControl.IRole} domain object into a flat record suitable for Prisma create/update. */
-function fromRole(r: IamAccessControl.IRole): Record<string, unknown> {
+/** Converts a {@link AccessControl.IRole} domain object into a flat record suitable for Prisma create/update. */
+function fromRole(r: AccessControl.IRole): Record<string, unknown> {
   return {
     id: r.id,
     name: r.name,

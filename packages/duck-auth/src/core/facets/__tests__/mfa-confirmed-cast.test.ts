@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthInMemoryEvents } from '../../events'
 import { MfaFacet } from '../mfa'
 
 describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let facet: MfaFacet
   const identityId = 'identity-1'
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
+    adapter = new MemoryAdapter()
     facet = new MfaFacet(adapter.credentials, new AuthInMemoryEvents())
   })
 

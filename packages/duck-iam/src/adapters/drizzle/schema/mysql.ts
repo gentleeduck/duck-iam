@@ -13,7 +13,7 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/mysql-core'
-import type { IamAccessControl, IamPrimitives } from '../../../core/types'
+import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
  * MySQL schema for the duck-iam IamDrizzle adapter.
@@ -32,13 +32,13 @@ import type { IamAccessControl, IamPrimitives } from '../../../core/types'
  * schema for fuller notes. Constraint naming: `pk_` `fk_` `uq_` `idx_` `ch_`.
  */
 
-/** Allowed combining algorithms, kept in sync with {@link IamAccessControl.CombiningAlgorithm}. */
+/** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
 const IAM_COMBINE_ALGORITHMS = [
   'deny-overrides',
   'allow-overrides',
   'first-match',
   'highest-priority',
-] as const satisfies readonly IamAccessControl.CombiningAlgorithm[]
+] as const satisfies readonly AccessControl.CombiningAlgorithm[]
 
 /** Per-row current timestamp with millisecond precision. */
 const nowMs = sql`CURRENT_TIMESTAMP(3)`
@@ -52,8 +52,8 @@ export const iamPolicies = mysqlTable(
     description: varchar('description', { length: 1024 }),
     version: int('version').notNull().default(1),
     algorithm: mysqlEnum('algorithm', IAM_COMBINE_ALGORITHMS).notNull().default('deny-overrides'),
-    rules: json('rules').$type<IamAccessControl.IRule[]>().notNull(),
-    targets: json('targets').$type<NonNullable<IamAccessControl.IPolicy['targets']>>(),
+    rules: json('rules').$type<AccessControl.IRule[]>().notNull(),
+    targets: json('targets').$type<NonNullable<AccessControl.IPolicy['targets']>>(),
     createdBy: varchar('created_by', { length: 191 }),
     updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
@@ -77,7 +77,7 @@ export const iamRoles = mysqlTable(
     id: varchar('id', { length: 191 }).notNull(),
     name: varchar('name', { length: 191 }).notNull(),
     description: varchar('description', { length: 1024 }),
-    permissions: json('permissions').$type<IamAccessControl.IPermission[]>().notNull(),
+    permissions: json('permissions').$type<AccessControl.IPermission[]>().notNull(),
     inherits: json('inherits').$type<string[]>().notNull(),
     scope: varchar('scope', { length: 191 }),
     metadata: json('metadata').$type<IamPrimitives.Attributes>(),

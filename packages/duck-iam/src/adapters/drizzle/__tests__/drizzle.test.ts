@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IamAccessControl, IamAdapter } from '../../../core/types'
+import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 
@@ -94,9 +94,9 @@ function makeDrizzleMock(): {
     db: {
       select: vi.fn(() => ({
         from: (tableRef: unknown) =>
-          buildSelect(tableForRef(tableRef)) as unknown as ReturnType<IamDrizzle.IConfig['db']['select']>['from'] extends (
-            ...a: any
-          ) => infer X
+          buildSelect(tableForRef(tableRef)) as unknown as ReturnType<
+            IamDrizzle.IConfig['db']['select']
+          >['from'] extends (...a: any) => infer X
             ? X
             : never,
       })) as unknown as IamDrizzle.IConfig['db']['select'],
@@ -156,9 +156,9 @@ describe('IamDrizzleAdapter', () => {
   })
 
   describe('IamAdapter.IPolicyStore', () => {
-    const policy: IamAccessControl.IPolicy<A, R, Ro> = {
+    const policy: AccessControl.IPolicy<A, R, Ro> = {
       id: 'p1',
-      name: 'Test IamAccessControl.IPolicy',
+      name: 'Test AccessControl.IPolicy',
       description: 'desc',
       version: 2,
       algorithm: 'deny-overrides',
@@ -245,7 +245,7 @@ describe('IamDrizzleAdapter', () => {
   })
 
   describe('IamAdapter.IRoleStore', () => {
-    const role: IamAccessControl.IRole<A, R, Ro, S> = {
+    const role: AccessControl.IRole<A, R, Ro, S> = {
       id: 'editor',
       name: 'Editor',
       description: 'desc',

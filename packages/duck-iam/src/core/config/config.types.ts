@@ -1,6 +1,6 @@
-import type { IamPolicyBuilder, IamRoleBuilder, IamRuleBuilder, IamWhen } from '../builder'
+import type { PolicyBuilder, RoleBuilder, RuleBuilder, When } from '../builder'
 import type { IamEngine, IamEngineTypes } from '../engine'
-import type { IamAccessControl, IamClient, IamDotPath } from '../types'
+import type { AccessControl, IamClient, DotPath } from '../types'
 import type { IamValidate } from '../validate'
 
 export namespace IamConfig {
@@ -27,7 +27,7 @@ export namespace IamConfig {
     TResources extends readonly string[],
     TScopes extends readonly string[] = readonly string[],
     TRoles extends readonly string[] = readonly string[],
-    TContext extends object = IamDotPath.IDefaultContext,
+    TContext extends object = DotPath.IDefaultContext,
   > {
     /** Actions your application supports (`['create', 'read', ...]`). `as const`. */
     readonly actions: TActions
@@ -63,7 +63,7 @@ export namespace IamConfig {
     TResource extends string,
     TScope extends string = string,
     TRole extends string = string,
-    TContext extends object = IamDotPath.IDefaultContext,
+    TContext extends object = DotPath.IDefaultContext,
   > {
     readonly actions: readonly TAction[]
     readonly resources: readonly TResource[]
@@ -72,23 +72,23 @@ export namespace IamConfig {
     /** Empty array if no roles were declared. */
     readonly roles: readonly TRole[]
 
-    /** Typed {@link IamRoleBuilder}; role ID constrained to declared roles. */
-    iamDefineRole: (id: TRole) => IamRoleBuilder<TAction, TResource, TRole, TScope, TContext>
+    /** Typed {@link RoleBuilder}; role ID constrained to declared roles. */
+    defineRole: (id: TRole) => RoleBuilder<TAction, TResource, TRole, TScope, TContext>
 
-    /** Typed {@link IamPolicyBuilder}; rules constrained to declared actions/resources/roles. */
-    iamDefinePolicy: (id: string) => IamPolicyBuilder<TAction, TResource, TRole, TScope, TContext>
+    /** Typed {@link PolicyBuilder}; rules constrained to declared actions/resources/roles. */
+    definePolicy: (id: string) => PolicyBuilder<TAction, TResource, TRole, TScope, TContext>
 
-    /** Typed standalone {@link IamRuleBuilder} for composing rules across policies. */
-    iamDefineRule: (id: string) => IamRuleBuilder<TAction, TResource, TScope, TRole, TContext>
+    /** Typed standalone {@link RuleBuilder} for composing rules across policies. */
+    defineRule: (id: string) => RuleBuilder<TAction, TResource, TScope, TRole, TContext>
 
-    /** Typed {@link IamWhen} builder for reusable condition groups. */
-    when: () => IamWhen<TAction, TResource, TRole, TScope, TContext>
+    /** Typed {@link When} builder for reusable condition groups. */
+    when: () => When<TAction, TResource, TRole, TScope, TContext>
 
     /**
      * Typed {@link IamEngine} instance. Permission checks are constrained to the
      * declared actions / resources / scopes.
      */
-    createEngine: <TMode extends IamAccessControl.Mode = 'development'>(
+    createEngine: <TMode extends AccessControl.Mode = 'development'>(
       config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
     ) => IamEngine<TAction, TResource, TRole, TScope, TMode>
 
@@ -96,13 +96,15 @@ export namespace IamConfig {
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => T
 
     /** Role validation: duplicate IDs, dangling inherits, circular inheritance, empty roles. */
-    iamValidateRoles: (roles: readonly IamAccessControl.IRole<TAction, TResource, string, TScope>[]) => IamValidate.IResult
+    validateRoles: (
+      roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[],
+    ) => IamValidate.IResult
 
     /**
      * IamValidate a policy object from an untrusted source (database, API, JSON).
      * Deep shape + semantic checks.
      */
-    iamValidatePolicy: (input: unknown) => IamValidate.IResult
+    validatePolicy: (input: unknown) => IamValidate.IResult
   }
 
   /**

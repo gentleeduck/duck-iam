@@ -1,17 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256, authTimingSafeEqual } from '../../../core/crypto'
 import { AuthInMemoryEvents } from '../../../core/events'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import type { AuthPasskeyProvider } from '../index'
-import { authBeginPasskeyRegistration, authCompletePasskeyRegistration, AuthMemoryPasskeyChallengeStore, authPasskey } from '../index'
+import {
+  AuthMemoryPasskeyChallengeStore,
+  authBeginPasskeyRegistration,
+  authCompletePasskeyRegistration,
+  authPasskey,
+} from '../index'
 import type { AuthPasskeyTypes } from '../types'
 
 interface ProfileShape {
   email: string
 }
 
-function makeContext(adapter: AuthMemoryAdapter<ProfileShape>) {
+function makeContext(adapter: MemoryAdapter<ProfileShape>) {
   return {
     stores: {
       identities: adapter.identities,
@@ -66,14 +71,14 @@ function makeMockWebAuthn(): AuthPasskeyTypes.ISimpleWebAuthnServerModule {
 }
 
 describe('passkey provider - registration', () => {
-  let adapter: AuthMemoryAdapter<ProfileShape>
+  let adapter: MemoryAdapter<ProfileShape>
   let identityId: string
   let opts: AuthPasskeyProvider.IOptions
   let mockWebauthn: AuthPasskeyTypes.ISimpleWebAuthnServerModule
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {
-    adapter = new AuthMemoryAdapter<ProfileShape>()
+    adapter = new MemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
     identityId = identity.id
     mockWebauthn = makeMockWebAuthn()
@@ -146,14 +151,14 @@ describe('passkey provider - registration', () => {
 })
 
 describe('passkey provider - sign-in', () => {
-  let adapter: AuthMemoryAdapter<ProfileShape>
+  let adapter: MemoryAdapter<ProfileShape>
   let identityId: string
   let opts: AuthPasskeyProvider.IOptions
   let mockWebauthn: AuthPasskeyTypes.ISimpleWebAuthnServerModule
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {
-    adapter = new AuthMemoryAdapter<ProfileShape>()
+    adapter = new MemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
     identityId = identity.id
     mockWebauthn = makeMockWebAuthn()

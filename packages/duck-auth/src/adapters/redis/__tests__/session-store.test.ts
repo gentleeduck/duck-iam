@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { authSha256 } from '../../../core/crypto'
 import type { AuthSession } from '../../../core/types/session'
-import { AuthFakeRedis } from '../redis-like'
+import { FakeRedis } from '../redis-like'
 import { AuthRedisSessionStore } from '../session-store'
 
 function buildSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession.ISession {
@@ -23,11 +23,11 @@ function buildSession(overrides: Partial<AuthSession.ISession> = {}): AuthSessio
 }
 
 describe('AuthRedisSessionStore', () => {
-  let redis: AuthFakeRedis
+  let redis: FakeRedis
   let store: AuthRedisSessionStore
 
   beforeEach(() => {
-    redis = new AuthFakeRedis()
+    redis = new FakeRedis()
     store = new AuthRedisSessionStore({ redis, prefix: 'test' })
   })
 

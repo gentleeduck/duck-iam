@@ -1,14 +1,14 @@
 import type { IamClient } from './client'
 import type { IamPrimitives } from './primitives'
 
-export namespace IamAccessControl {
+export namespace AccessControl {
   /**
    * The outcome a rule produces when it matches: grant or block access.
    *
    * @example
    * ```ts
-   * const allow: IamAccessControl.Effect = 'allow'
-   * const deny:  IamAccessControl.Effect = 'deny'
+   * const allow: AccessControl.Effect = 'allow'
+   * const deny:  AccessControl.Effect = 'deny'
    * ```
    */
   export type Effect = 'allow' | 'deny'
@@ -149,7 +149,7 @@ export namespace IamAccessControl {
 
   /**
    * A single action/resource permission entry within an {@link IRole}. RBAC
-   * primitive - at evaluation time `iamRolesToPolicy()` turns each permission
+   * primitive - at evaluation time `rolesToPolicy()` turns each permission
    * into an allow rule that flows through the ABAC engine.
    *
    * @template TAction   - Union of valid action strings.
@@ -173,7 +173,7 @@ export namespace IamAccessControl {
 
   /**
    * An RBAC role: named set of {@link IPermission} entries with optional
-   * inheritance. `iamRolesToPolicy()` converts every role into ABAC rules so
+   * inheritance. `rolesToPolicy()` converts every role into ABAC rules so
    * RBAC + ABAC compose through the same engine.
    *
    * @template TAction   - Union of valid action strings.

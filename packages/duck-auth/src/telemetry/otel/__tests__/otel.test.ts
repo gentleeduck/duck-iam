@@ -126,8 +126,8 @@ describe('AuthOtelInstrumentation', () => {
   })
 
   it('refuses construction without a meter', () => {
-    expect(() => new AuthOtelInstrumentation({ meter: null as unknown as AuthOtelInstrumentation.IMeter })).toThrowError(
-      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
-    )
+    expect(
+      () => new AuthOtelInstrumentation({ meter: null as unknown as AuthOtelInstrumentation.IMeter }),
+    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
   })
 })

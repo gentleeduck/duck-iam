@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
-import type { IamAccessControl } from '../../../core/types'
+import type { AccessControl } from '../../../core/types'
 import {
-  IAM_ACCESS_ENGINE_TOKEN,
-  IAM_ACCESS_METADATA_KEY,
-  IamAuthorize,
   createIamAdminOperations,
   createIamEngineProvider,
   createIamTypedAuthorize,
+  IAM_ACCESS_ENGINE_TOKEN,
+  IAM_ACCESS_METADATA_KEY,
+  IamAuthorize,
   iamNestAccessGuard,
 } from '../index'
 
@@ -17,12 +17,12 @@ type ResourceType = 'post' | 'comment'
 type RoleId = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [{ action: 'read', resource: 'post' }],
 }
-const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -307,7 +307,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
       name: 'P',
       algorithm: 'deny-overrides',
       rules: [],
-    } as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>)
+    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
     await flushMicrotasks()
     expect(events).toHaveLength(1)
     const ev = events[0] as {
@@ -340,7 +340,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
       },
     })
     await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>),
+      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
     ).rejects.toThrow('save-failed')
     await flushMicrotasks()
     engine.admin.savePolicy = original
@@ -380,7 +380,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
       name: 'P',
       algorithm: 'deny-overrides',
       rules: [],
-    } as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>)
+    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
     expect(out.ok).toBe(true)
     expect(errSpy).toHaveBeenCalled()
     errSpy.mockRestore()
@@ -426,7 +426,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
       name: 'P',
       algorithm: 'deny-overrides',
       rules: [],
-    } as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>)
+    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
     await flushMicrotasks()
     expect(captured).toHaveLength(1)
     expect(captured[0]!.err).toBe(boom)
@@ -455,7 +455,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
       },
     })
     await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>),
+      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
     ).rejects.toBeInstanceOf(PolicyValidationError)
     await flushMicrotasks()
     engine.admin.savePolicy = original
@@ -479,7 +479,7 @@ describe('createIamAdminOperations onAdminMutation', () => {
       },
     })
     await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>),
+      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
     ).rejects.toThrow('full-detailed-message')
     await flushMicrotasks()
     engine.admin.savePolicy = original

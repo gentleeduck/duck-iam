@@ -191,7 +191,11 @@ export function authCreateDrizzleSqliteOidcOpStores(db: AnySQLiteDatabase): {
   return {
     clients: {
       async findById(client_id) {
-        const rows = await db.select().from(authOidcClientsTable).where(eq(authOidcClientsTable.clientId, client_id)).limit(1)
+        const rows = await db
+          .select()
+          .from(authOidcClientsTable)
+          .where(eq(authOidcClientsTable.clientId, client_id))
+          .limit(1)
         const row = rows[0]
         return row ? rowToClient(row) : null
       },

@@ -13,7 +13,7 @@ import type { AuthSession } from '../../core/types/session'
  *
  * Multi-tenant: tenantId filters every query so tests can verify isolation.
  */
-export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
+export class MemoryAdapter<Profile = unknown, OrgMeta = unknown> {
   readonly identities: AuthIdentity.IStore<Profile>
   readonly sessions: AuthSession.IStore
   readonly credentials: AuthCredential.IStore
@@ -377,11 +377,11 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
  * @template Profile - AuthIdentity profile shape.
  */
 export const authMemoryStorage = <Profile = unknown>(): {
-  identities: AuthMemoryAdapter<Profile>['identities']
-  sessions: AuthMemoryAdapter<Profile>['sessions']
-  credentials: AuthMemoryAdapter<Profile>['credentials']
+  identities: MemoryAdapter<Profile>['identities']
+  sessions: MemoryAdapter<Profile>['sessions']
+  credentials: MemoryAdapter<Profile>['credentials']
 } => {
-  const adapter = new AuthMemoryAdapter<Profile>()
+  const adapter = new MemoryAdapter<Profile>()
   return {
     credentials: adapter.credentials,
     identities: adapter.identities,

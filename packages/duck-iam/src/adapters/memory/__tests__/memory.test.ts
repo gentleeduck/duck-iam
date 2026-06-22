@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { IamAccessControl, IamAdapter } from '../../../core/types'
+import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { IamMemoryAdapter } from '../index'
 
@@ -19,9 +19,9 @@ describe('IamMemoryAdapter', () => {
   })
 
   describe('IamAdapter.IPolicyStore', () => {
-    const policy: IamAccessControl.IPolicy<A, R, Ro> = {
+    const policy: AccessControl.IPolicy<A, R, Ro> = {
       id: 'p1',
-      name: 'Test IamAccessControl.IPolicy',
+      name: 'Test AccessControl.IPolicy',
       algorithm: 'deny-overrides',
       rules: [],
     }
@@ -56,7 +56,7 @@ describe('IamMemoryAdapter', () => {
   })
 
   describe('IamAdapter.IRoleStore', () => {
-    const role: IamAccessControl.IRole<A, R, Ro, S> = {
+    const role: AccessControl.IRole<A, R, Ro, S> = {
       id: 'viewer',
       name: 'Viewer',
       permissions: [{ action: 'read', resource: 'post' }],

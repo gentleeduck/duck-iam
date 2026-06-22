@@ -72,7 +72,11 @@ export class OrgsFacet<OrgMeta = unknown> {
    * Resolve the membership of (identity, org) for the in-tenant scope.
    * Returns null when the identity is not a live member.
    */
-  async resolveMembership(orgId: string, identityId: string, ctx: AuthTenantContext = {}): Promise<AuthOrg.IMembership | null> {
+  async resolveMembership(
+    orgId: string,
+    identityId: string,
+    ctx: AuthTenantContext = {},
+  ): Promise<AuthOrg.IMembership | null> {
     const members = await this._store.listMembers(orgId, ctx)
     return members.find((m) => m.identityId === identityId && !m.leftAt) ?? null
   }

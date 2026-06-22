@@ -1,11 +1,11 @@
-import type { IamAccessControl, IamPrimitives } from '../types'
-export namespace IamExplain {
+import type { AccessControl, IamPrimitives } from '../types'
+export namespace Explain {
   /**
    * Trace of a single leaf condition: field, operator, expected vs actual, and the result.
    *
    * @example
    * ```ts
-   * const leaf: IamExplain.ILeafTrace = {
+   * const leaf: Explain.ILeafTrace = {
    *   type: 'condition',
    *   field: 'subject.attributes.tier',
    *   operator: 'eq',
@@ -18,7 +18,7 @@ export namespace IamExplain {
   export interface ILeafTrace {
     readonly type: 'condition'
     readonly field: string
-    readonly operator: IamAccessControl.Operator
+    readonly operator: AccessControl.Operator
     /** The right-hand side value the condition expected. */
     readonly expected: IamPrimitives.AttributeValue
     /** The left-hand side value resolved from the request. */
@@ -31,7 +31,7 @@ export namespace IamExplain {
    *
    * @example
    * ```ts
-   * const group: IamExplain.IGroupTrace = {
+   * const group: Explain.IGroupTrace = {
    *   type: 'group',
    *   logic: 'all',
    *   result: false,
@@ -51,7 +51,7 @@ export namespace IamExplain {
    *
    * @example
    * ```ts
-   * function walk(trace: IamExplain.Trace): void {
+   * function walk(trace: Explain.Trace): void {
    *   if (trace.type === 'condition') console.log(trace.field, trace.result)
    *   else trace.children.forEach(walk)
    * }
@@ -64,7 +64,7 @@ export namespace IamExplain {
    *
    * @example
    * ```ts
-   * const rule: IamExplain.IRuleTrace = {
+   * const rule: Explain.IRuleTrace = {
    *   ruleId: 'admin-can-write',
    *   effect: 'allow',
    *   priority: 100,
@@ -79,7 +79,7 @@ export namespace IamExplain {
   export interface IRuleTrace {
     readonly ruleId: string
     readonly description?: string
-    readonly effect: IamAccessControl.Effect
+    readonly effect: AccessControl.Effect
     readonly priority: number
     readonly actionMatch: boolean
     readonly resourceMatch: boolean
@@ -93,7 +93,7 @@ export namespace IamExplain {
    *
    * @example
    * ```ts
-   * const policy: IamExplain.IPolicyTrace = {
+   * const policy: Explain.IPolicyTrace = {
    *   policyId: 'docs-acl',
    *   policyName: 'Documents ACL',
    *   algorithm: 'deny-overrides',
@@ -107,13 +107,13 @@ export namespace IamExplain {
   export interface IPolicyTrace {
     readonly policyId: string
     readonly policyName: string
-    readonly algorithm: IamAccessControl.CombiningAlgorithm
+    readonly algorithm: AccessControl.CombiningAlgorithm
     readonly targetMatch: boolean
     readonly rules: readonly IRuleTrace[]
-    readonly result: IamAccessControl.Effect
+    readonly result: AccessControl.Effect
     readonly reason: string
     readonly decidingRuleId?: string
-    readonly decidingRule?: IamAccessControl.IRule
+    readonly decidingRule?: AccessControl.IRule
   }
 
   /**
@@ -121,12 +121,12 @@ export namespace IamExplain {
    *
    * @example
    * ```ts
-   * const trace: IamExplain.IResult = await engine.explain('user-1', 'read', { type: 'post' })
+   * const trace: Explain.IResult = await engine.explain('user-1', 'read', { type: 'post' })
    * trace.policies.forEach((p) => console.log(p.policyId, p.result, p.reason))
    * ```
    */
   export interface IResult {
-    readonly decision: IamAccessControl.IDecision
+    readonly decision: AccessControl.IDecision
     readonly request: {
       readonly action: string
       readonly resourceType: string
@@ -156,7 +156,7 @@ export namespace IamExplain {
    *
    * @example
    * ```ts
-   * const info: IamExplain.ISubjectInfo = {
+   * const info: Explain.ISubjectInfo = {
    *   subjectId: 'user-1',
    *   originalRoles: ['editor'],
    *   scopedRolesApplied: ['org-a:admin'],

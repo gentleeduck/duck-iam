@@ -1,6 +1,6 @@
-import { IAM_MAX_INHERITANCE_DEPTH } from '../rbac'
-import type { IamAccessControl } from '../types'
-import { IAM_POLICY_LIMITS, IAM_VALID_ALGORITHMS, validateRuleShape } from './validate.libs'
+import { MAX_INHERITANCE_DEPTH } from '../rbac'
+import type { AccessControl } from '../types'
+import { POLICY_LIMITS, VALID_ALGORITHMS, validateRuleShape } from './validate.libs'
 import type { IamValidate } from './validate.types'
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -12,7 +12,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * @param roles - The role definitions to validate.
  * @returns A {@link IamValidate.IResult} listing any issues found.
  */
-export function iamValidateRoles(roles: readonly IamAccessControl.IRole[]): IamValidate.IResult {
+export function validateRoles(roles: readonly AccessControl.IRole[]): IamValidate.IResult {
   const issues: IamValidate.IIssue[] = []
   const roleIds = new Set<string>()
 
@@ -84,16 +84,16 @@ export function iamValidateRoles(roles: readonly IamAccessControl.IRole[]): IamV
     }
   }
 
-  // Depth bound: chains deeper than IAM_MAX_INHERITANCE_DEPTH silently truncate at
+  // Depth bound: chains deeper than MAX_INHERITANCE_DEPTH silently truncate at
   // runtime, dropping permissions invisibly. Surface as error so the operator
   // catches it before deploy instead of debugging missing permissions later.
   for (const role of roles) {
     const depth = longestInheritanceDepth(role.id, rolesMap)
-    if (depth > IAM_MAX_INHERITANCE_DEPTH) {
+    if (depth > MAX_INHERITANCE_DEPTH) {
       issues.push({
         type: 'error',
         code: 'INHERITANCE_TOO_DEEP',
-        message: `Role "${role.id}" has an inheritance chain ${depth} deep; the runtime caps at ${IAM_MAX_INHERITANCE_DEPTH} and silently drops anything past it`,
+        message: `Role "${role.id}" has an inheritance chain ${depth} deep; the runtime caps at ${MAX_INHERITANCE_DEPTH} and silently drops anything past it`,
         roleId: role.id,
       })
     }
@@ -105,12 +105,12 @@ export function iamValidateRoles(roles: readonly IamAccessControl.IRole[]): IamV
   }
 }
 
-/** Longest path from `roleId` up through `inherits`; cycles cut by `seen`, depth capped at `IAM_MAX_INHERITANCE_DEPTH + 1`. */
-function longestInheritanceDepth(roleId: string, rolesMap: Map<string, IamAccessControl.IRole>): number {
+/** Longest path from `roleId` up through `inherits`; cycles cut by `seen`, depth capped at `MAX_INHERITANCE_DEPTH + 1`. */
+function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessControl.IRole>): number {
   const seen = new Set<string>()
   function walk(id: string, depth: number): number {
     if (seen.has(id)) return depth
-    if (depth > IAM_MAX_INHERITANCE_DEPTH + 1) return depth
+    if (depth > MAX_INHERITANCE_DEPTH + 1) return depth
     const role = rolesMap.get(id)
     if (!role?.inherits?.length) return depth
     seen.add(id)
@@ -131,7 +131,7 @@ function longestInheritanceDepth(roleId: string, rolesMap: Map<string, IamAccess
  * @param input - The candidate policy object (typically parsed JSON or an admin form payload).
  * @returns A {@link IamValidate.IResult} with `valid: false` when any error issue was emitted.
  */
-export function iamValidatePolicy(input: unknown): IamValidate.IResult {
+export function validatePolicy(input: unknown): IamValidate.IResult {
   const issues: IamValidate.IIssue[] = []
 
   if (!isPlainObject(input)) {
@@ -159,11 +159,11 @@ export function iamValidatePolicy(input: unknown): IamValidate.IResult {
     })
   }
 
-  if (typeof p.algorithm !== 'string' || !IAM_VALID_ALGORITHMS.has(p.algorithm)) {
+  if (typeof p.algorithm !== 'string' || !VALID_ALGORITHMS.has(p.algorithm)) {
     issues.push({
       type: 'error',
       code: 'INVALID_ALGORITHM',
-      message: `Invalid algorithm "${String(p.algorithm)}". Must be one of: ${[...IAM_VALID_ALGORITHMS].join(', ')}`,
+      message: `Invalid algorithm "${String(p.algorithm)}". Must be one of: ${[...VALID_ALGORITHMS].join(', ')}`,
       path: 'algorithm',
     })
   }
@@ -180,11 +180,11 @@ export function iamValidatePolicy(input: unknown): IamValidate.IResult {
   if (!Array.isArray(p.rules)) {
     issues.push({ type: 'error', code: 'MISSING_FIELD', message: 'Policy must have a "rules" array', path: 'rules' })
   } else {
-    if (p.rules.length > IAM_POLICY_LIMITS.rulesPerPolicy) {
+    if (p.rules.length > POLICY_LIMITS.rulesPerPolicy) {
       issues.push({
         type: 'error',
         code: 'LIMIT_EXCEEDED',
-        message: `Policy has ${p.rules.length} rules; limit is ${IAM_POLICY_LIMITS.rulesPerPolicy}`,
+        message: `Policy has ${p.rules.length} rules; limit is ${POLICY_LIMITS.rulesPerPolicy}`,
         path: 'rules',
       })
     }
@@ -244,7 +244,7 @@ export function iamValidatePolicy(input: unknown): IamValidate.IResult {
  * @param input - The candidate role object (typically parsed JSON).
  * @returns A {@link IamValidate.IResult} with `valid: false` when any error issue was emitted.
  */
-export function iamValidateRole(input: unknown): IamValidate.IResult {
+export function validateRole(input: unknown): IamValidate.IResult {
   const issues: IamValidate.IIssue[] = []
 
   if (!isPlainObject(input)) {
@@ -304,22 +304,22 @@ export function iamValidateRole(input: unknown): IamValidate.IResult {
  * @template TResource - Resource string union (TS-only constraint; trusted at the adapter boundary).
  * @template TRole     - Role string union (TS-only constraint; trusted at the adapter boundary).
  */
-export function iamParsePolicyRow<
+export function parsePolicyRow<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
->(raw: unknown): IamAccessControl.IPolicy<TAction, TResource, TRole> | null {
-  if (!iamValidatePolicy(raw).valid) return null
-  return raw as IamAccessControl.IPolicy<TAction, TResource, TRole>
+>(raw: unknown): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  if (!validatePolicy(raw).valid) return null
+  return raw as AccessControl.IPolicy<TAction, TResource, TRole>
 }
 
-/** Parse a single role row. Mirror of {@link iamParsePolicyRow}. */
-export function iamParseRoleRow<
+/** Parse a single role row. Mirror of {@link parsePolicyRow}. */
+export function parseRoleRow<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(raw: unknown): IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null {
-  if (!iamValidateRole(raw).valid) return null
-  return raw as IamAccessControl.IRole<TAction, TResource, TRole, TScope>
+>(raw: unknown): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  if (!validateRole(raw).valid) return null
+  return raw as AccessControl.IRole<TAction, TResource, TRole, TScope>
 }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthScryptHasher } from '../../password/scrypt'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { ScryptHasher } from '../../password/scrypt'
 import type { AuthHasher } from '../../types/hasher'
 import { PasswordsFacet } from '../passwords'
 
@@ -11,7 +11,7 @@ interface VerifyCall {
 
 class SpyHasher implements AuthHasher.IHasher {
   readonly id = 'spy-scrypt'
-  private readonly _inner: AuthScryptHasher
+  private readonly _inner: ScryptHasher
   readonly verifyCalls: VerifyCall[] = []
   readonly hashCalls: string[] = []
 
@@ -19,7 +19,7 @@ class SpyHasher implements AuthHasher.IHasher {
     // Use small scrypt params so tests are fast but still exercise the
     // real encode/parse roundtrip (which is what the broken literal
     // tripped over).
-    this._inner = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+    this._inner = new ScryptHasher({ N: 1 << 10, keylen: 32 })
   }
 
   async hash(plaintext: string): Promise<string> {
@@ -38,12 +38,12 @@ class SpyHasher implements AuthHasher.IHasher {
 }
 
 describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let hasher: SpyHasher
   let facet: PasswordsFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
+    adapter = new MemoryAdapter()
     hasher = new SpyHasher()
     facet = new PasswordsFacet(adapter.credentials, hasher)
   })

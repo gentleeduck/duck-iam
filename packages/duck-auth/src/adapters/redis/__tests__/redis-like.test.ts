@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { AuthFakeRedis } from '../redis-like'
+import { FakeRedis } from '../redis-like'
 
-describe('AuthFakeRedis.scan - glob MATCH', () => {
-  async function withKeys(keys: string[]): Promise<AuthFakeRedis> {
-    const r = new AuthFakeRedis()
+describe('FakeRedis.scan - glob MATCH', () => {
+  async function withKeys(keys: string[]): Promise<FakeRedis> {
+    const r = new FakeRedis()
     for (const k of keys) await r.set(k, '1')
     return r
   }

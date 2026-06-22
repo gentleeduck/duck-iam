@@ -1,4 +1,4 @@
-import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
+import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 export namespace IamEngineTypes {
   /**
    * Administrative interface for managing policies, roles, and subject data.
@@ -15,17 +15,17 @@ export namespace IamEngineTypes {
     TRole extends string = string,
     TScope extends string = string,
   > {
-    listPolicies(): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]>
-    getPolicy(id: string): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null>
+    listPolicies(): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
+    getPolicy(id: string): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
     /** Invalidates the policy cache. */
-    savePolicy(policy: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
+    savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
     /** Invalidates the policy cache. */
     deletePolicy(id: string): Promise<void>
 
-    listRoles(): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]>
-    getRole(id: string): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null>
+    listRoles(): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]>
+    getRole(id: string): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
     /** Invalidates role + subject caches keyed on `role.id`. */
-    saveRole(role: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
+    saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
     /** Invalidates role + subject caches keyed on `id`. */
     deleteRole(id: string): Promise<void>
 
@@ -76,8 +76,8 @@ export namespace IamEngineTypes {
   > {
     readonly schemaVersion: 1
     readonly exportedAt: string
-    readonly policies: readonly IamAccessControl.IPolicy<TAction, TResource, TRole>[]
-    readonly roles: readonly IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]
+    readonly policies: readonly AccessControl.IPolicy<TAction, TResource, TRole>[]
+    readonly roles: readonly AccessControl.IRole<TAction, TResource, TRole, TScope>[]
   }
 
   /** Options for {@link IAdmin.import}. */
@@ -116,7 +116,7 @@ export namespace IamEngineTypes {
     /** Wall-clock duration of the evaluation in milliseconds. */
     readonly durationMs: number
     /** Engine mode in effect (`'production'` or `'development'`). */
-    readonly mode: IamAccessControl.Mode
+    readonly mode: AccessControl.Mode
     /**
      * `true` when the verdict was `allow` solely because the engine's
      * `defaultEffect: 'allow'` fallback fired (no applicable policy). Always
@@ -152,16 +152,18 @@ export namespace IamEngineTypes {
     /** Called before policy evaluation. May return a modified request. */
     beforeEvaluate?(
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
-    ): IamRequest.IAccessRequest<TAction, TResource, TScope> | Promise<IamRequest.IAccessRequest<TAction, TResource, TScope>>
+    ):
+      | IamRequest.IAccessRequest<TAction, TResource, TScope>
+      | Promise<IamRequest.IAccessRequest<TAction, TResource, TScope>>
     /** Called after every evaluation with the final decision (development mode only). */
     afterEvaluate?(
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
-      decision: IamAccessControl.IDecision,
+      decision: AccessControl.IDecision,
     ): void | Promise<void>
     /** Called only when a request is denied (development mode only). */
     onDeny?(
       request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
-      decision: IamAccessControl.IDecision,
+      decision: AccessControl.IDecision,
     ): void | Promise<void>
     /** Called when an error occurs during evaluation. The engine then returns a deny. */
     onError?(error: Error, request: IamRequest.IAccessRequest<TAction, TResource, TScope>): void | Promise<void>
@@ -175,7 +177,7 @@ export namespace IamEngineTypes {
     /**
      * Called once per evaluation with a primitive-only event. Cheap in both
      * modes - production callers can wire this for latency / outcome telemetry
-     * without paying the cost of a full {@link IamAccessControl.IDecision}.
+     * without paying the cost of a full {@link AccessControl.IDecision}.
      */
     onMetrics?(event: IMetricsEvent<TAction, TResource>): void
   }
@@ -202,7 +204,7 @@ export namespace IamEngineTypes {
     TResource extends string = string,
     TRole extends string = string,
     TScope extends string = string,
-    TMode extends IamAccessControl.Mode = 'development',
+    TMode extends AccessControl.Mode = 'development',
   > {
     /** The storage adapter that provides policies, roles, and subject data. */
     readonly adapter: IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
@@ -218,9 +220,9 @@ export namespace IamEngineTypes {
     readonly mode?: TMode
     /**
      * Strategy for combining decisions across multiple policies. Defaults to
-     * `'and'` (every policy must allow). See {@link IamAccessControl.PolicyCombine}.
+     * `'and'` (every policy must allow). See {@link AccessControl.PolicyCombine}.
      */
-    readonly policyCombine?: IamAccessControl.PolicyCombine
+    readonly policyCombine?: AccessControl.PolicyCombine
     /**
      * Hard ceiling on how many policies the engine will load from its adapter.
      * Loads beyond the cap throw at construction-time of the cache, not

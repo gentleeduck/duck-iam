@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../auth'
-import { AuthScryptHasher } from '../../password/scrypt'
+import { ScryptHasher } from '../../password/scrypt'
 import { AuthJwtTransport } from '../../transport/jwt'
 import { M2MFacet } from '../m2m'
 
@@ -11,7 +11,7 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const transport = new AuthJwtTransport({
     signKey: { kid: 'k1', key: 'secret-32-bytes-of-test-material' },
     verifyKeys: [{ kid: 'k1', key: 'secret-32-bytes-of-test-material' }],
@@ -27,7 +27,7 @@ function build() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   const m2m = new M2MFacet(auth.apiKeys, auth.sessions, auth.transport)
   return { auth, adapter, transport, m2m }

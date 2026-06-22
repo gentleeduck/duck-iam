@@ -4,7 +4,7 @@ import type { AuthRedisLike } from './redis-like'
 export namespace AuthRedisDPoPNonceStore {
   /** Config knobs for {@link AuthRedisDPoPNonceStore}. */
   export interface IConfig {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    /** AuthRedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: AuthRedisLike.IClient
     /** Key namespace prefix. Default `auth:dpop:jti`. */
     prefix?: string

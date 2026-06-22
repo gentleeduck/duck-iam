@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { authApplyCompliancePreset, authAssertComplianceStrict, readCompliancePreset, authResolveCompliance } from '../compliance'
+import {
+  authApplyCompliancePreset,
+  authAssertComplianceStrict,
+  authResolveCompliance,
+  readCompliancePreset,
+} from '../compliance'
 
 describe('authResolveCompliance', () => {
   it('returns defaults when no preset', () => {

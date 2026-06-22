@@ -1,7 +1,7 @@
 import { isProfileBooleanTrue } from '../credential-utils'
 import { authSha256, authTimingSafeEqual } from '../crypto'
 import { AuthErrorObject } from '../errors'
-import { buildOtpAuthUri, authGenerateSecret, authVerifyTotp } from '../mfa/totp'
+import { authGenerateSecret, authVerifyTotp, buildOtpAuthUri } from '../mfa/totp'
 import type { AuthTenantContext } from '../types/context'
 import type { AuthCredential } from '../types/credential'
 import type { AuthEvents } from '../types/events'

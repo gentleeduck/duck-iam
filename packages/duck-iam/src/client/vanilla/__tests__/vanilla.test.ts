@@ -113,7 +113,9 @@ describe('IamAccessClient', () => {
   })
 
   it('allowedActions() deduplicates actions', () => {
-    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ 'read:post': true, 'org-1:read:post': true }))
+    const client = new IamAccessClient<Action, ResourceType, Scope>(
+      perms({ 'read:post': true, 'org-1:read:post': true }),
+    )
     const actions = client.allowedActions('post')
     expect(actions).toEqual(['read'])
   })

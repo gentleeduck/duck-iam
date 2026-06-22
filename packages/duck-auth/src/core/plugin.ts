@@ -39,7 +39,10 @@ export class AuthPluginRegistry<Profile = unknown, Tenant = string, OrgMeta = un
     if (plugin.events) {
       for (const [event, handler] of Object.entries(plugin.events)) {
         if (handler === undefined) continue
-        const unsub = auth.events.on(event as keyof AuthEvents.EventMap, handler as (p: unknown) => void | Promise<void>)
+        const unsub = auth.events.on(
+          event as keyof AuthEvents.EventMap,
+          handler as (p: unknown) => void | Promise<void>,
+        )
         this._eventUnsubs.push(unsub)
       }
     }

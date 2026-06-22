@@ -1,8 +1,8 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
-import { iamEvalConditionGroup } from '../conditions'
-import { iamMatchesAction, iamMatchesResource, iamMatchesResourceHierarchical } from '../resolve'
-import type { IamAccessControl, IamRequest } from '../types'
-import type { IamEvaluate } from './evaluate.types'
+import { evalConditionGroup } from '../conditions'
+import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
+import type { AccessControl, IamRequest } from '../types'
+import type { Evaluate } from './evaluate.types'
 /**
  * Checks whether a single rule applies to the given access request.
  *
@@ -15,11 +15,11 @@ import type { IamEvaluate } from './evaluate.types'
  * @returns `true` if the rule matches the request
  */
 export function ruleApplies(
-  rule: IamAccessControl.IRule,
+  rule: AccessControl.IRule,
   req: IamRequest.IAccessRequest,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
-  const actionMatch = rule.actions.some((a) => iamMatchesAction(a, req.action))
+  const actionMatch = rule.actions.some((a) => matchesAction(a, req.action))
   if (!actionMatch) return false
 
   // Hoist the dot check - compute once before the .some() loop
@@ -28,13 +28,13 @@ export function ruleApplies(
   const resourceMatch = rule.resources.some((r) => {
     // Use dot-based matching if either pattern or resource type contains a dot
     if (resourceHasDot || r.includes('.')) {
-      return iamMatchesResourceHierarchical(r, req.resource.type)
+      return matchesResourceHierarchical(r, req.resource.type)
     }
-    return iamMatchesResource(r, req.resource.type)
+    return matchesResource(r, req.resource.type)
   })
   if (!resourceMatch) return false
 
-  return iamEvalConditionGroup(req, rule.conditions, 0, caches)
+  return evalConditionGroup(req, rule.conditions, 0, caches)
 }
 
 /**
@@ -48,16 +48,16 @@ export function ruleApplies(
  * @param req    - The incoming access request
  * @returns `true` if the policy should be evaluated for this request
  */
-export function policyApplies(policy: IamAccessControl.IPolicy, req: IamRequest.IAccessRequest): boolean {
+export function policyApplies(policy: AccessControl.IPolicy, req: IamRequest.IAccessRequest): boolean {
   if (!policy.targets) return true
 
   const { actions, resources, roles } = policy.targets
 
-  if (actions?.length && !actions.some((a) => iamMatchesAction(a, req.action))) {
+  if (actions?.length && !actions.some((a) => matchesAction(a, req.action))) {
     return false
   }
 
-  if (resources?.length && !resources.some((r) => iamMatchesResource(r, req.resource.type))) {
+  if (resources?.length && !resources.some((r) => matchesResource(r, req.resource.type))) {
     return false
   }
 
@@ -79,7 +79,7 @@ export function policyApplies(policy: IamAccessControl.IPolicy, req: IamRequest.
  * - `first-match`      - highest-priority match wins; ties resolved by source order.
  * - `highest-priority` - highest-priority match wins (alias of `first-match` once ties tie-break by priority alone).
  */
-export const combiners: Record<IamAccessControl.CombiningAlgorithm, IamEvaluate.Combiner> = {
+export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combiner> = {
   'deny-overrides': (matched, defaultEffect) => {
     const deny = matched.find((m) => m.effect === 'deny')
     if (deny) {
@@ -160,20 +160,20 @@ function isExpansivePattern(p: string): boolean {
 }
 
 /** WeakMap so indexes are GC'd when the policy is no longer referenced. */
-const indexCache = new WeakMap<IamAccessControl.IPolicy, IamEvaluate.IPolicyRuleIndex>()
+const indexCache = new WeakMap<AccessControl.IPolicy, Evaluate.IPolicyRuleIndex>()
 
 /**
  * Build (or retrieve from cache) a rule index for a policy.
  *
  * @param policy - The policy whose rules should be indexed.
- * @returns The cached or freshly built {@link IamEvaluate.IPolicyRuleIndex}.
+ * @returns The cached or freshly built {@link Evaluate.IPolicyRuleIndex}.
  */
-export function iamIndexPolicy(policy: IamAccessControl.IPolicy): IamEvaluate.IPolicyRuleIndex {
+export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRuleIndex {
   const cached = indexCache.get(policy)
   if (cached) return cached
 
-  const byActionResource = new Map<string, IamEvaluate.IIndexedRule[]>()
-  const wildcardAny: IamEvaluate.IIndexedRule[] = []
+  const byActionResource = new Map<string, Evaluate.IIndexedRule[]>()
+  const wildcardAny: Evaluate.IIndexedRule[] = []
 
   for (const rule of policy.rules) {
     const actions = new Set(rule.actions as string[])
@@ -194,7 +194,7 @@ export function iamIndexPolicy(policy: IamAccessControl.IPolicy): IamEvaluate.IP
     }
     const c = rule.conditions
     const hasConditions = !!c && ('all' in c || 'any' in c || 'none' in c)
-    const entry: IamEvaluate.IIndexedRule = {
+    const entry: Evaluate.IIndexedRule = {
       rule,
       actions,
       resources,
@@ -295,7 +295,7 @@ export function iamIndexPolicy(policy: IamAccessControl.IPolicy): IamEvaluate.IP
     }
   }
 
-  const idx: IamEvaluate.IPolicyRuleIndex = { byActionResource, wildcardAny, precomputed }
+  const idx: Evaluate.IPolicyRuleIndex = { byActionResource, wildcardAny, precomputed }
   indexCache.set(policy, idx)
   return idx
 }

@@ -1,4 +1,4 @@
-import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 
 export namespace IamMemory {
   /**
@@ -16,9 +16,9 @@ export namespace IamMemory {
     TScope extends string = string,
   > {
     /** Seeds the adapter with these policies on construction. */
-    policies?: IamAccessControl.IPolicy<TAction, TResource, TRole>[]
+    policies?: AccessControl.IPolicy<TAction, TResource, TRole>[]
     /** Seeds the adapter with these roles on construction. */
-    roles?: IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]
+    roles?: AccessControl.IRole<TAction, TResource, TRole, TScope>[]
     /** Maps subject IDs to their initial unscoped roles. */
     assignments?: Record<string, TRole[]>
     /** Maps subject IDs to their initial attribute bag. */
@@ -41,8 +41,8 @@ export class IamMemoryAdapter<
   TScope extends string = string,
 > implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
-  private _policies = new Map<string, IamAccessControl.IPolicy<TAction, TResource, TRole>>()
-  private _roles = new Map<string, IamAccessControl.IRole<TAction, TResource, TRole, TScope>>()
+  private _policies = new Map<string, AccessControl.IPolicy<TAction, TResource, TRole>>()
+  private _roles = new Map<string, AccessControl.IRole<TAction, TResource, TRole, TScope>>()
   private _assignments = new Map<string, Array<{ role: TRole; scope?: TScope }>>()
   private _attributes = new Map<string, IamPrimitives.Attributes>()
 
@@ -71,7 +71,7 @@ export class IamMemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies currently held in memory.
    */
-  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     return [...this._policies.values()]
   }
 
@@ -85,7 +85,7 @@ export class IamMemoryAdapter<
   async getPolicy(
     id: string,
     _opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
+  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     return this._policies.get(id) ?? null
   }
 
@@ -95,7 +95,7 @@ export class IamMemoryAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the write completes.
    */
-  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     this._policies.set(p.id, p)
   }
 
@@ -115,7 +115,9 @@ export class IamMemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles currently held in memory.
    */
-  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     return [...this._roles.values()]
   }
 
@@ -129,7 +131,7 @@ export class IamMemoryAdapter<
   async getRole(
     id: string,
     _opts?: IamAdapter.IReadOptions,
-  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     return this._roles.get(id) ?? null
   }
 
@@ -139,7 +141,7 @@ export class IamMemoryAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the write completes.
    */
-  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     this._roles.set(r.id, r)
   }
 
@@ -172,7 +174,10 @@ export class IamMemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs for scoped assignments only.
    */
-  async getSubjectScopedRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
+  async getSubjectScopedRoles(
+    id: string,
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
     return (this._assignments.get(id) ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
   }

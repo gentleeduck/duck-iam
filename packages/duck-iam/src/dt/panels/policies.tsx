@@ -1,5 +1,5 @@
 import React from 'react'
-import type { IamAccessControl } from '../../core/types'
+import type { AccessControl } from '../../core/types'
 import { ChevronDown, ChevronRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
@@ -7,7 +7,7 @@ import { Alert, Badge, Button } from '../components/ui'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
 export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
-  const [policies, setPolicies] = React.useState<IamAccessControl.IPolicy[]>([])
+  const [policies, setPolicies] = React.useState<AccessControl.IPolicy[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [filter, setFilter] = React.useState('')
@@ -100,7 +100,7 @@ export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   )
 }
 
-function RuleRow({ rule }: { rule: IamAccessControl.IRule }) {
+function RuleRow({ rule }: { rule: AccessControl.IRule }) {
   const [open, setOpen] = React.useState(false)
   return (
     <div className="iam-dt-trace__group">

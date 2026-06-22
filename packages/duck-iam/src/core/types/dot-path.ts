@@ -1,7 +1,7 @@
 import type { IamPrimitives } from './primitives'
 
 /** Dot-path type machinery: context-wide paths (`DotPaths`, `PathValue`, `DollarPaths`) and attribute-bag paths. */
-export namespace IamDotPath {
+export namespace DotPath {
   /**
    * String-literal union of every reachable path through `T`; arrays are leaves; index-signatures bail to `never`.
    *
@@ -11,7 +11,7 @@ export namespace IamDotPath {
    * @example
    * ```ts
    * type Ctx = { subject: { id: string; attributes: { status: string } } }
-   * type Paths = IamDotPath.DotPaths<Ctx>
+   * type Paths = DotPath.DotPaths<Ctx>
    * // = 'subject' | 'subject.id' | 'subject.attributes' | 'subject.attributes.status'
    * ```
    */
@@ -38,7 +38,7 @@ export namespace IamDotPath {
    * @example
    * ```ts
    * type Ctx = { subject: { attributes: { status: 'active' | 'banned' } } }
-   * type V = IamDotPath.PathValue<Ctx, 'subject.attributes.status'>
+   * type V = DotPath.PathValue<Ctx, 'subject.attributes.status'>
    * // = 'active' | 'banned'
    * ```
    */
@@ -58,10 +58,10 @@ export namespace IamDotPath {
    * @example
    * ```ts
    * type ClosedCtx = { subject: { id: string } }
-   * type Paths1 = IamDotPath.FlexibleDotPaths<ClosedCtx>     // = 'subject' | 'subject.id'
+   * type Paths1 = DotPath.FlexibleDotPaths<ClosedCtx>     // = 'subject' | 'subject.id'
    *
-   * type OpenCtx = { subject: { attributes: IamDotPath.IAnyAttributes } }
-   * type Paths2 = IamDotPath.FlexibleDotPaths<OpenCtx>       // accepts any string too
+   * type OpenCtx = { subject: { attributes: DotPath.IAnyAttributes } }
+   * type Paths2 = DotPath.FlexibleDotPaths<OpenCtx>       // accepts any string too
    * ```
    */
   export type FlexibleDotPaths<T> = true extends HasOpenIndex<T> ? DotPaths<T> | (string & {}) : DotPaths<T>
@@ -74,7 +74,7 @@ export namespace IamDotPath {
    * @example
    * ```ts
    * type Ctx = { subject: { id: string; roles: string[] } }
-   * type Refs = IamDotPath.DollarPaths<Ctx>
+   * type Refs = DotPath.DollarPaths<Ctx>
    * // = '$subject' | '$subject.id' | '$subject.roles'
    * ```
    */
@@ -154,7 +154,7 @@ export namespace IamDotPath {
    * @example
    * ```ts
    * type Ctx = { subject: { attributes: { profile: { tier: string } } } }
-   * type Keys = IamDotPath.SubjectAttrs<Ctx>     // = 'profile' | 'profile.tier'
+   * type Keys = DotPath.SubjectAttrs<Ctx>     // = 'profile' | 'profile.tier'
    * ```
    */
   export type SubjectAttrs<TContext> = AttrPaths<SubjectAttrShape<TContext>>
@@ -167,7 +167,7 @@ export namespace IamDotPath {
    * @example
    * ```ts
    * type Ctx = { resource: { attributes: { ownerId: string; status: 'draft' | 'live' } } }
-   * type Keys = IamDotPath.ResourceAttrs<Ctx>    // = 'ownerId' | 'status'
+   * type Keys = DotPath.ResourceAttrs<Ctx>    // = 'ownerId' | 'status'
    * ```
    */
   export type ResourceAttrs<TContext> = AttrPaths<ResourceAttrShape<TContext>>
@@ -243,7 +243,7 @@ export namespace IamDotPath {
    * @example
    * ```ts
    * type Bag = { profile: { tier: 'gold' | 'silver' } }
-   * type V = IamDotPath.AttrValue<Bag, 'profile.tier'>     // = 'gold' | 'silver'
+   * type V = DotPath.AttrValue<Bag, 'profile.tier'>     // = 'gold' | 'silver'
    * ```
    */
   export type AttrValue<T, P extends string> =
@@ -267,7 +267,7 @@ export namespace IamDotPath {
    *
    * @example
    * ```ts
-   * const ctx: IamDotPath.IDefaultContext = {
+   * const ctx: DotPath.IDefaultContext = {
    *   action: 'read',
    *   subject: { id: 'u-1', roles: ['editor'], attributes: { tier: 'gold' } },
    *   resource: { type: 'post', id: 'p-42', attributes: { ownerId: 'u-1' } },

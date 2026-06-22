@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { AuthAwsKmsProvider } from '../aws-kms'
-import { AuthKmsEnvelopeDataAtRest } from '../kms-envelope'
+import { KmsEnvelopeDataAtRest } from '../kms-envelope'
 
 /** Mock `KmsClient.send` that matches the AWS SDK call shape. */
 function makeClient() {
@@ -55,10 +55,10 @@ describe('AuthAwsKmsProvider (with mocked @aws-sdk/client-kms)', () => {
     expect(dek.keyId).toBe('k1')
   })
 
-  it('end-to-end with AuthKmsEnvelopeDataAtRest', async () => {
+  it('end-to-end with KmsEnvelopeDataAtRest', async () => {
     const client = makeClient()
     const provider = new AuthAwsKmsProvider({ client, keyId: 'alias/duck' })
-    const a = new AuthKmsEnvelopeDataAtRest({ kms: provider })
+    const a = new KmsEnvelopeDataAtRest({ kms: provider })
     const ct = await a.encrypt('hello', { field: 'phone', identityId: 'u1' })
     const plain = await a.decrypt(ct, { field: 'phone', identityId: 'u1' })
     expect(plain).toBe('hello')

@@ -9,24 +9,24 @@
 
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/auth'
 import { authSha256 } from '../../../core/crypto'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { authCreateOidcOP, type AuthOidcOpRoot } from '../index'
+import { type AuthOidcOpRoot, authCreateOidcOP } from '../index'
 
 interface ProfileShape {
   email: string
 }
 
 function buildOp(): { op: AuthOidcOpRoot<ProfileShape>; auth: AuthEngine<ProfileShape> } {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
     transport: new AuthCookieTransport({ name: 'duck-sid' }),
-    passwords: { hasher: new AuthScryptHasher() },
+    passwords: { hasher: new ScryptHasher() },
   })
   const secret = 'dev-hmac-secret'
   const op = authCreateOidcOP<ProfileShape>({
@@ -53,7 +53,11 @@ function pkce(): { verifier: string; challenge: string } {
   return { verifier, challenge }
 }
 
-async function mintTokens(op: AuthOidcOpRoot<ProfileShape>, auth: AuthEngine<ProfileShape>, scope = 'openid offline_access') {
+async function mintTokens(
+  op: AuthOidcOpRoot<ProfileShape>,
+  auth: AuthEngine<ProfileShape>,
+  scope = 'openid offline_access',
+) {
   await op.registerClient({
     client_id: 'spa',
     redirect_uris: ['http://localhost/cb'],

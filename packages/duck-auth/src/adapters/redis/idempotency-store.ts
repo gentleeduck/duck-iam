@@ -6,7 +6,7 @@ import type { AuthRedisLike } from './redis-like'
 export namespace AuthRedisIdempotencyStore {
   /** Config knobs for {@link AuthRedisIdempotencyStore}. */
   export interface IConfig {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    /** AuthRedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: AuthRedisLike.IClient
     /**
      * Key namespace prefix. Default: `auth:idem`. Composed key:
@@ -86,7 +86,12 @@ export class AuthRedisIdempotencyStore implements AuthIdempotency.IStore {
    * `claim()`. TTL is reset to `ttlMs` so the cached entry survives a
    * slow executor.
    */
-  async put(key: string, response: AuthIdempotency.ICachedResponse, ttlMs: number, ctx: AuthTenantContext): Promise<void> {
+  async put(
+    key: string,
+    response: AuthIdempotency.ICachedResponse,
+    ttlMs: number,
+    ctx: AuthTenantContext,
+  ): Promise<void> {
     const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     const ex = Math.max(1, Math.ceil(safeMs / 1000))
     await this._redis.set(

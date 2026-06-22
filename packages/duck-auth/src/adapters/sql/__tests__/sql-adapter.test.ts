@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { authCreateSqlStores, AuthSqlBridge } from '../index'
+import { AuthSqlBridge, authCreateSqlStores } from '../index'
 
 /**
  * Pure in-memory `AuthSqlBridge` for tests. Mirrors the rowwise contract a

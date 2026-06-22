@@ -1,10 +1,10 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
 
-import { iamEvalConditionGroup } from '../conditions'
-import { iamMatchesAction, iamMatchesResource, iamMatchesResourceHierarchical } from '../resolve'
-import type { IamAccessControl, IamRequest } from '../types'
-import { combiners, iamIndexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
-import type { IamEvaluate } from './evaluate.types'
+import { evalConditionGroup } from '../conditions'
+import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
+import type { AccessControl, IamRequest } from '../types'
+import { combiners, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
+import type { Evaluate } from './evaluate.types'
 
 // Literal resource patterns match only the exact resource type; recursive
 // grants require the explicit `:*` / `.*` suffix and are handled by
@@ -15,7 +15,7 @@ import type { IamEvaluate } from './evaluate.types'
  * Action is already narrowed by the index lookup.
  */
 function matchCandidate(
-  entry: IamEvaluate.IIndexedRule,
+  entry: Evaluate.IIndexedRule,
   action: string,
   resType: string,
   resHasDot: boolean,
@@ -26,7 +26,7 @@ function matchCandidate(
   if (!entry.hasWildcardAction && !entry.actions.has(action)) {
     let ok = false
     for (const a of entry.rule.actions) {
-      if (iamMatchesAction(a, action)) {
+      if (matchesAction(a, action)) {
         ok = true
         break
       }
@@ -39,12 +39,12 @@ function matchCandidate(
     let ok = false
     for (const r of entry.rule.resources) {
       if (resHasDot || r.includes('.')) {
-        if (iamMatchesResourceHierarchical(r, resType)) {
+        if (matchesResourceHierarchical(r, resType)) {
           ok = true
           break
         }
       } else {
-        if (iamMatchesResource(r, resType)) {
+        if (matchesResource(r, resType)) {
           ok = true
           break
         }
@@ -54,7 +54,7 @@ function matchCandidate(
   }
 
   if (!entry.hasConditions) return true
-  return iamEvalConditionGroup(req, entry.rule.conditions, 0, caches)
+  return evalConditionGroup(req, entry.rule.conditions, 0, caches)
 }
 
 /**
@@ -66,14 +66,14 @@ function matchCandidate(
  * @param policy        - The policy to evaluate
  * @param request       - The access request to evaluate against
  * @param defaultEffect - Effect to use when no rules match (defaults to `'deny'`)
- * @returns An {@link IamAccessControl.IDecision} with the evaluation result
+ * @returns An {@link AccessControl.IDecision} with the evaluation result
  */
-export function iamEvaluatePolicy(
-  policy: IamAccessControl.IPolicy,
+export function evaluatePolicy(
+  policy: AccessControl.IPolicy,
   request: IamRequest.IAccessRequest,
-  defaultEffect: IamAccessControl.Effect = 'deny',
+  defaultEffect: AccessControl.Effect = 'deny',
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
-): IamAccessControl.IDecision {
+): AccessControl.IDecision {
   const start = performance.now()
 
   if (!policyApplies(policy, request)) {
@@ -90,7 +90,7 @@ export function iamEvaluatePolicy(
     }
   }
 
-  const matched: Array<{ rule: IamAccessControl.IRule; effect: IamAccessControl.Effect }> = []
+  const matched: Array<{ rule: AccessControl.IRule; effect: AccessControl.Effect }> = []
 
   for (const rule of policy.rules) {
     if (ruleApplies(rule, request, caches)) {
@@ -120,17 +120,17 @@ export function iamEvaluatePolicy(
  * @param defaultEffect Effect when no rule fires within a policy.
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
  * @param onPolicyError Invoked when a single policy throws; offender treated as NotApplicable.
- * @returns The merged {@link IamAccessControl.IDecision} across all policies.
+ * @returns The merged {@link AccessControl.IDecision} across all policies.
  */
-export function iamEvaluate(
-  policies: IamAccessControl.IPolicy[],
+export function evaluate(
+  policies: AccessControl.IPolicy[],
   request: IamRequest.IAccessRequest,
-  defaultEffect: IamAccessControl.Effect = 'deny',
-  combine: IamAccessControl.PolicyCombine = 'and',
-  onPolicyError?: (err: Error, policy: IamAccessControl.IPolicy) => void,
+  defaultEffect: AccessControl.Effect = 'deny',
+  combine: AccessControl.PolicyCombine = 'and',
+  onPolicyError?: (err: Error, policy: AccessControl.IPolicy) => void,
   signals?: IEvalSignals,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
-): IamAccessControl.IDecision {
+): AccessControl.IDecision {
   const start = performance.now()
 
   if (policies.length === 0) {
@@ -145,13 +145,13 @@ export function iamEvaluate(
   }
 
   /**
-   * Same fail-skip contract as {@link iamEvaluateFast}: one rotten policy must
+   * Same fail-skip contract as {@link evaluateFast}: one rotten policy must
    * not break the whole evaluation. Synthesise a NotApplicable decision so
    * the combiner skips it cleanly.
    */
-  const safeEval = (policy: IamAccessControl.IPolicy): IamAccessControl.IDecision => {
+  const safeEval = (policy: AccessControl.IPolicy): AccessControl.IDecision => {
     try {
-      return iamEvaluatePolicy(policy, request, defaultEffect, caches)
+      return evaluatePolicy(policy, request, defaultEffect, caches)
     } catch (err) {
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
       return {
@@ -166,7 +166,7 @@ export function iamEvaluate(
   }
 
   if (combine === 'and') {
-    let lastAllow: IamAccessControl.IDecision | null = null
+    let lastAllow: AccessControl.IDecision | null = null
     for (const policy of policies) {
       const decision = safeEval(policy)
       if (decision.applicable === false) continue
@@ -187,7 +187,7 @@ export function iamEvaluate(
   }
 
   if (combine === 'allow-overrides') {
-    let lastDeny: IamAccessControl.IDecision | null = null
+    let lastDeny: AccessControl.IDecision | null = null
     for (const policy of policies) {
       const decision = safeEval(policy)
       if (decision.applicable === false) continue
@@ -230,17 +230,17 @@ export function iamEvaluate(
  * @param defaultEffect Effect to use when no rules match (defaults to `'deny'`).
  * @returns `true` / `false` for an applicable allow / deny, `null` when NotApplicable.
  */
-export function iamEvaluatePolicyFast(
-  policy: IamAccessControl.IPolicy,
+export function evaluatePolicyFast(
+  policy: AccessControl.IPolicy,
   request: IamRequest.IAccessRequest,
-  defaultEffect: IamAccessControl.Effect = 'deny',
+  defaultEffect: AccessControl.Effect = 'deny',
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean | null {
   // Inline policyApplies - avoid function call overhead
   const targets = policy.targets
   if (targets) {
-    if (targets.actions?.length && !targets.actions.some((a) => iamMatchesAction(a, request.action))) return null
-    if (targets.resources?.length && !targets.resources.some((r) => iamMatchesResource(r, request.resource.type))) {
+    if (targets.actions?.length && !targets.actions.some((a) => matchesAction(a, request.action))) return null
+    if (targets.resources?.length && !targets.resources.some((r) => matchesResource(r, request.resource.type))) {
       return null
     }
     if (targets.roles?.length) {
@@ -249,7 +249,7 @@ export function iamEvaluatePolicyFast(
     }
   }
 
-  const idx = iamIndexPolicy(policy)
+  const idx = indexPolicy(policy)
   const action = request.action
   const resType = request.resource.type
 
@@ -264,8 +264,8 @@ export function iamEvaluatePolicyFast(
 
   // Literal buckets are matched by exact key only. Rules with `:*` / `.*`
   // suffixes live in `wildcardAny` and are checked there via `matchCandidate`
-  // -> `iamMatchesResource(Hierarchical)`.
-  const literalBuckets: IamEvaluate.IIndexedRule[][] = []
+  // -> `matchesResource(Hierarchical)`.
+  const literalBuckets: Evaluate.IIndexedRule[][] = []
   const exactAR = idx.byActionResource.get(`${action}\0${resType}`)
   if (exactAR) literalBuckets.push(exactAR)
   const wildcardAny = idx.wildcardAny
@@ -278,7 +278,7 @@ export function iamEvaluatePolicyFast(
       const bucket = literalBuckets[bi]!
       for (let i = 0; i < bucket.length; i++) {
         const entry = bucket[i]!
-        if (entry.hasConditions && !iamEvalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
+        if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
         if (entry.rule.effect === 'deny') return false
         hasAllow = true
       }
@@ -298,7 +298,7 @@ export function iamEvaluatePolicyFast(
       const bucket = literalBuckets[bi]!
       for (let i = 0; i < bucket.length; i++) {
         const entry = bucket[i]!
-        if (entry.hasConditions && !iamEvalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
+        if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
         if (entry.rule.effect === 'allow') return true
         hasDeny = true
       }
@@ -314,12 +314,12 @@ export function iamEvaluatePolicyFast(
 
   // first-match (priority-aware) + highest-priority share the scan loop.
   let bestPriority = -Infinity
-  let bestEffect: IamAccessControl.Effect | null = null
+  let bestEffect: AccessControl.Effect | null = null
   for (let bi = 0; bi < literalBuckets.length; bi++) {
     const bucket = literalBuckets[bi]!
     for (let i = 0; i < bucket.length; i++) {
       const entry = bucket[i]!
-      if (entry.hasConditions && !iamEvalConditionGroup(request, entry.rule.conditions)) continue
+      if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions)) continue
       if (entry.rule.priority > bestPriority) {
         bestPriority = entry.rule.priority
         bestEffect = entry.rule.effect
@@ -347,12 +347,12 @@ export function iamEvaluatePolicyFast(
  * @param onPolicyError Invoked when a single policy throws; offender treated as NotApplicable.
  * @returns `true` when the final verdict is allow, `false` otherwise.
  */
-export function iamEvaluateFast(
-  policies: IamAccessControl.IPolicy[],
+export function evaluateFast(
+  policies: AccessControl.IPolicy[],
   request: IamRequest.IAccessRequest,
-  defaultEffect: IamAccessControl.Effect = 'deny',
-  combine: IamAccessControl.PolicyCombine = 'and',
-  onPolicyError?: (err: Error, policy: IamAccessControl.IPolicy) => void,
+  defaultEffect: AccessControl.Effect = 'deny',
+  combine: AccessControl.PolicyCombine = 'and',
+  onPolicyError?: (err: Error, policy: AccessControl.IPolicy) => void,
   signals?: IEvalSignals,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
@@ -367,9 +367,9 @@ export function iamEvaluateFast(
    * poison the whole evaluation - treat the offending policy as NotApplicable
    * and route the error to `onPolicyError` so the operator can alert.
    */
-  const safeEval = (policy: IamAccessControl.IPolicy): boolean | null => {
+  const safeEval = (policy: AccessControl.IPolicy): boolean | null => {
     try {
-      return iamEvaluatePolicyFast(policy, request, defaultEffect, caches)
+      return evaluatePolicyFast(policy, request, defaultEffect, caches)
     } catch (err) {
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
       return null
@@ -409,7 +409,7 @@ export function iamEvaluateFast(
 }
 
 /**
- * Out-parameter shape for {@link iamEvaluateFast}. Callers pass an empty object;
+ * Out-parameter shape for {@link evaluateFast}. Callers pass an empty object;
  * the evaluator mutates fields as side-effects are observed. Useful for
  * metrics that need details the boolean return cannot carry.
  */

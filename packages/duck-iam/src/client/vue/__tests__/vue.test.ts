@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { IamClient } from '../../../core/types'
-import { IAM_ACCESS_INJECTION_KEY, createIamVueAccess } from '../index'
+import { createIamVueAccess, IAM_ACCESS_INJECTION_KEY } from '../index'
 
 type A = 'read' | 'create' | 'delete'
 type R = 'post'

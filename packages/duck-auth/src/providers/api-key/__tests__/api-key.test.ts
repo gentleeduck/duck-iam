@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256, authTimingSafeEqual } from '../../../core/crypto'
 import { AuthInMemoryEvents } from '../../../core/events'
 import { ApiKeysFacet } from '../../../core/facets/apikeys'
@@ -11,7 +11,7 @@ interface ProfileShape {
 }
 
 function buildContext() {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   const events = new AuthInMemoryEvents()
   const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 })
   return {
@@ -126,7 +126,7 @@ describe('api-key provider', () => {
 
   describe('tenant-boundary defense', () => {
     it('refuses to identify-confirm a tenant-bound key on a no-tenant request', async () => {
-      const adapter = new AuthMemoryAdapter<ProfileShape>()
+      const adapter = new MemoryAdapter<ProfileShape>()
       const events = new AuthInMemoryEvents()
       const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 })
       const ident = await adapter.identities.create(
@@ -157,7 +157,7 @@ describe('api-key provider', () => {
     })
 
     it('refuses to identify-confirm a tenant-A key on a tenant-B request', async () => {
-      const adapter = new AuthMemoryAdapter<ProfileShape>()
+      const adapter = new MemoryAdapter<ProfileShape>()
       const events = new AuthInMemoryEvents()
       const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 })
       const ident = await adapter.identities.create(
@@ -188,7 +188,7 @@ describe('api-key provider', () => {
     })
 
     it('still identifies-confirms a tenant-A key on a tenant-A request (happy path)', async () => {
-      const adapter = new AuthMemoryAdapter<ProfileShape>()
+      const adapter = new MemoryAdapter<ProfileShape>()
       const events = new AuthInMemoryEvents()
       const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 })
       const ident = await adapter.identities.create(

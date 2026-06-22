@@ -4,12 +4,12 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { allPolicies, allRoles } from '../access'
 import {
+  accounts,
+  documents,
   iamAssignments,
   iamPolicies,
   iamRoles,
   iamSubjectAttrs,
-  accounts,
-  documents,
   users,
   workspaceMembers,
   workspaces,

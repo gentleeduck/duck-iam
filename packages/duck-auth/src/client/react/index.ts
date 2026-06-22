@@ -27,7 +27,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { authCreateClient, type AuthVanillaClient } from '../vanilla'
+import { type AuthVanillaClient, authCreateClient } from '../vanilla'
 
 // --- context ----------------------------------------------------------
 
@@ -131,7 +131,10 @@ export function authUseSignOut(): AuthReactClient.IMutationResult<void, { ok: tr
 }
 
 /** `authUseBeginProvider`. */
-export function authUseBeginProvider(): AuthReactClient.IMutationResult<{ id: string; input?: unknown }, { body: unknown }> {
+export function authUseBeginProvider(): AuthReactClient.IMutationResult<
+  { id: string; input?: unknown },
+  { body: unknown }
+> {
   const { client } = useAuthCtx()
   return useMutation(({ id, input }) => client.beginProvider(id, input))
 }

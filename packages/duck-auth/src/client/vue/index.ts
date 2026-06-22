@@ -1,12 +1,14 @@
 /** Vue 3 plugin + composables; `vue` is an OPTIONAL peerDep resolved lazily. */
-import { authCreateClient, type AuthVanillaClient } from '../vanilla'
+import { type AuthVanillaClient, authCreateClient } from '../vanilla'
 
 /**
  * Build a Vue 3 plugin that installs the auth client + composables.
  * The returned object is plugin-shaped (`{ install }`) so it works
  * with `app.use(authPlugin)` from a `createApp` boot.
  */
-export function authCreateVuePlugin<Profile = unknown>(cfg: AuthVueClient.IPluginConfig<Profile> = {}): AuthVueClient.IPlugin {
+export function authCreateVuePlugin<Profile = unknown>(
+  cfg: AuthVueClient.IPluginConfig<Profile> = {},
+): AuthVueClient.IPlugin {
   const client = cfg.client ?? authCreateClient<Profile>(cfg)
   return {
     install(app: AuthVueClient.IApp): void {
@@ -35,7 +37,9 @@ function useAuthCtx<Profile = unknown>(): AuthVueClient.IInjected<Profile> {
   const vue = loadVueSync()
   const ctx = vue.inject(AUTH_VUE_KEY) as AuthVueClient.IInjected<Profile> | undefined
   if (!ctx) {
-    throw new Error('[@gentleduck/auth/client/vue] authUseSession / authUseSignIn requires app.use(authCreateVuePlugin(...))')
+    throw new Error(
+      '[@gentleduck/auth/client/vue] authUseSession / authUseSignIn requires app.use(authCreateVuePlugin(...))',
+    )
   }
   return ctx
 }

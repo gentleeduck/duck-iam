@@ -1,16 +1,17 @@
-import type { IamExplain } from '../../core/explain'
-import type { IamAccessControl, IamPrimitives } from '../../core/types'
+import type { Explain } from '../../core/explain'
+import type { AccessControl, IamPrimitives } from '../../core/types'
 
 export function formatAttrValue(value: IamPrimitives.AttributeValue | undefined): string {
   if (value === undefined) return '(undefined)'
   if (value === null) return 'null'
   if (typeof value === 'string') return JSON.stringify(value)
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (Array.isArray(value)) return `[${value.map((v) => formatAttrValue(v as IamPrimitives.AttributeValue)).join(', ')}]`
+  if (Array.isArray(value))
+    return `[${value.map((v) => formatAttrValue(v as IamPrimitives.AttributeValue)).join(', ')}]`
   return JSON.stringify(value)
 }
 
-export function effectColor(effect: IamAccessControl.Effect): string {
+export function effectColor(effect: AccessControl.Effect): string {
   return effect === 'allow' ? 'text-emerald-500' : 'text-rose-500'
 }
 
@@ -28,7 +29,7 @@ export function safeParseJson<T = unknown>(raw: string, fallback: T): { value: T
   }
 }
 
-export function summarizeTrace(trace: IamExplain.Trace): string {
+export function summarizeTrace(trace: Explain.Trace): string {
   if (trace.type === 'condition') {
     return `${trace.field} ${trace.operator} ${formatAttrValue(trace.expected)}`
   }
@@ -36,7 +37,7 @@ export function summarizeTrace(trace: IamExplain.Trace): string {
   return `${logic} (${trace.children.length})`
 }
 
-export function countConditions(trace: IamExplain.Trace): number {
+export function countConditions(trace: Explain.Trace): number {
   if (trace.type === 'condition') return 1
   return trace.children.reduce((sum, c) => sum + countConditions(c), 0)
 }

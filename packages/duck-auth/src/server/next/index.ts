@@ -1,6 +1,12 @@
 import type { AuthEngine } from '../../core/auth'
 import { authCsrfGuard } from '../../core/csrf'
-import { authErrorToHttp, authExecuteIntents, authIsValidProviderId, authParseProviderBeginBody, authParseSignInBody } from '../generic'
+import {
+  authErrorToHttp,
+  authExecuteIntents,
+  authIsValidProviderId,
+  authParseProviderBeginBody,
+  authParseSignInBody,
+} from '../generic'
 
 /** `authNextSignIn`. CSRF-guarded. */
 export function authNextSignIn(auth: AuthEngine): AuthNextAdapter.IHandler {

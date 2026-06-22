@@ -5,8 +5,8 @@
  */
 
 import type { IamLRUCache } from '../../shared/cache'
-import { iamResolveEffectiveRoles, iamRolesToPolicy } from '../rbac'
-import type { IamAccessControl, IamAdapter, IamRequest } from '../types'
+import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
+import type { AccessControl, IamAdapter, IamRequest } from '../types'
 import type { IEngineInFlightBag } from './engine.invalidation'
 import { deepFreezePolicy, runSingleFlight, runSingleFlightKeyed } from './engine.libs'
 
@@ -17,10 +17,10 @@ export interface IIamLoaderDeps<
   TScope extends string,
 > {
   adapter: IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
-  policyCache: IamLRUCache<IamAccessControl.IPolicy[]>
-  roleCache: IamLRUCache<IamAccessControl.IRole[]>
-  rbacPolicyCache: IamLRUCache<IamAccessControl.IPolicy>
-  mergedPolicyCache: IamLRUCache<IamAccessControl.IPolicy[]>
+  policyCache: IamLRUCache<AccessControl.IPolicy[]>
+  roleCache: IamLRUCache<AccessControl.IRole[]>
+  rbacPolicyCache: IamLRUCache<AccessControl.IPolicy>
+  mergedPolicyCache: IamLRUCache<AccessControl.IPolicy[]>
   subjectCache: IamLRUCache<IamRequest.ISubject>
   inFlight: IEngineInFlightBag
   maxPolicies: number
@@ -33,7 +33,7 @@ export async function loadPolicies<
   TResource extends string,
   TRole extends string,
   TScope extends string,
->(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<IamAccessControl.IPolicy[]> {
+>(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<AccessControl.IPolicy[]> {
   const cached = deps.policyCache.get('all')
   if (cached) return cached
   if (deps.inFlight.policies.value) return deps.inFlight.policies.value
@@ -62,7 +62,7 @@ export async function loadRoles<
   TResource extends string,
   TRole extends string,
   TScope extends string,
->(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<IamAccessControl.IRole[]> {
+>(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<AccessControl.IRole[]> {
   const cached = deps.roleCache.get('all')
   if (cached) return cached
   if (deps.inFlight.roles.value) return deps.inFlight.roles.value
@@ -105,7 +105,7 @@ export async function resolveSubject<
         deps.withTimeout((opts) => deps.adapter.getSubjectAttributes(subjectId, opts), 'getSubjectAttributes'),
         loadRoles(deps),
       ])
-      const roles = iamResolveEffectiveRoles(assignedRoles, allRoles)
+      const roles = resolveEffectiveRoles(assignedRoles, allRoles)
       const scopedRolesFn = deps.adapter.getSubjectScopedRoles
       const scopedRoles = scopedRolesFn
         ? await deps.withTimeout((opts) => scopedRolesFn.call(deps.adapter, subjectId, opts), 'getSubjectScopedRoles')
@@ -124,7 +124,7 @@ export async function loadRbacPolicy<
   TResource extends string,
   TRole extends string,
   TScope extends string,
->(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<IamAccessControl.IPolicy> {
+>(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<AccessControl.IPolicy> {
   const cached = deps.rbacPolicyCache.get('rbac')
   if (cached) return cached
   if (deps.inFlight.rbac.value) return deps.inFlight.rbac.value
@@ -135,7 +135,7 @@ export async function loadRbacPolicy<
     },
     async () => {
       const roles = await loadRoles(deps)
-      return deepFreezePolicy(iamRolesToPolicy(roles))
+      return deepFreezePolicy(rolesToPolicy(roles))
     },
     (built) => {
       deps.rbacPolicyCache.set('rbac', built)
@@ -148,7 +148,7 @@ export async function loadAllPolicies<
   TResource extends string,
   TRole extends string,
   TScope extends string,
->(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<IamAccessControl.IPolicy[]> {
+>(deps: IIamLoaderDeps<TAction, TResource, TRole, TScope>): Promise<AccessControl.IPolicy[]> {
   const cached = deps.mergedPolicyCache.get('merged')
   if (cached) return cached
   if (deps.inFlight.merged.value) return deps.inFlight.merged.value

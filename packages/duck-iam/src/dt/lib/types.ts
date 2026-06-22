@@ -1,5 +1,5 @@
-import type { IamExplain } from '../../core/explain'
-import type { IamAccessControl, IamPrimitives } from '../../core/types'
+import type { Explain } from '../../core/explain'
+import type { AccessControl, IamPrimitives } from '../../core/types'
 import type { IamMetrics } from '../../observability/metrics'
 
 /**
@@ -18,14 +18,14 @@ export interface IamIDevtoolsEngine {
     action: string,
     resource: { type: string; id?: string; attributes?: Record<string, IamPrimitives.AttributeValue> },
     environment?: Record<string, unknown>,
-  ): Promise<IamExplain.IResult>
+  ): Promise<Explain.IResult>
   stats(): Record<string, { hits: number; misses: number; size: number }>
   resetStats(): void
   admin: {
-    listPolicies(): Promise<IamAccessControl.IPolicy[]>
-    listRoles(): Promise<IamAccessControl.IRole[]>
-    getPolicy(id: string): Promise<IamAccessControl.IPolicy | null>
-    getRole(id: string): Promise<IamAccessControl.IRole | null>
+    listPolicies(): Promise<AccessControl.IPolicy[]>
+    listRoles(): Promise<AccessControl.IRole[]>
+    getPolicy(id: string): Promise<AccessControl.IPolicy | null>
+    getRole(id: string): Promise<AccessControl.IRole | null>
     assignRole(subjectId: string, roleId: string, scope?: string): Promise<void>
     revokeRole(subjectId: string, roleId: string, scope?: string): Promise<void>
     setAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>

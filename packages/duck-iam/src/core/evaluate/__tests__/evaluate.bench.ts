@@ -1,10 +1,10 @@
 import { bench, describe } from 'vitest'
-import type { IamAccessControl, IamRequest } from '../../types'
-import { iamEvaluate, iamEvaluateFast, iamEvaluatePolicyFast } from '../evaluate'
-import { iamIndexPolicy } from '../evaluate.libs'
+import type { AccessControl, IamRequest } from '../../types'
+import { evaluate, evaluateFast, evaluatePolicyFast } from '../evaluate'
+import { indexPolicy } from '../evaluate.libs'
 
-function buildPolicy(numRules: number, withConditions: boolean): IamAccessControl.IPolicy {
-  const rules: IamAccessControl.IRule[] = []
+function buildPolicy(numRules: number, withConditions: boolean): AccessControl.IPolicy {
+  const rules: AccessControl.IRule[] = []
   const actions = ['read', 'create', 'update', 'delete', 'manage']
   const resources = ['post', 'comment', 'user', 'org', 'org:project']
   for (let i = 0; i < numRules; i++) {
@@ -35,48 +35,48 @@ describe('evaluatePolicyFast', () => {
   const conditional = buildPolicy(50, true)
 
   bench('5 rules, unconditional', () => {
-    iamEvaluatePolicyFast(tiny, req)
+    evaluatePolicyFast(tiny, req)
   })
 
   bench('50 rules, unconditional', () => {
-    iamEvaluatePolicyFast(medium, req)
+    evaluatePolicyFast(medium, req)
   })
 
   bench('500 rules, unconditional', () => {
-    iamEvaluatePolicyFast(large, req)
+    evaluatePolicyFast(large, req)
   })
 
   bench('50 rules with conditions', () => {
-    iamEvaluatePolicyFast(conditional, req)
+    evaluatePolicyFast(conditional, req)
   })
 })
 
-describe('iamIndexPolicy (cache hit)', () => {
+describe('indexPolicy (cache hit)', () => {
   const policy = buildPolicy(100, false)
   // Warm the cache once.
-  iamIndexPolicy(policy)
+  indexPolicy(policy)
 
   bench('cache hit', () => {
-    iamIndexPolicy(policy)
+    indexPolicy(policy)
   })
 })
 
-describe('iamIndexPolicy (cold build)', () => {
+describe('indexPolicy (cold build)', () => {
   bench('100 rules cold build', () => {
     // Use a fresh policy object each invocation to defeat the WeakMap cache.
-    iamIndexPolicy(buildPolicy(100, false))
+    indexPolicy(buildPolicy(100, false))
   })
 })
 
-describe('evaluate vs iamEvaluateFast', () => {
+describe('evaluate vs evaluateFast', () => {
   const policies = [buildPolicy(50, false)]
 
   bench('evaluate (trace path)', () => {
-    iamEvaluate(policies, req)
+    evaluate(policies, req)
   })
 
   bench('evaluateFast (production path)', () => {
-    iamEvaluateFast(policies, req)
+    evaluateFast(policies, req)
   })
 })
 
@@ -84,10 +84,10 @@ describe('cross-policy combine', () => {
   const policies = Array.from({ length: 10 }, () => buildPolicy(20, false))
 
   bench('combine=and x 10 policies', () => {
-    iamEvaluateFast(policies, req, 'deny', 'and')
+    evaluateFast(policies, req, 'deny', 'and')
   })
 
   bench('combine=allow-overrides x 10 policies', () => {
-    iamEvaluateFast(policies, req, 'deny', 'allow-overrides')
+    evaluateFast(policies, req, 'deny', 'allow-overrides')
   })
 })

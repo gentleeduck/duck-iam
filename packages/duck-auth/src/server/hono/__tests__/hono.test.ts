@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/auth'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../../../providers/password'
@@ -12,7 +12,7 @@ interface MyProfile {
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -22,7 +22,7 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   auth.providers.register(
     authPassword<MyProfile>({
@@ -104,7 +104,9 @@ describe('Hono adapter - end-to-end', () => {
     const sidMatch = signinRes.headers.get('set-cookie')?.match(/^duck-sid=([^;]+)/)
     const sid = sidMatch ? decodeURIComponent(sidMatch[1] ?? '') : ''
 
-    const sessRes = await authHonoSession(auth)(makeCtx('GET', '/auth/session', { headers: { cookie: `duck-sid=${sid}` } }))
+    const sessRes = await authHonoSession(auth)(
+      makeCtx('GET', '/auth/session', { headers: { cookie: `duck-sid=${sid}` } }),
+    )
     expect(sessRes.status).toBe(200)
     const body = (await sessRes.json()) as { identity: { id: string } | null }
     expect(body.identity?.id).toBe(identity.id)

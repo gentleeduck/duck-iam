@@ -10,10 +10,10 @@ describe('Integration: config -> engine -> evaluate', () => {
     scopes: ['org-1', 'org-2'] as const,
   })
 
-  const viewer = access.iamDefineRole('viewer').name('Viewer').grantRead('post', 'comment').build()
+  const viewer = access.defineRole('viewer').name('Viewer').grantRead('post', 'comment').build()
 
   const editor = access
-    .iamDefineRole('editor')
+    .defineRole('editor')
     .name('Editor')
     .inherits('viewer')
     .grant('create', 'post')
@@ -22,7 +22,7 @@ describe('Integration: config -> engine -> evaluate', () => {
     .build()
 
   const admin = access
-    .iamDefineRole('admin')
+    .defineRole('admin')
     .name('Admin')
     .inherits('editor')
     .grantCRUD('post')
@@ -97,7 +97,7 @@ describe('Integration: config -> engine -> evaluate', () => {
     // A deny-overrides policy that only targets delete+post and has both
     // a conditional deny and a fallback allow
     const denyDraftPolicy = access
-      .iamDefinePolicy('deny-draft-delete')
+      .definePolicy('deny-draft-delete')
       .name('No deleting drafts')
       .algorithm('deny-overrides')
       .target({ actions: ['delete'], resources: ['post'] })
@@ -137,8 +137,8 @@ describe('Integration: config -> engine -> evaluate', () => {
     ).toBe(false)
   })
 
-  it('iamValidateRoles detects issues in role definitions', () => {
-    const result = access.iamValidateRoles([viewer, editor, admin])
+  it('validateRoles detects issues in role definitions', () => {
+    const result = access.validateRoles([viewer, editor, admin])
     expect(result.valid).toBe(true)
     expect(result.issues.filter((i) => i.type === 'error')).toHaveLength(0)
   })
@@ -146,7 +146,7 @@ describe('Integration: config -> engine -> evaluate', () => {
   describe('admin write-path validation', () => {
     const adapter = () => new IamMemoryAdapter({ roles: [viewer], assignments: {} })
 
-    it('savePolicy throws when iamValidatePolicy reports errors', async () => {
+    it('savePolicy throws when validatePolicy reports errors', async () => {
       const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
       await expect(
         engine.admin.savePolicy({
@@ -158,7 +158,7 @@ describe('Integration: config -> engine -> evaluate', () => {
       ).rejects.toThrow(/policy rejected by validator/)
     })
 
-    it('saveRole throws when iamValidateRole reports errors', async () => {
+    it('saveRole throws when validateRole reports errors', async () => {
       const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
       await expect(engine.admin.saveRole({ id: '', permissions: [] } as never)).rejects.toThrow(
         /role rejected by validator/,

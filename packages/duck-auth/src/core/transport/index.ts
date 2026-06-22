@@ -1,5 +1,5 @@
 export { AuthBearerTransport } from './bearer'
 export { AuthCompositeTransport } from './composite'
 export { AuthCookieTransport } from './cookie'
-export { authBindPayloadToDPoP, authComputeJwkThumbprint, AuthDPoPVerifier, AuthMemoryDPoPNonceStore } from './dpop'
+export { AuthDPoPVerifier, AuthMemoryDPoPNonceStore, authBindPayloadToDPoP, authComputeJwkThumbprint } from './dpop'
 export { AuthJwtTransport } from './jwt'

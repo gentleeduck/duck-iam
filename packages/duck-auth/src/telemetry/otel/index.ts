@@ -204,7 +204,10 @@ export namespace AuthOtelInstrumentation {
 
   export interface IMeter {
     createCounter(name: string, options?: { description?: string; unit?: string }): AuthOtelInstrumentation.ICounter
-    createUpDownCounter(name: string, options?: { description?: string; unit?: string }): AuthOtelInstrumentation.ICounter
+    createUpDownCounter(
+      name: string,
+      options?: { description?: string; unit?: string },
+    ): AuthOtelInstrumentation.ICounter
     createHistogram(name: string, options?: { description?: string; unit?: string }): AuthOtelInstrumentation.IHistogram
   }
 

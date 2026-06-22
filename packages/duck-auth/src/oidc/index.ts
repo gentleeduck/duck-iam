@@ -60,7 +60,10 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.IConfig): AuthOidc
  * factory that produces the JSON body + a JWKS body the adapter can
  * mount under `/.well-known/jwks.json` directly.
  */
-export function authBuildOidcRoutes(opts: { config: AuthOidcDiscovery.IConfig; transport: AuthOidcDiscovery.IJwtTransport }): {
+export function authBuildOidcRoutes(opts: {
+  config: AuthOidcDiscovery.IConfig
+  transport: AuthOidcDiscovery.IJwtTransport
+}): {
   discovery: AuthOidcDiscovery.IDocument
   jwks: { keys: Array<Record<string, unknown>> }
 } {

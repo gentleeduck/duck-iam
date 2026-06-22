@@ -3,7 +3,7 @@ import { AuthErrorObject } from '../../../core/errors'
 import type { AuthProvider } from '../../../core/types/provider'
 import type { AuthOAuthClient } from './client'
 import { authGeneratePkce } from './pkce'
-import { authBuildState, signState, authVerifyState } from './state'
+import { authBuildState, authVerifyState, signState } from './state'
 
 export namespace AuthOAuthProvider {
   /**

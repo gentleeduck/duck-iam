@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { AuthScryptHasher } from '../scrypt'
+import { ScryptHasher } from '../scrypt'
 
-describe('AuthScryptHasher', () => {
+describe('ScryptHasher', () => {
   // Cheap params so the suite runs in <1s on CI.
-  const fast = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+  const fast = new ScryptHasher({ N: 1 << 10, keylen: 32 })
 
   it('hash output is self-describing with scrypt$ prefix', async () => {
     const h = await fast.hash('correct horse battery staple')
@@ -35,8 +35,8 @@ describe('AuthScryptHasher', () => {
   })
 
   it('needsRehash returns true for an older parameter set', async () => {
-    const older = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
-    const newer = new AuthScryptHasher({ N: 1 << 12, keylen: 32 })
+    const older = new ScryptHasher({ N: 1 << 10, keylen: 32 })
+    const newer = new ScryptHasher({ N: 1 << 12, keylen: 32 })
     const h = await older.hash('pw')
     expect(newer.needsRehash(h)).toBe(true)
     expect(older.needsRehash(h)).toBe(false)

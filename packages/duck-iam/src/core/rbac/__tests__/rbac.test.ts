@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { IamAccessControl } from '../../types'
-import type { IAM_MAX_INHERITANCE_DEPTH } from '../rbac'
-import { iamResolveEffectiveRoles, iamRolesToPolicy } from '../rbac'
+import type { AccessControl } from '../../types'
+import type { MAX_INHERITANCE_DEPTH } from '../rbac'
+import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 
-const viewer: IamAccessControl.IRole = {
+const viewer: AccessControl.IRole = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [
@@ -12,7 +12,7 @@ const viewer: IamAccessControl.IRole = {
   ],
 }
 
-const editor: IamAccessControl.IRole = {
+const editor: AccessControl.IRole = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -22,72 +22,72 @@ const editor: IamAccessControl.IRole = {
   ],
 }
 
-const admin: IamAccessControl.IRole = {
+const admin: AccessControl.IRole = {
   id: 'admin',
   name: 'Admin',
   inherits: ['editor'],
   permissions: [{ action: 'manage', resource: '*' }],
 }
 
-const scopedEditor: IamAccessControl.IRole = {
+const scopedEditor: AccessControl.IRole = {
   id: 'org-editor',
   name: 'Org Editor',
   scope: 'org-1',
   permissions: [{ action: 'update', resource: 'post' }],
 }
 
-describe('iamResolveEffectiveRoles()', () => {
+describe('resolveEffectiveRoles()', () => {
   const allRoles = [viewer, editor, admin]
 
   it('returns the assigned role itself', () => {
-    expect(iamResolveEffectiveRoles(['viewer'], allRoles)).toContain('viewer')
+    expect(resolveEffectiveRoles(['viewer'], allRoles)).toContain('viewer')
   })
 
   it('includes inherited roles', () => {
-    const effective = iamResolveEffectiveRoles(['editor'], allRoles)
+    const effective = resolveEffectiveRoles(['editor'], allRoles)
     expect(effective).toContain('editor')
     expect(effective).toContain('viewer')
   })
 
   it('resolves deeply nested inheritance', () => {
-    const effective = iamResolveEffectiveRoles(['admin'], allRoles)
+    const effective = resolveEffectiveRoles(['admin'], allRoles)
     expect(effective).toContain('admin')
     expect(effective).toContain('editor')
     expect(effective).toContain('viewer')
   })
 
   it('handles unknown roles gracefully', () => {
-    const effective = iamResolveEffectiveRoles(['nonexistent'], allRoles)
+    const effective = resolveEffectiveRoles(['nonexistent'], allRoles)
     expect(effective).toContain('nonexistent')
     expect(effective).toHaveLength(1)
   })
 
   it('handles circular inheritance', () => {
-    const circA: IamAccessControl.IRole = { id: 'a', name: 'A', inherits: ['b'], permissions: [] }
-    const circB: IamAccessControl.IRole = { id: 'b', name: 'B', inherits: ['a'], permissions: [] }
-    const effective = iamResolveEffectiveRoles(['a'], [circA, circB])
+    const circA: AccessControl.IRole = { id: 'a', name: 'A', inherits: ['b'], permissions: [] }
+    const circB: AccessControl.IRole = { id: 'b', name: 'B', inherits: ['a'], permissions: [] }
+    const effective = resolveEffectiveRoles(['a'], [circA, circB])
     expect(effective).toContain('a')
     expect(effective).toContain('b')
     // should not hang or throw
   })
 
   it('deduplicates roles', () => {
-    const effective = iamResolveEffectiveRoles(['admin', 'editor'], allRoles)
+    const effective = resolveEffectiveRoles(['admin', 'editor'], allRoles)
     const unique = [...new Set(effective)]
     expect(effective.length).toBe(unique.length)
   })
 })
 
-describe('iamRolesToPolicy()', () => {
+describe('rolesToPolicy()', () => {
   it('converts roles into a policy with rules', () => {
-    const policy = iamRolesToPolicy([viewer])
+    const policy = rolesToPolicy([viewer])
     expect(policy.id).toBe('__rbac__')
     expect(policy.algorithm).toBe('allow-overrides')
     expect(policy.rules).toHaveLength(2) // viewer has 2 permissions: read post, read comment
   })
 
   it('each permission becomes a rule with role membership condition', () => {
-    const policy = iamRolesToPolicy([viewer])
+    const policy = rolesToPolicy([viewer])
     for (const rule of policy.rules) {
       expect(rule.effect).toBe('allow')
       // Each rule should require subject.roles contains the role id
@@ -100,7 +100,7 @@ describe('iamRolesToPolicy()', () => {
   })
 
   it('inherits parent permissions', () => {
-    const policy = iamRolesToPolicy([viewer, editor])
+    const policy = rolesToPolicy([viewer, editor])
     // Editor's emitted rules carry "Editor:" in their description; inherited
     // viewer perms are emitted as separate rules under "Editor" because
     // collectPermissions flattens parent-first.
@@ -112,7 +112,7 @@ describe('iamRolesToPolicy()', () => {
   })
 
   it('adds scope condition for scoped roles', () => {
-    const policy = iamRolesToPolicy([scopedEditor])
+    const policy = rolesToPolicy([scopedEditor])
     const rules = policy.rules.filter((r) => r.description?.startsWith('Org Editor:'))
     expect(rules.length).toBe(1)
 
@@ -124,20 +124,20 @@ describe('iamRolesToPolicy()', () => {
   })
 
   it('wildcard scope does not add scope condition', () => {
-    const globalRole: IamAccessControl.IRole = {
+    const globalRole: AccessControl.IRole = {
       id: 'global',
       name: 'Global',
       scope: '*',
       permissions: [{ action: 'read', resource: 'post' }],
     }
-    const policy = iamRolesToPolicy([globalRole])
+    const policy = rolesToPolicy([globalRole])
     const conditions = 'all' in policy.rules[0]!.conditions ? policy.rules[0]!.conditions.all : []
     const hasScopeCheck = conditions.some((c) => 'field' in c && c.field === 'scope')
     expect(hasScopeCheck).toBe(false)
   })
 
   it('permission-level conditions are merged into the rule', () => {
-    const condRole: IamAccessControl.IRole = {
+    const condRole: AccessControl.IRole = {
       id: 'cond-role',
       name: 'Conditional',
       permissions: [
@@ -150,7 +150,7 @@ describe('iamRolesToPolicy()', () => {
         },
       ],
     }
-    const policy = iamRolesToPolicy([condRole])
+    const policy = rolesToPolicy([condRole])
     const rule = policy.rules[0]!
     const conditions = 'all' in rule.conditions ? rule.conditions.all : []
     // Should have role condition + owner condition
@@ -164,18 +164,18 @@ describe('rule id stability', () => {
   // IamAdapter ETags and external caches key on `rule.id`. Lock the format so
   // any change is intentional and shows up as a failing test.
   it('emits ids in the `__rbac__#N` shape', () => {
-    const policy = iamRolesToPolicy([viewer])
+    const policy = rolesToPolicy([viewer])
     expect(policy.rules.map((r) => r.id)).toEqual(['__rbac__#0', '__rbac__#1'])
   })
 
   it('produces identical id sequence for identical input on repeated calls', () => {
-    const a = iamRolesToPolicy([viewer, editor]).rules.map((r) => r.id)
-    const b = iamRolesToPolicy([viewer, editor]).rules.map((r) => r.id)
+    const a = rolesToPolicy([viewer, editor]).rules.map((r) => r.id)
+    const b = rolesToPolicy([viewer, editor]).rules.map((r) => r.id)
     expect(a).toEqual(b)
   })
 
   it('emits unique ids even when role / action / resource names contain dots', () => {
-    const dotted: IamAccessControl.IRole = {
+    const dotted: AccessControl.IRole = {
       id: 'org.admin',
       name: 'Org Admin',
       permissions: [
@@ -183,15 +183,15 @@ describe('rule id stability', () => {
         { action: 'post.delete', resource: 'dashboard.users' },
       ],
     }
-    const ids = iamRolesToPolicy([dotted]).rules.map((r) => r.id)
+    const ids = rolesToPolicy([dotted]).rules.map((r) => r.id)
     expect(new Set(ids).size).toBe(ids.length)
   })
 })
 
 describe('inheritance-depth bound', () => {
-  it('iamResolveEffectiveRoles returns without throwing on a 1000-deep linear chain', () => {
+  it('resolveEffectiveRoles returns without throwing on a 1000-deep linear chain', () => {
     // Bound at 32 means traversal stops cleanly; we only assert no stack overflow / no hang.
-    const roles: IamAccessControl.IRole[] = []
+    const roles: AccessControl.IRole[] = []
     for (let i = 0; i < 1000; i++) {
       roles.push({
         id: `r${i}`,
@@ -200,8 +200,8 @@ describe('inheritance-depth bound', () => {
         ...(i > 0 ? { inherits: [`r${i - 1}`] } : {}),
       })
     }
-    const effective = iamResolveEffectiveRoles(['r999'], roles)
-    // Walk stops at IAM_MAX_INHERITANCE_DEPTH=32 deep from the start role.
+    const effective = resolveEffectiveRoles(['r999'], roles)
+    // Walk stops at MAX_INHERITANCE_DEPTH=32 deep from the start role.
     expect(effective.length).toBeLessThanOrEqual(34)
     expect(effective.length).toBeGreaterThan(1)
   })

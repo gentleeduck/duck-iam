@@ -12,9 +12,9 @@ describe('IamMemoryAdapter direct-call input shape', () => {
 
   it('rejects an array attrs value', async () => {
     const adapter = new IamMemoryAdapter<string, string, string, string>()
-    await expect(adapter.setSubjectAttributes('user-1', [1, 2, 3] as unknown as IamPrimitives.Attributes)).rejects.toThrow(
-      /attributes for "user-1" must be a plain object \(got array\)/,
-    )
+    await expect(
+      adapter.setSubjectAttributes('user-1', [1, 2, 3] as unknown as IamPrimitives.Attributes),
+    ).rejects.toThrow(/attributes for "user-1" must be a plain object \(got array\)/)
   })
 
   it('rejects a null attrs value', async () => {
@@ -49,7 +49,9 @@ describe('IamMemoryAdapter direct-call input shape', () => {
     const adapter = new IamMemoryAdapter<string, string, string, string>()
     await adapter.setSubjectAttributes('user-1', { tier: 'gold' })
     const before = await adapter.getSubjectAttributes('user-1')
-    await expect(adapter.setSubjectAttributes('user-1', 'attack' as unknown as IamPrimitives.Attributes)).rejects.toThrow()
+    await expect(
+      adapter.setSubjectAttributes('user-1', 'attack' as unknown as IamPrimitives.Attributes),
+    ).rejects.toThrow()
     const after = await adapter.getSubjectAttributes('user-1')
     expect(after).toEqual(before)
   })

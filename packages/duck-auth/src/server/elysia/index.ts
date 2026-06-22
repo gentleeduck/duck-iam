@@ -12,7 +12,13 @@
  */
 
 import type { AuthEngine } from '../../core/auth'
-import { authErrorToHttp, authExecuteIntents, authIsValidProviderId, authParseProviderBeginBody, authParseSignInBody } from '../generic'
+import {
+  authErrorToHttp,
+  authExecuteIntents,
+  authIsValidProviderId,
+  authParseProviderBeginBody,
+  authParseSignInBody,
+} from '../generic'
 
 function handleError(err: unknown): Response {
   const { status, body } = authErrorToHttp(err)

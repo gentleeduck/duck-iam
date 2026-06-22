@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { IamEngine } from '../../../core'
-import type { IamAccessControl, IamAdapter } from '../../../core/types'
+import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { type IamRedis, IamRedisAdapter } from '../index'
 
@@ -103,7 +103,7 @@ describe('IamRedisAdapter', () => {
   })
 
   describe('IamAdapter.IPolicyStore', () => {
-    const policy: IamAccessControl.IPolicy<A, R, Ro> = {
+    const policy: AccessControl.IPolicy<A, R, Ro> = {
       id: 'p1',
       name: 'Test',
       description: 'desc',
@@ -155,7 +155,7 @@ describe('IamRedisAdapter', () => {
   })
 
   describe('IamAdapter.IRoleStore', () => {
-    const role: IamAccessControl.IRole<A, R, Ro, S> = {
+    const role: AccessControl.IRole<A, R, Ro, S> = {
       id: 'editor',
       name: 'Editor',
       description: 'Can edit',

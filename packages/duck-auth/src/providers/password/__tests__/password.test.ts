@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/auth'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../index'
@@ -12,10 +12,10 @@ interface MyProfile {
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
-  adapter: AuthMemoryAdapter<MyProfile>
+  adapter: MemoryAdapter<MyProfile>
 } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
-  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+  const adapter = new MemoryAdapter<MyProfile>()
+  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -38,7 +38,7 @@ function buildAuth(): {
 
 describe('password provider - end-to-end sign-in', () => {
   let auth: AuthEngine<MyProfile>
-  let adapter: AuthMemoryAdapter<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
 
   beforeEach(() => {
     ;({ auth, adapter } = buildAuth())

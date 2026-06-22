@@ -128,7 +128,11 @@ export async function authRefreshOauthToken(opts: {
   return { tokens: fresh, identityId: row.identityId, familyId: meta.familyId }
 }
 
-async function revokeFamily(credentials: AuthCredential.IStore, ctx: AuthTenantContext, familyId: string): Promise<void> {
+async function revokeFamily(
+  credentials: AuthCredential.IStore,
+  ctx: AuthTenantContext,
+  familyId: string,
+): Promise<void> {
   // Reflect.get + typeof: avoids a runtime-incorrect `as Store & {__familyRevoke?}` shape.
   const method: unknown = Reflect.get(credentials, '__familyRevoke')
   if (typeof method !== 'function') return

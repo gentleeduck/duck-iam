@@ -1,10 +1,10 @@
-export { iamExplainEvaluation } from './explain'
-export type { IamExplain } from './explain.types'
+export { explainEvaluation } from './explain'
+export type { Explain } from './explain.types'
 
 /**
  * Escape a value-derived string for safe inclusion in HTML.
  *
- * `IamExplain.IResult.summary` and condition-leaf `actual` / `expected` strings
+ * `Explain.IResult.summary` and condition-leaf `actual` / `expected` strings
  * carry operator-supplied policy names and request-attribute values verbatim.
  * If a consumer renders the explain trace into a debug panel, run those
  * untrusted strings through this helper first. Returns the same input with
@@ -13,7 +13,7 @@ export type { IamExplain } from './explain.types'
  * @param s - Untrusted string from explain output.
  * @returns HTML-safe escaped string.
  */
-export function iamEscapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

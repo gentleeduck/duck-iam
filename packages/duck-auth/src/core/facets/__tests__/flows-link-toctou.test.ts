@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../auth'
-import { AuthScryptHasher } from '../../password/scrypt'
+import { ScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
 
 interface ProfileShape {
@@ -10,7 +10,7 @@ interface ProfileShape {
 }
 
 function build() {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'https://app.test',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -20,14 +20,14 @@ function build() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
   let auth: AuthEngine<ProfileShape>
-  let adapter: AuthMemoryAdapter<ProfileShape>
+  let adapter: MemoryAdapter<ProfileShape>
   let identityA: string
   let identityB: string
 
@@ -109,7 +109,11 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
       {},
     )
     await expect(
-      adapter.identities.link(identityB, { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: Date.now() }, {}),
+      adapter.identities.link(
+        identityB,
+        { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: Date.now() },
+        {},
+      ),
     ).rejects.toMatchObject({
       code: 'AUTH/PROVIDER_FAILED',
       meta: { detail: 'provider sub already linked to a different identity' },

@@ -1,5 +1,5 @@
 import React from 'react'
-import type { IamExplain } from '../../core/explain'
+import type { Explain } from '../../core/explain'
 import type { IamPrimitives } from '../../core/types'
 import { Spinner } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
@@ -27,7 +27,7 @@ export function IamDecisionInspector({
   defaults?: Partial<IamIDecisionInput>
 }) {
   const [input, setInput] = React.useState<IamIDecisionInput>({ ...INITIAL, ...defaults })
-  const [result, setResult] = React.useState<IamExplain.IResult | null>(null)
+  const [result, setResult] = React.useState<Explain.IResult | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
 

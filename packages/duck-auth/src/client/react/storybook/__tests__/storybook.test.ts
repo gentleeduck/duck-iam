@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { authCreateMockClient, type AuthStorybook, authWithStorybook } from '../index'
+import { type AuthStorybook, authCreateMockClient, authWithStorybook } from '../index'
 
 describe('storybook authWithStorybook decorator', () => {
   it('authCreateMockClient resolves getSession with the configured state', async () => {

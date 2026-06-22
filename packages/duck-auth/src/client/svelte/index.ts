@@ -1,5 +1,5 @@
 /** Svelte client - exposes the vanilla AuthClient as duck-typed `Readable` stores. */
-import { authCreateClient, type AuthVanillaClient } from '../vanilla'
+import { type AuthVanillaClient, authCreateClient } from '../vanilla'
 
 /**
  * Build a Svelte-compatible auth store + signIn/signOut actions.

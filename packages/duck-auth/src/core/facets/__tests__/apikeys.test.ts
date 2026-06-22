@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256 } from '../../crypto'
 import { AuthInMemoryEvents } from '../../events'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../apikeys'
 
 describe('ApiKeysFacet', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let events: AuthInMemoryEvents
   let facet: ApiKeysFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
+    adapter = new MemoryAdapter()
     events = new AuthInMemoryEvents()
     facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 }, DEFAULT_APIKEYS_CONFIG)
   })

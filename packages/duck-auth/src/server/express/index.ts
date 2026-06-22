@@ -42,7 +42,11 @@ export const authToHeaders: (headers: AuthExpressAdapter.IRequest['headers']) =>
  * Web-Fetch executor in `server/generic` but writes directly into
  * Express's mutable response object.
  */
-export function authApplyIntents(intents: AuthProvider.Intent[], res: AuthExpressAdapter.IResponse, baseStatus = 200): void {
+export function authApplyIntents(
+  intents: AuthProvider.Intent[],
+  res: AuthExpressAdapter.IResponse,
+  baseStatus = 200,
+): void {
   let status = baseStatus
   let body: unknown = null
   let hasBody = false

@@ -1,10 +1,10 @@
 import React from 'react'
-import type { IamExplain } from '../../core/explain'
+import type { Explain } from '../../core/explain'
 import { ArrowRight, ChevronDown, ChevronRight } from '../components/icons'
 import { Badge } from '../components/ui'
 import { formatAttrValue, summarizeTrace } from '../lib/format'
 
-function LeafNode({ leaf }: { leaf: IamExplain.ILeafTrace }) {
+function LeafNode({ leaf }: { leaf: Explain.ILeafTrace }) {
   return (
     <div className="iam-dt-trace__row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
       <div className="iam-dt-row">
@@ -27,7 +27,7 @@ function LeafNode({ leaf }: { leaf: IamExplain.ILeafTrace }) {
   )
 }
 
-function GroupNode({ group, depth = 0 }: { group: IamExplain.IGroupTrace; depth?: number }) {
+function GroupNode({ group, depth = 0 }: { group: Explain.IGroupTrace; depth?: number }) {
   const [open, setOpen] = React.useState(depth < 2)
   return (
     <div className="iam-dt-trace__group">
@@ -53,7 +53,7 @@ function GroupNode({ group, depth = 0 }: { group: IamExplain.IGroupTrace; depth?
   )
 }
 
-function RuleTrace({ rule }: { rule: IamExplain.IRuleTrace }) {
+function RuleTrace({ rule }: { rule: Explain.IRuleTrace }) {
   const [open, setOpen] = React.useState(rule.matched)
   return (
     <div className="iam-dt-trace__group">
@@ -80,7 +80,7 @@ function RuleTrace({ rule }: { rule: IamExplain.IRuleTrace }) {
   )
 }
 
-export function IamTraceTree({ result }: { result: IamExplain.IResult }) {
+export function IamTraceTree({ result }: { result: Explain.IResult }) {
   return (
     <div className="iam-dt-col">
       <div className="iam-dt-trace__row">

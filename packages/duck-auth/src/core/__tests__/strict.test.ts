@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../adapters/memory'
+import { MemoryAdapter } from '../../adapters/memory'
 import { AuthMemoryLimiter } from '../../limiters/memory'
 import { AuthEngine } from '../auth'
 import { AuthCookieTransport } from '../transport/cookie'
@@ -16,7 +16,7 @@ function makeAuth(
     lockoutHandler: boolean
   }> = {},
 ) {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const o = {
     limiter: true,
     secureCookie: true,
@@ -111,7 +111,7 @@ describe('AuthEngine.strict()', () => {
     })
 
     it('rejects an explicitly-passed AuthNoopLimiter (not just missing limiter)', async () => {
-      const adapter = new AuthMemoryAdapter<MyProfile>()
+      const adapter = new MemoryAdapter<MyProfile>()
       const { AuthNoopLimiter } = await import('../auth')
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'https://app.example.com',
@@ -156,7 +156,7 @@ describe('AuthEngine.strict()', () => {
     })
 
     it('refuses http:// baseUrl in production', () => {
-      const adapter = new AuthMemoryAdapter<MyProfile>()
+      const adapter = new MemoryAdapter<MyProfile>()
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'http://app.example.com',
         transport: new AuthCookieTransport({ secure: true, name: 'duck-sid' }),

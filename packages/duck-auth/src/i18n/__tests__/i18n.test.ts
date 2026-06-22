@@ -88,7 +88,9 @@ describe('AuthLinguiResolver', () => {
   }
 
   it('refuses construction without a valid i18n', () => {
-    expect(() => new AuthLinguiResolver({} as never)).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    expect(() => new AuthLinguiResolver({} as never)).toThrowError(
+      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
+    )
   })
 
   it('t forwards to i18n._ at the current locale', () => {

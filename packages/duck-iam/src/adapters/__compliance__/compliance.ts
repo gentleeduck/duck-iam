@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { IamAccessControl, IamAdapter } from '../../core/types'
+import type { AccessControl, IamAdapter } from '../../core/types'
 
 /**
  * Shared adapter compliance suite.
@@ -20,7 +20,7 @@ import type { IamAccessControl, IamAdapter } from '../../core/types'
 
 type AnyAdapter = IamAdapter.IAdapter<string, string, string, string>
 
-const samplePolicy: IamAccessControl.IPolicy = {
+const samplePolicy: AccessControl.IPolicy = {
   id: 'p-compliance',
   name: 'Compliance Test Policy',
   algorithm: 'deny-overrides',
@@ -36,7 +36,7 @@ const samplePolicy: IamAccessControl.IPolicy = {
   ],
 }
 
-const sampleRole: IamAccessControl.IRole = {
+const sampleRole: AccessControl.IRole = {
   id: 'editor',
   name: 'Editor',
   permissions: [{ action: 'read', resource: 'post' }],

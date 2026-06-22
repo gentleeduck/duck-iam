@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
-import type { IamAccessControl, IamClient, IamRequest } from '../../types'
+import type { AccessControl, IamClient, IamRequest } from '../../types'
 import { IamEngine, iamFlushSharedCaches } from '../engine'
 
 // -- Test setup --
@@ -10,7 +10,7 @@ type ResourceType = 'post' | 'comment' | 'user' | 'dashboard' | 'dashboard.users
 type RoleId = 'viewer' | 'editor' | 'admin' | 'super-admin' | 'org-editor'
 type Scope = 'org-1' | 'org-2'
 
-const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [
@@ -19,7 +19,7 @@ const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = 
   ],
 }
 
-const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -30,21 +30,21 @@ const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = 
   ],
 }
 
-const adminRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const adminRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'admin',
   name: 'Admin',
   inherits: ['editor'],
   permissions: [{ action: 'manage', resource: '*' as ResourceType }],
 }
 
-const superAdminRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const superAdminRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'super-admin',
   name: 'Super Admin',
   inherits: ['admin'],
   permissions: [{ action: '*' as Action, resource: '*' as ResourceType }],
 }
 
-const orgEditorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const orgEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'org-editor',
   name: 'Org Editor',
   scope: 'org-1',
@@ -54,7 +54,7 @@ const orgEditorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope>
   ],
 }
 
-function createEngine(overrides?: { roles?: IamAccessControl.IRole[]; assignments?: Record<string, RoleId[]> }) {
+function createEngine(overrides?: { roles?: AccessControl.IRole[]; assignments?: Record<string, RoleId[]> }) {
   const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: (overrides?.roles ?? [
       viewerRole,
@@ -62,7 +62,7 @@ function createEngine(overrides?: { roles?: IamAccessControl.IRole[]; assignment
       adminRole,
       superAdminRole,
       orgEditorRole,
-    ]) as IamAccessControl.IRole<Action, ResourceType, RoleId, Scope>[],
+    ]) as AccessControl.IRole<Action, ResourceType, RoleId, Scope>[],
     assignments: overrides?.assignments ?? {
       'user-viewer': ['viewer'] as RoleId[],
       'user-editor': ['editor'] as RoleId[],
@@ -205,7 +205,7 @@ describe('Engine.can() - isOwner conditions with $subject.id', () => {
   let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
-    const ownerEditorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+    const ownerEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
       id: 'editor',
       name: 'Editor',
       inherits: ['viewer'],
@@ -317,7 +317,7 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('forwards onPolicyError to evaluator for batch checks', async () => {
-    // A policy whose evaluator throws (IamRegexInputTooLargeError when matching
+    // A policy whose evaluator throws (RegexInputTooLargeError when matching
     // against an oversize subject attribute) must surface via onPolicyError;
     // permissions() previously passed undefined and the throw was eaten.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
@@ -414,7 +414,7 @@ describe('Engine.check() - detailed decision', () => {
     engine = createEngine()
   })
 
-  it('returns a full IamAccessControl.IDecision object', async () => {
+  it('returns a full AccessControl.IDecision object', async () => {
     const decision = await engine.check('user-viewer', 'read', { type: 'post', attributes: {} })
     expect(decision.allowed).toBe(true)
     expect(decision.effect).toBe('allow')
@@ -452,7 +452,7 @@ describe('Engine.admin - CRUD operations', () => {
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>()
     const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
-    const policy: IamAccessControl.IPolicy<Action, ResourceType, RoleId> = {
+    const policy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
       id: 'test-policy',
       name: 'Test',
       algorithm: 'deny-overrides',
@@ -478,7 +478,7 @@ describe('Engine.admin - CRUD operations', () => {
 
   describe('export / import (F2)', () => {
     it('export round-trips through import in merge mode', async () => {
-      const policy: IamAccessControl.IPolicy<Action, ResourceType, RoleId> = {
+      const policy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
         id: 'p1',
         name: 'P1',
         algorithm: 'deny-overrides',
@@ -508,7 +508,7 @@ describe('Engine.admin - CRUD operations', () => {
     })
 
     it('replace mode deletes existing rows not present in snapshot', async () => {
-      const existingPolicy: IamAccessControl.IPolicy<Action, ResourceType, RoleId> = {
+      const existingPolicy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
         id: 'old',
         name: 'old',
         algorithm: 'deny-overrides',
@@ -546,8 +546,8 @@ describe('Engine.admin - CRUD operations', () => {
 type EngineSnapshot = {
   schemaVersion: 1
   exportedAt: string
-  policies: IamAccessControl.IPolicy<Action, ResourceType, RoleId>[]
-  roles: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope>[]
+  policies: AccessControl.IPolicy<Action, ResourceType, RoleId>[]
+  roles: AccessControl.IRole<Action, ResourceType, RoleId, Scope>[]
 }
 
 describe('Engine - ABAC policies', () => {
@@ -655,15 +655,15 @@ describe('Engine - per-policy combining algorithm', () => {
 
 describe('Engine - role inheritance cycle protection', () => {
   it('handles circular inheritance without infinite loop', async () => {
-    const roleA: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+    const roleA: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
       id: 'viewer' as RoleId,
-      name: 'IamAccessControl.IRole A',
+      name: 'AccessControl.IRole A',
       inherits: ['editor'],
       permissions: [{ action: 'read', resource: 'post' }],
     }
-    const roleB: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+    const roleB: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
       id: 'editor' as RoleId,
-      name: 'IamAccessControl.IRole B',
+      name: 'AccessControl.IRole B',
       inherits: ['viewer'],
       permissions: [{ action: 'create', resource: 'post' }],
     }
@@ -831,7 +831,7 @@ describe('Engine - empty RBAC + explicit ABAC allow', () => {
   it('engine.can returns the ABAC decision when no roles are assigned', async () => {
     // Empty RBAC must not contribute a default-deny that short-circuits the
     // AND combine when an explicit ABAC policy allows the action.
-    const publicReadPolicy: IamAccessControl.IPolicy = {
+    const publicReadPolicy: AccessControl.IPolicy = {
       id: 'public-read',
       name: 'Public Read',
       algorithm: 'deny-overrides',
@@ -1056,7 +1056,7 @@ describe('Engine - construction guards', () => {
 
 describe('Engine - DoS bounds at load time (B5)', () => {
   it('routes to deny + onError when adapter returns more policies than maxPolicies', async () => {
-    const policies: IamAccessControl.IPolicy<Action, ResourceType, RoleId>[] = Array.from({ length: 5 }, (_, i) => ({
+    const policies: AccessControl.IPolicy<Action, ResourceType, RoleId>[] = Array.from({ length: 5 }, (_, i) => ({
       id: `p${i}`,
       name: `P${i}`,
       algorithm: 'deny-overrides',
@@ -1079,7 +1079,7 @@ describe('Engine - DoS bounds at load time (B5)', () => {
   })
 
   it('routes to deny + onError when adapter returns more roles than maxRoles', async () => {
-    const roles: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope>[] = Array.from({ length: 5 }, (_, i) => ({
+    const roles: AccessControl.IRole<Action, ResourceType, RoleId, Scope>[] = Array.from({ length: 5 }, (_, i) => ({
       id: `r${i}` as RoleId,
       name: `R${i}`,
       permissions: [],
@@ -1103,7 +1103,7 @@ describe('Engine - DoS bounds at load time (B5)', () => {
 
 describe('Engine - fail-skip on malformed policy (B4)', () => {
   it('skips a throwing policy and continues evaluating the rest', async () => {
-    const goodPolicy: IamAccessControl.IPolicy<Action, ResourceType, RoleId> = {
+    const goodPolicy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
       id: 'good',
       name: 'good',
       algorithm: 'deny-overrides',
@@ -1115,7 +1115,7 @@ describe('Engine - fail-skip on malformed policy (B4)', () => {
       id: 'bad',
       name: 'bad',
       algorithm: 'deny-overrides',
-    } as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>
+    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       policies: [badPolicy, goodPolicy],
     })
@@ -1446,7 +1446,7 @@ describe('Engine - cache invalidation', () => {
   it('synthesised RBAC policy is deep-frozen (M2)', async () => {
     const engine = createEngine()
     await engine.can('user-editor', 'read', { type: 'post', attributes: {} })
-    const internal = engine as unknown as { _rbacPolicyCache: { get(k: string): IamAccessControl.IPolicy | undefined } }
+    const internal = engine as unknown as { _rbacPolicyCache: { get(k: string): AccessControl.IPolicy | undefined } }
     const rbac = internal._rbacPolicyCache.get('rbac')
     expect(rbac).toBeDefined()
     expect(Object.isFrozen(rbac)).toBe(true)

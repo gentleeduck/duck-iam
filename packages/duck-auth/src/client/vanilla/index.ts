@@ -2,7 +2,9 @@ import type { AuthIdentity } from '../../core/types/identity'
 import type { AuthSession } from '../../core/types/session'
 
 /** `authCreateClient`. */
-export function authCreateClient<Profile = unknown>(cfg: AuthVanillaClient.IConfig = {}): AuthVanillaClient.IClient<Profile> {
+export function authCreateClient<Profile = unknown>(
+  cfg: AuthVanillaClient.IConfig = {},
+): AuthVanillaClient.IClient<Profile> {
   const baseUrl = (cfg.baseUrl ?? '/auth').replace(/\/$/, '')
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)
   if (!fetchImpl) {

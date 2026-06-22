@@ -1,5 +1,5 @@
 import { AuthEngine } from './auth'
-import { AuthScryptHasher } from './password/scrypt'
+import { ScryptHasher } from './password/scrypt'
 import type { AuthPluginRegistry } from './plugin'
 import { AuthCookieTransport } from './transport/cookie'
 import type { AuthChannel } from './types/channel'
@@ -35,7 +35,7 @@ export function defineAuth<Profile = unknown, Tenant = string, OrgMeta = unknown
   config: AuthDefine.IConfig<Profile, Tenant, OrgMeta>,
 ): AuthEngine<Profile, Tenant, OrgMeta> {
   const transport = config.transport ?? new AuthCookieTransport({ name: 'duck-sid' })
-  const passwords = config.hasher ? { hasher: config.hasher } : { hasher: new AuthScryptHasher() }
+  const passwords = config.hasher ? { hasher: config.hasher } : { hasher: new ScryptHasher() }
 
   const rootConfig: AuthEngine.IConfig<Profile, Tenant, OrgMeta> = {
     baseUrl: config.baseUrl,
@@ -123,7 +123,7 @@ export namespace AuthDefine {
     transport?: AuthTransport.ITransport
     /** Token-bucket limiter. Omit for `AuthNoopLimiter` (rejected by `strict('production')`). */
     limiter?: AuthLimiter.ILimiter
-    /** Password hasher. Defaults to `AuthScryptHasher`; pass `argon2id()` for production. */
+    /** Password hasher. Defaults to `ScryptHasher`; pass `argon2id()` for production. */
     hasher?: AuthHasher.IHasher
     /** Optional channel bundle for magic-link / OTP delivery. */
     channels?: IChannels

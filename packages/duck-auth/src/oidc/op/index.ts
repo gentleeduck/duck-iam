@@ -17,7 +17,7 @@ import { authRandomToken, authSha256, authTimingSafeEqual } from '../../core/cry
 import type { AuthIdentity } from '../../core/types/identity'
 import {
   AuthMemoryAccessTokenStore,
-  AuthMemoryClientStore,
+  MemoryClientStore,
   AuthMemoryCodeStore,
   AuthMemoryConsentStore,
   AuthMemoryRefreshTokenStore,
@@ -25,7 +25,13 @@ import {
 import type { AuthOidcOP } from './types'
 
 export type { AuthOidcOP } from './types'
-export { AuthMemoryAccessTokenStore, AuthMemoryClientStore, AuthMemoryCodeStore, AuthMemoryConsentStore, AuthMemoryRefreshTokenStore }
+export {
+  AuthMemoryAccessTokenStore,
+  MemoryClientStore,
+  AuthMemoryCodeStore,
+  AuthMemoryConsentStore,
+  AuthMemoryRefreshTokenStore,
+}
 
 interface IDeps<Profile> {
   auth: AuthEngine<Profile>
@@ -253,7 +259,10 @@ export class AuthOidcOpRoot<Profile = unknown> {
    * next: 302 to login, prompt consent, or 302 to redirect_uri with a
    * fresh code.
    */
-  async authorize(req: AuthOidcOP.IAuthorizeRequest, httpReq: { headers: Headers }): Promise<AuthOidcOP.IAuthorizeResult> {
+  async authorize(
+    req: AuthOidcOP.IAuthorizeRequest,
+    httpReq: { headers: Headers },
+  ): Promise<AuthOidcOP.IAuthorizeResult> {
     if (!req.client_id || typeof req.client_id !== 'string') {
       return { kind: 'error', status: 400, body: { error: 'invalid_request', error_description: 'client_id required' } }
     }
@@ -448,7 +457,10 @@ export class AuthOidcOpRoot<Profile = unknown> {
   }
 
   /** Handle a POST /token request. */
-  async token(req: AuthOidcOP.ITokenRequest, headers: Headers): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IOAuthError> {
+  async token(
+    req: AuthOidcOP.ITokenRequest,
+    headers: Headers,
+  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IOAuthError> {
     const clientAuth = await this.authenticateClient(req, headers)
     if ('error' in clientAuth) return clientAuth
     const { client } = clientAuth
@@ -705,13 +717,19 @@ export class AuthOidcOpRoot<Profile = unknown> {
         return { client }
       case 'client_secret_basic':
         if (!clientSecretFromBasic) return { error: 'invalid_client', error_description: 'Basic auth required' }
-        if (!client.client_secret_hash || !authTimingSafeEqual(authSha256(clientSecretFromBasic), client.client_secret_hash)) {
+        if (
+          !client.client_secret_hash ||
+          !authTimingSafeEqual(authSha256(clientSecretFromBasic), client.client_secret_hash)
+        ) {
           return { error: 'invalid_client' }
         }
         return { client }
       case 'client_secret_post':
         if (!req.client_secret) return { error: 'invalid_client', error_description: 'client_secret required in body' }
-        if (!client.client_secret_hash || !authTimingSafeEqual(authSha256(req.client_secret), client.client_secret_hash)) {
+        if (
+          !client.client_secret_hash ||
+          !authTimingSafeEqual(authSha256(req.client_secret), client.client_secret_hash)
+        ) {
           return { error: 'invalid_client' }
         }
         return { client }
@@ -739,7 +757,7 @@ export function authCreateOidcOP<Profile = unknown>(args: {
     args.config,
     {
       auth: args.auth,
-      clients: args.stores?.clients ?? new AuthMemoryClientStore(),
+      clients: args.stores?.clients ?? new MemoryClientStore(),
       codes: args.stores?.codes ?? new AuthMemoryCodeStore(),
       accessTokens: args.stores?.accessTokens ?? new AuthMemoryAccessTokenStore(),
       refreshTokens: args.stores?.refreshTokens ?? new AuthMemoryRefreshTokenStore(),

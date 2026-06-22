@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthRedisEvents } from '../events'
-import { AuthFakeRedis } from '../redis-like'
+import { FakeRedis } from '../redis-like'
 
 describe('AuthRedisEvents', () => {
-  let redis: AuthFakeRedis
+  let redis: FakeRedis
   let bus: AuthRedisEvents
 
   beforeEach(() => {
-    redis = new AuthFakeRedis()
+    redis = new FakeRedis()
     bus = new AuthRedisEvents({ redis, prefix: 'test:events' })
   })
 
@@ -22,7 +22,7 @@ describe('AuthRedisEvents', () => {
     expect(handler.mock.calls[0]![0]!.session.id).toBe('s1')
   })
 
-  it('two AuthRedisEvents instances on the same AuthFakeRedis receive each other emits', async () => {
+  it('two AuthRedisEvents instances on the same FakeRedis receive each other emits', async () => {
     const otherBus = new AuthRedisEvents({ redis, prefix: 'test:events' })
     const remoteHandler = vi.fn()
     otherBus.on('signup.completed', remoteHandler)

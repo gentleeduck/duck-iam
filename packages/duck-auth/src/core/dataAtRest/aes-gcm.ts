@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { AuthErrorObject } from '../errors'
 import type { AuthDataAtRest } from '../types/dataAtRest'
 
-export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
+export class AesGcmDataAtRest implements AuthDataAtRest.IAdapter {
   readonly id = 'aes-256-gcm'
   private readonly _currentKid: string
   /** Map of kid -> 32-byte master key. Includes the current key + every
@@ -10,7 +10,7 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
    * always uses `_currentKid`. */
   private readonly _keys: Map<string, Buffer>
 
-  constructor(cfg: AuthAesGcmDataAtRest.IConfig) {
+  constructor(cfg: AesGcmDataAtRest.IConfig) {
     this._currentKid = cfg.kid
     this._keys = new Map()
     this._keys.set(cfg.kid, normalizeKey(cfg.masterKey))
@@ -18,7 +18,7 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
     for (const k of cfg.previousKeys ?? []) {
       if (this._keys.has(k.kid)) {
         throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-          detail: `AuthAesGcmDataAtRest: duplicate kid '${k.kid}' across current + previousKeys`,
+          detail: `AesGcmDataAtRest: duplicate kid '${k.kid}' across current + previousKeys`,
         })
       }
       this._keys.set(k.kid, normalizeKey(k.masterKey))
@@ -114,13 +114,13 @@ function normalizeKey(masterKey: Buffer | string): Buffer {
   const key = typeof masterKey === 'string' ? Buffer.from(masterKey, 'utf8') : masterKey
   if (key.length < 32) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: `AuthAesGcmDataAtRest: masterKey must be >= 32 bytes (was ${key.length})`,
+      detail: `AesGcmDataAtRest: masterKey must be >= 32 bytes (was ${key.length})`,
     })
   }
   return key.subarray(0, 32)
 }
 
-export namespace AuthAesGcmDataAtRest {
+export namespace AesGcmDataAtRest {
   export interface IConfig {
     /** Stable key id; written into every ciphertext. Used for rotation. */
     kid: string

@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { authRandomToken, authSha256 } from '../../crypto'
-import { AuthRememberMeFacet } from '../remember-me'
+import { RememberMeFacet } from '../remember-me'
 
-describe('AuthRememberMeFacet', () => {
-  let adapter: AuthMemoryAdapter
-  let facet: AuthRememberMeFacet
+describe('RememberMeFacet', () => {
+  let adapter: MemoryAdapter
+  let facet: RememberMeFacet
   let identityId: string
 
   beforeEach(async () => {
-    adapter = new AuthMemoryAdapter()
-    facet = new AuthRememberMeFacet(adapter.credentials, { authRandomToken, authSha256 })
+    adapter = new MemoryAdapter()
+    facet = new RememberMeFacet(adapter.credentials, { authRandomToken, authSha256 })
     const ident = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
     identityId = ident.id
   })
@@ -84,7 +84,11 @@ describe('AuthRememberMeFacet', () => {
   })
 
   it('respects ttl: expired token returns null + is auto-deleted', async () => {
-    const tiny = new AuthRememberMeFacet(adapter.credentials, { authRandomToken, authSha256 }, { ttlMs: 5, byteLength: 32 })
+    const tiny = new RememberMeFacet(
+      adapter.credentials,
+      { authRandomToken, authSha256 },
+      { ttlMs: 5, byteLength: 32 },
+    )
     const { token, credentialId } = await tiny.issue(identityId)
     await new Promise((r) => setTimeout(r, 20))
     expect(await tiny.verify(token)).toBeNull()

@@ -4,10 +4,10 @@ import {
   authRunIdentityStoreCompliance,
   authRunSessionStoreCompliance,
 } from '../../__compliance__'
-import { AuthMemoryAdapter } from '../index'
+import { MemoryAdapter } from '../index'
 
-describe('AuthMemoryAdapter compliance matrix', () => {
-  authRunIdentityStoreCompliance(() => new AuthMemoryAdapter<{ email: string }>().identities)
-  authRunSessionStoreCompliance(() => new AuthMemoryAdapter().sessions)
-  authRunCredentialStoreCompliance(() => new AuthMemoryAdapter().credentials)
+describe('MemoryAdapter compliance matrix', () => {
+  authRunIdentityStoreCompliance(() => new MemoryAdapter<{ email: string }>().identities)
+  authRunSessionStoreCompliance(() => new MemoryAdapter().sessions)
+  authRunCredentialStoreCompliance(() => new MemoryAdapter().credentials)
 })

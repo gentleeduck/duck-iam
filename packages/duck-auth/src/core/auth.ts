@@ -13,7 +13,7 @@ import { OrgsFacet } from './facets/orgs'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
 import { ProvidersFacet } from './facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
-import { AuthScryptHasher } from './password/scrypt'
+import { ScryptHasher } from './password/scrypt'
 import { AuthPluginRegistry } from './plugin'
 import type { AuthCredential } from './types/credential'
 import type { AuthEvents } from './types/events'
@@ -64,7 +64,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
-    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new AuthScryptHasher(), {
+    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
       minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
       maxLength: config.passwords?.maxLength ?? DEFAULT_PASSWORDS_CONFIG.maxLength,
       rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,

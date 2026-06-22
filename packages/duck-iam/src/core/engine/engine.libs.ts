@@ -1,4 +1,4 @@
-import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
+import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 import type { IamValidate } from '../validate/validate.types'
 import type { IamEngineTypes } from './engine.types'
 
@@ -8,13 +8,13 @@ import type { IamEngineTypes } from './engine.types'
  * import time. Loaded on first admin write and memoised.
  */
 let _validateBindings: {
-  iamValidatePolicy: typeof import('../validate').iamValidatePolicy
-  iamValidateRole: typeof import('../validate').iamValidateRole
+  validatePolicy: typeof import('../validate').validatePolicy
+  validateRole: typeof import('../validate').validateRole
 } | null = null
 async function _getValidate() {
   if (!_validateBindings) {
     const v = await import('../validate')
-    _validateBindings = { iamValidatePolicy: v.iamValidatePolicy, iamValidateRole: v.iamValidateRole }
+    _validateBindings = { validatePolicy: v.validatePolicy, validateRole: v.validateRole }
   }
   return _validateBindings
 }
@@ -115,12 +115,12 @@ function assertAttributesParam(value: unknown): asserts value is IamPrimitives.A
   }
   // 256 own-key cap so a hostile caller cannot push an unbounded attributes
   // bag through setSubjectAttributes (would bloat the JSON column / Redis
-  // string + every downstream iamResolve()).
+  // string + every downstream resolve()).
   const keyCount = Object.keys(value).length
   if (keyCount > 256) {
     throw new Error(`[@gentleduck/iam:engine] attributes must have <=256 keys (got ${keyCount})`)
   }
-  // Reject deep nesting: iamResolve() walks dot-paths to depth ~8 in practice.
+  // Reject deep nesting: resolve() walks dot-paths to depth ~8 in practice.
   // 16 is a safe ceiling that defends against stack-overflow when the
   // walker recurses (and rejects pathological `{a:{a:{...}}}` shapes).
   const depth = _measureDepth(value)
@@ -164,7 +164,7 @@ function formatErrInterp(value: unknown, maxLen = 64): string {
 }
 
 /** Recursively freeze a policy's rules, condition groups, and condition leaves. */
-export function deepFreezePolicy<TPolicy extends IamAccessControl.IPolicy>(policy: TPolicy): TPolicy {
+export function deepFreezePolicy<TPolicy extends AccessControl.IPolicy>(policy: TPolicy): TPolicy {
   for (const rule of policy.rules) {
     if (Array.isArray(rule.actions)) Object.freeze(rule.actions)
     if (Array.isArray(rule.resources)) Object.freeze(rule.resources)
@@ -175,14 +175,16 @@ export function deepFreezePolicy<TPolicy extends IamAccessControl.IPolicy>(polic
   return Object.freeze(policy)
 }
 
-function freezeConditionGroup(group: IamAccessControl.IConditionGroup): void {
+function freezeConditionGroup(group: AccessControl.IConditionGroup): void {
   if ('all' in group) freezeConditionArray(group.all)
   if ('any' in group) freezeConditionArray(group.any)
   if ('none' in group) freezeConditionArray(group.none)
   Object.freeze(group)
 }
 
-function freezeConditionArray(arr: ReadonlyArray<IamAccessControl.ICondition | IamAccessControl.IConditionGroup>): void {
+function freezeConditionArray(
+  arr: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup>,
+): void {
   for (const item of arr) {
     if ('field' in item) Object.freeze(item)
     else freezeConditionGroup(item)
@@ -252,9 +254,9 @@ export function createAdmin<
       assertNonEmptyStringParam('id', id)
       return adapter.getPolicy(id)
     },
-    async savePolicy(policy: IamAccessControl.IPolicy<TAction, TResource, TRole>) {
-      const { iamValidatePolicy } = await _getValidate()
-      assertValidOrThrow('policy', iamValidatePolicy(policy))
+    async savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>) {
+      const { validatePolicy } = await _getValidate()
+      assertValidOrThrow('policy', validatePolicy(policy))
       await adapter.savePolicy(policy)
       engine.cache.invalidatePolicies()
     },
@@ -270,9 +272,9 @@ export function createAdmin<
       assertNonEmptyStringParam('id', id)
       return adapter.getRole(id)
     },
-    async saveRole(role: IamAccessControl.IRole<TAction, TResource, TRole, TScope>) {
-      const { iamValidateRole } = await _getValidate()
-      assertValidOrThrow('role', iamValidateRole(role))
+    async saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
+      const { validateRole } = await _getValidate()
+      assertValidOrThrow('role', validateRole(role))
       await adapter.saveRole(role)
       engine.cache.invalidateRoles(role.id)
     },
@@ -345,13 +347,13 @@ export function createAdmin<
           }
         }
       }
-      const { iamValidatePolicy, iamValidateRole } = await _getValidate()
+      const { validatePolicy, validateRole } = await _getValidate()
       for (const p of snapshot.policies) {
-        assertValidOrThrow('policy', iamValidatePolicy(p))
+        assertValidOrThrow('policy', validatePolicy(p))
         await adapter.savePolicy(p)
       }
       for (const r of snapshot.roles) {
-        assertValidOrThrow('role', iamValidateRole(r))
+        assertValidOrThrow('role', validateRole(r))
         await adapter.saveRole(r)
       }
       // Bulk write touched every cache; invalidate once instead of per-row.

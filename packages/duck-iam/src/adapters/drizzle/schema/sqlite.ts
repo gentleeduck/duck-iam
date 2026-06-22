@@ -10,7 +10,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
-import type { IamAccessControl } from '../../../core/types'
+import type { AccessControl } from '../../../core/types'
 
 /**
  * SQLite schema for the duck-iam IamDrizzle adapter.
@@ -28,13 +28,13 @@ import type { IamAccessControl } from '../../../core/types'
  * naming: `pk_` `fk_` `uq_` `idx_` `ch_`.
  */
 
-/** Allowed combining algorithms, kept in sync with {@link IamAccessControl.CombiningAlgorithm}. */
+/** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
 export const IAM_COMBINE_ALGORITHMS = [
   'deny-overrides',
   'allow-overrides',
   'first-match',
   'highest-priority',
-] as const satisfies readonly IamAccessControl.CombiningAlgorithm[]
+] as const satisfies readonly AccessControl.CombiningAlgorithm[]
 
 /** Per-row epoch-millisecond timestamp. */
 const nowMs = sql`(unixepoch() * 1000)`
@@ -47,7 +47,7 @@ export const iamPolicies = sqliteTable(
     name: text('name').notNull(),
     description: text('description'),
     version: integer('version').notNull().default(1),
-    algorithm: text('algorithm').$type<IamAccessControl.CombiningAlgorithm>().notNull().default('deny-overrides'),
+    algorithm: text('algorithm').$type<AccessControl.CombiningAlgorithm>().notNull().default('deny-overrides'),
     rules: text('rules').$type<string>().notNull(),
     targets: text('targets').$type<string>(),
     createdBy: text('created_by'),

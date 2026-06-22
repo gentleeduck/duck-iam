@@ -26,6 +26,10 @@ export namespace AuthAnomaly {
 
   export interface IDetector {
     readonly id: string
-    evaluate(ctx: { session: AuthSession.ISession; identity: AuthIdentity.IIdentity; req: RequestSnapshot }): Promise<Signal[]>
+    evaluate(ctx: {
+      session: AuthSession.ISession
+      identity: AuthIdentity.IIdentity
+      req: RequestSnapshot
+    }): Promise<Signal[]>
   }
 }

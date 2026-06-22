@@ -1,6 +1,6 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { authBindPayloadToDPoP, authComputeJwkThumbprint, AuthDPoPVerifier, AuthMemoryDPoPNonceStore } from '../dpop'
+import { AuthDPoPVerifier, AuthMemoryDPoPNonceStore, authBindPayloadToDPoP, authComputeJwkThumbprint } from '../dpop'
 
 interface KeyPair {
   publicJwk: AuthDPoPVerifier.IJsonWebKey

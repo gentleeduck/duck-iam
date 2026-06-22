@@ -128,7 +128,11 @@ export class IdentitiesFacet<Profile = unknown> {
 
   // --- provider linking ------------------------------------------------
 
-  async link(identityId: string, link: Omit<AuthIdentity.ProviderLink, 'addedAt'>, ctx: AuthTenantContext = {}): Promise<void> {
+  async link(
+    identityId: string,
+    link: Omit<AuthIdentity.ProviderLink, 'addedAt'>,
+    ctx: AuthTenantContext = {},
+  ): Promise<void> {
     const cur = await this._store.findById(identityId, ctx)
     if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
     // Reject duplicate provider link for same identity.

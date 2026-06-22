@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IamAccessControl, IamAdapter } from '../../../core/types'
+import type { AccessControl, IamAdapter } from '../../../core/types'
 import { IamHttpAdapter } from '../index'
 
 type A = 'read' | 'write'
@@ -94,7 +94,9 @@ describe('IamHttpAdapter', () => {
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://10.0.0.5/iam' })).toThrow(/private\/loopback/)
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://192.168.1.1/iam' })).toThrow(/private\/loopback/)
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://172.16.0.1/iam' })).toThrow(/private\/loopback/)
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://169.254.169.254/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://169.254.169.254/iam' })).toThrow(
+        /private\/loopback/,
+      )
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::1]/iam' })).toThrow(/private\/loopback/)
     })
 
@@ -105,9 +107,13 @@ describe('IamHttpAdapter', () => {
         /private\/loopback/,
       )
       // Canonical hex tail emitted by `new URL()`.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:7f00:1]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:7f00:1]/iam' })).toThrow(
+        /private\/loopback/,
+      )
       // RFC1918 mapped via ::ffff:.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:c0a8:1]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:c0a8:1]/iam' })).toThrow(
+        /private\/loopback/,
+      )
       // Fully expanded form.
       expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[0:0:0:0:0:ffff:7f00:1]/iam' })).toThrow(
         /private\/loopback/,
@@ -246,7 +252,9 @@ describe('IamHttpAdapter', () => {
         /private\/loopback/,
       )
       // Compact form Node may emit.
-      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:1::]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:1::]/iam' })).toThrow(
+        /private\/loopback/,
+      )
     })
 
     it('rejects 6to4 IPv6 wrapping RFC1918', () => {
@@ -385,7 +393,7 @@ describe('IamHttpAdapter', () => {
   })
 
   describe('IamAdapter.IPolicyStore', () => {
-    const policy: IamAccessControl.IPolicy<A, R, Ro> = { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }
+    const policy: AccessControl.IPolicy<A, R, Ro> = { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }
 
     it('listPolicies GET /policies', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([policy]))
@@ -434,7 +442,7 @@ describe('IamHttpAdapter', () => {
   })
 
   describe('IamAdapter.IRoleStore', () => {
-    const role: IamAccessControl.IRole<A, R, Ro, S> = { id: 'editor', name: 'Editor', permissions: [] }
+    const role: AccessControl.IRole<A, R, Ro, S> = { id: 'editor', name: 'Editor', permissions: [] }
 
     it('listRoles GET /roles', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([role]))

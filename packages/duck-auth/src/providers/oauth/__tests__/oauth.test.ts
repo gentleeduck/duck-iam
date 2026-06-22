@@ -1,14 +1,14 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/auth'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthOAuthClient } from '../core/client'
 import { authGeneratePkce } from '../core/pkce'
 import { oauthProvider } from '../core/provider'
-import { authBuildState, signState, authVerifyState } from '../core/state'
+import { authBuildState, authVerifyState, signState } from '../core/state'
 
 /**
  * SEC helper: mint a properly-signed state string from a caller-supplied
@@ -246,7 +246,7 @@ describe('AuthOAuthClient.buildAuthorizeUrl', () => {
 
 describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
   function buildAuth(fakeIdp: typeof globalThis.fetch) {
-    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const adapter = new MemoryAdapter<MyProfile>()
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
       transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -256,7 +256,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
         credentials: adapter.credentials,
       },
       limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
-      passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+      passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
     })
 
     const client = new AuthOAuthClient({

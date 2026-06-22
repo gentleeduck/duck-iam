@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamLRUCache } from '../../../shared/cache'
-import type { IamAccessControl, IamAdapter, IamRequest } from '../../types'
+import type { AccessControl, IamAdapter, IamRequest } from '../../types'
 import {
   type IIamLoaderDeps,
   loadAllPolicies,
@@ -37,10 +37,10 @@ function makeAdapter(overrides: Partial<IamAdapter.IAdapter<A, R, Ro, S>> = {}):
 function makeDeps(overrides: Partial<IIamLoaderDeps<A, R, Ro, S>> = {}): IIamLoaderDeps<A, R, Ro, S> {
   return {
     adapter: makeAdapter(),
-    policyCache: new IamLRUCache<IamAccessControl.IPolicy[]>(100, 60_000),
-    roleCache: new IamLRUCache<IamAccessControl.IRole[]>(100, 60_000),
-    rbacPolicyCache: new IamLRUCache<IamAccessControl.IPolicy>(100, 60_000),
-    mergedPolicyCache: new IamLRUCache<IamAccessControl.IPolicy[]>(100, 60_000),
+    policyCache: new IamLRUCache<AccessControl.IPolicy[]>(100, 60_000),
+    roleCache: new IamLRUCache<AccessControl.IRole[]>(100, 60_000),
+    rbacPolicyCache: new IamLRUCache<AccessControl.IPolicy>(100, 60_000),
+    mergedPolicyCache: new IamLRUCache<AccessControl.IPolicy[]>(100, 60_000),
     subjectCache: new IamLRUCache<IamRequest.ISubject>(100, 60_000),
     inFlight: {
       policies: { value: null },
@@ -63,7 +63,9 @@ describe('loadPolicies', () => {
   })
 
   it('caches the policy list under "all"', async () => {
-    const policies: IamAccessControl.IPolicy[] = [{ id: 'p', name: 'p', algorithm: 'deny-overrides' as const, rules: [] }]
+    const policies: AccessControl.IPolicy[] = [
+      { id: 'p', name: 'p', algorithm: 'deny-overrides' as const, rules: [] },
+    ]
     deps.adapter.listPolicies = vi.fn(async () => policies)
     await loadPolicies(deps)
     expect(deps.policyCache.get('all')).toEqual(policies)
@@ -79,8 +81,8 @@ describe('loadPolicies', () => {
   })
 
   it('single-flights concurrent callers (one adapter call, both get the same value)', async () => {
-    let resolveAdapter!: (v: IamAccessControl.IPolicy[]) => void
-    const adapterPromise = new Promise<IamAccessControl.IPolicy[]>((r) => {
+    let resolveAdapter!: (v: AccessControl.IPolicy[]) => void
+    const adapterPromise = new Promise<AccessControl.IPolicy[]>((r) => {
       resolveAdapter = r
     })
     deps.adapter.listPolicies = vi.fn(() => adapterPromise)
@@ -102,8 +104,8 @@ describe('loadPolicies', () => {
   })
 
   it('mid-flight cache clear is honored: produce resolves but cache stays empty', async () => {
-    let resolveAdapter!: (v: IamAccessControl.IPolicy[]) => void
-    const adapterPromise = new Promise<IamAccessControl.IPolicy[]>((r) => {
+    let resolveAdapter!: (v: AccessControl.IPolicy[]) => void
+    const adapterPromise = new Promise<AccessControl.IPolicy[]>((r) => {
       resolveAdapter = r
     })
     deps.adapter.listPolicies = () => adapterPromise
@@ -120,7 +122,7 @@ describe('loadPolicies', () => {
 
 describe('loadRoles', () => {
   it('caches roles under "all"', async () => {
-    const roles: IamAccessControl.IRole[] = [{ id: 'admin', name: 'admin', permissions: [] }]
+    const roles: AccessControl.IRole[] = [{ id: 'admin', name: 'admin', permissions: [] }]
     const deps = makeDeps()
     deps.adapter.listRoles = async () => roles
     await loadRoles(deps)

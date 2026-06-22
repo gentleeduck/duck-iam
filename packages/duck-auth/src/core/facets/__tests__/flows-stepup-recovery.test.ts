@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../auth'
 import { totpAt } from '../../mfa/totp'
-import { AuthScryptHasher } from '../../password/scrypt'
+import { ScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
 import type { AuthChannel } from '../../types/channel'
 
@@ -28,12 +28,12 @@ function fakeChannel(): AuthChannel.IChannel & { sent: Array<{ to: string; url: 
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
-  adapter: AuthMemoryAdapter<MyProfile>
+  adapter: MemoryAdapter<MyProfile>
   channel: AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }
 } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const channel = fakeChannel()
-  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),

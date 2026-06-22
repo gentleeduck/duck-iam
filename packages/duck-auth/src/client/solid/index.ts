@@ -1,6 +1,6 @@
 /** Solid client - context + signals; `solid-js` is an OPTIONAL peerDep. */
 import { createContext, createMemo, createSignal, type JSX, onCleanup, onMount, useContext } from 'solid-js'
-import { authCreateClient, type AuthVanillaClient } from '../vanilla'
+import { type AuthVanillaClient, authCreateClient } from '../vanilla'
 
 interface SolidAuthContextValue<Profile = unknown> {
   client: AuthVanillaClient.IClient<Profile>

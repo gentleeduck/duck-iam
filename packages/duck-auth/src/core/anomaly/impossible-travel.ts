@@ -26,7 +26,9 @@ export function authImpossibleTravelDetector(opts: {
 }): AuthAnomaly.IDetector {
   const cfg: AuthImpossibleTravel.IConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
-    throw new Error(`authImpossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`)
+    throw new Error(
+      `authImpossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`,
+    )
   }
   return {
     id: 'impossible-travel',

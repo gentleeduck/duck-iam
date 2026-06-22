@@ -1,13 +1,13 @@
-export { iamEvalConditionGroup, iamEvaluateOperator, iamResolveConditionValue } from './conditions'
+export { evalConditionGroup, evaluateOperator, resolveConditionValue } from './conditions'
 export {
-  iamEvalCondition,
-  iamGetCachedRegex,
-  iamIsCondition,
-  iamIsUserSourcedValue,
-  IAM_MAX_CONDITION_DEPTH,
-  IAM_MAX_REGEX_LENGTH,
-  iamOps,
-  IAM_REGEX_CACHE_MAX,
-  iamRegexCache,
-  iamResolveValue,
+  MAX_CONDITION_DEPTH,
+  MAX_REGEX_LENGTH,
+  REGEX_CACHE_MAX,
+  evalCondition,
+  getCachedRegex,
+  isCondition,
+  isUserSourcedValue,
+  ops,
+  regexCache,
+  resolveValue,
 } from './conditions.libs'

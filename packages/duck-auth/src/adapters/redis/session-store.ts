@@ -5,7 +5,7 @@ import type { AuthRedisLike } from './redis-like'
 export namespace AuthRedisSessionStore {
   /** Config knobs for {@link AuthRedisSessionStore}. */
   export interface IConfig {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    /** AuthRedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: AuthRedisLike.IClient
     /**
      * Key namespace prefix. Default: `auth`. Final keys:

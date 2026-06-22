@@ -5,7 +5,7 @@ import { bigint, index, integer, type PgColumn, pgTable, text } from 'drizzle-or
 
 const lazyRequire = createRequire(import.meta.url)
 
-import { authCreateSqlStores, type AuthSqlBridge } from '../../sql'
+import { type AuthSqlBridge, authCreateSqlStores } from '../../sql'
 
 interface NodePgPoolLike {
   connect: () => Promise<unknown>
@@ -168,7 +168,9 @@ export function authCreateDrizzlePgBridge<const TSchema extends Record<string, u
       erase: async (id, tenantId) => {
         await db.delete(authCredentialsTable).where(eq(authCredentialsTable.identityId, id))
         await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, id))
-        await db.delete(authIdentitiesTable).where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
+        await db
+          .delete(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
         const newLink = JSON.stringify([{ providerId, providerSub, addedAt }])
@@ -318,7 +320,10 @@ export function authCreateDrizzlePgBridge<const TSchema extends Record<string, u
         await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, identityId))
       },
       deleteExpired: async (now) => {
-        const result = await db.delete(authSessionsTable).where(lt(authSessionsTable.absoluteExpiresAt, now)).returning()
+        const result = await db
+          .delete(authSessionsTable)
+          .where(lt(authSessionsTable.absoluteExpiresAt, now))
+          .returning()
         return result.length
       },
     },

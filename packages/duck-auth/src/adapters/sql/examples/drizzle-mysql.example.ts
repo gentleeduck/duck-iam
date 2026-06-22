@@ -185,7 +185,9 @@ export function authCreateDrizzleMysqlBridge(db: MySql2Database): AuthSqlBridge 
       erase: async (id, tenantId) => {
         await db.delete(authCredentialsTable).where(eq(authCredentialsTable.identityId, id))
         await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, id))
-        await db.delete(authIdentitiesTable).where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
+        await db
+          .delete(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
         // Portable across MySQL 5.7/8.x; wrap in `SELECT ... FOR UPDATE` if races.

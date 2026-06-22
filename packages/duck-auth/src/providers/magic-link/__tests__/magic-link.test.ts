@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/auth'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import type { AuthChannel } from '../../../core/types/channel'
@@ -27,10 +27,10 @@ function fakeChannel(): AuthChannel.IChannel & { sent: Array<{ to: string; url: 
 
 function buildAuth(opts: { autoCreate?: boolean; channel?: AuthChannel.IChannel } = {}): {
   auth: AuthEngine<MyProfile>
-  adapter: AuthMemoryAdapter<MyProfile>
+  adapter: MemoryAdapter<MyProfile>
   channel: AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }
 } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const channel = (opts.channel as AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }) ?? fakeChannel()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
@@ -240,9 +240,9 @@ describe('magic-link provider', () => {
     describe('defensive guards against malformed adapter rows', () => {
       async function mintTokenAndGrabRow(): Promise<{
         auth: AuthEngine<MyProfile>
-        adapter: AuthMemoryAdapter<MyProfile>
+        adapter: MemoryAdapter<MyProfile>
         token: string
-        row: Awaited<ReturnType<AuthMemoryAdapter<MyProfile>['credentials']['findByHashedSecret']>>
+        row: Awaited<ReturnType<MemoryAdapter<MyProfile>['credentials']['findByHashedSecret']>>
       }> {
         const { auth, adapter, channel } = buildAuth({ autoCreate: true })
         await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })

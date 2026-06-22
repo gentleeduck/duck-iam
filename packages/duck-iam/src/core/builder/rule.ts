@@ -1,23 +1,23 @@
-import type { IamAccessControl, IamDotPath, IamPrimitives } from '../types'
-import { IamWhen } from './when'
+import type { AccessControl, DotPath, IamPrimitives } from '../types'
+import { When } from './when'
 
 /**
- * Fluent builder for constructing {@link IamAccessControl.IRule} objects in duck-iam.
+ * Fluent builder for constructing {@link AccessControl.IRule} objects in duck-iam.
  *
  * Rules are the atomic unit of an ABAC policy. Each rule declares an effect
  * (`allow` or `deny`), the actions and resources it covers, an optional scope
  * restriction, and an optional condition tree that must hold for the rule to
  * fire.
  *
- * Rules are collected into a {@link IamPolicyBuilder} and evaluated by the engine
+ * Rules are collected into a {@link PolicyBuilder} and evaluated by the engine
  * using the policy's chosen conflict-resolution algorithm
  * (`allow-overrides`, `deny-overrides`, `first-match`, or `highest-priority`).
  *
  * @example
  * ```ts
- * import { iamDefineRule } from '@gentleduck/iam'
+ * import { defineRule } from '@gentleduck/iam'
  *
- * const rule = iamDefineRule('post.update.owner')
+ * const rule = defineRule('post.update.owner')
  *   .allow()
  *   .desc('Authors may update their own posts')
  *   .priority(20)
@@ -34,23 +34,23 @@ import { IamWhen } from './when'
  * @template TContext        - Shape of the full evaluation context for typed dot-paths
  * @template TActiveResource - The narrowed resource selected via `.of()` (used by typed `resourceAttr`)
  */
-export class IamRuleBuilder<
+export class RuleBuilder<
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
   TRole extends string = string,
-  TContext extends object = IamDotPath.IDefaultContext,
+  TContext extends object = DotPath.IDefaultContext,
   TActiveResource extends string = string,
 > {
   private _id: string
-  private _effect: IamAccessControl.Effect = 'allow'
+  private _effect: AccessControl.Effect = 'allow'
   private _description?: string
   private _priority = 10
   private _actions: (TAction | '*')[] = ['*']
   private _resources: (TResource | '*')[] = ['*']
-  private _conditions: IamAccessControl.IConditionGroup = { all: [] }
+  private _conditions: AccessControl.IConditionGroup = { all: [] }
   private _metadata?: IamPrimitives.Attributes
-  private _scopeCondition?: IamAccessControl.ICondition
+  private _scopeCondition?: AccessControl.ICondition
 
   constructor(id: string) {
     this._id = id
@@ -86,7 +86,7 @@ export class IamRuleBuilder<
   /**
    * Attaches a human-readable description to the rule.
    *
-   * Descriptions are stored on the {@link IamAccessControl.IRule} object and surfaced by the
+   * Descriptions are stored on the {@link AccessControl.IRule} object and surfaced by the
    * engine's explain/debug output. They have no effect on evaluation.
    *
    * @param d - Description text
@@ -119,7 +119,7 @@ export class IamRuleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRule('post.read-write')
+   * defineRule('post.read-write')
    *   .on('read', 'update')
    *   .of('post')
    * ```
@@ -139,7 +139,7 @@ export class IamRuleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRule('content.read')
+   * defineRule('content.read')
    *   .on('read')
    *   .of('post', 'comment')
    * ```
@@ -147,17 +147,17 @@ export class IamRuleBuilder<
    * @param resources - One or more resource strings, or `'*'` for all resources
    * @returns `this` for chaining
    */
-  of<R extends TResource | '*'>(...resources: R[]): IamRuleBuilder<TAction, TResource, TScope, TRole, TContext, R> {
+  of<R extends TResource | '*'>(...resources: R[]): RuleBuilder<TAction, TResource, TScope, TRole, TContext, R> {
     this._resources = resources
     /** : This cast to get intellisense working for the specified resource type */
-    return this as unknown as IamRuleBuilder<TAction, TResource, TScope, TRole, TContext, R>
+    return this as unknown as RuleBuilder<TAction, TResource, TScope, TRole, TContext, R>
   }
 
   /**
    * Restricts this rule to one or more scopes.
    *
    * A scope typically represents a tenant, organization, or workspace.
-   * IamWhen a scope is set, the engine only fires the rule when the request's
+   * When a scope is set, the engine only fires the rule when the request's
    * scope matches. Passing `'*'` is a no-op - use no scope restriction for
    * global rules instead.
    *
@@ -165,7 +165,7 @@ export class IamRuleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRule('org1.post.update')
+   * defineRule('org1.post.update')
    *   .allow()
    *   .on('update')
    *   .of('post')
@@ -186,7 +186,7 @@ export class IamRuleBuilder<
   }
 
   /**
-   * Attaches an ALL-of condition group to the rule using a {@link IamWhen} builder.
+   * Attaches an ALL-of condition group to the rule using a {@link When} builder.
    *
    * Every condition added inside the callback must hold (`AND` semantics) for
    * the rule to match. Composes with `.forScope()` - the scope check is
@@ -194,7 +194,7 @@ export class IamRuleBuilder<
    *
    * @example
    * ```ts
-   * iamDefineRule('expense.approve')
+   * defineRule('expense.approve')
    *   .allow()
    *   .on('approve')
    *   .of('expense')
@@ -204,29 +204,29 @@ export class IamRuleBuilder<
    *   )
    * ```
    *
-   * @param fn - Callback that receives a {@link IamWhen} builder and returns it after chaining conditions
+   * @param fn - Callback that receives a {@link When} builder and returns it after chaining conditions
    * @returns `this` for chaining
    */
   when(
     fn: (
-      w: IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
-    const w = new IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
+    const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(w)
     this._conditions = w.buildAll()
     return this
   }
 
   /**
-   * Attaches an ANY-of condition group to the rule using a {@link IamWhen} builder.
+   * Attaches an ANY-of condition group to the rule using a {@link When} builder.
    *
    * At least one condition added inside the callback must hold (`OR` semantics)
    * for the rule to match.
    *
    * @example
    * ```ts
-   * iamDefineRule('post.manage')
+   * defineRule('post.manage')
    *   .allow()
    *   .on('update', 'delete')
    *   .of('post')
@@ -236,15 +236,15 @@ export class IamRuleBuilder<
    *   )
    * ```
    *
-   * @param fn - Callback that receives a {@link IamWhen} builder and returns it after chaining conditions
+   * @param fn - Callback that receives a {@link When} builder and returns it after chaining conditions
    * @returns `this` for chaining
    */
   whenAny(
     fn: (
-      w: IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
-    const w = new IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
+    const w = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(w)
     this._conditions = w.buildAny()
     return this
@@ -253,7 +253,7 @@ export class IamRuleBuilder<
   /**
    * Attaches arbitrary metadata to the rule.
    *
-   * Metadata is stored on the {@link IamAccessControl.IRule} object but is never used during
+   * Metadata is stored on the {@link AccessControl.IRule} object but is never used during
    * policy evaluation. Use it for audit logs, admin dashboards, or any
    * application-level bookkeeping.
    *
@@ -266,15 +266,15 @@ export class IamRuleBuilder<
   }
 
   /**
-   * Finalises the builder and returns a plain {@link IamAccessControl.IRule} object.
+   * Finalises the builder and returns a plain {@link AccessControl.IRule} object.
    *
    * Any scope condition set via `.forScope()` is merged into the condition
    * group here so that `.forScope()` and `.when()` / `.whenAny()` always
    * compose correctly regardless of call order.
    *
-   * @returns A fully constructed, immutable {@link IamAccessControl.IRule}
+   * @returns A fully constructed, immutable {@link AccessControl.IRule}
    */
-  build(): IamAccessControl.IRule<TAction, TResource> {
+  build(): AccessControl.IRule<TAction, TResource> {
     let conditions = this._conditions
 
     if (this._scopeCondition) {
@@ -297,17 +297,17 @@ export class IamRuleBuilder<
 }
 
 /**
- * Creates a new {@link IamRuleBuilder} for the given rule ID.
+ * Creates a new {@link RuleBuilder} for the given rule ID.
  *
- * Prefer this factory over instantiating `IamRuleBuilder` directly. IamWhen using
- * `createIam`, use `access.iamDefineRule()` instead to get type-safe
+ * Prefer this factory over instantiating `RuleBuilder` directly. When using
+ * `createIam`, use `access.defineRule()` instead to get type-safe
  * action, resource, and scope constraints.
  *
  * @example
  * ```ts
- * import { iamDefineRule } from '@gentleduck/iam'
+ * import { defineRule } from '@gentleduck/iam'
  *
- * const rule = iamDefineRule('post.read')
+ * const rule = defineRule('post.read')
  *   .allow()
  *   .on('read')
  *   .of('post')
@@ -315,7 +315,7 @@ export class IamRuleBuilder<
  * ```
  *
  * @param id - Unique identifier for this rule within its policy
- * @returns A new {@link IamRuleBuilder} instance
+ * @returns A new {@link RuleBuilder} instance
  *
  * @template TAction   - Union of valid action strings
  * @template TResource - Union of valid resource strings
@@ -323,12 +323,12 @@ export class IamRuleBuilder<
  * @template TRole     - Union of valid role ID strings
  * @template TContext  - Shape of the full evaluation context for typed dot-paths
  */
-export const iamDefineRule = <
+export const defineRule = <
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
   TRole extends string = string,
-  TContext extends object = IamDotPath.IDefaultContext,
+  TContext extends object = DotPath.IDefaultContext,
 >(
   id: string,
-) => new IamRuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)
+) => new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)

@@ -1,10 +1,10 @@
 import type { IamEngine } from '../../core'
-import type { IamAccessControl, IamRequest } from '../../core/types'
+import type { AccessControl, IamRequest } from '../../core/types'
 import {
+  IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
   iamDefaultCsrfCheck,
   iamExtractEnvironment,
-  IAM_METHOD_ACTION_MAP,
   iamNoticeCsrfDefaultIfNeeded,
   iamRunAdminAuthz,
   iamWithAdminAudit,
@@ -345,7 +345,7 @@ export function iamAdminRouter<
         'policy',
         (req) => (req.body as { id?: string } | undefined)?.id,
         async (req, res) => {
-          await engine.admin.savePolicy(req.body as IamAccessControl.IPolicy<TAction, TResource, TRole>)
+          await engine.admin.savePolicy(req.body as AccessControl.IPolicy<TAction, TResource, TRole>)
           res.json({ ok: true })
         },
       ),
@@ -358,7 +358,7 @@ export function iamAdminRouter<
         'role',
         (req) => (req.body as { id?: string } | undefined)?.id,
         async (req, res) => {
-          await engine.admin.saveRole(req.body as IamAccessControl.IRole<TAction, TResource, TRole, TScope>)
+          await engine.admin.saveRole(req.body as AccessControl.IRole<TAction, TResource, TRole, TScope>)
           res.json({ ok: true })
         },
       ),

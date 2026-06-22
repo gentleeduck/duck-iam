@@ -1,4 +1,4 @@
-import type { IamDotPath } from "@gentleduck/iam";
+import type { DotPath } from "@gentleduck/iam";
 
 export type AppAction =
 	| "create"
@@ -56,7 +56,7 @@ export interface User {
 	workspaceId: AppScope;
 }
 
-export interface AppCtx extends IamDotPath.IDefaultContext {
+export interface AppCtx extends DotPath.IDefaultContext {
 	subject: {
 		id: string;
 		roles: string[];

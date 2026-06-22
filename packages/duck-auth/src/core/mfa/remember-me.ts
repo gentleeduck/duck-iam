@@ -14,7 +14,7 @@ import { AuthErrorObject } from '../errors'
 import type { AuthTenantContext } from '../types/context'
 import type { AuthCredential } from '../types/credential'
 
-export const AUTH_DEFAULT_REMEMBER_ME_CONFIG: AuthRememberMeFacet.IConfig = {
+export const DEFAULT_REMEMBER_ME_CONFIG: RememberMeFacet.IConfig = {
   ttlMs: 90 * 24 * 60 * 60 * 1000,
   byteLength: 32,
 }
@@ -24,14 +24,14 @@ export const AUTH_DEFAULT_REMEMBER_ME_CONFIG: AuthRememberMeFacet.IConfig = {
  * facets; the facet does not auto-mount because not every app wants a
  * remember-me path.
  */
-export class AuthRememberMeFacet {
+export class RememberMeFacet {
   constructor(
     private readonly _credentials: AuthCredential.IStore,
     private readonly _crypto: {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
     },
-    private readonly _cfg: AuthRememberMeFacet.IConfig = AUTH_DEFAULT_REMEMBER_ME_CONFIG,
+    private readonly _cfg: RememberMeFacet.IConfig = DEFAULT_REMEMBER_ME_CONFIG,
   ) {}
 
   /**
@@ -44,7 +44,7 @@ export class AuthRememberMeFacet {
     identityId: string,
     opts: { metadata?: Record<string, unknown> } = {},
     ctx: AuthTenantContext = {},
-  ): Promise<AuthRememberMeFacet.IIssued> {
+  ): Promise<RememberMeFacet.IIssued> {
     const token = this._crypto.authRandomToken(this._cfg.byteLength)
     const hash = this._crypto.authSha256(token)
     const now = Date.now()
@@ -71,7 +71,7 @@ export class AuthRememberMeFacet {
    * + magic links) - remember-me cookies are reused across many
    * sign-ins inside the TTL window.
    */
-  async verify(token: string, ctx: AuthTenantContext = {}): Promise<AuthRememberMeFacet.IVerified | null> {
+  async verify(token: string, ctx: AuthTenantContext = {}): Promise<RememberMeFacet.IVerified | null> {
     // cap token length at 256 chars to bound the sha256 cost.
     // Trusted-device tokens are 32 random bytes (~43 base64url chars).
     if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
@@ -137,7 +137,7 @@ export class AuthRememberMeFacet {
   }
 }
 
-export namespace AuthRememberMeFacet {
+export namespace RememberMeFacet {
   export interface IConfig {
     /** Cookie / token TTL in ms. Default 90 days. */
     ttlMs: number
