@@ -3,9 +3,9 @@
  * sink. Built for local development + tests; never wire into production.
  */
 
-import type { Channel } from '../../core/types/channel'
+import type { AuthChannel } from '../../core/types/channel'
 
-export namespace ConsoleChannel {
+export namespace AuthConsoleChannel {
   /**
    * Sink function signature. Default writes to process.stdout via
    * `console.log`; tests inject a spy to assert what was sent.
@@ -15,7 +15,7 @@ export namespace ConsoleChannel {
   /** Config for the channel. */
   export interface IConfig {
     /** `email` | `sms` | `webpush`. Default `email`. */
-    kind?: Channel.Kind
+    kind?: AuthChannel.Kind
     /** Identifier appearing in logs + diagnostics. Default `console`. */
     id?: string
     /** Override the sink (e.g. for tests). Default `console.log`. */
@@ -30,12 +30,12 @@ export namespace ConsoleChannel {
  * `providerMessageId` of the form `console:<nanos>:<random>` for
  * diagnostics-friendly correlation in tests.
  */
-export class ConsoleChannel implements Channel.IChannel {
-  readonly kind: Channel.Kind
+export class AuthConsoleChannel implements AuthChannel.IChannel {
+  readonly kind: AuthChannel.Kind
   readonly id: string
-  private readonly _sink: ConsoleChannel.ISink
+  private readonly _sink: AuthConsoleChannel.ISink
 
-  constructor(cfg: ConsoleChannel.IConfig = {}) {
+  constructor(cfg: AuthConsoleChannel.IConfig = {}) {
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'console'
     this._sink = cfg.sink ?? ((line) => console.log(line))
@@ -47,7 +47,7 @@ export class ConsoleChannel implements Channel.IChannel {
    * `<identityId>` only; full payloads stay in the `vars` field which
    * the caller controls.
    */
-  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
+  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
     const messageId = `console:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
     this._sink(
       JSON.stringify({
@@ -69,24 +69,24 @@ export class ConsoleChannel implements Channel.IChannel {
  * tenants on a free plan where the magic-link / verification email is
  * gated to the in-product inbox only.
  */
-export class NoopChannel implements Channel.IChannel {
-  readonly kind: Channel.Kind
+export class AuthNoopChannel implements AuthChannel.IChannel {
+  readonly kind: AuthChannel.Kind
   readonly id: string
 
-  constructor(cfg: NoopChannel.IConfig = {}) {
+  constructor(cfg: AuthNoopChannel.IConfig = {}) {
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'noop'
   }
 
   /** Drop the send on the floor. Always returns ok with a stub message id. */
-  async send(_input: Channel.SendInput): Promise<Channel.SendResult> {
+  async send(_input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
     return { ok: true, providerMessageId: `noop:${Date.now()}` }
   }
 }
 
-export namespace NoopChannel {
+export namespace AuthNoopChannel {
   export interface IConfig {
-    kind?: Channel.Kind
+    kind?: AuthChannel.Kind
     id?: string
   }
 }
@@ -95,12 +95,12 @@ export namespace NoopChannel {
  * Captures every send into an in-memory array. The intended consumer is
  * `vitest`; production code must not use this channel.
  */
-export class TestChannel implements Channel.IChannel {
-  readonly kind: Channel.Kind
+export class AuthTestChannel implements AuthChannel.IChannel {
+  readonly kind: AuthChannel.Kind
   readonly id: string
-  readonly outbox: TestChannel.IOutboxEntry[] = []
+  readonly outbox: AuthTestChannel.IOutboxEntry[] = []
 
-  constructor(cfg: TestChannel.IConfig = {}) {
+  constructor(cfg: AuthTestChannel.IConfig = {}) {
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'test'
   }
@@ -109,7 +109,7 @@ export class TestChannel implements Channel.IChannel {
    * Append the send envelope to `this.outbox` for later assertion;
    * always returns ok.
    */
-  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
+  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
     this.outbox.push({
       templateId: input.templateId,
       identityId: input.identity.id,
@@ -120,9 +120,9 @@ export class TestChannel implements Channel.IChannel {
   }
 }
 
-export namespace TestChannel {
+export namespace AuthTestChannel {
   export interface IConfig {
-    kind?: Channel.Kind
+    kind?: AuthChannel.Kind
     id?: string
   }
   export interface IOutboxEntry {

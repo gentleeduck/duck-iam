@@ -6,10 +6,10 @@
  *
  * Usage:
  *
- *   import { AccessClient } from "duck-iam/client/vanilla";
+ *   import { IamAccessClient } from "duck-iam/client/vanilla";
  *
  *   // Initialize from server-provided permissions
- *   const access = new AccessClient(permissionsFromServer);
+ *   const access = new IamAccessClient(permissionsFromServer);
  *
  *   // Check
  *   access.can("delete", "post");                    // boolean
@@ -21,23 +21,23 @@
  *   access.update(newPermissions);
  *
  *   // Or fetch from server
- *   const access = await AccessClient.fromServer("/api/permissions", {
+ *   const access = await IamAccessClient.fromServer("/api/permissions", {
  *     headers: { Authorization: "Bearer ..." },
  *   });
  */
 
-import type { Client } from '../../core/types'
-import { buildPermissionKey, splitPermissionKey } from '../../shared/keys'
+import type { IamClient } from '../../core/types'
+import { iamBuildPermissionKey, iamSplitPermissionKey } from '../../shared/keys'
 
-/** Callback invoked when permissions are updated via {@link AccessClient.update} or {@link AccessClient.merge}. */
+/** Callback invoked when permissions are updated via {@link IamAccessClient.update} or {@link IamAccessClient.merge}. */
 type Listener<TAction extends string = string, TResource extends string = string, TScope extends string = string> = (
-  permissions: Client.PermissionMap<TAction, TResource, TScope>,
+  permissions: IamClient.PermissionMap<TAction, TResource, TScope>,
 ) => void
 
 /**
  * Provides framework-agnostic client-side access control.
  *
- * Wraps a {@link Client.PermissionMap} (typically fetched from the server) and
+ * Wraps a {@link IamClient.PermissionMap} (typically fetched from the server) and
  * exposes `.can()` / `.cannot()` checks. Supports reactive updates via
  * `.subscribe()`.
  *
@@ -46,17 +46,17 @@ type Listener<TAction extends string = string, TResource extends string = string
  * @template TScope - Constrains valid scope strings.
  * @example
  * ```ts
- * const access = new AccessClient(permissionsFromServer)
+ * const access = new IamAccessClient(permissionsFromServer)
  * if (access.can('delete', 'post')) deleteIt()
  * const unsub = access.subscribe(() => rerender())
  * ```
  */
-export class AccessClient<
+export class IamAccessClient<
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
 > {
-  private _permissions: Client.PermissionMap<TAction, TResource, TScope>
+  private _permissions: IamClient.PermissionMap<TAction, TResource, TScope>
   private _listeners = new Set<Listener<TAction, TResource, TScope>>()
 
   /**
@@ -64,8 +64,8 @@ export class AccessClient<
    *
    * @param permissions - Optional initial permission map (set later via `update`).
    */
-  constructor(permissions?: Client.PermissionMap<TAction, TResource, TScope>) {
-    this._permissions = permissions ?? ({} as Client.PermissionMap<TAction, TResource, TScope>)
+  constructor(permissions?: IamClient.PermissionMap<TAction, TResource, TScope>) {
+    this._permissions = permissions ?? ({} as IamClient.PermissionMap<TAction, TResource, TScope>)
   }
 
   /**
@@ -76,20 +76,20 @@ export class AccessClient<
    * @template TS - Constrains valid scope strings.
    * @param url - Specifies the endpoint that returns a JSON permission map.
    * @param init - Optional `fetch` init (auth headers, signal, etc.).
-   * @returns A populated {@link AccessClient}.
+   * @returns A populated {@link IamAccessClient}.
    * @throws Error when the response status is non-2xx.
    */
   static async fromServer<TA extends string = string, TR extends string = string, TS extends string = string>(
     url: string,
     init?: RequestInit,
-  ): Promise<AccessClient<TA, TR, TS>> {
+  ): Promise<IamAccessClient<TA, TR, TS>> {
     const res = await fetch(url, {
       ...init,
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     })
     if (!res.ok) throw new Error(`Failed to fetch permissions: ${res.status}`)
-    const perms: Client.PermissionMap<TA, TR, TS> = await res.json()
-    return new AccessClient<TA, TR, TS>(perms)
+    const perms: IamClient.PermissionMap<TA, TR, TS> = await res.json()
+    return new IamAccessClient<TA, TR, TS>(perms)
   }
 
   /**
@@ -97,7 +97,7 @@ export class AccessClient<
    *
    * @returns Readonly map of action/resource keys to boolean grants.
    */
-  get permissions(): Readonly<Client.PermissionMap<TAction, TResource, TScope>> {
+  get permissions(): Readonly<IamClient.PermissionMap<TAction, TResource, TScope>> {
     return this._permissions
   }
 
@@ -111,7 +111,7 @@ export class AccessClient<
    * @returns `true` when the permission map grants the combination.
    */
   can(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
-    const key = buildPermissionKey(action, resource, resourceId, scope)
+    const key = iamBuildPermissionKey(action, resource, resourceId, scope)
     return (this._permissions as Record<string, boolean>)[key] ?? false
   }
 
@@ -136,7 +136,7 @@ export class AccessClient<
    * @param permissions - Provides the new permission map.
    * @returns Nothing.
    */
-  update(permissions: Client.PermissionMap<TAction, TResource, TScope>): void {
+  update(permissions: IamClient.PermissionMap<TAction, TResource, TScope>): void {
     this._permissions = permissions
     for (const fn of this._listeners) {
       try {
@@ -155,7 +155,7 @@ export class AccessClient<
    * @param permissions - Provides the partial permission patch.
    * @returns Nothing.
    */
-  merge(permissions: Client.PermissionMap<TAction, TResource, TScope>): void {
+  merge(permissions: IamClient.PermissionMap<TAction, TResource, TScope>): void {
     this.update({ ...this._permissions, ...permissions })
   }
 
@@ -173,7 +173,7 @@ export class AccessClient<
   /**
    * Lists every action allowed against the given resource type.
    *
-   * Handles all key formats produced by `buildPermissionKey`:
+   * Handles all key formats produced by `iamBuildPermissionKey`:
    * `action:resource`, `action:resource:resourceId`, `scope:action:resource`,
    * and `scope:action:resource:resourceId`.
    *
@@ -207,7 +207,7 @@ export class AccessClient<
 /**
  * Extract the action from a permission key for a given resource.
  *
- * Key formats (from buildPermissionKey):
+ * Key formats (from iamBuildPermissionKey):
  *   "action:resource"
  *   "action:resource:resourceId"
  *   "scope:action:resource"
@@ -217,8 +217,8 @@ export class AccessClient<
  * we check if the resource appears at the expected position for each format.
  */
 function extractAction(key: string, resource: string): string | null {
-  // splitPermissionKey honours `\:` / `\\` escapes; naive split mis-tokenises.
-  const parts = splitPermissionKey(key)
+  // iamSplitPermissionKey honours `\:` / `\\` escapes; naive split mis-tokenises.
+  const parts = iamSplitPermissionKey(key)
 
   switch (parts.length) {
     case 2:

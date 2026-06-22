@@ -1,9 +1,9 @@
 /** Data-at-rest encryption adapter; field-level encrypt/decrypt with `(field, identityId)` AAD context. */
-export namespace DataAtRest {
+export namespace AuthDataAtRest {
   export interface IContext {
-    /** Field name in Identity.profile that's being encrypted. */
+    /** Field name in AuthIdentity.profile that's being encrypted. */
     field: string
-    /** Identity row id; lets adapters tie keys to subjects + meet
+    /** AuthIdentity row id; lets adapters tie keys to subjects + meet
      *  GDPR right-to-erasure by destroying the per-subject DEK.
      */
     identityId: string

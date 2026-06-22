@@ -1,5 +1,5 @@
 /**
- * Captcha verifier contract + reference implementations for
+ * AuthCaptcha verifier contract + reference implementations for
  * Cloudflare Turnstile, hCaptcha, and Google reCAPTCHA v3. Apps wire
  * a verifier into provider begin/complete paths so a sign-in cannot
  * proceed without a fresh client-side challenge solution.
@@ -11,7 +11,7 @@ import { AuthErrorObject } from '../errors'
  * Cloudflare Turnstile verifier. Hits
  * `https://challenges.cloudflare.com/turnstile/v0/siteverify`.
  */
-export class TurnstileVerifier implements Captcha.IVerifier {
+export class AuthTurnstileVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'turnstile'
   private readonly _secret: string
   private readonly _fetch: typeof globalThis.fetch
@@ -20,7 +20,7 @@ export class TurnstileVerifier implements Captcha.IVerifier {
   constructor(cfg: { secret: string; fetch?: typeof globalThis.fetch; endpoint?: string }) {
     if (!cfg.secret) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'TurnstileVerifier requires a `secret`',
+        detail: 'AuthTurnstileVerifier requires a `secret`',
       })
     }
     this._secret = cfg.secret
@@ -33,7 +33,7 @@ export class TurnstileVerifier implements Captcha.IVerifier {
    * network error or provider rejection so caller can react with a
    * 401 / step-up.
    */
-  async verify(input: Captcha.IVerifyInput): Promise<Captcha.IVerifyResult> {
+  async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     if (!input.token) return { success: false, errorCodes: ['missing-input-response'] }
     const body = new URLSearchParams({
       secret: this._secret,
@@ -50,7 +50,7 @@ export class TurnstileVerifier implements Captcha.IVerifier {
       if (!parsed) {
         return { success: false, errorCodes: ['malformed-response'] }
       }
-      const out: Captcha.IVerifyResult = { success: parsed.success }
+      const out: AuthCaptcha.IVerifyResult = { success: parsed.success }
       if (parsed.errorCodes !== undefined) out.errorCodes = parsed.errorCodes
       return out
     } catch (err) {
@@ -63,7 +63,7 @@ export class TurnstileVerifier implements Captcha.IVerifier {
 }
 
 /** hCaptcha verifier. Hits `https://api.hcaptcha.com/siteverify`. */
-export class HCaptchaVerifier implements Captcha.IVerifier {
+export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'hcaptcha'
   private readonly _secret: string
   private readonly _fetch: typeof globalThis.fetch
@@ -72,7 +72,7 @@ export class HCaptchaVerifier implements Captcha.IVerifier {
   constructor(cfg: { secret: string; fetch?: typeof globalThis.fetch; endpoint?: string }) {
     if (!cfg.secret) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'HCaptchaVerifier requires a `secret`',
+        detail: 'AuthHCaptchaVerifier requires a `secret`',
       })
     }
     this._secret = cfg.secret
@@ -81,7 +81,7 @@ export class HCaptchaVerifier implements Captcha.IVerifier {
   }
 
   /** Verify an hCaptcha token via the siteverify endpoint. */
-  async verify(input: Captcha.IVerifyInput): Promise<Captcha.IVerifyResult> {
+  async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     if (!input.token) return { success: false, errorCodes: ['missing-input-response'] }
     const body = new URLSearchParams({
       secret: this._secret,
@@ -98,7 +98,7 @@ export class HCaptchaVerifier implements Captcha.IVerifier {
       if (!parsed) {
         return { success: false, errorCodes: ['malformed-response'] }
       }
-      const out: Captcha.IVerifyResult = { success: parsed.success }
+      const out: AuthCaptcha.IVerifyResult = { success: parsed.success }
       if (parsed.errorCodes !== undefined) out.errorCodes = parsed.errorCodes
       return out
     } catch (err) {
@@ -113,9 +113,9 @@ export class HCaptchaVerifier implements Captcha.IVerifier {
 /**
  * Google reCAPTCHA v3 verifier. Returns a score 0..1; caller decides
  * the threshold (Google recommends 0.5). Hits
- * `https://www.google.com/recaptcha/api/siteverify`.
+ * `https://www.authGoogle.com/recaptcha/api/siteverify`.
  */
-export class RecaptchaV3Verifier implements Captcha.IVerifier {
+export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
   readonly id = 'recaptcha-v3'
   private readonly _secret: string
   private readonly _fetch: typeof globalThis.fetch
@@ -130,12 +130,12 @@ export class RecaptchaV3Verifier implements Captcha.IVerifier {
   }) {
     if (!cfg.secret) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'RecaptchaV3Verifier requires a `secret`',
+        detail: 'AuthRecaptchaV3Verifier requires a `secret`',
       })
     }
     this._secret = cfg.secret
     this._fetch = cfg.fetch ?? globalThis.fetch
-    this._endpoint = cfg.endpoint ?? 'https://www.google.com/recaptcha/api/siteverify'
+    this._endpoint = cfg.endpoint ?? 'https://www.authGoogle.com/recaptcha/api/siteverify'
     this._minScore = cfg.minScore ?? 0.5
   }
 
@@ -144,7 +144,7 @@ export class RecaptchaV3Verifier implements Captcha.IVerifier {
    * provider returns success AND the score is >= minScore AND (when
    * supplied) the action matches `expectedAction`.
    */
-  async verify(input: Captcha.IVerifyInput): Promise<Captcha.IVerifyResult> {
+  async verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     if (!input.token) return { success: false, errorCodes: ['missing-input-response'] }
     const body = new URLSearchParams({
       secret: this._secret,
@@ -163,7 +163,7 @@ export class RecaptchaV3Verifier implements Captcha.IVerifier {
       }
       const scoreOk = (parsed.score ?? 0) >= this._minScore
       const actionOk = input.expectedAction === undefined || parsed.action === input.expectedAction
-      const out: Captcha.IVerifyResult = { success: parsed.success && scoreOk && actionOk }
+      const out: AuthCaptcha.IVerifyResult = { success: parsed.success && scoreOk && actionOk }
       if (parsed.score !== undefined) out.score = parsed.score
       if (parsed.errorCodes !== undefined) out.errorCodes = parsed.errorCodes
       if (!actionOk) out.errorCodes = [...(out.errorCodes ?? []), 'action-mismatch']
@@ -182,9 +182,9 @@ export class RecaptchaV3Verifier implements Captcha.IVerifier {
  * Always-pass verifier for tests. Surfaces the input token in the
  * result so call-sites can assert wiring.
  */
-export class NullCaptchaVerifier implements Captcha.IVerifier {
+export class AuthNullCaptchaVerifier implements AuthCaptcha.IVerifier {
   readonly id = 'null'
-  async verify(_input: Captcha.IVerifyInput): Promise<Captcha.IVerifyResult> {
+  async verify(_input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult> {
     return { success: true }
   }
 }
@@ -250,10 +250,10 @@ function parseSiteVerifyRecaptchaV3(raw: unknown): ParsedSiteVerifyRecaptchaV3 |
   return out
 }
 
-export namespace Captcha {
+export namespace AuthCaptcha {
   export interface IVerifier {
     readonly id: string
-    verify(input: Captcha.IVerifyInput): Promise<Captcha.IVerifyResult>
+    verify(input: AuthCaptcha.IVerifyInput): Promise<AuthCaptcha.IVerifyResult>
   }
 
   export interface IVerifyInput {
@@ -270,7 +270,7 @@ export namespace Captcha {
     success: boolean
     /** Score 0..1 (reCAPTCHA v3); undefined for boolean providers. */
     score?: number
-    /** Provider-side error tokens (`'invalid-input-secret'`, etc.). */
+    /** AuthProvider-side error tokens (`'invalid-input-secret'`, etc.). */
     errorCodes?: string[]
   }
 }

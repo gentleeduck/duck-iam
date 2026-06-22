@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
-import { ResendChannel } from '../index'
+import type { AuthIdentity } from '../../../core/types/identity'
+import { AuthResendChannel } from '../index'
 
-function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
+function makeIdentity(email: string | undefined): AuthIdentity.IIdentity<unknown> {
   return {
     id: 'ident-1',
     profile: email ? { email } : undefined,
@@ -13,7 +13,7 @@ function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   }
 }
 
-function makeClient(impl?: ResendChannel.IClient['emails']['send']): ResendChannel.IClient {
+function makeClient(impl?: AuthResendChannel.IClient['emails']['send']): AuthResendChannel.IClient {
   return {
     emails: {
       send: vi.fn(impl ?? (async () => ({ data: { id: 'rs-1' }, error: null }))),
@@ -21,10 +21,10 @@ function makeClient(impl?: ResendChannel.IClient['emails']['send']): ResendChann
   }
 }
 
-describe('ResendChannel', () => {
+describe('AuthResendChannel', () => {
   it('happy path: resolves template + delegates to client.emails.send', async () => {
     const client = makeClient()
-    const channel = new ResendChannel({
+    const channel = new AuthResendChannel({
       from: 'noreply@app.test',
       client,
       templates: () => ({ subject: 'Welcome', html: '<p>Hi</p>' }),
@@ -45,7 +45,7 @@ describe('ResendChannel', () => {
   it('refuses construction without from', () => {
     expect(
       () =>
-        new ResendChannel({
+        new AuthResendChannel({
           from: '',
           client: makeClient(),
           templates: () => ({ subject: 'x' }),
@@ -56,7 +56,7 @@ describe('ResendChannel', () => {
   it('refuses construction without apiKey or client', () => {
     expect(
       () =>
-        new ResendChannel({
+        new AuthResendChannel({
           from: 'noreply@app.test',
           templates: () => ({ subject: 'x' }),
         }),
@@ -64,7 +64,7 @@ describe('ResendChannel', () => {
   })
 
   it('returns ok:false when identity has no email', async () => {
-    const channel = new ResendChannel({
+    const channel = new AuthResendChannel({
       from: 'noreply@app.test',
       client: makeClient(),
       templates: () => ({ subject: 'x' }),
@@ -80,7 +80,7 @@ describe('ResendChannel', () => {
   })
 
   it('surfaces Resend errors verbatim on ok:false', async () => {
-    const channel = new ResendChannel({
+    const channel = new AuthResendChannel({
       from: 'noreply@app.test',
       client: makeClient(async () => ({ data: null, error: { message: 'domain-not-verified' } })),
       templates: () => ({ subject: 'x' }),
@@ -96,7 +96,7 @@ describe('ResendChannel', () => {
   })
 
   it('catches thrown client errors as ok:false', async () => {
-    const channel = new ResendChannel({
+    const channel = new AuthResendChannel({
       from: 'noreply@app.test',
       client: makeClient(async () => {
         throw new Error('network')
@@ -114,7 +114,7 @@ describe('ResendChannel', () => {
   })
 
   it('template resolver throw becomes ok:false', async () => {
-    const channel = new ResendChannel({
+    const channel = new AuthResendChannel({
       from: 'noreply@app.test',
       client: makeClient(),
       templates: () => {

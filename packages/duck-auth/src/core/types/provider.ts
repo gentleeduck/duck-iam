@@ -1,18 +1,18 @@
-import type { TenantContext } from './context'
-import type { Credential } from './credential'
-import type { Identity } from './identity'
-import type { Limiter } from './limiter'
-import type { Session } from './session'
-import type { Transport } from './transport'
+import type { AuthTenantContext } from './context'
+import type { AuthCredential } from './credential'
+import type { AuthIdentity } from './identity'
+import type { AuthLimiter } from './limiter'
+import type { AuthSession } from './session'
+import type { AuthTransport } from './transport'
 
 /**
  * A sign-in method. Providers are pure logic: they read stores, validate input,
  * and return Intents; the framework adapter executes the Intents against the
  * actual HTTP Request/Response. This keeps providers HTTP-free and unit-testable.
  */
-export namespace Provider {
-  /** Cookie options surface for setCookie intents - duplicated here to avoid Transport-side cycles. */
-  export interface CookieOptions extends Transport.CookieOptions {}
+export namespace AuthProvider {
+  /** Cookie options surface for setCookie intents - duplicated here to avoid AuthTransport-side cycles. */
+  export interface CookieOptions extends AuthTransport.CookieOptions {}
 
   /** Anything a provider can ask the framework adapter to do. */
   export type Intent =
@@ -23,33 +23,33 @@ export namespace Provider {
     | {
         type: 'startSession'
         identityId: string
-        factors: Session.Factor[]
-        aal: Session.AAL
+        factors: AuthSession.Factor[]
+        aal: AuthSession.AAL
       }
     | { type: 'requireMfa'; identityId: string; methods: string[] }
     | { type: 'error'; code: string; status: number; detail?: string }
 
   /** Crypto helpers exposed to providers (so they don't import node:crypto themselves). */
   export interface ICrypto {
-    randomToken(bytes: number): string
-    sha256(s: string): string
-    timingSafeEqual(a: string, b: string): boolean
+    authRandomToken(bytes: number): string
+    authSha256(s: string): string
+    authTimingSafeEqual(a: string, b: string): boolean
   }
 
-  /** Events surface - providers emit via the bus, never directly to console. */
+  /** AuthEvents surface - providers emit via the bus, never directly to console. */
   export interface IEvents {
     emit(event: string, payload: unknown): Promise<void>
   }
 
   export interface IContext<Profile = unknown> {
     stores: {
-      identities: Identity.IStore<Profile>
-      sessions: Session.IStore
-      credentials: Credential.IStore
+      identities: AuthIdentity.IStore<Profile>
+      sessions: AuthSession.IStore
+      credentials: AuthCredential.IStore
     }
-    tenant: TenantContext
+    tenant: AuthTenantContext
     baseUrl: string
-    limiter: Limiter.ILimiter
+    limiter: AuthLimiter.ILimiter
     events: IEvents
     crypto: ICrypto
   }

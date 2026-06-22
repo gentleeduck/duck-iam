@@ -1,10 +1,10 @@
-import type { Engine } from '../core'
+import type { IamEngine } from '../core'
 /**
- * LRU cache with TTL expiration; relies on `Map` insertion order. Used by {@link Engine} for policies/roles/subjects.
+ * LRU cache with TTL expiration; relies on `Map` insertion order. Used by {@link IamEngine} for policies/roles/subjects.
  *
  * @template V - Type of cached values.
  */
-export class LRUCache<V> {
+export class IamLRUCache<V> {
   private _map = new Map<string, { value: V; expiresAt: number }>()
   private _maxSize: number
   private _ttl: number
@@ -17,8 +17,8 @@ export class LRUCache<V> {
    * @throws `RangeError` when `maxSize < 1` or `ttlMs < 0`.
    */
   constructor(maxSize: number, ttlMs: number) {
-    if (!Number.isFinite(maxSize) || maxSize < 1) throw new RangeError('LRUCache maxSize must be a finite number >= 1')
-    if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError('LRUCache ttlMs must be a finite number >= 0')
+    if (!Number.isFinite(maxSize) || maxSize < 1) throw new RangeError('IamLRUCache maxSize must be a finite number >= 1')
+    if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError('IamLRUCache ttlMs must be a finite number >= 0')
     this._maxSize = maxSize
     this._ttl = ttlMs
   }

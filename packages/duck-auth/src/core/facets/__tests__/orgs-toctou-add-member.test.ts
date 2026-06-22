@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { InMemoryEvents } from '../../events'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthInMemoryEvents } from '../../events'
 import { OrgsFacet } from '../orgs'
 
 describe('OrgsFacet.addMember - TOCTOU defense', () => {
-  let adapter: MemoryAuthAdapter
+  let adapter: AuthMemoryAdapter
   let facet: OrgsFacet
 
   beforeEach(() => {
-    adapter = new MemoryAuthAdapter()
-    facet = new OrgsFacet(adapter.orgs, new InMemoryEvents())
+    adapter = new AuthMemoryAdapter()
+    facet = new OrgsFacet(adapter.orgs, new AuthInMemoryEvents())
     // Seed an org via the underlying adapter (no orgs.create() in facet).
     const orgsMap = (adapter as unknown as { _orgs: Map<string, unknown> })._orgs
     orgsMap.set('org-1', { id: 'org-1', name: 'Acme', createdAt: Date.now() })

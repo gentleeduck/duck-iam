@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { sha256 } from '../../../core/crypto'
-import type { Session } from '../../../core/types/session'
-import { FakeRedis } from '../redis-like'
-import { RedisSessionStore } from '../session-store'
+import { authSha256 } from '../../../core/crypto'
+import type { AuthSession } from '../../../core/types/session'
+import { AuthFakeRedis } from '../redis-like'
+import { AuthRedisSessionStore } from '../session-store'
 
-function buildSession(overrides: Partial<Session.ISession> = {}): Session.ISession {
+function buildSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession.ISession {
   const sid = 'sid-' + Math.random().toString(36).slice(2)
   const now = Date.now()
   return {
-    id: sha256(sid),
+    id: authSha256(sid),
     identityId: 'ident-1',
     kind: 'user',
     aal: 2,
@@ -22,13 +22,13 @@ function buildSession(overrides: Partial<Session.ISession> = {}): Session.ISessi
   }
 }
 
-describe('RedisSessionStore', () => {
-  let redis: FakeRedis
-  let store: RedisSessionStore
+describe('AuthRedisSessionStore', () => {
+  let redis: AuthFakeRedis
+  let store: AuthRedisSessionStore
 
   beforeEach(() => {
-    redis = new FakeRedis()
-    store = new RedisSessionStore({ redis, prefix: 'test' })
+    redis = new AuthFakeRedis()
+    store = new AuthRedisSessionStore({ redis, prefix: 'test' })
   })
 
   it('create + getByHash round-trips the session', async () => {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '..'
+import { AuthMemoryAdapter } from '..'
 
-describe('MemoryAuthAdapter.create - provider-sub uniqueness', () => {
+describe('AuthMemoryAdapter.create - provider-sub uniqueness', () => {
   it('two concurrent creates with the same (providerId, sub): exactly one succeeds', async () => {
-    const adapter = new MemoryAuthAdapter<{ email: string }>()
-    const link = { providerId: 'google', providerSub: 'sub-X', addedAt: Date.now() }
+    const adapter = new AuthMemoryAdapter<{ email: string }>()
+    const link = { providerId: 'authGoogle', providerSub: 'sub-X', addedAt: Date.now() }
     const results = await Promise.allSettled([
       adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [link] }, {}),
       adapter.identities.create({ profile: { email: 'b@x.com' }, providers: [link] }, {}),
@@ -25,8 +25,8 @@ describe('MemoryAuthAdapter.create - provider-sub uniqueness', () => {
   })
 
   it('many concurrent creates: exactly one wins', async () => {
-    const adapter = new MemoryAuthAdapter<{ email: string }>()
-    const link = { providerId: 'github', providerSub: 'race-sub', addedAt: Date.now() }
+    const adapter = new AuthMemoryAdapter<{ email: string }>()
+    const link = { providerId: 'authGithub', providerSub: 'race-sub', addedAt: Date.now() }
     const calls = Array.from({ length: 15 }, (_, i) =>
       adapter.identities.create({ profile: { email: `r-${i}@x.com` }, providers: [link] }, {}),
     )
@@ -37,14 +37,14 @@ describe('MemoryAuthAdapter.create - provider-sub uniqueness', () => {
   })
 
   it('create without providers (empty) is unaffected', async () => {
-    const adapter = new MemoryAuthAdapter<{ email: string }>()
+    const adapter = new AuthMemoryAdapter<{ email: string }>()
     const a = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
     const b = await adapter.identities.create({ profile: { email: 'b@x.com' }, providers: [] }, {})
     expect(a.id).not.toBe(b.id)
   })
 
   it('create with provider link that has undefined sub (magic-link-style) is allowed', async () => {
-    const adapter = new MemoryAuthAdapter<{ email: string }>()
+    const adapter = new AuthMemoryAdapter<{ email: string }>()
     const a = await adapter.identities.create(
       { profile: { email: 'a@x.com' }, providers: [{ providerId: 'magic-link', addedAt: Date.now() }] },
       {},
@@ -60,14 +60,14 @@ describe('MemoryAuthAdapter.create - provider-sub uniqueness', () => {
   })
 
   it('after race, findByProviderSub returns exactly ONE identity', async () => {
-    const adapter = new MemoryAuthAdapter<{ email: string }>()
-    const link = { providerId: 'google', providerSub: 'race-X', addedAt: Date.now() }
+    const adapter = new AuthMemoryAdapter<{ email: string }>()
+    const link = { providerId: 'authGoogle', providerSub: 'race-X', addedAt: Date.now() }
     await Promise.allSettled([
       adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [link] }, {}),
       adapter.identities.create({ profile: { email: 'b@x.com' }, providers: [link] }, {}),
       adapter.identities.create({ profile: { email: 'c@x.com' }, providers: [link] }, {}),
     ])
-    const found = await adapter.identities.findByProviderSub('google', 'race-X', {})
+    const found = await adapter.identities.findByProviderSub('authGoogle', 'race-X', {})
     expect(found).not.toBeNull()
     // Only one row should exist with this sub. Verify by counting.
     let count = 0
@@ -75,7 +75,7 @@ describe('MemoryAuthAdapter.create - provider-sub uniqueness', () => {
       adapter as unknown as { _identities: Map<string, { providers: { providerId: string; providerSub?: string }[] }> }
     )._identities
     for (const i of store.values()) {
-      if (i.providers.some((p) => p.providerId === 'google' && p.providerSub === 'race-X')) {
+      if (i.providers.some((p) => p.providerId === 'authGoogle' && p.providerSub === 'race-X')) {
         count++
       }
     }

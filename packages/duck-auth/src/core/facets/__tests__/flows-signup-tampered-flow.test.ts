@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { sha256 } from '../../crypto'
-import { ScryptHasher } from '../../password/scrypt'
-import { CookieTransport } from '../../transport/cookie'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { authSha256 } from '../../crypto'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthCookieTransport } from '../../transport/cookie'
 
 interface ProfileShape {
   email: string
@@ -12,23 +12,23 @@ interface ProfileShape {
 }
 
 function build() {
-  const adapter = new MemoryAuthAdapter<ProfileShape>()
-  const auth = new AuthRoot<ProfileShape>({
+  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'https://app.test',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 async function plantFlowRow(
-  adapter: MemoryAuthAdapter<ProfileShape>,
+  adapter: AuthMemoryAdapter<ProfileShape>,
   identityId: string,
   metadata: unknown,
 ): Promise<string> {
@@ -37,7 +37,7 @@ async function plantFlowRow(
     {
       identityId,
       kind: 'recovery',
-      secret: sha256(token),
+      secret: authSha256(token),
       metadata: metadata as Record<string, unknown>,
       expiresAt: Date.now() + 60 * 60 * 1000,
     },
@@ -47,8 +47,8 @@ async function plantFlowRow(
 }
 
 describe('flows signup - tampered flow metadata', () => {
-  let auth: AuthRoot<ProfileShape>
-  let adapter: MemoryAuthAdapter<ProfileShape>
+  let auth: AuthEngine<ProfileShape>
+  let adapter: AuthMemoryAdapter<ProfileShape>
   let identityId: string
 
   beforeEach(async () => {

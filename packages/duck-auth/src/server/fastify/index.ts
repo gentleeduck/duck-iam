@@ -1,39 +1,39 @@
 /**
  * Fastify adapter. Fastify is Node-native (req/reply rather than
  * Web-Fetch), so the adapter translates between the Web Fetch
- * `Response` that `executeIntents` returns and Fastify's reply API.
+ * `Response` that `authExecuteIntents` returns and Fastify's reply API.
  *
  * Mount each handler on your Fastify instance:
  *
- *   fastify.post('/auth/signin',  fastifySignIn(auth))
- *   fastify.post('/auth/signout', fastifySignOut(auth))
- *   fastify.get('/auth/session',  fastifySession(auth))
- *   fastify.post('/auth/providers/:id/begin', fastifyProviderBegin(auth))
+ *   fastify.post('/auth/signin',  authFastifySignIn(auth))
+ *   fastify.post('/auth/signout', authFastifySignOut(auth))
+ *   fastify.get('/auth/session',  authFastifySession(auth))
+ *   fastify.post('/auth/providers/:id/begin', authFastifyProviderBegin(auth))
  */
 
-import type { AuthRoot } from '../../core/auth'
+import type { AuthEngine } from '../../core/auth'
 import {
-  errorToHttp,
-  executeIntents,
-  extractSetCookies,
-  isValidProviderId,
-  nodeHeadersToFetch,
-  parseProviderBeginBody,
-  parseSignInBody,
+  authErrorToHttp,
+  authExecuteIntents,
+  authExtractSetCookies,
+  authIsValidProviderId,
+  authNodeHeadersToFetch,
+  authParseProviderBeginBody,
+  authParseSignInBody,
 } from '../generic'
 
 /** Convert the loose Fastify header bag into a Web Fetch Headers object. */
-const toFetchHeaders: (headers: FastifyAdapter.IRequest['headers']) => Headers = nodeHeadersToFetch
+const toFetchHeaders: (headers: AuthFastifyAdapter.IRequest['headers']) => Headers = authNodeHeadersToFetch
 
 /**
- * Forward the Web Fetch `Response` produced by `executeIntents` onto
+ * Forward the Web Fetch `Response` produced by `authExecuteIntents` onto
  * the Fastify reply. Handles Set-Cookie multiplicity correctly (one
  * header per cookie). Returns the reply so the caller can `return`
  * straight from the handler.
  */
-async function forward(response: Response, reply: FastifyAdapter.IReply): Promise<FastifyAdapter.IReply> {
+async function forward(response: Response, reply: AuthFastifyAdapter.IReply): Promise<AuthFastifyAdapter.IReply> {
   reply.status(response.status)
-  for (const cookie of extractSetCookies(response)) {
+  for (const cookie of authExtractSetCookies(response)) {
     reply.header('set-cookie', cookie)
   }
   response.headers.forEach((value, key) => {
@@ -45,8 +45,8 @@ async function forward(response: Response, reply: FastifyAdapter.IReply): Promis
   return reply
 }
 
-function handleError(err: unknown, reply: FastifyAdapter.IReply): FastifyAdapter.IReply {
-  const { status, body } = errorToHttp(err)
+function handleError(err: unknown, reply: AuthFastifyAdapter.IReply): AuthFastifyAdapter.IReply {
+  const { status, body } = authErrorToHttp(err)
   reply.status(status)
   reply.header('content-type', 'application/json; charset=utf-8')
   reply.send(JSON.stringify(body))
@@ -54,15 +54,15 @@ function handleError(err: unknown, reply: FastifyAdapter.IReply): FastifyAdapter
 }
 
 /** Fastify handler for the sign-in route. */
-export function fastifySignIn(auth: AuthRoot): FastifyAdapter.IHandler {
+export function authFastifySignIn(auth: AuthEngine): AuthFastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
-      const parsed = parseSignInBody(req.body)
+      const parsed = authParseSignInBody(req.body)
       if (!parsed) {
-        return forward(executeIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
+        return forward(authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
       }
       const result = await auth.flows.signIn(parsed)
-      return forward(executeIntents(result.intents), reply)
+      return forward(authExecuteIntents(result.intents), reply)
     } catch (err) {
       return handleError(err, reply)
     }
@@ -70,13 +70,13 @@ export function fastifySignIn(auth: AuthRoot): FastifyAdapter.IHandler {
 }
 
 /** Fastify handler for sign-out. */
-export function fastifySignOut(auth: AuthRoot): FastifyAdapter.IHandler {
+export function authFastifySignOut(auth: AuthEngine): AuthFastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
       const sid = auth.transport.extract({ headers: toFetchHeaders(req.headers) })
-      if (!sid) return forward(executeIntents(auth.transport.revoke()), reply)
+      if (!sid) return forward(authExecuteIntents(auth.transport.revoke()), reply)
       const { intents } = await auth.flows.signOut(sid)
-      return forward(executeIntents(intents), reply)
+      return forward(authExecuteIntents(intents), reply)
     } catch (err) {
       return handleError(err, reply)
     }
@@ -84,7 +84,7 @@ export function fastifySignOut(auth: AuthRoot): FastifyAdapter.IHandler {
 }
 
 /** Fastify handler for the session-introspection route. */
-export function fastifySession(auth: AuthRoot): FastifyAdapter.IHandler {
+export function authFastifySession(auth: AuthEngine): AuthFastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
       const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
@@ -106,19 +106,19 @@ export function fastifySession(auth: AuthRoot): FastifyAdapter.IHandler {
  * Fastify handler for the per-provider begin step (OAuth start /
  * passkey-options / etc.).
  */
-export function fastifyProviderBegin(auth: AuthRoot): FastifyAdapter.IHandler {
+export function authFastifyProviderBegin(auth: AuthEngine): AuthFastifyAdapter.IHandler {
   return async (req, reply) => {
     try {
       const id = req.params?.id
-      if (!isValidProviderId(id)) {
-        return forward(executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }]), reply)
+      if (!authIsValidProviderId(id)) {
+        return forward(authExecuteIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }]), reply)
       }
-      const body = parseProviderBeginBody(req.body)
+      const body = authParseProviderBeginBody(req.body)
       if (body === null) {
-        return forward(executeIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
+        return forward(authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
       }
       const intents = await auth.flows.beginProvider(id, body)
-      return forward(executeIntents(intents), reply)
+      return forward(authExecuteIntents(intents), reply)
     } catch (err) {
       return handleError(err, reply)
     }
@@ -130,26 +130,26 @@ export function fastifyProviderBegin(auth: AuthRoot): FastifyAdapter.IHandler {
  * `/auth/*` in one call. Apps that want a custom path layout can
  * skip this and wire each handler directly.
  */
-export function registerFastifyAuth(
+export function authRegisterFastify(
   fastify: {
-    post: (path: string, handler: FastifyAdapter.IHandler) => void
-    get: (path: string, handler: FastifyAdapter.IHandler) => void
+    post: (path: string, handler: AuthFastifyAdapter.IHandler) => void
+    get: (path: string, handler: AuthFastifyAdapter.IHandler) => void
   },
-  auth: AuthRoot,
+  auth: AuthEngine,
   opts: { prefix?: string } = {},
 ): void {
   const prefix = opts.prefix ?? '/auth'
-  fastify.post(`${prefix}/signin`, fastifySignIn(auth))
-  fastify.post(`${prefix}/signout`, fastifySignOut(auth))
-  fastify.get(`${prefix}/session`, fastifySession(auth))
-  fastify.post(`${prefix}/providers/:id/begin`, fastifyProviderBegin(auth))
+  fastify.post(`${prefix}/signin`, authFastifySignIn(auth))
+  fastify.post(`${prefix}/signout`, authFastifySignOut(auth))
+  fastify.get(`${prefix}/session`, authFastifySession(auth))
+  fastify.post(`${prefix}/providers/:id/begin`, authFastifyProviderBegin(auth))
 }
 
-export namespace FastifyAdapter {
+export namespace AuthFastifyAdapter {
   export type IHandler = (
-    req: FastifyAdapter.IRequest,
-    reply: FastifyAdapter.IReply,
-  ) => Promise<FastifyAdapter.IReply | undefined>
+    req: AuthFastifyAdapter.IRequest,
+    reply: AuthFastifyAdapter.IReply,
+  ) => Promise<AuthFastifyAdapter.IReply | undefined>
 
   export interface IRequest {
     method: string
@@ -160,8 +160,8 @@ export namespace FastifyAdapter {
   }
 
   export interface IReply {
-    status(code: number): FastifyAdapter.IReply
-    header(key: string, value: string): FastifyAdapter.IReply
-    send(payload: unknown): FastifyAdapter.IReply | undefined | Promise<unknown>
+    status(code: number): AuthFastifyAdapter.IReply
+    header(key: string, value: string): AuthFastifyAdapter.IReply
+    send(payload: unknown): AuthFastifyAdapter.IReply | undefined | Promise<unknown>
   }
 }

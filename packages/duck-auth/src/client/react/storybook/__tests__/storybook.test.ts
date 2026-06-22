@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { createMockClient, type StorybookAuth, withAuth } from '../index'
+import { authCreateMockClient, type AuthStorybook, authWithStorybook } from '../index'
 
-describe('storybook withAuth decorator', () => {
-  it('createMockClient resolves getSession with the configured state', async () => {
-    const client = createMockClient({
+describe('storybook authWithStorybook decorator', () => {
+  it('authCreateMockClient resolves getSession with the configured state', async () => {
+    const client = authCreateMockClient({
       status: 'authed',
       identity: { id: 'u1', providers: [], version: 1, createdAt: 0, updatedAt: 0 },
     })
@@ -11,15 +11,15 @@ describe('storybook withAuth decorator', () => {
     expect(result.identity?.id).toBe('u1')
   })
 
-  it('createMockClient guest state has null identity + session', async () => {
-    const client = createMockClient({ status: 'guest' })
+  it('authCreateMockClient guest state has null identity + session', async () => {
+    const client = authCreateMockClient({ status: 'guest' })
     const r = await client.getSession()
     expect(r.identity).toBeNull()
     expect(r.session).toBeNull()
   })
 
   it('onChange fires once synchronously on subscribe', () => {
-    const client = createMockClient({
+    const client = authCreateMockClient({
       identity: { id: 'u2', providers: [], version: 1, createdAt: 0, updatedAt: 0 },
     })
     let seen: unknown = 'NOT-CALLED'
@@ -31,7 +31,7 @@ describe('storybook withAuth decorator', () => {
   })
 
   it('signIn returns ok=true with the configured state', async () => {
-    const client = createMockClient({
+    const client = authCreateMockClient({
       identity: { id: 'u3', providers: [], version: 1, createdAt: 0, updatedAt: 0 },
     })
     const r = await client.signIn({ providerId: 'password', input: {} })
@@ -39,8 +39,8 @@ describe('storybook withAuth decorator', () => {
     expect(r.identity?.id).toBe('u3')
   })
 
-  it('withAuth() returns a vnode wrapping AuthProvider', () => {
-    const decorator = withAuth({ status: 'guest' })
+  it('authWithStorybook() returns a vnode wrapping AuthProvider', () => {
+    const decorator = authWithStorybook({ status: 'guest' })
     const result = decorator(() => null) as { type: unknown; props: { client: unknown } }
     expect(result).toBeDefined()
     expect(result.type).toBeDefined()
@@ -48,7 +48,7 @@ describe('storybook withAuth decorator', () => {
   })
 
   it('story-level parameters.auth merges over decorator defaults', async () => {
-    const decorator = withAuth<{ email: string }>({ status: 'guest' })
+    const decorator = authWithStorybook<{ email: string }>({ status: 'guest' })
     const result = decorator(() => null, {
       parameters: {
         auth: {
@@ -69,7 +69,7 @@ describe('storybook withAuth decorator', () => {
   })
 
   it('defaults flow through when no story-level parameters provided', async () => {
-    const decorator = withAuth({
+    const decorator = authWithStorybook({
       identity: { id: 'from-defaults', providers: [], version: 1, createdAt: 0, updatedAt: 0 },
     })
     const result = decorator(() => null) as {
@@ -79,8 +79,8 @@ describe('storybook withAuth decorator', () => {
     expect(sess.identity?.id).toBe('from-defaults')
   })
 
-  it('StorybookAuth.IState type is exported', () => {
-    const _check: StorybookAuth.IState = {}
+  it('AuthStorybook.IState type is exported', () => {
+    const _check: AuthStorybook.IState = {}
     expect(_check).toEqual({})
   })
 })

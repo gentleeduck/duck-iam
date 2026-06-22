@@ -1,7 +1,7 @@
-import type { Engine } from '..'
-import { MAX_CONDITION_DEPTH, MAX_REGEX_LENGTH } from '../conditions/conditions.libs'
-import { ALLOWED_ROOTS } from '../resolve/resolve'
-import type { Validate } from './validate.types'
+import type { IamEngine } from '..'
+import { IAM_MAX_CONDITION_DEPTH, IAM_MAX_REGEX_LENGTH } from '../conditions/conditions.libs'
+import { IAM_ALLOWED_ROOTS } from '../resolve/resolve'
+import type { IamValidate } from './validate.types'
 
 function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -12,14 +12,14 @@ function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
  * single `matches` pattern. Beyond this the surface area for catastrophic
  * backtracking gets impractical to reason about, so we refuse outright.
  */
-export const MAX_UNBOUNDED_QUANTIFIERS = 4
+export const IAM_MAX_UNBOUNDED_QUANTIFIERS = 4
 
 /**
  * Largest finite upper bound permitted in a `{n,m}` quantifier. The matcher
  * walks `m` iterations worst-case, so anything above ~1000 starts to look
  * like a DoS vector even though it isn't technically unbounded.
  */
-export const MAX_BOUNDED_QUANTIFIER = 1_000
+export const IAM_MAX_BOUNDED_QUANTIFIER = 1_000
 
 /**
  * Cheap heuristic for catastrophic-backtracking regex (nested quantifiers, large bounds, backref-quantifier, etc).
@@ -27,10 +27,10 @@ export const MAX_BOUNDED_QUANTIFIER = 1_000
  * @param pattern - Raw regex source.
  * @returns `{ safe: true }` when the pattern looks benign, otherwise `{ safe: false, reason }`.
  */
-export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
+export function iamDetectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
   if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
-  if (pattern.length > MAX_REGEX_LENGTH) {
-    return { safe: false, reason: `pattern length ${pattern.length} exceeds MAX_REGEX_LENGTH (${MAX_REGEX_LENGTH})` }
+  if (pattern.length > IAM_MAX_REGEX_LENGTH) {
+    return { safe: false, reason: `pattern length ${pattern.length} exceeds IAM_MAX_REGEX_LENGTH (${IAM_MAX_REGEX_LENGTH})` }
   }
 
   // Backreference followed by a quantifier - run before the nested-quantifier
@@ -94,13 +94,13 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
       const upperStr = m[2]
       if (upperStr === undefined) continue // `{n}` exact count - not a range.
       if (upperStr === '') {
-        if (low > MAX_BOUNDED_QUANTIFIER) {
+        if (low > IAM_MAX_BOUNDED_QUANTIFIER) {
           return { safe: false, reason: 'bounded-large-quantifier' }
         }
         continue
       }
       const high = Number(upperStr)
-      if (Number.isFinite(high) && high > MAX_BOUNDED_QUANTIFIER) {
+      if (Number.isFinite(high) && high > IAM_MAX_BOUNDED_QUANTIFIER) {
         return { safe: false, reason: 'bounded-large-quantifier' }
       }
     }
@@ -160,10 +160,10 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
       i = close
     }
   }
-  if (unbounded > MAX_UNBOUNDED_QUANTIFIERS) {
+  if (unbounded > IAM_MAX_UNBOUNDED_QUANTIFIERS) {
     return {
       safe: false,
-      reason: `${unbounded} unbounded quantifiers exceed limit of ${MAX_UNBOUNDED_QUANTIFIERS}`,
+      reason: `${unbounded} unbounded quantifiers exceed limit of ${IAM_MAX_UNBOUNDED_QUANTIFIERS}`,
     }
   }
 
@@ -171,28 +171,28 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
 }
 
 /**
- * Field paths longer than this are refused. The runtime DotPath resolver
+ * Field paths longer than this are refused. The runtime IamDotPath resolver
  * splits on dots, so an enormous field string would cost O(length) work
  * per evaluation with no upside.
  */
-export const MAX_FIELD_LENGTH = 256
+export const IAM_MAX_FIELD_LENGTH = 256
 
 /** Max allowed length for a string `value` on a condition. */
-export const MAX_CONDITION_VALUE_LENGTH = 1024
+export const IAM_MAX_CONDITION_VALUE_LENGTH = 1024
 /** Valid combining algorithm names. */
-export const VALID_ALGORITHMS = new Set(['deny-overrides', 'allow-overrides', 'first-match', 'highest-priority'])
+export const IAM_VALID_ALGORITHMS = new Set(['deny-overrides', 'allow-overrides', 'first-match', 'highest-priority'])
 
 /** Valid rule effect values. */
-export const VALID_EFFECTS = new Set(['allow', 'deny'])
+export const IAM_VALID_EFFECTS = new Set(['allow', 'deny'])
 
 /**
- * Validate-time policy size caps.
+ * IamValidate-time policy size caps.
  *
- * `indexPolicy()` builds an `actions x resources` cartesian per rule, so an
+ * `iamIndexPolicy()` builds an `actions x resources` cartesian per rule, so an
  * unbounded policy can stall the event loop. Limits also cap memory growth
- * in {@link Engine}'s LRU caches.
+ * in {@link IamEngine}'s LRU caches.
  */
-export const POLICY_LIMITS = {
+export const IAM_POLICY_LIMITS = {
   rulesPerPolicy: 1_000,
   actionsPerRule: 100,
   resourcesPerRule: 100,
@@ -205,19 +205,19 @@ const RESOLVABLE_SHORTHANDS = new Set(['action', 'scope'])
 
 /**
  * True when `path` would resolve to a real attribute at evaluation time.
- * Shares {@link ALLOWED_ROOTS} with the resolver so the two stay in lock-step.
+ * Shares {@link IAM_ALLOWED_ROOTS} with the resolver so the two stay in lock-step.
  *
  * @param path - Dot-path string to check.
  * @returns `true` when the path's root is a known resolvable root.
  */
-export function isResolvablePath(path: string): boolean {
+export function iamIsResolvablePath(path: string): boolean {
   if (RESOLVABLE_SHORTHANDS.has(path)) return true
   const root = path.split('.', 1)[0]
-  return !!root && ALLOWED_ROOTS.has(root)
+  return !!root && IAM_ALLOWED_ROOTS.has(root)
 }
 
 /** Set of valid condition operator names supported by the condition evaluator. */
-export const VALID_OPERATORS = new Set([
+export const IAM_VALID_OPERATORS = new Set([
   'eq',
   'neq',
   'gt',
@@ -238,14 +238,14 @@ export const VALID_OPERATORS = new Set([
 ])
 
 /**
- * Validate one condition item (leaf or group); groups delegate to {@link validateConditionGroup}.
+ * IamValidate one condition item (leaf or group); groups delegate to {@link validateConditionGroup}.
  *
  * @param input  - The condition item to validate.
  * @param path   - Dot-path prefix used in reported issues.
  * @param issues - Array to push validation issues into.
- * @param depth  - Current nesting depth (defaults to `0`; bounded by `MAX_CONDITION_DEPTH`).
+ * @param depth  - Current nesting depth (defaults to `0`; bounded by `IAM_MAX_CONDITION_DEPTH`).
  */
-export function validateConditionItem(input: unknown, path: string, issues: Validate.IIssue[], depth = 0): void {
+export function validateConditionItem(input: unknown, path: string, issues: IamValidate.IIssue[], depth = 0): void {
   if (!isPlainObjectLike(input)) {
     issues.push({
       type: 'error',
@@ -266,14 +266,14 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
         message: 'Condition must have a non-empty string "field"',
         path: `${path}.field`,
       })
-    } else if (obj.field.length > MAX_FIELD_LENGTH) {
+    } else if (obj.field.length > IAM_MAX_FIELD_LENGTH) {
       issues.push({
         type: 'error',
         code: 'LIMIT_EXCEEDED',
-        message: `Condition field is ${obj.field.length} chars; limit is ${MAX_FIELD_LENGTH}`,
+        message: `Condition field is ${obj.field.length} chars; limit is ${IAM_MAX_FIELD_LENGTH}`,
         path: `${path}.field`,
       })
-    } else if (!isResolvablePath(obj.field)) {
+    } else if (!iamIsResolvablePath(obj.field)) {
       issues.push({
         type: 'warning',
         code: 'UNRESOLVABLE_FIELD',
@@ -281,7 +281,7 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
         path: `${path}.field`,
       })
     }
-    if (typeof obj.operator !== 'string' || !VALID_OPERATORS.has(obj.operator)) {
+    if (typeof obj.operator !== 'string' || !IAM_VALID_OPERATORS.has(obj.operator)) {
       issues.push({
         type: 'error',
         code: 'INVALID_OPERATOR',
@@ -289,27 +289,27 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
         path: `${path}.operator`,
       })
     }
-    if (typeof obj.value === 'string' && obj.value.length > MAX_CONDITION_VALUE_LENGTH) {
+    if (typeof obj.value === 'string' && obj.value.length > IAM_MAX_CONDITION_VALUE_LENGTH) {
       issues.push({
         type: 'error',
         code: 'LIMIT_EXCEEDED',
-        message: `Condition value is ${obj.value.length} chars; limit is ${MAX_CONDITION_VALUE_LENGTH}`,
+        message: `Condition value is ${obj.value.length} chars; limit is ${IAM_MAX_CONDITION_VALUE_LENGTH}`,
         path: `${path}.value`,
       })
     } else if (Array.isArray(obj.value)) {
       for (const [i, entry] of obj.value.entries()) {
-        if (typeof entry === 'string' && entry.length > MAX_CONDITION_VALUE_LENGTH) {
+        if (typeof entry === 'string' && entry.length > IAM_MAX_CONDITION_VALUE_LENGTH) {
           issues.push({
             type: 'error',
             code: 'LIMIT_EXCEEDED',
-            message: `Condition value[${i}] is ${entry.length} chars; limit is ${MAX_CONDITION_VALUE_LENGTH}`,
+            message: `Condition value[${i}] is ${entry.length} chars; limit is ${IAM_MAX_CONDITION_VALUE_LENGTH}`,
             path: `${path}.value[${i}]`,
           })
           break
         }
       }
     }
-    if (typeof obj.value === 'string' && obj.value.startsWith('$') && !isResolvablePath(obj.value.slice(1))) {
+    if (typeof obj.value === 'string' && obj.value.startsWith('$') && !iamIsResolvablePath(obj.value.slice(1))) {
       issues.push({
         type: 'warning',
         code: 'UNRESOLVABLE_VALUE',
@@ -321,7 +321,7 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
     // Refuse catastrophic patterns at validate-time so they never reach the
     // policy store. Non-string / $-resolved values are caught elsewhere.
     if (obj.operator === 'matches' && typeof obj.value === 'string' && !obj.value.startsWith('$')) {
-      const result = detectCatastrophicRegex(obj.value)
+      const result = iamDetectCatastrophicRegex(obj.value)
       if (!result.safe) {
         issues.push({
           type: 'error',
@@ -337,19 +337,19 @@ export function validateConditionItem(input: unknown, path: string, issues: Vali
 }
 
 /**
- * Validate a condition group `{ all | any | none: ConditionItem[] }`; depth-bounded.
+ * IamValidate a condition group `{ all | any | none: ConditionItem[] }`; depth-bounded.
  *
  * @param input  - The condition group to validate.
  * @param path   - Dot-path prefix used in reported issues.
  * @param issues - Array to push validation issues into.
- * @param depth  - Current nesting depth (defaults to `0`; bounded by `MAX_CONDITION_DEPTH`).
+ * @param depth  - Current nesting depth (defaults to `0`; bounded by `IAM_MAX_CONDITION_DEPTH`).
  */
-export function validateConditionGroup(input: unknown, path: string, issues: Validate.IIssue[], depth = 0): void {
-  if (depth > MAX_CONDITION_DEPTH) {
+export function validateConditionGroup(input: unknown, path: string, issues: IamValidate.IIssue[], depth = 0): void {
+  if (depth > IAM_MAX_CONDITION_DEPTH) {
     issues.push({
       type: 'error',
       code: 'LIMIT_EXCEEDED',
-      message: `Condition nesting exceeds MAX_CONDITION_DEPTH (${MAX_CONDITION_DEPTH})`,
+      message: `Condition nesting exceeds IAM_MAX_CONDITION_DEPTH (${IAM_MAX_CONDITION_DEPTH})`,
       path,
     })
     return
@@ -393,13 +393,13 @@ export function validateConditionGroup(input: unknown, path: string, issues: Val
 }
 
 /**
- * Validate a Rule's shape (id, effect, priority, actions, resources, optional conditions).
+ * IamValidate a Rule's shape (id, effect, priority, actions, resources, optional conditions).
  *
  * @param input  - The rule object to validate.
  * @param path   - Dot-path prefix used in reported issues.
  * @param issues - Array to push validation issues into.
  */
-export function validateRuleShape(input: unknown, path: string, issues: Validate.IIssue[]): void {
+export function validateRuleShape(input: unknown, path: string, issues: IamValidate.IIssue[]): void {
   if (!isPlainObjectLike(input)) {
     issues.push({ type: 'error', code: 'INVALID_RULE', message: 'Rule must be an object', path })
     return
@@ -416,7 +416,7 @@ export function validateRuleShape(input: unknown, path: string, issues: Validate
     })
   }
 
-  if (typeof rule.effect !== 'string' || !VALID_EFFECTS.has(rule.effect)) {
+  if (typeof rule.effect !== 'string' || !IAM_VALID_EFFECTS.has(rule.effect)) {
     issues.push({
       type: 'error',
       code: 'INVALID_EFFECT',
@@ -442,11 +442,11 @@ export function validateRuleShape(input: unknown, path: string, issues: Validate
       path: `${path}.actions`,
     })
   } else {
-    if (rule.actions.length > POLICY_LIMITS.actionsPerRule) {
+    if (rule.actions.length > IAM_POLICY_LIMITS.actionsPerRule) {
       issues.push({
         type: 'error',
         code: 'LIMIT_EXCEEDED',
-        message: `Rule has ${rule.actions.length} actions; limit is ${POLICY_LIMITS.actionsPerRule}`,
+        message: `Rule has ${rule.actions.length} actions; limit is ${IAM_POLICY_LIMITS.actionsPerRule}`,
         path: `${path}.actions`,
       })
     }
@@ -470,11 +470,11 @@ export function validateRuleShape(input: unknown, path: string, issues: Validate
       path: `${path}.resources`,
     })
   } else {
-    if (rule.resources.length > POLICY_LIMITS.resourcesPerRule) {
+    if (rule.resources.length > IAM_POLICY_LIMITS.resourcesPerRule) {
       issues.push({
         type: 'error',
         code: 'LIMIT_EXCEEDED',
-        message: `Rule has ${rule.resources.length} resources; limit is ${POLICY_LIMITS.resourcesPerRule}`,
+        message: `Rule has ${rule.resources.length} resources; limit is ${IAM_POLICY_LIMITS.resourcesPerRule}`,
         path: `${path}.resources`,
       })
     }
@@ -517,11 +517,11 @@ export function validateRuleShape(input: unknown, path: string, issues: Validate
   // each list passes its own cap, so a 99x99 rule doesn't slip through.
   if (Array.isArray(rule.actions) && Array.isArray(rule.resources)) {
     const cartesian = rule.actions.length * rule.resources.length
-    if (cartesian > POLICY_LIMITS.cartesianPerRule) {
+    if (cartesian > IAM_POLICY_LIMITS.cartesianPerRule) {
       issues.push({
         type: 'error',
         code: 'LIMIT_EXCEEDED',
-        message: `Rule actionxresource cartesian is ${cartesian}; limit is ${POLICY_LIMITS.cartesianPerRule}`,
+        message: `Rule actionxresource cartesian is ${cartesian}; limit is ${IAM_POLICY_LIMITS.cartesianPerRule}`,
         path,
       })
     }

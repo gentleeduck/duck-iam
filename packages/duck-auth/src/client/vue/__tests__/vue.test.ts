@@ -8,23 +8,23 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createAuthVuePlugin, useSession, useSignIn, useSignOut } from '../index'
+import { authCreateVuePlugin, authUseSession, authUseSignIn, authUseSignOut } from '../index'
 
 describe('Vue client (no `vue` installed)', () => {
   it('exposes the composable surface as functions', () => {
-    expect(typeof createAuthVuePlugin).toBe('function')
-    expect(typeof useSession).toBe('function')
-    expect(typeof useSignIn).toBe('function')
-    expect(typeof useSignOut).toBe('function')
+    expect(typeof authCreateVuePlugin).toBe('function')
+    expect(typeof authUseSession).toBe('function')
+    expect(typeof authUseSignIn).toBe('function')
+    expect(typeof authUseSignOut).toBe('function')
   })
 
-  it('createAuthVuePlugin returns a plugin shape without touching `vue`', () => {
-    const plugin = createAuthVuePlugin({ baseUrl: '/auth' })
+  it('authCreateVuePlugin returns a plugin shape without touching `vue`', () => {
+    const plugin = authCreateVuePlugin({ baseUrl: '/auth' })
     expect(typeof plugin.install).toBe('function')
   })
 
   it('install() surfaces a clear error when `vue` is missing', () => {
-    const plugin = createAuthVuePlugin({ baseUrl: '/auth' })
+    const plugin = authCreateVuePlugin({ baseUrl: '/auth' })
     const fakeApp = { provide: () => fakeApp }
     expect(() => plugin.install(fakeApp)).toThrow(/vue/)
   })

@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { RedisIdempotencyStore } from '../idempotency-store'
-import { FakeRedis } from '../redis-like'
+import { AuthRedisIdempotencyStore } from '../idempotency-store'
+import { AuthFakeRedis } from '../redis-like'
 
 const ctx = { tenantId: 'acme' }
 const PREFIX = 'test:idem'
 const STORAGE_KEY = `${PREFIX}:acme:k1`
 
-describe('RedisIdempotencyStore.get - parser hardening', () => {
-  let redis: FakeRedis
-  let store: RedisIdempotencyStore
+describe('AuthRedisIdempotencyStore.get - parser hardening', () => {
+  let redis: AuthFakeRedis
+  let store: AuthRedisIdempotencyStore
 
   beforeEach(() => {
-    redis = new FakeRedis()
-    store = new RedisIdempotencyStore({ redis, prefix: PREFIX })
+    redis = new AuthFakeRedis()
+    store = new AuthRedisIdempotencyStore({ redis, prefix: PREFIX })
   })
 
   describe('malformed JSON', () => {

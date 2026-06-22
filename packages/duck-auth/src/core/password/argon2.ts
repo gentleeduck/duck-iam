@@ -1,10 +1,10 @@
 /** Argon2id-backed password hasher (compliance presets); needs `@node-rs/argon2` peerDep. */
 
 import { AuthErrorObject } from '../errors'
-import type { Hasher } from '../types/hasher'
+import type { AuthHasher } from '../types/hasher'
 
 /** Conservative OWASP defaults. */
-export const ARGON2ID_DEFAULTS: Argon2idHasher.IParams = {
+export const AUTH_ARGON2ID_DEFAULTS: AuthArgon2idHasher.IParams = {
   memoryCost: 19_456,
   timeCost: 2,
   parallelism: 1,
@@ -13,7 +13,7 @@ export const ARGON2ID_DEFAULTS: Argon2idHasher.IParams = {
 }
 
 /** Tuned for compliance preset (HIPAA / SOC2 / FIPS). */
-export const ARGON2ID_COMPLIANCE: Argon2idHasher.IParams = {
+export const AUTH_ARGON2ID_COMPLIANCE: AuthArgon2idHasher.IParams = {
   memoryCost: 65_536,
   timeCost: 3,
   parallelism: 4,
@@ -47,19 +47,19 @@ async function loadArgon2(): Promise<NodeRsArgon2Module> {
   } catch {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
       detail:
-        'Argon2idHasher requires the @node-rs/argon2 peerDep. ' +
+        'AuthArgon2idHasher requires the @node-rs/argon2 peerDep. ' +
         'Install via `bun add @node-rs/argon2` (or `npm install @node-rs/argon2`).',
     })
   }
 }
 
 /** Argon2id hasher; lazy-imports `@node-rs/argon2` and encodes the PHC string `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`. */
-export class Argon2idHasher implements Hasher.IHasher {
+export class AuthArgon2idHasher implements AuthHasher.IHasher {
   readonly id = 'argon2id'
-  private readonly _params: Argon2idHasher.IParams
+  private readonly _params: AuthArgon2idHasher.IParams
 
-  constructor(params: Partial<Argon2idHasher.IParams> = {}) {
-    this._params = { ...ARGON2ID_DEFAULTS, ...params }
+  constructor(params: Partial<AuthArgon2idHasher.IParams> = {}) {
+    this._params = { ...AUTH_ARGON2ID_DEFAULTS, ...params }
   }
 
   /** Hash plaintext. Async; lazy-loads @node-rs/argon2 on first call. */
@@ -103,8 +103,8 @@ export class Argon2idHasher implements Hasher.IHasher {
   }
 }
 
-/** Namespace merge - Argon2idHasher.IParams alongside the class. */
-export namespace Argon2idHasher {
+/** Namespace merge - AuthArgon2idHasher.IParams alongside the class. */
+export namespace AuthArgon2idHasher {
   export interface IParams {
     /** Memory cost in KiB. Default 19_456 (19 MiB). FIPS preset uses 65_536. */
     memoryCost: number

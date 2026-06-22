@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AccessControl, Adapter } from '../../../core/types'
-import { HttpAdapter } from '../index'
+import type { IamAccessControl, IamAdapter } from '../../../core/types'
+import { IamHttpAdapter } from '../index'
 
 type A = 'read' | 'write'
 type R = 'post'
@@ -30,18 +30,18 @@ function makeFetch(handler: (url: string, init?: RequestInit) => Response | Prom
   return { fetch: fetch as unknown as typeof globalThis.fetch, calls }
 }
 
-describe('HttpAdapter', () => {
+describe('IamHttpAdapter', () => {
   describe('config', () => {
     it('strips trailing slash from baseUrl', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/access/', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/access/', fetch })
       await adapter.listPolicies()
       expect(calls[0]?.url).toBe('https://api.example.com/access/policies')
     })
 
     it('merges static headers with content-type', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com',
         fetch,
         headers: { authorization: 'Bearer xyz' },
@@ -54,7 +54,7 @@ describe('HttpAdapter', () => {
 
     it('supports async header function', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com',
         fetch,
         headers: async () => ({ 'x-tenant': 't1' }),
@@ -66,57 +66,57 @@ describe('HttpAdapter', () => {
 
     it('throws on non-ok response with status + body', async () => {
       const { fetch } = makeFetch(() => jsonResponse('boom', false, 500))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch })
       await expect(adapter.listPolicies()).rejects.toThrow(/\[@gentleduck\/iam:http\] HTTP 500: boom/)
     })
 
     it('rejects non-http(s) baseUrl scheme', () => {
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'ftp://api.example.com/iam' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'ftp://api.example.com/iam' })).toThrow(
         /scheme must be http: or https:/,
       )
     })
 
     it('rejects baseUrl with query string or fragment', () => {
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?x=1' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam?x=1' })).toThrow(
         /query string or fragment/,
       )
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#frag' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com/iam#frag' })).toThrow(
         /query string or fragment/,
       )
     })
 
     it('rejects malformed baseUrl', () => {
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'not a url' })).toThrow(/invalid baseUrl/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'not a url' })).toThrow(/invalid baseUrl/)
     })
 
     it('rejects private/loopback host by default', () => {
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://127.0.0.1/iam' })).toThrow(/private\/loopback/)
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://10.0.0.5/iam' })).toThrow(/private\/loopback/)
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://192.168.1.1/iam' })).toThrow(/private\/loopback/)
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://172.16.0.1/iam' })).toThrow(/private\/loopback/)
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://169.254.169.254/iam' })).toThrow(/private\/loopback/)
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::1]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://127.0.0.1/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://10.0.0.5/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://192.168.1.1/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://172.16.0.1/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://169.254.169.254/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::1]/iam' })).toThrow(/private\/loopback/)
     })
 
     it('rejects IPv4-mapped IPv6 loopback', () => {
       // Node canonicalises `[::ffff:127.0.0.1]` -> `[::ffff:7f00:1]`, which
       // the bracket-strip + naive `::ffff:` recurse did not catch.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:127.0.0.1]/iam' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:127.0.0.1]/iam' })).toThrow(
         /private\/loopback/,
       )
       // Canonical hex tail emitted by `new URL()`.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:7f00:1]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:7f00:1]/iam' })).toThrow(/private\/loopback/)
       // RFC1918 mapped via ::ffff:.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:c0a8:1]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::ffff:c0a8:1]/iam' })).toThrow(/private\/loopback/)
       // Fully expanded form.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[0:0:0:0:0:ffff:7f00:1]/iam' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[0:0:0:0:0:ffff:7f00:1]/iam' })).toThrow(
         /private\/loopback/,
       )
     })
 
     it('accepts IPv4-mapped IPv6 loopback when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
         baseUrl: 'http://[::ffff:127.0.0.1]/iam',
         fetch,
@@ -125,12 +125,12 @@ describe('HttpAdapter', () => {
     })
 
     it('rejects IPv6 unspecified `::`', () => {
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[::]/iam' })).toThrow(/private\/loopback/)
     })
 
     it('accepts IPv6 unspecified when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
         baseUrl: 'http://[::]/iam',
         fetch,
@@ -141,12 +141,12 @@ describe('HttpAdapter', () => {
     it('rejects IPv4 unspecified 0.0.0.0', () => {
       // Already covered by the `a === 0` arm; pin it explicitly so future
       // refactors can't silently drop the check.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://0.0.0.0/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://0.0.0.0/iam' })).toThrow(/private\/loopback/)
     })
 
     it('accepts 0.0.0.0 when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
         baseUrl: 'http://0.0.0.0/iam',
         fetch,
@@ -156,7 +156,7 @@ describe('HttpAdapter', () => {
 
     it('accepts private host when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'http://127.0.0.1/iam',
         fetch,
         allowPrivateHosts: true,
@@ -167,7 +167,7 @@ describe('HttpAdapter', () => {
     it('rejects baseUrl whose host is not in allowedHosts', () => {
       expect(
         () =>
-          new HttpAdapter<A, R, Ro, S>({
+          new IamHttpAdapter<A, R, Ro, S>({
             baseUrl: 'https://evil.example.com/iam',
             allowedHosts: ['api.example.com'],
           }),
@@ -176,7 +176,7 @@ describe('HttpAdapter', () => {
 
     it('accepts baseUrl whose host is in allowedHosts', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com',
         fetch,
         allowedHosts: ['api.example.com'],
@@ -187,7 +187,7 @@ describe('HttpAdapter', () => {
 
     it('matches allowedHosts case-insensitively when entry is uppercase', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com',
         fetch,
         allowedHosts: ['API.EXAMPLE.COM'],
@@ -198,20 +198,20 @@ describe('HttpAdapter', () => {
 
     it('matches allowedHosts case-insensitively when URL host is mixed case', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://API.Example.COM',
         fetch,
         allowedHosts: ['api.example.com'],
       })
       await adapter.listPolicies()
-      // Adapter preserves the caller's original baseUrl casing in the
+      // IamAdapter preserves the caller's original baseUrl casing in the
       // request URL; only the allowlist comparison is normalised.
       expect(calls[0]?.url).toBe('https://API.Example.COM/policies')
     })
 
     it('bare-host allowedHosts entry matches port-bearing URL', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com:8080',
         fetch,
         allowedHosts: ['api.example.com'],
@@ -222,7 +222,7 @@ describe('HttpAdapter', () => {
 
     it('host:port allowedHosts entry matches only that exact port', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com:8080',
         fetch,
         allowedHosts: ['api.example.com:8080'],
@@ -232,7 +232,7 @@ describe('HttpAdapter', () => {
 
       expect(
         () =>
-          new HttpAdapter<A, R, Ro, S>({
+          new IamHttpAdapter<A, R, Ro, S>({
             baseUrl: 'https://api.example.com:9090',
             allowedHosts: ['api.example.com:8080'],
           }),
@@ -242,23 +242,23 @@ describe('HttpAdapter', () => {
     it('rejects 6to4 IPv6 wrapping loopback', () => {
       // 2002:7f00:0001:: carries inner 127.0.0.1 via 6to4. Linux ships 6to4
       // by default; this used to slip past the IPv6 private check.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:0001::]/iam' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:0001::]/iam' })).toThrow(
         /private\/loopback/,
       )
       // Compact form Node may emit.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:1::]/iam' })).toThrow(/private\/loopback/)
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:7f00:1::]/iam' })).toThrow(/private\/loopback/)
     })
 
     it('rejects 6to4 IPv6 wrapping RFC1918', () => {
       // 2002:c0a8:0001:: carries inner 192.168.0.1.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:c0a8:0001::]/iam' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[2002:c0a8:0001::]/iam' })).toThrow(
         /private\/loopback/,
       )
     })
 
     it('accepts 6to4 loopback when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
         baseUrl: 'http://[2002:7f00:1::]/iam',
         fetch,
@@ -269,18 +269,18 @@ describe('HttpAdapter', () => {
     it('rejects NAT64 well-known prefix wrapping loopback', () => {
       // 64:ff9b::/96 well-known NAT64 prefix; last 32 bits hold the inner v4.
       // `64:ff9b::7f00:1` -> 127.0.0.1.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
         /private\/loopback/,
       )
       // Dotted-quad tail spelling (also valid input form).
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::127.0.0.1]/iam' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::127.0.0.1]/iam' })).toThrow(
         /private\/loopback/,
       )
     })
 
     it('accepts NAT64 loopback when allowPrivateHosts: true', async () => {
       const { fetch } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         allowPrivateHosts: true,
         baseUrl: 'http://[64:ff9b::7f00:1]/iam',
         fetch,
@@ -292,14 +292,14 @@ describe('HttpAdapter', () => {
       // Regression: the `0064:ff9b:` literal branch had an off-by-one
       // slice. Verify the canonical WHATWG form (what `new URL` emits)
       // continues to reject correctly.
-      expect(() => new HttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
+      expect(() => new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'http://[64:ff9b::7f00:1]/iam' })).toThrow(
         /private\/loopback/,
       )
     })
 
     it('matches allowedHosts when URL has trailing FQDN dot', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com./iam',
         fetch,
         allowedHosts: ['api.example.com'],
@@ -310,7 +310,7 @@ describe('HttpAdapter', () => {
 
     it('matches when allowlist entry has trailing dot but URL does not', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://api.example.com',
         fetch,
         allowedHosts: ['api.example.com.'],
@@ -323,7 +323,7 @@ describe('HttpAdapter', () => {
       // Node's URL parser returns the punycode form for Unicode inputs.
       // An allowlist entry authored in Unicode must still match.
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://xn--mnchen-3ya.de/iam',
         fetch,
         allowedHosts: ['münchen.de'],
@@ -334,7 +334,7 @@ describe('HttpAdapter', () => {
 
     it('encodes subject id path segment to defeat path injection', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.getSubjectRoles('..//etc/passwd')
       expect(calls[0]?.url).toBe('https://x/subjects/..%2F%2Fetc%2Fpasswd/roles')
       expect(calls[0]?.url).not.toContain('/etc/passwd')
@@ -342,7 +342,7 @@ describe('HttpAdapter', () => {
 
     it('encodes policy id path segment', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse(null, false, 404))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.getPolicy('..//internal-admin')
       expect(calls[0]?.url).toBe('https://x/policies/..%2F%2Finternal-admin')
     })
@@ -353,9 +353,9 @@ describe('HttpAdapter', () => {
         // Latch is module-level: prior tests in this file may have already
         // tripped it. Construct several adapters and assert the spy fires at
         // most once across them.
-        new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://a.example.com' })
-        new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://b.example.com' })
-        new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://c.example.com' })
+        new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://a.example.com' })
+        new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://b.example.com' })
+        new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://c.example.com' })
         const allowedHostsCalls = warn.mock.calls.filter((c) => String(c[0] ?? '').includes('allowedHosts'))
         expect(allowedHostsCalls.length).toBeLessThanOrEqual(1)
       } finally {
@@ -365,7 +365,7 @@ describe('HttpAdapter', () => {
 
     it('passes redirect:"error" to fetch to block redirect-based SSRF', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.listPolicies()
       expect(calls[0]?.init?.redirect).toBe('error')
     })
@@ -375,7 +375,7 @@ describe('HttpAdapter', () => {
       const stub = vi.fn(async () => jsonResponse([]))
       globalThis.fetch = stub as unknown as typeof globalThis.fetch
       try {
-        const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com' })
+        const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com' })
         await adapter.listPolicies()
         expect(stub).toHaveBeenCalledOnce()
       } finally {
@@ -384,12 +384,12 @@ describe('HttpAdapter', () => {
     })
   })
 
-  describe('Adapter.IPolicyStore', () => {
-    const policy: AccessControl.IPolicy<A, R, Ro> = { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }
+  describe('IamAdapter.IPolicyStore', () => {
+    const policy: IamAccessControl.IPolicy<A, R, Ro> = { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }
 
     it('listPolicies GET /policies', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([policy]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       const out = await adapter.listPolicies()
       expect(out).toEqual([policy])
       expect(calls[0]?.url).toBe('https://x/policies')
@@ -397,7 +397,7 @@ describe('HttpAdapter', () => {
 
     it('getPolicy GET /policies/:id', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse(policy))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       const out = await adapter.getPolicy('p1')
       expect(out).toEqual(policy)
       expect(calls[0]?.url).toBe('https://x/policies/p1')
@@ -405,19 +405,19 @@ describe('HttpAdapter', () => {
 
     it('getPolicy returns null on 404', async () => {
       const { fetch } = makeFetch(() => jsonResponse('not found', false, 404))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await expect(adapter.getPolicy('missing')).resolves.toBeNull()
     })
 
     it('getPolicy still throws on 5xx', async () => {
       const { fetch } = makeFetch(() => jsonResponse('boom', false, 503))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await expect(adapter.getPolicy('p1')).rejects.toThrow(/\[@gentleduck\/iam:http\] HTTP 503/)
     })
 
     it('savePolicy PUT /policies', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.savePolicy(policy)
       expect(calls[0]?.url).toBe('https://x/policies')
       expect(calls[0]?.init?.method).toBe('PUT')
@@ -426,19 +426,19 @@ describe('HttpAdapter', () => {
 
     it('deletePolicy DELETE /policies/:id', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.deletePolicy('p1')
       expect(calls[0]?.url).toBe('https://x/policies/p1')
       expect(calls[0]?.init?.method).toBe('DELETE')
     })
   })
 
-  describe('Adapter.IRoleStore', () => {
-    const role: AccessControl.IRole<A, R, Ro, S> = { id: 'editor', name: 'Editor', permissions: [] }
+  describe('IamAdapter.IRoleStore', () => {
+    const role: IamAccessControl.IRole<A, R, Ro, S> = { id: 'editor', name: 'Editor', permissions: [] }
 
     it('listRoles GET /roles', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([role]))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       const out = await adapter.listRoles()
       expect(out).toEqual([role])
       expect(calls[0]?.url).toBe('https://x/roles')
@@ -446,20 +446,20 @@ describe('HttpAdapter', () => {
 
     it('getRole GET /roles/:id', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse(role))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.getRole('editor')
       expect(calls[0]?.url).toBe('https://x/roles/editor')
     })
 
     it('getRole returns null on 404', async () => {
       const { fetch } = makeFetch(() => jsonResponse('not found', false, 404))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await expect(adapter.getRole('missing')).resolves.toBeNull()
     })
 
     it('saveRole PUT /roles', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.saveRole(role)
       expect(calls[0]?.init?.method).toBe('PUT')
       expect(calls[0]?.init?.body).toBe(JSON.stringify(role))
@@ -467,17 +467,17 @@ describe('HttpAdapter', () => {
 
     it('deleteRole DELETE /roles/:id', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.deleteRole('editor')
       expect(calls[0]?.url).toBe('https://x/roles/editor')
       expect(calls[0]?.init?.method).toBe('DELETE')
     })
   })
 
-  describe('Adapter.ISubjectStore', () => {
+  describe('IamAdapter.ISubjectStore', () => {
     it('getSubjectRoles GET /subjects/:id/roles', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse(['editor']))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       const out = await adapter.getSubjectRoles('user-1')
       expect(out).toEqual(['editor'])
       expect(calls[0]?.url).toBe('https://x/subjects/user-1/roles')
@@ -486,7 +486,7 @@ describe('HttpAdapter', () => {
     it('getSubjectScopedRoles GET /subjects/:id/scoped-roles', async () => {
       const scoped = [{ role: 'editor', scope: 'org-1' }]
       const { fetch, calls } = makeFetch(() => jsonResponse(scoped))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       const out = await adapter.getSubjectScopedRoles('user-1')
       expect(out).toEqual(scoped)
       expect(calls[0]?.url).toBe('https://x/subjects/user-1/scoped-roles')
@@ -494,7 +494,7 @@ describe('HttpAdapter', () => {
 
     it('assignRole POST with body', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.assignRole('user-1', 'editor', 'org-1')
       expect(calls[0]?.url).toBe('https://x/subjects/user-1/roles')
       expect(calls[0]?.init?.method).toBe('POST')
@@ -503,7 +503,7 @@ describe('HttpAdapter', () => {
 
     it('revokeRole DELETE without scope', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.revokeRole('user-1', 'editor')
       expect(calls[0]?.url).toBe('https://x/subjects/user-1/roles/editor')
       expect(calls[0]?.init?.method).toBe('DELETE')
@@ -511,14 +511,14 @@ describe('HttpAdapter', () => {
 
     it('revokeRole DELETE encodes scope query', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.revokeRole('user-1', 'editor', 'org one' as S)
       expect(calls[0]?.url).toBe('https://x/subjects/user-1/roles/editor?scope=org%20one')
     })
 
     it('getSubjectAttributes GET', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ team: 'A' }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       const out = await adapter.getSubjectAttributes('user-1')
       expect(out).toEqual({ team: 'A' })
       expect(calls[0]?.url).toBe('https://x/subjects/user-1/attributes')
@@ -526,7 +526,7 @@ describe('HttpAdapter', () => {
 
     it('setSubjectAttributes PATCH with body', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
       await adapter.setSubjectAttributes('user-1', { team: 'A' })
       expect(calls[0]?.init?.method).toBe('PATCH')
       expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ team: 'A' })
@@ -540,7 +540,7 @@ describe('HttpAdapter', () => {
         calls++
         return calls < 3 ? jsonResponse('boom', false, 503) : jsonResponse([])
       }) as unknown as typeof globalThis.fetch
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://x',
         fetch,
         retries: 3,
@@ -558,7 +558,7 @@ describe('HttpAdapter', () => {
         calls++
         return jsonResponse('nope', false, 403)
       }) as unknown as typeof globalThis.fetch
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://x',
         fetch,
         retries: 3,
@@ -571,7 +571,7 @@ describe('HttpAdapter', () => {
 
     it('opens the circuit after N consecutive transient failures and rejects fast', async () => {
       const fetch = vi.fn(async () => jsonResponse('boom', false, 503)) as unknown as typeof globalThis.fetch
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://x',
         fetch,
         retries: 0,
@@ -594,7 +594,7 @@ describe('HttpAdapter', () => {
         nextResponseOk ? jsonResponse([]) : jsonResponse('boom', false, 503),
       ) as unknown as typeof globalThis.fetch
       // Cooldown must exceed inter-await wall time on busy CI; tight pairs flake.
-      const adapter = new HttpAdapter<A, R, Ro, S>({
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({
         baseUrl: 'https://x',
         fetch,
         retries: 0,

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '..'
+import { AuthMemoryAdapter } from '..'
 
-describe('MemoryAuthAdapter.findByEmail - profile-shape robustness', () => {
-  let adapter: MemoryAuthAdapter<Record<string, unknown>>
+describe('AuthMemoryAdapter.findByEmail - profile-shape robustness', () => {
+  let adapter: AuthMemoryAdapter<Record<string, unknown>>
 
   beforeEach(() => {
-    adapter = new MemoryAuthAdapter<Record<string, unknown>>()
+    adapter = new AuthMemoryAdapter<Record<string, unknown>>()
   })
 
   it('finds an identity by well-formed string email', async () => {

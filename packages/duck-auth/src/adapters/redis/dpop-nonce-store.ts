@@ -1,28 +1,28 @@
-import type { DPoPVerifier } from '../../core/transport/dpop'
-import type { RedisLike } from './redis-like'
+import type { AuthDPoPVerifier } from '../../core/transport/dpop'
+import type { AuthRedisLike } from './redis-like'
 
-export namespace RedisDPoPNonceStore {
-  /** Config knobs for {@link RedisDPoPNonceStore}. */
+export namespace AuthRedisDPoPNonceStore {
+  /** Config knobs for {@link AuthRedisDPoPNonceStore}. */
   export interface IConfig {
-    /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
-    redis: RedisLike.IClient
+    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    redis: AuthRedisLike.IClient
     /** Key namespace prefix. Default `auth:dpop:jti`. */
     prefix?: string
   }
 }
 
 /**
- * Redis-backed `DPoPVerifier.INonceStore`. Uses `SET NX EX` for atomic
+ * Redis-backed `AuthDPoPVerifier.INonceStore`. Uses `SET NX EX` for atomic
  * across-pod jti-replay protection - the property the memory store
  * cannot provide.
  *
  * Storage shape: `${prefix}:{jti}` = '1' with TTL = `ttlMs / 1000`.
  */
-export class RedisDPoPNonceStore implements DPoPVerifier.INonceStore {
-  private readonly _redis: RedisLike.IClient
+export class AuthRedisDPoPNonceStore implements AuthDPoPVerifier.INonceStore {
+  private readonly _redis: AuthRedisLike.IClient
   private readonly _prefix: string
 
-  constructor(cfg: RedisDPoPNonceStore.IConfig) {
+  constructor(cfg: AuthRedisDPoPNonceStore.IConfig) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:dpop:jti'
   }

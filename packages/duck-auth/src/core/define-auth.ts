@@ -1,20 +1,20 @@
-import { AuthRoot } from './auth'
-import { ScryptHasher } from './password/scrypt'
-import type { PluginRegistry } from './plugin'
-import { CookieTransport } from './transport/cookie'
-import type { Channel } from './types/channel'
-import type { Credential } from './types/credential'
-import type { Events } from './types/events'
-import type { Hasher } from './types/hasher'
-import type { Identity } from './types/identity'
-import type { Limiter } from './types/limiter'
-import type { Org } from './types/org'
-import type { Provider } from './types/provider'
-import type { Session } from './types/session'
-import type { Transport } from './types/transport'
+import { AuthEngine } from './auth'
+import { AuthScryptHasher } from './password/scrypt'
+import type { AuthPluginRegistry } from './plugin'
+import { AuthCookieTransport } from './transport/cookie'
+import type { AuthChannel } from './types/channel'
+import type { AuthCredential } from './types/credential'
+import type { AuthEvents } from './types/events'
+import type { AuthHasher } from './types/hasher'
+import type { AuthIdentity } from './types/identity'
+import type { AuthLimiter } from './types/limiter'
+import type { AuthOrg } from './types/org'
+import type { AuthProvider } from './types/provider'
+import type { AuthSession } from './types/session'
+import type { AuthTransport } from './types/transport'
 
 /**
- * Friendly {@link AuthRoot} constructor from a flat config. Falsy entries in
+ * Friendly {@link AuthEngine} constructor from a flat config. Falsy entries in
  * `providers` are skipped; `strict: 'production'` runs `auth.strict()` at boot.
  *
  * @example
@@ -32,12 +32,12 @@ import type { Transport } from './types/transport'
  * ```
  */
 export function defineAuth<Profile = unknown, Tenant = string, OrgMeta = unknown>(
-  config: DefineAuth.IConfig<Profile, Tenant, OrgMeta>,
-): AuthRoot<Profile, Tenant, OrgMeta> {
-  const transport = config.transport ?? new CookieTransport({ name: 'duck-sid' })
-  const passwords = config.hasher ? { hasher: config.hasher } : { hasher: new ScryptHasher() }
+  config: AuthDefine.IConfig<Profile, Tenant, OrgMeta>,
+): AuthEngine<Profile, Tenant, OrgMeta> {
+  const transport = config.transport ?? new AuthCookieTransport({ name: 'duck-sid' })
+  const passwords = config.hasher ? { hasher: config.hasher } : { hasher: new AuthScryptHasher() }
 
-  const rootConfig: AuthRoot.IConfig<Profile, Tenant, OrgMeta> = {
+  const rootConfig: AuthEngine.IConfig<Profile, Tenant, OrgMeta> = {
     baseUrl: config.baseUrl,
     stores: {
       credentials: config.storage.credentials,
@@ -55,7 +55,7 @@ export function defineAuth<Profile = unknown, Tenant = string, OrgMeta = unknown
     ...(config.hijack !== undefined && { hijack: config.hijack }),
   }
 
-  const auth = new AuthRoot<Profile, Tenant, OrgMeta>(rootConfig)
+  const auth = new AuthEngine<Profile, Tenant, OrgMeta>(rootConfig)
 
   for (const entry of config.providers ?? []) {
     if (!entry) continue
@@ -78,22 +78,22 @@ export function defineAuth<Profile = unknown, Tenant = string, OrgMeta = unknown
   return auth
 }
 
-export namespace DefineAuth {
-  /** A skipped-or-included provider entry; falsy values dropped, thunks receive the constructed AuthRoot. */
+export namespace AuthDefine {
+  /** A skipped-or-included provider entry; falsy values dropped, thunks receive the constructed AuthEngine. */
   export type IProviderEntry<Profile> =
-    | Provider.IProvider<unknown, unknown, Profile>
+    | AuthProvider.IProvider<unknown, unknown, Profile>
     | false
     | null
     | undefined
     | ''
     | ((
         // biome-ignore lint/suspicious/noExplicitAny: thunk accepts any Tenant/OrgMeta variance; caller resolves the concrete types
-        auth: AuthRoot<Profile, any, any>,
-      ) => Provider.IProvider<unknown, unknown, Profile> | false | null | undefined | '')
+        auth: AuthEngine<Profile, any, any>,
+      ) => AuthProvider.IProvider<unknown, unknown, Profile> | false | null | undefined | '')
 
   /** A skipped-or-included plugin entry - same rules as providers. */
   export type IPluginEntry<Profile = unknown, Tenant = string, OrgMeta = unknown> =
-    | PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>
+    | AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>
     | false
     | null
     | undefined
@@ -101,17 +101,17 @@ export namespace DefineAuth {
 
   /** Storage triple returned by `memoryStorage()` / `drizzlePgStorage()` / etc. */
   export interface IStorage<Profile = unknown, OrgMeta = unknown> {
-    identities: Identity.IStore<Profile>
-    sessions: Session.IStore
-    credentials: Credential.IStore
-    orgs?: Org.IStore<OrgMeta>
+    identities: AuthIdentity.IStore<Profile>
+    sessions: AuthSession.IStore
+    credentials: AuthCredential.IStore
+    orgs?: AuthOrg.IStore<OrgMeta>
   }
 
-  /** Channel bundle keyed by channel kind. */
+  /** AuthChannel bundle keyed by channel kind. */
   export interface IChannels {
-    email?: Channel.IChannel
-    sms?: Channel.IChannel
-    webpush?: Channel.IChannel
+    email?: AuthChannel.IChannel
+    sms?: AuthChannel.IChannel
+    webpush?: AuthChannel.IChannel
   }
 
   export interface IConfig<Profile = unknown, _Tenant = string, OrgMeta = unknown> {
@@ -119,27 +119,27 @@ export namespace DefineAuth {
     baseUrl: string
     /** Storage triple - output of `memoryStorage()` / `drizzlePgStorage(...)` etc. */
     storage: IStorage<Profile, OrgMeta>
-    /** Defaults to `new CookieTransport({ name: 'duck-sid' })`. */
-    transport?: Transport.ITransport
-    /** Token-bucket limiter. Omit for `NoopLimiter` (rejected by `strict('production')`). */
-    limiter?: Limiter.ILimiter
-    /** Password hasher. Defaults to `ScryptHasher`; pass `argon2id()` for production. */
-    hasher?: Hasher.IHasher
+    /** Defaults to `new AuthCookieTransport({ name: 'duck-sid' })`. */
+    transport?: AuthTransport.ITransport
+    /** Token-bucket limiter. Omit for `AuthNoopLimiter` (rejected by `strict('production')`). */
+    limiter?: AuthLimiter.ILimiter
+    /** Password hasher. Defaults to `AuthScryptHasher`; pass `argon2id()` for production. */
+    hasher?: AuthHasher.IHasher
     /** Optional channel bundle for magic-link / OTP delivery. */
     channels?: IChannels
     /** OAuth-wide defaults. `stateSigningSecret` is informational today; reserved for future per-provider auto-fill. */
     oauth?: { stateSigningSecret?: string }
-    /** Provider array - falsy entries are silently skipped. */
+    /** AuthProvider array - falsy entries are silently skipped. */
     providers?: IProviderEntry<Profile>[]
     /** Plugins applied via `auth.plugins.use(p)`. Falsy entries skipped. */
     plugins?: IPluginEntry<Profile, _Tenant, OrgMeta>[]
-    /** Custom event bus (defaults to `InMemoryEvents` inside `AuthRoot`). */
-    events?: Events.IBus
-    /** Session-config knobs passed straight to `AuthRoot.IConfig.session`. */
-    session?: AuthRoot.IConfig<Profile>['session']
-    mfa?: AuthRoot.IConfig<Profile>['mfa']
-    apiKeys?: AuthRoot.IConfig<Profile>['apiKeys']
-    hijack?: AuthRoot.IConfig<Profile>['hijack']
+    /** Custom event bus (defaults to `InMemoryEvents` inside `AuthEngine`). */
+    events?: AuthEvents.IBus
+    /** AuthSession-config knobs passed straight to `AuthEngine.IConfig.session`. */
+    session?: AuthEngine.IConfig<Profile>['session']
+    mfa?: AuthEngine.IConfig<Profile>['mfa']
+    apiKeys?: AuthEngine.IConfig<Profile>['apiKeys']
+    hijack?: AuthEngine.IConfig<Profile>['hijack']
     /** When set, runs `auth.strict({ env })` at the end of construction. */
     strict?: 'development' | 'production' | 'test'
   }

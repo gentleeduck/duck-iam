@@ -1,6 +1,6 @@
 import { scrypt as nodeScrypt, randomBytes, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-import type { Hasher } from '../types/hasher'
+import type { AuthHasher } from '../types/hasher'
 
 const scryptAsync = promisify(nodeScrypt) as (
   password: string,
@@ -10,7 +10,7 @@ const scryptAsync = promisify(nodeScrypt) as (
 ) => Promise<Buffer>
 
 /** Default parameters tuned for ~150 ms on a 2022-class server CPU. */
-export const SCRYPT_DEFAULTS: ScryptHasher.IScryptParams = {
+export const AUTH_SCRYPT_DEFAULTS: AuthScryptHasher.IScryptParams = {
   N: 1 << 17,
   r: 8,
   p: 1,
@@ -45,13 +45,13 @@ function parse(encoded: string): { N: number; r: number; p: number; salt: Buffer
   }
 }
 
-/** ScryptHasher - built into Node, zero deps; v0.1 default. Swap for Argon2id for compliance presets. */
-export class ScryptHasher implements Hasher.IHasher {
+/** AuthScryptHasher - built into Node, zero deps; v0.1 default. Swap for Argon2id for compliance presets. */
+export class AuthScryptHasher implements AuthHasher.IHasher {
   readonly id = 'scrypt'
-  private readonly _params: ScryptHasher.IScryptParams
+  private readonly _params: AuthScryptHasher.IScryptParams
 
-  constructor(params: Partial<ScryptHasher.IScryptParams> = {}) {
-    this._params = { ...SCRYPT_DEFAULTS, ...params }
+  constructor(params: Partial<AuthScryptHasher.IScryptParams> = {}) {
+    this._params = { ...AUTH_SCRYPT_DEFAULTS, ...params }
   }
 
   async hash(plaintext: string): Promise<string> {
@@ -94,7 +94,7 @@ export class ScryptHasher implements Hasher.IHasher {
   }
 }
 
-export namespace ScryptHasher {
+export namespace AuthScryptHasher {
   export interface IScryptParams {
     /** CPU/memory cost (must be a power of two). Default 2^17 = 131072. */
     N: number

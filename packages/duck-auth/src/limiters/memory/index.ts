@@ -1,20 +1,20 @@
-import type { Limiter } from '../../core/types/limiter'
+import type { AuthLimiter } from '../../core/types/limiter'
 
 /**
  * Token-bucket memory limiter. Dev/test only; production uses Redis.
  * Per-key independent bucket; reset() empties one bucket.
  */
-export class MemoryLimiter implements Limiter.ILimiter {
+export class AuthMemoryLimiter implements AuthLimiter.ILimiter {
   private readonly _max: number
   private readonly _windowMs: number
   private _buckets = new Map<string, { count: number; resetAt: number }>()
 
-  constructor(cfg: MemoryLimiter.IConfig = {}) {
+  constructor(cfg: AuthMemoryLimiter.IConfig = {}) {
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000
   }
 
-  async consume(key: string, weight = 1): Promise<Limiter.IResult> {
+  async consume(key: string, weight = 1): Promise<AuthLimiter.IResult> {
     const now = Date.now()
     if (typeof key !== 'string' || key.length === 0 || key.length > 1024) {
       // Refuse the consume - fail-closed (treat as if rate-limited) so
@@ -39,7 +39,7 @@ export class MemoryLimiter implements Limiter.ILimiter {
   }
 }
 
-export namespace MemoryLimiter {
+export namespace AuthMemoryLimiter {
   export interface IConfig {
     /** Max consumed weight before further consume() returns ok:false. Default 10. */
     max?: number

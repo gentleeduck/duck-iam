@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { InMemoryEvents } from '../../events'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthInMemoryEvents } from '../../events'
 import { OrgsFacet } from '../orgs'
 
 describe('OrgsFacet', () => {
-  let adapter: MemoryAuthAdapter
-  let events: InMemoryEvents
+  let adapter: AuthMemoryAdapter
+  let events: AuthInMemoryEvents
   let facet: OrgsFacet
 
   beforeEach(async () => {
-    adapter = new MemoryAuthAdapter()
-    events = new InMemoryEvents()
+    adapter = new AuthMemoryAdapter()
+    events = new AuthInMemoryEvents()
     facet = new OrgsFacet(adapter.orgs, events)
     // Seed two orgs via the underlying adapter (no orgs.create() in the facet
     // since orgs are typically pre-provisioned via the app's own admin flow).

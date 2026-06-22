@@ -1,6 +1,6 @@
 /**
  * gRPC server adapter. gRPC is binary + bidirectional; the auth lib
- * exposes the AuthRoot flows over standard unary RPCs by wrapping the
+ * exposes the AuthEngine flows over standard unary RPCs by wrapping the
  * service handlers in interceptors that:
  *   - extract a bearer token from the `authorization` metadata
  *   - resolve the session via auth.resolveSession
@@ -10,17 +10,17 @@
  * module ships the interceptor + handler factories only.
  */
 
-import type { AuthRoot } from '../../core/auth'
+import type { AuthEngine } from '../../core/auth'
 import { AuthErrorObject } from '../../core/errors'
-import type { Identity } from '../../core/types/identity'
-import type { Session } from '../../core/types/session'
+import type { AuthIdentity } from '../../core/types/identity'
+import type { AuthSession } from '../../core/types/session'
 
 /**
  * Subset of gRPC status codes we map AuthErrorObject onto. Mirrors
  * `grpc.status.*` enum without forcing the peerDep on consumers that
  * just want the auth wrapper.
  */
-export const GRPC_STATUS = {
+export const AUTH_GRPC_STATUS = {
   OK: 0,
   CANCELLED: 1,
   UNKNOWN: 2,
@@ -44,17 +44,17 @@ export const GRPC_STATUS = {
  * Map an HTTP status (the shape AuthError.status carries) onto the
  * closest gRPC status code per the gRPC HTTP gateway convention.
  */
-export function httpStatusToGrpc(status: number): number {
-  if (status === 401) return GRPC_STATUS.UNAUTHENTICATED
-  if (status === 403) return GRPC_STATUS.PERMISSION_DENIED
-  if (status === 404) return GRPC_STATUS.NOT_FOUND
-  if (status === 409) return GRPC_STATUS.ABORTED
-  if (status === 410) return GRPC_STATUS.NOT_FOUND
-  if (status === 423 || status === 429) return GRPC_STATUS.RESOURCE_EXHAUSTED
-  if (status === 503) return GRPC_STATUS.UNAVAILABLE
-  if (status >= 500) return GRPC_STATUS.INTERNAL
-  if (status >= 400) return GRPC_STATUS.INVALID_ARGUMENT
-  return GRPC_STATUS.OK
+export function authHttpStatusToGrpc(status: number): number {
+  if (status === 401) return AUTH_GRPC_STATUS.UNAUTHENTICATED
+  if (status === 403) return AUTH_GRPC_STATUS.PERMISSION_DENIED
+  if (status === 404) return AUTH_GRPC_STATUS.NOT_FOUND
+  if (status === 409) return AUTH_GRPC_STATUS.ABORTED
+  if (status === 410) return AUTH_GRPC_STATUS.NOT_FOUND
+  if (status === 423 || status === 429) return AUTH_GRPC_STATUS.RESOURCE_EXHAUSTED
+  if (status === 503) return AUTH_GRPC_STATUS.UNAVAILABLE
+  if (status >= 500) return AUTH_GRPC_STATUS.INTERNAL
+  if (status >= 400) return AUTH_GRPC_STATUS.INVALID_ARGUMENT
+  return AUTH_GRPC_STATUS.OK
 }
 
 /**
@@ -66,11 +66,11 @@ export function httpStatusToGrpc(status: number): number {
  *   - when `required: true` (default) AND no session resolves, replies
  *     with UNAUTHENTICATED via the callback (handler not invoked)
  */
-export function withAuth<Req, Res>(
-  auth: AuthRoot,
-  handler: GrpcAdapter.IUnaryHandler<Req, Res>,
+export function authWithGrpc<Req, Res>(
+  auth: AuthEngine,
+  handler: AuthGrpcAdapter.IUnaryHandler<Req, Res>,
   opts: { required?: boolean; headerName?: string } = {},
-): GrpcAdapter.IUnaryHandler<Req, Res> {
+): AuthGrpcAdapter.IUnaryHandler<Req, Res> {
   const required = opts.required ?? true
   const headerName = opts.headerName ?? 'authorization'
   return (call, callback) => {
@@ -81,7 +81,7 @@ export function withAuth<Req, Res>(
         if (!resolved) {
           if (required) {
             callback({
-              code: GRPC_STATUS.UNAUTHENTICATED,
+              code: AUTH_GRPC_STATUS.UNAUTHENTICATED,
               message: 'AUTH/UNAUTHENTICATED',
             })
             return
@@ -94,12 +94,12 @@ export function withAuth<Req, Res>(
       } catch (err) {
         if (err instanceof AuthErrorObject) {
           callback({
-            code: httpStatusToGrpc(err.status),
+            code: authHttpStatusToGrpc(err.status),
             message: err.code,
           })
           return
         }
-        callback({ code: GRPC_STATUS.INTERNAL, message: 'AUTH/MISCONFIGURED' })
+        callback({ code: AUTH_GRPC_STATUS.INTERNAL, message: 'AUTH/MISCONFIGURED' })
       }
     })()
   }
@@ -111,7 +111,7 @@ export function withAuth<Req, Res>(
  * `headerName` (and `cookie`, since some grpc-web bridges forward it)
  * are projected; metadata is otherwise small.
  */
-function metadataToHeaders(metadata: GrpcAdapter.IMetadata, headerName: string): Headers {
+function metadataToHeaders(metadata: AuthGrpcAdapter.IMetadata, headerName: string): Headers {
   const out = new Headers()
   const auth = metadata.get(headerName)
   for (const v of auth) out.append(headerName, typeof v === 'string' ? v : v.toString('utf8'))
@@ -120,22 +120,22 @@ function metadataToHeaders(metadata: GrpcAdapter.IMetadata, headerName: string):
   return out
 }
 
-export namespace GrpcAdapter {
+export namespace AuthGrpcAdapter {
   export type IUnaryHandler<Req = unknown, Res = unknown> = (
-    call: GrpcAdapter.IUnaryCall<Req>,
-    callback: GrpcAdapter.ICallback<Res>,
+    call: AuthGrpcAdapter.IUnaryCall<Req>,
+    callback: AuthGrpcAdapter.ICallback<Res>,
   ) => void
 
   export interface IUnaryCall<Req = unknown> {
-    metadata: GrpcAdapter.IMetadata
+    metadata: AuthGrpcAdapter.IMetadata
     request: Req
     /** Mutation slots for the interceptor; downstream handlers read them. */
-    session?: Session.ISession
-    identity?: Identity.IIdentity<unknown> | null
+    session?: AuthSession.ISession
+    identity?: AuthIdentity.IIdentity<unknown> | null
   }
 
   export type ICallback<Res = unknown> = (
-    error: { code: number; message: string; metadata?: GrpcAdapter.IMetadata } | null,
+    error: { code: number; message: string; metadata?: AuthGrpcAdapter.IMetadata } | null,
     response?: Res,
   ) => void
 

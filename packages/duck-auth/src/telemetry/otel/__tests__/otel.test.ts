@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryEvents } from '../../../core/events'
-import { OtelInstrumentation } from '../index'
+import { AuthInMemoryEvents } from '../../../core/events'
+import { AuthOtelInstrumentation } from '../index'
 
 interface CapturedCounter {
   name: string
-  counter: OtelInstrumentation.ICounter
+  counter: AuthOtelInstrumentation.ICounter
   adds: Array<{ value: number; attrs?: Record<string, string | number | boolean> }>
 }
 
-function makeMeter(): { meter: OtelInstrumentation.IMeter; counters: Map<string, CapturedCounter> } {
+function makeMeter(): { meter: AuthOtelInstrumentation.IMeter; counters: Map<string, CapturedCounter> } {
   const counters = new Map<string, CapturedCounter>()
-  function makeCounter(name: string): OtelInstrumentation.ICounter {
+  function makeCounter(name: string): AuthOtelInstrumentation.ICounter {
     const captured: CapturedCounter = {
       name,
       counter: {
@@ -23,26 +23,26 @@ function makeMeter(): { meter: OtelInstrumentation.IMeter; counters: Map<string,
     counters.set(name, captured)
     return captured.counter
   }
-  const meter: OtelInstrumentation.IMeter = {
+  const meter: AuthOtelInstrumentation.IMeter = {
     createCounter: (name) => makeCounter(name),
     createUpDownCounter: (name) => makeCounter(name),
-    createHistogram: (name): OtelInstrumentation.IHistogram => ({
+    createHistogram: (name): AuthOtelInstrumentation.IHistogram => ({
       record: vi.fn(),
     }),
   }
   return { meter, counters }
 }
 
-describe('OtelInstrumentation', () => {
-  let bus: InMemoryEvents
-  let meter: OtelInstrumentation.IMeter
+describe('AuthOtelInstrumentation', () => {
+  let bus: AuthInMemoryEvents
+  let meter: AuthOtelInstrumentation.IMeter
   let counters: Map<string, CapturedCounter>
   let cleanup: () => void
 
   beforeEach(() => {
-    bus = new InMemoryEvents()
+    bus = new AuthInMemoryEvents()
     ;({ meter, counters } = makeMeter())
-    const inst = new OtelInstrumentation({ meter, prefix: 'test' })
+    const inst = new AuthOtelInstrumentation({ meter, prefix: 'test' })
     cleanup = inst.attach(bus)
   })
 
@@ -110,9 +110,9 @@ describe('OtelInstrumentation', () => {
   })
 
   it('default attributes appended to every record', async () => {
-    bus = new InMemoryEvents()
+    bus = new AuthInMemoryEvents()
     ;({ meter, counters } = makeMeter())
-    const inst = new OtelInstrumentation({
+    const inst = new AuthOtelInstrumentation({
       meter,
       prefix: 'test',
       defaultAttributes: { 'service.name': 'auth', env: 'prod' },
@@ -126,7 +126,7 @@ describe('OtelInstrumentation', () => {
   })
 
   it('refuses construction without a meter', () => {
-    expect(() => new OtelInstrumentation({ meter: null as unknown as OtelInstrumentation.IMeter })).toThrowError(
+    expect(() => new AuthOtelInstrumentation({ meter: null as unknown as AuthOtelInstrumentation.IMeter })).toThrowError(
       expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
     )
   })

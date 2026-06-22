@@ -1,5 +1,5 @@
 /** Envelope-encryption KMS provider contract: vendor-neutral 2-method shape (`generateDataKey` / `decryptDataKey`). */
-export namespace Kms {
+export namespace AuthKms {
   /** Encryption context (AAD) - binds the wrapped DEK to `{identityId, field}` server-side. */
   export type IEncryptionContext = Record<string, string>
 

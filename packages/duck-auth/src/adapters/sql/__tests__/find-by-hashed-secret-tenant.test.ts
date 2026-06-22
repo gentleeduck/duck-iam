@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createSqlAuthStores, SqlBridge } from '../index'
+import { authCreateSqlStores, AuthSqlBridge } from '../index'
 
 /**
- * Bridge-level tenant filter parity tests for createSqlAuthStores.
+ * Bridge-level tenant filter parity tests for authCreateSqlStores.
  *
  * Mirrors packages/duck-auth/src/adapters/memory/__tests__/
  * find-by-hashed-secret-tenant.test.ts so any future SQL/memory drift
  * is caught here, not in production.
  */
 
-function makeBridge(): SqlBridge.IBridge {
-  const credentials = new Map<string, SqlBridge.ICredentialRow>()
-  const identities = new Map<string, SqlBridge.IIdentityRow>()
+function makeBridge(): AuthSqlBridge.IBridge {
+  const credentials = new Map<string, AuthSqlBridge.ICredentialRow>()
+  const identities = new Map<string, AuthSqlBridge.IIdentityRow>()
   return {
     identities: {
       findById: async () => null,
@@ -62,13 +62,13 @@ function makeBridge(): SqlBridge.IBridge {
   }
 }
 
-describe('createSqlAuthStores.findByHashedSecret tenant filter parity', () => {
-  let bridge: SqlBridge.IBridge
-  let stores: ReturnType<typeof createSqlAuthStores<{ email: string }>>
+describe('authCreateSqlStores.findByHashedSecret tenant filter parity', () => {
+  let bridge: AuthSqlBridge.IBridge
+  let stores: ReturnType<typeof authCreateSqlStores<{ email: string }>>
 
   beforeEach(() => {
     bridge = makeBridge()
-    stores = createSqlAuthStores<{ email: string }>(bridge)
+    stores = authCreateSqlStores<{ email: string }>(bridge)
   })
 
   it('returns null when ctx.tenantId mismatches the row tenantId', async () => {

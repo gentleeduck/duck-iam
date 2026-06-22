@@ -1,14 +1,14 @@
-import type { Client } from './client'
-import type { Primitives } from './primitives'
+import type { IamClient } from './client'
+import type { IamPrimitives } from './primitives'
 
-export namespace AccessControl {
+export namespace IamAccessControl {
   /**
    * The outcome a rule produces when it matches: grant or block access.
    *
    * @example
    * ```ts
-   * const allow: AccessControl.Effect = 'allow'
-   * const deny:  AccessControl.Effect = 'deny'
+   * const allow: IamAccessControl.Effect = 'allow'
+   * const deny:  IamAccessControl.Effect = 'deny'
    * ```
    */
   export type Effect = 'allow' | 'deny'
@@ -56,7 +56,7 @@ export namespace AccessControl {
     /** Comparison operator to apply. */
     readonly operator: Operator
     /** Right-hand side value. Omit for unary operators like `exists`. */
-    readonly value?: Primitives.AttributeValue
+    readonly value?: IamPrimitives.AttributeValue
   }
 
   /**
@@ -89,7 +89,7 @@ export namespace AccessControl {
     readonly resources: readonly (TResource | '*')[]
     readonly conditions: IConditionGroup
     /** Arbitrary metadata for admin dashboards, audit logs, or app bookkeeping. */
-    readonly metadata?: Readonly<Primitives.Attributes>
+    readonly metadata?: Readonly<IamPrimitives.Attributes>
   }
 
   /**
@@ -149,7 +149,7 @@ export namespace AccessControl {
 
   /**
    * A single action/resource permission entry within an {@link IRole}. RBAC
-   * primitive - at evaluation time `rolesToPolicy()` turns each permission
+   * primitive - at evaluation time `iamRolesToPolicy()` turns each permission
    * into an allow rule that flows through the ABAC engine.
    *
    * @template TAction   - Union of valid action strings.
@@ -173,7 +173,7 @@ export namespace AccessControl {
 
   /**
    * An RBAC role: named set of {@link IPermission} entries with optional
-   * inheritance. `rolesToPolicy()` converts every role into ABAC rules so
+   * inheritance. `iamRolesToPolicy()` converts every role into ABAC rules so
    * RBAC + ABAC compose through the same engine.
    *
    * @template TAction   - Union of valid action strings.
@@ -195,7 +195,7 @@ export namespace AccessControl {
     readonly inherits?: readonly string[]
     /** Default scope applied to all permissions in this role. */
     readonly scope?: TScope
-    readonly metadata?: Readonly<Primitives.Attributes>
+    readonly metadata?: Readonly<IamPrimitives.Attributes>
   }
 
   /**
@@ -241,7 +241,7 @@ export namespace AccessControl {
 
   /**
    * Conditional permission map type based on engine mode. Production ->
-   * `Record<string, boolean>`, development -> typed {@link Client.PermissionMap}.
+   * `Record<string, boolean>`, development -> typed {@link IamClient.PermissionMap}.
    *
    * @template M         - The engine {@link Mode}.
    * @template TAction   - Union of valid action strings.
@@ -253,11 +253,11 @@ export namespace AccessControl {
     TAction extends string = string,
     TResource extends string = string,
     TScope extends string = string,
-  > = M extends 'production' ? Record<string, boolean> : Client.PermissionMap<TAction, TResource, TScope>
+  > = M extends 'production' ? Record<string, boolean> : IamClient.PermissionMap<TAction, TResource, TScope>
 
   /**
    * Function signature for a single operator implementation evaluating a
    * `(field, value)` pair from a condition.
    */
-  export type OpFn = (field: Primitives.AttributeValue, value: Primitives.AttributeValue) => boolean
+  export type OpFn = (field: IamPrimitives.AttributeValue, value: IamPrimitives.AttributeValue) => boolean
 }

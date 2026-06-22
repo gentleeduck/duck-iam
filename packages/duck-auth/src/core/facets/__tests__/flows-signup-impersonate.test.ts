@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
-import { CookieTransport } from '../../transport/cookie'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthCookieTransport } from '../../transport/cookie'
 
 interface MyProfile {
   email: string
@@ -13,27 +13,27 @@ interface MyProfile {
 }
 
 function buildAuth(): {
-  auth: AuthRoot<MyProfile>
-  adapter: MemoryAuthAdapter<MyProfile>
+  auth: AuthEngine<MyProfile>
+  adapter: AuthMemoryAdapter<MyProfile>
 } {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const auth = new AuthRoot<MyProfile>({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 describe('FlowsFacet - signup state machine', () => {
-  let auth: AuthRoot<MyProfile>
-  let adapter: MemoryAuthAdapter<MyProfile>
+  let auth: AuthEngine<MyProfile>
+  let adapter: AuthMemoryAdapter<MyProfile>
 
   beforeEach(() => {
     ;({ auth, adapter } = buildAuth())
@@ -129,7 +129,7 @@ describe('FlowsFacet - signup state machine', () => {
 })
 
 describe('FlowsFacet - impersonation', () => {
-  let auth: AuthRoot<MyProfile>
+  let auth: AuthEngine<MyProfile>
   let adminId: string
   let targetId: string
   let adminSid: string

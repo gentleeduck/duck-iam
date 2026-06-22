@@ -1,8 +1,8 @@
 import { AuthErrorObject } from '../errors'
-import type { Events } from '../types/events'
-import type { Provider } from '../types/provider'
-import type { Session } from '../types/session'
-import type { Transport } from '../types/transport'
+import type { AuthEvents } from '../types/events'
+import type { AuthProvider } from '../types/provider'
+import type { AuthSession } from '../types/session'
+import type { AuthTransport } from '../types/transport'
 import {
   cancelAccountDeletion as cancelAccountDeletionImpl,
   completeAccountDeletion as completeAccountDeletionImpl,
@@ -43,18 +43,18 @@ export class FlowsFacet<Profile = unknown> {
     readonly _sessions: SessionsFacet,
     readonly _identities: IdentitiesFacet<Profile>,
     readonly _providers: ProvidersFacet<Profile>,
-    readonly _transport: Transport.ITransport,
-    readonly _events: Events.IBus,
-    readonly _ctxFactory: (tenantId?: string) => Provider.IContext<Profile>,
+    readonly _transport: AuthTransport.ITransport,
+    readonly _events: AuthEvents.IBus,
+    readonly _ctxFactory: (tenantId?: string) => AuthProvider.IContext<Profile>,
     readonly _passwords: PasswordsFacet,
     readonly _mfa: MfaFacet,
     readonly _cfg: FlowsFacet.IConfig = DEFAULT_FLOWS_CONFIG,
   ) {}
 
   /**
-   * Dispatch a sign-in via the named provider. Provider returns Intents;
+   * Dispatch a sign-in via the named provider. AuthProvider returns Intents;
    * the `startSession` intent is interpreted here (rotateOrCreate +
-   * Transport.issue); other intents flow through to the caller.
+   * AuthTransport.issue); other intents flow through to the caller.
    */
   async signIn(opts: FlowsFacet.ISignInOptions): Promise<FlowsFacet.ISignInOutcome> {
     if (!isProviderIdSafe(opts.providerId) || !this._providers.has(opts.providerId)) {
@@ -67,10 +67,10 @@ export class FlowsFacet<Profile = unknown> {
     const intents = await this._providers.complete(opts.providerId, ctx, opts.input)
 
     const startIntent = intents.find(
-      (i): i is Extract<Provider.Intent, { type: 'startSession' }> => i.type === 'startSession',
+      (i): i is Extract<AuthProvider.Intent, { type: 'startSession' }> => i.type === 'startSession',
     )
     if (!startIntent) {
-      // Provider completed without issuing a session (likely a requireMfa). Pass through.
+      // AuthProvider completed without issuing a session (likely a requireMfa). Pass through.
       return { session: null, sid: '', intents }
     }
 
@@ -115,7 +115,7 @@ export class FlowsFacet<Profile = unknown> {
     providerId: string,
     input: unknown,
     opts: { tenantId?: string } = {},
-  ): Promise<Provider.Intent[]> {
+  ): Promise<AuthProvider.Intent[]> {
     if (!isProviderIdSafe(providerId) || !this._providers.has(providerId)) {
       throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
         providerId: isProviderIdSafe(providerId) ? providerId : 'invalid',
@@ -125,8 +125,8 @@ export class FlowsFacet<Profile = unknown> {
     return this._providers.begin(providerId, this._ctxFactory(opts.tenantId), input)
   }
 
-  /** Revoke the current session and emit Transport.revoke intents. */
-  async signOut(sid: string): Promise<{ intents: Provider.Intent[] }> {
+  /** Revoke the current session and emit AuthTransport.revoke intents. */
+  async signOut(sid: string): Promise<{ intents: AuthProvider.Intent[] }> {
     // sessions.revoke() also typeof-guards, but defending here means a non-string
     // sid never reaches the bus + transport (revoke remains a no-op).
     if (typeof sid === 'string' && sid.length > 0 && sid.length <= 4096) {
@@ -143,10 +143,10 @@ export class FlowsFacet<Profile = unknown> {
    * otherwise returns a challenge enumerating the satisfying methods.
    */
   async checkStepUp(
-    session: Session.ISession,
+    session: AuthSession.ISession,
     requirement: FlowsFacet.IStepUpRequirement,
   ): Promise<FlowsFacet.IStepUpOutcome> {
-    const requiredAal: Session.AAL = requirement.aal ?? 2
+    const requiredAal: AuthSession.AAL = requirement.aal ?? 2
     const methods = requirement.methods ?? ['totp']
     const freshness = requirement.freshness
 
@@ -175,7 +175,7 @@ export class FlowsFacet<Profile = unknown> {
     method: 'totp' | 'backup-code'
     code: string
     tenantId?: string
-  }): Promise<{ session: Session.ISession; sid: string; intents: Provider.Intent[] }> {
+  }): Promise<{ session: AuthSession.ISession; sid: string; intents: AuthProvider.Intent[] }> {
     if (opts.method !== 'totp' && opts.method !== 'backup-code') {
       throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
     }
@@ -232,7 +232,7 @@ export class FlowsFacet<Profile = unknown> {
   async requestPasswordReset(opts: {
     input: FlowsFacet.IPasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').Channel.IChannel>>
+    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').AuthChannel.IChannel>>
     tenantId?: string
   }): Promise<{ ok: true }> {
     return requestPasswordResetImpl(this, opts)
@@ -260,7 +260,7 @@ export class FlowsFacet<Profile = unknown> {
    *
    * Behavior:
    *   - Generates a 256-bit random token; persists sha-256 under
-   *     Credential.kind='recovery' with metadata.purpose='email-verification'
+   *     AuthCredential.kind='recovery' with metadata.purpose='email-verification'
    *   - Per-identity rate limit at `verify:email:{identityId}` so
    *     resend pressure is bounded
    *   - No-op (returns { ok:true }) when the identity is already
@@ -340,8 +340,8 @@ export class FlowsFacet<Profile = unknown> {
 
   async completeSignUp(opts: {
     flowToken: string
-    aal?: Session.AAL
-    factors?: Session.Factor[]
+    aal?: AuthSession.AAL
+    factors?: AuthSession.Factor[]
     tenantId?: string
     ip?: string
     userAgent?: string
@@ -361,7 +361,7 @@ export class FlowsFacet<Profile = unknown> {
    */
   async impersonate(
     opts: FlowsFacet.IImpersonateOptions & {
-      authorize: (realSession: Session.ISession, targetIdentityId: string) => Promise<boolean>
+      authorize: (realSession: AuthSession.ISession, targetIdentityId: string) => Promise<boolean>
     },
   ): Promise<FlowsFacet.IImpersonateOutcome> {
     return impersonateImpl(this, opts)
@@ -375,7 +375,7 @@ export class FlowsFacet<Profile = unknown> {
     return unlinkProviderImpl(this, opts)
   }
 
-  async releaseImpersonation(impersonationSid: string): Promise<{ intents: Provider.Intent[] }> {
+  async releaseImpersonation(impersonationSid: string): Promise<{ intents: AuthProvider.Intent[] }> {
     return releaseImpersonationImpl(this, impersonationSid)
   }
 }
@@ -407,29 +407,29 @@ export namespace FlowsFacet {
      * returned `requireMfa` and the caller is mid-flow); in that case `sid`
      * is also empty and `intents` carries the provider's response.
      */
-    session: Session.ISession | null
+    session: AuthSession.ISession | null
     /** Plaintext SID the client uses to authenticate; empty when `session` is null. */
     sid: string
     /** Intents the framework adapter must execute on the response. */
-    intents: Provider.Intent[]
+    intents: AuthProvider.Intent[]
   }
 
   export interface IStepUpRequirement {
     /** Required AAL on the post-step-up session. Default 2. */
-    aal?: Session.AAL
+    aal?: AuthSession.AAL
     /** Methods that satisfy the requirement (any-of). Default ['totp']. */
-    methods?: Session.FactorMethod[]
+    methods?: AuthSession.FactorMethod[]
     /** Recency window in ms - re-auth required if last factor older than this. */
     freshness?: number
   }
 
   export type IStepUpOutcome =
-    | { satisfied: true; session: Session.ISession; sid: string; intents: Provider.Intent[] }
-    | { satisfied: false; reason: 'mfa-required' | 'fresh-required'; methods: Session.FactorMethod[] }
+    | { satisfied: true; session: AuthSession.ISession; sid: string; intents: AuthProvider.Intent[] }
+    | { satisfied: false; reason: 'mfa-required' | 'fresh-required'; methods: AuthSession.FactorMethod[] }
 
   export interface IPasswordResetRequestInput {
     email: string
-    /** Channel to use; default 'email'. */
+    /** AuthChannel to use; default 'email'. */
     channel?: 'email' | 'sms' | 'webpush'
     /** Path on the app that handles the reset; library appends `?token=`. */
     callbackPath?: string
@@ -445,13 +445,13 @@ export namespace FlowsFacet {
   export interface ISignUpFlowState<Profile = unknown> {
     /** Opaque flow id; surfaced to the framework adapter to put on a __Host-duck-signup cookie. */
     id: string
-    /** Identity row created at email-collected stage (profile.emailVerified=false until verifyEmail). */
+    /** AuthIdentity row created at email-collected stage (profile.emailVerified=false until verifyEmail). */
     identityId: string
     /** Required stages (ordered); apps configure per signup type (passkey-only, B2B, etc.). */
     required: FlowsFacet.ISignUpStage[]
     /** Stages the user has already completed; library guarantees idempotent appends. */
     completed: FlowsFacet.ISignUpStage[]
-    /** Accumulated profile across stages; merged into Identity.profile at complete(). */
+    /** Accumulated profile across stages; merged into AuthIdentity.profile at complete(). */
     data: Partial<Profile>
     /** Sliding TTL (default 30 min). */
     expiresAt: number
@@ -464,7 +464,7 @@ export namespace FlowsFacet {
   export interface IImpersonateOptions {
     /** Caller's session id (the real subject). */
     realSid: string
-    /** Identity being impersonated. */
+    /** AuthIdentity being impersonated. */
     targetIdentityId: string
     /** Human-readable reason; audit-logged via `identity.impersonated` event. */
     reason: string
@@ -474,10 +474,10 @@ export namespace FlowsFacet {
   }
 
   export interface IImpersonateOutcome {
-    session: Session.ISession
+    session: AuthSession.ISession
     /** Plaintext SID for the new actingAs session (separate from real session). */
     sid: string
-    intents: Provider.Intent[]
+    intents: AuthProvider.Intent[]
   }
 
   export type ISignUpStage =
@@ -489,11 +489,11 @@ export namespace FlowsFacet {
     | 'completed'
 
   export interface ILinkProviderInput {
-    /** Identity to attach the provider link to. */
+    /** AuthIdentity to attach the provider link to. */
     identityId: string
-    /** Provider id (`'google'`, `'github'`, etc). */
+    /** AuthProvider id (`'authGoogle'`, `'authGithub'`, etc). */
     providerId: string
-    /** Provider-side subject id (verified by the OAuth dance the caller just completed). */
+    /** AuthProvider-side subject id (verified by the OAuth dance the caller just completed). */
     providerSub: string
     /** Tenant scope. */
     tenantId?: string
@@ -511,10 +511,10 @@ export namespace FlowsFacet {
   }
 
   export interface IEmailVerificationRequestInput {
-    /** Identity to verify. */
+    /** AuthIdentity to verify. */
     identityId: string
-    /** Channel keyed by kind. Email is the typical default. */
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').Channel.IChannel>>
+    /** AuthChannel keyed by kind. Email is the typical default. */
+    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').AuthChannel.IChannel>>
     /** Which channel to dispatch on; default 'email'. */
     channel?: 'email' | 'sms' | 'webpush'
     /** TTL of the verification token, ms. Default 30 minutes. */
@@ -532,8 +532,8 @@ export namespace FlowsFacet {
 
   export interface IAccountDeletionRequestInput {
     identityId: string
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').Channel.IChannel>>
-    /** Channel kind to use; default `'email'`. */
+    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/channel').AuthChannel.IChannel>>
+    /** AuthChannel kind to use; default `'email'`. */
     channel?: 'email' | 'sms' | 'webpush'
     /** Token TTL in ms. Default 30 minutes. */
     ttlMs?: number
@@ -551,7 +551,7 @@ export namespace FlowsFacet {
   }
 
   export interface IAccountDeletionCancelInput {
-    /** Identity to restore. */
+    /** AuthIdentity to restore. */
     identityId: string
     tenantId?: string
   }

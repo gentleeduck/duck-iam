@@ -1,15 +1,15 @@
 import * as nodePath from 'node:path'
-import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
+import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import {
-  parsePolicyRow as parsePolicyRowShared,
-  parseRoleRow as parseRoleRowShared,
-  validatePolicy,
-  validateRole,
+  iamParsePolicyRow as parsePolicyRowShared,
+  iamParseRoleRow as parseRoleRowShared,
+  iamValidatePolicy,
+  iamValidateRole,
 } from '../../core/validate'
 
-export namespace File {
+export namespace IamFile {
   /**
-   * Describes the minimal `node:fs/promises`-compatible surface used by {@link FileAdapter}.
+   * Describes the minimal `node:fs/promises`-compatible surface used by {@link IamFileAdapter}.
    *
    * Tests inject an in-memory fake; production passes the real Node module.
    */
@@ -53,7 +53,7 @@ export namespace File {
     realpath?(path: string): Promise<string>
   }
 
-  /** Describes initialization options for {@link FileAdapter}. */
+  /** Describes initialization options for {@link IamFileAdapter}. */
   export interface IInit {
     /**
      * Specifies the **absolute** path of the JSON store file.
@@ -93,7 +93,7 @@ export namespace File {
   }
 
   /**
-   * Describes the on-disk JSON state shape held by {@link FileAdapter}.
+   * Describes the on-disk JSON state shape held by {@link IamFileAdapter}.
    *
    * Exposed for typing the internal cache field; not part of the wire API.
    *
@@ -108,10 +108,10 @@ export namespace File {
     TRole extends string,
     TScope extends string,
   > {
-    policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>>
-    roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>>
+    policies: Record<string, IamAccessControl.IPolicy<TAction, TResource, TRole>>
+    roles: Record<string, IamAccessControl.IRole<TAction, TResource, TRole, TScope>>
     assignments: Record<string, Array<{ role: TRole; scope?: TScope }>>
-    attributes: Record<string, Primitives.Attributes>
+    attributes: Record<string, IamPrimitives.Attributes>
   }
 }
 
@@ -131,20 +131,20 @@ export namespace File {
  */
 let _ROOTDIR_WARNED_FIRED = false
 
-export class FileAdapter<
+export class IamFileAdapter<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-> implements Adapter.IAdapter<TAction, TResource, TRole, TScope>
+> implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
   private readonly _path: string
   private readonly _parentDir: string
   private readonly _rootDir: string | null
-  private readonly _fs: File.IFS
+  private readonly _fs: IamFile.IFS
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
-  private _cache: File.IState<TAction, TResource, TRole, TScope> | null = null
-  private _loadInFlight: Promise<File.IState<TAction, TResource, TRole, TScope>> | null = null
+  private _cache: IamFile.IState<TAction, TResource, TRole, TScope> | null = null
+  private _loadInFlight: Promise<IamFile.IState<TAction, TResource, TRole, TScope>> | null = null
   // realpath is re-checked on every I/O so an attacker cannot swap the file
   // for a symlink after first read and redirect subsequent writes.
 
@@ -153,36 +153,36 @@ export class FileAdapter<
    *
    * @param init - Provides the store path and filesystem driver.
    */
-  constructor(init: File.IInit) {
+  constructor(init: IamFile.IInit) {
     // Reject raw `..`; path.resolve would silently collapse it.
     if (init.path.split(/[\\/]+/).includes('..')) {
-      throw new Error(`[@gentleduck/iam:file] FileAdapter path contains a ".." segment: "${init.path}"`)
+      throw new Error(`[@gentleduck/iam:file] IamFileAdapter path contains a ".." segment: "${init.path}"`)
     }
     const resolved = nodePath.resolve(init.path)
     if (!nodePath.isAbsolute(resolved)) {
-      throw new Error(`[@gentleduck/iam:file] FileAdapter path must resolve to an absolute path: "${init.path}"`)
+      throw new Error(`[@gentleduck/iam:file] IamFileAdapter path must resolve to an absolute path: "${init.path}"`)
     }
     // Refuse pre-resolve relative paths; path.resolve would silently join cwd.
     if (!nodePath.isAbsolute(init.path)) {
-      throw new Error(`[@gentleduck/iam:file] FileAdapter path must be supplied as an absolute path: "${init.path}"`)
+      throw new Error(`[@gentleduck/iam:file] IamFileAdapter path must be supplied as an absolute path: "${init.path}"`)
     }
 
     let rootDir: string | null = null
     if (init.rootDir !== undefined) {
       if (!nodePath.isAbsolute(init.rootDir)) {
-        throw new Error(`[@gentleduck/iam:file] FileAdapter rootDir must be absolute: "${init.rootDir}"`)
+        throw new Error(`[@gentleduck/iam:file] IamFileAdapter rootDir must be absolute: "${init.rootDir}"`)
       }
       rootDir = nodePath.resolve(init.rootDir)
       const rel = nodePath.relative(rootDir, resolved)
       if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
-        throw new Error(`[@gentleduck/iam:file] FileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
+        throw new Error(`[@gentleduck/iam:file] IamFileAdapter path "${resolved}" escapes rootDir "${rootDir}"`)
       }
     } else if (!_ROOTDIR_WARNED_FIRED) {
       // Once-per-process; do not echo the path (request-derived; log-oracle).
       _ROOTDIR_WARNED_FIRED = true
       // eslint-disable-next-line no-console
       console.warn(
-        '[@gentleduck/iam:file] FileAdapter constructed without rootDir. ' +
+        '[@gentleduck/iam:file] IamFileAdapter constructed without rootDir. ' +
           'Any caller deriving the path from request data should set rootDir for defence in depth.',
       )
     }
@@ -229,7 +229,7 @@ export class FileAdapter<
     const rel = nodePath.relative(this._rootDir, canonical)
     if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
       throw new Error(
-        `[@gentleduck/iam:file] FileAdapter realpath "${canonical}" escapes rootDir "${this._rootDir}" (symlink traversal)`,
+        `[@gentleduck/iam:file] IamFileAdapter realpath "${canonical}" escapes rootDir "${this._rootDir}" (symlink traversal)`,
       )
     }
   }
@@ -243,7 +243,7 @@ export class FileAdapter<
     console.warn(`[@gentleduck/iam:file] dropped malformed row "${rowId}": ${err.message}`)
   }
 
-  private async _loadState(): Promise<File.IState<TAction, TResource, TRole, TScope>> {
+  private async _loadState(): Promise<IamFile.IState<TAction, TResource, TRole, TScope>> {
     if (this._cache) return this._cache
     if (this._loadInFlight) return this._loadInFlight
     // Clear in-flight on ANY throw (including _assertWithinRoot
@@ -266,7 +266,7 @@ export class FileAdapter<
           // Null-proto dicts so attacker-controlled ids (`__proto__`) cannot
           // (a) read Object.prototype back, or (b) pollute the proto chain
           // via setter assignment.
-          const empty: File.IState<TAction, TResource, TRole, TScope> = {
+          const empty: IamFile.IState<TAction, TResource, TRole, TScope> = {
             policies: Object.create(null),
             roles: Object.create(null),
             assignments: Object.create(null),
@@ -288,36 +288,36 @@ export class FileAdapter<
 
         const parsed = isPlainObject(parsedRaw) ? parsedRaw : {}
 
-        // Validate each row; drop malformed entries instead of returning them.
+        // IamValidate each row; drop malformed entries instead of returning them.
         // Null-proto so prototype-key reads/writes can't pollute the proto chain.
-        const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
+        const policies: Record<string, IamAccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
         const policiesRaw = isPlainObject(parsed.policies) ? parsed.policies : {}
         for (const [rowId, p] of Object.entries(policiesRaw)) {
-          const policy = parsePolicyRow<TAction, TResource, TRole>(p)
+          const policy = iamParsePolicyRow<TAction, TResource, TRole>(p)
           if (policy !== null) {
             policies[rowId] = policy
           } else {
-            const issues = validatePolicy(p)
+            const issues = iamValidatePolicy(p)
               .issues.map((i) => i.message)
               .join('; ')
             this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
           }
         }
-        const roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>> = Object.create(null)
+        const roles: Record<string, IamAccessControl.IRole<TAction, TResource, TRole, TScope>> = Object.create(null)
         const rolesRaw = isPlainObject(parsed.roles) ? parsed.roles : {}
         for (const [rowId, r] of Object.entries(rolesRaw)) {
-          const role = parseRoleRow<TAction, TResource, TRole, TScope>(r)
+          const role = iamParseRoleRow<TAction, TResource, TRole, TScope>(r)
           if (role !== null) {
             roles[rowId] = role
           } else {
-            const issues = validateRole(r)
+            const issues = iamValidateRole(r)
               .issues.map((i) => i.message)
               .join('; ')
             this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
           }
         }
 
-        const state: File.IState<TAction, TResource, TRole, TScope> = {
+        const state: IamFile.IState<TAction, TResource, TRole, TScope> = {
           policies,
           roles,
           assignments: parseFileAssignments<TRole, TScope>(parsed.assignments, (rowId, reason) =>
@@ -355,7 +355,7 @@ export class FileAdapter<
       const code = err !== null && err !== undefined ? Reflect.get(Object(err), 'code') : undefined
       if (code !== 'EEXIST') {
         throw new Error(
-          `[@gentleduck/iam:file] FileAdapter parent directory "${this._parentDir}" is not accessible (${code ?? 'unknown'}). ` +
+          `[@gentleduck/iam:file] IamFileAdapter parent directory "${this._parentDir}" is not accessible (${code ?? 'unknown'}). ` +
             'Create it explicitly; the adapter no longer does recursive mkdir.',
         )
       }
@@ -369,7 +369,7 @@ export class FileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All stored policies.
    */
-  async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const s = await this._loadState()
     return Object.values(s.policies)
   }
@@ -383,8 +383,8 @@ export class FileAdapter<
    */
   async getPolicy(
     id: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const s = await this._loadState()
     return s.policies[id] ?? null
   }
@@ -395,7 +395,7 @@ export class FileAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the file is rewritten.
    */
-  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const s = await this._loadState()
     s.policies[p.id] = p
     await this._flush()
@@ -419,7 +419,7 @@ export class FileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All stored roles.
    */
-  async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const s = await this._loadState()
     return Object.values(s.roles)
   }
@@ -433,8 +433,8 @@ export class FileAdapter<
    */
   async getRole(
     id: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const s = await this._loadState()
     return s.roles[id] ?? null
   }
@@ -445,7 +445,7 @@ export class FileAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the file is rewritten.
    */
-  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const s = await this._loadState()
     s.roles[r.id] = r
     await this._flush()
@@ -470,7 +470,7 @@ export class FileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs without scope.
    */
-  async getSubjectRoles(id: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
+  async getSubjectRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const s = await this._loadState()
     const entries = s.assignments[id] ?? []
     return [...new Set(entries.filter((e) => e.scope == null).map((e) => e.role))]
@@ -483,7 +483,7 @@ export class FileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs for scoped assignments only.
    */
-  async getSubjectScopedRoles(id: string, _opts?: Adapter.IReadOptions): Promise<Request.IScopedRole<TRole, TScope>[]> {
+  async getSubjectScopedRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     const s = await this._loadState()
     const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
     return (s.assignments[id] ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
@@ -540,7 +540,7 @@ export class FileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
    */
-  async getSubjectAttributes(id: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
+  async getSubjectAttributes(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     const s = await this._loadState()
     return s.attributes[id] ?? {}
   }
@@ -552,7 +552,7 @@ export class FileAdapter<
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the file is rewritten.
    */
-  async setSubjectAttributes(id: string, attrs: Primitives.Attributes): Promise<void> {
+  async setSubjectAttributes(id: string, attrs: IamPrimitives.Attributes): Promise<void> {
     const s = await this._loadState()
     s.attributes[id] = Object.assign(Object.create(null), s.attributes[id] ?? {}, attrs)
     await this._flush()
@@ -617,21 +617,21 @@ function parseFileAssignments<TRole extends string, TScope extends string>(
 function parseFileAttributes(
   raw: unknown,
   report: (rowId: string, reason: string) => void,
-): Record<string, Primitives.Attributes> {
+): Record<string, IamPrimitives.Attributes> {
   if (raw === undefined || raw === null) return Object.create(null)
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     report('__root__', `expected object, got ${Array.isArray(raw) ? 'array' : typeof raw}`)
     return Object.create(null)
   }
-  const out: Record<string, Primitives.Attributes> = Object.create(null)
+  const out: Record<string, IamPrimitives.Attributes> = Object.create(null)
   for (const [rowId, rowVal] of Object.entries(raw)) {
     if (typeof rowVal !== 'object' || rowVal === null || Array.isArray(rowVal)) {
       report(rowId, `expected attributes object, got ${rowVal === null ? 'null' : typeof rowVal}`)
       continue
     }
-    const attrs: Primitives.Attributes = Object.create(null)
+    const attrs: IamPrimitives.Attributes = Object.create(null)
     for (const [k, v] of Object.entries(rowVal)) {
-      attrs[k] = v as Primitives.AttributeValue
+      attrs[k] = v as IamPrimitives.AttributeValue
     }
     out[rowId] = attrs
   }
@@ -643,7 +643,7 @@ function parseFileAttributes(
  * runtime-validated that the value is a non-empty string; the role/scope
  * type parameters are TS-only constraints that the file adapter can't
  * verify (the legitimate string values are determined by the calling
- * app's `createAccessConfig`).
+ * app's `createIam`).
  */
 function roleAs<TRole extends string>(s: string): TRole {
   return s as TRole
@@ -656,5 +656,5 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-const parsePolicyRow = parsePolicyRowShared
-const parseRoleRow = parseRoleRowShared
+const iamParsePolicyRow = parsePolicyRowShared
+const iamParseRoleRow = parseRoleRowShared

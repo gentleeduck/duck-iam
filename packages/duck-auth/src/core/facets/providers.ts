@@ -1,19 +1,19 @@
 import { AuthErrorObject } from '../errors'
-import type { Provider } from '../types/provider'
+import type { AuthProvider } from '../types/provider'
 
 /**
- * Providers facet - registry + dispatch. Holds the configured {@link Provider.IProvider}
- * list and routes `begin / complete` calls by id. Provider implementations are pure;
+ * Providers facet - registry + dispatch. Holds the configured {@link AuthProvider.IProvider}
+ * list and routes `begin / complete` calls by id. AuthProvider implementations are pure;
  * the framework adapter executes the Intent[] they return against the actual HTTP layer.
  */
 export class ProvidersFacet<Profile = unknown> {
-  private readonly _byId = new Map<string, Provider.IProvider<unknown, unknown, Profile>>()
+  private readonly _byId = new Map<string, AuthProvider.IProvider<unknown, unknown, Profile>>()
 
-  constructor(providers: Provider.IProvider<unknown, unknown, Profile>[] = []) {
+  constructor(providers: AuthProvider.IProvider<unknown, unknown, Profile>[] = []) {
     for (const p of providers) this._add(p)
   }
 
-  private _add(p: Provider.IProvider<unknown, unknown, Profile>): void {
+  private _add(p: AuthProvider.IProvider<unknown, unknown, Profile>): void {
     if (this._byId.has(p.id)) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: `provider id "${p.id}" registered twice`,
@@ -23,7 +23,7 @@ export class ProvidersFacet<Profile = unknown> {
   }
 
   /** List registered provider ids. UI uses this to render the signin grid. */
-  list(): { id: string; kind: Provider.IProvider['kind'] }[] {
+  list(): { id: string; kind: AuthProvider.IProvider['kind'] }[] {
     return [...this._byId.values()].map((p) => ({ id: p.id, kind: p.kind }))
   }
 
@@ -31,7 +31,7 @@ export class ProvidersFacet<Profile = unknown> {
     return this._byId.has(id)
   }
 
-  get(id: string): Provider.IProvider<unknown, unknown, Profile> {
+  get(id: string): AuthProvider.IProvider<unknown, unknown, Profile> {
     const p = this._byId.get(id)
     if (!p) {
       throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
@@ -43,15 +43,15 @@ export class ProvidersFacet<Profile = unknown> {
   }
 
   /** Allow plugins to register a provider at runtime. */
-  register(p: Provider.IProvider<unknown, unknown, Profile>): void {
+  register(p: AuthProvider.IProvider<unknown, unknown, Profile>): void {
     this._add(p)
   }
 
-  async begin(id: string, ctx: Provider.IContext<Profile>, input: unknown): Promise<Provider.Intent[]> {
+  async begin(id: string, ctx: AuthProvider.IContext<Profile>, input: unknown): Promise<AuthProvider.Intent[]> {
     return this.get(id).begin(ctx, input)
   }
 
-  async complete(id: string, ctx: Provider.IContext<Profile>, input: unknown): Promise<Provider.Intent[]> {
+  async complete(id: string, ctx: AuthProvider.IContext<Profile>, input: unknown): Promise<AuthProvider.Intent[]> {
     return this.get(id).complete(ctx, input)
   }
 }

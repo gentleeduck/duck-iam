@@ -1,6 +1,6 @@
-import type { Anomaly } from '../types/anomaly'
+import type { AuthAnomaly } from '../types/anomaly'
 
-const DEFAULT_CONFIG: ImpossibleTravel.IConfig = {
+const DEFAULT_CONFIG: AuthImpossibleTravel.IConfig = {
   maxKmPerHour: 900,
   minElapsedMs: 60_000,
 }
@@ -18,15 +18,15 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
 /**
  * Build an impossible-travel detector. Pass `getLastSeen(identityId)`
  * so the detector can read the prior coords from wherever the app
- * persists them (often `Identity.attributes.lastSeen`).
+ * persists them (often `AuthIdentity.attributes.lastSeen`).
  */
-export function impossibleTravelDetector(opts: {
+export function authImpossibleTravelDetector(opts: {
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>
-  config?: Partial<ImpossibleTravel.IConfig>
-}): Anomaly.IDetector {
-  const cfg: ImpossibleTravel.IConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
+  config?: Partial<AuthImpossibleTravel.IConfig>
+}): AuthAnomaly.IDetector {
+  const cfg: AuthImpossibleTravel.IConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
-    throw new Error(`impossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`)
+    throw new Error(`authImpossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`)
   }
   return {
     id: 'impossible-travel',
@@ -64,7 +64,7 @@ export function impossibleTravelDetector(opts: {
   }
 }
 
-export namespace ImpossibleTravel {
+export namespace AuthImpossibleTravel {
   export interface IConfig {
     /** Max speed (km/h) above which the gap counts as suspicious. Default 900. */
     maxKmPerHour: number

@@ -1,5 +1,5 @@
 /**
- * Stress + edge-case suite for `JwtTransport.rotateSignKey` and the
+ * Stress + edge-case suite for `AuthJwtTransport.rotateSignKey` and the
  * EdDSA codepath. Exercises:
  *   - many concurrent issue() calls during rotation
  *   - kid collisions in rotation
@@ -10,10 +10,10 @@
 
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { Session } from '../../types/session'
-import { JwtTransport } from '../jwt'
+import type { AuthSession } from '../../types/session'
+import { AuthJwtTransport } from '../jwt'
 
-function fakeSession(): Session.ISession {
+function fakeSession(): AuthSession.ISession {
   const now = Date.now()
   return {
     aal: 2,
@@ -37,17 +37,17 @@ function ed25519() {
   }
 }
 
-function findAccessToken(intents: ReturnType<JwtTransport['issue']>): string {
+function findAccessToken(intents: ReturnType<AuthJwtTransport['issue']>): string {
   const j = intents.find((i) => i.type === 'json') as Extract<(typeof intents)[number], { type: 'json' }>
   return (j.body as { access_token: string }).access_token
 }
 
-describe('JwtTransport - rotation under concurrent issue', () => {
+describe('AuthJwtTransport - rotation under concurrent issue', () => {
   it('issues 50 tokens across two rotations; every one verifies', async () => {
     const a = ed25519()
     const b = ed25519()
     const c = ed25519()
-    const t = new JwtTransport({
+    const t = new AuthJwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: a.priv, kid: 'a' },
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a' }],
@@ -86,7 +86,7 @@ describe('JwtTransport - rotation under concurrent issue', () => {
   it('rotation to a kid with mismatched verify-side alg throws', () => {
     const a = ed25519()
     const b = ed25519()
-    const t = new JwtTransport({
+    const t = new AuthJwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: a.priv, kid: 'a' },
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a' }],
@@ -108,7 +108,7 @@ describe('JwtTransport - rotation under concurrent issue', () => {
   it('after rotation, retireVerifyKey(old) makes old tokens fail', async () => {
     const a = ed25519()
     const b = ed25519()
-    const t = new JwtTransport({
+    const t = new AuthJwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: a.priv, kid: 'a' },
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a' }],
@@ -125,7 +125,7 @@ describe('JwtTransport - rotation under concurrent issue', () => {
 
   it('notAfter cutoff retires tokens at verify time', async () => {
     const a = ed25519()
-    const t = new JwtTransport({
+    const t = new AuthJwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: a.priv, kid: 'a' },
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a', notAfter: Date.now() - 1 }],
@@ -143,7 +143,7 @@ describe('JwtTransport - rotation under concurrent issue', () => {
     const rsaPriv = rsa.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
     const rsaPub = rsa.publicKey.export({ format: 'pem', type: 'spki' }).toString()
 
-    const t = new JwtTransport({
+    const t = new AuthJwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: ed.priv, kid: 'ed' },
       verifyKeys: [
@@ -176,7 +176,7 @@ describe('JwtTransport - rotation under concurrent issue', () => {
 
   it('EdDSA verify rejects truncated signatures', async () => {
     const ed = ed25519()
-    const t = new JwtTransport({
+    const t = new AuthJwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: ed.priv, kid: 'k' },
       verifyKeys: [{ alg: 'EdDSA', key: ed.pub, kid: 'k' }],
@@ -189,7 +189,7 @@ describe('JwtTransport - rotation under concurrent issue', () => {
 
   it('EdDSA verify rejects garbage public key on rotation', () => {
     const ed = ed25519()
-    const t = new JwtTransport({
+    const t = new AuthJwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: ed.priv, kid: 'k' },
       verifyKeys: [{ alg: 'EdDSA', key: ed.pub, kid: 'k' }],

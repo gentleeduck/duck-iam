@@ -1,7 +1,7 @@
-import type { AuthRoot } from './auth'
+import type { AuthEngine } from './auth'
 import { AuthErrorObject } from './errors'
 
-const DEFAULT_OVERRIDES: Compliance.IOverrides = {
+const DEFAULT_OVERRIDES: AuthCompliance.IOverrides = {
   passwords: { minLength: 8 },
   sessions: { ttlMs: 7 * 24 * 60 * 60 * 1000, absoluteTtlMs: 30 * 24 * 60 * 60 * 1000, freshnessMs: 5 * 60 * 1000 },
   mfa: { backupCodeCount: 10 },
@@ -13,12 +13,12 @@ const DEFAULT_OVERRIDES: Compliance.IOverrides = {
 }
 
 /** Resolve overrides for one or more presets; multiple presets compose by taking the stricter field. */
-export function resolveCompliance(
-  presets: Compliance.IPreset | Compliance.IPreset[] | undefined,
-): Compliance.IOverrides {
+export function authResolveCompliance(
+  presets: AuthCompliance.IPreset | AuthCompliance.IPreset[] | undefined,
+): AuthCompliance.IOverrides {
   if (!presets) return DEFAULT_OVERRIDES
   const list = Array.isArray(presets) ? presets : [presets]
-  let acc: Compliance.IOverrides = { ...DEFAULT_OVERRIDES, requiredStrictChecks: [] }
+  let acc: AuthCompliance.IOverrides = { ...DEFAULT_OVERRIDES, requiredStrictChecks: [] }
   for (const p of list) {
     const overlay = PRESETS[p]
     acc = mergeStricter(acc, overlay)
@@ -26,7 +26,7 @@ export function resolveCompliance(
   return acc
 }
 
-const PRESETS: Record<Compliance.IPreset, Compliance.IOverrides> = {
+const PRESETS: Record<AuthCompliance.IPreset, AuthCompliance.IOverrides> = {
   gdpr: {
     ...DEFAULT_OVERRIDES,
     requiredStrictChecks: ['exportAvailable', 'softDeleteEnabled'],
@@ -67,7 +67,7 @@ const PRESETS: Record<Compliance.IPreset, Compliance.IOverrides> = {
   },
 }
 
-function mergeStricter(a: Compliance.IOverrides, b: Compliance.IOverrides): Compliance.IOverrides {
+function mergeStricter(a: AuthCompliance.IOverrides, b: AuthCompliance.IOverrides): AuthCompliance.IOverrides {
   return {
     passwords: { minLength: Math.max(a.passwords.minLength, b.passwords.minLength) },
     sessions: {
@@ -84,14 +84,14 @@ function mergeStricter(a: Compliance.IOverrides, b: Compliance.IOverrides): Comp
   }
 }
 
-/** Apply preset overrides to an AuthRoot config; never mutates input, stricter rule wins per field. */
-export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMeta = unknown>(
-  base: AuthRoot.IConfig<Profile, Tenant, OrgMeta>,
-  preset: Compliance.IPreset | Compliance.IPreset[],
-): AuthRoot.IConfig<Profile, Tenant, OrgMeta> {
-  const overrides = resolveCompliance(preset)
+/** Apply preset overrides to an AuthEngine config; never mutates input, stricter rule wins per field. */
+export function authApplyCompliancePreset<Profile = unknown, Tenant = string, OrgMeta = unknown>(
+  base: AuthEngine.IConfig<Profile, Tenant, OrgMeta>,
+  preset: AuthCompliance.IPreset | AuthCompliance.IPreset[],
+): AuthEngine.IConfig<Profile, Tenant, OrgMeta> {
+  const overrides = authResolveCompliance(preset)
   // Attach the resolved overrides via `__compliancePreset` so
-  // `AuthRoot.strict` can apply `assertComplianceStrict` automatically.
+  // `AuthEngine.strict` can apply `authAssertComplianceStrict` automatically.
   const out = {
     ...base,
     passwords: {
@@ -113,7 +113,7 @@ export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMet
       randomBytes: Math.max(base.apiKeys?.randomBytes ?? 0, overrides.apiKeys.randomBytes),
     },
   }
-  // Mark the config so downstream `AuthRoot.strict()` knows to assert
+  // Mark the config so downstream `AuthEngine.strict()` knows to assert
   // the strict checks. Read-only; cast to never to keep this off the
   // public type surface.
   Object.defineProperty(out, '__compliancePreset', {
@@ -127,18 +127,18 @@ export function applyCompliancePreset<Profile = unknown, Tenant = string, OrgMet
 
 /**
  * Resolve any compliance preset attached to a config via
- * `applyCompliancePreset`. Returns null when the config was not
- * processed by that helper. Used by `AuthRoot.strict()` to
- * auto-invoke `assertComplianceStrict` so operators do not have to
+ * `authApplyCompliancePreset`. Returns null when the config was not
+ * processed by that helper. Used by `AuthEngine.strict()` to
+ * auto-invoke `authAssertComplianceStrict` so operators do not have to
  * remember the second call.
  */
-export function readCompliancePreset(cfg: unknown): Compliance.IPreset | Compliance.IPreset[] | null {
+export function readCompliancePreset(cfg: unknown): AuthCompliance.IPreset | AuthCompliance.IPreset[] | null {
   if (typeof cfg !== 'object' || cfg === null) return null
   if (!('__compliancePreset' in cfg)) return null
   const value = cfg.__compliancePreset
   if (isPreset(value)) return value
   if (Array.isArray(value)) {
-    const presets: Compliance.IPreset[] = []
+    const presets: AuthCompliance.IPreset[] = []
     for (const v of value) {
       if (!isPreset(v)) return null
       presets.push(v)
@@ -148,9 +148,9 @@ export function readCompliancePreset(cfg: unknown): Compliance.IPreset | Complia
   return null
 }
 
-const PRESET_VALUES: ReadonlySet<string> = new Set<Compliance.IPreset>(['gdpr', 'hipaa', 'soc2', 'fips'])
+const PRESET_VALUES: ReadonlySet<string> = new Set<AuthCompliance.IPreset>(['gdpr', 'hipaa', 'soc2', 'fips'])
 
-function isPreset(v: unknown): v is Compliance.IPreset {
+function isPreset(v: unknown): v is AuthCompliance.IPreset {
   return typeof v === 'string' && PRESET_VALUES.has(v)
 }
 
@@ -166,8 +166,8 @@ function maxAal(a: 1 | 2 | 3, b: 1 | 2 | 3): 1 | 2 | 3 {
 }
 
 /** Validate runtime wiring against a compliance preset; throws `AUTH/MISCONFIGURED` listing every gap. */
-export function assertComplianceStrict(opts: {
-  preset: Compliance.IPreset | Compliance.IPreset[]
+export function authAssertComplianceStrict(opts: {
+  preset: AuthCompliance.IPreset | AuthCompliance.IPreset[]
   wired: {
     dataAtRest: boolean
     mailerChannel: boolean
@@ -175,7 +175,7 @@ export function assertComplianceStrict(opts: {
     fipsValidatedHasher: boolean
   }
 }): void {
-  const overrides = resolveCompliance(opts.preset)
+  const overrides = authResolveCompliance(opts.preset)
   const errors: string[] = []
   if (overrides.requireDataAtRest && !opts.wired.dataAtRest) {
     errors.push('compliance: dataAtRest adapter required')
@@ -196,7 +196,7 @@ export function assertComplianceStrict(opts: {
   }
 }
 
-export namespace Compliance {
+export namespace AuthCompliance {
   export type IPreset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
 
   export interface IOverrides {

@@ -1,6 +1,6 @@
 import { AuthErrorObject } from '../errors'
-import type { Events } from '../types/events'
-import type { Session } from '../types/session'
+import type { AuthEvents } from '../types/events'
+import type { AuthSession } from '../types/session'
 
 const DEFAULT_HIJACK_POLICY: Required<HijackFacet.IPolicyConfig> = {
   onIpChange: 'rotate',
@@ -19,7 +19,7 @@ export class HijackFacet {
   private readonly _policy: Required<HijackFacet.IPolicyConfig>
 
   constructor(
-    private readonly _events: Events.IBus,
+    private readonly _events: AuthEvents.IBus,
     cfg: HijackFacet.IPolicyConfig = {},
   ) {
     this._policy = {
@@ -37,7 +37,7 @@ export class HijackFacet {
    * is 'ignore', so the audit pipeline sees every change.
    */
   async evaluate(
-    session: Session.ISession,
+    session: AuthSession.ISession,
     request: { ip?: string; userAgent?: string },
   ): Promise<HijackFacet.IEvaluation> {
     // Evaluate IP + UA drift independently and return the strongest

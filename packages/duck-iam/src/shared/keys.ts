@@ -7,7 +7,7 @@
  * @param scope - Optionally prefixes a scope for tenant or namespace partitioning.
  * @returns Composed colon-delimited key with hostile segments escaped.
  */
-export function buildPermissionKey(action: string, resource: string, resourceId?: string, scope?: string): string {
+export function iamBuildPermissionKey(action: string, resource: string, resourceId?: string, scope?: string): string {
   const e = escapeSegment
   if (scope) {
     return resourceId
@@ -23,7 +23,7 @@ function escapeSegment(s: string): string {
 }
 
 /**
- * Splits a permission key produced by {@link buildPermissionKey} into its
+ * Splits a permission key produced by {@link iamBuildPermissionKey} into its
  * original segments, honouring the `\:` and `\\` escape sequences. Naive
  * `.split(':')` would mis-tokenise any segment containing a literal `:` or
  * `\`.
@@ -31,7 +31,7 @@ function escapeSegment(s: string): string {
  * @param key - Permission key, e.g. `'read:document'` or `'tenant_a:write:doc\\:42'`.
  * @returns Array of unescaped segments in declaration order.
  */
-export function splitPermissionKey(key: string): string[] {
+export function iamSplitPermissionKey(key: string): string[] {
   const out: string[] = []
   let current = ''
   let i = 0

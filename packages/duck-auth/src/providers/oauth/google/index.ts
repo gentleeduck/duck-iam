@@ -1,29 +1,29 @@
 import { AuthErrorObject } from '../../../core/errors'
-import type { Provider } from '../../../core/types/provider'
-import { OAuthClient } from '../core/client'
-import { type OAuthProvider, oauthProvider } from '../core/provider'
+import type { AuthProvider } from '../../../core/types/provider'
+import { AuthOAuthClient } from '../core/client'
+import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const GOOGLE_ENDPOINTS: OAuthClient.IEndpoints = {
-  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+const GOOGLE_ENDPOINTS: AuthOAuthClient.IEndpoints = {
+  authorizationEndpoint: 'https://accounts.authGoogle.com/o/oauth2/v2/auth',
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
   userinfoEndpoint: 'https://openidconnect.googleapis.com/v1/userinfo',
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
 }
 
-export namespace GoogleOAuth {
-  /** Google-specific options. Extends `OAuthProvider.IOptionsBase`. */
-  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+export namespace AuthGoogleOAuth {
+  /** Google-specific options. Extends `AuthOAuthProvider.IOptionsBase`. */
+  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
     /** Default `['openid', 'email', 'profile']`. */
     scopes?: string[]
   }
 }
 
 /** Google OAuth 2.0 / OIDC provider. */
-export function google<Profile = unknown>(
-  opts: GoogleOAuth.IOptions<Profile>,
-): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
-  const client = new OAuthClient({
+export function authGoogle<Profile = unknown>(
+  opts: AuthGoogleOAuth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
+  const client = new AuthOAuthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: GOOGLE_ENDPOINTS,
@@ -31,7 +31,7 @@ export function google<Profile = unknown>(
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
   return oauthProvider<Profile>({
-    providerId: 'google',
+    providerId: 'authGoogle',
     client,
     endpoints: GOOGLE_ENDPOINTS,
     redirectUri: opts.redirectUri,
@@ -44,7 +44,7 @@ export function google<Profile = unknown>(
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
-          providerId: 'google',
+          providerId: 'authGoogle',
           detail: 'Google userinfo missing sub',
         })
       }

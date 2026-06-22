@@ -25,7 +25,7 @@ import EasyRBAC from 'easy-rbac'
 import * as RoleAcl from 'role-acl'
 import { bench, describe } from 'vitest'
 import { MemoryAdapter } from '../src/adapters/memory'
-import { Engine } from '../src/core/engine/engine'
+import { IamEngine } from '../src/core/engine/engine'
 import { evaluate, evaluateFast, evaluatePolicy, evaluatePolicyFast } from '../src/core/evaluate'
 import type { AccessRequest, Policy } from '../src/core/types'
 
@@ -111,7 +111,7 @@ const adapter = new MemoryAdapter({
   assignments: { 'user-1': ['viewer'], 'editor-1': ['editor'], 'admin-1': ['admin'] },
   attributes: { 'user-1': { role: 'viewer' }, 'editor-1': { role: 'editor' }, 'admin-1': { role: 'admin' } },
 })
-const engine = new Engine({ adapter, defaultEffect: 'deny' })
+const engine = new IamEngine({ adapter, defaultEffect: 'deny' })
 await engine.can('user-1', 'read', { type: 'post', attributes: {} })
 await engine.can('admin-1', 'delete', { type: 'post', attributes: {} })
 
@@ -354,7 +354,7 @@ describe('Cold start: build + first check', () => {
       assignments: { 'user-1': ['viewer'] },
       attributes: { 'user-1': {} },
     })
-    const e = new Engine({ adapter: a, defaultEffect: 'deny' })
+    const e = new IamEngine({ adapter: a, defaultEffect: 'deny' })
     await e.can('user-1', 'read', { type: 'post', attributes: {} })
   })
 

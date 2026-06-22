@@ -1,21 +1,21 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { randomToken } from '../../../core/crypto'
+import { authRandomToken } from '../../../core/crypto'
 
-export namespace OAuthState {
+export namespace AuthOAuthState {
   /**
    * Signed `state` parameter payload. Carries the PKCE verifier + an
    * opaque nonce tied to the user's pre-auth cookie so an attacker
    * cannot stitch a stolen authorisation code to a different browser.
    *
    * Encoding: `<payload-base64url>.<sig-base64url>`. HMAC-SHA256 over
-   * the payload with the per-AuthRoot signing secret.
+   * the payload with the per-AuthEngine signing secret.
    */
   export interface IPayload {
     /** Random nonce; one-time use. */
     nonce: string
     /** PKCE verifier - secret. Never leaves the server. */
     verifier: string
-    /** Provider id; library refuses if it doesn't match the callback. */
+    /** AuthProvider id; library refuses if it doesn't match the callback. */
     providerId: string
     /** Optional return-to path on the app. */
     returnTo?: string
@@ -25,7 +25,7 @@ export namespace OAuthState {
 }
 
 /** Sign a state payload into the OAuth `state` parameter string. */
-export function signState(payload: OAuthState.IPayload, secret: string): string {
+export function signState(payload: AuthOAuthState.IPayload, secret: string): string {
   const json = JSON.stringify(payload)
   const body = Buffer.from(json, 'utf8').toString('base64url')
   const sig = createHmac('sha256', secret).update(body).digest('base64url')
@@ -36,11 +36,11 @@ export function signState(payload: OAuthState.IPayload, secret: string): string 
  * Verify a signed `state` parameter. Returns the payload on success,
  * null on signature mismatch or expiry.
  */
-export function verifyState(
+export function authVerifyState(
   state: string,
   secret: string,
   opts: { maxAgeMs?: number } = {},
-): OAuthState.IPayload | null {
+): AuthOAuthState.IPayload | null {
   const maxAgeMs = opts.maxAgeMs ?? 10 * 60 * 1000
   // 8KB cap on `state` to prevent multi-MB base64/JSON parse DoS.
   // Defensive typeof: caller types it `string` but the wire surface is `unknown`.
@@ -75,7 +75,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * returnTo paths are tens of bytes. */
 const RETURN_TO_MAX = 2048
 
-function parseStatePayload(raw: unknown): OAuthState.IPayload | null {
+function parseStatePayload(raw: unknown): AuthOAuthState.IPayload | null {
   if (!isPlainObject(raw)) return null
   const { nonce, verifier, providerId, returnTo, iat } = raw
   if (typeof nonce !== 'string' || nonce.length === 0) return null
@@ -86,7 +86,7 @@ function parseStatePayload(raw: unknown): OAuthState.IPayload | null {
     if (typeof returnTo !== 'string') return null
     if (returnTo.length > RETURN_TO_MAX) return null
   }
-  const payload: OAuthState.IPayload = { nonce, verifier, providerId, iat }
+  const payload: AuthOAuthState.IPayload = { nonce, verifier, providerId, iat }
   if (returnTo !== undefined) payload.returnTo = returnTo
   return payload
 }
@@ -95,13 +95,13 @@ function parseStatePayload(raw: unknown): OAuthState.IPayload | null {
  * Build a fresh state payload with a random nonce + the given verifier
  * + providerId.
  */
-export function buildState(
+export function authBuildState(
   providerId: string,
   verifier: string,
   opts: { returnTo?: string } = {},
-): OAuthState.IPayload {
-  const p: OAuthState.IPayload = {
-    nonce: randomToken(16),
+): AuthOAuthState.IPayload {
+  const p: AuthOAuthState.IPayload = {
+    nonce: authRandomToken(16),
     verifier,
     providerId,
     iat: Date.now(),

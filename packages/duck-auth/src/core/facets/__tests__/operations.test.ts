@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryEvents } from '../../events'
+import { AuthInMemoryEvents } from '../../events'
 import { OperationsFacet } from '../operations'
 
 describe('OperationsFacet', () => {
-  let events: InMemoryEvents
+  let events: AuthInMemoryEvents
   let ops: OperationsFacet
 
   beforeEach(() => {
-    events = new InMemoryEvents()
+    events = new AuthInMemoryEvents()
     ops = new OperationsFacet(events)
   })
 

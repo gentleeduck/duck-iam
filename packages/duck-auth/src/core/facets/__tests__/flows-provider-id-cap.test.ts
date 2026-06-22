@@ -1,24 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { CookieTransport } from '../../transport/cookie'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { AuthCookieTransport } from '../../transport/cookie'
 
 interface MyProfile {
   email: string
 }
 
-function buildAuth(): AuthRoot<MyProfile> {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  return new AuthRoot<MyProfile>({
+function buildAuth(): AuthEngine<MyProfile> {
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  return new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
+    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
   })
 }
 

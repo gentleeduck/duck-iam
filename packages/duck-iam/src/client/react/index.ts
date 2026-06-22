@@ -2,8 +2,8 @@
  * React integration for duck-iam.
  *
  * Two patterns:
- *   1. Server-driven (recommended): generate Client.PermissionMap on server, pass to client.
- *   2. Client-evaluated: load Engine on client with HttpAdapter or MemoryAdapter.
+ *   1. Server-driven (recommended): generate IamClient.PermissionMap on server, pass to client.
+ *   2. IamClient-evaluated: load Engine on client with HttpAdapter or MemoryAdapter.
  *
  * Usage (server-driven):
  *
@@ -14,7 +14,7 @@
  *     { action: "manage", resource: "team" },
  *   ]);
  *
- *   // Client:
+ *   // IamClient:
  *   <AccessProvider permissions={perms}>
  *     <App />
  *   </AccessProvider>
@@ -31,10 +31,10 @@
  */
 
 import type { ReactNode } from 'react'
-import type { Client } from '../../core/types'
-import { buildPermissionKey } from '../../shared/keys'
+import type { IamClient } from '../../core/types'
+import { iamBuildPermissionKey } from '../../shared/keys'
 
-// React is a peer dep; consumers inject their own React via createAccessControl(React).
+// React is a peer dep; consumers inject their own React via createIamAccessControl(React).
 
 /** Minimal React context type. */
 interface ReactContext<_T> {
@@ -56,12 +56,12 @@ interface ReactLike {
 /**
  * React client integration types. Type-only namespace - zero bundle cost.
  *
- * Named `ReactClient` (rather than `React`) to avoid clashing with the React
+ * Named `IamReactClient` (rather than `React`) to avoid clashing with the React
  * package namespace when consumers import this module alongside React.
  */
-export namespace ReactClient {
+export namespace IamReactClient {
   /**
-   * Describes the value exposed by the {@link createAccessControl} React context.
+   * Describes the value exposed by the {@link createIamAccessControl} React context.
    *
    * @template TAction - Constrains valid action strings.
    * @template TResource - Constrains valid resource strings.
@@ -73,7 +73,7 @@ export namespace ReactClient {
     TScope extends string = string,
   > {
     /** The resolved permission map. */
-    permissions: Client.PermissionMap<TAction, TResource, TScope>
+    permissions: IamClient.PermissionMap<TAction, TResource, TScope>
     /** Returns `true` if the action/resource combination is allowed. */
     can: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
     /** Returns `true` if the action/resource combination is denied. */
@@ -95,20 +95,20 @@ export namespace ReactClient {
  * @example
  * ```ts
  * import React from 'react'
- * import { createAccessControl } from 'duck-iam/client/react'
+ * import { createIamAccessControl } from 'duck-iam/client/react'
  *
- * export const { AccessProvider, useAccess, Can, Cannot } = createAccessControl(React)
+ * export const { AccessProvider, useAccess, Can, Cannot } = createIamAccessControl(React)
  * ```
  */
-export function createAccessControl<
+export function createIamAccessControl<
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
 >(React: ReactLike) {
   const { createContext, useContext, useMemo, useCallback } = React
 
-  const AccessContext = createContext<ReactClient.IContextValue<TAction, TResource, TScope>>({
-    permissions: {} as Client.PermissionMap<TAction, TResource, TScope>,
+  const AccessContext = createContext<IamReactClient.IContextValue<TAction, TResource, TScope>>({
+    permissions: {} as IamClient.PermissionMap<TAction, TResource, TScope>,
     can: () => false,
     cannot: () => true,
   })
@@ -118,12 +118,12 @@ export function createAccessControl<
     permissions,
     children,
   }: {
-    permissions: Client.PermissionMap<TAction, TResource, TScope>
+    permissions: IamClient.PermissionMap<TAction, TResource, TScope>
     children: ReactNode
   }): ReactNode {
     const value = useMemo(() => {
       const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
-        const key = buildPermissionKey(action, resource, resourceId, scope)
+        const key = iamBuildPermissionKey(action, resource, resourceId, scope)
         return (permissions as Record<string, boolean>)[key] ?? false
       }
 
@@ -138,7 +138,7 @@ export function createAccessControl<
   }
 
   /** Hook to access the permission context. */
-  function useAccess(): ReactClient.IContextValue<TAction, TResource, TScope> {
+  function useAccess(): IamReactClient.IContextValue<TAction, TResource, TScope> {
     return useContext(AccessContext)
   }
 
@@ -182,10 +182,10 @@ export function createAccessControl<
 
   /** Hook to asynchronously fetch permissions from a server endpoint. */
   function usePermissions(
-    fetchFn: () => Promise<Client.PermissionMap<TAction, TResource, TScope>>,
+    fetchFn: () => Promise<IamClient.PermissionMap<TAction, TResource, TScope>>,
     deps: readonly unknown[] = [],
   ) {
-    const [permissions, setPermissions] = React.useState({} as Client.PermissionMap<TAction, TResource, TScope>)
+    const [permissions, setPermissions] = React.useState({} as IamClient.PermissionMap<TAction, TResource, TScope>)
     const [loading, setLoading] = React.useState(true)
     const [error, setError] = React.useState<Error | null>(null)
 
@@ -193,7 +193,7 @@ export function createAccessControl<
       let cancelled = false
       setLoading(true)
       fetchFn()
-        .then((perms: Client.PermissionMap<TAction, TResource, TScope>) => {
+        .then((perms: IamClient.PermissionMap<TAction, TResource, TScope>) => {
           if (!cancelled) {
             setPermissions(perms)
             setLoading(false)
@@ -212,7 +212,7 @@ export function createAccessControl<
 
     const can = useCallback(
       (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => {
-        const key = buildPermissionKey(action, resource, resourceId, scope)
+        const key = iamBuildPermissionKey(action, resource, resourceId, scope)
         return (permissions as Record<string, boolean>)[key] ?? false
       },
       [permissions],
@@ -242,13 +242,13 @@ export function createAccessControl<
  * @param permissions - Provides the permission map (typically from `engine.permissions(...)`).
  * @returns `{ can, cannot, permissions }`.
  */
-export function createPermissionChecker<
+export function createIamPermissionChecker<
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
->(permissions: Client.PermissionMap<TAction, TResource, TScope>) {
+>(permissions: IamClient.PermissionMap<TAction, TResource, TScope>) {
   const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
-    const key = buildPermissionKey(action, resource, resourceId, scope)
+    const key = iamBuildPermissionKey(action, resource, resourceId, scope)
     return (permissions as Record<string, boolean>)[key] ?? false
   }
 

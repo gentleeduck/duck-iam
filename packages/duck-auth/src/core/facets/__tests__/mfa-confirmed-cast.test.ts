@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { InMemoryEvents } from '../../events'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthInMemoryEvents } from '../../events'
 import { MfaFacet } from '../mfa'
 
 describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
-  let adapter: MemoryAuthAdapter
+  let adapter: AuthMemoryAdapter
   let facet: MfaFacet
   const identityId = 'identity-1'
 
   beforeEach(() => {
-    adapter = new MemoryAuthAdapter()
-    facet = new MfaFacet(adapter.credentials, new InMemoryEvents())
+    adapter = new AuthMemoryAdapter()
+    facet = new MfaFacet(adapter.credentials, new AuthInMemoryEvents())
   })
 
   async function plant(metadata: unknown, secret = 'JBSWY3DPEHPK3PXP'): Promise<void> {
@@ -50,7 +50,7 @@ describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
     expect(await facet.hasTotp(identityId)).toBe(false)
   })
 
-  it('verifyTotp returns false for non-string row.secret (corrupt adapter row)', async () => {
+  it('authVerifyTotp returns false for non-string row.secret (corrupt adapter row)', async () => {
     // Plant a confirmed:true row but with a non-string secret (typo:
     // 12345 instead of 'JBSWY...'). The TOTP module would crash on
     // decodeBase32; the early-out keeps the request safe.

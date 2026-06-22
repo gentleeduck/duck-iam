@@ -1,5 +1,5 @@
-import type { Engine } from '../../core'
-import type { Client, Request } from '../../core/types'
+import type { IamEngine } from '../../core'
+import type { IamClient, IamRequest } from '../../core/types'
 
 /**
  * Shared admin-mutation audit event shape.
@@ -17,7 +17,7 @@ import type { Client, Request } from '../../core/types'
  * Rate-limit throttling is out of scope; callers compose their own rate-limit
  * middleware around the admin router. See each adapter's JSDoc for a pattern.
  */
-export namespace AdminAudit {
+export namespace IamAdminAudit {
   /** Categorical action describing what changed. */
   export type Action = 'create' | 'update' | 'delete' | 'replace'
   /** Categorical target describing what kind of object was changed. */
@@ -109,7 +109,7 @@ export namespace AdminAudit {
      */
     onAuditHookError?: (err: unknown, event: IEvent) => void
     /**
-     * When `true`, populate {@link IEvent.error} with `err.message`. The
+     * IamWhen `true`, populate {@link IEvent.error} with `err.message`. The
      * default is the error **class name** because downstream DB-driver
      * errors can carry credentials, query fragments, or SQL inside their
      * message. Only enable this if you control the throw sites and the
@@ -160,7 +160,7 @@ let _CSRF_DEFAULT_NOTICED = false
  *
  * Called by every framework adapter exactly once at construction.
  */
-export function noticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
+export function iamNoticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
   if (csrfCheckPassed || _CSRF_DEFAULT_NOTICED) return
   _CSRF_DEFAULT_NOTICED = true
   // eslint-disable-next-line no-console
@@ -181,7 +181,7 @@ export function noticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
  * @returns `true` to allow, `false` to reject (403).
  */
 
-export function defaultCsrfCheck(req: unknown): boolean {
+export function iamDefaultCsrfCheck(req: unknown): boolean {
   const r = req as
     | {
         headers?: Record<string, string | string[] | undefined> | { get?: (n: string) => string | null }
@@ -189,7 +189,7 @@ export function defaultCsrfCheck(req: unknown): boolean {
       }
     | undefined
   let site: string | undefined
-  // Express/Nest-style: req.headers is a Record.
+  // IamExpress/IamNest-style: req.headers is a Record.
   const recordHeaders = r?.headers
   if (recordHeaders && typeof (recordHeaders as { get?: unknown }).get !== 'function') {
     const v = (recordHeaders as Record<string, string | string[] | undefined>)['sec-fetch-site']
@@ -199,7 +199,7 @@ export function defaultCsrfCheck(req: unknown): boolean {
   if (!site && recordHeaders && typeof (recordHeaders as { get?: unknown }).get === 'function') {
     site = (recordHeaders as { get: (n: string) => string | null }).get('sec-fetch-site') ?? undefined
   }
-  // Hono style: c.req.header(...).
+  // IamHono style: c.req.header(...).
   if (!site && r?.req?.header) {
     site = r.req.header('sec-fetch-site')
   }
@@ -219,17 +219,17 @@ export function defaultCsrfCheck(req: unknown): boolean {
  * @param ctx - Audit payload + hooks shared across framework adapters.
  * @param handler - The actual mutation function (e.g. `engine.admin.savePolicy`).
  */
-export async function withAdminAudit<T>(
+export async function iamWithAdminAudit<T>(
   ctx: {
     actor: unknown
-    action: AdminAudit.Action
-    target: AdminAudit.Target
+    action: IamAdminAudit.Action
+    target: IamAdminAudit.Target
     targetId?: string
     method: string
     path: string
-    onAdminMutation?: AdminAudit.Hook
+    onAdminMutation?: IamAdminAudit.Hook
     redactPath?: (path: string) => string
-    onAuditHookError?: (err: unknown, event: AdminAudit.IEvent) => void
+    onAuditHookError?: (err: unknown, event: IamAdminAudit.IEvent) => void
     includeErrorMessage?: boolean
   },
   handler: () => Promise<T>,
@@ -241,10 +241,10 @@ export async function withAdminAudit<T>(
     success = true
     return out
   } catch (err) {
-    errorMessage = errorToAuditString(err, ctx.includeErrorMessage)
+    errorMessage = iamErrorToAuditString(err, ctx.includeErrorMessage)
     throw err
   } finally {
-    fireAdminMutation(
+    iamFireAdminMutation(
       ctx.onAdminMutation,
       {
         actor: ctx.actor,
@@ -263,10 +263,10 @@ export async function withAdminAudit<T>(
 }
 
 /**
- * Result of {@link runAdminAuthz}. Discriminated union so the framework
+ * Result of {@link iamRunAdminAuthz}. Discriminated union so the framework
  * adapter can branch on the phase and produce its own response.
  */
-export type IAdminAuthzResult =
+export type IamIAdminAuthzResult =
   | { phase: 'forbidden' }
   | { phase: 'unauthorized' }
   | { phase: 'error'; error: Error }
@@ -278,11 +278,11 @@ export type IAdminAuthzResult =
  * response shape (express writes to `res`, hono/next return `Response`, nest
  * throws). The catch arm wraps thrown values into a normal `Error`.
  */
-export async function runAdminAuthz<TReq>(
+export async function iamRunAdminAuthz<TReq>(
   req: TReq,
   csrfCheck: ((req: TReq) => boolean) | null,
   authorize: (req: TReq) => unknown | Promise<unknown>,
-): Promise<IAdminAuthzResult> {
+): Promise<IamIAdminAuthzResult> {
   if (csrfCheck && !csrfCheck(req)) return { phase: 'forbidden' }
   let actor: unknown
   try {
@@ -299,16 +299,16 @@ export async function runAdminAuthz<TReq>(
  *
  * By default returns the constructor name of the thrown value (e.g.
  * `'Error'`, `'TypeError'`, `'PolicyValidationError'`) so credential-bearing
- * `err.message` strings never leak into audit sinks. When
+ * `err.message` strings never leak into audit sinks. IamWhen
  * `includeMessage === true`, returns `err.message` for `Error` instances and
  * `String(err)` otherwise. Non-Error throws (`undefined`, strings, numbers)
  * are handled defensively.
  *
  * @param err - The thrown value; may not be an `Error` instance.
- * @param includeMessage - When `true`, return the full message instead of the class name.
- * @returns A stable string suitable for {@link AdminAudit.IEvent.error}.
+ * @param includeMessage - IamWhen `true`, return the full message instead of the class name.
+ * @returns A stable string suitable for {@link IamAdminAudit.IEvent.error}.
  */
-export function errorToAuditString(err: unknown, includeMessage?: boolean): string {
+export function iamErrorToAuditString(err: unknown, includeMessage?: boolean): string {
   if (includeMessage) {
     if (err instanceof Error) return err.message
     if (err === undefined) return 'undefined'
@@ -346,12 +346,12 @@ function safeStringify(v: unknown): string {
 }
 
 /**
- * Fire-and-forget invoker for an {@link AdminAudit.Hook}.
+ * Fire-and-forget invoker for an {@link IamAdminAudit.Hook}.
  *
  * Resolves any returned promise off the request critical path. Applies
- * {@link AdminAudit.IOptions.redactPath} to `event.path` before invoking the
+ * {@link IamAdminAudit.IOptions.redactPath} to `event.path` before invoking the
  * hook so route parameters never reach the sink. Routes thrown errors (sync
- * or async) to {@link AdminAudit.IOptions.onAuditHookError} when configured,
+ * or async) to {@link IamAdminAudit.IOptions.onAuditHookError} when configured,
  * falling back to `console.error` with a one-line tag. The hook can never
  * block, fail, or destabilise the response.
  *
@@ -359,10 +359,10 @@ function safeStringify(v: unknown): string {
  * @param event - Event payload describing the mutation.
  * @param opts - Optional hardening options (path redaction, hook-error sink).
  */
-export function fireAdminMutation(
-  hook: AdminAudit.Hook | undefined,
-  event: AdminAudit.IEvent,
-  opts?: Pick<AdminAudit.IOptions, 'redactPath' | 'onAuditHookError'>,
+export function iamFireAdminMutation(
+  hook: IamAdminAudit.Hook | undefined,
+  event: IamAdminAudit.IEvent,
+  opts?: Pick<IamAdminAudit.IOptions, 'redactPath' | 'onAuditHookError'>,
 ): void {
   if (!hook) return
 
@@ -386,14 +386,14 @@ export function fireAdminMutation(
 
 /**
  * Routes a hook failure to the caller-supplied
- * {@link AdminAudit.IOptions.onAuditHookError} when configured, otherwise to
+ * {@link IamAdminAudit.IOptions.onAuditHookError} when configured, otherwise to
  * `console.error`. Errors from `onAuditHookError` itself never propagate;
  * they fall through to a last-resort `console.error`.
  */
 function reportAuditHookError(
   err: unknown,
-  event: AdminAudit.IEvent,
-  sink: AdminAudit.IOptions['onAuditHookError'],
+  event: IamAdminAudit.IEvent,
+  sink: IamAdminAudit.IOptions['onAuditHookError'],
 ): void {
   if (sink) {
     try {
@@ -433,17 +433,17 @@ function reportAuditHookError(
  * @param environment - Optional environment context shared across checks.
  * @returns A permission map keyed by `(action, resource, scope)` tuple.
  */
-export async function generatePermissionMap<
+export async function generateIamPermissionMap<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 >(
-  engine: Engine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
   subjectId: string,
-  checks: readonly Client.IPermissionCheck<TAction, TResource, TScope>[],
-  environment?: Request.IEnvironment,
-): Promise<Client.PermissionMap<TAction, TResource, TScope>> {
+  checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
+  environment?: IamRequest.IEnvironment,
+): Promise<IamClient.PermissionMap<TAction, TResource, TScope>> {
   return engine.permissions(subjectId, checks, environment)
 }
 
@@ -462,16 +462,16 @@ export async function generatePermissionMap<
  * @returns A `(action, resourceType, resourceId?, scope?) => Promise<boolean>` checker.
  * @example
  * ```ts
- * const can = createSubjectCan(engine, req.user.id)
+ * const can = createIamSubjectCan(engine, req.user.id)
  * if (await can('delete', 'post')) { ... }
  * ```
  */
-export function createSubjectCan<
+export function createIamSubjectCan<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: Engine<TAction, TResource, TRole, TScope>, subjectId: string, environment?: Request.IEnvironment) {
+>(engine: IamEngine<TAction, TResource, TRole, TScope>, subjectId: string, environment?: IamRequest.IEnvironment) {
   return (action: TAction, resourceType: TResource, resourceId?: string, scope?: TScope) =>
     engine.can(subjectId, action, { type: resourceType, id: resourceId, attributes: {} }, environment, scope)
 }
@@ -483,14 +483,14 @@ export function createSubjectCan<
  * stamps the current timestamp.
  *
  * @param req - Provides any request-like object with `ip` and/or `headers`.
- * @returns The extracted {@link Request.IEnvironment}.
+ * @returns The extracted {@link IamRequest.IEnvironment}.
  */
-export function extractEnvironment(req: {
+export function iamExtractEnvironment(req: {
   ip?: string
   headers?: Record<string, string | string[] | undefined> | Headers
   method?: string
   url?: string
-}): Request.IEnvironment {
+}): IamRequest.IEnvironment {
   const getHeader = (name: string): string | undefined => {
     if (!req.headers) return undefined
     if (req.headers instanceof Headers) return req.headers.get(name) ?? undefined
@@ -524,7 +524,7 @@ function normalizeForwardedFor(raw: string | undefined): string | undefined {
 }
 
 /** Maps HTTP methods to default access actions used by the framework adapters. */
-export const METHOD_ACTION_MAP: Readonly<Record<string, string>> = {
+export const IAM_METHOD_ACTION_MAP: Readonly<Record<string, string>> = {
   GET: 'read',
   HEAD: 'read',
   OPTIONS: 'read',

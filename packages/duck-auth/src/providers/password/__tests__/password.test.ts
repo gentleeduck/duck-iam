@@ -1,34 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { password } from '../index'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { authPassword } from '../index'
 
 interface MyProfile {
   email: string
 }
 
 function buildAuth(): {
-  auth: AuthRoot<MyProfile>
-  adapter: MemoryAuthAdapter<MyProfile>
+  auth: AuthEngine<MyProfile>
+  adapter: AuthMemoryAdapter<MyProfile>
 } {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
-  const auth = new AuthRoot<MyProfile>({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+    limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
     passwords: { hasher: fastHasher },
   })
   auth.providers.register(
-    password<MyProfile>({
+    authPassword<MyProfile>({
       findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
       passwords: auth.passwords,
     }),
@@ -37,8 +37,8 @@ function buildAuth(): {
 }
 
 describe('password provider - end-to-end sign-in', () => {
-  let auth: AuthRoot<MyProfile>
-  let adapter: MemoryAuthAdapter<MyProfile>
+  let auth: AuthEngine<MyProfile>
+  let adapter: AuthMemoryAdapter<MyProfile>
 
   beforeEach(() => {
     ;({ auth, adapter } = buildAuth())
@@ -134,14 +134,14 @@ describe('password provider - end-to-end sign-in', () => {
     const { intents } = await auth.flows.signOut(signin.sid)
     expect(intents.some((i) => i.type === 'clearCookie')).toBe(true)
 
-    // Session no longer resolvable via store.
+    // AuthSession no longer resolvable via store.
     const headers = new Headers({ cookie: `duck-sid=${signin.sid}` })
     const resolved = await auth.resolveSession({ headers })
     expect(resolved).toBeNull()
     void adapter
   })
 
-  it('AuthRoot.resolveSession() returns the (session, identity) pair after sign-in', async () => {
+  it('AuthEngine.resolveSession() returns the (session, identity) pair after sign-in', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'correct-pw')
     const signin = await auth.flows.signIn({

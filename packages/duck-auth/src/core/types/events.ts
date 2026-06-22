@@ -1,34 +1,34 @@
-import type { Identity } from './identity'
-import type { Session } from './session'
+import type { AuthIdentity } from './identity'
+import type { AuthSession } from './session'
 
 /**
  * Typed event bus. Reference impl is in-memory; production swaps in Redis pub/sub
- * (`RedisEvents`) or Kafka (`KafkaEvents`) for multi-process / multi-region listeners.
+ * (`AuthRedisEvents`) or Kafka (`KafkaEvents`) for multi-process / multi-region listeners.
  * Audit envelope (impersonation) flows on every event when present.
  */
-export namespace Events {
+export namespace AuthEvents {
   export interface AuditEnvelope {
     /** When the session is impersonating, real subject is recorded on every event. */
-    actingAs?: Session.ActingAs
+    actingAs?: AuthSession.ActingAs
     /** Optional iam decision id when an action was authorized via iam-auth-bridge. */
     iamDecisionId?: string
   }
 
   export interface EventMap {
     'session.created': {
-      session: Session.ISession
-      identity: Identity.IIdentity | null
+      session: AuthSession.ISession
+      identity: AuthIdentity.IIdentity | null
       audit?: AuditEnvelope
     }
-    'session.rotated': { session: Session.ISession; audit?: AuditEnvelope }
+    'session.rotated': { session: AuthSession.ISession; audit?: AuditEnvelope }
     'session.revoked': {
       sessionId: string
       identityId: string | null
       audit?: AuditEnvelope
     }
     'signin.success': {
-      identity: Identity.IIdentity
-      factors: Session.Factor[]
+      identity: AuthIdentity.IIdentity
+      factors: AuthSession.Factor[]
       audit?: AuditEnvelope
     }
     'signin.failed': {
@@ -37,16 +37,16 @@ export namespace Events {
       ip?: string
       audit?: AuditEnvelope
     }
-    'signup.completed': { identity: Identity.IIdentity; audit?: AuditEnvelope }
+    'signup.completed': { identity: AuthIdentity.IIdentity; audit?: AuditEnvelope }
     lockout: { identityId: string; until: number; audit?: AuditEnvelope }
     'mfa.enrolled': {
       identityId: string
-      method: Session.FactorMethod
+      method: AuthSession.FactorMethod
       audit?: AuditEnvelope
     }
     'mfa.removed': {
       identityId: string
-      method: Session.FactorMethod
+      method: AuthSession.FactorMethod
       audit?: AuditEnvelope
     }
     'identity.linked': {

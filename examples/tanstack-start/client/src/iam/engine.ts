@@ -1,7 +1,7 @@
-import { Engine } from "@gentleduck/iam";
+import { IamEngine } from "@gentleduck/iam";
 import { MemoryAdapter } from "@gentleduck/iam/adapters/memory";
-import { createFlowRecorder } from "@gentleduck/iam/dt";
-import { createMetricsAggregator } from "@gentleduck/iam/observability/metrics";
+import { iamCreateFlowRecorder } from "@gentleduck/iam/dt";
+import { iamCreateMetricsAggregator } from "@gentleduck/iam/observability/metrics";
 import { mockBackend } from "./mock-backend";
 import { POLICIES } from "./policies";
 import { ROLES } from "./roles";
@@ -28,10 +28,10 @@ export const adapter = new MemoryAdapter<
 	assignments: ASSIGNMENTS,
 });
 
-export const metrics = createMetricsAggregator({ sampleSize: 500 });
-export const flow = createFlowRecorder({ bufferSize: 300 });
+export const metrics = iamCreateMetricsAggregator({ sampleSize: 500 });
+export const flow = iamCreateFlowRecorder({ bufferSize: 300 });
 
-export const engine = new Engine<
+export const engine = new IamEngine<
 	AppAction,
 	AppResource,
 	AppRole,

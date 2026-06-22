@@ -1,9 +1,9 @@
-/** Runtime helpers for {@link Credential.ICredential} shared by multiple facets. */
+/** Runtime helpers for {@link AuthCredential.ICredential} shared by multiple facets. */
 
-import type { Credential } from './types/credential'
+import type { AuthCredential } from './types/credential'
 
 /** True when the credential row carries any `revokedAt` marker. */
-export function isRevoked(row: Pick<Credential.ICredential, 'revokedAt'>): boolean {
+export function isRevoked(row: Pick<AuthCredential.ICredential, 'revokedAt'>): boolean {
   return row.revokedAt !== undefined
 }
 
@@ -13,7 +13,7 @@ export function isSoftDeleted(row: { deletedAt?: number }): boolean {
 }
 
 /** Read the `purpose` field off a credential row's `metadata` object. */
-export function getCredentialPurpose(row: Pick<Credential.ICredential, 'metadata'>): string | undefined {
+export function getCredentialPurpose(row: Pick<AuthCredential.ICredential, 'metadata'>): string | undefined {
   const meta = row.metadata
   if (meta === undefined) return undefined
   const purpose = meta.purpose
@@ -21,7 +21,7 @@ export function getCredentialPurpose(row: Pick<Credential.ICredential, 'metadata
 }
 
 /** True when the row has an `expiresAt` that is malformed or in the past. */
-export function isCredentialExpired(row: Pick<Credential.ICredential, 'expiresAt'>, now: number = Date.now()): boolean {
+export function isCredentialExpired(row: Pick<AuthCredential.ICredential, 'expiresAt'>, now: number = Date.now()): boolean {
   return isExpiredAt(row.expiresAt, now)
 }
 

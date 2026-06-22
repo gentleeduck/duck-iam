@@ -9,9 +9,9 @@
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { MySqlDatabase, MySqlQueryResultHKT } from 'drizzle-orm/mysql-core'
 import { bigint, index, mysqlTable, text, varchar } from 'drizzle-orm/mysql-core'
-import type { OidcOP } from '../types'
+import type { AuthOidcOP } from '../types'
 
-export const oidcClientsTable = mysqlTable('oidc_clients', {
+export const authOidcClientsTable = mysqlTable('oidc_clients', {
   clientId: varchar('client_id', { length: 255 }).primaryKey(),
   clientSecretHash: varchar('client_secret_hash', { length: 64 }),
   redirectUris: text('redirect_uris').notNull(),
@@ -25,7 +25,7 @@ export const oidcClientsTable = mysqlTable('oidc_clients', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
 })
 
-export const oidcCodesTable = mysqlTable(
+export const authOidcCodesTable = mysqlTable(
   'oidc_codes',
   {
     code: varchar('code', { length: 128 }).primaryKey(),
@@ -43,7 +43,7 @@ export const oidcCodesTable = mysqlTable(
   (t) => [index('oidc_codes_exp').on(t.exp)],
 )
 
-export const oidcAccessTokensTable = mysqlTable(
+export const authOidcAccessTokensTable = mysqlTable(
   'oidc_access_tokens',
   {
     tokenHash: varchar('token_hash', { length: 64 }).primaryKey(),
@@ -56,7 +56,7 @@ export const oidcAccessTokensTable = mysqlTable(
   (t) => [index('oidc_at_exp').on(t.exp)],
 )
 
-export const oidcRefreshTokensTable = mysqlTable(
+export const authOidcRefreshTokensTable = mysqlTable(
   'oidc_refresh_tokens',
   {
     tokenHash: varchar('token_hash', { length: 64 }).primaryKey(),
@@ -71,7 +71,7 @@ export const oidcRefreshTokensTable = mysqlTable(
   (t) => [index('oidc_rt_family').on(t.familyId), index('oidc_rt_exp').on(t.exp)],
 )
 
-export const oidcConsentsTable = mysqlTable(
+export const authOidcConsentsTable = mysqlTable(
   'oidc_consents',
   {
     identityId: varchar('identity_id', { length: 128 }).notNull(),
@@ -95,20 +95,20 @@ function decodeArray(s: string): string[] {
   return out
 }
 
-function isGrantType(v: string): v is OidcOP.IGrantType {
+function isGrantType(v: string): v is AuthOidcOP.IGrantType {
   return v === 'authorization_code' || v === 'refresh_token'
 }
-function isResponseType(v: string): v is OidcOP.IResponseType {
+function isResponseType(v: string): v is AuthOidcOP.IResponseType {
   return v === 'code'
 }
-function isTokenAuthMethod(v: string): v is OidcOP.ITokenEndpointAuthMethod {
+function isTokenAuthMethod(v: string): v is AuthOidcOP.ITokenEndpointAuthMethod {
   return v === 'client_secret_basic' || v === 'client_secret_post' || v === 'none'
 }
-function isCodeChallengeMethod(v: string): v is OidcOP.ICodeChallengeMethod {
+function isCodeChallengeMethod(v: string): v is AuthOidcOP.ICodeChallengeMethod {
   return v === 'S256' || v === 'plain'
 }
 
-function rowToClient(row: typeof oidcClientsTable.$inferSelect): OidcOP.IClient {
+function rowToClient(row: typeof authOidcClientsTable.$inferSelect): AuthOidcOP.IClient {
   const grantTypes = decodeArray(row.grantTypes).filter(isGrantType)
   const responseTypes = decodeArray(row.responseTypes).filter(isResponseType)
   const tokenAuth = isTokenAuthMethod(row.tokenEndpointAuthMethod) ? row.tokenEndpointAuthMethod : 'none'
@@ -127,7 +127,7 @@ function rowToClient(row: typeof oidcClientsTable.$inferSelect): OidcOP.IClient 
   }
 }
 
-function rowToCode(row: typeof oidcCodesTable.$inferSelect): OidcOP.ICode {
+function rowToCode(row: typeof authOidcCodesTable.$inferSelect): AuthOidcOP.ICode {
   return {
     code: row.code,
     client_id: row.clientId,
@@ -146,7 +146,7 @@ function rowToCode(row: typeof oidcCodesTable.$inferSelect): OidcOP.ICode {
   }
 }
 
-function rowToAccess(row: typeof oidcAccessTokensTable.$inferSelect): OidcOP.IAccessToken {
+function rowToAccess(row: typeof authOidcAccessTokensTable.$inferSelect): AuthOidcOP.IAccessToken {
   return {
     token_hash: row.tokenHash,
     client_id: row.clientId,
@@ -157,7 +157,7 @@ function rowToAccess(row: typeof oidcAccessTokensTable.$inferSelect): OidcOP.IAc
   }
 }
 
-function rowToRefresh(row: typeof oidcRefreshTokensTable.$inferSelect): OidcOP.IRefreshToken {
+function rowToRefresh(row: typeof authOidcRefreshTokensTable.$inferSelect): AuthOidcOP.IRefreshToken {
   return {
     token_hash: row.tokenHash,
     family_id: row.familyId,
@@ -170,7 +170,7 @@ function rowToRefresh(row: typeof oidcRefreshTokensTable.$inferSelect): OidcOP.I
   }
 }
 
-function rowToConsent(row: typeof oidcConsentsTable.$inferSelect): OidcOP.IConsent {
+function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): AuthOidcOP.IConsent {
   return {
     identity_id: row.identityId,
     client_id: row.clientId,
@@ -188,22 +188,22 @@ type AnyMySqlDatabase = MySqlDatabase<MySqlQueryResultHKT, any, any>
  * SELECT then DELETE in a transaction). Net throughput is unchanged for
  * the OP's request volume (codes are single-use, low-rate).
  */
-export function createDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
-  clients: OidcOP.IClientStore
-  codes: OidcOP.ICodeStore
-  accessTokens: OidcOP.IAccessTokenStore
-  refreshTokens: OidcOP.IRefreshTokenStore
-  consents: OidcOP.IConsentStore
+export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
+  clients: AuthOidcOP.IClientStore
+  codes: AuthOidcOP.ICodeStore
+  accessTokens: AuthOidcOP.IAccessTokenStore
+  refreshTokens: AuthOidcOP.IRefreshTokenStore
+  consents: AuthOidcOP.IConsentStore
 } {
   return {
     clients: {
       async findById(client_id) {
-        const rows = await db.select().from(oidcClientsTable).where(eq(oidcClientsTable.clientId, client_id)).limit(1)
+        const rows = await db.select().from(authOidcClientsTable).where(eq(authOidcClientsTable.clientId, client_id)).limit(1)
         const row = rows[0]
         return row ? rowToClient(row) : null
       },
       async insert(c) {
-        await db.insert(oidcClientsTable).values({
+        await db.insert(authOidcClientsTable).values({
           clientId: c.client_id,
           clientSecretHash: c.client_secret_hash,
           redirectUris: encodeArray(c.redirect_uris),
@@ -220,7 +220,7 @@ export function createDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
     },
     codes: {
       async insert(c) {
-        await db.insert(oidcCodesTable).values({
+        await db.insert(authOidcCodesTable).values({
           code: c.code,
           clientId: c.client_id,
           identityId: c.identity_id,
@@ -236,10 +236,10 @@ export function createDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
       },
       async consume(code, now) {
         return db.transaction(async (tx) => {
-          const rows = await tx.select().from(oidcCodesTable).where(eq(oidcCodesTable.code, code)).limit(1)
+          const rows = await tx.select().from(authOidcCodesTable).where(eq(authOidcCodesTable.code, code)).limit(1)
           const row = rows[0]
           if (!row) return null
-          await tx.delete(oidcCodesTable).where(eq(oidcCodesTable.code, code))
+          await tx.delete(authOidcCodesTable).where(eq(authOidcCodesTable.code, code))
           if (row.exp <= now) return null
           return rowToCode(row)
         })
@@ -247,7 +247,7 @@ export function createDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
     },
     accessTokens: {
       async insert(t) {
-        await db.insert(oidcAccessTokensTable).values({
+        await db.insert(authOidcAccessTokensTable).values({
           tokenHash: t.token_hash,
           clientId: t.client_id,
           identityId: t.identity_id,
@@ -259,24 +259,24 @@ export function createDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
       async findByHash(hash, now) {
         const rows = await db
           .select()
-          .from(oidcAccessTokensTable)
-          .where(eq(oidcAccessTokensTable.tokenHash, hash))
+          .from(authOidcAccessTokensTable)
+          .where(eq(authOidcAccessTokensTable.tokenHash, hash))
           .limit(1)
         const row = rows[0]
         if (!row) return null
         if (row.exp <= now) {
-          await db.delete(oidcAccessTokensTable).where(eq(oidcAccessTokensTable.tokenHash, hash))
+          await db.delete(authOidcAccessTokensTable).where(eq(authOidcAccessTokensTable.tokenHash, hash))
           return null
         }
         return rowToAccess(row)
       },
       async revokeByHash(hash) {
-        await db.delete(oidcAccessTokensTable).where(eq(oidcAccessTokensTable.tokenHash, hash))
+        await db.delete(authOidcAccessTokensTable).where(eq(authOidcAccessTokensTable.tokenHash, hash))
       },
     },
     refreshTokens: {
       async insert(t) {
-        await db.insert(oidcRefreshTokensTable).values({
+        await db.insert(authOidcRefreshTokensTable).values({
           tokenHash: t.token_hash,
           familyId: t.family_id,
           clientId: t.client_id,
@@ -290,13 +290,13 @@ export function createDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
       async findByHash(hash, now) {
         const rows = await db
           .select()
-          .from(oidcRefreshTokensTable)
-          .where(eq(oidcRefreshTokensTable.tokenHash, hash))
+          .from(authOidcRefreshTokensTable)
+          .where(eq(authOidcRefreshTokensTable.tokenHash, hash))
           .limit(1)
         const row = rows[0]
         if (!row) return null
         if (row.exp <= now) {
-          await db.delete(oidcRefreshTokensTable).where(eq(oidcRefreshTokensTable.tokenHash, hash))
+          await db.delete(authOidcRefreshTokensTable).where(eq(authOidcRefreshTokensTable.tokenHash, hash))
           return null
         }
         return rowToRefresh(row)
@@ -305,36 +305,36 @@ export function createDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
         return db.transaction(async (tx) => {
           const rows = await tx
             .select()
-            .from(oidcRefreshTokensTable)
-            .where(and(eq(oidcRefreshTokensTable.tokenHash, hash), isNull(oidcRefreshTokensTable.consumedAt)))
+            .from(authOidcRefreshTokensTable)
+            .where(and(eq(authOidcRefreshTokensTable.tokenHash, hash), isNull(authOidcRefreshTokensTable.consumedAt)))
             .limit(1)
           const row = rows[0]
           if (!row) return null
           if (row.exp <= now) return null
           await tx
-            .update(oidcRefreshTokensTable)
+            .update(authOidcRefreshTokensTable)
             .set({ consumedAt: now })
-            .where(eq(oidcRefreshTokensTable.tokenHash, hash))
+            .where(eq(authOidcRefreshTokensTable.tokenHash, hash))
           return rowToRefresh({ ...row, consumedAt: now })
         })
       },
       async revokeFamily(family_id) {
-        await db.delete(oidcRefreshTokensTable).where(eq(oidcRefreshTokensTable.familyId, family_id))
+        await db.delete(authOidcRefreshTokensTable).where(eq(authOidcRefreshTokensTable.familyId, family_id))
       },
     },
     consents: {
       async find(identity_id, client_id) {
         const rows = await db
           .select()
-          .from(oidcConsentsTable)
-          .where(and(eq(oidcConsentsTable.identityId, identity_id), eq(oidcConsentsTable.clientId, client_id)))
+          .from(authOidcConsentsTable)
+          .where(and(eq(authOidcConsentsTable.identityId, identity_id), eq(authOidcConsentsTable.clientId, client_id)))
           .limit(1)
         const row = rows[0]
         return row ? rowToConsent(row) : null
       },
       async upsert(c) {
         await db
-          .insert(oidcConsentsTable)
+          .insert(authOidcConsentsTable)
           .values({
             identityId: c.identity_id,
             clientId: c.client_id,
@@ -347,12 +347,12 @@ export function createDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
   }
 }
 
-export async function gcDrizzleMysqlOidcOp(db: AnyMySqlDatabase, now: number = Date.now()): Promise<number> {
-  const codes = await db.delete(oidcCodesTable).where(lt(oidcCodesTable.exp, now))
-  const access = await db.delete(oidcAccessTokensTable).where(lt(oidcAccessTokensTable.exp, now))
+export async function authGcDrizzleMysqlOidcOp(db: AnyMySqlDatabase, now: number = Date.now()): Promise<number> {
+  const codes = await db.delete(authOidcCodesTable).where(lt(authOidcCodesTable.exp, now))
+  const access = await db.delete(authOidcAccessTokensTable).where(lt(authOidcAccessTokensTable.exp, now))
   const refresh = await db
-    .delete(oidcRefreshTokensTable)
-    .where(or(lt(oidcRefreshTokensTable.exp, now), sql`${oidcRefreshTokensTable.consumedAt} IS NOT NULL`))
+    .delete(authOidcRefreshTokensTable)
+    .where(or(lt(authOidcRefreshTokensTable.exp, now), sql`${authOidcRefreshTokensTable.consumedAt} IS NOT NULL`))
   // MySQL Drizzle delete returns affectedRows on the result envelope.
   function rows(r: unknown): number {
     if (typeof r === 'object' && r !== null && 'rowsAffected' in r && typeof r.rowsAffected === 'number') {

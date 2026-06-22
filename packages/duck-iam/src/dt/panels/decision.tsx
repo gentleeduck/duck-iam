@@ -1,15 +1,15 @@
 import React from 'react'
-import type { Explain } from '../../core/explain'
-import type { Primitives } from '../../core/types'
+import type { IamExplain } from '../../core/explain'
+import type { IamPrimitives } from '../../core/types'
 import { Spinner } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
 import { safeParseJson } from '../lib/format'
-import type { IDecisionInput, IDevtoolsEngine } from '../lib/types'
-import { TraceTree } from './trace-tree'
+import type { IamIDecisionInput, IamIDevtoolsEngine } from '../lib/types'
+import { IamTraceTree } from './trace-tree'
 
-const INITIAL: IDecisionInput = {
+const INITIAL: IamIDecisionInput = {
   subjectId: '',
   action: '',
   resourceType: '',
@@ -19,25 +19,25 @@ const INITIAL: IDecisionInput = {
   scope: '',
 }
 
-export function DecisionInspector({
+export function IamDecisionInspector({
   engine,
   defaults,
 }: {
-  engine: IDevtoolsEngine
-  defaults?: Partial<IDecisionInput>
+  engine: IamIDevtoolsEngine
+  defaults?: Partial<IamIDecisionInput>
 }) {
-  const [input, setInput] = React.useState<IDecisionInput>({ ...INITIAL, ...defaults })
-  const [result, setResult] = React.useState<Explain.IResult | null>(null)
+  const [input, setInput] = React.useState<IamIDecisionInput>({ ...INITIAL, ...defaults })
+  const [result, setResult] = React.useState<IamExplain.IResult | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
 
-  const update = (patch: Partial<IDecisionInput>) => setInput((s) => ({ ...s, ...patch }))
+  const update = (patch: Partial<IamIDecisionInput>) => setInput((s) => ({ ...s, ...patch }))
 
   async function run() {
     setError(null)
     setPending(true)
     try {
-      const attrs = safeParseJson<Record<string, Primitives.AttributeValue>>(input.attributesJson, {})
+      const attrs = safeParseJson<Record<string, IamPrimitives.AttributeValue>>(input.attributesJson, {})
       const env = safeParseJson<Record<string, unknown>>(input.environmentJson, {})
       if (attrs.error) throw new Error(`attributes JSON: ${attrs.error}`)
       if (env.error) throw new Error(`environment JSON: ${env.error}`)
@@ -134,7 +134,7 @@ export function DecisionInspector({
               </p>
             </Section>
             <Section title="Trace">
-              <TraceTree result={result} />
+              <IamTraceTree result={result} />
             </Section>
             <Section defaultOpen={false} title="Raw result">
               <JsonTree data={result} defaultOpen />

@@ -1,6 +1,6 @@
 import { getCredentialPurpose, isCredentialExpired, isRevoked } from '../../credential-utils'
 import { AuthErrorObject } from '../../errors'
-import type { TenantContext } from '../../types/context'
+import type { AuthTenantContext } from '../../types/context'
 import { isSafeCallbackPath } from '../../url-validators'
 import type { FlowsFacet } from '../flows'
 
@@ -46,8 +46,8 @@ export async function requestAccountDeletion<Profile>(
     }
   }
 
-  const token = ctx.crypto.randomToken(32)
-  const tokenHash = ctx.crypto.sha256(token)
+  const token = ctx.crypto.authRandomToken(32)
+  const tokenHash = ctx.crypto.authSha256(token)
   const now = Date.now()
   await ctx.stores.credentials.upsert(
     {
@@ -81,7 +81,7 @@ export async function completeAccountDeletion<Profile>(
     throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
   }
   const ctx = flows._ctxFactory(input.tenantId)
-  const hash = ctx.crypto.sha256(input.token)
+  const hash = ctx.crypto.authSha256(input.token)
   const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
   if (!row || isRevoked(row) || getCredentialPurpose(row) !== 'account-deletion') {
     throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
@@ -114,7 +114,7 @@ export async function cancelAccountDeletion<Profile>(
   if (typeof input.identityId !== 'string' || input.identityId.length === 0 || input.identityId.length > 256) {
     throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
   }
-  const tenant: TenantContext = input.tenantId !== undefined ? { tenantId: input.tenantId } : {}
+  const tenant: AuthTenantContext = input.tenantId !== undefined ? { tenantId: input.tenantId } : {}
   await flows._identities.restore(input.identityId, tenant)
   return { identityId: input.identityId }
 }

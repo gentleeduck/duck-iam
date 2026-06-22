@@ -2,16 +2,16 @@
  * Backup-codes facet. Issues a set of single-use recovery codes that
  * substitute for the user's MFA factor when their TOTP / passkey
  * device is unavailable. Codes are stored hashed (sha-256) against
- * `Credential.kind = 'recovery'`; plaintext is returned to the caller
+ * `AuthCredential.kind = 'recovery'`; plaintext is returned to the caller
  * exactly once at generation time.
  */
 
 import { randomBytes } from 'node:crypto'
 import { isRevoked } from '../credential-utils'
-import { timingSafeEqual } from '../crypto'
+import { authTimingSafeEqual } from '../crypto'
 import { AuthErrorObject } from '../errors'
-import type { TenantContext } from '../types/context'
-import type { Credential } from '../types/credential'
+import type { AuthTenantContext } from '../types/context'
+import type { AuthCredential } from '../types/credential'
 
 /**
  * Crockford-style 32-char alphabet - skips 0/O/I/1 + ambiguous chars.
@@ -20,7 +20,7 @@ import type { Credential } from '../types/credential'
 const BACKUP_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
 /** CSPRNG-rejection-sampling backup code (no modulo bias) over a 32-char readable alphabet. */
-function generateBackupCode(_crypto: { randomToken(b: number): string }, length: number): string {
+function generateBackupCode(_crypto: { authRandomToken(b: number): string }, length: number): string {
   void _crypto
   let out = ''
   while (out.length < length) {
@@ -35,26 +35,26 @@ function generateBackupCode(_crypto: { randomToken(b: number): string }, length:
   return out
 }
 
-export const DEFAULT_BACKUP_CODES_CONFIG: BackupCodesFacet.IConfig = {
+export const AUTH_DEFAULT_BACKUP_CODES_CONFIG: AuthBackupCodesFacet.IConfig = {
   count: 10,
   byteLength: 5,
   groupFour: true,
 }
 
 /**
- * Backup-codes facet. Talks to `Credential.IStore` for persistence and
+ * Backup-codes facet. Talks to `AuthCredential.IStore` for persistence and
  * the supplied crypto helpers for token gen + hashing. Caller wires it
- * directly; not auto-mounted on `AuthRoot` because the lib does not
+ * directly; not auto-mounted on `AuthEngine` because the lib does not
  * assume the application surfaces this MFA fallback.
  */
-export class BackupCodesFacet {
+export class AuthBackupCodesFacet {
   constructor(
-    private readonly _credentials: Credential.IStore,
+    private readonly _credentials: AuthCredential.IStore,
     private readonly _crypto: {
-      randomToken(bytes: number): string
-      sha256(s: string): string
+      authRandomToken(bytes: number): string
+      authSha256(s: string): string
     },
-    private readonly _cfg: BackupCodesFacet.IConfig = DEFAULT_BACKUP_CODES_CONFIG,
+    private readonly _cfg: AuthBackupCodesFacet.IConfig = AUTH_DEFAULT_BACKUP_CODES_CONFIG,
   ) {}
 
   /**
@@ -63,7 +63,7 @@ export class BackupCodesFacet {
    * REPLACES any prior set - the existing codes are wiped via
    * `deleteByKind`.
    */
-  async generate(identityId: string, ctx: TenantContext = {}): Promise<{ codes: string[] }> {
+  async generate(identityId: string, ctx: AuthTenantContext = {}): Promise<{ codes: string[] }> {
     await this._credentials.deleteByKind(identityId, 'recovery', ctx)
     const codes: string[] = []
     for (let i = 0; i < this._cfg.count; i++) {
@@ -74,7 +74,7 @@ export class BackupCodesFacet {
         {
           identityId,
           kind: 'recovery',
-          secret: this._crypto.sha256(formatted),
+          secret: this._crypto.authSha256(formatted),
           metadata: { issuedAt: Date.now() },
         },
         ctx,
@@ -87,7 +87,7 @@ export class BackupCodesFacet {
    * Count of unused codes remaining for `identityId`. Useful for UI
    * "you have N backup codes left" prompts.
    */
-  async remaining(identityId: string, ctx: TenantContext = {}): Promise<number> {
+  async remaining(identityId: string, ctx: AuthTenantContext = {}): Promise<number> {
     const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
     return rows.filter((r) => !isRevoked(r)).length
   }
@@ -102,18 +102,18 @@ export class BackupCodesFacet {
    * the storage path stored hyphenated) before hashing so the user's
    * input format is forgiving.
    */
-  async verify(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
+  async verify(identityId: string, code: string, ctx: AuthTenantContext = {}): Promise<boolean> {
     if (!code || code.length < 4) {
       throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
     }
     const normalized = this._normalize(code)
-    const hash = this._crypto.sha256(normalized)
+    const hash = this._crypto.authSha256(normalized)
     const matches = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
     // Loop to completion + constant-time compare each hash; early `return true`
     // would leak which row matched (and if any did) via timing.
     let matchedId: string | null = null
     for (const cred of matches) {
-      const hit = !isRevoked(cred) && timingSafeEqual(cred.secret, hash)
+      const hit = !isRevoked(cred) && authTimingSafeEqual(cred.secret, hash)
       if (hit && matchedId === null) matchedId = cred.id
     }
     if (matchedId === null) return false
@@ -126,7 +126,7 @@ export class BackupCodesFacet {
    * Wipe every backup code for an identity. Caller invokes during MFA
    * reset / account wipe.
    */
-  async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<void> {
+  async revokeAll(identityId: string, ctx: AuthTenantContext = {}): Promise<void> {
     await this._credentials.deleteByKind(identityId, 'recovery', ctx)
   }
 
@@ -140,7 +140,7 @@ export class BackupCodesFacet {
   }
 }
 
-export namespace BackupCodesFacet {
+export namespace AuthBackupCodesFacet {
   export interface IConfig {
     /** Number of codes minted per call to `generate`. Default 10. */
     count: number

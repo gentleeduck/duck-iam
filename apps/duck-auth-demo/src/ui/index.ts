@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  *
  * Ready-to-render auth UI built on `@gentleduck/registry-ui`. Drop
  * any of these components into a route, wrap the tree in

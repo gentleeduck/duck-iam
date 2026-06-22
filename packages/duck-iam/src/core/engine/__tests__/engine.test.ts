@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import type { AccessControl, Client, Request } from '../../types'
-import { Engine, flushSharedCaches } from '../engine'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import type { IamAccessControl, IamClient, IamRequest } from '../../types'
+import { IamEngine, iamFlushSharedCaches } from '../engine'
 
 // -- Test setup --
 
@@ -10,7 +10,7 @@ type ResourceType = 'post' | 'comment' | 'user' | 'dashboard' | 'dashboard.users
 type RoleId = 'viewer' | 'editor' | 'admin' | 'super-admin' | 'org-editor'
 type Scope = 'org-1' | 'org-2'
 
-const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [
@@ -19,7 +19,7 @@ const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   ],
 }
 
-const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -30,21 +30,21 @@ const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   ],
 }
 
-const adminRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const adminRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'admin',
   name: 'Admin',
   inherits: ['editor'],
   permissions: [{ action: 'manage', resource: '*' as ResourceType }],
 }
 
-const superAdminRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const superAdminRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'super-admin',
   name: 'Super Admin',
   inherits: ['admin'],
   permissions: [{ action: '*' as Action, resource: '*' as ResourceType }],
 }
 
-const orgEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const orgEditorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'org-editor',
   name: 'Org Editor',
   scope: 'org-1',
@@ -54,15 +54,15 @@ const orgEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = 
   ],
 }
 
-function createEngine(overrides?: { roles?: AccessControl.IRole[]; assignments?: Record<string, RoleId[]> }) {
-  const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+function createEngine(overrides?: { roles?: IamAccessControl.IRole[]; assignments?: Record<string, RoleId[]> }) {
+  const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: (overrides?.roles ?? [
       viewerRole,
       editorRole,
       adminRole,
       superAdminRole,
       orgEditorRole,
-    ]) as AccessControl.IRole<Action, ResourceType, RoleId, Scope>[],
+    ]) as IamAccessControl.IRole<Action, ResourceType, RoleId, Scope>[],
     assignments: overrides?.assignments ?? {
       'user-viewer': ['viewer'] as RoleId[],
       'user-editor': ['editor'] as RoleId[],
@@ -71,11 +71,11 @@ function createEngine(overrides?: { roles?: AccessControl.IRole[]; assignments?:
       'user-org-editor': ['org-editor'] as RoleId[],
     },
   })
-  return new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 }
 
 describe('Engine.can() - basic RBAC', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = createEngine()
@@ -121,7 +121,7 @@ describe('Engine.can() - basic RBAC', () => {
 })
 
 describe('Engine.can() - scoped RBAC', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = createEngine()
@@ -146,10 +146,10 @@ describe('Engine.can() - scoped RBAC', () => {
 
 describe('Engine.can() - scoped role assignments via assignRole', () => {
   it('user with scoped role assignment can act in that scope', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole, editorRole],
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     // Assign editor role scoped to org-1
     await adapter.assignRole('user-scoped', 'editor', 'org-1')
@@ -160,10 +160,10 @@ describe('Engine.can() - scoped role assignments via assignRole', () => {
   })
 
   it('user with scoped role assignment cannot act in a different scope', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole, editorRole],
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     await adapter.assignRole('user-scoped', 'editor', 'org-1')
 
@@ -172,10 +172,10 @@ describe('Engine.can() - scoped role assignments via assignRole', () => {
   })
 
   it('user with scoped role assignment cannot act without a scope', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole, editorRole],
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     await adapter.assignRole('user-scoped', 'editor', 'org-1')
 
@@ -184,10 +184,10 @@ describe('Engine.can() - scoped role assignments via assignRole', () => {
   })
 
   it('global + scoped roles combine correctly', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole, editorRole],
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     // Global viewer + scoped editor
     await adapter.assignRole('user-mixed', 'viewer')
@@ -202,10 +202,10 @@ describe('Engine.can() - scoped role assignments via assignRole', () => {
 })
 
 describe('Engine.can() - isOwner conditions with $subject.id', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
-    const ownerEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+    const ownerEditorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
       id: 'editor',
       name: 'Editor',
       inherits: ['viewer'],
@@ -265,13 +265,13 @@ describe('Engine.can() - isOwner conditions with $subject.id', () => {
 })
 
 describe('Engine.permissions() - batch check', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = createEngine()
   })
 
-  it('returns a Client.PermissionMap with correct boolean values', async () => {
+  it('returns a IamClient.PermissionMap with correct boolean values', async () => {
     const map = await engine.permissions('user-editor', [
       { action: 'read', resource: 'post' },
       { action: 'create', resource: 'post' },
@@ -286,11 +286,11 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('returns fail-closed all-deny map when adapter rejects', async () => {
-    // Adapter rejects on listPolicies - without the outer try permissions()
+    // IamAdapter rejects on listPolicies - without the outer try permissions()
     // would reject the whole batch and callers that don't .catch() lose the
     // fail-closed behaviour. With the catch: every requested check is keyed
     // false and onError fires once.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
@@ -298,7 +298,7 @@ describe('Engine.permissions() - batch check', () => {
       throw new Error('adapter down')
     }
     const errors: Error[] = []
-    const eng = new Engine<Action, ResourceType, RoleId, Scope>({
+    const eng = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       hooks: {
         onError: (e) => {
@@ -317,10 +317,10 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('forwards onPolicyError to evaluator for batch checks', async () => {
-    // A policy whose evaluator throws (RegexInputTooLargeError when matching
+    // A policy whose evaluator throws (IamRegexInputTooLargeError when matching
     // against an oversize subject attribute) must surface via onPolicyError;
     // permissions() previously passed undefined and the throw was eaten.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
       policies: [
@@ -348,7 +348,7 @@ describe('Engine.permissions() - batch check', () => {
       },
     })
     const policyErrors: Array<{ id: string }> = []
-    const eng = new Engine<Action, ResourceType, RoleId, Scope>({
+    const eng = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       hooks: {
         onPolicyError: (_err, id) => policyErrors.push({ id }),
@@ -360,12 +360,12 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('fires onMetrics per check including failOpen signal', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [],
       assignments: { 'user-1': [] as RoleId[] },
     })
     const events: Array<{ action: string; resource: string; allowed: boolean; failOpen: boolean }> = []
-    const eng = new Engine<Action, ResourceType, RoleId, Scope>({
+    const eng = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       defaultEffect: 'allow',
       allowFailOpen: true,
@@ -383,12 +383,12 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('telemetry:false skips per-check onMetrics emission', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [],
       assignments: { 'user-1': [] as RoleId[] },
     })
     const events: unknown[] = []
-    const eng = new Engine<Action, ResourceType, RoleId, Scope>({
+    const eng = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       defaultEffect: 'allow',
       allowFailOpen: true,
@@ -408,13 +408,13 @@ describe('Engine.permissions() - batch check', () => {
 })
 
 describe('Engine.check() - detailed decision', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = createEngine()
   })
 
-  it('returns a full AccessControl.IDecision object', async () => {
+  it('returns a full IamAccessControl.IDecision object', async () => {
     const decision = await engine.check('user-viewer', 'read', { type: 'post', attributes: {} })
     expect(decision.allowed).toBe(true)
     expect(decision.effect).toBe('allow')
@@ -427,8 +427,8 @@ describe('Engine.check() - detailed decision', () => {
 
 describe('Engine.admin - CRUD operations', () => {
   it('saveRole / listRoles', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>()
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>()
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     await engine.admin.saveRole(viewerRole)
     const roles = await engine.admin.listRoles()
@@ -437,8 +437,8 @@ describe('Engine.admin - CRUD operations', () => {
   })
 
   it('assignRole / revokeRole', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     await engine.admin.assignRole('user-new', 'viewer')
     expect(await engine.can('user-new', 'read', { type: 'post', attributes: {} })).toBe(true)
@@ -449,10 +449,10 @@ describe('Engine.admin - CRUD operations', () => {
   })
 
   it('savePolicy / deletePolicy', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>()
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>()
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
-    const policy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
+    const policy: IamAccessControl.IPolicy<Action, ResourceType, RoleId> = {
       id: 'test-policy',
       name: 'Test',
       algorithm: 'deny-overrides',
@@ -468,8 +468,8 @@ describe('Engine.admin - CRUD operations', () => {
   })
 
   it('setAttributes / getAttributes', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>()
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>()
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 
     await engine.admin.setAttributes('user-1', { department: 'engineering', level: 5 })
     const attrs = await engine.admin.getAttributes('user-1')
@@ -478,7 +478,7 @@ describe('Engine.admin - CRUD operations', () => {
 
   describe('export / import (F2)', () => {
     it('export round-trips through import in merge mode', async () => {
-      const policy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
+      const policy: IamAccessControl.IPolicy<Action, ResourceType, RoleId> = {
         id: 'p1',
         name: 'P1',
         algorithm: 'deny-overrides',
@@ -486,18 +486,18 @@ describe('Engine.admin - CRUD operations', () => {
           { id: 'r', effect: 'allow', priority: 0, actions: ['read'], resources: ['post'], conditions: { all: [] } },
         ],
       }
-      const sourceAdapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      const sourceAdapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
         policies: [policy],
         roles: [viewerRole],
       })
-      const sourceEngine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter: sourceAdapter, cacheTTL: 0 })
+      const sourceEngine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter: sourceAdapter, cacheTTL: 0 })
       const snapshot = await sourceEngine.admin.export()
       expect(snapshot.schemaVersion).toBe(1)
       expect(snapshot.policies).toHaveLength(1)
       expect(snapshot.roles).toHaveLength(1)
 
-      const destAdapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>()
-      const destEngine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter: destAdapter, cacheTTL: 0 })
+      const destAdapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>()
+      const destEngine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter: destAdapter, cacheTTL: 0 })
       const result = await destEngine.admin.import(snapshot)
       expect(result.policiesAdded).toBe(1)
       expect(result.rolesAdded).toBe(1)
@@ -508,17 +508,17 @@ describe('Engine.admin - CRUD operations', () => {
     })
 
     it('replace mode deletes existing rows not present in snapshot', async () => {
-      const existingPolicy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
+      const existingPolicy: IamAccessControl.IPolicy<Action, ResourceType, RoleId> = {
         id: 'old',
         name: 'old',
         algorithm: 'deny-overrides',
         rules: [],
       }
-      const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+      const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
         policies: [existingPolicy],
         roles: [viewerRole, editorRole],
       })
-      const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
       const snapshot: EngineSnapshot = {
         schemaVersion: 1,
         exportedAt: new Date().toISOString(),
@@ -533,8 +533,8 @@ describe('Engine.admin - CRUD operations', () => {
     })
 
     it('rejects unknown schemaVersion before writing anything', async () => {
-      const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
-      const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+      const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
       const bad = { schemaVersion: 99, exportedAt: '', policies: [], roles: [] } as unknown as EngineSnapshot
       await expect(engine.admin.import(bad)).rejects.toThrow(/schemaVersion/)
       // Verify nothing was deleted.
@@ -546,13 +546,13 @@ describe('Engine.admin - CRUD operations', () => {
 type EngineSnapshot = {
   schemaVersion: 1
   exportedAt: string
-  policies: AccessControl.IPolicy<Action, ResourceType, RoleId>[]
-  roles: AccessControl.IRole<Action, ResourceType, RoleId, Scope>[]
+  policies: IamAccessControl.IPolicy<Action, ResourceType, RoleId>[]
+  roles: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope>[]
 }
 
 describe('Engine - ABAC policies', () => {
   it('explicit deny policy blocks access', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [editorRole, viewerRole],
       assignments: { 'user-editor': ['editor'] as RoleId[] },
       policies: [
@@ -574,14 +574,14 @@ describe('Engine - ABAC policies', () => {
       ],
     })
 
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
     expect(await engine.can('user-editor', 'read', { type: 'post', attributes: {} })).toBe(false)
   })
 })
 
 describe('Engine - per-policy combining algorithm', () => {
   it('allow-overrides policy allows even when deny rule also matches', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-viewer': ['viewer'] as RoleId[] },
       policies: [
@@ -611,13 +611,13 @@ describe('Engine - per-policy combining algorithm', () => {
       ],
     })
 
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
     // With allow-overrides, the allow rule should win
     expect(await engine.can('user-viewer', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
 
   it('deny-overrides policy denies even when allow rule also matches', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-viewer': ['viewer'] as RoleId[] },
       policies: [
@@ -647,7 +647,7 @@ describe('Engine - per-policy combining algorithm', () => {
       ],
     })
 
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
     // With deny-overrides, the deny rule should win -- blocking access
     expect(await engine.can('user-viewer', 'read', { type: 'post', attributes: {} })).toBe(false)
   })
@@ -655,15 +655,15 @@ describe('Engine - per-policy combining algorithm', () => {
 
 describe('Engine - role inheritance cycle protection', () => {
   it('handles circular inheritance without infinite loop', async () => {
-    const roleA: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+    const roleA: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
       id: 'viewer' as RoleId,
-      name: 'AccessControl.IRole A',
+      name: 'IamAccessControl.IRole A',
       inherits: ['editor'],
       permissions: [{ action: 'read', resource: 'post' }],
     }
-    const roleB: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+    const roleB: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
       id: 'editor' as RoleId,
-      name: 'AccessControl.IRole B',
+      name: 'IamAccessControl.IRole B',
       inherits: ['viewer'],
       permissions: [{ action: 'create', resource: 'post' }],
     }
@@ -681,12 +681,12 @@ describe('Engine - role inheritance cycle protection', () => {
 
 describe('Engine - hooks', () => {
   it('beforeEvaluate hook can modify the request', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-viewer': ['viewer'] as RoleId[] },
     })
 
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       cacheTTL: 0,
       hooks: {
@@ -703,12 +703,12 @@ describe('Engine - hooks', () => {
 
   it('onDeny hook is called on denied requests', async () => {
     let denyCalled = false
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-viewer': ['viewer'] as RoleId[] },
     })
 
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       cacheTTL: 0,
       hooks: {
@@ -724,13 +724,13 @@ describe('Engine - hooks', () => {
 
   it('onError hook is called on evaluation errors', async () => {
     let errorCaught: Error | null = null
-    const brokenAdapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>()
+    const brokenAdapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>()
     // Make listPolicies throw
     brokenAdapter.listPolicies = () => {
       throw new Error('DB connection failed')
     }
 
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter: brokenAdapter,
       cacheTTL: 0,
       hooks: {
@@ -748,11 +748,11 @@ describe('Engine - hooks', () => {
 
   it('onMetrics hook fires once per evaluation with primitive payload', async () => {
     const events: Array<{ subjectId: string; allowed: boolean; mode: string }> = []
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-viewer': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       cacheTTL: 0,
       hooks: {
@@ -771,11 +771,11 @@ describe('Engine - hooks', () => {
 
   it('onMetrics fires in production mode and reports mode="production"', async () => {
     let captured: string | undefined
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-viewer': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope, 'production'>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope, 'production'>({
       adapter,
       mode: 'production',
       cacheTTL: 0,
@@ -792,11 +792,11 @@ describe('Engine - hooks', () => {
 
 describe('Engine - stats', () => {
   it('exposes hit / miss / size per cache', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
 
     // First call: every cache misses then populates.
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
@@ -814,11 +814,11 @@ describe('Engine - stats', () => {
   })
 
   it('resetStats zeroes counters', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
     engine.stats.reset()
     const s = engine.stats.get()
@@ -831,7 +831,7 @@ describe('Engine - empty RBAC + explicit ABAC allow', () => {
   it('engine.can returns the ABAC decision when no roles are assigned', async () => {
     // Empty RBAC must not contribute a default-deny that short-circuits the
     // AND combine when an explicit ABAC policy allows the action.
-    const publicReadPolicy: AccessControl.IPolicy = {
+    const publicReadPolicy: IamAccessControl.IPolicy = {
       id: 'public-read',
       name: 'Public Read',
       algorithm: 'deny-overrides',
@@ -839,12 +839,12 @@ describe('Engine - empty RBAC + explicit ABAC allow', () => {
         { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['post'], conditions: { all: [] } },
       ],
     }
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       policies: [publicReadPolicy] as never,
       roles: [],
       assignments: {},
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter })
 
     expect(await engine.can('anon-user', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
@@ -856,10 +856,10 @@ describe('Engine - construction guards', () => {
     // would silently downgrade first-applicable to AND in production. The
     // ctor refuses the combination to surface the issue at boot, not at
     // request time.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(
       () =>
-        new Engine<Action, ResourceType, RoleId, Scope, 'production'>({
+        new IamEngine<Action, ResourceType, RoleId, Scope, 'production'>({
           adapter,
           mode: 'production',
           policyCombine: 'first-applicable',
@@ -868,10 +868,10 @@ describe('Engine - construction guards', () => {
   })
 
   it("accepts mode='production' with policyCombine='and' (default)", () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(
       () =>
-        new Engine<Action, ResourceType, RoleId, Scope, 'production'>({
+        new IamEngine<Action, ResourceType, RoleId, Scope, 'production'>({
           adapter,
           mode: 'production',
         }),
@@ -879,10 +879,10 @@ describe('Engine - construction guards', () => {
   })
 
   it("accepts mode='production' with policyCombine='allow-overrides'", () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(
       () =>
-        new Engine<Action, ResourceType, RoleId, Scope, 'production'>({
+        new IamEngine<Action, ResourceType, RoleId, Scope, 'production'>({
           adapter,
           mode: 'production',
           policyCombine: 'allow-overrides',
@@ -891,10 +891,10 @@ describe('Engine - construction guards', () => {
   })
 
   it("refuses defaultEffect='allow' in production without explicit opt-in (N7)", () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(
       () =>
-        new Engine<Action, ResourceType, RoleId, Scope, 'production'>({
+        new IamEngine<Action, ResourceType, RoleId, Scope, 'production'>({
           adapter,
           mode: 'production',
           defaultEffect: 'allow',
@@ -903,10 +903,10 @@ describe('Engine - construction guards', () => {
   })
 
   it("accepts defaultEffect='allow' in production with allowFailOpen: true", () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(
       () =>
-        new Engine<Action, ResourceType, RoleId, Scope, 'production'>({
+        new IamEngine<Action, ResourceType, RoleId, Scope, 'production'>({
           adapter,
           mode: 'production',
           defaultEffect: 'allow',
@@ -919,28 +919,29 @@ describe('Engine - construction guards', () => {
     // Fail-open is just as dangerous in dev/staging as in prod - a dev
     // engine that ships with allow-by-default lets corrupt policies vanish
     // silently. Same opt-in required in every mode.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
-    expect(() => new Engine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow' })).toThrow(
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    expect(() => new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow' })).toThrow(
       /fail-open/i,
     )
   })
 
   it("accepts defaultEffect='allow' in development with allowFailOpen: true", () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     expect(
-      () => new Engine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow', allowFailOpen: true }),
+      () =>
+        new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow', allowFailOpen: true }),
     ).not.toThrow()
   })
 
   it("warns at construction when defaultEffect: 'allow' is opted in", () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     const warnings: string[] = []
     const originalWarn = console.warn
     console.warn = (...args: unknown[]) => {
       warnings.push(args.map(String).join(' '))
     }
     try {
-      new Engine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow', allowFailOpen: true })
+      new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, defaultEffect: 'allow', allowFailOpen: true })
     } finally {
       console.warn = originalWarn
     }
@@ -948,12 +949,12 @@ describe('Engine - construction guards', () => {
   })
 
   it('onMetrics receives failOpen=true when verdict came from defaultEffect fallback', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [],
       assignments: { 'user-1': [] as RoleId[] },
     })
     const events: Array<{ allowed: boolean; failOpen: boolean }> = []
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       defaultEffect: 'allow',
       allowFailOpen: true,
@@ -965,12 +966,12 @@ describe('Engine - construction guards', () => {
   })
 
   it('onMetrics receives failOpen=false when verdict came from an explicit allow rule', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
     const events: Array<{ allowed: boolean; failOpen: boolean }> = []
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       hooks: { onMetrics: (e) => events.push({ allowed: e.allowed, failOpen: e.failOpen }) },
     })
@@ -980,13 +981,13 @@ describe('Engine - construction guards', () => {
   })
 
   it('onMetrics throw does not escape authorize', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
     const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
         adapter,
         hooks: {
           onMetrics: () => {
@@ -1004,13 +1005,13 @@ describe('Engine - construction guards', () => {
   })
 
   it('afterEvaluate throw does not rewrite allow -> deny', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
     const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
         adapter,
         mode: 'development',
         hooks: {
@@ -1029,13 +1030,13 @@ describe('Engine - construction guards', () => {
   })
 
   it('onDeny throw does not rewrite deny -> throw', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
     const consoleErr = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+      const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
         adapter,
         mode: 'development',
         hooks: {
@@ -1055,15 +1056,15 @@ describe('Engine - construction guards', () => {
 
 describe('Engine - DoS bounds at load time (B5)', () => {
   it('routes to deny + onError when adapter returns more policies than maxPolicies', async () => {
-    const policies: AccessControl.IPolicy<Action, ResourceType, RoleId>[] = Array.from({ length: 5 }, (_, i) => ({
+    const policies: IamAccessControl.IPolicy<Action, ResourceType, RoleId>[] = Array.from({ length: 5 }, (_, i) => ({
       id: `p${i}`,
       name: `P${i}`,
       algorithm: 'deny-overrides',
       rules: [],
     }))
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ policies })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ policies })
     const errors: Error[] = []
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       maxPolicies: 2,
       cacheTTL: 0,
@@ -1078,14 +1079,14 @@ describe('Engine - DoS bounds at load time (B5)', () => {
   })
 
   it('routes to deny + onError when adapter returns more roles than maxRoles', async () => {
-    const roles: AccessControl.IRole<Action, ResourceType, RoleId, Scope>[] = Array.from({ length: 5 }, (_, i) => ({
+    const roles: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope>[] = Array.from({ length: 5 }, (_, i) => ({
       id: `r${i}` as RoleId,
       name: `R${i}`,
       permissions: [],
     }))
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles, assignments: {} })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles, assignments: {} })
     const errors: Error[] = []
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       maxRoles: 2,
       cacheTTL: 0,
@@ -1102,7 +1103,7 @@ describe('Engine - DoS bounds at load time (B5)', () => {
 
 describe('Engine - fail-skip on malformed policy (B4)', () => {
   it('skips a throwing policy and continues evaluating the rest', async () => {
-    const goodPolicy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
+    const goodPolicy: IamAccessControl.IPolicy<Action, ResourceType, RoleId> = {
       id: 'good',
       name: 'good',
       algorithm: 'deny-overrides',
@@ -1114,12 +1115,12 @@ describe('Engine - fail-skip on malformed policy (B4)', () => {
       id: 'bad',
       name: 'bad',
       algorithm: 'deny-overrides',
-    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    } as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       policies: [badPolicy, goodPolicy],
     })
     const errors: Array<{ msg: string; id: string }> = []
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       cacheTTL: 0,
       hooks: { onPolicyError: (err, id) => errors.push({ msg: err.message, id }) },
@@ -1132,11 +1133,11 @@ describe('Engine - fail-skip on malformed policy (B4)', () => {
 
 describe('Engine - cache invalidation', () => {
   it('invalidate() clears caches and reflects new data', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter })
 
     // First check caches the result
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
@@ -1154,14 +1155,14 @@ describe('Engine - cache invalidation', () => {
   it('invalidateRoles(roleId) keeps subjects without that role cached', async () => {
     // Two subjects: only one holds the role we're about to mutate.
     // The unrelated subject's cache entry must survive.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole, editorRole],
       assignments: {
         'user-viewer-only': ['viewer'] as RoleId[],
         'user-editor': ['editor'] as RoleId[],
       },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
 
     // Warm subject cache for both.
     expect(await engine.can('user-viewer-only', 'read', { type: 'post', attributes: {} })).toBe(true)
@@ -1188,11 +1189,11 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('invalidateRoles() with no arg falls back to clearing the entire subject cache', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
 
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
 
@@ -1211,7 +1212,7 @@ describe('Engine - cache invalidation', () => {
   it('single-flight: concurrent cold-start checks fan in to one adapter load', async () => {
     // 50 parallel can() calls on a fresh engine must hit listPolicies/listRoles once each,
     // not 50 times. Catches the thundering-herd regression.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
@@ -1231,7 +1232,7 @@ describe('Engine - cache invalidation', () => {
       return origRoles()
     }
 
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     const promises = Array.from({ length: 50 }, () => engine.can('user-1', 'read', { type: 'post', attributes: {} }))
     const results = await Promise.all(promises)
     expect(results.every((r) => r === true)).toBe(true)
@@ -1240,7 +1241,7 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('single-flight: concurrent subject resolves fan in to one fetch per subject', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole, editorRole],
       assignments: {
         'user-a': ['viewer'] as RoleId[],
@@ -1255,7 +1256,7 @@ describe('Engine - cache invalidation', () => {
       return orig(id)
     }
 
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     await Promise.all([
       engine.can('user-a', 'read', { type: 'post', attributes: {} }),
       engine.can('user-a', 'read', { type: 'post', attributes: {} }),
@@ -1270,11 +1271,11 @@ describe('Engine - cache invalidation', () => {
   it('invalidatePolicies() mid-flight: pending load does not write stale cache', async () => {
     // Narrow invalidator must clear its in-flight slot, mirroring the broad
     // invalidate() guard below.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     const origPolicies = adapter.listPolicies.bind(adapter)
     adapter.listPolicies = async () => {
       await new Promise((r) => setTimeout(r, 5))
@@ -1288,11 +1289,11 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('invalidateRoles() mid-flight: pending load does not write stale cache', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     const origRoles = adapter.listRoles.bind(adapter)
     adapter.listRoles = async () => {
       await new Promise((r) => setTimeout(r, 5))
@@ -1307,12 +1308,12 @@ describe('Engine - cache invalidation', () => {
   it('per-Engine caches isolate matches/path cache from other engines (DEBT-6)', async () => {
     // Two engines, two requests, each with its own caches. Tenant A
     // flooding its regex pool cannot evict tenant B's hot entries.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engineA = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
-    const engineB = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engineA = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engineB = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     // Reach into private caches for assertion only.
     const a = (engineA as unknown as { _caches: { regex: Map<string, RegExp>; path: Map<string, string[] | null> } })
       ._caches
@@ -1329,24 +1330,24 @@ describe('Engine - cache invalidation', () => {
     expect(b.path.size).toBeGreaterThan(0)
   })
 
-  it('module-level flushSharedCaches drops process-wide regex + path caches', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+  it('module-level iamFlushSharedCaches drops process-wide regex + path caches', async () => {
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
-    expect(typeof flushSharedCaches).toBe('function')
-    flushSharedCaches()
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    expect(typeof iamFlushSharedCaches).toBe('function')
+    iamFlushSharedCaches()
     // Subsequent eval still works after flush (lazy re-populate).
     expect(await engine.can('user-1', 'read', { type: 'post', attributes: {} })).toBe(true)
   })
 
   it('_loadAllPolicies mid-flight: invalidatePolicies does not repopulate merged cache', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     // Warm subject cache so .can() proceeds straight to _loadAllPolicies on
     // the next call (otherwise _resolveSubject's first microtask hides the
     // race window we want to hit).
@@ -1373,11 +1374,11 @@ describe('Engine - cache invalidation', () => {
   it('rbac cached policy is frozen - consumer mutation throws in strict mode', async () => {
     // Cached Policy is a shared reference; mutations would corrupt subsequent
     // loadAllPolicies() callers. Strict-mode JS throws on frozen-target writes.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     await engine.can('user-1', 'read', { type: 'post', attributes: {} })
     // Reach into private cache via a typed accessor on the engine for the test only.
     const cache = (engine as unknown as { _rbacPolicyCache: { get(k: string): { rules: unknown[] } | undefined } })
@@ -1390,11 +1391,11 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('invalidate() during a pending load: result is consistent with the post-invalidate adapter state', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
 
     // Slow listPolicies so we can interleave invalidate().
     const origPolicies = adapter.listPolicies.bind(adapter)
@@ -1421,12 +1422,12 @@ describe('Engine - cache invalidation', () => {
 
   it('invalidateRoles(roleId) evicts subjects that inherit the role transitively', async () => {
     // user-admin holds 'admin' which inherits 'editor' which inherits 'viewer'.
-    // Request.ISubject.roles is the resolved set, so mutating 'viewer' must still evict.
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    // IamRequest.ISubject.roles is the resolved set, so mutating 'viewer' must still evict.
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole, editorRole, adminRole],
       assignments: { 'user-admin': ['admin'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
 
     expect(await engine.can('user-admin', 'read', { type: 'post', attributes: {} })).toBe(true)
 
@@ -1445,7 +1446,7 @@ describe('Engine - cache invalidation', () => {
   it('synthesised RBAC policy is deep-frozen (M2)', async () => {
     const engine = createEngine()
     await engine.can('user-editor', 'read', { type: 'post', attributes: {} })
-    const internal = engine as unknown as { _rbacPolicyCache: { get(k: string): AccessControl.IPolicy | undefined } }
+    const internal = engine as unknown as { _rbacPolicyCache: { get(k: string): IamAccessControl.IPolicy | undefined } }
     const rbac = internal._rbacPolicyCache.get('rbac')
     expect(rbac).toBeDefined()
     expect(Object.isFrozen(rbac)).toBe(true)
@@ -1458,7 +1459,7 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('RBAC rebuild is single-flighted across concurrent cold callers (M3)', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole, editorRole, adminRole],
       assignments: { 'user-admin': ['admin'] as RoleId[] },
     })
@@ -1468,7 +1469,7 @@ describe('Engine - cache invalidation', () => {
       listRoleCalls++
       return origListRoles()
     }
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
 
     await Promise.all([
       engine.can('user-admin', 'read', { type: 'post', attributes: {} }),
@@ -1481,12 +1482,12 @@ describe('Engine - cache invalidation', () => {
 
 describe('Engine - adapter timeout (B1)', () => {
   it('aborts a hung listPolicies after adapterTimeoutMs', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
-    // Adapter ignores the signal and never resolves; the engine's timer must
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+    // IamAdapter ignores the signal and never resolves; the engine's timer must
     // fire and reject with the timeout error.
     adapter.listPolicies = () => new Promise(() => {})
     const errors: Error[] = []
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       cacheTTL: 0,
       adapterTimeoutMs: 30,
@@ -1501,7 +1502,7 @@ describe('Engine - adapter timeout (B1)', () => {
   })
 
   it('hard-cancels the underlying adapter call via AbortSignal', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
     let aborted = false
     adapter.listPolicies = (opts) =>
       new Promise((_resolve, reject) => {
@@ -1510,7 +1511,7 @@ describe('Engine - adapter timeout (B1)', () => {
           reject(new Error('aborted'))
         })
       })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       cacheTTL: 0,
       adapterTimeoutMs: 30,
@@ -1547,20 +1548,20 @@ describe('Engine - cross-instance invalidator (B2)', () => {
 
   it('broadcasts invalidate events across engine instances and applies them locally', async () => {
     const bus = makeBus<RoleId>()
-    const adapterA = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapterA = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { u1: ['viewer'] as RoleId[] },
     })
-    const adapterB = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapterB = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { u1: ['viewer'] as RoleId[] },
     })
-    const engineA = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engineA = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter: adapterA,
       cacheTTL: 60,
       invalidator: bus.invalidatorFor() as never,
     })
-    const engineB = new Engine<Action, ResourceType, RoleId, Scope>({
+    const engineB = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter: adapterB,
       cacheTTL: 60,
       invalidator: bus.invalidatorFor() as never,
@@ -1587,8 +1588,8 @@ describe('Engine - cross-instance invalidator (B2)', () => {
 
   it('does not echo self-published events back into the same engine', async () => {
     const bus = makeBus<RoleId>()
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({
       adapter,
       cacheTTL: 60,
       invalidator: bus.invalidatorFor() as never,
@@ -1612,8 +1613,8 @@ describe('Engine - cross-instance invalidator (B2)', () => {
 
 describe('Engine.healthCheck() (N2)', () => {
   it('returns ok=true when the adapter responds', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
     const health = await engine.healthCheck()
     expect(health.ok).toBe(true)
     expect(health.adapter).toBe('ok')
@@ -1622,11 +1623,11 @@ describe('Engine.healthCheck() (N2)', () => {
   })
 
   it('returns ok=false and the error when the adapter throws', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({})
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({})
     adapter.listPolicies = async () => {
       throw new Error('db dead')
     }
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
     const health = await engine.healthCheck()
     expect(health.ok).toBe(false)
     expect(health.adapter).toBe('fail')
@@ -1634,11 +1635,11 @@ describe('Engine.healthCheck() (N2)', () => {
   })
 
   it('reports cache hit rate after warmup', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
       roles: [viewerRole],
       assignments: { u1: ['viewer'] as RoleId[] },
     })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     await engine.can('u1', 'read', { type: 'post', attributes: {} })
     await engine.can('u1', 'read', { type: 'post', attributes: {} })
     const h = await engine.healthCheck()
@@ -1648,22 +1649,22 @@ describe('Engine.healthCheck() (N2)', () => {
 
 describe('Engine.preload() (N4)', () => {
   it('warms merged-policy cache so the first can() is hot', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
     let listCalls = 0
     const orig = adapter.listPolicies.bind(adapter)
     adapter.listPolicies = (opts) => {
       listCalls++
       return orig(opts)
     }
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     await engine.preload()
     await engine.can('u', 'read', { type: 'post', attributes: {} })
     expect(listCalls).toBe(1)
   })
 
   it('preload({ validator: true }) eagerly loads the lazy validator chunk', async () => {
-    const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
-    const engine = new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [viewerRole] })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
     // Must not throw. Validator chunk loads + memoised; first admin write
     // afterwards skips the dynamic import wait.
     await engine.preload({ validator: true })

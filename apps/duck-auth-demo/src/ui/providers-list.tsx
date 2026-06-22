@@ -1,23 +1,23 @@
 /**
  * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 
-import { useBeginProvider } from '@gentleduck/auth/client/react'
+import { authUseBeginProvider } from '@gentleduck/auth/client/react'
 import { cn } from '@gentleduck/libs/cn'
 import { Button } from '@gentleduck/registry-ui/button'
 
 /**
  * `<ProvidersList />` — vertical stack of OAuth/SSO provider Buttons,
- * each wired to `useBeginProvider`. The provider list is config-only
+ * each wired to `authUseBeginProvider`. The provider list is config-only
  * (label + id + optional icon), so consumers can plug Google +
  * GitHub + Microsoft + Apple without writing duplicate handlers.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export function ProvidersList(props: ProvidersList.IProps): React.JSX.Element {
   const { className, providers } = props
-  const begin = useBeginProvider()
+  const begin = authUseBeginProvider()
   return (
     <div className={cn('flex w-full max-w-sm flex-col gap-2', className)}>
       {providers.map((p) => (
@@ -41,7 +41,7 @@ export function ProvidersList(props: ProvidersList.IProps): React.JSX.Element {
 /**
  * Namespace merge for ProvidersList.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export namespace ProvidersList {
   export interface IProvider {

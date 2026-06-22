@@ -4,31 +4,31 @@
  */
 
 import { AuthErrorObject } from '../../../core/errors'
-import type { Provider } from '../../../core/types/provider'
-import { OAuthClient } from '../core/client'
-import { type OAuthProvider, oauthProvider } from '../core/provider'
+import type { AuthProvider } from '../../../core/types/provider'
+import { AuthOAuthClient } from '../core/client'
+import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const DISCORD_ENDPOINTS: OAuthClient.IEndpoints = {
-  authorizationEndpoint: 'https://discord.com/oauth2/authorize',
-  tokenEndpoint: 'https://discord.com/api/oauth2/token',
-  userinfoEndpoint: 'https://discord.com/api/users/@me',
-  revocationEndpoint: 'https://discord.com/api/oauth2/token/revoke',
+const DISCORD_ENDPOINTS: AuthOAuthClient.IEndpoints = {
+  authorizationEndpoint: 'https://authDiscord.com/oauth2/authorize',
+  tokenEndpoint: 'https://authDiscord.com/api/oauth2/token',
+  userinfoEndpoint: 'https://authDiscord.com/api/users/@me',
+  revocationEndpoint: 'https://authDiscord.com/api/oauth2/token/revoke',
 }
 
-export namespace DiscordOAuth {
+export namespace AuthDiscordOAuth {
   /** Discord-specific options. */
-  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
     /** Default `['identify', 'email']`. */
     scopes?: string[]
   }
 }
 
 /** Discord OAuth 2.0 provider factory. */
-export function discord<Profile = unknown>(
-  opts: DiscordOAuth.IOptions<Profile>,
-): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
-  const client = new OAuthClient({
+export function authDiscord<Profile = unknown>(
+  opts: AuthDiscordOAuth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
+  const client = new AuthOAuthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: DISCORD_ENDPOINTS,
@@ -36,7 +36,7 @@ export function discord<Profile = unknown>(
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
   return oauthProvider<Profile>({
-    providerId: 'discord',
+    providerId: 'authDiscord',
     client,
     endpoints: DISCORD_ENDPOINTS,
     redirectUri: opts.redirectUri,
@@ -53,7 +53,7 @@ export function discord<Profile = unknown>(
       const sub = getUserinfoString(info, 'id')
       if (sub === undefined) {
         throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
-          providerId: 'discord',
+          providerId: 'authDiscord',
           detail: 'Discord userinfo missing id',
         })
       }

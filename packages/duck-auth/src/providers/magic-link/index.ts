@@ -1,14 +1,14 @@
 import { isCredentialExpired } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
-import type { Channel } from '../../core/types/channel'
-import type { Provider } from '../../core/types/provider'
+import type { AuthChannel } from '../../core/types/channel'
+import type { AuthProvider } from '../../core/types/provider'
 import { isSafeCallbackPath } from '../../core/url-validators'
 
-export namespace MagicLinkProvider {
-  /** Config knobs for {@link magicLink}. */
+export namespace AuthMagicLinkProvider {
+  /** Config knobs for {@link authMagicLink}. */
   export interface IOptions<Profile = unknown> {
-    /** Channel implementations keyed by their `kind`. */
-    channels: { email?: Channel.IChannel; sms?: Channel.IChannel; webpush?: Channel.IChannel }
+    /** AuthChannel implementations keyed by their `kind`. */
+    channels: { email?: AuthChannel.IChannel; sms?: AuthChannel.IChannel; webpush?: AuthChannel.IChannel }
     /** Library uses this to find the identity given an email. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
     /**
@@ -49,9 +49,9 @@ export namespace MagicLinkProvider {
  *                      validate expiry + non-revoked, REVOKE on use,
  *                      return startSession intent.
  */
-export function magicLink<Profile = unknown>(
-  opts: MagicLinkProvider.IOptions<Profile>,
-): Provider.IProvider<MagicLinkProvider.IBeginInput, MagicLinkProvider.ICompleteInput, Profile> {
+export function authMagicLink<Profile = unknown>(
+  opts: AuthMagicLinkProvider.IOptions<Profile>,
+): AuthProvider.IProvider<AuthMagicLinkProvider.IBeginInput, AuthMagicLinkProvider.ICompleteInput, Profile> {
   const ttlMs = opts.ttlMs ?? 10 * 60 * 1000
   const prefix = opts.limiterKeyPrefix ?? 'magic-link:request:'
   // Refuse a misconfigured callbackPath at construction so a typo like
@@ -112,8 +112,8 @@ export function magicLink<Profile = unknown>(
         identityId = created.id
       }
 
-      const token = ctx.crypto.randomToken(32)
-      const tokenHash = ctx.crypto.sha256(token)
+      const token = ctx.crypto.authRandomToken(32)
+      const tokenHash = ctx.crypto.authSha256(token)
       const now = Date.now()
       await ctx.stores.credentials.upsert(
         {
@@ -170,7 +170,7 @@ export function magicLink<Profile = unknown>(
       if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
         throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
       }
-      const hash = ctx.crypto.sha256(token)
+      const hash = ctx.crypto.authSha256(token)
       const row = await ctx.stores.credentials.findByHashedSecret(hash, 'magic-link', ctx.tenant)
       const now = Date.now()
       // Explicit `!== undefined`: falsy check would let `revokedAt: 0` slip past.

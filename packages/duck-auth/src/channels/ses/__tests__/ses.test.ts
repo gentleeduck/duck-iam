@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
-import { SesChannel } from '../index'
+import type { AuthIdentity } from '../../../core/types/identity'
+import { AuthSesChannel } from '../index'
 
-function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
+function makeIdentity(email: string | undefined): AuthIdentity.IIdentity<unknown> {
   return {
     id: 'ident-1',
     profile: email ? { email } : undefined,
@@ -13,15 +13,15 @@ function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   }
 }
 
-function makeClient(impl?: SesChannel.IClient['send']): SesChannel.IClient {
+function makeClient(impl?: AuthSesChannel.IClient['send']): AuthSesChannel.IClient {
   return { send: vi.fn(impl ?? (async () => ({ MessageId: 'ses-1' }))) }
 }
 
-describe('SesChannel', () => {
+describe('AuthSesChannel', () => {
   it('refuses construction without from', () => {
     expect(
       () =>
-        new SesChannel({
+        new AuthSesChannel({
           client: makeClient(),
           from: '',
           templates: () => ({ subject: 'x' }),
@@ -32,8 +32,8 @@ describe('SesChannel', () => {
   it('refuses construction without client', () => {
     expect(
       () =>
-        new SesChannel({
-          client: null as unknown as SesChannel.IClient,
+        new AuthSesChannel({
+          client: null as unknown as AuthSesChannel.IClient,
           from: 'noreply@app.test',
           templates: () => ({ subject: 'x' }),
         }),
@@ -41,7 +41,7 @@ describe('SesChannel', () => {
   })
 
   it('returns ok:false when identity has no email', async () => {
-    const channel = new SesChannel({
+    const channel = new AuthSesChannel({
       client: makeClient(),
       from: 'noreply@app.test',
       templates: () => ({ subject: 'x' }),
@@ -57,7 +57,7 @@ describe('SesChannel', () => {
   })
 
   it('template resolver throw becomes ok:false', async () => {
-    const channel = new SesChannel({
+    const channel = new AuthSesChannel({
       client: makeClient(),
       from: 'noreply@app.test',
       templates: () => {
@@ -78,7 +78,7 @@ describe('SesChannel', () => {
     // Without @aws-sdk/client-ses installed in this workspace, the
     // command import inside send() throws AUTH/MISCONFIGURED; the
     // channel catches + reports as ok:false so the caller sees it.
-    const channel = new SesChannel({
+    const channel = new AuthSesChannel({
       client: makeClient(),
       from: 'noreply@app.test',
       templates: () => ({ subject: 'x', text: 'y' }),

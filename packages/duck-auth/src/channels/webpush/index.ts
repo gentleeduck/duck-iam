@@ -5,9 +5,9 @@
  */
 
 import { AuthErrorObject } from '../../core/errors'
-import type { Channel } from '../../core/types/channel'
+import type { AuthChannel } from '../../core/types/channel'
 
-export namespace WebPushChannel {
+export namespace AuthWebPushChannel {
   /** Standard Push API subscription shape. */
   export interface ISubscription {
     endpoint: string
@@ -34,7 +34,7 @@ export namespace WebPushChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ payload: string; ttl?: number }> | { payload: string; ttl?: number }
 
-  /** Config knobs for {@link WebPushChannel}. */
+  /** Config knobs for {@link AuthWebPushChannel}. */
   export interface IConfig {
     /** VAPID subject (HTTPS URL or mailto: URI). Required. */
     subject: string
@@ -51,21 +51,21 @@ export namespace WebPushChannel {
   }
 }
 
-let _module: WebPushChannel.IModule | null = null
-async function loadWebPush(override?: WebPushChannel.IModule): Promise<WebPushChannel.IModule> {
+let _module: AuthWebPushChannel.IModule | null = null
+async function loadWebPush(override?: AuthWebPushChannel.IModule): Promise<AuthWebPushChannel.IModule> {
   if (override) return override
   if (_module) return _module
   try {
     const mod = (await import('web-push' as string)) as unknown as
-      | WebPushChannel.IModule
-      | { default: WebPushChannel.IModule }
+      | AuthWebPushChannel.IModule
+      | { default: AuthWebPushChannel.IModule }
     const resolved = 'default' in mod ? mod.default : mod
     _module = resolved
     return resolved
   } catch {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
       detail:
-        'WebPushChannel requires the `web-push` peerDep. Install via `bun add web-push` (or `npm install web-push`).',
+        'AuthWebPushChannel requires the `web-push` peerDep. Install via `bun add web-push` (or `npm install web-push`).',
     })
   }
 }
@@ -74,16 +74,16 @@ async function loadWebPush(override?: WebPushChannel.IModule): Promise<WebPushCh
  * Web Push channel. Reads `pushSubscription` from the identity
  * profile; returns ok:false on any error.
  */
-export class WebPushChannel implements Channel.IChannel {
-  readonly kind: Channel.Kind = 'webpush'
+export class AuthWebPushChannel implements AuthChannel.IChannel {
+  readonly kind: AuthChannel.Kind = 'webpush'
   readonly id: string
-  private readonly _cfg: WebPushChannel.IConfig
-  private _modulePromise: Promise<WebPushChannel.IModule> | null = null
+  private readonly _cfg: AuthWebPushChannel.IConfig
+  private _modulePromise: Promise<AuthWebPushChannel.IModule> | null = null
 
-  constructor(cfg: WebPushChannel.IConfig) {
+  constructor(cfg: AuthWebPushChannel.IConfig) {
     if (!cfg.subject || !cfg.publicKey || !cfg.privateKey) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'WebPushChannel requires subject + publicKey + privateKey (VAPID details)',
+        detail: 'AuthWebPushChannel requires subject + publicKey + privateKey (VAPID details)',
       })
     }
     this._cfg = cfg
@@ -91,7 +91,7 @@ export class WebPushChannel implements Channel.IChannel {
   }
 
   /** Lazy-load + configure VAPID once per process. */
-  private async _module(): Promise<WebPushChannel.IModule> {
+  private async _module(): Promise<AuthWebPushChannel.IModule> {
     if (this._modulePromise) return this._modulePromise
     this._modulePromise = loadWebPush(this._cfg.module).then((mod) => {
       mod.setVapidDetails(this._cfg.subject, this._cfg.publicKey, this._cfg.privateKey)
@@ -105,13 +105,13 @@ export class WebPushChannel implements Channel.IChannel {
    * ok:false on any error (missing subscription, template throw,
    * web-push error, network).
    */
-  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
-    const profile = input.identity.profile as { pushSubscription?: WebPushChannel.ISubscription } | undefined
+  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
+    const profile = input.identity.profile as { pushSubscription?: AuthWebPushChannel.ISubscription } | undefined
     const subscription = profile?.pushSubscription
     if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
-      return { ok: false, error: 'identity has no pushSubscription; WebPushChannel cannot deliver' }
+      return { ok: false, error: 'identity has no pushSubscription; AuthWebPushChannel cannot deliver' }
     }
-    let resolved: Awaited<ReturnType<WebPushChannel.ITemplateResolver>>
+    let resolved: Awaited<ReturnType<AuthWebPushChannel.ITemplateResolver>>
     try {
       resolved = await this._cfg.templates(input.templateId, input.vars as Record<string, unknown>)
     } catch (err) {
@@ -122,7 +122,7 @@ export class WebPushChannel implements Channel.IChannel {
       const response = await mod.sendNotification(subscription, resolved.payload, {
         ...(resolved.ttl !== undefined && { TTL: resolved.ttl }),
       })
-      const out: Channel.SendResult = { ok: true }
+      const out: AuthChannel.SendResult = { ok: true }
       if (response.statusCode !== undefined) {
         out.providerMessageId = `webpush:${response.statusCode}`
       }

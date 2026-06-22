@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { createAccessConfig } from '../config'
+import { createIam } from '../config'
 
-describe('createAccessConfig()', () => {
-  const config = createAccessConfig({
+describe('createIam()', () => {
+  const config = createIam({
     actions: ['read', 'create', 'update', 'delete'] as const,
     resources: ['post', 'comment'] as const,
     scopes: ['org-1', 'org-2'] as const,
@@ -14,26 +14,26 @@ describe('createAccessConfig()', () => {
     expect(config.scopes).toEqual(['org-1', 'org-2'])
   })
 
-  it('defineRole returns a RoleBuilder with correct content', () => {
-    const role = config.defineRole('viewer').grant('read', 'post').build()
+  it('iamDefineRole returns a IamRoleBuilder with correct content', () => {
+    const role = config.iamDefineRole('viewer').grant('read', 'post').build()
     expect(role.id).toBe('viewer')
     expect(role.permissions).toEqual([{ action: 'read', resource: 'post' }])
   })
 
-  it('policy returns a PolicyBuilder', () => {
-    const p = config.definePolicy('test-policy').name('Test').build()
+  it('policy returns a IamPolicyBuilder', () => {
+    const p = config.iamDefinePolicy('test-policy').name('Test').build()
     expect(p.id).toBe('test-policy')
     expect(p.name).toBe('Test')
   })
 
-  it('defineRule returns a RuleBuilder with correct actions/resources', () => {
-    const rule = config.defineRule('r1').on('read').of('post').build()
+  it('iamDefineRule returns a IamRuleBuilder with correct actions/resources', () => {
+    const rule = config.iamDefineRule('r1').on('read').of('post').build()
     expect(rule.id).toBe('r1')
     expect(rule.actions).toEqual(['read'])
     expect(rule.resources).toEqual(['post'])
   })
 
-  it('when returns a When builder with correct condition', () => {
+  it('when returns a IamWhen builder with correct condition', () => {
     const group = config.when().eq('action', 'read').buildAll()
     expect(group.all).toEqual([{ field: 'action', operator: 'eq', value: 'read' }])
   })
@@ -47,8 +47,8 @@ describe('createAccessConfig()', () => {
     expect(result).toBe(input) // same reference
   })
 
-  it('validateRoles() validates role definitions', () => {
-    const result = config.validateRoles([
+  it('iamValidateRoles() validates role definitions', () => {
+    const result = config.iamValidateRoles([
       { id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] },
       { id: 'editor', name: 'Editor', inherits: ['viewer'], permissions: [] },
     ])
@@ -56,14 +56,14 @@ describe('createAccessConfig()', () => {
     expect(result.issues.filter((i) => i.type === 'error')).toHaveLength(0)
   })
 
-  it('validateRoles() detects dangling inherits', () => {
-    const result = config.validateRoles([{ id: 'editor', name: 'Editor', inherits: ['nonexistent'], permissions: [] }])
+  it('iamValidateRoles() detects dangling inherits', () => {
+    const result = config.iamValidateRoles([{ id: 'editor', name: 'Editor', inherits: ['nonexistent'], permissions: [] }])
     expect(result.valid).toBe(false)
     expect(result.issues.some((i) => i.code === 'DANGLING_INHERIT')).toBe(true)
   })
 
-  it('validatePolicy() validates a valid policy', () => {
-    const result = config.validatePolicy({
+  it('iamValidatePolicy() validates a valid policy', () => {
+    const result = config.iamValidatePolicy({
       id: 'p1',
       name: 'Test',
       algorithm: 'deny-overrides',
@@ -72,13 +72,13 @@ describe('createAccessConfig()', () => {
     expect(result.valid).toBe(true)
   })
 
-  it('validatePolicy() rejects invalid input', () => {
-    const result = config.validatePolicy({ id: '', name: '' })
+  it('iamValidatePolicy() rejects invalid input', () => {
+    const result = config.iamValidatePolicy({ id: '', name: '' })
     expect(result.valid).toBe(false)
   })
 
   it('defaults scopes to empty array when not provided', () => {
-    const noScopes = createAccessConfig({
+    const noScopes = createIam({
       actions: ['read'] as const,
       resources: ['post'] as const,
     })
@@ -86,7 +86,7 @@ describe('createAccessConfig()', () => {
   })
 
   it('defaults roles to empty array when not provided', () => {
-    const noRoles = createAccessConfig({
+    const noRoles = createIam({
       actions: ['read'] as const,
       resources: ['post'] as const,
     })

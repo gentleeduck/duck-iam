@@ -1,16 +1,16 @@
-import type { Engine } from '../../core'
-import type { AccessControl, Request } from '../../core/types'
+import type { IamEngine } from '../../core'
+import type { IamAccessControl, IamRequest } from '../../core/types'
 import {
-  type AdminAudit,
-  defaultCsrfCheck,
-  extractEnvironment,
-  METHOD_ACTION_MAP,
-  noticeCsrfDefaultIfNeeded,
-  runAdminAuthz,
-  withAdminAudit,
+  type IamAdminAudit,
+  iamDefaultCsrfCheck,
+  iamExtractEnvironment,
+  IAM_METHOD_ACTION_MAP,
+  iamNoticeCsrfDefaultIfNeeded,
+  iamRunAdminAuthz,
+  iamWithAdminAudit,
 } from '../generic'
 
-/** Minimal Express request shape. */
+/** Minimal IamExpress request shape. */
 interface Req {
   method?: string
   path?: string
@@ -22,17 +22,17 @@ interface Req {
   user?: { id: string; [k: string]: unknown }
   [k: string]: unknown
 }
-/** Minimal Express response shape. */
+/** Minimal IamExpress response shape. */
 interface Res {
   status(code: number): Res
   json(body: unknown): void
 }
-/** Express next function. */
+/** IamExpress next function. */
 type Next = (err?: unknown) => void
-/** Express middleware function. */
+/** IamExpress middleware function. */
 type Middleware = (req: Req, res: Res, next: Next) => void
 
-/** Minimal Express Router interface for admin routes. */
+/** Minimal IamExpress Router interface for admin routes. */
 interface ExpressRouterLike {
   get(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
   put(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
@@ -40,10 +40,10 @@ interface ExpressRouterLike {
   delete(path: string, handler: (req: Req, res: Res) => void | Promise<void>): void
 }
 
-/** Express server integration types. Type-only namespace - zero bundle cost. */
-export namespace Express {
+/** IamExpress server integration types. Type-only namespace - zero bundle cost. */
+export namespace IamExpress {
   /**
-   * Describes options for {@link accessMiddleware} and {@link guard}.
+   * Describes options for {@link iamAccessMiddleware} and {@link iamGuard}.
    *
    * Every extractor has a sensible default; override only what your app needs.
    *
@@ -53,11 +53,11 @@ export namespace Express {
     /** Extracts the current user ID from the request. */
     getUserId?: (req: Req) => string | null
     /** Derives the target resource from the request. */
-    getResource?: (req: Req) => Request.IResource
+    getResource?: (req: Req) => IamRequest.IResource
     /** Derives the action being performed from the request. */
     getAction?: (req: Req) => string
     /** Extracts environment context (IP, user-agent, etc.) from the request. */
-    getEnvironment?: (req: Req) => Request.IEnvironment
+    getEnvironment?: (req: Req) => IamRequest.IEnvironment
     /** Determines the scope used for the access check. */
     getScope?: (req: Req) => TScope | undefined
     /** Handles a denied request (defaults to 403 JSON). */
@@ -67,7 +67,7 @@ export namespace Express {
   }
 
   /**
-   * Required guard callback for admin endpoints.
+   * Required iamGuard callback for admin endpoints.
    *
    * Returning `false` (or throwing) blocks the mutation; returning `true` lets it
    * proceed. The admin router writes policies, roles, and assignments directly
@@ -76,8 +76,8 @@ export namespace Express {
    */
   export type IAdminAuthorize = (req: Req) => boolean | Promise<boolean>
 
-  /** Describes options for {@link adminRouter}. `authorize` is required. */
-  export interface IAdminRouterOptions extends AdminAudit.IOptions {
+  /** Describes options for {@link iamAdminRouter}. `authorize` is required. */
+  export interface IAdminRouterOptions extends IamAdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
@@ -90,15 +90,15 @@ export namespace Express {
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
-     * See {@link AdminAudit.IOptions} for additional hardening knobs:
+     * See {@link IamAdminAudit.IOptions} for additional hardening knobs:
      * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
      */
-    onAdminMutation?: AdminAudit.Hook
+    onAdminMutation?: IamAdminAudit.Hook
   }
 }
 
 /**
- * Builds global Express middleware that runs `engine.can(...)` on every request.
+ * Builds global IamExpress middleware that runs `engine.can(...)` on every request.
  *
  * Replies 401 when no user is present and 403 when denied.
  *
@@ -108,28 +108,28 @@ export namespace Express {
  * @template TScope - Constrains valid scope strings.
  * @param engine - Provides the access engine to consult.
  * @param opts - Configures extractors and error hooks.
- * @returns An Express middleware function.
+ * @returns An IamExpress middleware function.
  * @example
  * ```ts
- * app.use(accessMiddleware(engine, {
+ * app.use(iamAccessMiddleware(engine, {
  *   getUserId: (req) => req.user?.id ?? null,
  * }))
  * ```
  */
-export function accessMiddleware<
+export function iamAccessMiddleware<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: Engine<TAction, TResource, TRole, TScope>, opts: Express.IOptions<TScope> = {}): Middleware {
+>(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamExpress.IOptions<TScope> = {}): Middleware {
   const {
     getUserId = (req) => req.user?.id ?? null,
     getResource = (req) => {
       const parts = (req.path ?? '/').split('/').filter(Boolean)
       return { type: parts[0] ?? 'root', id: parts[1], attributes: {} }
     },
-    getAction = (req) => METHOD_ACTION_MAP[req.method ?? 'GET'] ?? 'read',
-    getEnvironment = extractEnvironment,
+    getAction = (req) => IAM_METHOD_ACTION_MAP[req.method ?? 'GET'] ?? 'read',
+    getEnvironment = iamExtractEnvironment,
     getScope,
     onDenied = (_, res) => res.status(403).json({ error: 'Forbidden' }),
     onError = (_err, _, res) => res.status(500).json({ error: 'Internal server error' }),
@@ -146,7 +146,7 @@ export function accessMiddleware<
       const allowed = await engine.can(
         userId,
         getAction(req) as TAction,
-        getResource(req) as Request.IResource<TResource>,
+        getResource(req) as IamRequest.IResource<TResource>,
         getEnvironment(req),
         getScope?.(req),
       )
@@ -169,27 +169,27 @@ export function accessMiddleware<
  * @param action - Specifies the action being performed.
  * @param resourceType - Specifies the resource type required for the check.
  * @param opts - Configures optional extractors and `scope` override.
- * @returns An Express middleware function.
+ * @returns An IamExpress middleware function.
  * @example
  * ```ts
- * app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
- * app.post('/admin/users', guard(engine, 'manage', 'user', { scope: 'admin' }), handler)
+ * app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
+ * app.post('/admin/users', iamGuard(engine, 'manage', 'user', { scope: 'admin' }), handler)
  * ```
  */
-export function guard<
+export function iamGuard<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 >(
-  engine: Engine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
   action: TAction,
   resourceType: TResource,
-  opts: Pick<Express.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied'> & { scope?: TScope } = {},
+  opts: Pick<IamExpress.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied'> & { scope?: TScope } = {},
 ): Middleware {
   const {
     getUserId = (req) => req.user?.id ?? null,
-    getEnvironment = extractEnvironment,
+    getEnvironment = iamExtractEnvironment,
     onDenied = (_, res) => res.status(403).json({ error: 'Forbidden' }),
     scope,
   } = opts
@@ -217,9 +217,9 @@ export function guard<
 }
 
 /**
- * Builds an Express router for the duck-iam admin API.
+ * Builds an IamExpress router for the duck-iam admin API.
  *
- * Returns a factory that accepts the Express `Router` constructor so we never
+ * Returns a factory that accepts the IamExpress `Router` constructor so we never
  * import express at runtime. Throws when `opts.authorize` is missing.
  *
  * @template TAction - Constrains valid action strings.
@@ -233,7 +233,7 @@ export function guard<
  * @example
  * ```ts
  * import { Router } from 'express'
- * app.use('/api/access-admin', adminRouter(engine, {
+ * app.use('/api/access-admin', iamAdminRouter(engine, {
  *   authorize: (req) => req.user?.role === 'admin',
  *   onAdminMutation: (e) => auditLog.write(e),
  * })(Router))
@@ -244,21 +244,21 @@ export function guard<
  * ```ts
  * import rateLimit from 'express-rate-limit'
  * const adminLimiter = rateLimit({ windowMs: 60_000, max: 30 })
- * app.use('/api/access-admin', adminLimiter, adminRouter(engine, { authorize })(Router))
+ * app.use('/api/access-admin', adminLimiter, iamAdminRouter(engine, { authorize })(Router))
  * ```
  */
-export function adminRouter<
+export function iamAdminRouter<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 >(
-  engine: Engine<TAction, TResource, TRole, TScope>,
-  opts: Express.IAdminRouterOptions,
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
+  opts: IamExpress.IAdminRouterOptions,
 ): (Router: () => ExpressRouterLike) => ExpressRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
     throw new Error(
-      '[@gentleduck/iam] adminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
+      '[@gentleduck/iam] iamAdminRouter requires an `authorize` callback. Mounting admin endpoints unauthenticated is never safe.',
     )
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
@@ -266,8 +266,8 @@ export function adminRouter<
   const onError = opts.onError ?? ((_, __, res) => res.status(500).json({ error: 'Internal server error' }))
   const onForbidden = (res: Res) => res.status(403).json({ error: 'Forbidden (CSRF check failed)' })
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
-  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
-  noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
+  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
+  iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
   /** Read gate: no audit emission. */
   const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
@@ -289,19 +289,19 @@ export function adminRouter<
    */
   const mutate =
     (
-      action: AdminAudit.Action,
-      target: AdminAudit.Target,
+      action: IamAdminAudit.Action,
+      target: IamAdminAudit.Target,
       getTargetId: ((req: Req) => string | undefined) | undefined,
       handler: (req: Req, res: Res) => Promise<void>,
     ) =>
     async (req: Req, res: Res) => {
       // Shared CSRF + authorize phase.
-      const authz = await runAdminAuthz(req, effectiveCsrfCheck, authorize)
+      const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
       if (authz.phase === 'forbidden') return onForbidden(res)
       if (authz.phase === 'unauthorized') return onUnauthorized(req, res)
       if (authz.phase === 'error') return onError(authz.error, req, res)
       try {
-        await withAdminAudit(
+        await iamWithAdminAudit(
           {
             actor: authz.actor,
             action,
@@ -345,7 +345,7 @@ export function adminRouter<
         'policy',
         (req) => (req.body as { id?: string } | undefined)?.id,
         async (req, res) => {
-          await engine.admin.savePolicy(req.body as AccessControl.IPolicy<TAction, TResource, TRole>)
+          await engine.admin.savePolicy(req.body as IamAccessControl.IPolicy<TAction, TResource, TRole>)
           res.json({ ok: true })
         },
       ),
@@ -358,7 +358,7 @@ export function adminRouter<
         'role',
         (req) => (req.body as { id?: string } | undefined)?.id,
         async (req, res) => {
-          await engine.admin.saveRole(req.body as AccessControl.IRole<TAction, TResource, TRole, TScope>)
+          await engine.admin.saveRole(req.body as IamAccessControl.IRole<TAction, TResource, TRole, TScope>)
           res.json({ ok: true })
         },
       ),

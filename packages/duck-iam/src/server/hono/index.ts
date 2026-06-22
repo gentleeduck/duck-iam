@@ -1,15 +1,15 @@
-import type { Engine } from '../../core'
-import type { AccessControl, Request } from '../../core/types'
+import type { IamEngine } from '../../core'
+import type { IamAccessControl, IamRequest } from '../../core/types'
 import {
-  type AdminAudit,
-  defaultCsrfCheck,
-  METHOD_ACTION_MAP,
-  noticeCsrfDefaultIfNeeded,
-  runAdminAuthz,
-  withAdminAudit,
+  type IamAdminAudit,
+  iamDefaultCsrfCheck,
+  IAM_METHOD_ACTION_MAP,
+  iamNoticeCsrfDefaultIfNeeded,
+  iamRunAdminAuthz,
+  iamWithAdminAudit,
 } from '../generic'
 
-/** Minimal Hono context shape. */
+/** Minimal IamHono context shape. */
 interface HonoContext {
   req: {
     method: string
@@ -23,15 +23,15 @@ interface HonoContext {
   json(data: unknown, status?: number): Response
   text(data: string, status?: number): Response
 }
-/** Hono next function. */
+/** IamHono next function. */
 type HonoNext = () => Promise<void>
-/** Hono middleware function. */
+/** IamHono middleware function. */
 type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | undefined>
 
-/** Hono server integration types. Type-only namespace - zero bundle cost. */
-export namespace Hono {
+/** IamHono server integration types. Type-only namespace - zero bundle cost. */
+export namespace IamHono {
   /**
-   * Describes options for the Hono {@link accessMiddleware} and {@link guard}.
+   * Describes options for the IamHono {@link iamAccessMiddleware} and {@link iamGuard}.
    *
    * Every extractor has a sensible default.
    *
@@ -41,11 +41,11 @@ export namespace Hono {
     /** Extracts the current user ID from the context. */
     getUserId?: (c: HonoContext) => string | null
     /** Derives the target resource from the context. */
-    getResource?: (c: HonoContext) => Request.IResource
+    getResource?: (c: HonoContext) => IamRequest.IResource
     /** Derives the action being performed from the context. */
     getAction?: (c: HonoContext) => string
     /** Extracts environment context (IP, user-agent, etc.) from the context. */
-    getEnvironment?: (c: HonoContext) => Request.IEnvironment
+    getEnvironment?: (c: HonoContext) => IamRequest.IEnvironment
     /** Determines the scope used for the access check. */
     getScope?: (c: HonoContext) => TScope | undefined
     /** Handles a denied request (defaults to 403 JSON). */
@@ -55,14 +55,14 @@ export namespace Hono {
   }
 
   /**
-   * Required guard callback for the Hono admin router.
+   * Required iamGuard callback for the IamHono admin router.
    *
    * Returning `false` (or throwing) blocks the request.
    */
   export type IAdminAuthorize = (c: HonoContext) => boolean | Promise<boolean>
 
-  /** Describes options for {@link bindAdminRouter}. `authorize` is required. */
-  export interface IAdminOptions extends AdminAudit.IOptions {
+  /** Describes options for {@link iamBindAdminRouter}. `authorize` is required. */
+  export interface IAdminOptions extends IamAdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
@@ -75,13 +75,13 @@ export namespace Hono {
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
-     * See {@link AdminAudit.IOptions} for additional hardening knobs:
+     * See {@link IamAdminAudit.IOptions} for additional hardening knobs:
      * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
      */
-    onAdminMutation?: AdminAudit.Hook
+    onAdminMutation?: IamAdminAudit.Hook
   }
 
-  /** Describes the minimal Hono router surface used by {@link bindAdminRouter}. */
+  /** Describes the minimal IamHono router surface used by {@link iamBindAdminRouter}. */
   export interface IRouterLike {
     get(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
     put(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
@@ -90,8 +90,8 @@ export namespace Hono {
   }
 }
 
-/** Extract environment from Hono context using common headers. */
-function defaultEnv(c: HonoContext): Request.IEnvironment {
+/** Extract environment from IamHono context using common headers. */
+function defaultEnv(c: HonoContext): IamRequest.IEnvironment {
   return {
     ip: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for'),
     userAgent: c.req.header('user-agent'),
@@ -100,7 +100,7 @@ function defaultEnv(c: HonoContext): Request.IEnvironment {
 }
 
 /**
- * Builds Hono middleware that runs `engine.can(...)` on every request.
+ * Builds IamHono middleware that runs `engine.can(...)` on every request.
  *
  * Replies 401 when no user is present and 403 when denied.
  *
@@ -110,20 +110,20 @@ function defaultEnv(c: HonoContext): Request.IEnvironment {
  * @template TScope - Constrains valid scope strings.
  * @param engine - Provides the access engine to consult.
  * @param opts - Configures optional extractors and error hooks.
- * @returns A Hono middleware function.
+ * @returns A IamHono middleware function.
  * @example
  * ```ts
- * app.use('*', accessMiddleware(engine, {
+ * app.use('*', iamAccessMiddleware(engine, {
  *   getUserId: (c) => c.get('userId') as string | null,
  * }))
  * ```
  */
-export function accessMiddleware<
+export function iamAccessMiddleware<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: Engine<TAction, TResource, TRole, TScope>, opts: Hono.IOptions<TScope> = {}): HonoMiddleware {
+>(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamHono.IOptions<TScope> = {}): HonoMiddleware {
   const {
     // Read only from upstream-set `c.get('userId')`; never trust client headers.
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
@@ -131,7 +131,7 @@ export function accessMiddleware<
       const parts = c.req.path.split('/').filter(Boolean)
       return { type: parts[0] ?? 'root', id: parts[1], attributes: {} }
     },
-    getAction = (c) => METHOD_ACTION_MAP[c.req.method] ?? 'read',
+    getAction = (c) => IAM_METHOD_ACTION_MAP[c.req.method] ?? 'read',
     getEnvironment = defaultEnv,
     getScope,
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),
@@ -146,7 +146,7 @@ export function accessMiddleware<
       const allowed = await engine.can(
         userId,
         getAction(c) as TAction,
-        getResource(c) as Request.IResource<TResource>,
+        getResource(c) as IamRequest.IResource<TResource>,
         getEnvironment(c),
         getScope?.(c),
       )
@@ -160,7 +160,7 @@ export function accessMiddleware<
 }
 
 /**
- * Wires admin CRUD endpoints onto a Hono router.
+ * Wires admin CRUD endpoints onto a IamHono router.
  *
  * `authorize` is required and runs before every handler. Throws when the
  * callback is missing.
@@ -169,23 +169,23 @@ export function accessMiddleware<
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
- * @param router - Provides the existing Hono router instance.
+ * @param router - Provides the existing IamHono router instance.
  * @param engine - Provides the access engine whose `admin` operations are exposed.
  * @param opts - Must include `authorize`.
  * @returns The same router (chainable).
  * @throws Error when `opts.authorize` is not a function.
  * @example
  * ```ts
- * import { Hono } from 'hono'
- * const admin = new Hono()
- * bindAdminRouter(admin, engine, {
+ * import { IamHono } from 'hono'
+ * const admin = new IamHono()
+ * iamBindAdminRouter(admin, engine, {
  *   authorize: (c) => isAdmin(c),
  *   onAdminMutation: (e) => auditLog.write(e),
  * })
  * app.route('/admin', admin)
  * ```
  * @example
- * Rate limiting is out of scope; compose at the mount point with a Hono
+ * Rate limiting is out of scope; compose at the mount point with a IamHono
  * middleware before the admin sub-app. Pseudocode:
  * ```ts
  * import { rateLimit } from 'some-hono-rate-limit'
@@ -193,23 +193,23 @@ export function accessMiddleware<
  * app.route('/admin', admin)
  * ```
  */
-export function bindAdminRouter<
+export function iamBindAdminRouter<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 >(
-  router: Hono.IRouterLike,
-  engine: Engine<TAction, TResource, TRole, TScope>,
-  opts: Hono.IAdminOptions,
-): Hono.IRouterLike {
+  router: IamHono.IRouterLike,
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
+  opts: IamHono.IAdminOptions,
+): IamHono.IRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam] bindAdminRouter requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam] iamBindAdminRouter requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
-  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
-  noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
+  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
+  iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
   const onUnauthorized = opts.onUnauthorized ?? ((c) => c.json({ error: 'Unauthorized' }, 401))
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
@@ -232,19 +232,19 @@ export function bindAdminRouter<
    */
   const mutate =
     (
-      action: AdminAudit.Action,
-      target: AdminAudit.Target,
+      action: IamAdminAudit.Action,
+      target: IamAdminAudit.Target,
       getTargetId: ((c: HonoContext) => string | undefined) | undefined,
       handler: (c: HonoContext) => Promise<Response> | Response,
     ) =>
     async (c: HonoContext): Promise<Response> => {
       // Shared CSRF + authorize phase.
-      const authz = await runAdminAuthz(c, effectiveCsrfCheck, authorize)
+      const authz = await iamRunAdminAuthz(c, effectiveCsrfCheck, authorize)
       if (authz.phase === 'forbidden') return c.json({ error: 'Forbidden (CSRF check failed)' }, 403)
       if (authz.phase === 'unauthorized') return onUnauthorized(c)
       if (authz.phase === 'error') return onError(authz.error, c)
       try {
-        return await withAdminAudit(
+        return await iamWithAdminAudit(
           {
             actor: authz.actor,
             action,
@@ -275,7 +275,7 @@ export function bindAdminRouter<
   router.put(
     '/policies',
     mutate('replace', 'policy', undefined, async (c) => {
-      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as AccessControl.IPolicy<
+      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as IamAccessControl.IPolicy<
         TAction,
         TResource,
         TRole
@@ -287,7 +287,7 @@ export function bindAdminRouter<
   router.put(
     '/roles',
     mutate('replace', 'role', undefined, async (c) => {
-      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as AccessControl.IRole<
+      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as IamAccessControl.IRole<
         TAction,
         TResource,
         TRole,
@@ -338,7 +338,7 @@ export function bindAdminRouter<
 }
 
 /**
- * Builds Hono middleware that checks `(action, resourceType)` for the current
+ * Builds IamHono middleware that checks `(action, resourceType)` for the current
  * user, pulling the resource ID from the `:id` route param.
  *
  * @template TAction - Constrains valid action strings.
@@ -349,23 +349,23 @@ export function bindAdminRouter<
  * @param action - Specifies the action being performed.
  * @param resourceType - Specifies the resource type required for the check.
  * @param opts - Configures optional extractors and `scope` override.
- * @returns A Hono middleware function.
+ * @returns A IamHono middleware function.
  * @example
  * ```ts
- * app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
- * app.post('/admin/users', guard(engine, 'manage', 'user', { scope: 'admin' }), handler)
+ * app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
+ * app.post('/admin/users', iamGuard(engine, 'manage', 'user', { scope: 'admin' }), handler)
  * ```
  */
-export function guard<
+export function iamGuard<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 >(
-  engine: Engine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
   action: TAction,
   resourceType: TResource,
-  opts: Pick<Hono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & { scope?: TScope } = {},
+  opts: Pick<IamHono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & { scope?: TScope } = {},
 ): HonoMiddleware {
   const {
     // Read only from upstream-set `c.get('userId')`; never trust client headers.

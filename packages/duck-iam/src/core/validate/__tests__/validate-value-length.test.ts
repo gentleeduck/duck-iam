@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_CONDITION_VALUE_LENGTH, validatePolicy } from '../index'
+import { IAM_MAX_CONDITION_VALUE_LENGTH, iamValidatePolicy } from '../index'
 
 function policyWithCondValue(value: unknown) {
   return {
@@ -21,28 +21,28 @@ function policyWithCondValue(value: unknown) {
   }
 }
 
-describe('validatePolicy condition value length cap', () => {
-  it('rejects a string value exceeding MAX_CONDITION_VALUE_LENGTH', () => {
-    const evil = 'X'.repeat(MAX_CONDITION_VALUE_LENGTH + 1)
-    const result = validatePolicy(policyWithCondValue(evil))
+describe('iamValidatePolicy condition value length cap', () => {
+  it('rejects a string value exceeding IAM_MAX_CONDITION_VALUE_LENGTH', () => {
+    const evil = 'X'.repeat(IAM_MAX_CONDITION_VALUE_LENGTH + 1)
+    const result = iamValidatePolicy(policyWithCondValue(evil))
     expect(result.valid).toBe(false)
     const limit = result.issues.find((i) => i.code === 'LIMIT_EXCEEDED' && i.path?.includes('value'))
     expect(limit).toBeDefined()
-    expect(limit?.message).toContain(`${MAX_CONDITION_VALUE_LENGTH + 1} chars`)
+    expect(limit?.message).toContain(`${IAM_MAX_CONDITION_VALUE_LENGTH + 1} chars`)
     expect(limit?.message).not.toContain(evil.slice(0, 100))
   })
 
   it('rejects a 10 MiB string value without inflating the diagnostic message', () => {
     const evil = 'Y'.repeat(10 * 1024 * 1024)
-    const result = validatePolicy(policyWithCondValue(evil))
+    const result = iamValidatePolicy(policyWithCondValue(evil))
     expect(result.valid).toBe(false)
     const totalMsgBytes = result.issues.reduce((sum, i) => sum + (i.message?.length ?? 0), 0)
     expect(totalMsgBytes).toBeLessThan(2_000)
   })
 
   it('rejects an `in` array containing an oversized string element', () => {
-    const evil = 'Z'.repeat(MAX_CONDITION_VALUE_LENGTH + 1)
-    const result = validatePolicy({
+    const evil = 'Z'.repeat(IAM_MAX_CONDITION_VALUE_LENGTH + 1)
+    const result = iamValidatePolicy({
       id: 'p1',
       name: 'p1',
       algorithm: 'allow-overrides',
@@ -66,28 +66,28 @@ describe('validatePolicy condition value length cap', () => {
   })
 
   it('accepts a string value just at the cap', () => {
-    const ok = 'X'.repeat(MAX_CONDITION_VALUE_LENGTH)
-    const result = validatePolicy(policyWithCondValue(ok))
+    const ok = 'X'.repeat(IAM_MAX_CONDITION_VALUE_LENGTH)
+    const result = iamValidatePolicy(policyWithCondValue(ok))
     const limit = result.issues.find((i) => i.code === 'LIMIT_EXCEEDED' && i.path?.includes('value'))
     expect(limit).toBeUndefined()
   })
 
   it('accepts a normal-length value (UUID, JWT sub, etc.)', () => {
-    const result = validatePolicy(policyWithCondValue('a1b2c3d4-e5f6-7890-abcd-ef1234567890'))
+    const result = iamValidatePolicy(policyWithCondValue('a1b2c3d4-e5f6-7890-abcd-ef1234567890'))
     const limit = result.issues.find((i) => i.code === 'LIMIT_EXCEEDED' && i.path?.includes('value'))
     expect(limit).toBeUndefined()
   })
 
   it('does not gate non-string values (numbers / booleans pass through)', () => {
-    const numResult = validatePolicy(policyWithCondValue(42))
+    const numResult = iamValidatePolicy(policyWithCondValue(42))
     expect(numResult.issues.every((i) => i.code !== 'LIMIT_EXCEEDED' || !i.path?.includes('value'))).toBe(true)
-    const boolResult = validatePolicy(policyWithCondValue(true))
+    const boolResult = iamValidatePolicy(policyWithCondValue(true))
     expect(boolResult.issues.every((i) => i.code !== 'LIMIT_EXCEEDED' || !i.path?.includes('value'))).toBe(true)
   })
 
   it('caps the UNRESOLVABLE_VALUE diagnostic when value starts with $ but is oversized', () => {
-    const evilRef = `$${'X'.repeat(MAX_CONDITION_VALUE_LENGTH + 1)}`
-    const result = validatePolicy(policyWithCondValue(evilRef))
+    const evilRef = `$${'X'.repeat(IAM_MAX_CONDITION_VALUE_LENGTH + 1)}`
+    const result = iamValidatePolicy(policyWithCondValue(evilRef))
     expect(result.valid).toBe(false)
     // The LIMIT_EXCEEDED error fires first; the UNRESOLVABLE_VALUE
     // warning may still fire but never with the raw value interpolated
@@ -97,8 +97,8 @@ describe('validatePolicy condition value length cap', () => {
   })
 
   it('one oversized element triggers only one LIMIT_EXCEEDED issue per condition', () => {
-    const evil = 'Z'.repeat(MAX_CONDITION_VALUE_LENGTH + 1)
-    const result = validatePolicy({
+    const evil = 'Z'.repeat(IAM_MAX_CONDITION_VALUE_LENGTH + 1)
+    const result = iamValidatePolicy({
       id: 'p1',
       name: 'p1',
       algorithm: 'allow-overrides',

@@ -4,13 +4,13 @@
  * unit-testable.
  */
 
-import { aggregateCacheHitRate, type ICachesForStats, statsSnapshot } from './engine.stats'
-import type { EngineTypes } from './engine.types'
+import { aggregateCacheHitRate, type IIamCachesForStats, statsSnapshot } from './engine.stats'
+import type { IamEngineTypes } from './engine.types'
 
 export async function runHealthCheck(
-  caches: ICachesForStats,
+  caches: IIamCachesForStats,
   probe: () => Promise<void>,
-): Promise<EngineTypes.IHealth> {
+): Promise<IamEngineTypes.IHealth> {
   const t0 = performance.now()
   let adapter: 'ok' | 'fail' = 'ok'
   let lastError: string | undefined

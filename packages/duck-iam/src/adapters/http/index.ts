@@ -1,4 +1,4 @@
-import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
+import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 
 /** Brand symbol marking an error as retry-eligible. Internal to this adapter. */
 const TRANSIENT = Symbol('duck-iam.http.transient')
@@ -44,9 +44,9 @@ function anySignal(signals: AbortSignal[]): AbortSignal | undefined {
   return ctrl.signal
 }
 /** HTTP adapter integration types. Type-only namespace - zero bundle cost. */
-export namespace Http {
+export namespace IamHttp {
   /**
-   * Describes the configuration for {@link HttpAdapter}.
+   * Describes the configuration for {@link IamHttpAdapter}.
    *
    * Covers endpoint, fetch overrides, retry, and circuit-breaker tuning.
    */
@@ -92,7 +92,7 @@ export namespace Http {
      */
     circuitBreakerCooldownMs?: number
     /**
-     * Restricts the set of acceptable hosts for `baseUrl`. When set, the
+     * Restricts the set of acceptable hosts for `baseUrl`. IamWhen set, the
      * parsed URL must match an entry in the list or construction throws.
      *
      * Matching rules:
@@ -257,22 +257,22 @@ function _normaliseHostForAllowlist(host: string): string {
  * @template TScope - Constrains valid scope strings.
  * @example
  * ```ts
- * const adapter = new HttpAdapter({
+ * const adapter = new IamHttpAdapter({
  *   baseUrl: 'https://api.example.com/access',
  *   headers: { Authorization: 'Bearer ...' },
  * })
  * ```
  */
-export class HttpAdapter<
+export class IamHttpAdapter<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-> implements Adapter.IAdapter<TAction, TResource, TRole, TScope>
+> implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
   private _baseUrl: string
   private _fetch: typeof globalThis.fetch
-  private _headers: Http.IConfig['headers']
+  private _headers: IamHttp.IConfig['headers']
   private _timeoutMs: number
   private _retries: number
   private _backoffMs: number
@@ -289,8 +289,8 @@ export class HttpAdapter<
    *
    * @param config - Provides endpoint, fetch overrides, retry, and breaker tuning.
    */
-  constructor(config: Http.IConfig) {
-    this._baseUrl = HttpAdapter._validateBaseUrl(config)
+  constructor(config: IamHttp.IConfig) {
+    this._baseUrl = IamHttpAdapter._validateBaseUrl(config)
     this._fetch = config.fetch ?? globalThis.fetch.bind(globalThis)
     this._headers = config.headers
     this._timeoutMs = config.timeoutMs ?? 5_000
@@ -307,7 +307,7 @@ export class HttpAdapter<
    * recommending `allowedHosts` when omitted. Returns the canonical base URL
    * with any trailing `/` stripped (for back-compat with the previous behaviour).
    */
-  private static _validateBaseUrl(config: Http.IConfig): string {
+  private static _validateBaseUrl(config: IamHttp.IConfig): string {
     let parsed: URL
     try {
       parsed = new URL(config.baseUrl)
@@ -386,7 +386,7 @@ export class HttpAdapter<
   }
 
   /** Sends an HTTP request to the API, merging headers and parsing the JSON response. */
-  private async _request<T>(path: string, init?: RequestInit, readOpts?: Adapter.IReadOptions): Promise<T> {
+  private async _request<T>(path: string, init?: RequestInit, readOpts?: IamAdapter.IReadOptions): Promise<T> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (!res.ok) {
       throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
@@ -396,7 +396,7 @@ export class HttpAdapter<
 
   /**
    * Same as {@link _request} but treats `404 Not Found` as a missing-resource
-   * signal and returns `null` instead of throwing. The `Adapter.IAdapter`
+   * signal and returns `null` instead of throwing. The `IamAdapter.IAdapter`
    * contract for `getPolicy`/`getRole` is "the role, or null if not found";
    * the previous throw-on-every-non-2xx behaviour broke that contract and
    * caused engine.resolve() to bubble up a hard error on every cold miss.
@@ -404,7 +404,7 @@ export class HttpAdapter<
   private async _requestOrNull<T>(
     path: string,
     init?: RequestInit,
-    readOpts?: Adapter.IReadOptions,
+    readOpts?: IamAdapter.IReadOptions,
   ): Promise<T | null> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (res.status === 404) return null
@@ -424,7 +424,7 @@ export class HttpAdapter<
   private async _fetchWithRetry(
     path: string,
     init: RequestInit | undefined,
-    readOpts?: Adapter.IReadOptions,
+    readOpts?: IamAdapter.IReadOptions,
   ): Promise<Response> {
     const state = this._circuitState()
     if (state === 'open') {
@@ -465,7 +465,7 @@ export class HttpAdapter<
   private async _fetchOnce(
     path: string,
     init: RequestInit | undefined,
-    readOpts?: Adapter.IReadOptions,
+    readOpts?: IamAdapter.IReadOptions,
   ): Promise<Response> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -487,7 +487,7 @@ export class HttpAdapter<
     if (this._timeoutMs <= 0) return undefined
     const ctrl = new AbortController()
     setTimeout(
-      () => ctrl.abort(makeTransient(new Error(`HttpAdapter request timed out after ${this._timeoutMs}ms`))),
+      () => ctrl.abort(makeTransient(new Error(`IamHttpAdapter request timed out after ${this._timeoutMs}ms`))),
       this._timeoutMs,
     )
     return ctrl.signal
@@ -499,7 +499,7 @@ export class HttpAdapter<
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of policies returned by `GET /policies`.
    */
-  async listPolicies(opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
     return this._request('/policies', undefined, opts)
   }
   /**
@@ -511,8 +511,8 @@ export class HttpAdapter<
    */
   async getPolicy(
     id: string,
-    opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
+    opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
     if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
     return this._requestOrNull(`/policies/${encodeURIComponent(id)}`, undefined, opts)
   }
@@ -522,7 +522,7 @@ export class HttpAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the API acknowledges the write.
    */
-  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     await this._request('/policies', {
       method: 'PUT',
       body: JSON.stringify(p),
@@ -544,7 +544,7 @@ export class HttpAdapter<
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of roles returned by `GET /roles`.
    */
-  async listRoles(opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     return this._request('/roles', undefined, opts)
   }
   /**
@@ -556,8 +556,8 @@ export class HttpAdapter<
    */
   async getRole(
     id: string,
-    opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+    opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
     return this._requestOrNull(`/roles/${encodeURIComponent(id)}`, undefined, opts)
   }
@@ -567,7 +567,7 @@ export class HttpAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the API acknowledges the write.
    */
-  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     await this._request('/roles', { method: 'PUT', body: JSON.stringify(r) })
   }
   /**
@@ -597,7 +597,7 @@ export class HttpAdapter<
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of UNSCOPED role IDs returned by `GET /subjects/{id}/roles`.
    */
-  async getSubjectRoles(subjectId: string, opts?: Adapter.IReadOptions): Promise<TRole[]> {
+  async getSubjectRoles(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
     const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, undefined, opts)
     return parseHttpSubjectRoles<TRole>(raw, subjectId)
@@ -611,8 +611,8 @@ export class HttpAdapter<
    */
   async getSubjectScopedRoles(
     subjectId: string,
-    opts?: Adapter.IReadOptions,
-  ): Promise<Request.IScopedRole<TRole, TScope>[]> {
+    opts?: IamAdapter.IReadOptions,
+  ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
     const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/scoped-roles`, undefined, opts)
     return parseHttpSubjectScopedRoles<TRole, TScope>(raw, subjectId)
@@ -652,7 +652,7 @@ export class HttpAdapter<
    * @param opts - Optional read options forwarded to fetch.
    * @returns The subject's attribute map.
    */
-  async getSubjectAttributes(subjectId: string, opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
+  async getSubjectAttributes(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return {}
     const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, undefined, opts)
     return parseHttpSubjectAttributes(raw, subjectId)
@@ -664,7 +664,7 @@ export class HttpAdapter<
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the API acknowledges the write.
    */
-  async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
+  async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
     await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, {
       method: 'PATCH',
       body: JSON.stringify(attrs),
@@ -740,14 +740,14 @@ async function readJsonCapped<T>(res: Response): Promise<T> {
   return JSON.parse(text) as T
 }
 
-function parseHttpSubjectAttributes(value: unknown, subjectId: string): Primitives.Attributes {
+function parseHttpSubjectAttributes(value: unknown, subjectId: string): IamPrimitives.Attributes {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
     throw new Error(
       `[@gentleduck/iam:http] getSubjectAttributes for "${subjectId}" returned ${got} (expected JSON object)`,
     )
   }
-  return value as Primitives.Attributes
+  return value as IamPrimitives.Attributes
 }
 
 function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: string): TRole[] {
@@ -767,14 +767,14 @@ function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: 
 function parseHttpSubjectScopedRoles<TRole extends string, TScope extends string>(
   value: unknown,
   subjectId: string,
-): Request.IScopedRole<TRole, TScope>[] {
+): IamRequest.IScopedRole<TRole, TScope>[] {
   if (!Array.isArray(value)) {
     const got = value === null ? 'null' : typeof value
     throw new Error(
       `[@gentleduck/iam:http] getSubjectScopedRoles for "${subjectId}" returned ${got} (expected JSON array)`,
     )
   }
-  const out: Request.IScopedRole<TRole, TScope>[] = []
+  const out: IamRequest.IScopedRole<TRole, TScope>[] = []
   for (const entry of value) {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
     const role = Reflect.get(entry, 'role')

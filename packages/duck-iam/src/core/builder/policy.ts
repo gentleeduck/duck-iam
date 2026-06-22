@@ -1,9 +1,9 @@
-import type { AccessControl, DotPath } from '../types'
-import { validatePolicy } from '../validate'
-import { RuleBuilder } from './rule'
+import type { IamAccessControl, IamDotPath } from '../types'
+import { iamValidatePolicy } from '../validate'
+import { IamRuleBuilder } from './rule'
 
 /**
- * Fluent builder for constructing ABAC {@link AccessControl.IPolicy} objects.
+ * Fluent builder for constructing ABAC {@link IamAccessControl.IPolicy} objects.
  *
  * Policies define attribute-based access control rules that go beyond simple
  * role-permission mappings. Use them for time-based restrictions, IP/geo-fencing,
@@ -11,7 +11,7 @@ import { RuleBuilder } from './rule'
  *
  * The combining algorithm chosen via `.algorithm(...)` controls *intra*-policy
  * rule conflicts. Decisions across multiple policies are merged by the engine's
- * configured `policyCombine` (defaults to `'and'`; see {@link AccessControl.PolicyCombine}).
+ * configured `policyCombine` (defaults to `'and'`; see {@link IamAccessControl.PolicyCombine}).
  *
  * @template TAction   - Union of valid action strings.
  * @template TResource - Union of valid resource strings.
@@ -21,9 +21,9 @@ import { RuleBuilder } from './rule'
  *
  * @example
  * ```typescript
- * import { definePolicy } from '@gentleduck/iam'
+ * import { iamDefinePolicy } from '@gentleduck/iam'
  *
- * const weekendDeny = definePolicy('deny-weekends')
+ * const weekendDeny = iamDefinePolicy('deny-weekends')
  *   .name('Deny on Weekends')
  *   .desc('Block all write operations on weekends')
  *   .version(1)
@@ -37,19 +37,19 @@ import { RuleBuilder } from './rule'
  *   .build()
  * ```
  */
-export class PolicyBuilder<
+export class IamPolicyBuilder<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-  TContext extends object = DotPath.IDefaultContext,
+  TContext extends object = IamDotPath.IDefaultContext,
 > {
   private _id: string
   private _name: string
   private _description?: string
-  private _algorithm: AccessControl.CombiningAlgorithm = 'deny-overrides'
-  private _rules: AccessControl.IRule<TAction, TResource>[] = []
-  private _targets?: AccessControl.IPolicy<TAction, TResource, TRole>['targets']
+  private _algorithm: IamAccessControl.CombiningAlgorithm = 'deny-overrides'
+  private _rules: IamAccessControl.IRule<TAction, TResource>[] = []
+  private _targets?: IamAccessControl.IPolicy<TAction, TResource, TRole>['targets']
   private _version?: number
 
   constructor(id: string) {
@@ -108,7 +108,7 @@ export class PolicyBuilder<
    * @param a - Combining algorithm.
    * @returns `this` for chaining.
    */
-  algorithm(a: AccessControl.CombiningAlgorithm): this {
+  algorithm(a: IamAccessControl.CombiningAlgorithm): this {
     this._algorithm = a
     return this
   }
@@ -124,7 +124,7 @@ export class PolicyBuilder<
    *
    * @example
    * ```typescript
-   * definePolicy('write-restrictions')
+   * iamDefinePolicy('write-restrictions')
    *   .target({
    *     actions: ['create', 'update', 'delete'],
    *     resources: ['post', 'comment'],
@@ -132,13 +132,13 @@ export class PolicyBuilder<
    * ```
    * @returns `this` for chaining.
    */
-  target(t: NonNullable<AccessControl.IPolicy<TAction, TResource, TRole>['targets']>): this {
+  target(t: NonNullable<IamAccessControl.IPolicy<TAction, TResource, TRole>['targets']>): this {
     this._targets = t
     return this
   }
 
   /**
-   * Adds a rule to the policy using an inline {@link RuleBuilder} callback.
+   * Adds a rule to the policy using an inline {@link IamRuleBuilder} callback.
    *
    * Rules are the individual allow/deny statements inside a policy. Each rule
    * specifies an effect, the actions and resources it applies to, an optional
@@ -149,7 +149,7 @@ export class PolicyBuilder<
    *
    * @example
    * ```typescript
-   * definePolicy('ip-guard')
+   * iamDefinePolicy('ip-guard')
    *   .rule('block-bad-ips', r => r
    *     .deny()
    *     .on('*')
@@ -162,54 +162,54 @@ export class PolicyBuilder<
   rule(
     id: string,
     fn: (
-      r: RuleBuilder<TAction, TResource, TScope, TRole, TContext>,
+      r: IamRuleBuilder<TAction, TResource, TScope, TRole, TContext>,
       // biome-ignore lint/suspicious/noExplicitAny: TActiveResource is an opaque internal generic
-    ) => RuleBuilder<TAction, TResource, TScope, TRole, TContext, any>,
+    ) => IamRuleBuilder<TAction, TResource, TScope, TRole, TContext, any>,
   ): this {
-    const builder = new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)
+    const builder = new IamRuleBuilder<TAction, TResource, TScope, TRole, TContext>(id)
     fn(builder)
     this._rules.push(builder.build())
     return this
   }
 
   /**
-   * Adds a pre-built {@link AccessControl.IRule} object directly to the policy.
+   * Adds a pre-built {@link IamAccessControl.IRule} object directly to the policy.
    *
-   * Use this when you have rules defined separately via `defineRule` and want
+   * Use this when you have rules defined separately via `iamDefineRule` and want
    * to compose them into a policy without the inline callback form.
    *
    * @param rule - A fully constructed `Rule` object.
    *
    * @example
    * ```typescript
-   * import { defineRule } from '@gentleduck/iam'
+   * import { iamDefineRule } from '@gentleduck/iam'
    *
-   * const denyDrafts = defineRule('deny-drafts')
+   * const denyDrafts = iamDefineRule('deny-drafts')
    *   .deny()
    *   .on('read')
    *   .of('post')
    *   .when(w => w.resourceAttr('status', 'eq', 'draft'))
    *   .build()
    *
-   * definePolicy('post-access').addRule(denyDrafts)
+   * iamDefinePolicy('post-access').addRule(denyDrafts)
    * ```
    * @returns `this` for chaining.
    */
-  addRule(rule: AccessControl.IRule<TAction, TResource>): this {
+  addRule(rule: IamAccessControl.IRule<TAction, TResource>): this {
     this._rules.push(rule)
     return this
   }
 
   /**
-   * Produces the final {@link AccessControl.IPolicy} object.
+   * Produces the final {@link IamAccessControl.IPolicy} object.
    *
    * Call this after all builder methods have been chained. The resulting object
    * can be passed to an adapter or registered with the engine directly.
    *
    * @returns The constructed `Policy`.
    */
-  build(): AccessControl.IPolicy<TAction, TResource, TRole> {
-    const policy: AccessControl.IPolicy<TAction, TResource, TRole> = {
+  build(): IamAccessControl.IPolicy<TAction, TResource, TRole> {
+    const policy: IamAccessControl.IPolicy<TAction, TResource, TRole> = {
       id: this._id,
       name: this._name,
       description: this._description,
@@ -218,16 +218,16 @@ export class PolicyBuilder<
       rules: this._rules,
       targets: this._targets,
     }
-    // Validate at build time so callers wiring the adapter directly
+    // IamValidate at build time so callers wiring the adapter directly
     // (bypassing engine.admin.savePolicy's validator) still see the
     // failure where the bug was introduced.
-    const result = validatePolicy(policy)
+    const result = iamValidatePolicy(policy)
     if (!result.valid) {
       const errs = result.issues
         .filter((i) => i.type === 'error')
         .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
       throw new Error(
-        `[@gentleduck/iam:builder] PolicyBuilder.build(): policy rejected by validator - ${errs.join('; ')}`,
+        `[@gentleduck/iam:builder] IamPolicyBuilder.build(): policy rejected by validator - ${errs.join('; ')}`,
       )
     }
     return policy
@@ -235,11 +235,11 @@ export class PolicyBuilder<
 }
 
 /**
- * Creates a new {@link PolicyBuilder} for the given policy ID.
+ * Creates a new {@link IamPolicyBuilder} for the given policy ID.
  *
  * This is the primary entry point for defining ABAC policies. Prefer this
- * factory over constructing `PolicyBuilder` directly. When using
- * `createAccessConfig`, use `access.definePolicy()` instead to get type-safe
+ * factory over constructing `IamPolicyBuilder` directly. IamWhen using
+ * `createIam`, use `access.iamDefinePolicy()` instead to get type-safe
  * action, resource, and role constraints.
  *
  * @template TAction   - Union of valid action strings.
@@ -249,13 +249,13 @@ export class PolicyBuilder<
  * @template TContext  - Shape of the full evaluation context for typed dot-paths.
  *
  * @param id - Unique identifier for the policy. Also used as the default name.
- * @returns A new `PolicyBuilder` instance.
+ * @returns A new `IamPolicyBuilder` instance.
  *
  * @example
  * ```typescript
- * import { definePolicy } from '@gentleduck/iam'
+ * import { iamDefinePolicy } from '@gentleduck/iam'
  *
- * const maintenanceMode = definePolicy('maintenance-mode')
+ * const maintenanceMode = iamDefinePolicy('maintenance-mode')
  *   .name('Maintenance Mode')
  *   .desc('Deny all writes when the maintenance flag is active')
  *   .algorithm('deny-overrides')
@@ -268,12 +268,12 @@ export class PolicyBuilder<
  *   .build()
  * ```
  */
-export const definePolicy = <
+export const iamDefinePolicy = <
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-  TContext extends object = DotPath.IDefaultContext,
+  TContext extends object = IamDotPath.IDefaultContext,
 >(
   id: string,
-) => new PolicyBuilder<TAction, TResource, TRole, TScope, TContext>(id)
+) => new IamPolicyBuilder<TAction, TResource, TRole, TScope, TContext>(id)

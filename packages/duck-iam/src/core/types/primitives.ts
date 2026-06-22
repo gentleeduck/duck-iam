@@ -1,4 +1,4 @@
-export namespace Primitives {
+export namespace IamPrimitives {
   /**
    * Single scalar value: every JSON-compatible primitive the condition engine
    * can compare. Leaf of the duck-iam type system.

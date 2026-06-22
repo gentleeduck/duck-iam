@@ -4,14 +4,14 @@
  *
  * @example
  * ```tsx
- * import { AuthProvider, useSession, useSignIn } from '@gentleduck/auth/client/react'
+ * import { AuthProvider, authUseSession, authUseSignIn } from '@gentleduck/auth/client/react'
  *
  * <AuthProvider baseUrl="/auth">
  *   <App />
  * </AuthProvider>
  *
  * function SignIn() {
- *   const signIn = useSignIn()
+ *   const signIn = authUseSignIn()
  *   return <button onClick={() => signIn.mutate({ providerId: 'password', input: { ... } })}>...</button>
  * }
  * ```
@@ -27,25 +27,25 @@ import {
   useRef,
   useState,
 } from 'react'
-import { createAuthClient, type VanillaClient } from '../vanilla'
+import { authCreateClient, type AuthVanillaClient } from '../vanilla'
 
 // --- context ----------------------------------------------------------
 
 interface AuthContextValue<Profile = unknown> {
-  client: VanillaClient.IClient<Profile>
-  state: VanillaClient.ISessionResult<Profile>
+  client: AuthVanillaClient.IClient<Profile>
+  state: AuthVanillaClient.ISessionResult<Profile>
   status: 'loading' | 'authed' | 'guest'
-  refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+  refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
 }
 
 const AuthContext = createContext<AuthContextValue<unknown> | null>(null)
 
 /** `AuthProvider`. */
-export function AuthProvider(props: ReactClient.IProviderProps): ReturnType<typeof createElement> {
+export function AuthProvider(props: AuthReactClient.IProviderProps): ReturnType<typeof createElement> {
   const { children, client: externalClient, noInitialFetch, ...cfg } = props
   // biome-ignore lint/correctness/useExhaustiveDependencies: cfg is a destructured spread; only baseUrl matters for client identity.
-  const client = useMemo(() => externalClient ?? createAuthClient(cfg), [externalClient, cfg.baseUrl])
-  const [state, setState] = useState<VanillaClient.ISessionResult<unknown>>({ session: null, identity: null })
+  const client = useMemo(() => externalClient ?? authCreateClient(cfg), [externalClient, cfg.baseUrl])
+  const [state, setState] = useState<AuthVanillaClient.ISessionResult<unknown>>({ session: null, identity: null })
   const [status, setStatus] = useState<'loading' | 'authed' | 'guest'>(noInitialFetch ? 'guest' : 'loading')
   const subscribed = useRef(false)
 
@@ -88,13 +88,13 @@ function useAuthCtx<Profile = unknown>(): AuthContextValue<Profile> {
 
 // --- hooks ------------------------------------------------------------
 
-/** `useSession`. */
-export function useSession<Profile = unknown>(): ReactClient.IUseSessionResult<Profile> {
+/** `authUseSession`. */
+export function authUseSession<Profile = unknown>(): AuthReactClient.IUseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, status: ctx.status, refresh: ctx.refresh }
 }
 
-function useMutation<I, O>(fn: (input: I) => Promise<O>): ReactClient.IMutationResult<I, O> {
+function useMutation<I, O>(fn: (input: I) => Promise<O>): AuthReactClient.IMutationResult<I, O> {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown | null>(null)
   const mutate = useCallback(
@@ -115,45 +115,45 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): ReactClient.IMutationR
   return { mutate, loading, error }
 }
 
-/** `useSignIn`. */
-export function useSignIn<Profile = unknown>(): ReactClient.IMutationResult<
-  VanillaClient.ISignInOptions,
-  VanillaClient.ISignInResult<Profile>
+/** `authUseSignIn`. */
+export function authUseSignIn<Profile = unknown>(): AuthReactClient.IMutationResult<
+  AuthVanillaClient.ISignInOptions,
+  AuthVanillaClient.ISignInResult<Profile>
 > {
   const { client } = useAuthCtx<Profile>()
-  return useMutation((opts: VanillaClient.ISignInOptions) => client.signIn(opts))
+  return useMutation((opts: AuthVanillaClient.ISignInOptions) => client.signIn(opts))
 }
 
-/** `useSignOut`. */
-export function useSignOut(): ReactClient.IMutationResult<void, { ok: true }> {
+/** `authUseSignOut`. */
+export function authUseSignOut(): AuthReactClient.IMutationResult<void, { ok: true }> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
-/** `useBeginProvider`. */
-export function useBeginProvider(): ReactClient.IMutationResult<{ id: string; input?: unknown }, { body: unknown }> {
+/** `authUseBeginProvider`. */
+export function authUseBeginProvider(): AuthReactClient.IMutationResult<{ id: string; input?: unknown }, { body: unknown }> {
   const { client } = useAuthCtx()
   return useMutation(({ id, input }) => client.beginProvider(id, input))
 }
 
-/** `useAuthClient`. */
-export function useAuthClient<Profile = unknown>(): VanillaClient.IClient<Profile> {
+/** `authUseClient`. */
+export function authUseClient<Profile = unknown>(): AuthVanillaClient.IClient<Profile> {
   return useAuthCtx<Profile>().client
 }
 
-export namespace ReactClient {
-  export interface IProviderProps extends VanillaClient.IConfig {
+export namespace AuthReactClient {
+  export interface IProviderProps extends AuthVanillaClient.IConfig {
     children?: ReactNode
     /** Optional pre-built client; overrides cfg. */
-    client?: VanillaClient.IClient<unknown>
+    client?: AuthVanillaClient.IClient<unknown>
     /** Disable the initial automatic /session fetch on mount. */
     noInitialFetch?: boolean
   }
 
   export interface IUseSessionResult<Profile = unknown> {
-    data: VanillaClient.ISessionResult<Profile>
+    data: AuthVanillaClient.ISessionResult<Profile>
     status: 'loading' | 'authed' | 'guest'
-    refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+    refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
   }
 
   export interface IMutationResult<I, O> {

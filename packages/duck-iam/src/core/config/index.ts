@@ -1,2 +1,2 @@
-export { createAccessConfig } from './config'
-export type { Config } from './config.types'
+export { createIam } from './config'
+export type { IamConfig } from './config.types'

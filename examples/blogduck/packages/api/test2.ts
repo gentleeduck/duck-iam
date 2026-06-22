@@ -1,4 +1,4 @@
-import { createAccessConfig, type DefaultContext, MemoryAdapter } from '@gentleduck/iam'
+import { createIam, type DefaultContext, MemoryAdapter } from '@gentleduck/iam'
 
 export interface AppContext extends DefaultContext {
   subject: {
@@ -31,7 +31,7 @@ export interface AppContext extends DefaultContext {
   scope: 'public' | 'private'
 }
 
-export const access = createAccessConfig({
+export const access = createIam({
   actions: ['create', 'read', 'update', 'delete', 'list', 'manage'] as const,
   resources: ['comment', 'post', 'user', 'dashboard'] as const,
   scopes: ['public', 'private'] as const,

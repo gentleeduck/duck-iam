@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3005",
-    "dev:hocuspocus": "bun run src/hocuspocus/server.ts",
+    "dev:hocuspocus": "node --env-file=.env --import tsx/esm src/hocuspocus/server.ts",
     "build": "next build",
     "start": "next start",
     "db:generate": "drizzle-kit generate",
@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@blocknote/core": "^0.51.3",
-    "@blocknote/mantine": "^0.31.1",
-    "@blocknote/react": "^0.31.1",
+    "@blocknote/mantine": "^0.51.3",
+    "@blocknote/react": "^0.51.3",
     "@gentleduck/hooks": "catalog:",
     "@gentleduck/iam": "workspace:*",
     "@gentleduck/libs": "catalog:",
@@ -43,6 +43,7 @@
     "@types/react-dom": "^19.2.3",
     "drizzle-kit": "^0.31.0",
     "tailwindcss": "^4.3.0",
+    "tsx": "^4.19.4",
     "typescript": "^6.0.3"
   }
 }

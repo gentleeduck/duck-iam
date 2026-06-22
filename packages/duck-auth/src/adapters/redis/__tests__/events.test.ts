@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { RedisEvents } from '../events'
-import { FakeRedis } from '../redis-like'
+import { AuthRedisEvents } from '../events'
+import { AuthFakeRedis } from '../redis-like'
 
-describe('RedisEvents', () => {
-  let redis: FakeRedis
-  let bus: RedisEvents
+describe('AuthRedisEvents', () => {
+  let redis: AuthFakeRedis
+  let bus: AuthRedisEvents
 
   beforeEach(() => {
-    redis = new FakeRedis()
-    bus = new RedisEvents({ redis, prefix: 'test:events' })
+    redis = new AuthFakeRedis()
+    bus = new AuthRedisEvents({ redis, prefix: 'test:events' })
   })
 
   it('emit dispatches to local handlers synchronously off the publish call', async () => {
@@ -22,8 +22,8 @@ describe('RedisEvents', () => {
     expect(handler.mock.calls[0]![0]!.session.id).toBe('s1')
   })
 
-  it('two RedisEvents instances on the same FakeRedis receive each other emits', async () => {
-    const otherBus = new RedisEvents({ redis, prefix: 'test:events' })
+  it('two AuthRedisEvents instances on the same AuthFakeRedis receive each other emits', async () => {
+    const otherBus = new AuthRedisEvents({ redis, prefix: 'test:events' })
     const remoteHandler = vi.fn()
     otherBus.on('signup.completed', remoteHandler)
     // Allow the lazy subscribe to register before the emit.

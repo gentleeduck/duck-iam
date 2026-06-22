@@ -10,7 +10,7 @@
  */
 
 import { AuthErrorObject } from '../../core/errors'
-import type { Provider } from '../../core/types/provider'
+import type { AuthProvider } from '../../core/types/provider'
 
 // 1 MiB cap on SAML response; larger XML inputs are adversarial.
 const SAML_RESPONSE_MAX = 1_048_576
@@ -20,7 +20,7 @@ const SAML_RELAY_STATE_MAX = 256
 // DNS hostname max is 253 chars (RFC 1035).
 const SAML_HOST_MAX = 253
 
-export namespace SamlProvider {
+export namespace AuthSamlProvider {
   /**
    * Subset of `@node-saml/node-saml` we depend on. Both v4 + v5 satisfy
    * this shape; consumers without the peerDep get AUTH/MISCONFIGURED
@@ -71,10 +71,10 @@ export namespace SamlProvider {
     attributes?: Record<string, string | string[]>
   }
 
-  /** Config knobs for {@link samlProvider}. */
+  /** Config knobs for {@link authSamlProvider}. */
   export interface IOptions<Profile = unknown> {
     /**
-     * Provider id reported back to consumers (e.g. `'okta'`,
+     * AuthProvider id reported back to consumers (e.g. `'okta'`,
      * `'azure-saml'`). Default `'saml'`.
      */
     providerId?: string
@@ -99,7 +99,7 @@ export namespace SamlProvider {
     onSignIn: (input: { profile: IProfile; tenantId?: string }) => Promise<{ identityId: string }>
   }
 
-  /** Input to {@link samlProvider}.begin. */
+  /** Input to {@link authSamlProvider}.begin. */
   export interface IBeginInput {
     /** Caller-supplied relay state (CSRF guard); echoed back by IdP. */
     relayState: string
@@ -108,7 +108,7 @@ export namespace SamlProvider {
   }
 
   /**
-   * Input to {@link samlProvider}.complete. Covers both flows:
+   * Input to {@link authSamlProvider}.complete. Covers both flows:
    *   - SP-initiated: the SAMLResponse references an InResponseTo we issued.
    *   - IdP-initiated: the SAMLResponse is unsolicited. Whether this is
    *     accepted is a node-saml config knob (`allowUnsolicited: true`).
@@ -118,7 +118,7 @@ export namespace SamlProvider {
     SAMLResponse: string
   }
 
-  /** Input to {@link samlProvider}.slo.beginSp. */
+  /** Input to {@link authSamlProvider}.slo.beginSp. */
   export interface ISloBeginSpInput {
     /** The SAML nameID of the user being logged out. */
     nameID: string
@@ -127,7 +127,7 @@ export namespace SamlProvider {
     relayState: string
   }
 
-  /** Input to {@link samlProvider}.slo.completeSp. */
+  /** Input to {@link authSamlProvider}.slo.completeSp. */
   export interface ISloCompleteSpInput {
     /** IdP's response to our LogoutRequest (Redirect binding query params). */
     query: Record<string, string>
@@ -135,7 +135,7 @@ export namespace SamlProvider {
     originalQuery: string
   }
 
-  /** Input to {@link samlProvider}.slo.completeIdp. */
+  /** Input to {@link authSamlProvider}.slo.completeIdp. */
   export interface ISloCompleteIdpInput {
     /** SAMLRequest param from the IdP-initiated logout (Redirect or POST). */
     query?: Record<string, string>
@@ -143,7 +143,7 @@ export namespace SamlProvider {
     SAMLRequest?: string
   }
 
-  /** Result of {@link samlProvider}.slo.completeIdp. */
+  /** Result of {@link authSamlProvider}.slo.completeIdp. */
   export interface ISloCompleteIdpResult {
     /** SAML nameID of the user being logged out (the host should kill the matching session). */
     nameID: string | null
@@ -151,7 +151,7 @@ export namespace SamlProvider {
     redirectUrl: string
   }
 
-  /** Config knobs for {@link buildSpMetadata}. */
+  /** Config knobs for {@link authBuildSpMetadata}. */
   export interface IMetadataOptions {
     /** SP entityID. Must match the AudienceRestriction set at the IdP. */
     entityId: string
@@ -178,13 +178,13 @@ export namespace SamlProvider {
 }
 
 /**
- * Build a SAML provider. Returns the standard `Provider.IProvider`
- * shape so it slots into AuthRoot.providers.register alongside the
- * password / OAuth providers.
+ * Build a SAML provider. Returns the standard `AuthProvider.IProvider`
+ * shape so it slots into AuthEngine.providers.register alongside the
+ * authPassword / OAuth providers.
  */
-export function samlProvider<Profile = unknown>(
-  opts: SamlProvider.IOptions<Profile>,
-): Provider.IProvider<SamlProvider.IBeginInput, SamlProvider.ICompleteInput, Profile> {
+export function authSamlProvider<Profile = unknown>(
+  opts: AuthSamlProvider.IOptions<Profile>,
+): AuthProvider.IProvider<AuthSamlProvider.IBeginInput, AuthSamlProvider.ICompleteInput, Profile> {
   if (!opts.client) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
       detail: 'samlProvider requires a pre-built `client` (@node-saml/node-saml SAML instance)',
@@ -205,7 +205,7 @@ export function samlProvider<Profile = unknown>(
     id: providerId,
     kind: 'oauth',
 
-    async begin(_ctx, input): Promise<Provider.Intent[]> {
+    async begin(_ctx, input): Promise<AuthProvider.Intent[]> {
       // Cap caller-supplied strings before they flow into IdP URL/headers.
       if (
         typeof input.relayState !== 'string' ||
@@ -233,7 +233,7 @@ export function samlProvider<Profile = unknown>(
       return [{ type: 'redirect', url, status: 302 }]
     },
 
-    async complete(ctx, input): Promise<Provider.Intent[]> {
+    async complete(ctx, input): Promise<AuthProvider.Intent[]> {
       // cap SAMLResponse BEFORE handing it to
       // `validatePostResponseAsync` so adversarial multi-MB XML cannot
       // reach the parser. Real responses are 5-30 KiB; 1 MiB is generous.
@@ -249,7 +249,7 @@ export function samlProvider<Profile = unknown>(
           detail: 'invalid SAMLResponse',
         })
       }
-      let validated: { profile: SamlProvider.IProfile | null; loggedOut: boolean }
+      let validated: { profile: AuthSamlProvider.IProfile | null; loggedOut: boolean }
       try {
         validated = await opts.client.validatePostResponseAsync({
           SAMLResponse: input.SAMLResponse,
@@ -310,9 +310,9 @@ export function samlProvider<Profile = unknown>(
  * and re-fetch on a TTL. Sign certificates rotate, so emit metadata
  * dynamically rather than checking it in.
  */
-export function buildSpMetadata(opts: {
-  client?: SamlProvider.IClient
-  metadata: SamlProvider.IMetadataOptions
+export function authBuildSpMetadata(opts: {
+  client?: AuthSamlProvider.IClient
+  metadata: AuthSamlProvider.IMetadataOptions
 }): string {
   if (opts.client?.generateServiceProviderMetadata) {
     return opts.client.generateServiceProviderMetadata(
@@ -338,14 +338,14 @@ export function buildSpMetadata(opts: {
  *      back to the IdP.
  *
  * Every method requires the node-saml client to expose the matching
- * optional method on {@link SamlProvider.IClient}. Missing methods
+ * optional method on {@link AuthSamlProvider.IClient}. Missing methods
  * raise AUTH/MISCONFIGURED so misconfig fails fast at boot, not at
  * SLO time.
  */
-export function samlSloController(opts: { providerId?: string; client: SamlProvider.IClient }): {
-  beginSp(input: SamlProvider.ISloBeginSpInput): Promise<{ redirectUrl: string }>
-  completeSp(input: SamlProvider.ISloCompleteSpInput): Promise<{ nameID: string | null }>
-  completeIdp(input: SamlProvider.ISloCompleteIdpInput): Promise<SamlProvider.ISloCompleteIdpResult>
+export function authSamlSloController(opts: { providerId?: string; client: AuthSamlProvider.IClient }): {
+  beginSp(input: AuthSamlProvider.ISloBeginSpInput): Promise<{ redirectUrl: string }>
+  completeSp(input: AuthSamlProvider.ISloCompleteSpInput): Promise<{ nameID: string | null }>
+  completeIdp(input: AuthSamlProvider.ISloCompleteIdpInput): Promise<AuthSamlProvider.ISloCompleteIdpResult>
 } {
   if (!opts.client) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
@@ -383,7 +383,7 @@ export function samlSloController(opts: { providerId?: string; client: SamlProvi
           detail: 'slo.beginSp requires relayState (1-256 chars, no CR/LF)',
         })
       }
-      const user: SamlProvider.ILogoutUser = {
+      const user: AuthSamlProvider.ILogoutUser = {
         nameID: input.nameID,
         ...(input.nameIDFormat !== undefined && { nameIDFormat: input.nameIDFormat }),
         ...(input.sessionIndex !== undefined && { sessionIndex: input.sessionIndex }),
@@ -408,7 +408,7 @@ export function samlSloController(opts: { providerId?: string; client: SamlProvi
           detail: 'invalid LogoutResponse query',
         })
       }
-      let validated: { profile: SamlProvider.IProfile | null; loggedOut: boolean }
+      let validated: { profile: AuthSamlProvider.IProfile | null; loggedOut: boolean }
       try {
         validated = await opts.client.validateRedirectAsync(input.query, input.originalQuery)
       } catch {
@@ -432,7 +432,7 @@ export function samlSloController(opts: { providerId?: string; client: SamlProvi
           detail: 'samlSloController.completeIdp: client does not implement getLogoutResponseUrl',
         })
       }
-      let validated: { profile: SamlProvider.IProfile | null; loggedOut: boolean }
+      let validated: { profile: AuthSamlProvider.IProfile | null; loggedOut: boolean }
       if (input.SAMLRequest) {
         if (!opts.client.validatePostRequestAsync) {
           throw new AuthErrorObject('AUTH/MISCONFIGURED', {
@@ -485,14 +485,14 @@ export function samlSloController(opts: { providerId?: string; client: SamlProvi
         })
       }
       const nameID = validated.profile?.nameID ?? null
-      const responseUser: SamlProvider.ILogoutUser = nameID === null ? { nameID: '' } : { nameID }
+      const responseUser: AuthSamlProvider.ILogoutUser = nameID === null ? { nameID: '' } : { nameID }
       const redirectUrl = opts.client.getLogoutResponseUrl(responseUser, '', {}, false)
       return { nameID, redirectUrl }
     },
   }
 }
 
-function renderFallbackMetadata(m: SamlProvider.IMetadataOptions): string {
+function renderFallbackMetadata(m: AuthSamlProvider.IMetadataOptions): string {
   const wantAssertionsSigned = m.wantAssertionsSigned ?? true
   const wantAuthnResponseSigned = m.wantAuthnResponseSigned ?? true
   const nameIdFormat = m.nameIdFormat ?? 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress'

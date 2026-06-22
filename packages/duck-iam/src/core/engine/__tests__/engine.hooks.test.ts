@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Request } from '../../types'
+import type { IamRequest } from '../../types'
 import { emitMetrics, safeHookCall } from '../engine.hooks'
 
 describe('safeHookCall', () => {
@@ -68,7 +68,7 @@ describe('emitMetrics', () => {
   })
 })
 
-function fakeReq(subjectId = 's', action = 'a', resourceType = 'r'): Request.IAccessRequest<string, string, string> {
+function fakeReq(subjectId = 's', action = 'a', resourceType = 'r'): IamRequest.IAccessRequest<string, string, string> {
   return {
     subject: { id: subjectId, roles: [], attributes: {} },
     action,

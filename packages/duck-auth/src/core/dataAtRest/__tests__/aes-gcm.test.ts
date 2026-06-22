@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { AesGcmDataAtRest } from '../aes-gcm'
+import { AuthAesGcmDataAtRest } from '../aes-gcm'
 
-describe('AesGcmDataAtRest', () => {
+describe('AuthAesGcmDataAtRest', () => {
   const masterKey = Buffer.alloc(32, 1) // 32 bytes of 0x01
-  const adapter = new AesGcmDataAtRest({ kid: 'k1', masterKey })
+  const adapter = new AuthAesGcmDataAtRest({ kid: 'k1', masterKey })
 
   it('encrypt + decrypt roundtrip succeeds for the same context', async () => {
     const ct = await adapter.encrypt('top-secret', { field: 'ssn', identityId: 'u' })
@@ -39,7 +39,7 @@ describe('AesGcmDataAtRest', () => {
   })
 
   it('refuses constructor with masterKey shorter than 32 bytes', () => {
-    expect(() => new AesGcmDataAtRest({ kid: 'k', masterKey: Buffer.alloc(16) })).toThrow()
+    expect(() => new AuthAesGcmDataAtRest({ kid: 'k', masterKey: Buffer.alloc(16) })).toThrow()
   })
 
   it('id is stable for audit-log reporting', () => {
@@ -48,11 +48,11 @@ describe('AesGcmDataAtRest', () => {
 
   it('rotation - previousKeys ring decrypts ciphertexts written under an older kid', async () => {
     // Adapter v1: kid=k1
-    const v1 = new AesGcmDataAtRest({ kid: 'k1', masterKey: Buffer.alloc(32, 1) })
+    const v1 = new AuthAesGcmDataAtRest({ kid: 'k1', masterKey: Buffer.alloc(32, 1) })
     const ct = await v1.encrypt('secret-payload', { field: 'ssn', identityId: 'u' })
 
     // Adapter v2: rotated to k2, with k1 retained for backwards compat.
-    const v2 = new AesGcmDataAtRest({
+    const v2 = new AuthAesGcmDataAtRest({
       kid: 'k2',
       masterKey: Buffer.alloc(32, 2),
       previousKeys: [{ kid: 'k1', masterKey: Buffer.alloc(32, 1) }],
@@ -68,9 +68,9 @@ describe('AesGcmDataAtRest', () => {
   })
 
   it('rotation - ciphertext under an unknown kid throws AUTH/MISCONFIGURED (not silent data loss)', async () => {
-    const v1 = new AesGcmDataAtRest({ kid: 'k1', masterKey: Buffer.alloc(32, 1) })
+    const v1 = new AuthAesGcmDataAtRest({ kid: 'k1', masterKey: Buffer.alloc(32, 1) })
     const ct = await v1.encrypt('payload', { field: 'f', identityId: 'u' })
-    const v2 = new AesGcmDataAtRest({ kid: 'k2', masterKey: Buffer.alloc(32, 2) })
+    const v2 = new AuthAesGcmDataAtRest({ kid: 'k2', masterKey: Buffer.alloc(32, 2) })
     await expect(v2.decrypt(ct, { field: 'f', identityId: 'u' })).rejects.toMatchObject({
       code: 'AUTH/MISCONFIGURED',
     })
@@ -78,7 +78,7 @@ describe('AesGcmDataAtRest', () => {
 
   it('rotation - duplicate kid between current + previousKeys throws at construction', () => {
     try {
-      new AesGcmDataAtRest({
+      new AuthAesGcmDataAtRest({
         kid: 'k1',
         masterKey: Buffer.alloc(32, 1),
         previousKeys: [{ kid: 'k1', masterKey: Buffer.alloc(32, 9) }],

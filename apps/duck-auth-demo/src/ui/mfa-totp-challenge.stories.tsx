@@ -1,10 +1,10 @@
-import { withAuth } from '@gentleduck/auth/client/react/storybook'
+import { authWithStorybook } from '@gentleduck/auth/client/react/storybook'
 import type { Meta, StoryObj } from '@storybook/react'
 import { MfaTotpChallenge } from './mfa-totp-challenge'
 
 const meta: Meta<typeof MfaTotpChallenge> = {
   component: MfaTotpChallenge,
-  decorators: [withAuth({})],
+  decorators: [authWithStorybook({})],
   title: 'Auth / MfaTotpChallenge',
 }
 export default meta

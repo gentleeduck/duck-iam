@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { TestChannel } from '../../../channels/console'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
-import { CookieTransport } from '../../transport/cookie'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthTestChannel } from '../../../channels/console'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthCookieTransport } from '../../transport/cookie'
 
 interface MyProfile {
   email: string
@@ -12,26 +12,26 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const auth = new AuthRoot<MyProfile>({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 3, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 describe('FlowsFacet - email verification', () => {
-  let auth: AuthRoot<MyProfile>
-  let adapter: MemoryAuthAdapter<MyProfile>
+  let auth: AuthEngine<MyProfile>
+  let adapter: AuthMemoryAdapter<MyProfile>
   let identityId: string
-  let channel: TestChannel
+  let channel: AuthTestChannel
 
   beforeEach(async () => {
     ;({ auth, adapter } = build())
@@ -39,7 +39,7 @@ describe('FlowsFacet - email verification', () => {
       profile: { email: 'a@x.com', emailVerified: false },
     })
     identityId = ident.id
-    channel = new TestChannel()
+    channel = new AuthTestChannel()
   })
 
   it('request -> complete round-trips: identity.profile.emailVerified flips to true', async () => {

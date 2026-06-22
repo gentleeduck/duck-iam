@@ -1,4 +1,4 @@
-export namespace PasskeyTypes {
+export namespace AuthPasskeyTypes {
   /**
    * Subset of `@simplewebauthn/server` we depend on. Kept narrow so
    * the lazy import surface stays small.

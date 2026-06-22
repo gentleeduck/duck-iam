@@ -1,5 +1,5 @@
-import type { AccessControl } from '../../core/types'
-import type { IDevtoolsEngine } from './types'
+import type { IamAccessControl } from '../../core/types'
+import type { IamIDevtoolsEngine } from './types'
 
 /**
  * Hard production guard for the IAM devtools - default-block.
@@ -17,7 +17,7 @@ import type { IDevtoolsEngine } from './types'
  * @param engine - The runtime engine the panel would inspect.
  * @returns `true` when devtools MAY render, `false` to block.
  */
-export function isDevtoolsAllowed(engine: IDevtoolsEngine): boolean {
+export function isDevtoolsAllowed(engine: IamIDevtoolsEngine): boolean {
   // `process` may be undefined in raw-browser bundles that don't shim it;
   // "no process" is not a development signal.
   const nodeEnv: string | undefined =
@@ -42,11 +42,11 @@ export function isDevtoolsAllowed(engine: IDevtoolsEngine): boolean {
  *
  * @deprecated Prefer {@link isDevtoolsAllowed} for clarity.
  */
-export function isDevtoolsBlocked(engine: IDevtoolsEngine): boolean {
+export function isDevtoolsBlocked(engine: IamIDevtoolsEngine): boolean {
   return !isDevtoolsAllowed(engine)
 }
 
-function readEngineMode(engine: IDevtoolsEngine): AccessControl.Mode | undefined {
+function readEngineMode(engine: IamIDevtoolsEngine): IamAccessControl.Mode | undefined {
   const candidate = engine as {
     mode?: unknown
     config?: { mode?: unknown }

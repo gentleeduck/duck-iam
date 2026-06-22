@@ -1,20 +1,20 @@
-import type { AccessControl, Primitives, Request } from '../types'
-import { evalCondition, isCondition, MAX_CONDITION_DEPTH, ops, resolveValue } from './conditions.libs'
+import type { IamAccessControl, IamPrimitives, IamRequest } from '../types'
+import { iamEvalCondition, iamIsCondition, IAM_MAX_CONDITION_DEPTH, iamOps, iamResolveValue } from './conditions.libs'
 
 /**
- * Evaluate a single operator. Exposed for explain/trace functionality.
+ * IamEvaluate a single operator. Exposed for explain/trace functionality.
  *
  * @param op         - The operator to apply.
  * @param fieldValue - Left-hand side resolved from the request.
  * @param condValue  - Right-hand side from the condition.
  * @returns `true` when the operator predicate holds.
  */
-export function evaluateOperator(
-  op: AccessControl.Operator,
-  fieldValue: Primitives.AttributeValue,
-  condValue: Primitives.AttributeValue,
+export function iamEvaluateOperator(
+  op: IamAccessControl.Operator,
+  fieldValue: IamPrimitives.AttributeValue,
+  condValue: IamPrimitives.AttributeValue,
 ): boolean {
-  return ops[op](fieldValue, condValue)
+  return iamOps[op](fieldValue, condValue)
 }
 
 /**
@@ -24,41 +24,41 @@ export function evaluateOperator(
  * @param value - Raw condition value (possibly `$`-prefixed reference).
  * @returns The resolved value, or `value` unchanged when no resolution applies.
  */
-export function resolveConditionValue(
-  req: Request.IAccessRequest,
-  value: Primitives.AttributeValue,
-): Primitives.AttributeValue {
-  return resolveValue(req, value)
+export function iamResolveConditionValue(
+  req: IamRequest.IAccessRequest,
+  value: IamPrimitives.AttributeValue,
+): IamPrimitives.AttributeValue {
+  return iamResolveValue(req, value)
 }
 
-/** Evaluate a single condition or condition group item, dispatching to the appropriate handler. */
+/** IamEvaluate a single condition or condition group item, dispatching to the appropriate handler. */
 function evalItem(
-  req: Request.IAccessRequest,
-  item: AccessControl.ICondition | AccessControl.IConditionGroup,
+  req: IamRequest.IAccessRequest,
+  item: IamAccessControl.ICondition | IamAccessControl.IConditionGroup,
   depth: number,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
-  return isCondition(item) ? evalCondition(req, item, caches) : evalConditionGroup(req, item, depth, caches)
+  return iamIsCondition(item) ? iamEvalCondition(req, item, caches) : iamEvalConditionGroup(req, item, depth, caches)
 }
 
 /**
  * Evaluates a condition group tree against an access request.
  *
  * Handles `all` (AND), `any` (OR), and `none` (NOT/NOR) groups recursively.
- * Fails closed (returns `false`) when nesting exceeds `MAX_CONDITION_DEPTH`.
+ * Fails closed (returns `false`) when nesting exceeds `IAM_MAX_CONDITION_DEPTH`.
  *
  * @param req   - The access request providing field values
  * @param group - The condition group to evaluate
  * @param depth - Current recursion depth (internal, do not set)
  * @returns Whether the condition group is satisfied
  */
-export function evalConditionGroup(
-  req: Request.IAccessRequest,
-  group: AccessControl.IConditionGroup,
+export function iamEvalConditionGroup(
+  req: IamRequest.IAccessRequest,
+  group: IamAccessControl.IConditionGroup,
   depth = 0,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
-  if (depth >= MAX_CONDITION_DEPTH) {
+  if (depth >= IAM_MAX_CONDITION_DEPTH) {
     return false // Deny when nesting is too deep -- fail closed
   }
 

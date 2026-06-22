@@ -1,4 +1,4 @@
-export namespace Client {
+export namespace IamClient {
   /**
    * Compound string key uniquely identifying a permission check result. Used
    * as keys in {@link PermissionMap}; formats:
@@ -7,7 +7,7 @@ export namespace Client {
    *  - `scope:action:resource`
    *  - `scope:action:resource:resourceId`
    *
-   * Segments containing `:` are escaped (`:` -> `\:`); see `buildPermissionKey`.
+   * Segments containing `:` are escaped (`:` -> `\:`); see `iamBuildPermissionKey`.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.

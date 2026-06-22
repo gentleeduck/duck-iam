@@ -1,27 +1,27 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { AccessControl, Adapter } from '../../../core/types'
+import type { IamAccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { MemoryAdapter } from '../index'
+import { IamMemoryAdapter } from '../index'
 
 // Shared adapter compliance suite - every adapter must pass.
-runAdapterCompliance('MemoryAdapter', () => new MemoryAdapter())
+runAdapterCompliance('IamMemoryAdapter', () => new IamMemoryAdapter())
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
 type Ro = 'viewer' | 'editor'
 type S = 'org-1'
 
-describe('MemoryAdapter', () => {
-  let adapter: MemoryAdapter<A, R, Ro, S>
+describe('IamMemoryAdapter', () => {
+  let adapter: IamMemoryAdapter<A, R, Ro, S>
 
   beforeEach(() => {
-    adapter = new MemoryAdapter<A, R, Ro, S>()
+    adapter = new IamMemoryAdapter<A, R, Ro, S>()
   })
 
-  describe('Adapter.IPolicyStore', () => {
-    const policy: AccessControl.IPolicy<A, R, Ro> = {
+  describe('IamAdapter.IPolicyStore', () => {
+    const policy: IamAccessControl.IPolicy<A, R, Ro> = {
       id: 'p1',
-      name: 'Test AccessControl.IPolicy',
+      name: 'Test IamAccessControl.IPolicy',
       algorithm: 'deny-overrides',
       rules: [],
     }
@@ -55,8 +55,8 @@ describe('MemoryAdapter', () => {
     })
   })
 
-  describe('Adapter.IRoleStore', () => {
-    const role: AccessControl.IRole<A, R, Ro, S> = {
+  describe('IamAdapter.IRoleStore', () => {
+    const role: IamAccessControl.IRole<A, R, Ro, S> = {
       id: 'viewer',
       name: 'Viewer',
       permissions: [{ action: 'read', resource: 'post' }],
@@ -84,7 +84,7 @@ describe('MemoryAdapter', () => {
     })
   })
 
-  describe('Adapter.ISubjectStore', () => {
+  describe('IamAdapter.ISubjectStore', () => {
     it('getSubjectRoles returns empty for unknown subject', async () => {
       expect(await adapter.getSubjectRoles('unknown')).toEqual([])
     })
@@ -132,7 +132,7 @@ describe('MemoryAdapter', () => {
 
   describe('constructor init', () => {
     it('initializes from init object', async () => {
-      const adapter = new MemoryAdapter<A, R, Ro, S>({
+      const adapter = new IamMemoryAdapter<A, R, Ro, S>({
         policies: [{ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }],
         roles: [{ id: 'viewer', name: 'Viewer', permissions: [] }],
         assignments: { 'user-1': ['viewer'] },

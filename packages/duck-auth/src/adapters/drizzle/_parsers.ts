@@ -4,10 +4,10 @@ import { isFiniteNumber } from '../../core/credential-utils'
 
 /**
  * Strictly-typed provider link as written by the drizzle adapters.
- * Mirrors `Identity.ProviderLink` from `core/types/identity` without
+ * Mirrors `AuthIdentity.ProviderLink` from `core/types/identity` without
  * importing it (we only need the JSON-serializable surface).
  */
-export interface DrizzleProviderLink {
+export interface AuthDrizzleProviderLink {
   providerId: string
   providerSub?: string
   addedAt: number
@@ -22,7 +22,7 @@ export interface DrizzleProviderLink {
  * column is missing it on a legacy row - `isFiniteNumber` rejects
  * NaN / Infinity / strings.
  */
-export function parseProviderLinks(raw: string | null | undefined): DrizzleProviderLink[] {
+export function authParseProviderLinks(raw: string | null | undefined): AuthDrizzleProviderLink[] {
   if (typeof raw !== 'string' || raw.length === 0) return []
   let parsed: unknown
   try {
@@ -31,7 +31,7 @@ export function parseProviderLinks(raw: string | null | undefined): DrizzleProvi
     return []
   }
   if (!Array.isArray(parsed)) return []
-  const out: DrizzleProviderLink[] = []
+  const out: AuthDrizzleProviderLink[] = []
   for (const entry of parsed) {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) continue
     const providerId: unknown = Reflect.get(entry, 'providerId')
@@ -43,14 +43,14 @@ export function parseProviderLinks(raw: string | null | undefined): DrizzleProvi
     // reject non-finite / non-numeric. Missing field defaults to 0
     // so a legacy row that pre-dates the column population still loads.
     if (addedAt !== undefined && !isFiniteNumber(addedAt)) continue
-    const link: DrizzleProviderLink = { providerId, addedAt: addedAt === undefined ? 0 : addedAt }
+    const link: AuthDrizzleProviderLink = { providerId, addedAt: addedAt === undefined ? 0 : addedAt }
     if (providerSub !== undefined) link.providerSub = providerSub
     out.push(link)
   }
   return out
 }
 
-export namespace ParseProviderLinks {
-  /** Alias for the flat `DrizzleProviderLink` type. */
-  export type IDrizzleProviderLink = DrizzleProviderLink
+export namespace AuthParseProviderLinks {
+  /** Alias for the flat `AuthDrizzleProviderLink` type. */
+  export type IDrizzleProviderLink = AuthDrizzleProviderLink
 }

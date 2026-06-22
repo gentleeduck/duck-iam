@@ -1,10 +1,10 @@
-import { LRUCache } from '../../shared/cache'
-import { buildPermissionKey } from '../../shared/keys'
-import { clearRegexCache } from '../conditions/conditions.libs'
-import { evaluate, evaluateFast } from '../evaluate'
-import type { Explain } from '../explain'
-import { clearPathCache } from '../resolve/resolve'
-import type { AccessControl, Adapter, Client, Request } from '../types'
+import { IamLRUCache } from '../../shared/cache'
+import { iamBuildPermissionKey } from '../../shared/keys'
+import { iamClearRegexCache } from '../conditions/conditions.libs'
+import { iamEvaluate, iamEvaluateFast } from '../evaluate'
+import type { IamExplain } from '../explain'
+import { iamClearPathCache } from '../resolve/resolve'
+import type { IamAccessControl, IamAdapter, IamClient, IamRequest } from '../types'
 import { emitMetrics, safeHookCall } from './engine.hooks'
 import {
   applyInvalidateEvent,
@@ -16,14 +16,14 @@ import {
 } from './engine.invalidation'
 import { createAdmin, enrichSubjectWithScopedRoles } from './engine.libs'
 import { disposeInvalidator, preloadEngine, runHealthCheck } from './engine.lifecycle'
-import { type ILoaderDeps, loadAllPolicies, resolveSubject } from './engine.loaders'
+import { type IIamLoaderDeps, loadAllPolicies, resolveSubject } from './engine.loaders'
 import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
-import type { EngineTypes } from './engine.types'
+import type { IamEngineTypes } from './engine.types'
 
 /** Flush process-wide regex + dot-path caches; schedule periodically in multi-tenant deployments. */
-export function flushSharedCaches(): void {
-  clearRegexCache()
-  clearPathCache()
+export function iamFlushSharedCaches(): void {
+  iamClearRegexCache()
+  iamClearPathCache()
 }
 /**
  * Central runtime that evaluates access requests against RBAC roles and ABAC
@@ -32,7 +32,7 @@ export function flushSharedCaches(): void {
  * Loads roles + policies from its adapter, caches them with configurable TTL,
  * converts RBAC roles into ABAC rules via {@link rolesToPolicy}, and merges
  * decisions across all policies according to its `policyCombine` setting
- * (default `'and'`; see {@link AccessControl.PolicyCombine}).
+ * (default `'and'`; see {@link IamAccessControl.PolicyCombine}).
  *
  * @template TAction   - Union of valid action strings.
  * @template TResource - Union of valid resource strings.
@@ -43,43 +43,43 @@ export function flushSharedCaches(): void {
  *
  * @example
  * ```ts
- * const engine = new Engine({ adapter, defaultEffect: 'deny' })
+ * const engine = new IamEngine({ adapter, defaultEffect: 'deny' })
  *
  * const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {} })
  * const decision = await engine.check('user-1', 'update', post)
  * const trace = await engine.explain('user-1', 'delete', post)
  * ```
  */
-export class Engine<
+export class IamEngine<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-  TMode extends AccessControl.Mode = 'development',
+  TMode extends IamAccessControl.Mode = 'development',
 > {
-  private _adapter: Adapter.IAdapter<TAction, TResource, TRole, TScope>
-  private _defaultEffect: AccessControl.Effect
-  private _mode: AccessControl.Mode
-  private _policyCombine: AccessControl.PolicyCombine
-  private _hooks: EngineTypes.IHooks<TAction, TResource, TScope>
+  private _adapter: IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
+  private _defaultEffect: IamAccessControl.Effect
+  private _mode: IamAccessControl.Mode
+  private _policyCombine: IamAccessControl.PolicyCombine
+  private _hooks: IamEngineTypes.IHooks<TAction, TResource, TScope>
   private _maxPolicies: number
   private _maxRoles: number
   private _adapterTimeoutMs: number
-  private _invalidator?: EngineTypes.IInvalidator<TRole>
+  private _invalidator?: IamEngineTypes.IInvalidator<TRole>
   private _invalidatorUnsub: (() => void) | null = null
-  private _policyCache: LRUCache<AccessControl.IPolicy[]>
-  private _roleCache: LRUCache<AccessControl.IRole[]>
-  private _rbacPolicyCache: LRUCache<AccessControl.IPolicy>
-  private _mergedPolicyCache: LRUCache<AccessControl.IPolicy[]>
-  private _subjectCache: LRUCache<Request.ISubject>
+  private _policyCache: IamLRUCache<IamAccessControl.IPolicy[]>
+  private _roleCache: IamLRUCache<IamAccessControl.IRole[]>
+  private _rbacPolicyCache: IamLRUCache<IamAccessControl.IPolicy>
+  private _mergedPolicyCache: IamLRUCache<IamAccessControl.IPolicy[]>
+  private _subjectCache: IamLRUCache<IamRequest.ISubject>
   // Single-flight: coalesce concurrent cache-misses so a cold start under load
   // doesn't fan out N identical adapter calls. Cleared once the promise settles.
   private _inFlight = {
-    policies: { value: null as Promise<AccessControl.IPolicy[]> | null },
-    roles: { value: null as Promise<AccessControl.IRole[]> | null },
-    rbac: { value: null as Promise<AccessControl.IPolicy> | null },
-    merged: { value: null as Promise<AccessControl.IPolicy[]> | null },
-    subjects: new Map<string, Promise<Request.ISubject>>(),
+    policies: { value: null as Promise<IamAccessControl.IPolicy[]> | null },
+    roles: { value: null as Promise<IamAccessControl.IRole[]> | null },
+    rbac: { value: null as Promise<IamAccessControl.IPolicy> | null },
+    merged: { value: null as Promise<IamAccessControl.IPolicy[]> | null },
+    subjects: new Map<string, Promise<IamRequest.ISubject>>(),
   }
   /**
    * Per-instance evaluation caches. Multi-tenant deployments instantiate
@@ -134,14 +134,14 @@ export class Engine<
    *
    * @param config - Engine configuration (adapter, mode, caches, hooks).
    */
-  constructor(config: EngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>) {
+  constructor(config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>) {
     this._adapter = config.adapter
     this._defaultEffect = config.defaultEffect ?? 'deny'
     this._mode = config.mode ?? 'development'
     this._policyCombine = config.policyCombine ?? 'and'
     this._hooks = config.hooks ?? {}
 
-    // evaluateFast can't represent first-applicable; fail at construction.
+    // iamEvaluateFast can't represent first-applicable; fail at construction.
     if (this._mode === 'production' && this._policyCombine === 'first-applicable') {
       throw new Error(
         "[@gentleduck/iam:engine] policyCombine 'first-applicable' requires mode 'development'; the production fast path cannot represent it correctly.",
@@ -182,11 +182,11 @@ export class Engine<
     const ttl = (config.cacheTTL ?? 60) * 1000
     const maxSize = config.maxCacheSize ?? 1000
 
-    this._policyCache = new LRUCache(1, ttl) // single entry
-    this._roleCache = new LRUCache(1, ttl)
-    this._rbacPolicyCache = new LRUCache(1, ttl)
-    this._mergedPolicyCache = new LRUCache(1, ttl)
-    this._subjectCache = new LRUCache(maxSize, ttl)
+    this._policyCache = new IamLRUCache(1, ttl) // single entry
+    this._roleCache = new IamLRUCache(1, ttl)
+    this._rbacPolicyCache = new IamLRUCache(1, ttl)
+    this._mergedPolicyCache = new IamLRUCache(1, ttl)
+    this._subjectCache = new IamLRUCache(maxSize, ttl)
 
     if (config.invalidator) {
       this._invalidator = config.invalidator
@@ -235,7 +235,7 @@ export class Engine<
   }
 
   /** Apply a cross-instance invalidate event to local caches. */
-  private _applyInvalidateEvent(event: EngineTypes.IInvalidateEvent<TRole>): void {
+  private _applyInvalidateEvent(event: IamEngineTypes.IInvalidateEvent<TRole>): void {
     applyInvalidateEvent(this._cacheBag(), event)
   }
 
@@ -246,7 +246,7 @@ export class Engine<
 
   /** Load all policies from the adapter, using the cache if available. */
   /** @internal Build the loader deps. */
-  private _loaderDeps(): ILoaderDeps<TAction, TResource, TRole, TScope> {
+  private _loaderDeps(): IIamLoaderDeps<TAction, TResource, TRole, TScope> {
     return {
       adapter: this._adapter,
       policyCache: this._policyCache,
@@ -261,42 +261,42 @@ export class Engine<
     }
   }
 
-  private _resolveSubject(subjectId: string): Promise<Request.ISubject> {
+  private _resolveSubject(subjectId: string): Promise<IamRequest.ISubject> {
     return resolveSubject(this._loaderDeps(), subjectId)
   }
 
-  private _loadAllPolicies(): Promise<AccessControl.IPolicy[]> {
+  private _loadAllPolicies(): Promise<IamAccessControl.IPolicy[]> {
     return loadAllPolicies(this._loaderDeps())
   }
 
   /**
-   * Bridges the runtime `this._mode` branch to the static `AccessControl.ModeResult<TMode>`
+   * Bridges the runtime `this._mode` branch to the static `IamAccessControl.ModeResult<TMode>`
    * conditional type. Centralized so the assertion is named and grep-able
    * instead of scattered across each return statement.
    */
-  private _asResult(value: boolean | AccessControl.IDecision): AccessControl.ModeResult<TMode> {
-    return value as AccessControl.ModeResult<TMode>
+  private _asResult(value: boolean | IamAccessControl.IDecision): IamAccessControl.ModeResult<TMode> {
+    return value as IamAccessControl.ModeResult<TMode>
   }
 
   /**
-   * Full authorization check with a complete {@link Request.IAccessRequest}.
+   * Full authorization check with a complete {@link IamRequest.IAccessRequest}.
    *
    * In `'production'` mode, returns a plain `boolean`.
-   * In `'development'` mode, returns a full {@link AccessControl.IDecision}.
+   * In `'development'` mode, returns a full {@link IamAccessControl.IDecision}.
    *
    * @param request - The access request to evaluate.
    * @returns The decision shape determined by the engine's mode.
    */
   async authorize(
-    request: Request.IAccessRequest<TAction, TResource, TScope>,
-  ): Promise<AccessControl.ModeResult<TMode>> {
+    request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+  ): Promise<IamAccessControl.ModeResult<TMode>> {
     let req = request
     const t0 = this._hooks.onMetrics ? performance.now() : 0
 
     // Trailing hooks run outside the evaluation try; a thrown hook must not
     // rewrite an allow into deny via the catch.
-    let result: AccessControl.ModeResult<TMode>
-    let decisionForHooks: AccessControl.IDecision | null = null
+    let result: IamAccessControl.ModeResult<TMode>
+    let decisionForHooks: IamAccessControl.IDecision | null = null
     let allowedForMetrics = false
     let failOpenForMetrics = false
     try {
@@ -317,12 +317,12 @@ export class Engine<
 
       const onPolicyErrorHook = this._hooks.onPolicyError
       const onPolicyError = onPolicyErrorHook
-        ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
+        ? (err: Error, policy: IamAccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
         : undefined
 
       const signals: { failOpen?: boolean } = {}
       if (this._mode === 'production') {
-        const allowed = evaluateFast(
+        const allowed = iamEvaluateFast(
           allPolicies,
           req,
           this._defaultEffect,
@@ -335,7 +335,7 @@ export class Engine<
         failOpenForMetrics = signals.failOpen === true
         result = this._asResult(allowed)
       } else {
-        const decision = evaluate(
+        const decision = iamEvaluate(
           allPolicies,
           req,
           this._defaultEffect,
@@ -395,7 +395,7 @@ export class Engine<
    * `performance.now()` cost when no hook is wired.
    */
   private _emitMetrics(
-    req: Request.IAccessRequest<TAction, TResource, TScope>,
+    req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
     allowed: boolean,
     t0: number,
     failOpen: boolean,
@@ -417,8 +417,8 @@ export class Engine<
   async can(
     subjectId: string,
     action: TAction,
-    resource: Request.IResource<TResource>,
-    environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
+    resource: IamRequest.IResource<TResource>,
+    environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
   ): Promise<boolean> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return false
@@ -432,7 +432,7 @@ export class Engine<
       // never see an unhandled rejection from the entry-point methods.
       const err = error instanceof Error ? error : new Error(String(error))
       // _safeHookCall so a throwing onError cannot bypass fail-closed `return false`.
-      const errReq: Request.IAccessRequest<TAction, TResource, TScope> = {
+      const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
         subject: { id: subjectId, roles: [], attributes: {} },
         action,
         resource,
@@ -445,7 +445,7 @@ export class Engine<
   }
 
   /**
-   * Same as `can` but returns the full {@link AccessControl.IDecision} in development mode,
+   * Same as `can` but returns the full {@link IamAccessControl.IDecision} in development mode,
    * or a plain boolean in production mode.
    *
    * @param subjectId   - Subject ID to resolve via the adapter.
@@ -458,22 +458,22 @@ export class Engine<
   async check(
     subjectId: string,
     action: TAction,
-    resource: Request.IResource<TResource>,
-    environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
+    resource: IamRequest.IResource<TResource>,
+    environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
-  ): Promise<AccessControl.ModeResult<TMode>> {
+  ): Promise<IamAccessControl.ModeResult<TMode>> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
       // Fail-closed: in production mode return false; otherwise a synthesized deny.
       return (
         this._mode === 'production' ? false : { allowed: false, reason: 'invalid subjectId' }
-      ) as AccessControl.ModeResult<TMode>
+      ) as IamAccessControl.ModeResult<TMode>
     }
     try {
       const subject = await this._resolveSubject(subjectId)
       return await this.authorize({ subject, action, resource, environment, scope })
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
-      const req: Request.IAccessRequest<TAction, TResource, TScope> = {
+      const req: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
         subject: { id: subjectId, roles: [], attributes: {} },
         action,
         resource,
@@ -509,16 +509,16 @@ export class Engine<
    * @param resource    - Target resource.
    * @param environment - Optional request-time environment.
    * @param scope       - Optional scope for multi-tenant checks.
-   * @returns A full {@link Explain.IResult} describing the evaluation.
+   * @returns A full {@link IamExplain.IResult} describing the evaluation.
    */
   async explain(
-    this: Engine<TAction, TResource, TRole, TScope, 'development'>,
+    this: IamEngine<TAction, TResource, TRole, TScope, 'development'>,
     subjectId: string,
     action: TAction,
-    resource: Request.IResource<TResource>,
-    environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
+    resource: IamRequest.IResource<TResource>,
+    environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
     scope?: TScope,
-  ): Promise<Explain.IResult> {
+  ): Promise<IamExplain.IResult> {
     if (this._mode === 'production') {
       throw new Error('explain() is not available in production mode')
     }
@@ -535,7 +535,7 @@ export class Engine<
 
     const scopedRolesApplied = enrichedSubject.roles.filter((r) => !originalRoles.includes(r))
 
-    let req: Request.IAccessRequest<TAction, TResource, TScope> = {
+    let req: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
       subject: enrichedSubject,
       action,
       resource,
@@ -553,9 +553,9 @@ export class Engine<
     // Lazy import: production mode users (which throw before this point)
     // pay zero bytes for the explain chunk. Bundlers split this into its
     // own chunk.
-    const { explainEvaluation } = await import('../explain')
+    const { iamExplainEvaluation } = await import('../explain')
 
-    return explainEvaluation(
+    return iamExplainEvaluation(
       allPolicies,
       req,
       this._defaultEffect,
@@ -571,19 +571,19 @@ export class Engine<
    * Each check goes through scoped role enrichment and hooks, consistent with authorize().
    *
    * In `'production'` mode, returns `Record<string, boolean>`.
-   * In `'development'` mode, returns the full typed {@link Client.PermissionMap}.
+   * In `'development'` mode, returns the full typed {@link IamClient.PermissionMap}.
    *
    * @param subjectId   - Subject ID to resolve via the adapter.
-   * @param checks      - Array of {@link Client.IPermissionCheck} descriptors.
+   * @param checks      - Array of {@link IamClient.IPermissionCheck} descriptors.
    * @param environment - Optional request-time environment shared by all checks.
    * @returns Mode-dependent permission map.
    */
   async permissions(
     subjectId: string,
-    checks: readonly Client.IPermissionCheck<TAction, TResource, TScope>[],
-    environment?: Request.IAccessRequest<TAction, TResource, TScope>['environment'],
+    checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
+    environment?: IamRequest.IAccessRequest<TAction, TResource, TScope>['environment'],
     opts: { telemetry?: boolean } = {},
-  ): Promise<AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
+  ): Promise<IamAccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
       throw new Error('[@gentleduck/iam:engine] permissions(): subjectId must be a non-empty string <=1024 chars')
     }
@@ -596,49 +596,49 @@ export class Engine<
     // `telemetry: false` skips per-check onMetrics for hot UI gates (~2x throughput).
     const telemetry = opts.telemetry !== false
     // Outer try synthesises all-deny on subject/policy load failure.
-    let subject: Request.ISubject
-    let allPolicies: AccessControl.IPolicy[]
+    let subject: IamRequest.ISubject
+    let allPolicies: IamAccessControl.IPolicy[]
     try {
       ;[subject, allPolicies] = await Promise.all([this._resolveSubject(subjectId), this._loadAllPolicies()])
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
       const failClosed: Record<string, boolean> = {}
       for (const c of checks) {
-        failClosed[buildPermissionKey(c.action, c.resource, c.resourceId, c.scope)] = false
+        failClosed[iamBuildPermissionKey(c.action, c.resource, c.resourceId, c.scope)] = false
       }
-      const errReq: Request.IAccessRequest<TAction, TResource, TScope> = {
+      const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
         subject: { id: subjectId, roles: [], attributes: {} },
         action: checks[0]?.action ?? ('' as TAction),
         resource: { type: checks[0]?.resource ?? ('' as TResource), attributes: {} },
         environment,
       }
       await this._safeHookCall(() => this._hooks.onError?.(err, errReq), 'onError')
-      return failClosed as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
+      return failClosed as IamAccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
     }
 
     const map: Record<string, boolean> = {}
     // Memo per scope: N checks sharing a scope must not rebuild the merged role list N times.
-    const enrichedByScope = new Map<TScope, Request.ISubject>()
+    const enrichedByScope = new Map<TScope, IamRequest.ISubject>()
 
     // Forward onPolicyError to evaluate* so batch checks surface per-policy
     // throws instead of silently dropping them.
     const onPolicyErrorHook = this._hooks.onPolicyError
     const onPolicyError = onPolicyErrorHook
-      ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
+      ? (err: Error, policy: IamAccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
       : undefined
 
     for (const c of checks) {
-      const key = buildPermissionKey(c.action, c.resource, c.resourceId, c.scope)
+      const key = iamBuildPermissionKey(c.action, c.resource, c.resourceId, c.scope)
       // Per-check metrics: onMetrics fires once per check with failOpen signal
       // (unless `telemetry: false`).
       const t0 = telemetry && this._hooks.onMetrics ? performance.now() : 0
 
       // Trailing-hooks block runs OUTSIDE the evaluation try so a throwing
       // afterEvaluate/onDeny cannot rewrite the per-check verdict.
-      let decisionForHooks: AccessControl.IDecision | null = null
+      let decisionForHooks: IamAccessControl.IDecision | null = null
       let allowedForCheck = false
       let failOpenForCheck = false
-      let evalReq: Request.IAccessRequest<TAction, TResource, TScope> | null = null
+      let evalReq: IamRequest.IAccessRequest<TAction, TResource, TScope> | null = null
 
       try {
         let enrichedSubject = subject
@@ -652,7 +652,7 @@ export class Engine<
           }
         }
 
-        let req: Request.IAccessRequest<TAction, TResource, TScope> = {
+        let req: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
           subject: enrichedSubject,
           action: c.action,
           resource: { type: c.resource, id: c.resourceId, attributes: {} },
@@ -667,7 +667,7 @@ export class Engine<
         const signals: { failOpen?: boolean } = {}
 
         if (this._mode === 'production') {
-          const allowed = evaluateFast(
+          const allowed = iamEvaluateFast(
             allPolicies,
             req,
             this._defaultEffect,
@@ -681,7 +681,7 @@ export class Engine<
           failOpenForCheck = signals.failOpen === true
           evalReq = req
         } else {
-          const decision = evaluate(
+          const decision = iamEvaluate(
             allPolicies,
             req,
             this._defaultEffect,
@@ -698,7 +698,7 @@ export class Engine<
         }
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
-        const errReq: Request.IAccessRequest<TAction, TResource, TScope> = {
+        const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
           subject,
           action: c.action,
           resource: { type: c.resource, id: c.resourceId, attributes: {} },
@@ -724,13 +724,13 @@ export class Engine<
       if (telemetry && evalReq !== null) this._emitMetrics(evalReq, allowedForCheck, t0, failOpenForCheck)
     }
 
-    return map as AccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
+    return map as IamAccessControl.ModePermissionMap<TMode, TAction, TResource, TScope>
   }
 
-  private _admin?: EngineTypes.IAdmin<TAction, TResource, TRole, TScope>
+  private _admin?: IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope>
 
   /** Lazily-built admin interface for CRUD operations on policies, roles, subjects. */
-  get admin(): EngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
+  get admin(): IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
     this._admin ??= createAdmin<TAction, TResource, TRole, TScope>(this._adapter, this)
     return this._admin
   }
@@ -806,9 +806,9 @@ export class Engine<
    * adapter is unreachable so an orchestrator can pull the instance out of
    * rotation.
    *
-   * @returns A {@link EngineTypes.IHealth} snapshot.
+   * @returns A {@link IamEngineTypes.IHealth} snapshot.
    */
-  async healthCheck(): Promise<EngineTypes.IHealth> {
+  async healthCheck(): Promise<IamEngineTypes.IHealth> {
     return runHealthCheck(this._cachesForStats(), async () => {
       await this._withTimeout((opts) => this._adapter.listPolicies(opts), 'healthCheck.listPolicies')
     })

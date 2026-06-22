@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../adapters/memory'
-import { createAccessConfig } from '../config'
+import { IamMemoryAdapter } from '../../adapters/memory'
+import { createIam } from '../config'
 
 describe('Integration: config -> engine -> evaluate', () => {
-  const access = createAccessConfig({
+  const access = createIam({
     actions: ['create', 'read', 'update', 'delete'] as const,
     resources: ['post', 'comment'] as const,
     roles: ['viewer', 'editor', 'admin'] as const,
     scopes: ['org-1', 'org-2'] as const,
   })
 
-  const viewer = access.defineRole('viewer').name('Viewer').grantRead('post', 'comment').build()
+  const viewer = access.iamDefineRole('viewer').name('Viewer').grantRead('post', 'comment').build()
 
   const editor = access
-    .defineRole('editor')
+    .iamDefineRole('editor')
     .name('Editor')
     .inherits('viewer')
     .grant('create', 'post')
@@ -22,7 +22,7 @@ describe('Integration: config -> engine -> evaluate', () => {
     .build()
 
   const admin = access
-    .defineRole('admin')
+    .iamDefineRole('admin')
     .name('Admin')
     .inherits('editor')
     .grantCRUD('post')
@@ -30,7 +30,7 @@ describe('Integration: config -> engine -> evaluate', () => {
     .build()
 
   it('full flow: roles -> engine -> can/check/explain', async () => {
-    const adapter = new MemoryAdapter({
+    const adapter = new IamMemoryAdapter({
       roles: [viewer, editor, admin],
       assignments: {
         alice: ['viewer'],
@@ -73,7 +73,7 @@ describe('Integration: config -> engine -> evaluate', () => {
   })
 
   it('batch permissions returns correct map', async () => {
-    const adapter = new MemoryAdapter({
+    const adapter = new IamMemoryAdapter({
       roles: [viewer, editor],
       assignments: { bob: ['editor'] },
     })
@@ -97,7 +97,7 @@ describe('Integration: config -> engine -> evaluate', () => {
     // A deny-overrides policy that only targets delete+post and has both
     // a conditional deny and a fallback allow
     const denyDraftPolicy = access
-      .definePolicy('deny-draft-delete')
+      .iamDefinePolicy('deny-draft-delete')
       .name('No deleting drafts')
       .algorithm('deny-overrides')
       .target({ actions: ['delete'], resources: ['post'] })
@@ -111,7 +111,7 @@ describe('Integration: config -> engine -> evaluate', () => {
       )
       .build()
 
-    const adapter = new MemoryAdapter({
+    const adapter = new IamMemoryAdapter({
       roles: [admin],
       assignments: { charlie: ['admin'] },
       policies: [denyDraftPolicy],
@@ -137,16 +137,16 @@ describe('Integration: config -> engine -> evaluate', () => {
     ).toBe(false)
   })
 
-  it('validateRoles detects issues in role definitions', () => {
-    const result = access.validateRoles([viewer, editor, admin])
+  it('iamValidateRoles detects issues in role definitions', () => {
+    const result = access.iamValidateRoles([viewer, editor, admin])
     expect(result.valid).toBe(true)
     expect(result.issues.filter((i) => i.type === 'error')).toHaveLength(0)
   })
 
   describe('admin write-path validation', () => {
-    const adapter = () => new MemoryAdapter({ roles: [viewer], assignments: {} })
+    const adapter = () => new IamMemoryAdapter({ roles: [viewer], assignments: {} })
 
-    it('savePolicy throws when validatePolicy reports errors', async () => {
+    it('savePolicy throws when iamValidatePolicy reports errors', async () => {
       const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
       await expect(
         engine.admin.savePolicy({
@@ -158,7 +158,7 @@ describe('Integration: config -> engine -> evaluate', () => {
       ).rejects.toThrow(/policy rejected by validator/)
     })
 
-    it('saveRole throws when validateRole reports errors', async () => {
+    it('saveRole throws when iamValidateRole reports errors', async () => {
       const engine = access.createEngine({ adapter: adapter(), cacheTTL: 0 })
       await expect(engine.admin.saveRole({ id: '', permissions: [] } as never)).rejects.toThrow(
         /role rejected by validator/,

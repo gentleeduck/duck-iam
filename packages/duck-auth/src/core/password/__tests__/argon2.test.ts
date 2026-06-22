@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Argon2idHasher } from '../argon2'
+import { AuthArgon2idHasher } from '../argon2'
 
 /**
  * Detect whether `@node-rs/argon2` is installed without forcing CI to
@@ -16,8 +16,8 @@ async function hasArgon2(): Promise<boolean> {
   }
 }
 
-describe('Argon2idHasher (contract)', () => {
-  const hasher = new Argon2idHasher()
+describe('AuthArgon2idHasher (contract)', () => {
+  const hasher = new AuthArgon2idHasher()
 
   it('exposes id = "argon2id"', () => {
     expect(hasher.id).toBe('argon2id')
@@ -36,7 +36,7 @@ describe('Argon2idHasher (contract)', () => {
   })
 
   it('needsRehash parses m / t / p and compares against current params', () => {
-    const newer = new Argon2idHasher({
+    const newer = new AuthArgon2idHasher({
       memoryCost: 30_000,
       timeCost: 3,
       parallelism: 2,
@@ -67,9 +67,9 @@ const _runIf = (vi: unknown, gate: boolean) => {
   }
   return typeof d.runIf === 'function' ? d.runIf(gate) : gate ? describe : d.skip
 }
-_runIf(undefined, await hasArgon2())('Argon2idHasher (integration; requires @node-rs/argon2)', () => {
+_runIf(undefined, await hasArgon2())('AuthArgon2idHasher (integration; requires @node-rs/argon2)', () => {
   // Lowest legal params so the suite runs fast.
-  const fast = new Argon2idHasher({
+  const fast = new AuthArgon2idHasher({
     memoryCost: 8,
     timeCost: 1,
     parallelism: 1,
@@ -97,7 +97,7 @@ _runIf(undefined, await hasArgon2())('Argon2idHasher (integration; requires @nod
   it('needsRehash returns false for current params, true for upgraded params', async () => {
     const h = await fast.hash('pw')
     expect(fast.needsRehash(h)).toBe(false)
-    const upgraded = new Argon2idHasher({
+    const upgraded = new AuthArgon2idHasher({
       memoryCost: 9,
       timeCost: 2,
       parallelism: 1,

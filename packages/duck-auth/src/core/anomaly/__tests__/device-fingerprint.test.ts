@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { sha256 } from '../../crypto'
-import type { Identity } from '../../types/identity'
-import type { Session } from '../../types/session'
-import { deviceFingerprintDetector, MemoryDeviceFingerprintStore } from '../device-fingerprint'
+import { authSha256 } from '../../crypto'
+import type { AuthIdentity } from '../../types/identity'
+import type { AuthSession } from '../../types/session'
+import { deviceFingerprintDetector, AuthMemoryDeviceFingerprintStore } from '../device-fingerprint'
 
 function ctx(overrides: Partial<{ ip: string; userAgent: string; identityId: string }> = {}) {
   return {
-    identity: { id: overrides.identityId ?? 'u1' } as Identity.IIdentity<unknown>,
-    session: {} as Session.ISession,
+    identity: { id: overrides.identityId ?? 'u1' } as AuthIdentity.IIdentity<unknown>,
+    session: {} as AuthSession.ISession,
     req: {
       ip: overrides.ip ?? '203.0.113.4',
       userAgent: overrides.userAgent ?? 'Mozilla/5.0',
@@ -19,8 +19,8 @@ function ctx(overrides: Partial<{ ip: string; userAgent: string; identityId: str
 describe('deviceFingerprintDetector', () => {
   it('emits new-device signal on first sight + nothing on repeats', async () => {
     const detector = deviceFingerprintDetector({
-      store: new MemoryDeviceFingerprintStore(),
-      sha256,
+      store: new AuthMemoryDeviceFingerprintStore(),
+      authSha256,
     })
     const first = await detector.evaluate(ctx())
     expect(first).toHaveLength(1)
@@ -33,8 +33,8 @@ describe('deviceFingerprintDetector', () => {
 
   it('different IP subnet flips the signal', async () => {
     const detector = deviceFingerprintDetector({
-      store: new MemoryDeviceFingerprintStore(),
-      sha256,
+      store: new AuthMemoryDeviceFingerprintStore(),
+      authSha256,
     })
     await detector.evaluate(ctx({ ip: '203.0.113.4' }))
     const moved = await detector.evaluate(ctx({ ip: '198.51.100.7' }))
@@ -43,8 +43,8 @@ describe('deviceFingerprintDetector', () => {
 
   it('same /24 subnet does NOT flip the signal (coffee-shop roaming)', async () => {
     const detector = deviceFingerprintDetector({
-      store: new MemoryDeviceFingerprintStore(),
-      sha256,
+      store: new AuthMemoryDeviceFingerprintStore(),
+      authSha256,
     })
     await detector.evaluate(ctx({ ip: '203.0.113.4' }))
     const sameSubnet = await detector.evaluate(ctx({ ip: '203.0.113.99' }))
@@ -53,8 +53,8 @@ describe('deviceFingerprintDetector', () => {
 
   it('different user agent flips the signal', async () => {
     const detector = deviceFingerprintDetector({
-      store: new MemoryDeviceFingerprintStore(),
-      sha256,
+      store: new AuthMemoryDeviceFingerprintStore(),
+      authSha256,
     })
     await detector.evaluate(ctx({ userAgent: 'Chrome/120' }))
     const otherUa = await detector.evaluate(ctx({ userAgent: 'Safari/17' }))
@@ -63,12 +63,12 @@ describe('deviceFingerprintDetector', () => {
 
   it('missing UA or IP -> no signal', async () => {
     const detector = deviceFingerprintDetector({
-      store: new MemoryDeviceFingerprintStore(),
-      sha256,
+      store: new AuthMemoryDeviceFingerprintStore(),
+      authSha256,
     })
     const result = await detector.evaluate({
-      identity: { id: 'u1' } as Identity.IIdentity<unknown>,
-      session: {} as Session.ISession,
+      identity: { id: 'u1' } as AuthIdentity.IIdentity<unknown>,
+      session: {} as AuthSession.ISession,
       req: { now: Date.now() },
     })
     expect(result).toEqual([])
@@ -77,7 +77,7 @@ describe('deviceFingerprintDetector', () => {
   it('respects custom compose function', async () => {
     const compose = vi.fn(() => 'fixed-fingerprint')
     const detector = deviceFingerprintDetector({
-      store: new MemoryDeviceFingerprintStore(),
+      store: new AuthMemoryDeviceFingerprintStore(),
       compose,
     })
     await detector.evaluate(ctx())
@@ -89,8 +89,8 @@ describe('deviceFingerprintDetector', () => {
 
   it('respects custom score', async () => {
     const detector = deviceFingerprintDetector({
-      store: new MemoryDeviceFingerprintStore(),
-      sha256,
+      store: new AuthMemoryDeviceFingerprintStore(),
+      authSha256,
       score: 0.95,
     })
     const result = await detector.evaluate(ctx())
@@ -98,8 +98,8 @@ describe('deviceFingerprintDetector', () => {
   })
 
   it('forgetAll clears the store so next sighting fires again', async () => {
-    const store = new MemoryDeviceFingerprintStore()
-    const detector = deviceFingerprintDetector({ store, sha256 })
+    const store = new AuthMemoryDeviceFingerprintStore()
+    const detector = deviceFingerprintDetector({ store, authSha256 })
     await detector.evaluate(ctx())
     expect(await detector.evaluate(ctx())).toEqual([])
     await store.forgetAll('u1')
@@ -108,8 +108,8 @@ describe('deviceFingerprintDetector', () => {
 
   it('per-identity isolation: u1 first sight does not silence u2 first sight', async () => {
     const detector = deviceFingerprintDetector({
-      store: new MemoryDeviceFingerprintStore(),
-      sha256,
+      store: new AuthMemoryDeviceFingerprintStore(),
+      authSha256,
     })
     await detector.evaluate(ctx({ identityId: 'u1' }))
     const u2 = await detector.evaluate(ctx({ identityId: 'u2' }))
@@ -120,8 +120,8 @@ describe('deviceFingerprintDetector', () => {
     it('refuses construction with NaN score (would emit signals where `score > threshold` is silently `false`)', () => {
       expect(() =>
         deviceFingerprintDetector({
-          store: new MemoryDeviceFingerprintStore(),
-          sha256,
+          store: new AuthMemoryDeviceFingerprintStore(),
+          authSha256,
           score: Number.NaN,
         }),
       ).toThrow(/score must be a finite number/)
@@ -130,8 +130,8 @@ describe('deviceFingerprintDetector', () => {
     it('refuses construction with Infinity (would dominate any aggregate suspicious score)', () => {
       expect(() =>
         deviceFingerprintDetector({
-          store: new MemoryDeviceFingerprintStore(),
-          sha256,
+          store: new AuthMemoryDeviceFingerprintStore(),
+          authSha256,
           score: Number.POSITIVE_INFINITY,
         }),
       ).toThrow(/score must be a finite number/)
@@ -140,8 +140,8 @@ describe('deviceFingerprintDetector', () => {
     it('refuses negative score', () => {
       expect(() =>
         deviceFingerprintDetector({
-          store: new MemoryDeviceFingerprintStore(),
-          sha256,
+          store: new AuthMemoryDeviceFingerprintStore(),
+          authSha256,
           score: -0.5,
         }),
       ).toThrow(/score must be a finite number/)
@@ -150,8 +150,8 @@ describe('deviceFingerprintDetector', () => {
     it('refuses score > 1 (out-of-range)', () => {
       expect(() =>
         deviceFingerprintDetector({
-          store: new MemoryDeviceFingerprintStore(),
-          sha256,
+          store: new AuthMemoryDeviceFingerprintStore(),
+          authSha256,
           score: 1.5,
         }),
       ).toThrow(/score must be a finite number/)
@@ -159,10 +159,10 @@ describe('deviceFingerprintDetector', () => {
 
     it('accepts boundary values 0 and 1', () => {
       expect(() =>
-        deviceFingerprintDetector({ store: new MemoryDeviceFingerprintStore(), sha256, score: 0 }),
+        deviceFingerprintDetector({ store: new AuthMemoryDeviceFingerprintStore(), authSha256, score: 0 }),
       ).not.toThrow()
       expect(() =>
-        deviceFingerprintDetector({ store: new MemoryDeviceFingerprintStore(), sha256, score: 1 }),
+        deviceFingerprintDetector({ store: new AuthMemoryDeviceFingerprintStore(), authSha256, score: 1 }),
       ).not.toThrow()
     })
   })

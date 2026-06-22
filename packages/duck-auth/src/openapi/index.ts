@@ -1,13 +1,13 @@
 /** OpenAPI 3.1 spec emitter for the framework-adapter routes. */
 
 /** Build the OpenAPI 3.1 spec for the configured providers. */
-export function buildOpenApiSpec(config: OpenApi.IConfig): OpenApi.ISpec {
+export function authBuildOpenApiSpec(config: AuthOpenApi.IConfig): AuthOpenApi.ISpec {
   const title = config.title ?? 'Auth API'
   const version = config.version ?? '0.1.0'
   const prefix = config.prefix ?? '/auth'
   const providers = new Set(config.providers ?? ['password', 'magic-link', 'oauth', 'passkey'])
 
-  const spec: OpenApi.ISpec = {
+  const spec: AuthOpenApi.ISpec = {
     openapi: '3.1.0',
     info: {
       title,
@@ -20,7 +20,7 @@ export function buildOpenApiSpec(config: OpenApi.IConfig): OpenApi.ISpec {
     components: {
       schemas: {
         AuthError: schemaAuthError(),
-        Session: schemaSession(),
+        AuthSession: schemaSession(),
         SignInResult: schemaSignInResult(),
       },
       securitySchemes: {
@@ -127,7 +127,7 @@ export function buildOpenApiSpec(config: OpenApi.IConfig): OpenApi.ISpec {
       summary: 'Return the current session and identity',
       security: [{ cookieAuth: [] }, { bearerAuth: [] }],
       responses: {
-        '200': okJson({ $ref: '#/components/schemas/Session' }),
+        '200': okJson({ $ref: '#/components/schemas/AuthSession' }),
         '401': errResponse(),
       },
     },
@@ -155,7 +155,7 @@ export function buildOpenApiSpec(config: OpenApi.IConfig): OpenApi.ISpec {
  * objects in their natural order. Sufficient for the OpenApiSpec shape we
  * produce; not a general-purpose YAML library.
  */
-export function renderOpenApiYaml(spec: OpenApi.ISpec): string {
+export function authRenderOpenApiYaml(spec: AuthOpenApi.ISpec): string {
   return yamlify(spec, 0)
 }
 
@@ -224,7 +224,7 @@ function schemaSession(): Record<string, unknown> {
     type: 'object',
     required: ['id', 'aal', 'expiresAt'],
     properties: {
-      id: { type: 'string', description: 'Server-side session id (sha256 of plaintext sid)' },
+      id: { type: 'string', description: 'Server-side session id (authSha256 of plaintext sid)' },
       identityId: { type: ['string', 'null'] },
       tenantId: { type: 'string' },
       kind: { type: 'string', enum: ['guest', 'user', 'apikey'] },
@@ -256,7 +256,7 @@ function schemaSignInResult(): Record<string, unknown> {
       {
         type: 'object',
         required: ['session'],
-        properties: { session: { $ref: '#/components/schemas/Session' } },
+        properties: { session: { $ref: '#/components/schemas/AuthSession' } },
       },
       {
         type: 'object',
@@ -290,7 +290,7 @@ function pathProvider(): Record<string, unknown> {
     name: 'provider',
     in: 'path',
     required: true,
-    schema: { type: 'string', enum: ['google', 'github'] },
+    schema: { type: 'string', enum: ['authGoogle', 'authGithub'] },
   }
 }
 
@@ -330,7 +330,7 @@ function routePost(opts: {
   if (opts.idempotent) {
     route.parameters = [
       {
-        name: 'Idempotency-Key',
+        name: 'AuthIdempotency-Key',
         in: 'header',
         required: false,
         schema: { type: 'string', maxLength: 200 },
@@ -341,7 +341,7 @@ function routePost(opts: {
   return route
 }
 
-export namespace OpenApi {
+export namespace AuthOpenApi {
   export interface IConfig {
     /** Server URL the routes are mounted under. */
     baseUrl: string

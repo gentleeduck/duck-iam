@@ -1,17 +1,17 @@
-import type { AuthRoot } from '../../core/auth'
-import { csrfGuard } from '../../core/csrf'
-import type { Provider } from '../../core/types/provider'
+import type { AuthEngine } from '../../core/auth'
+import { authCsrfGuard } from '../../core/csrf'
+import type { AuthProvider } from '../../core/types/provider'
 import {
-  errorToHttp,
-  isSafeRedirectUrl,
-  isValidProviderId,
-  nodeHeadersToFetch,
-  parseProviderBeginBody,
-  parseSignInBody,
-  serializeCookie,
+  authErrorToHttp,
+  authIsSafeRedirectUrl,
+  authIsValidProviderId,
+  authNodeHeadersToFetch,
+  authParseProviderBeginBody,
+  authParseSignInBody,
+  authSerializeCookie,
 } from '../generic'
 
-export namespace ExpressAdapter {
+export namespace AuthExpressAdapter {
   /** Minimal duck-typed Express request subset. */
   export interface IRequest {
     method: string
@@ -35,14 +35,14 @@ export namespace ExpressAdapter {
 }
 
 /** Convert Express's flat `req.headers` object into a `Headers` instance. */
-export const toHeaders: (headers: ExpressAdapter.IRequest['headers']) => Headers = nodeHeadersToFetch
+export const authToHeaders: (headers: AuthExpressAdapter.IRequest['headers']) => Headers = authNodeHeadersToFetch
 
 /**
- * Execute an Intent[] against an ExpressAdapter.IResponse. Mirrors the
+ * Execute an Intent[] against an AuthExpressAdapter.IResponse. Mirrors the
  * Web-Fetch executor in `server/generic` but writes directly into
  * Express's mutable response object.
  */
-export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.IResponse, baseStatus = 200): void {
+export function authApplyIntents(intents: AuthProvider.Intent[], res: AuthExpressAdapter.IResponse, baseStatus = 200): void {
   let status = baseStatus
   let body: unknown = null
   let hasBody = false
@@ -53,13 +53,13 @@ export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.IRe
       case 'clearCookie': {
         res.append(
           'Set-Cookie',
-          serializeCookie(intent.name, intent.type === 'clearCookie' ? '' : intent.value, intent.options ?? {}),
+          authSerializeCookie(intent.name, intent.type === 'clearCookie' ? '' : intent.value, intent.options ?? {}),
         )
         break
       }
       case 'redirect': {
-        // see isSafeRedirectUrl in server/generic for rationale.
-        if (!isSafeRedirectUrl(intent.url)) {
+        // see authIsSafeRedirectUrl in server/generic for rationale.
+        if (!authIsSafeRedirectUrl(intent.url)) {
           res.status(500).json({ code: 'AUTH/MISCONFIGURED', detail: 'unsafe redirect URL rejected' })
           return
         }
@@ -96,18 +96,18 @@ export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.IRe
  * (Layer-1 Sec-Fetch-Site for the no-session case; Layer-2 double-submit
  * for the post-rotation case if the route is re-entered with a stale
  * SID). */
-export function mountSignIn(auth: AuthRoot): ExpressAdapter.IHandler {
+export function authMountSignIn(auth: AuthEngine): AuthExpressAdapter.IHandler {
   return async (req, res) => {
     try {
-      const headers = toHeaders(req.headers)
-      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
-      const parsed = parseSignInBody(req.body)
+      const headers = authToHeaders(req.headers)
+      await authCsrfGuard(auth, { method: req.method ?? 'POST', headers })
+      const parsed = authParseSignInBody(req.body)
       if (!parsed) {
-        applyIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }], res)
+        authApplyIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }], res)
         return
       }
       const result = await auth.flows.signIn(parsed)
-      applyIntents(result.intents, res, 200)
+      authApplyIntents(result.intents, res, 200)
     } catch (err) {
       handleError(err, res)
     }
@@ -115,18 +115,18 @@ export function mountSignIn(auth: AuthRoot): ExpressAdapter.IHandler {
 }
 
 /** POST /auth/signout - reads the SID from the transport. CSRF-guarded. */
-export function mountSignOut(auth: AuthRoot): ExpressAdapter.IHandler {
+export function authMountSignOut(auth: AuthEngine): AuthExpressAdapter.IHandler {
   return async (req, res) => {
     try {
-      const headers = toHeaders(req.headers)
-      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
+      const headers = authToHeaders(req.headers)
+      await authCsrfGuard(auth, { method: req.method ?? 'POST', headers })
       const sid = auth.transport.extract({ headers })
       if (!sid) {
-        applyIntents(auth.transport.revoke(), res, 200)
+        authApplyIntents(auth.transport.revoke(), res, 200)
         return
       }
       const { intents } = await auth.flows.signOut(sid)
-      applyIntents(intents, res, 200)
+      authApplyIntents(intents, res, 200)
     } catch (err) {
       handleError(err, res)
     }
@@ -134,23 +134,23 @@ export function mountSignOut(auth: AuthRoot): ExpressAdapter.IHandler {
 }
 
 /** POST /auth/providers/:id/begin - driver for two-step flows. CSRF-guarded. */
-export function mountProviderBegin(auth: AuthRoot): ExpressAdapter.IHandler {
+export function authMountProviderBegin(auth: AuthEngine): AuthExpressAdapter.IHandler {
   return async (req, res) => {
     try {
-      const headers = toHeaders(req.headers)
-      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
+      const headers = authToHeaders(req.headers)
+      await authCsrfGuard(auth, { method: req.method ?? 'POST', headers })
       const id = providerIdFromUrl(req.url, 'begin')
-      if (!isValidProviderId(id)) {
-        applyIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }], res)
+      if (!authIsValidProviderId(id)) {
+        authApplyIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }], res)
         return
       }
-      const body = parseProviderBeginBody(req.body)
+      const body = authParseProviderBeginBody(req.body)
       if (body === null) {
-        applyIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }], res)
+        authApplyIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }], res)
         return
       }
       const intents = await auth.flows.beginProvider(id, body)
-      applyIntents(intents, res, 200)
+      authApplyIntents(intents, res, 200)
     } catch (err) {
       handleError(err, res)
     }
@@ -158,10 +158,10 @@ export function mountProviderBegin(auth: AuthRoot): ExpressAdapter.IHandler {
 }
 
 /** GET /auth/session - returns the resolved session as JSON. */
-export function mountSession(auth: AuthRoot): ExpressAdapter.IHandler {
+export function authMountSession(auth: AuthEngine): AuthExpressAdapter.IHandler {
   return async (req, res) => {
     try {
-      const resolved = await auth.resolveSession({ headers: toHeaders(req.headers) })
+      const resolved = await auth.resolveSession({ headers: authToHeaders(req.headers) })
       if (!resolved) {
         res.status(200).json({ session: null, identity: null })
         return
@@ -173,8 +173,8 @@ export function mountSession(auth: AuthRoot): ExpressAdapter.IHandler {
   }
 }
 
-function handleError(err: unknown, res: ExpressAdapter.IResponse): void {
-  const { status, body } = errorToHttp(err)
+function handleError(err: unknown, res: AuthExpressAdapter.IResponse): void {
+  const { status, body } = authErrorToHttp(err)
   res.status(status).json(body)
 }
 

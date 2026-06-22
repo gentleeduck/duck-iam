@@ -33,10 +33,10 @@ bun add @gentleduck/auth @gentleduck/iam
 
 ```ts
 import { defineAuth }         from '@gentleduck/auth/core'
-import { createAccessConfig } from '@gentleduck/iam/core'
+import { createIam } from '@gentleduck/iam/core'
 
 const auth   = defineAuth({ /* baseUrl, storage, providers */ })
-const access = createAccessConfig({ actions, resources, roles })
+const access = createIam({ actions, resources, roles })
 const engine = access.createEngine({ adapter })
 
 const session = await auth.flows.signIn({ providerId: 'password', input })

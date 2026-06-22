@@ -1,20 +1,20 @@
 /** Solid client - context + signals; `solid-js` is an OPTIONAL peerDep. */
 import { createContext, createMemo, createSignal, type JSX, onCleanup, onMount, useContext } from 'solid-js'
-import { createAuthClient, type VanillaClient } from '../vanilla'
+import { authCreateClient, type AuthVanillaClient } from '../vanilla'
 
 interface SolidAuthContextValue<Profile = unknown> {
-  client: VanillaClient.IClient<Profile>
-  state: () => VanillaClient.ISessionResult<Profile>
+  client: AuthVanillaClient.IClient<Profile>
+  state: () => AuthVanillaClient.ISessionResult<Profile>
   status: () => 'loading' | 'authed' | 'guest'
-  refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+  refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
 }
 
 const AuthContext = createContext<SolidAuthContextValue<unknown> | null>(null)
 
 /** `AuthProvider`. */
-export function AuthProvider(props: SolidClient.IProviderProps): JSX.Element {
-  const client = props.client ?? createAuthClient(props)
-  const [state, setState] = createSignal<VanillaClient.ISessionResult<unknown>>({ identity: null, session: null })
+export function AuthProvider(props: AuthSolidClient.IProviderProps): JSX.Element {
+  const client = props.client ?? authCreateClient(props)
+  const [state, setState] = createSignal<AuthVanillaClient.ISessionResult<unknown>>({ identity: null, session: null })
   const [status, setStatus] = createSignal<'loading' | 'authed' | 'guest'>(props.noInitialFetch ? 'guest' : 'loading')
 
   onMount(() => {
@@ -41,18 +41,18 @@ export function AuthProvider(props: SolidClient.IProviderProps): JSX.Element {
 function useAuthCtx<Profile = unknown>(): SolidAuthContextValue<Profile> {
   const ctx = useContext(AuthContext) as SolidAuthContextValue<Profile> | null
   if (!ctx) {
-    throw new Error('[@gentleduck/auth/client/solid] useSession / useSignIn must be used inside <AuthProvider>')
+    throw new Error('[@gentleduck/auth/client/solid] authUseSession / authUseSignIn must be used inside <AuthProvider>')
   }
   return ctx
 }
 
-/** `useSession`. */
-export function useSession<Profile = unknown>(): SolidClient.IUseSessionResult<Profile> {
+/** `authUseSession`. */
+export function authUseSession<Profile = unknown>(): AuthSolidClient.IUseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, refresh: ctx.refresh, status: ctx.status }
 }
 
-function useMutation<I, O>(fn: (input: I) => Promise<O>): SolidClient.IMutationResult<I, O> {
+function useMutation<I, O>(fn: (input: I) => Promise<O>): AuthSolidClient.IMutationResult<I, O> {
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal<unknown | null>(null)
   const mutate = async (input: I) => {
@@ -74,39 +74,39 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): SolidClient.IMutationR
   }
 }
 
-/** `useSignIn`. */
-export function useSignIn<Profile = unknown>(): SolidClient.IMutationResult<
-  VanillaClient.ISignInOptions,
-  VanillaClient.ISignInResult<Profile>
+/** `authUseSignIn`. */
+export function authUseSignIn<Profile = unknown>(): AuthSolidClient.IMutationResult<
+  AuthVanillaClient.ISignInOptions,
+  AuthVanillaClient.ISignInResult<Profile>
 > {
   const { client } = useAuthCtx<Profile>()
-  return useMutation((opts: VanillaClient.ISignInOptions) => client.signIn(opts))
+  return useMutation((opts: AuthVanillaClient.ISignInOptions) => client.signIn(opts))
 }
 
-/** `useSignOut`. */
-export function useSignOut(): SolidClient.IMutationResult<void, { ok: true }> {
+/** `authUseSignOut`. */
+export function authUseSignOut(): AuthSolidClient.IMutationResult<void, { ok: true }> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
-/** `useAuthClient`. */
-export function useAuthClient<Profile = unknown>(): VanillaClient.IClient<Profile> {
+/** `authUseClient`. */
+export function authUseClient<Profile = unknown>(): AuthVanillaClient.IClient<Profile> {
   return useAuthCtx<Profile>().client
 }
 
-export namespace SolidClient {
-  export interface IProviderProps extends VanillaClient.IConfig {
+export namespace AuthSolidClient {
+  export interface IProviderProps extends AuthVanillaClient.IConfig {
     children?: JSX.Element
     /** Pre-built client; overrides config. */
-    client?: VanillaClient.IClient<unknown>
+    client?: AuthVanillaClient.IClient<unknown>
     /** Disable the initial automatic /session fetch on mount. */
     noInitialFetch?: boolean
   }
 
   export interface IUseSessionResult<Profile = unknown> {
-    data: () => VanillaClient.ISessionResult<Profile>
+    data: () => AuthVanillaClient.ISessionResult<Profile>
     status: () => 'loading' | 'authed' | 'guest'
-    refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+    refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
   }
 
   export interface IMutationResult<I, O> {

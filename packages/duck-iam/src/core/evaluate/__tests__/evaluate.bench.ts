@@ -1,10 +1,10 @@
 import { bench, describe } from 'vitest'
-import type { AccessControl, Request } from '../../types'
-import { evaluate, evaluateFast, evaluatePolicyFast } from '../evaluate'
-import { indexPolicy } from '../evaluate.libs'
+import type { IamAccessControl, IamRequest } from '../../types'
+import { iamEvaluate, iamEvaluateFast, iamEvaluatePolicyFast } from '../evaluate'
+import { iamIndexPolicy } from '../evaluate.libs'
 
-function buildPolicy(numRules: number, withConditions: boolean): AccessControl.IPolicy {
-  const rules: AccessControl.IRule[] = []
+function buildPolicy(numRules: number, withConditions: boolean): IamAccessControl.IPolicy {
+  const rules: IamAccessControl.IRule[] = []
   const actions = ['read', 'create', 'update', 'delete', 'manage']
   const resources = ['post', 'comment', 'user', 'org', 'org:project']
   for (let i = 0; i < numRules; i++) {
@@ -22,7 +22,7 @@ function buildPolicy(numRules: number, withConditions: boolean): AccessControl.I
   return { id: 'p', name: 'P', algorithm: 'deny-overrides', rules }
 }
 
-const req: Request.IAccessRequest = {
+const req: IamRequest.IAccessRequest = {
   subject: { id: 'u1', roles: ['editor'], attributes: { status: 'active' } },
   action: 'read',
   resource: { type: 'post', attributes: {} },
@@ -35,48 +35,48 @@ describe('evaluatePolicyFast', () => {
   const conditional = buildPolicy(50, true)
 
   bench('5 rules, unconditional', () => {
-    evaluatePolicyFast(tiny, req)
+    iamEvaluatePolicyFast(tiny, req)
   })
 
   bench('50 rules, unconditional', () => {
-    evaluatePolicyFast(medium, req)
+    iamEvaluatePolicyFast(medium, req)
   })
 
   bench('500 rules, unconditional', () => {
-    evaluatePolicyFast(large, req)
+    iamEvaluatePolicyFast(large, req)
   })
 
   bench('50 rules with conditions', () => {
-    evaluatePolicyFast(conditional, req)
+    iamEvaluatePolicyFast(conditional, req)
   })
 })
 
-describe('indexPolicy (cache hit)', () => {
+describe('iamIndexPolicy (cache hit)', () => {
   const policy = buildPolicy(100, false)
   // Warm the cache once.
-  indexPolicy(policy)
+  iamIndexPolicy(policy)
 
   bench('cache hit', () => {
-    indexPolicy(policy)
+    iamIndexPolicy(policy)
   })
 })
 
-describe('indexPolicy (cold build)', () => {
+describe('iamIndexPolicy (cold build)', () => {
   bench('100 rules cold build', () => {
     // Use a fresh policy object each invocation to defeat the WeakMap cache.
-    indexPolicy(buildPolicy(100, false))
+    iamIndexPolicy(buildPolicy(100, false))
   })
 })
 
-describe('evaluate vs evaluateFast', () => {
+describe('evaluate vs iamEvaluateFast', () => {
   const policies = [buildPolicy(50, false)]
 
   bench('evaluate (trace path)', () => {
-    evaluate(policies, req)
+    iamEvaluate(policies, req)
   })
 
   bench('evaluateFast (production path)', () => {
-    evaluateFast(policies, req)
+    iamEvaluateFast(policies, req)
   })
 })
 
@@ -84,10 +84,10 @@ describe('cross-policy combine', () => {
   const policies = Array.from({ length: 10 }, () => buildPolicy(20, false))
 
   bench('combine=and x 10 policies', () => {
-    evaluateFast(policies, req, 'deny', 'and')
+    iamEvaluateFast(policies, req, 'deny', 'and')
   })
 
   bench('combine=allow-overrides x 10 policies', () => {
-    evaluateFast(policies, req, 'deny', 'allow-overrides')
+    iamEvaluateFast(policies, req, 'deny', 'allow-overrides')
   })
 })

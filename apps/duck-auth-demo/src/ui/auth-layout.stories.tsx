@@ -1,4 +1,4 @@
-import { withAuth } from '@gentleduck/auth/client/react/storybook'
+import { authWithStorybook } from '@gentleduck/auth/client/react/storybook'
 import type { Meta, StoryObj } from '@storybook/react'
 import { AuthLayout } from './auth-layout'
 import { ProvidersList } from './providers-list'
@@ -6,7 +6,7 @@ import { SignInForm } from './sign-in-form'
 
 const meta: Meta<typeof AuthLayout> = {
   component: AuthLayout,
-  decorators: [withAuth({})],
+  decorators: [authWithStorybook({})],
   parameters: { layout: 'fullscreen' },
   title: 'Auth / AuthLayout',
 }
@@ -15,8 +15,8 @@ export default meta
 type Story = StoryObj<typeof AuthLayout>
 
 const PROVIDERS = [
-  { id: 'google', label: 'Continue with Google' },
-  { id: 'github', label: 'Continue with GitHub' },
+  { id: 'authGoogle', label: 'Continue with Google' },
+  { id: 'authGithub', label: 'Continue with GitHub' },
 ]
 
 export const FullSignInPage: Story = {
@@ -35,7 +35,7 @@ export const FullSignInPage: Story = {
  * apps/duck-auth-demo/README.md.
  */
 export const LiveSignInPage: Story = {
-  decorators: [withAuth({ live: true })],
+  decorators: [authWithStorybook({ live: true })],
   render: () => (
     <AuthLayout brand={<h1 className="font-semibold text-2xl">Duck Auth (live)</h1>} footer="Backend on :8787">
       <SignInForm description="Real backend — try alice@test / hunter2hunter2 after signup." />

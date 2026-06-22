@@ -5,9 +5,9 @@
 
 import { getProfileString } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
-import type { Channel } from '../../core/types/channel'
+import type { AuthChannel } from '../../core/types/channel'
 
-export namespace SesChannel {
+export namespace AuthSesChannel {
   /** Subset of the SES v3 SDK we depend on. */
   export interface IClient {
     send(command: { input: unknown }): Promise<{ MessageId?: string }>
@@ -19,7 +19,7 @@ export namespace SesChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
-  /** Config knobs for {@link SesChannel}. */
+  /** Config knobs for {@link AuthSesChannel}. */
   export interface IConfig {
     /** Pre-built SESv3 client. Required. */
     client: IClient
@@ -45,7 +45,7 @@ async function loadSendEmailCommand(): Promise<new (input: unknown) => { input: 
     return mod.SendEmailCommand
   } catch {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: 'SesChannel requires the `@aws-sdk/client-ses` peerDep. Install via `bun add @aws-sdk/client-ses`.',
+      detail: 'AuthSesChannel requires the `@aws-sdk/client-ses` peerDep. Install via `bun add @aws-sdk/client-ses`.',
     })
   }
 }
@@ -54,20 +54,20 @@ async function loadSendEmailCommand(): Promise<new (input: unknown) => { input: 
  * SES channel implementation. Reads recipient email from
  * `identity.profile.email`; returns ok:false on any SES error.
  */
-export class SesChannel implements Channel.IChannel {
-  readonly kind: Channel.Kind = 'email'
+export class AuthSesChannel implements AuthChannel.IChannel {
+  readonly kind: AuthChannel.Kind = 'email'
   readonly id: string
-  private readonly _cfg: SesChannel.IConfig
+  private readonly _cfg: AuthSesChannel.IConfig
 
-  constructor(cfg: SesChannel.IConfig) {
+  constructor(cfg: AuthSesChannel.IConfig) {
     if (!cfg.from) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'SesChannel requires a non-empty `from` address (must be a verified SES identity)',
+        detail: 'AuthSesChannel requires a non-empty `from` address (must be a verified SES identity)',
       })
     }
     if (!cfg.client) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'SesChannel requires a pre-built client (SESClient from @aws-sdk/client-ses)',
+        detail: 'AuthSesChannel requires a pre-built client (SESClient from @aws-sdk/client-ses)',
       })
     }
     this._cfg = cfg
@@ -75,12 +75,12 @@ export class SesChannel implements Channel.IChannel {
   }
 
   /** Render the template, build a SendEmailCommand, hand to SES. */
-  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
+  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
     const to = getProfileString(input.identity.profile, 'email')
     if (!to) {
-      return { ok: false, error: 'identity has no email; SesChannel cannot deliver' }
+      return { ok: false, error: 'identity has no email; AuthSesChannel cannot deliver' }
     }
-    let resolved: Awaited<ReturnType<SesChannel.ITemplateResolver>>
+    let resolved: Awaited<ReturnType<AuthSesChannel.ITemplateResolver>>
     try {
       resolved = await this._cfg.templates(input.templateId, input.vars as Record<string, unknown>)
     } catch (err) {
@@ -107,7 +107,7 @@ export class SesChannel implements Channel.IChannel {
         }),
       })
       const response = await this._cfg.client.send(cmd)
-      const out: Channel.SendResult = { ok: true }
+      const out: AuthChannel.SendResult = { ok: true }
       if (response.MessageId !== undefined) out.providerMessageId = response.MessageId
       return out
     } catch (err) {

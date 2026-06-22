@@ -1,28 +1,28 @@
 import { AuthErrorObject } from '../../../core/errors'
-import type { Provider } from '../../../core/types/provider'
-import { OAuthClient } from '../core/client'
-import { type OAuthProvider, oauthProvider } from '../core/provider'
+import type { AuthProvider } from '../../../core/types/provider'
+import { AuthOAuthClient } from '../core/client'
+import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoNumericIdAsString, getUserinfoString } from '../core/userinfo'
 
-const GITHUB_ENDPOINTS: OAuthClient.IEndpoints = {
-  authorizationEndpoint: 'https://github.com/login/oauth/authorize',
-  tokenEndpoint: 'https://github.com/login/oauth/access_token',
-  userinfoEndpoint: 'https://api.github.com/user',
+const GITHUB_ENDPOINTS: AuthOAuthClient.IEndpoints = {
+  authorizationEndpoint: 'https://authGithub.com/login/oauth/authorize',
+  tokenEndpoint: 'https://authGithub.com/login/oauth/access_token',
+  userinfoEndpoint: 'https://api.authGithub.com/user',
 }
 
-export namespace GithubOAuth {
-  /** GitHub-specific options. Extends `OAuthProvider.IOptionsBase`. */
-  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+export namespace AuthGithubOAuth {
+  /** GitHub-specific options. Extends `AuthOAuthProvider.IOptionsBase`. */
+  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
     /** Default `['read:user', 'user:email']`. */
     scopes?: string[]
   }
 }
 
 /** GitHub OAuth 2.0 provider. */
-export function github<Profile = unknown>(
-  opts: GithubOAuth.IOptions<Profile>,
-): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
-  const client = new OAuthClient({
+export function authGithub<Profile = unknown>(
+  opts: AuthGithubOAuth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
+  const client = new AuthOAuthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: GITHUB_ENDPOINTS,
@@ -30,7 +30,7 @@ export function github<Profile = unknown>(
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
   return oauthProvider<Profile>({
-    providerId: 'github',
+    providerId: 'authGithub',
     client,
     endpoints: GITHUB_ENDPOINTS,
     redirectUri: opts.redirectUri,
@@ -45,7 +45,7 @@ export function github<Profile = unknown>(
       const sub = getUserinfoNumericIdAsString(info, 'id')
       if (sub === undefined) {
         throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
-          providerId: 'github',
+          providerId: 'authGithub',
           detail: 'GitHub userinfo missing numeric id',
         })
       }

@@ -6,9 +6,9 @@
 
 import { getProfileString } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
-import type { Channel } from '../../core/types/channel'
+import type { AuthChannel } from '../../core/types/channel'
 
-export namespace TwilioChannel {
+export namespace AuthTwilioChannel {
   /** Subset of the Twilio SDK we depend on. */
   export interface IClient {
     messages: {
@@ -27,7 +27,7 @@ export namespace TwilioChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ body: string }> | { body: string }
 
-  /** Config knobs for {@link TwilioChannel}. */
+  /** Config knobs for {@link AuthTwilioChannel}. */
   export interface IConfig {
     /** Twilio Account SID. Required when `client` is not supplied. */
     accountSid?: string
@@ -48,18 +48,18 @@ export namespace TwilioChannel {
   }
 }
 
-let _twilioModule: { default: (sid: string, token: string) => TwilioChannel.IClient } | null = null
-async function loadTwilio(): Promise<(sid: string, token: string) => TwilioChannel.IClient> {
+let _twilioModule: { default: (sid: string, token: string) => AuthTwilioChannel.IClient } | null = null
+async function loadTwilio(): Promise<(sid: string, token: string) => AuthTwilioChannel.IClient> {
   if (_twilioModule) return _twilioModule.default
   try {
     const mod = (await import('twilio' as string)) as {
-      default: (sid: string, token: string) => TwilioChannel.IClient
+      default: (sid: string, token: string) => AuthTwilioChannel.IClient
     }
     _twilioModule = mod
     return mod.default
   } catch {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: 'TwilioChannel requires the `twilio` peerDep. Install via `bun add twilio` (or `npm install twilio`).',
+      detail: 'AuthTwilioChannel requires the `twilio` peerDep. Install via `bun add twilio` (or `npm install twilio`).',
     })
   }
 }
@@ -68,28 +68,28 @@ async function loadTwilio(): Promise<(sid: string, token: string) => TwilioChann
  * Twilio SMS channel. Reads recipient phone from
  * `identity.profile.phone`; returns ok:false on any Twilio error.
  */
-export class TwilioChannel implements Channel.IChannel {
-  readonly kind: Channel.Kind = 'sms'
+export class AuthTwilioChannel implements AuthChannel.IChannel {
+  readonly kind: AuthChannel.Kind = 'sms'
   readonly id: string
   private readonly _from: string | undefined
   private readonly _msgServiceSid: string | undefined
-  private readonly _resolve: TwilioChannel.ITemplateResolver
-  private _clientPromise: Promise<TwilioChannel.IClient> | null = null
+  private readonly _resolve: AuthTwilioChannel.ITemplateResolver
+  private _clientPromise: Promise<AuthTwilioChannel.IClient> | null = null
 
-  constructor(cfg: TwilioChannel.IConfig) {
+  constructor(cfg: AuthTwilioChannel.IConfig) {
     if (!cfg.from && !cfg.messagingServiceSid) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'TwilioChannel requires either `from` or `messagingServiceSid`',
+        detail: 'AuthTwilioChannel requires either `from` or `messagingServiceSid`',
       })
     }
     if (cfg.from && cfg.messagingServiceSid) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'TwilioChannel: pass exactly one of `from` or `messagingServiceSid`, not both',
+        detail: 'AuthTwilioChannel: pass exactly one of `from` or `messagingServiceSid`, not both',
       })
     }
     if (!cfg.client && (!cfg.accountSid || !cfg.authToken)) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'TwilioChannel requires either { accountSid + authToken } or a pre-built client',
+        detail: 'AuthTwilioChannel requires either { accountSid + authToken } or a pre-built client',
       })
     }
     this._from = cfg.from
@@ -107,23 +107,23 @@ export class TwilioChannel implements Channel.IChannel {
   }
 
   /** Render template, send via Twilio. Returns ok:false on any error. */
-  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
+  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
     const to = getProfileString(input.identity.profile, 'phone')
     if (!to) {
-      return { ok: false, error: 'identity has no phone; TwilioChannel cannot deliver' }
+      return { ok: false, error: 'identity has no phone; AuthTwilioChannel cannot deliver' }
     }
-    let resolved: Awaited<ReturnType<TwilioChannel.ITemplateResolver>>
+    let resolved: Awaited<ReturnType<AuthTwilioChannel.ITemplateResolver>>
     try {
       resolved = await this._resolve(input.templateId, input.vars as Record<string, unknown>)
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
     if (!this._clientPromise) {
-      return { ok: false, error: 'TwilioChannel has no client (misconfigured)' }
+      return { ok: false, error: 'AuthTwilioChannel has no client (misconfigured)' }
     }
     try {
       const client = await this._clientPromise
-      const opts: Parameters<TwilioChannel.IClient['messages']['create']>[0] = {
+      const opts: Parameters<AuthTwilioChannel.IClient['messages']['create']>[0] = {
         to,
         body: resolved.body,
       }
@@ -133,7 +133,7 @@ export class TwilioChannel implements Channel.IChannel {
       if (response.errorCode) {
         return { ok: false, error: response.errorMessage ?? `twilio error ${response.errorCode}` }
       }
-      const out: Channel.SendResult = { ok: true }
+      const out: AuthChannel.SendResult = { ok: true }
       if (response.sid !== undefined) out.providerMessageId = response.sid
       return out
     } catch (err) {

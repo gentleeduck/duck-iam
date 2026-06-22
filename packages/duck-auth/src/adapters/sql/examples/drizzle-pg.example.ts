@@ -1,9 +1,9 @@
 // @ts-nocheck
 /**
- * Reference Drizzle ORM (Postgres) implementation of the SqlBridge
+ * Reference Drizzle ORM (Postgres) implementation of the AuthSqlBridge
  * contract. Drop into your project, install the peerDeps, swap in your
  * own column / schema customizations, then hand the bridge to
- * `createSqlAuthStores`.
+ * `authCreateSqlStores`.
  *
  * NOT compiled by tsdown (skipped via the `.example.ts` suffix +
  * `@ts-nocheck` so consumers without `drizzle-orm` / `pg` installed
@@ -14,7 +14,7 @@
  *   bun add -D drizzle-kit @types/pg
  */
 
-import type { SqlBridge } from '@gentleduck/auth/adapters/sql'
+import type { AuthSqlBridge } from '@gentleduck/auth/adapters/sql'
 import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { bigint, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
@@ -23,7 +23,7 @@ import { bigint, index, integer, pgTable, text } from 'drizzle-orm/pg-core'
 // Schema definitions
 // ---------------------------------------------------------------------
 
-export const identitiesTable = pgTable(
+export const authIdentitiesTable = pgTable(
   'auth_identities',
   {
     id: text('id').primaryKey(),
@@ -41,7 +41,7 @@ export const identitiesTable = pgTable(
   }),
 )
 
-export const credentialsTable = pgTable(
+export const authCredentialsTable = pgTable(
   'auth_credentials',
   {
     id: text('id').primaryKey(),
@@ -64,7 +64,7 @@ export const credentialsTable = pgTable(
   }),
 )
 
-export const sessionsTable = pgTable(
+export const authSessionsTable = pgTable(
   'auth_sessions',
   {
     id: text('id').primaryKey(),
@@ -95,7 +95,7 @@ export const sessionsTable = pgTable(
 // Bridge factory
 // ---------------------------------------------------------------------
 
-export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
+export function authCreateDrizzlePgBridge(db: NodePgDatabase): AuthSqlBridge {
   /** Helper: scope a where clause by tenantId; null tenant matches the row's NULL. */
   function tenantWhere<T extends { tenantId: unknown }>(table: T, tenantId: string | undefined) {
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
@@ -106,8 +106,8 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       findById: async (id, tenantId) => {
         const rows = await db
           .select()
-          .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, id), isNull(identitiesTable.deletedAt)))
+          .from(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, id), isNull(authIdentitiesTable.deletedAt)))
           .limit(1)
         const row = rows[0]
         if (!row) return null
@@ -119,7 +119,7 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         // Tenant-scope: null tenant_id rows are "global identities"
         // reachable from any tenant, matching findById's semantics.
         const rows = await db.execute(
-          sql`select * from ${identitiesTable}
+          sql`select * from ${authIdentitiesTable}
               where (profile::jsonb)->>'email' = ${email}
                 and deleted_at is null
                 and (tenant_id is null or ${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
@@ -131,7 +131,7 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         // `${...}` (no `.raw`) binds as $N; .raw would be SQLi.
         const matchPattern = JSON.stringify([{ providerId, providerSub: sub }])
         const rows = await db.execute(
-          sql`select * from ${identitiesTable}
+          sql`select * from ${authIdentitiesTable}
               where (providers::jsonb) @> ${matchPattern}::jsonb
                 and deleted_at is null
                 and (tenant_id is null or ${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)
@@ -140,17 +140,17 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         return (rows.rows[0] as never) ?? null
       },
       insert: async (row) => {
-        await db.insert(identitiesTable).values(row)
+        await db.insert(authIdentitiesTable).values(row)
       },
       updateConditional: async (id, patch, expectedVersion, tenantId) => {
         const result = await db
-          .update(identitiesTable)
+          .update(authIdentitiesTable)
           .set(patch as never)
           .where(
             and(
-              eq(identitiesTable.id, id),
-              eq(identitiesTable.version, expectedVersion),
-              tenantWhere(identitiesTable, tenantId),
+              eq(authIdentitiesTable.id, id),
+              eq(authIdentitiesTable.version, expectedVersion),
+              tenantWhere(authIdentitiesTable, tenantId),
             ),
           )
           .returning()
@@ -158,22 +158,22 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       },
       softDelete: async (id, deletedAt, tenantId) => {
         await db
-          .update(identitiesTable)
+          .update(authIdentitiesTable)
           .set({ deletedAt })
-          .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
       },
       restore: async (id, tenantId) => {
         const result = await db
-          .update(identitiesTable)
+          .update(authIdentitiesTable)
           .set({ deletedAt: null })
-          .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
           .returning()
         return result[0] ?? null
       },
       erase: async (id, tenantId) => {
-        await db.delete(credentialsTable).where(eq(credentialsTable.identityId, id))
-        await db.delete(sessionsTable).where(eq(sessionsTable.identityId, id))
-        await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+        await db.delete(authCredentialsTable).where(eq(authCredentialsTable.identityId, id))
+        await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, id))
+        await db.delete(authIdentitiesTable).where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
         // see findByProviderSub comment - drop `sql.raw` so
@@ -181,7 +181,7 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
         // parameter, not raw text.
         const newLink = JSON.stringify([{ providerId, providerSub, addedAt }])
         await db.execute(
-          sql`update ${identitiesTable}
+          sql`update ${authIdentitiesTable}
               set providers = (
                 select jsonb_agg(distinct elem)
                 from jsonb_array_elements(providers::jsonb || ${newLink}::jsonb) elem
@@ -192,7 +192,7 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       },
       deleteProviderLink: async (identityId, providerId, tenantId) => {
         await db.execute(
-          sql`update ${identitiesTable}
+          sql`update ${authIdentitiesTable}
               set providers = (
                 select coalesce(jsonb_agg(elem), '[]'::jsonb)::text
                 from jsonb_array_elements(providers::jsonb) elem
@@ -205,41 +205,41 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       merge: async (survivorId, dupId, tenantId) => {
         // Cascade is tenant-scoped: cross-tenant merge attempts are no-ops.
         await db
-          .update(credentialsTable)
+          .update(authCredentialsTable)
           .set({ identityId: survivorId })
-          .where(and(eq(credentialsTable.identityId, dupId), tenantWhere(credentialsTable, tenantId)))
+          .where(and(eq(authCredentialsTable.identityId, dupId), tenantWhere(authCredentialsTable, tenantId)))
         await db
-          .update(sessionsTable)
+          .update(authSessionsTable)
           .set({ identityId: survivorId })
-          .where(and(eq(sessionsTable.identityId, dupId), tenantWhere(sessionsTable, tenantId)))
+          .where(and(eq(authSessionsTable.identityId, dupId), tenantWhere(authSessionsTable, tenantId)))
         await db
-          .delete(identitiesTable)
-          .where(and(eq(identitiesTable.id, dupId), tenantWhere(identitiesTable, tenantId)))
+          .delete(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, dupId), tenantWhere(authIdentitiesTable, tenantId)))
       },
     },
     credentials: {
       findById: async (id, tenantId) => {
         const rows = await db
           .select()
-          .from(credentialsTable)
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .from(authCredentialsTable)
+          .where(and(eq(authCredentialsTable.id, id), tenantWhere(authCredentialsTable, tenantId)))
           .limit(1)
         return rows[0] ?? null
       },
       listByIdentity: async (identityId, kind, tenantId) => {
         const where = [
-          eq(credentialsTable.identityId, identityId),
-          ...(kind ? [eq(credentialsTable.kind, kind)] : []),
-          ...(tenantId ? [eq(credentialsTable.tenantId, tenantId)] : []),
+          eq(authCredentialsTable.identityId, identityId),
+          ...(kind ? [eq(authCredentialsTable.kind, kind)] : []),
+          ...(tenantId ? [eq(authCredentialsTable.tenantId, tenantId)] : []),
         ]
         return db
           .select()
-          .from(credentialsTable)
+          .from(authCredentialsTable)
           .where(and(...where))
       },
       findByProviderSub: async (provider, sub, _tenantId) => {
         const rows = await db.execute(
-          sql`select * from ${credentialsTable}
+          sql`select * from ${authCredentialsTable}
               where (metadata::jsonb)->>'provider' = ${provider}
                 and (metadata::jsonb)->>'sub' = ${sub}
               limit 1`,
@@ -249,29 +249,29 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       findByHashedSecret: async (secretHash, kind, tenantId) => {
         const rows = await db
           .select()
-          .from(credentialsTable)
+          .from(authCredentialsTable)
           .where(
             and(
-              eq(credentialsTable.secret, secretHash),
-              eq(credentialsTable.kind, kind),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentialsTable.secret, secretHash),
+              eq(authCredentialsTable.kind, kind),
+              tenantWhere(authCredentialsTable, tenantId),
             ),
           )
           .limit(1)
         return rows[0] ?? null
       },
       insert: async (row) => {
-        await db.insert(credentialsTable).values(row)
+        await db.insert(authCredentialsTable).values(row)
       },
       updateConditional: async (id, patch, expectedVersion, tenantId) => {
         const result = await db
-          .update(credentialsTable)
+          .update(authCredentialsTable)
           .set(patch as never)
           .where(
             and(
-              eq(credentialsTable.id, id),
-              eq(credentialsTable.version, expectedVersion),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentialsTable.id, id),
+              eq(authCredentialsTable.version, expectedVersion),
+              tenantWhere(authCredentialsTable, tenantId),
             ),
           )
           .returning()
@@ -279,54 +279,54 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
       },
       revoke: async (id, revokedAt, tenantId) => {
         await db
-          .update(credentialsTable)
+          .update(authCredentialsTable)
           .set({ revokedAt })
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .where(and(eq(authCredentialsTable.id, id), tenantWhere(authCredentialsTable, tenantId)))
       },
       delete: async (id, tenantId) => {
         await db
-          .delete(credentialsTable)
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .delete(authCredentialsTable)
+          .where(and(eq(authCredentialsTable.id, id), tenantWhere(authCredentialsTable, tenantId)))
       },
       deleteByKind: async (identityId, kind, tenantId) => {
         await db
-          .delete(credentialsTable)
+          .delete(authCredentialsTable)
           .where(
             and(
-              eq(credentialsTable.identityId, identityId),
-              eq(credentialsTable.kind, kind),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentialsTable.identityId, identityId),
+              eq(authCredentialsTable.kind, kind),
+              tenantWhere(authCredentialsTable, tenantId),
             ),
           )
       },
     },
     sessions: {
       insert: async (row) => {
-        await db.insert(sessionsTable).values(row)
+        await db.insert(authSessionsTable).values(row)
       },
       findByHash: async (sidHash) => {
-        const rows = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sidHash)).limit(1)
+        const rows = await db.select().from(authSessionsTable).where(eq(authSessionsTable.id, sidHash)).limit(1)
         return rows[0] ?? null
       },
       update: async (id, patch) => {
         const result = await db
-          .update(sessionsTable)
+          .update(authSessionsTable)
           .set(patch as never)
-          .where(eq(sessionsTable.id, id))
+          .where(eq(authSessionsTable.id, id))
           .returning()
         return result[0] ?? null
       },
       delete: async (id) => {
-        await db.delete(sessionsTable).where(eq(sessionsTable.id, id))
+        await db.delete(authSessionsTable).where(eq(authSessionsTable.id, id))
       },
       listByIdentity: async (identityId) => {
-        return db.select().from(sessionsTable).where(eq(sessionsTable.identityId, identityId))
+        return db.select().from(authSessionsTable).where(eq(authSessionsTable.identityId, identityId))
       },
       deleteAllForIdentity: async (identityId) => {
-        await db.delete(sessionsTable).where(eq(sessionsTable.identityId, identityId))
+        await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, identityId))
       },
       deleteExpired: async (now) => {
-        const result = await db.delete(sessionsTable).where(lt(sessionsTable.absoluteExpiresAt, now)).returning()
+        const result = await db.delete(authSessionsTable).where(lt(authSessionsTable.absoluteExpiresAt, now)).returning()
         return result.length
       },
     },
@@ -334,16 +334,16 @@ export function createDrizzlePgAuthBridge(db: NodePgDatabase): SqlBridge {
 }
 
 // ---------------------------------------------------------------------
-// Wire-up (replace with your own AuthRoot config)
+// Wire-up (replace with your own AuthEngine config)
 // ---------------------------------------------------------------------
 //
 // import { drizzle } from 'drizzle-orm/node-postgres'
 // import { Pool } from 'pg'
-// import { createSqlAuthStores } from '@gentleduck/auth/adapters/sql'
+// import { authCreateSqlStores } from '@gentleduck/auth/adapters/sql'
 //
 // const pool = new Pool({ connectionString: process.env.DATABASE_URL! })
-// const db = drizzle(pool, { schema: { identitiesTable, credentialsTable, sessionsTable } })
-// const bridge = createDrizzlePgAuthBridge(db)
-// const stores = createSqlAuthStores<MyProfile>(bridge)
+// const db = drizzle(pool, { schema: { authIdentitiesTable, authCredentialsTable, authSessionsTable } })
+// const bridge = authCreateDrizzlePgBridge(db)
+// const stores = authCreateSqlStores<MyProfile>(bridge)
 //
-// new AuthRoot({ stores, ... })
+// new AuthEngine({ stores, ... })

@@ -1,29 +1,29 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { createOidcOP, type OidcOPRoot } from '../index'
-import type { OidcOP } from '../types'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { authCreateOidcOP, type AuthOidcOpRoot } from '../index'
+import type { AuthOidcOP } from '../types'
 
 interface ProfileShape {
   email: string
 }
 
 function buildAuth() {
-  const adapter = new MemoryAuthAdapter<ProfileShape>()
-  return new AuthRoot<ProfileShape>({
+  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  return new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid' }),
-    passwords: { hasher: new ScryptHasher() },
+    transport: new AuthCookieTransport({ name: 'duck-sid' }),
+    passwords: { hasher: new AuthScryptHasher() },
   })
 }
 
-function buildOp(args: { dcr?: OidcOP.IDcrConfig } = {}): OidcOPRoot<ProfileShape> {
+function buildOp(args: { dcr?: AuthOidcOP.IDcrConfig } = {}): AuthOidcOpRoot<ProfileShape> {
   const secret = 'dev-hmac-secret'
-  return createOidcOP<ProfileShape>({
+  return authCreateOidcOP<ProfileShape>({
     auth: buildAuth(),
     config: {
       issuer: 'http://localhost:8787/auth',
@@ -41,19 +41,19 @@ function buildOp(args: { dcr?: OidcOP.IDcrConfig } = {}): OidcOPRoot<ProfileShap
 }
 
 function isDcrSuccess(
-  v: { status: 201; body: OidcOP.IDcrResponse } | { status: number; body: OidcOP.IDcrError },
-): v is { status: 201; body: OidcOP.IDcrResponse } {
+  v: { status: 201; body: AuthOidcOP.IDcrResponse } | { status: number; body: AuthOidcOP.IDcrError },
+): v is { status: 201; body: AuthOidcOP.IDcrResponse } {
   return v.status === 201
 }
 
 function isDcrError(
-  v: { status: 201; body: OidcOP.IDcrResponse } | { status: number; body: OidcOP.IDcrError },
-): v is { status: number; body: OidcOP.IDcrError } {
+  v: { status: 201; body: AuthOidcOP.IDcrResponse } | { status: number; body: AuthOidcOP.IDcrError },
+): v is { status: number; body: AuthOidcOP.IDcrError } {
   return v.status !== 201
 }
 
-describe('OidcOPRoot.register (RFC 7591 DCR)', () => {
-  let op: OidcOPRoot<ProfileShape>
+describe('AuthOidcOpRoot.register (RFC 7591 DCR)', () => {
+  let op: AuthOidcOpRoot<ProfileShape>
 
   describe('when DCR is disabled (default)', () => {
     beforeEach(() => {

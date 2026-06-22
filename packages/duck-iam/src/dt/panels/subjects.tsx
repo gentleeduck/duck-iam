@@ -1,14 +1,14 @@
 import React from 'react'
-import type { Primitives } from '../../core/types'
+import type { IamPrimitives } from '../../core/types'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
 import { safeParseJson } from '../lib/format'
-import type { IDevtoolsEngine } from '../lib/types'
+import type { IamIDevtoolsEngine } from '../lib/types'
 
-export function SubjectsPanel({ engine }: { engine: IDevtoolsEngine }) {
+export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   const [subjectId, setSubjectId] = React.useState('')
-  const [attrs, setAttrs] = React.useState<Primitives.Attributes | null>(null)
+  const [attrs, setAttrs] = React.useState<IamPrimitives.Attributes | null>(null)
   const [attrsDraft, setAttrsDraft] = React.useState('{}')
   const [roleId, setRoleId] = React.useState('')
   const [scope, setScope] = React.useState('')
@@ -35,7 +35,7 @@ export function SubjectsPanel({ engine }: { engine: IDevtoolsEngine }) {
   async function saveAttrs() {
     setError(null)
     setStatus(null)
-    const parsed = safeParseJson<Primitives.Attributes>(attrsDraft, {})
+    const parsed = safeParseJson<IamPrimitives.Attributes>(attrsDraft, {})
     if (parsed.error) return setError(`attributes JSON: ${parsed.error}`)
     setBusy(true)
     try {

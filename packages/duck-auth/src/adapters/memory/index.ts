@@ -1,11 +1,11 @@
 import { getProfileString, isRevoked, isSoftDeleted } from '../../core/credential-utils'
-import { randomToken, timingSafeEqual } from '../../core/crypto'
+import { authRandomToken, authTimingSafeEqual } from '../../core/crypto'
 import { AuthErrorObject } from '../../core/errors'
-import type { TenantContext } from '../../core/types/context'
-import type { Credential } from '../../core/types/credential'
-import type { Identity } from '../../core/types/identity'
-import type { Org } from '../../core/types/org'
-import type { Session } from '../../core/types/session'
+import type { AuthTenantContext } from '../../core/types/context'
+import type { AuthCredential } from '../../core/types/credential'
+import type { AuthIdentity } from '../../core/types/identity'
+import type { AuthOrg } from '../../core/types/org'
+import type { AuthSession } from '../../core/types/session'
 
 /**
  * In-memory adapter - dev + test only. Production must use redis/drizzle/prisma.
@@ -13,17 +13,17 @@ import type { Session } from '../../core/types/session'
  *
  * Multi-tenant: tenantId filters every query so tests can verify isolation.
  */
-export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
-  readonly identities: Identity.IStore<Profile>
-  readonly sessions: Session.IStore
-  readonly credentials: Credential.IStore
-  readonly orgs: Org.IStore<OrgMeta>
+export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
+  readonly identities: AuthIdentity.IStore<Profile>
+  readonly sessions: AuthSession.IStore
+  readonly credentials: AuthCredential.IStore
+  readonly orgs: AuthOrg.IStore<OrgMeta>
 
-  private _identities = new Map<string, Identity.IIdentity<Profile>>()
-  private _sessions = new Map<string, Session.ISession>()
-  private _credentials = new Map<string, Credential.ICredential>()
-  private _orgs = new Map<string, Org.IOrg<OrgMeta>>()
-  private _memberships = new Map<string, Org.IMembership>()
+  private _identities = new Map<string, AuthIdentity.IIdentity<Profile>>()
+  private _sessions = new Map<string, AuthSession.ISession>()
+  private _credentials = new Map<string, AuthCredential.ICredential>()
+  private _orgs = new Map<string, AuthOrg.IOrg<OrgMeta>>()
+  private _memberships = new Map<string, AuthOrg.IMembership>()
 
   constructor() {
     this.identities = this._buildIdentityStore()
@@ -32,11 +32,11 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
     this.orgs = this._buildOrgStore()
   }
 
-  // --- Identity ---------------------------------------------------------
+  // --- AuthIdentity ---------------------------------------------------------
 
-  private _buildIdentityStore(): Identity.IStore<Profile> {
+  private _buildIdentityStore(): AuthIdentity.IStore<Profile> {
     const store = this._identities
-    const filter = (id: Identity.IIdentity<Profile>, ctx: TenantContext) =>
+    const filter = (id: AuthIdentity.IIdentity<Profile>, ctx: AuthTenantContext) =>
       ctx.tenantId === undefined || id.tenantId === ctx.tenantId
 
     return {
@@ -79,9 +79,9 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         }
         const now = Date.now()
         // SQL adapter parity: prefer explicit input.tenantId, fall back to ctx.
-        const id: Identity.IIdentity<Profile> = {
+        const id: AuthIdentity.IIdentity<Profile> = {
           ...input,
-          id: randomToken(16),
+          id: authRandomToken(16),
           tenantId: input.tenantId ?? ctx.tenantId,
           providers,
           version: 1,
@@ -100,7 +100,7 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
             actual: cur.version,
           })
         }
-        const next: Identity.IIdentity<Profile> = {
+        const next: AuthIdentity.IIdentity<Profile> = {
           ...cur,
           ...patch,
           version: cur.version + 1,
@@ -183,9 +183,9 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
     }
   }
 
-  // --- Session ----------------------------------------------------------
+  // --- AuthSession ----------------------------------------------------------
 
-  private _buildSessionStore(): Session.IStore {
+  private _buildSessionStore(): AuthSession.IStore {
     const store = this._sessions
     return {
       create: async (s) => {
@@ -221,10 +221,10 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
     }
   }
 
-  // --- Credential -------------------------------------------------------
+  // --- AuthCredential -------------------------------------------------------
 
-  private _buildCredentialStore(): Credential.IStore & {
-    __familyRevoke: (familyId: string, ctx: TenantContext) => Promise<void>
+  private _buildCredentialStore(): AuthCredential.IStore & {
+    __familyRevoke: (familyId: string, ctx: AuthTenantContext) => Promise<void>
   } {
     const store = this._credentials
     return {
@@ -245,11 +245,11 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         // timingSafeEqual defeats byte-by-byte hash oracles. Tenant filter
         // matches SQL adapter semantics: undefined ctx tenant = global match;
         // set ctx tenant = exact match (or global rows when row.tenantId is unset).
-        let live: Credential.ICredential | null = null
-        let revokedRow: Credential.ICredential | null = null
+        let live: AuthCredential.ICredential | null = null
+        let revokedRow: AuthCredential.ICredential | null = null
         for (const c of store.values()) {
           if (c.kind !== kind) continue
-          if (!timingSafeEqual(c.secret, secretHash)) continue
+          if (!authTimingSafeEqual(c.secret, secretHash)) continue
           if (ctx?.tenantId !== undefined && c.tenantId !== undefined && c.tenantId !== ctx.tenantId) continue
           if (isRevoked(c)) {
             if (!revokedRow || c.createdAt > revokedRow.createdAt) revokedRow = c
@@ -260,10 +260,10 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         return live ?? revokedRow
       },
       upsert: async (input, ctx) => {
-        const id = randomToken(16)
+        const id = authRandomToken(16)
         const now = Date.now()
         // SQL adapter parity: inherit tenantId from ctx when input doesn't set it.
-        const c: Credential.ICredential = {
+        const c: AuthCredential.ICredential = {
           id,
           version: 1,
           createdAt: now,
@@ -282,7 +282,7 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
             actual: cur.version,
           })
         }
-        const next: Credential.ICredential = {
+        const next: AuthCredential.ICredential = {
           ...cur,
           secret: newSecret,
           version: cur.version + 1,
@@ -293,7 +293,7 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
       patchMetadata: async (id, patch) => {
         const cur = store.get(id)
         if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
-        const next: Credential.ICredential = {
+        const next: AuthCredential.ICredential = {
           ...cur,
           metadata: { ...(cur.metadata ?? {}), ...patch },
           version: cur.version + 1,
@@ -327,9 +327,9 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
     }
   }
 
-  // --- Org --------------------------------------------------------------
+  // --- AuthOrg --------------------------------------------------------------
 
-  private _buildOrgStore(): Org.IStore<OrgMeta> {
+  private _buildOrgStore(): AuthOrg.IStore<OrgMeta> {
     return {
       getOrg: async (id) => this._orgs.get(id) ?? null,
       listOrgsForIdentity: async (identityId) => {
@@ -337,7 +337,7 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
         for (const m of this._memberships.values()) {
           if (m.identityId === identityId && !m.leftAt) orgIds.add(m.orgId)
         }
-        return [...orgIds].map((id) => this._orgs.get(id)).filter((o): o is Org.IOrg<OrgMeta> => Boolean(o))
+        return [...orgIds].map((id) => this._orgs.get(id)).filter((o): o is AuthOrg.IOrg<OrgMeta> => Boolean(o))
       },
       listMembers: async (orgId) => {
         return [...this._memberships.values()].filter((m) => m.orgId === orgId && !m.leftAt)
@@ -352,7 +352,7 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
             detail: 'identity already a member of this org',
           })
         }
-        const full: Org.IMembership = { ...m, joinedAt: Date.now() }
+        const full: AuthOrg.IMembership = { ...m, joinedAt: Date.now() }
         this._memberships.set(key, full)
         return full
       },
@@ -374,14 +374,14 @@ export class MemoryAuthAdapter<Profile = unknown, OrgMeta = unknown> {
 /**
  * Storage helper returning the in-memory `{ identities, sessions, credentials }` triple. Dev / test only.
  *
- * @template Profile - Identity profile shape.
+ * @template Profile - AuthIdentity profile shape.
  */
-export const memoryStorage = <Profile = unknown>(): {
-  identities: MemoryAuthAdapter<Profile>['identities']
-  sessions: MemoryAuthAdapter<Profile>['sessions']
-  credentials: MemoryAuthAdapter<Profile>['credentials']
+export const authMemoryStorage = <Profile = unknown>(): {
+  identities: AuthMemoryAdapter<Profile>['identities']
+  sessions: AuthMemoryAdapter<Profile>['sessions']
+  credentials: AuthMemoryAdapter<Profile>['credentials']
 } => {
-  const adapter = new MemoryAuthAdapter<Profile>()
+  const adapter = new AuthMemoryAdapter<Profile>()
   return {
     credentials: adapter.credentials,
     identities: adapter.identities,

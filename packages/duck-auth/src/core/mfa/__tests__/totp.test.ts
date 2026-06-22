@@ -1,30 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { base32Decode, base32Encode, buildOtpAuthUri, generateSecret, TOTP_DEFAULTS, totpAt, verifyTotp } from '../totp'
+import { authBase32Decode, authBase32Encode, buildOtpAuthUri, authGenerateSecret, TOTP_DEFAULTS, totpAt, authVerifyTotp } from '../totp'
 
 describe('base32', () => {
   it('roundtrip arbitrary bytes', () => {
     const original = Buffer.from([0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0])
-    const encoded = base32Encode(original)
+    const encoded = authBase32Encode(original)
     expect(encoded).toMatch(/^[A-Z2-7]+$/)
-    const decoded = base32Decode(encoded)
+    const decoded = authBase32Decode(encoded)
     expect(decoded.equals(original)).toBe(true)
   })
 
   it('decode is case-insensitive and tolerates spaces + padding', () => {
     const original = Buffer.from([0xaa, 0xbb])
-    const encoded = base32Encode(original).toLowerCase()
-    const decoded = base32Decode(`  ${encoded}====  `)
+    const encoded = authBase32Encode(original).toLowerCase()
+    const decoded = authBase32Decode(`  ${encoded}====  `)
     expect(decoded.equals(original)).toBe(true)
   })
 
   it('decode rejects characters outside the alphabet', () => {
-    expect(() => base32Decode('!@#$')).toThrow(/invalid base32/)
+    expect(() => authBase32Decode('!@#$')).toThrow(/invalid base32/)
   })
 })
 
-describe('generateSecret + buildOtpAuthUri', () => {
+describe('authGenerateSecret + buildOtpAuthUri', () => {
   it('secret is base32, 32 chars (20-byte secret)', () => {
-    const s = generateSecret()
+    const s = authGenerateSecret()
     expect(s).toMatch(/^[A-Z2-7]{32}$/)
   })
 
@@ -54,35 +54,35 @@ describe('totpAt', () => {
   })
 })
 
-describe('verifyTotp', () => {
+describe('authVerifyTotp', () => {
   const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
   const fixedNow = 1_700_000_000_000 // pinned for determinism
   const stepIndex = Math.floor(fixedNow / 1000 / TOTP_DEFAULTS.periodSec)
 
   it('accepts the code for the current step', () => {
     const code = totpAt(secret, stepIndex)
-    expect(verifyTotp(secret, code, { nowMs: fixedNow })).toBe(true)
+    expect(authVerifyTotp(secret, code, { nowMs: fixedNow })).toBe(true)
   })
 
   it('accepts ±1 step drift', () => {
-    expect(verifyTotp(secret, totpAt(secret, stepIndex - 1), { nowMs: fixedNow })).toBe(true)
-    expect(verifyTotp(secret, totpAt(secret, stepIndex + 1), { nowMs: fixedNow })).toBe(true)
+    expect(authVerifyTotp(secret, totpAt(secret, stepIndex - 1), { nowMs: fixedNow })).toBe(true)
+    expect(authVerifyTotp(secret, totpAt(secret, stepIndex + 1), { nowMs: fixedNow })).toBe(true)
   })
 
   it('rejects a code outside the drift window', () => {
-    expect(verifyTotp(secret, totpAt(secret, stepIndex - 2), { nowMs: fixedNow })).toBe(false)
-    expect(verifyTotp(secret, totpAt(secret, stepIndex + 2), { nowMs: fixedNow })).toBe(false)
+    expect(authVerifyTotp(secret, totpAt(secret, stepIndex - 2), { nowMs: fixedNow })).toBe(false)
+    expect(authVerifyTotp(secret, totpAt(secret, stepIndex + 2), { nowMs: fixedNow })).toBe(false)
   })
 
   it('rejects malformed codes without throwing', () => {
-    expect(verifyTotp(secret, '12345', { nowMs: fixedNow })).toBe(false)
-    expect(verifyTotp(secret, '1234567', { nowMs: fixedNow })).toBe(false)
-    expect(verifyTotp(secret, 'abcdef', { nowMs: fixedNow })).toBe(false)
-    expect(verifyTotp(secret, '', { nowMs: fixedNow })).toBe(false)
+    expect(authVerifyTotp(secret, '12345', { nowMs: fixedNow })).toBe(false)
+    expect(authVerifyTotp(secret, '1234567', { nowMs: fixedNow })).toBe(false)
+    expect(authVerifyTotp(secret, 'abcdef', { nowMs: fixedNow })).toBe(false)
+    expect(authVerifyTotp(secret, '', { nowMs: fixedNow })).toBe(false)
   })
 
   it('rejects with the wrong secret', () => {
     const code = totpAt(secret, stepIndex)
-    expect(verifyTotp(generateSecret(), code, { nowMs: fixedNow })).toBe(false)
+    expect(authVerifyTotp(authGenerateSecret(), code, { nowMs: fixedNow })).toBe(false)
   })
 })

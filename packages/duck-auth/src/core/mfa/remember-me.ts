@@ -5,16 +5,16 @@
  * skip MFA (and grant aal=2 implicitly) for the device the cookie was
  * minted on.
  *
- * Storage shape: hashed token under `Credential.kind='recovery'` with
+ * Storage shape: hashed token under `AuthCredential.kind='recovery'` with
  * `metadata.purpose='trusted-device'` + caller-supplied metadata.
  */
 
 import { getCredentialPurpose, isCredentialExpired, isRevoked } from '../credential-utils'
 import { AuthErrorObject } from '../errors'
-import type { TenantContext } from '../types/context'
-import type { Credential } from '../types/credential'
+import type { AuthTenantContext } from '../types/context'
+import type { AuthCredential } from '../types/credential'
 
-export const DEFAULT_REMEMBER_ME_CONFIG: RememberMeFacet.IConfig = {
+export const AUTH_DEFAULT_REMEMBER_ME_CONFIG: AuthRememberMeFacet.IConfig = {
   ttlMs: 90 * 24 * 60 * 60 * 1000,
   byteLength: 32,
 }
@@ -24,14 +24,14 @@ export const DEFAULT_REMEMBER_ME_CONFIG: RememberMeFacet.IConfig = {
  * facets; the facet does not auto-mount because not every app wants a
  * remember-me path.
  */
-export class RememberMeFacet {
+export class AuthRememberMeFacet {
   constructor(
-    private readonly _credentials: Credential.IStore,
+    private readonly _credentials: AuthCredential.IStore,
     private readonly _crypto: {
-      randomToken(bytes: number): string
-      sha256(s: string): string
+      authRandomToken(bytes: number): string
+      authSha256(s: string): string
     },
-    private readonly _cfg: RememberMeFacet.IConfig = DEFAULT_REMEMBER_ME_CONFIG,
+    private readonly _cfg: AuthRememberMeFacet.IConfig = AUTH_DEFAULT_REMEMBER_ME_CONFIG,
   ) {}
 
   /**
@@ -43,10 +43,10 @@ export class RememberMeFacet {
   async issue(
     identityId: string,
     opts: { metadata?: Record<string, unknown> } = {},
-    ctx: TenantContext = {},
-  ): Promise<RememberMeFacet.IIssued> {
-    const token = this._crypto.randomToken(this._cfg.byteLength)
-    const hash = this._crypto.sha256(token)
+    ctx: AuthTenantContext = {},
+  ): Promise<AuthRememberMeFacet.IIssued> {
+    const token = this._crypto.authRandomToken(this._cfg.byteLength)
+    const hash = this._crypto.authSha256(token)
     const now = Date.now()
     const expiresAt = now + this._cfg.ttlMs
     const cred = await this._credentials.upsert(
@@ -71,13 +71,13 @@ export class RememberMeFacet {
    * + magic links) - remember-me cookies are reused across many
    * sign-ins inside the TTL window.
    */
-  async verify(token: string, ctx: TenantContext = {}): Promise<RememberMeFacet.IVerified | null> {
+  async verify(token: string, ctx: AuthTenantContext = {}): Promise<AuthRememberMeFacet.IVerified | null> {
     // cap token length at 256 chars to bound the sha256 cost.
     // Trusted-device tokens are 32 random bytes (~43 base64url chars).
     if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
       throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
     }
-    const hash = this._crypto.sha256(token)
+    const hash = this._crypto.authSha256(token)
     const row = await this._credentials.findByHashedSecret(hash, 'recovery', ctx)
     if (!row || isRevoked(row)) return null
     if (getCredentialPurpose(row) !== 'trusted-device') return null
@@ -101,7 +101,7 @@ export class RememberMeFacet {
    */
   async list(
     identityId: string,
-    ctx: TenantContext = {},
+    ctx: AuthTenantContext = {},
   ): Promise<
     Array<{
       credentialId: string
@@ -122,14 +122,14 @@ export class RememberMeFacet {
   }
 
   /** Revoke a specific trusted-device row. */
-  async revoke(identityId: string, credentialId: string, ctx: TenantContext = {}): Promise<void> {
+  async revoke(identityId: string, credentialId: string, ctx: AuthTenantContext = {}): Promise<void> {
     const row = await this._credentials.findById(credentialId, ctx)
     if (!row || row.identityId !== identityId) return
     await this._credentials.delete(credentialId, ctx)
   }
 
   /** Wipe every trusted device for an identity. */
-  async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<void> {
+  async revokeAll(identityId: string, ctx: AuthTenantContext = {}): Promise<void> {
     const live = await this.list(identityId, ctx)
     for (const dev of live) {
       await this._credentials.delete(dev.credentialId, ctx)
@@ -137,7 +137,7 @@ export class RememberMeFacet {
   }
 }
 
-export namespace RememberMeFacet {
+export namespace AuthRememberMeFacet {
   export interface IConfig {
     /** Cookie / token TTL in ms. Default 90 days. */
     ttlMs: number
@@ -148,7 +148,7 @@ export namespace RememberMeFacet {
   export interface IIssued {
     /** Plaintext token to drop into `__Host-duck-device` cookie. */
     token: string
-    /** Credential row id; useful for client-side device listings. */
+    /** AuthCredential row id; useful for client-side device listings. */
     credentialId: string
     /** Absolute expiry, ms since epoch. */
     expiresAt: number

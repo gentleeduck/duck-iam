@@ -101,7 +101,7 @@ export const documents = pgTable('documents', {
 
 // ── duck-iam tables ────────────────────────────────────────────────
 
-export const accessRoles = pgTable('access_roles', {
+export const iamRoles = pgTable('access_roles', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
@@ -111,7 +111,7 @@ export const accessRoles = pgTable('access_roles', {
   metadata: jsonb('metadata'),
 })
 
-export const accessPolicies = pgTable('access_policies', {
+export const iamPolicies = pgTable('access_policies', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
@@ -121,13 +121,13 @@ export const accessPolicies = pgTable('access_policies', {
   targets: jsonb('targets'),
 })
 
-export const accessAssignments = pgTable('access_assignments', {
+export const iamAssignments = pgTable('access_assignments', {
   subjectId: text('subject_id').notNull(),
   roleId: text('role_id').notNull(),
   scope: text('scope'),
 })
 
-export const accessSubjectAttrs = pgTable('access_subject_attrs', {
+export const iamSubjectAttrs = pgTable('access_subject_attrs', {
   subjectId: text('subject_id').primaryKey(),
   data: jsonb('data').notNull(),
 })

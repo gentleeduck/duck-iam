@@ -1,7 +1,7 @@
-import type { EngineTypes } from '../../core/engine/engine.types'
+import type { IamEngineTypes } from '../../core/engine/engine.types'
 
-/** Metrics observability types. Type-only namespace - zero bundle cost. */
-export namespace Metrics {
+/** IamMetrics observability types. Type-only namespace - zero bundle cost. */
+export namespace IamMetrics {
   /**
    * Aggregates the engine's `onMetrics` events in-process.
    *
@@ -13,11 +13,11 @@ export namespace Metrics {
    */
   export interface IAggregator {
     /**
-     * Records a single metrics event. Bind directly to {@link EngineTypes.IHooks.onMetrics}.
+     * Records a single metrics event. Bind directly to {@link IamEngineTypes.IHooks.onMetrics}.
      *
      * @param event - Receives the metrics event emitted by the engine after every check.
      */
-    record(event: EngineTypes.IMetricsEvent): void
+    record(event: IamEngineTypes.IMetricsEvent): void
     /**
      * Computes the current rolling snapshot. Callers can poll at any interval.
      *
@@ -54,7 +54,7 @@ export namespace Metrics {
     readonly samples: number
   }
 
-  /** Configures {@link createMetricsAggregator}. */
+  /** Configures {@link iamCreateMetricsAggregator}. */
   export interface IConfig {
     /**
      * Maximum number of duration samples kept in the rolling window. Higher
@@ -69,19 +69,19 @@ export namespace Metrics {
  * Creates an in-process metrics aggregator with a fixed-size ring buffer for
  * latency percentiles and running counters for allow/deny verdicts.
  *
- * Bind `.record` to {@link EngineTypes.IHooks.onMetrics} and read `.snapshot()`
+ * Bind `.record` to {@link IamEngineTypes.IHooks.onMetrics} and read `.snapshot()`
  * on demand.
  *
- * @param config - Optionally overrides the sample size; see {@link Metrics.IConfig}.
- * @returns A new {@link Metrics.IAggregator} instance with zeroed counters.
+ * @param config - Optionally overrides the sample size; see {@link IamMetrics.IConfig}.
+ * @returns A new {@link IamMetrics.IAggregator} instance with zeroed counters.
  * @example
  * ```ts
- * const metrics = createMetricsAggregator({ sampleSize: 2000 })
- * const engine = new Engine({ adapter, hooks: { onMetrics: metrics.record } })
+ * const metrics = iamCreateMetricsAggregator({ sampleSize: 2000 })
+ * const engine = new IamEngine({ adapter, hooks: { onMetrics: metrics.record } })
  * app.get('/metrics', (_, res) => res.json(metrics.snapshot()))
  * ```
  */
-export function createMetricsAggregator(config: Metrics.IConfig = {}): Metrics.IAggregator {
+export function iamCreateMetricsAggregator(config: IamMetrics.IConfig = {}): IamMetrics.IAggregator {
   const cap = config.sampleSize ?? 1000
   const buf = new Float64Array(cap)
   let head = 0

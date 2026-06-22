@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Client } from '../../../core/types'
-import { ACCESS_INJECTION_KEY, createVueAccess } from '../index'
+import type { IamClient } from '../../../core/types'
+import { IAM_ACCESS_INJECTION_KEY, createIamVueAccess } from '../index'
 
 type A = 'read' | 'create' | 'delete'
 type R = 'post'
@@ -37,16 +37,16 @@ function makeFakeVue() {
   return { vue, provided }
 }
 
-const map: Client.PermissionMap<A, R, S> = {
+const map: IamClient.PermissionMap<A, R, S> = {
   'read:post': true,
   'create:post': false,
   'org-1:delete:post': true,
-} as unknown as Client.PermissionMap<A, R, S>
+} as unknown as IamClient.PermissionMap<A, R, S>
 
-describe('createVueAccess - createAccessState', () => {
+describe('createIamVueAccess - createAccessState', () => {
   it('can returns map values', () => {
     const { vue } = makeFakeVue()
-    const { createAccessState } = createVueAccess<A, R, S>(vue)
+    const { createAccessState } = createIamVueAccess<A, R, S>(vue)
     const state = createAccessState(map)
     expect(state.can('read', 'post')).toBe(true)
     expect(state.can('create', 'post')).toBe(false)
@@ -54,7 +54,7 @@ describe('createVueAccess - createAccessState', () => {
 
   it('cannot inverts can', () => {
     const { vue } = makeFakeVue()
-    const { createAccessState } = createVueAccess<A, R, S>(vue)
+    const { createAccessState } = createIamVueAccess<A, R, S>(vue)
     const state = createAccessState(map)
     expect(state.cannot('read', 'post')).toBe(false)
     expect(state.cannot('create', 'post')).toBe(true)
@@ -62,7 +62,7 @@ describe('createVueAccess - createAccessState', () => {
 
   it('scope key works', () => {
     const { vue } = makeFakeVue()
-    const { createAccessState } = createVueAccess<A, R, S>(vue)
+    const { createAccessState } = createIamVueAccess<A, R, S>(vue)
     const state = createAccessState(map)
     expect(state.can('delete', 'post', undefined, 'org-1')).toBe(true)
     expect(state.can('delete', 'post')).toBe(false)
@@ -70,32 +70,32 @@ describe('createVueAccess - createAccessState', () => {
 
   it('update mutates reactive permissions', () => {
     const { vue } = makeFakeVue()
-    const { createAccessState } = createVueAccess<A, R, S>(vue)
-    const state = createAccessState({} as Client.PermissionMap<A, R, S>)
+    const { createAccessState } = createIamVueAccess<A, R, S>(vue)
+    const state = createAccessState({} as IamClient.PermissionMap<A, R, S>)
     expect(state.can('read', 'post')).toBe(false)
-    state.update({ 'read:post': true } as unknown as Client.PermissionMap<A, R, S>)
+    state.update({ 'read:post': true } as unknown as IamClient.PermissionMap<A, R, S>)
     expect(state.can('read', 'post')).toBe(true)
   })
 
   it('missing key resolves false', () => {
     const { vue } = makeFakeVue()
-    const { createAccessState } = createVueAccess<A, R, S>(vue)
-    const state = createAccessState({} as Client.PermissionMap<A, R, S>)
+    const { createAccessState } = createIamVueAccess<A, R, S>(vue)
+    const state = createAccessState({} as IamClient.PermissionMap<A, R, S>)
     expect(state.can('read', 'post')).toBe(false)
   })
 })
 
-describe('createVueAccess - provideAccess + useAccess', () => {
+describe('createIamVueAccess - provideAccess + useAccess', () => {
   it('provideAccess registers state via vue.provide', () => {
     const { vue, provided } = makeFakeVue()
-    const { provideAccess } = createVueAccess<A, R, S>(vue)
+    const { provideAccess } = createIamVueAccess<A, R, S>(vue)
     provideAccess(map)
-    expect(provided.has(ACCESS_INJECTION_KEY)).toBe(true)
+    expect(provided.has(IAM_ACCESS_INJECTION_KEY)).toBe(true)
   })
 
   it('useAccess returns provided state', () => {
     const { vue } = makeFakeVue()
-    const { provideAccess, useAccess } = createVueAccess<A, R, S>(vue)
+    const { provideAccess, useAccess } = createIamVueAccess<A, R, S>(vue)
     provideAccess(map)
     const state = useAccess()
     expect(state.can('read', 'post')).toBe(true)
@@ -103,15 +103,15 @@ describe('createVueAccess - provideAccess + useAccess', () => {
 
   it('useAccess throws when no provider', () => {
     const { vue } = makeFakeVue()
-    const { useAccess } = createVueAccess<A, R, S>(vue)
+    const { useAccess } = createIamVueAccess<A, R, S>(vue)
     expect(() => useAccess()).toThrow(/useAccess.*provideAccess/)
   })
 })
 
-describe('createVueAccess - createAccessPlugin', () => {
+describe('createIamVueAccess - createAccessPlugin', () => {
   it('install provides state and registers globals', () => {
     const { vue, provided } = makeFakeVue()
-    const { createAccessPlugin } = createVueAccess<A, R, S>(vue)
+    const { createAccessPlugin } = createIamVueAccess<A, R, S>(vue)
     const plugin = createAccessPlugin(map)
     const globalProps: Record<string, unknown> = {}
     const app = {
@@ -121,7 +121,7 @@ describe('createVueAccess - createAccessPlugin', () => {
       config: { globalProperties: globalProps },
     }
     plugin.install(app)
-    expect(provided.has(ACCESS_INJECTION_KEY)).toBe(true)
+    expect(provided.has(IAM_ACCESS_INJECTION_KEY)).toBe(true)
     expect(typeof globalProps.$can).toBe('function')
     expect(typeof globalProps.$cannot).toBe('function')
     const $can = globalProps.$can as (a: A, r: R, id?: string, s?: S) => boolean
@@ -130,10 +130,10 @@ describe('createVueAccess - createAccessPlugin', () => {
   })
 })
 
-describe('createVueAccess - Can/Cannot components', () => {
+describe('createIamVueAccess - Can/Cannot components', () => {
   it('Can renders default slot when allowed, fallback when denied', () => {
     const { vue } = makeFakeVue()
-    const access = createVueAccess<A, R, S>(vue)
+    const access = createIamVueAccess<A, R, S>(vue)
     access.provideAccess(map)
     const Can = access.Can as {
       setup: (props: Record<string, string>, ctx: { slots: Record<string, () => unknown> }) => () => unknown
@@ -158,7 +158,7 @@ describe('createVueAccess - Can/Cannot components', () => {
 
   it('Can with no fallback returns undefined when denied', () => {
     const { vue } = makeFakeVue()
-    const access = createVueAccess<A, R, S>(vue)
+    const access = createIamVueAccess<A, R, S>(vue)
     access.provideAccess(map)
     const Can = access.Can as {
       setup: (p: Record<string, string>, c: { slots: Record<string, undefined | (() => unknown)> }) => () => unknown
@@ -169,7 +169,7 @@ describe('createVueAccess - Can/Cannot components', () => {
 
   it('Cannot renders when denied, null when allowed', () => {
     const { vue } = makeFakeVue()
-    const access = createVueAccess<A, R, S>(vue)
+    const access = createIamVueAccess<A, R, S>(vue)
     access.provideAccess(map)
     const Cannot = access.Cannot as {
       setup: (p: Record<string, string>, c: { slots: Record<string, () => unknown> }) => () => unknown
@@ -184,7 +184,7 @@ describe('createVueAccess - Can/Cannot components', () => {
 
   it('Can returns options with name="Can"', () => {
     const { vue } = makeFakeVue()
-    const { Can, Cannot } = createVueAccess<A, R, S>(vue)
+    const { Can, Cannot } = createIamVueAccess<A, R, S>(vue)
     expect((Can as { name: string }).name).toBe('Can')
     expect((Cannot as { name: string }).name).toBe('Cannot')
   })
@@ -192,6 +192,6 @@ describe('createVueAccess - Can/Cannot components', () => {
 
 describe('exports', () => {
   it('exports stable injection key as Symbol', () => {
-    expect(typeof ACCESS_INJECTION_KEY).toBe('symbol')
+    expect(typeof IAM_ACCESS_INJECTION_KEY).toBe('symbol')
   })
 })

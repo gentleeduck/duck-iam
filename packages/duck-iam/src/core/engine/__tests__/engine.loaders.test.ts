@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { LRUCache } from '../../../shared/cache'
-import type { AccessControl, Adapter, Request } from '../../types'
+import { IamLRUCache } from '../../../shared/cache'
+import type { IamAccessControl, IamAdapter, IamRequest } from '../../types'
 import {
-  type ILoaderDeps,
+  type IIamLoaderDeps,
   loadAllPolicies,
   loadPolicies,
   loadRbacPolicy,
@@ -15,7 +15,7 @@ type R = string
 type Ro = string
 type S = string
 
-function makeAdapter(overrides: Partial<Adapter.IAdapter<A, R, Ro, S>> = {}): Adapter.IAdapter<A, R, Ro, S> {
+function makeAdapter(overrides: Partial<IamAdapter.IAdapter<A, R, Ro, S>> = {}): IamAdapter.IAdapter<A, R, Ro, S> {
   return {
     listPolicies: async () => [],
     getPolicy: async () => null,
@@ -34,14 +34,14 @@ function makeAdapter(overrides: Partial<Adapter.IAdapter<A, R, Ro, S>> = {}): Ad
   }
 }
 
-function makeDeps(overrides: Partial<ILoaderDeps<A, R, Ro, S>> = {}): ILoaderDeps<A, R, Ro, S> {
+function makeDeps(overrides: Partial<IIamLoaderDeps<A, R, Ro, S>> = {}): IIamLoaderDeps<A, R, Ro, S> {
   return {
     adapter: makeAdapter(),
-    policyCache: new LRUCache<AccessControl.IPolicy[]>(100, 60_000),
-    roleCache: new LRUCache<AccessControl.IRole[]>(100, 60_000),
-    rbacPolicyCache: new LRUCache<AccessControl.IPolicy>(100, 60_000),
-    mergedPolicyCache: new LRUCache<AccessControl.IPolicy[]>(100, 60_000),
-    subjectCache: new LRUCache<Request.ISubject>(100, 60_000),
+    policyCache: new IamLRUCache<IamAccessControl.IPolicy[]>(100, 60_000),
+    roleCache: new IamLRUCache<IamAccessControl.IRole[]>(100, 60_000),
+    rbacPolicyCache: new IamLRUCache<IamAccessControl.IPolicy>(100, 60_000),
+    mergedPolicyCache: new IamLRUCache<IamAccessControl.IPolicy[]>(100, 60_000),
+    subjectCache: new IamLRUCache<IamRequest.ISubject>(100, 60_000),
     inFlight: {
       policies: { value: null },
       roles: { value: null },
@@ -57,13 +57,13 @@ function makeDeps(overrides: Partial<ILoaderDeps<A, R, Ro, S>> = {}): ILoaderDep
 }
 
 describe('loadPolicies', () => {
-  let deps: ILoaderDeps<A, R, Ro, S>
+  let deps: IIamLoaderDeps<A, R, Ro, S>
   beforeEach(() => {
     deps = makeDeps()
   })
 
   it('caches the policy list under "all"', async () => {
-    const policies: AccessControl.IPolicy[] = [{ id: 'p', name: 'p', algorithm: 'deny-overrides' as const, rules: [] }]
+    const policies: IamAccessControl.IPolicy[] = [{ id: 'p', name: 'p', algorithm: 'deny-overrides' as const, rules: [] }]
     deps.adapter.listPolicies = vi.fn(async () => policies)
     await loadPolicies(deps)
     expect(deps.policyCache.get('all')).toEqual(policies)
@@ -79,8 +79,8 @@ describe('loadPolicies', () => {
   })
 
   it('single-flights concurrent callers (one adapter call, both get the same value)', async () => {
-    let resolveAdapter!: (v: AccessControl.IPolicy[]) => void
-    const adapterPromise = new Promise<AccessControl.IPolicy[]>((r) => {
+    let resolveAdapter!: (v: IamAccessControl.IPolicy[]) => void
+    const adapterPromise = new Promise<IamAccessControl.IPolicy[]>((r) => {
       resolveAdapter = r
     })
     deps.adapter.listPolicies = vi.fn(() => adapterPromise)
@@ -102,8 +102,8 @@ describe('loadPolicies', () => {
   })
 
   it('mid-flight cache clear is honored: produce resolves but cache stays empty', async () => {
-    let resolveAdapter!: (v: AccessControl.IPolicy[]) => void
-    const adapterPromise = new Promise<AccessControl.IPolicy[]>((r) => {
+    let resolveAdapter!: (v: IamAccessControl.IPolicy[]) => void
+    const adapterPromise = new Promise<IamAccessControl.IPolicy[]>((r) => {
       resolveAdapter = r
     })
     deps.adapter.listPolicies = () => adapterPromise
@@ -120,7 +120,7 @@ describe('loadPolicies', () => {
 
 describe('loadRoles', () => {
   it('caches roles under "all"', async () => {
-    const roles: AccessControl.IRole[] = [{ id: 'admin', name: 'admin', permissions: [] }]
+    const roles: IamAccessControl.IRole[] = [{ id: 'admin', name: 'admin', permissions: [] }]
     const deps = makeDeps()
     deps.adapter.listRoles = async () => roles
     await loadRoles(deps)
@@ -191,7 +191,7 @@ describe('loadAllPolicies', () => {
 })
 
 describe('resolveSubject', () => {
-  it('builds a Request.ISubject from adapter calls', async () => {
+  it('builds a IamRequest.ISubject from adapter calls', async () => {
     const deps = makeDeps()
     deps.adapter.getSubjectRoles = async () => ['admin']
     deps.adapter.getSubjectAttributes = async () => ({ dept: 'eng' })

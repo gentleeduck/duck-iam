@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Engine } from '../engine'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import { IamEngine } from '../engine'
 
 function buildEngine() {
-  const adapter = new MemoryAdapter<string, string, string, string>()
-  const engine = new Engine<string, string, string, string, 'production'>({
+  const adapter = new IamMemoryAdapter<string, string, string, string>()
+  const engine = new IamEngine<string, string, string, string, 'production'>({
     adapter,
     mode: 'production',
     defaultEffect: 'deny',

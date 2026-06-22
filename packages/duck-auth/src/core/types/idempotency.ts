@@ -1,7 +1,7 @@
-import type { TenantContext } from './context'
+import type { AuthTenantContext } from './context'
 
-/** Idempotency-key store contract; Redis adapter uses `SET NX EX` for atomic put-if-absent. */
-export namespace Idempotency {
+/** AuthIdempotency-key store contract; Redis adapter uses `SET NX EX` for atomic put-if-absent. */
+export namespace AuthIdempotency {
   /** Snapshot persisted under an idempotency key. */
   export interface ICachedResponse {
     /** HTTP status the original call returned. */
@@ -19,16 +19,16 @@ export namespace Idempotency {
      * Get the cached response for an idempotency key. Returns null when
      * the key has never been seen OR when the TTL has elapsed.
      */
-    get(key: string, ctx: TenantContext): Promise<ICachedResponse | null>
+    get(key: string, ctx: AuthTenantContext): Promise<ICachedResponse | null>
     /**
      * Atomically claim a key. Returns true if the caller is the first
      * to claim; false when a previous claim exists (caller should call
      * `get()` to read the cached response and replay).
      */
-    claim(key: string, ttlMs: number, ctx: TenantContext): Promise<boolean>
+    claim(key: string, ttlMs: number, ctx: AuthTenantContext): Promise<boolean>
     /** Store the response snapshot under the previously-claimed key. */
-    put(key: string, response: ICachedResponse, ttlMs: number, ctx: TenantContext): Promise<void>
+    put(key: string, response: ICachedResponse, ttlMs: number, ctx: AuthTenantContext): Promise<void>
     /** Drop a key; used by tests + flush operations. */
-    delete(key: string, ctx: TenantContext): Promise<void>
+    delete(key: string, ctx: AuthTenantContext): Promise<void>
   }
 }

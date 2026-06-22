@@ -1,9 +1,9 @@
 // @ts-nocheck
 /**
- * Reference Drizzle ORM (MySQL / MariaDB) implementation of the SqlBridge
+ * Reference Drizzle ORM (MySQL / MariaDB) implementation of the AuthSqlBridge
  * contract. Drop into your project, install the peerDeps, swap in your
  * own column / schema customizations, then hand the bridge to
- * `createSqlAuthStores`.
+ * `authCreateSqlStores`.
  *
  * NOT compiled by tsdown (skipped via the `.example.ts` suffix +
  * `@ts-nocheck` so consumers without `drizzle-orm` / `mysql2` installed
@@ -17,7 +17,7 @@
  *   - `JSON_EXTRACT(col, '$.key')` replaces pg's `(col::jsonb)->>'key'`.
  *   - MySQL does not implement `RETURNING`; updates that need the new
  *     row issue a separate `SELECT` afterwards.
- *   - Provider-link upserts are done client-side (parse JSON, splice,
+ *   - AuthProvider-link upserts are done client-side (parse JSON, splice,
  *     re-write) for portability across MySQL 5.7 / 8.x / MariaDB.
  */
 
@@ -28,14 +28,14 @@ const lazyRequire = createRequire(import.meta.url)
 
 import { bigint, index, int, mysqlTable, text, varchar } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
-import { createSqlAuthStores, type SqlBridge } from '../../sql'
-import { parseProviderLinks } from '../_parsers'
+import { authCreateSqlStores, type AuthSqlBridge } from '../../sql'
+import { authParseProviderLinks } from '../_parsers'
 
 // ---------------------------------------------------------------------
 // Schema definitions
 // ---------------------------------------------------------------------
 
-export const identitiesTable = mysqlTable(
+export const authIdentitiesTable = mysqlTable(
   'auth_identities',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
@@ -53,7 +53,7 @@ export const identitiesTable = mysqlTable(
   }),
 )
 
-export const credentialsTable = mysqlTable(
+export const authCredentialsTable = mysqlTable(
   'auth_credentials',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
@@ -77,7 +77,7 @@ export const credentialsTable = mysqlTable(
   }),
 )
 
-export const sessionsTable = mysqlTable(
+export const authSessionsTable = mysqlTable(
   'auth_sessions',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
@@ -108,7 +108,7 @@ export const sessionsTable = mysqlTable(
 // Bridge factory
 // ---------------------------------------------------------------------
 
-export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
+export function authCreateDrizzleMysqlBridge(db: MySql2Database): AuthSqlBridge {
   function tenantWhere<T extends { tenantId: unknown }>(table: T, tenantId: string | undefined) {
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
   }
@@ -124,8 +124,8 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
       findById: async (id, tenantId) => {
         const rows = await db
           .select()
-          .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, id), isNull(identitiesTable.deletedAt)))
+          .from(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, id), isNull(authIdentitiesTable.deletedAt)))
           .limit(1)
         const row = rows[0]
         if (!row) return null
@@ -136,7 +136,7 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
         // Tenant-scope: null tenant_id rows are "global identities"
         // reachable from any tenant, matching findById's semantics.
         const rows = await db.execute(
-          sql`select * from ${identitiesTable}
+          sql`select * from ${authIdentitiesTable}
               where JSON_EXTRACT(profile, '$.email') = ${email}
                 and deleted_at is null
                 and (tenant_id is null or ${tenantId ?? null} is null or tenant_id = ${tenantId ?? null})
@@ -148,7 +148,7 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
         // MySQL's JSON_CONTAINS is the portable check for "has element X".
         const needle = JSON.stringify({ providerId, providerSub: sub })
         const rows = await db.execute(
-          sql`select * from ${identitiesTable}
+          sql`select * from ${authIdentitiesTable}
               where JSON_CONTAINS(providers, ${needle})
                 and deleted_at is null
                 and (tenant_id is null or ${tenantId ?? null} is null or tenant_id = ${tenantId ?? null})
@@ -157,99 +157,99 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
         return (rows[0] as never) ?? null
       },
       insert: async (row) => {
-        await db.insert(identitiesTable).values(row)
+        await db.insert(authIdentitiesTable).values(row)
       },
       updateConditional: async (id, patch, expectedVersion, tenantId) => {
         const r = await db
-          .update(identitiesTable)
+          .update(authIdentitiesTable)
           .set(patch as never)
           .where(
             and(
-              eq(identitiesTable.id, id),
-              eq(identitiesTable.version, expectedVersion),
-              tenantWhere(identitiesTable, tenantId),
+              eq(authIdentitiesTable.id, id),
+              eq(authIdentitiesTable.version, expectedVersion),
+              tenantWhere(authIdentitiesTable, tenantId),
             ),
           )
         // mysql2 returns `{ rowsAffected }`; fall back to reselect on success.
         if ((r as { rowsAffected?: number }).rowsAffected === 0) return null
-        return reselect(identitiesTable, id)
+        return reselect(authIdentitiesTable, id)
       },
       softDelete: async (id, deletedAt, tenantId) => {
         await db
-          .update(identitiesTable)
+          .update(authIdentitiesTable)
           .set({ deletedAt })
-          .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
       },
       restore: async (id, tenantId) => {
         await db
-          .update(identitiesTable)
+          .update(authIdentitiesTable)
           .set({ deletedAt: null })
-          .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
-        return reselect(identitiesTable, id)
+          .where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
+        return reselect(authIdentitiesTable, id)
       },
       erase: async (id, tenantId) => {
-        await db.delete(credentialsTable).where(eq(credentialsTable.identityId, id))
-        await db.delete(sessionsTable).where(eq(sessionsTable.identityId, id))
-        await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+        await db.delete(authCredentialsTable).where(eq(authCredentialsTable.identityId, id))
+        await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, id))
+        await db.delete(authIdentitiesTable).where(and(eq(authIdentitiesTable.id, id), tenantWhere(authIdentitiesTable, tenantId)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
         // Portable across MySQL 5.7/8.x; wrap in `SELECT ... FOR UPDATE` if races.
         const rows = await db
           .select()
-          .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .from(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, identityId), tenantWhere(authIdentitiesTable, tenantId)))
           .limit(1)
         const cur = rows[0]
         if (!cur) return
-        // parseProviderLinks fail-safes
+        // authParseProviderLinks fail-safes
         // malformed providers JSON to [] (was: crash on `null` /
         // non-array / `JSON.parse` SyntaxError).
-        const arr = parseProviderLinks(cur.providers)
+        const arr = authParseProviderLinks(cur.providers)
         const exists = arr.some(
           (p) => p.providerId === providerId && (providerSub === undefined || p.providerSub === providerSub),
         )
         if (exists) return
         arr.push(providerSub === undefined ? { providerId, addedAt } : { providerId, providerSub, addedAt })
         await db
-          .update(identitiesTable)
+          .update(authIdentitiesTable)
           .set({ providers: JSON.stringify(arr) })
-          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(authIdentitiesTable.id, identityId), tenantWhere(authIdentitiesTable, tenantId)))
       },
       deleteProviderLink: async (identityId, providerId, tenantId) => {
         const rows = await db
           .select()
-          .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .from(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, identityId), tenantWhere(authIdentitiesTable, tenantId)))
           .limit(1)
         const cur = rows[0]
         if (!cur) return
-        const arr = parseProviderLinks(cur.providers)
+        const arr = authParseProviderLinks(cur.providers)
         const next = arr.filter((p) => p.providerId !== providerId)
         await db
-          .update(identitiesTable)
+          .update(authIdentitiesTable)
           .set({ providers: JSON.stringify(next) })
-          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(authIdentitiesTable.id, identityId), tenantWhere(authIdentitiesTable, tenantId)))
       },
       merge: async (survivorId, dupId, tenantId) => {
         await db
-          .update(credentialsTable)
+          .update(authCredentialsTable)
           .set({ identityId: survivorId })
-          .where(and(eq(credentialsTable.identityId, dupId), tenantWhere(credentialsTable, tenantId)))
+          .where(and(eq(authCredentialsTable.identityId, dupId), tenantWhere(authCredentialsTable, tenantId)))
         await db
-          .update(sessionsTable)
+          .update(authSessionsTable)
           .set({ identityId: survivorId })
-          .where(and(eq(sessionsTable.identityId, dupId), tenantWhere(sessionsTable, tenantId)))
+          .where(and(eq(authSessionsTable.identityId, dupId), tenantWhere(authSessionsTable, tenantId)))
         await db
-          .delete(identitiesTable)
-          .where(and(eq(identitiesTable.id, dupId), tenantWhere(identitiesTable, tenantId)))
+          .delete(authIdentitiesTable)
+          .where(and(eq(authIdentitiesTable.id, dupId), tenantWhere(authIdentitiesTable, tenantId)))
       },
     },
     credentials: {
       findById: async (id, tenantId) => {
         const rows = await db
           .select()
-          .from(credentialsTable)
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .from(authCredentialsTable)
+          .where(and(eq(authCredentialsTable.id, id), tenantWhere(authCredentialsTable, tenantId)))
           .limit(1)
         return rows[0] ?? null
       },
@@ -258,18 +258,18 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
         // (truthy `tenantId ?` would drop the filter for '' and leak
         // across tenants).
         const where = [
-          eq(credentialsTable.identityId, identityId),
-          ...(kind !== undefined ? [eq(credentialsTable.kind, kind)] : []),
-          ...(tenantId !== undefined ? [eq(credentialsTable.tenantId, tenantId)] : []),
+          eq(authCredentialsTable.identityId, identityId),
+          ...(kind !== undefined ? [eq(authCredentialsTable.kind, kind)] : []),
+          ...(tenantId !== undefined ? [eq(authCredentialsTable.tenantId, tenantId)] : []),
         ]
         return db
           .select()
-          .from(credentialsTable)
+          .from(authCredentialsTable)
           .where(and(...where))
       },
       findByProviderSub: async (provider, sub, _tenantId) => {
         const rows = await db.execute(
-          sql`select * from ${credentialsTable}
+          sql`select * from ${authCredentialsTable}
               where JSON_EXTRACT(metadata, '$.provider') = ${provider}
                 and JSON_EXTRACT(metadata, '$.sub') = ${sub}
               limit 1`,
@@ -279,84 +279,84 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
       findByHashedSecret: async (secretHash, kind, tenantId) => {
         const rows = await db
           .select()
-          .from(credentialsTable)
+          .from(authCredentialsTable)
           .where(
             and(
-              eq(credentialsTable.secret, secretHash),
-              eq(credentialsTable.kind, kind),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentialsTable.secret, secretHash),
+              eq(authCredentialsTable.kind, kind),
+              tenantWhere(authCredentialsTable, tenantId),
             ),
           )
           .limit(1)
         return rows[0] ?? null
       },
       insert: async (row) => {
-        await db.insert(credentialsTable).values(row)
+        await db.insert(authCredentialsTable).values(row)
       },
       updateConditional: async (id, patch, expectedVersion, tenantId) => {
         const r = await db
-          .update(credentialsTable)
+          .update(authCredentialsTable)
           .set(patch as never)
           .where(
             and(
-              eq(credentialsTable.id, id),
-              eq(credentialsTable.version, expectedVersion),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentialsTable.id, id),
+              eq(authCredentialsTable.version, expectedVersion),
+              tenantWhere(authCredentialsTable, tenantId),
             ),
           )
         if ((r as { rowsAffected?: number }).rowsAffected === 0) return null
-        return reselect(credentialsTable, id)
+        return reselect(authCredentialsTable, id)
       },
       revoke: async (id, revokedAt, tenantId) => {
         await db
-          .update(credentialsTable)
+          .update(authCredentialsTable)
           .set({ revokedAt })
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .where(and(eq(authCredentialsTable.id, id), tenantWhere(authCredentialsTable, tenantId)))
       },
       delete: async (id, tenantId) => {
         await db
-          .delete(credentialsTable)
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .delete(authCredentialsTable)
+          .where(and(eq(authCredentialsTable.id, id), tenantWhere(authCredentialsTable, tenantId)))
       },
       deleteByKind: async (identityId, kind, tenantId) => {
         await db
-          .delete(credentialsTable)
+          .delete(authCredentialsTable)
           .where(
             and(
-              eq(credentialsTable.identityId, identityId),
-              eq(credentialsTable.kind, kind),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentialsTable.identityId, identityId),
+              eq(authCredentialsTable.kind, kind),
+              tenantWhere(authCredentialsTable, tenantId),
             ),
           )
       },
     },
     sessions: {
       insert: async (row) => {
-        await db.insert(sessionsTable).values(row)
+        await db.insert(authSessionsTable).values(row)
       },
       findByHash: async (sidHash) => {
-        const rows = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sidHash)).limit(1)
+        const rows = await db.select().from(authSessionsTable).where(eq(authSessionsTable.id, sidHash)).limit(1)
         return rows[0] ?? null
       },
       update: async (id, patch) => {
         const r = await db
-          .update(sessionsTable)
+          .update(authSessionsTable)
           .set(patch as never)
-          .where(eq(sessionsTable.id, id))
+          .where(eq(authSessionsTable.id, id))
         if ((r as { rowsAffected?: number }).rowsAffected === 0) return null
-        return reselect(sessionsTable, id)
+        return reselect(authSessionsTable, id)
       },
       delete: async (id) => {
-        await db.delete(sessionsTable).where(eq(sessionsTable.id, id))
+        await db.delete(authSessionsTable).where(eq(authSessionsTable.id, id))
       },
       listByIdentity: async (identityId) => {
-        return db.select().from(sessionsTable).where(eq(sessionsTable.identityId, identityId))
+        return db.select().from(authSessionsTable).where(eq(authSessionsTable.identityId, identityId))
       },
       deleteAllForIdentity: async (identityId) => {
-        await db.delete(sessionsTable).where(eq(sessionsTable.identityId, identityId))
+        await db.delete(authSessionsTable).where(eq(authSessionsTable.identityId, identityId))
       },
       deleteExpired: async (now) => {
-        const r = await db.delete(sessionsTable).where(lt(sessionsTable.absoluteExpiresAt, now))
+        const r = await db.delete(authSessionsTable).where(lt(authSessionsTable.absoluteExpiresAt, now))
         return (r as { rowsAffected?: number }).rowsAffected ?? 0
       },
     },
@@ -364,28 +364,28 @@ export function createDrizzleMysqlAuthBridge(db: MySql2Database): SqlBridge {
 }
 
 // ---------------------------------------------------------------------
-// Wire-up (replace with your own AuthRoot config)
+// Wire-up (replace with your own AuthEngine config)
 // ---------------------------------------------------------------------
 //
 // import { drizzle } from 'drizzle-orm/mysql2'
 // import mysql from 'mysql2/promise'
-// import { createSqlAuthStores } from '../../sql'
+// import { authCreateSqlStores } from '../../sql'
 //
 // const pool = mysql.createPool({ uri: process.env.DATABASE_URL! })
-// const db = drizzle(pool, { schema: { identitiesTable, credentialsTable, sessionsTable }, mode: 'default' })
-// const bridge = createDrizzleMysqlAuthBridge(db)
-// const stores = createSqlAuthStores<MyProfile>(bridge)
+// const db = drizzle(pool, { schema: { authIdentitiesTable, authCredentialsTable, authSessionsTable }, mode: 'default' })
+// const bridge = authCreateDrizzleMysqlBridge(db)
+// const stores = authCreateSqlStores<MyProfile>(bridge)
 //
-// new AuthRoot({ stores, ... })
+// new AuthEngine({ stores, ... })
 
 /**
  * Storage helper folding `mysql2 pool -> drizzle -> bridge -> stores`. Accepts connection string, mysql2 pool, or MySql2Database.
  *
- * @template Profile - Identity profile shape.
+ * @template Profile - AuthIdentity profile shape.
  */
-export const drizzleMysqlStorage = <Profile = unknown>(
+export const authDrizzleMysqlStorage = <Profile = unknown>(
   input: string | MySql2Database | { execute: () => unknown },
-): ReturnType<typeof createSqlAuthStores<Profile>> => {
+): ReturnType<typeof authCreateSqlStores<Profile>> => {
   let db: MySql2Database
   if (typeof input === 'string') {
     const mysql = lazyRequire('mysql2/promise')
@@ -400,5 +400,5 @@ export const drizzleMysqlStorage = <Profile = unknown>(
   } else {
     db = input as MySql2Database
   }
-  return createSqlAuthStores<Profile>(createDrizzleMysqlAuthBridge(db))
+  return authCreateSqlStores<Profile>(authCreateDrizzleMysqlBridge(db))
 }

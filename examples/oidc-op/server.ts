@@ -8,7 +8,7 @@
 
 import { createHmac } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
+import { AuthMemoryAdapter } from '@gentleduck/auth/adapters/memory'
 import { AuthRoot, CookieTransport, ScryptHasher } from '@gentleduck/auth/core'
 import { createOidcOP } from '@gentleduck/auth/oidc/op'
 
@@ -21,7 +21,7 @@ interface Profile {
   name?: string
 }
 
-const adapter = new MemoryAuthAdapter<Profile>()
+const adapter = new AuthMemoryAdapter<Profile>()
 const auth = new AuthRoot<Profile>({
   baseUrl: ISSUER,
   stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },

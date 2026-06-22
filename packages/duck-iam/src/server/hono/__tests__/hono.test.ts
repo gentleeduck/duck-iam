@@ -1,20 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Engine } from '../../../core/engine'
-import type { AccessControl } from '../../../core/types'
-import { accessMiddleware, bindAdminRouter, guard } from '../index'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import { IamEngine } from '../../../core/engine'
+import type { IamAccessControl } from '../../../core/types'
+import { iamAccessMiddleware, iamBindAdminRouter, iamGuard } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
 type ResourceType = 'post' | 'comment'
 type RoleId = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [{ action: 'read', resource: 'post' }],
 }
-const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -25,11 +25,11 @@ const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
 }
 
 function makeEngine() {
-  const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+  const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: [viewerRole, editorRole],
     assignments: { 'user-viewer': ['viewer'], 'user-editor': ['editor'] },
   })
-  return new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 }
 
 interface RecordedJson {
@@ -78,15 +78,15 @@ function makeContext(opts: {
   }
 }
 
-describe('accessMiddleware (hono)', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+describe('iamAccessMiddleware (hono)', () => {
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = makeEngine()
   })
 
   it('returns 401 when userId missing', async () => {
-    const mw = accessMiddleware(engine)
+    const mw = iamAccessMiddleware(engine)
     const { ctx, json } = makeContext({ method: 'GET', path: '/post' })
     const next = vi.fn(async () => undefined)
     await mw(ctx, next)
@@ -96,7 +96,7 @@ describe('accessMiddleware (hono)', () => {
 
   it('reads userId from context state first', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine)
+    const mw = iamAccessMiddleware(engine)
     const { ctx } = makeContext({ method: 'GET', path: '/post', state: { userId: 'user-state' } })
     await mw(
       ctx,
@@ -107,7 +107,7 @@ describe('accessMiddleware (hono)', () => {
   })
 
   it('does NOT default to spoofable x-user-id header', async () => {
-    const mw = accessMiddleware(engine)
+    const mw = iamAccessMiddleware(engine)
     const { ctx } = makeContext({ method: 'GET', path: '/post', headers: { 'x-user-id': 'spoofed-admin' } })
     const res = await mw(
       ctx,
@@ -120,7 +120,7 @@ describe('accessMiddleware (hono)', () => {
 
   it('honours c.set(userId) from upstream auth middleware', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine)
+    const mw = iamAccessMiddleware(engine)
     const { ctx } = makeContext({ method: 'GET', path: '/post' })
     ctx.set('userId', 'trusted-user')
     await mw(
@@ -132,7 +132,7 @@ describe('accessMiddleware (hono)', () => {
   })
 
   it('calls next when allowed', async () => {
-    const mw = accessMiddleware(engine, { getUserId: () => 'user-viewer' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'user-viewer' })
     const { ctx } = makeContext({ method: 'GET', path: '/post' })
     const next = vi.fn(async () => undefined)
     await mw(ctx, next)
@@ -140,7 +140,7 @@ describe('accessMiddleware (hono)', () => {
   })
 
   it('returns 403 default when denied', async () => {
-    const mw = accessMiddleware(engine, { getUserId: () => 'user-viewer' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'user-viewer' })
     const { ctx, json } = makeContext({ method: 'DELETE', path: '/post' })
     await mw(
       ctx,
@@ -151,7 +151,7 @@ describe('accessMiddleware (hono)', () => {
 
   it('infers action from method', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine, { getUserId: () => 'u' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
     const { ctx } = makeContext({ method: 'PATCH', path: '/post' })
     await mw(
       ctx,
@@ -163,7 +163,7 @@ describe('accessMiddleware (hono)', () => {
 
   it('uses default env extractor with cf-connecting-ip', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine, { getUserId: () => 'u' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
     const { ctx } = makeContext({
       method: 'GET',
       path: '/post',
@@ -180,7 +180,7 @@ describe('accessMiddleware (hono)', () => {
 
   it('falls back to x-forwarded-for', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine, { getUserId: () => 'u' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
     const { ctx } = makeContext({
       method: 'GET',
       path: '/post',
@@ -197,7 +197,7 @@ describe('accessMiddleware (hono)', () => {
   it('onError handles engine throw', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('boom'))
     const onError = vi.fn((_e, c) => c.json({ err: true }, 599))
-    const mw = accessMiddleware(engine, { getUserId: () => 'u', onError })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u', onError })
     const { ctx, json } = makeContext({ method: 'GET', path: '/post' })
     await mw(
       ctx,
@@ -209,7 +209,7 @@ describe('accessMiddleware (hono)', () => {
 
   it('getScope passed to engine', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware<Action, ResourceType, RoleId, Scope>(engine, {
+    const mw = iamAccessMiddleware<Action, ResourceType, RoleId, Scope>(engine, {
       getUserId: () => 'u',
       getScope: () => 'org-1',
     })
@@ -223,15 +223,15 @@ describe('accessMiddleware (hono)', () => {
   })
 })
 
-describe('guard (hono)', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+describe('iamGuard (hono)', () => {
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = makeEngine()
   })
 
   it('401 when no user', async () => {
-    const mw = guard(engine, 'delete', 'post')
+    const mw = iamGuard(engine, 'delete', 'post')
     const { ctx, json } = makeContext({ method: 'DELETE', path: '/post/1' })
     await mw(
       ctx,
@@ -241,7 +241,7 @@ describe('guard (hono)', () => {
   })
 
   it('next() when allowed', async () => {
-    const mw = guard(engine, 'delete', 'post', { getUserId: () => 'user-editor' })
+    const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'user-editor' })
     const { ctx } = makeContext({ method: 'DELETE', path: '/post/1', params: { id: '1' } })
     const next = vi.fn(async () => undefined)
     await mw(ctx, next)
@@ -249,7 +249,7 @@ describe('guard (hono)', () => {
   })
 
   it('403 when denied', async () => {
-    const mw = guard(engine, 'delete', 'post', { getUserId: () => 'user-viewer' })
+    const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'user-viewer' })
     const { ctx, json } = makeContext({ method: 'DELETE', path: '/post/1', params: { id: '1' } })
     await mw(
       ctx,
@@ -260,7 +260,7 @@ describe('guard (hono)', () => {
 
   it('passes resource id from param("id")', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = guard(engine, 'delete', 'post', { getUserId: () => 'u' })
+    const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'u' })
     const { ctx } = makeContext({ method: 'DELETE', path: '/post/42', params: { id: '42' } })
     await mw(
       ctx,
@@ -273,7 +273,7 @@ describe('guard (hono)', () => {
   it('onError invoked on throw', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('boom'))
     const onError = vi.fn((_e, c) => c.json({ err: true }, 599))
-    const mw = guard(engine, 'delete', 'post', { getUserId: () => 'u', onError })
+    const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'u', onError })
     const { ctx, json } = makeContext({ method: 'DELETE', path: '/post/1' })
     await mw(
       ctx,
@@ -283,11 +283,11 @@ describe('guard (hono)', () => {
   })
 })
 
-describe('bindAdminRouter (hono)', () => {
+describe('iamBindAdminRouter (hono)', () => {
   it('refuses construction without an authorize callback', () => {
     const engine = makeEngine()
     const fakeRouter = { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() }
-    expect(() => bindAdminRouter(fakeRouter, engine, undefined as never)).toThrow(/authorize/)
+    expect(() => iamBindAdminRouter(fakeRouter, engine, undefined as never)).toThrow(/authorize/)
   })
 
   it('gates handlers behind authorize and dispatches when allowed', async () => {
@@ -308,7 +308,7 @@ describe('bindAdminRouter (hono)', () => {
         handlers[`DELETE ${path}`] = h
       }),
     }
-    bindAdminRouter(router, engine, { authorize: () => true })
+    iamBindAdminRouter(router, engine, { authorize: () => true })
 
     const ctxAllow = {
       req: { param: () => undefined, json: async () => [] },
@@ -330,7 +330,7 @@ describe('bindAdminRouter (hono)', () => {
       post: vi.fn(),
       delete: vi.fn(),
     }
-    bindAdminRouter(router, engine, { authorize: () => false })
+    iamBindAdminRouter(router, engine, { authorize: () => false })
     const ctxDeny = {
       req: { param: () => undefined, json: async () => ({}) },
       json: (data: unknown, status?: number) => ({ data, status: status ?? 200 }) as unknown as Response,
@@ -353,7 +353,7 @@ describe('bindAdminRouter (hono)', () => {
       post: vi.fn(),
       delete: vi.fn(),
     }
-    bindAdminRouter(router, engine, {
+    iamBindAdminRouter(router, engine, {
       authorize: () => {
         authorizeCalled = true
         return true
@@ -409,7 +409,7 @@ describe('bindAdminRouter (hono)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: unknown[] = []
-      bindAdminRouter(router, engine, {
+      iamBindAdminRouter(router, engine, {
         authorize: (() => ({ id: 'admin-1' })) as never,
         onAdminMutation: (e) => {
           events.push(e)
@@ -444,7 +444,7 @@ describe('bindAdminRouter (hono)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: unknown[] = []
-      bindAdminRouter(router, engine, {
+      iamBindAdminRouter(router, engine, {
         authorize: () => true,
         onAdminMutation: (e) => {
           events.push(e)
@@ -468,7 +468,7 @@ describe('bindAdminRouter (hono)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: unknown[] = []
-      bindAdminRouter(router, engine, {
+      iamBindAdminRouter(router, engine, {
         authorize: () => true,
         onAdminMutation: (e) => {
           events.push(e)
@@ -484,7 +484,7 @@ describe('bindAdminRouter (hono)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      bindAdminRouter(router, engine, {
+      iamBindAdminRouter(router, engine, {
         authorize: () => true,
         onAdminMutation: () => {
           throw new Error('hook-explode')
@@ -507,7 +507,7 @@ describe('bindAdminRouter (hono)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: Array<{ path: string }> = []
-      bindAdminRouter(router, engine, {
+      iamBindAdminRouter(router, engine, {
         authorize: () => true,
         onAdminMutation: (e) => {
           events.push(e)
@@ -533,7 +533,7 @@ describe('bindAdminRouter (hono)', () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
       const captured: Array<{ err: unknown; event: { action: string; target: string } }> = []
       const boom = new Error('hook-boom')
-      bindAdminRouter(router, engine, {
+      iamBindAdminRouter(router, engine, {
         authorize: () => true,
         onAdminMutation: () => {
           throw boom
@@ -562,7 +562,7 @@ describe('bindAdminRouter (hono)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: Array<{ success: boolean; error?: string }> = []
-      bindAdminRouter(router, engine, {
+      iamBindAdminRouter(router, engine, {
         authorize: () => true,
         onAdminMutation: (e) => {
           events.push(e)
@@ -590,7 +590,7 @@ describe('bindAdminRouter (hono)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouterRec()
       const events: Array<{ error?: string }> = []
-      bindAdminRouter(router, engine, {
+      iamBindAdminRouter(router, engine, {
         authorize: () => true,
         includeErrorMessage: true,
         onAdminMutation: (e) => {

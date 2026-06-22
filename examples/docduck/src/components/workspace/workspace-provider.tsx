@@ -1,6 +1,6 @@
 'use client'
 
-import type { Client } from '@gentleduck/iam'
+import type { IamClient } from '@gentleduck/iam'
 import { createContext, useContext } from 'react'
 import { AccessProvider } from '@/lib/access-client'
 
@@ -34,7 +34,7 @@ export function useWorkspace() {
 interface WorkspaceProviderProps {
   workspace: Workspace
   membership: Membership
-  permissions: Client.PermissionMap
+  permissions: IamClient.PermissionMap
   children: React.ReactNode
 }
 

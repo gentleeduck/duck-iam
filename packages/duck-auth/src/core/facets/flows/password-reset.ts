@@ -10,7 +10,7 @@
 
 import { isCredentialExpired, isRevoked } from '../../credential-utils'
 import { AuthErrorObject } from '../../errors'
-import type { Channel } from '../../types/channel'
+import type { AuthChannel } from '../../types/channel'
 import { isSafeCallbackPath } from '../../url-validators'
 import type { FlowsFacet } from '../flows'
 
@@ -19,7 +19,7 @@ export async function requestPasswordReset<Profile>(
   opts: {
     input: FlowsFacet.IPasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    channels: Partial<Record<'email' | 'sms' | 'webpush', Channel.IChannel>>
+    channels: Partial<Record<'email' | 'sms' | 'webpush', AuthChannel.IChannel>>
     tenantId?: string
   },
 ): Promise<{ ok: true }> {
@@ -46,7 +46,7 @@ export async function requestPasswordReset<Profile>(
 
   const identity = await opts.findIdentityByEmail(emailCanonical, opts.tenantId)
   if (!identity) {
-    ctx.crypto.sha256(ctx.crypto.randomToken(32))
+    ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
     return { ok: true }
   }
 
@@ -57,8 +57,8 @@ export async function requestPasswordReset<Profile>(
     })
   }
 
-  const token = ctx.crypto.randomToken(32)
-  const tokenHash = ctx.crypto.sha256(token)
+  const token = ctx.crypto.authRandomToken(32)
+  const tokenHash = ctx.crypto.authSha256(token)
   const now = Date.now()
   await ctx.stores.credentials.upsert(
     {
@@ -111,7 +111,7 @@ export async function completePasswordReset<Profile>(
     throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
   }
   const ctx = flows._ctxFactory(input.tenantId)
-  const hash = ctx.crypto.sha256(token)
+  const hash = ctx.crypto.authSha256(token)
   const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
   const now = Date.now()
   if (!row || isRevoked(row)) {

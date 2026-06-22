@@ -4,27 +4,27 @@
  * implementing the same interfaces.
  */
 
-import type { OidcOP } from './types'
+import type { AuthOidcOP } from './types'
 
-export class MemoryClientStore implements OidcOP.IClientStore {
-  private rows = new Map<string, OidcOP.IClient>()
-  async findById(client_id: string): Promise<OidcOP.IClient | null> {
+export class AuthMemoryClientStore implements AuthOidcOP.IClientStore {
+  private rows = new Map<string, AuthOidcOP.IClient>()
+  async findById(client_id: string): Promise<AuthOidcOP.IClient | null> {
     return this.rows.get(client_id) ?? null
   }
-  async insert(c: OidcOP.IClient): Promise<void> {
+  async insert(c: AuthOidcOP.IClient): Promise<void> {
     if (this.rows.has(c.client_id)) {
-      throw new Error(`MemoryClientStore: client_id '${c.client_id}' already registered`)
+      throw new Error(`AuthMemoryClientStore: client_id '${c.client_id}' already registered`)
     }
     this.rows.set(c.client_id, c)
   }
 }
 
-export class MemoryCodeStore implements OidcOP.ICodeStore {
-  private rows = new Map<string, OidcOP.ICode>()
-  async insert(c: OidcOP.ICode): Promise<void> {
+export class AuthMemoryCodeStore implements AuthOidcOP.ICodeStore {
+  private rows = new Map<string, AuthOidcOP.ICode>()
+  async insert(c: AuthOidcOP.ICode): Promise<void> {
     this.rows.set(c.code, c)
   }
-  async consume(code: string, now: number): Promise<OidcOP.ICode | null> {
+  async consume(code: string, now: number): Promise<AuthOidcOP.ICode | null> {
     const row = this.rows.get(code)
     if (!row) return null
     this.rows.delete(code)
@@ -33,12 +33,12 @@ export class MemoryCodeStore implements OidcOP.ICodeStore {
   }
 }
 
-export class MemoryAccessTokenStore implements OidcOP.IAccessTokenStore {
-  private rows = new Map<string, OidcOP.IAccessToken>()
-  async insert(t: OidcOP.IAccessToken): Promise<void> {
+export class AuthMemoryAccessTokenStore implements AuthOidcOP.IAccessTokenStore {
+  private rows = new Map<string, AuthOidcOP.IAccessToken>()
+  async insert(t: AuthOidcOP.IAccessToken): Promise<void> {
     this.rows.set(t.token_hash, t)
   }
-  async findByHash(hash: string, now: number): Promise<OidcOP.IAccessToken | null> {
+  async findByHash(hash: string, now: number): Promise<AuthOidcOP.IAccessToken | null> {
     const row = this.rows.get(hash)
     if (!row) return null
     if (row.exp <= now) {
@@ -52,12 +52,12 @@ export class MemoryAccessTokenStore implements OidcOP.IAccessTokenStore {
   }
 }
 
-export class MemoryRefreshTokenStore implements OidcOP.IRefreshTokenStore {
-  private rows = new Map<string, OidcOP.IRefreshToken>()
-  async insert(t: OidcOP.IRefreshToken): Promise<void> {
+export class AuthMemoryRefreshTokenStore implements AuthOidcOP.IRefreshTokenStore {
+  private rows = new Map<string, AuthOidcOP.IRefreshToken>()
+  async insert(t: AuthOidcOP.IRefreshToken): Promise<void> {
     this.rows.set(t.token_hash, t)
   }
-  async findByHash(hash: string, now: number): Promise<OidcOP.IRefreshToken | null> {
+  async findByHash(hash: string, now: number): Promise<AuthOidcOP.IRefreshToken | null> {
     const row = this.rows.get(hash)
     if (!row) return null
     if (row.exp <= now) {
@@ -66,7 +66,7 @@ export class MemoryRefreshTokenStore implements OidcOP.IRefreshTokenStore {
     }
     return row
   }
-  async consume(hash: string, now: number): Promise<OidcOP.IRefreshToken | null> {
+  async consume(hash: string, now: number): Promise<AuthOidcOP.IRefreshToken | null> {
     const row = this.rows.get(hash)
     if (!row) return null
     if (row.exp <= now) {
@@ -85,15 +85,15 @@ export class MemoryRefreshTokenStore implements OidcOP.IRefreshTokenStore {
   }
 }
 
-export class MemoryConsentStore implements OidcOP.IConsentStore {
-  private rows = new Map<string, OidcOP.IConsent>()
+export class AuthMemoryConsentStore implements AuthOidcOP.IConsentStore {
+  private rows = new Map<string, AuthOidcOP.IConsent>()
   private key(identity_id: string, client_id: string) {
     return `${identity_id}:${client_id}`
   }
-  async find(identity_id: string, client_id: string): Promise<OidcOP.IConsent | null> {
+  async find(identity_id: string, client_id: string): Promise<AuthOidcOP.IConsent | null> {
     return this.rows.get(this.key(identity_id, client_id)) ?? null
   }
-  async upsert(c: OidcOP.IConsent): Promise<void> {
+  async upsert(c: AuthOidcOP.IConsent): Promise<void> {
     this.rows.set(this.key(c.identity_id, c.client_id), c)
   }
 }

@@ -79,21 +79,21 @@ const result = await auth.flows.signIn({
 // result.session, result.sid, result.intents[]
 ```
 
-`defineAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, ScryptHasher, InMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthRoot` directly - both APIs accept the same primitives.
+`defineAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, ScryptHasher, InMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
 
 ## Or scaffold it via the CLI
 
 ```bash
 bunx @gentleduck/auth init src/auth                # quickstart
 bunx @gentleduck/auth init src/auth --production   # Redis + JWT + Argon2id
-bunx @gentleduck/auth doctor                       # run AuthRoot.strict()
+bunx @gentleduck/auth doctor                       # run AuthEngine.strict()
 bunx @gentleduck/auth keys generate hs256          # mint a JWT signing secret
 bunx @gentleduck/auth keys generate ec256          # mint an ES256 keypair (DPoP)
 ```
 
 ## Architecture
 
-`AuthRoot` is the 14-facet root: every state-changing operation lives behind one named facet so adapters, transports, and providers compose without back-channel coupling.
+`AuthEngine` is the 14-facet root: every state-changing operation lives behind one named facet so adapters, transports, and providers compose without back-channel coupling.
 
 | Facet | Owns |
 |---|---|
@@ -243,7 +243,7 @@ import { recaptchaVerifier } from '@gentleduck/auth/captcha/recaptcha'
 
 ## Production primitives
 
-- **`AuthRoot.strict({ env: 'production' })`** - boot-time validation: rejects `secure: false` cookie transport, `NoopLimiter`, memory stores, missing `lockout` listener, non-HTTPS `baseUrl`
+- **`AuthEngine.strict({ env: 'production' })`** - boot-time validation: rejects `secure: false` cookie transport, `NoopLimiter`, memory stores, missing `lockout` listener, non-HTTPS `baseUrl`
 - **`JwtTransport.rotateSignKey()` + `retireVerifyKey(kid)`** - zero-downtime JWKS rotation with overlap window
 - **`auth.compliance.applyPreset('soc2' | 'hipaa' | 'fips')`** - tightens password / session / MFA / data-at-rest settings to the named regulatory floor
 - **`auth.webhooks`** - HMAC body + timestamp + freshness tolerance, exponential backoff, dead-letter sink, SSRF guard on endpoint URLs, `redirect: 'error'` on dispatch
@@ -255,7 +255,7 @@ import { recaptchaVerifier } from '@gentleduck/auth/captcha/recaptcha'
 
 ## Security posture
 
-`AuthRoot.strict()` runs every production-grade gate before boot.
+`AuthEngine.strict()` runs every production-grade gate before boot.
 
 See [`SECURITY.md`](./SECURITY.md) for the STRIDE / OWASP ASVS mapping of every threat the library mitigates and every threat the host app must own.
 
@@ -263,7 +263,7 @@ See [`SECURITY.md`](./SECURITY.md) for the STRIDE / OWASP ASVS mapping of every 
 
 | Module | Size |
 |--------|------|
-| Core `AuthRoot` (typical import) | ~22 KB |
+| Core `AuthEngine` (typical import) | ~22 KB |
 | Each transport | 2 - 6 KB |
 | Each provider | 1.5 - 8 KB |
 | Each adapter | 2 - 9 KB |

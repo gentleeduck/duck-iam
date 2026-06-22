@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
-import { TwilioChannel } from '../index'
+import type { AuthIdentity } from '../../../core/types/identity'
+import { AuthTwilioChannel } from '../index'
 
-function makeIdentity(phone: string | undefined): Identity.IIdentity<unknown> {
+function makeIdentity(phone: string | undefined): AuthIdentity.IIdentity<unknown> {
   return {
     id: 'ident-1',
     profile: phone ? { phone } : undefined,
@@ -13,7 +13,7 @@ function makeIdentity(phone: string | undefined): Identity.IIdentity<unknown> {
   }
 }
 
-function makeClient(impl?: TwilioChannel.IClient['messages']['create']): TwilioChannel.IClient {
+function makeClient(impl?: AuthTwilioChannel.IClient['messages']['create']): AuthTwilioChannel.IClient {
   return {
     messages: {
       create: vi.fn(impl ?? (async () => ({ sid: 'SM1', errorCode: null, errorMessage: null }))),
@@ -21,10 +21,10 @@ function makeClient(impl?: TwilioChannel.IClient['messages']['create']): TwilioC
   }
 }
 
-describe('TwilioChannel', () => {
+describe('AuthTwilioChannel', () => {
   it('happy path: resolves template + sends via Twilio.messages.create', async () => {
     const client = makeClient()
-    const channel = new TwilioChannel({
+    const channel = new AuthTwilioChannel({
       from: '+15550000000',
       client,
       templates: () => ({ body: 'Your code is 1234' }),
@@ -46,7 +46,7 @@ describe('TwilioChannel', () => {
 
   it('messagingServiceSid path bypasses from', async () => {
     const client = makeClient()
-    const channel = new TwilioChannel({
+    const channel = new AuthTwilioChannel({
       messagingServiceSid: 'MGservice',
       client,
       templates: () => ({ body: 'x' }),
@@ -65,7 +65,7 @@ describe('TwilioChannel', () => {
   it('refuses construction when both from + messagingServiceSid supplied', () => {
     expect(
       () =>
-        new TwilioChannel({
+        new AuthTwilioChannel({
           from: '+1',
           messagingServiceSid: 'MG',
           client: makeClient(),
@@ -77,7 +77,7 @@ describe('TwilioChannel', () => {
   it('refuses construction when neither from nor messagingServiceSid', () => {
     expect(
       () =>
-        new TwilioChannel({
+        new AuthTwilioChannel({
           client: makeClient(),
           templates: () => ({ body: 'x' }),
         }),
@@ -87,7 +87,7 @@ describe('TwilioChannel', () => {
   it('refuses construction when neither client nor credentials supplied', () => {
     expect(
       () =>
-        new TwilioChannel({
+        new AuthTwilioChannel({
           from: '+1',
           templates: () => ({ body: 'x' }),
         }),
@@ -95,7 +95,7 @@ describe('TwilioChannel', () => {
   })
 
   it('returns ok:false when identity has no phone', async () => {
-    const channel = new TwilioChannel({
+    const channel = new AuthTwilioChannel({
       from: '+1',
       client: makeClient(),
       templates: () => ({ body: 'x' }),
@@ -111,7 +111,7 @@ describe('TwilioChannel', () => {
   })
 
   it('surfaces Twilio errorMessage on ok:false', async () => {
-    const channel = new TwilioChannel({
+    const channel = new AuthTwilioChannel({
       from: '+1',
       client: makeClient(async () => ({
         sid: undefined,
@@ -131,7 +131,7 @@ describe('TwilioChannel', () => {
   })
 
   it('catches thrown client errors as ok:false', async () => {
-    const channel = new TwilioChannel({
+    const channel = new AuthTwilioChannel({
       from: '+1',
       client: makeClient(async () => {
         throw new Error('network-timeout')
@@ -149,7 +149,7 @@ describe('TwilioChannel', () => {
   })
 
   it('template resolver throw becomes ok:false', async () => {
-    const channel = new TwilioChannel({
+    const channel = new AuthTwilioChannel({
       from: '+1',
       client: makeClient(),
       templates: () => {

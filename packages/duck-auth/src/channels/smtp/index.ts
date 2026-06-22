@@ -7,9 +7,9 @@
 
 import { getProfileString } from '../../core/credential-utils'
 import { AuthErrorObject } from '../../core/errors'
-import type { Channel } from '../../core/types/channel'
+import type { AuthChannel } from '../../core/types/channel'
 
-export namespace SmtpChannel {
+export namespace AuthSmtpChannel {
   /**
    * Subset of the nodemailer transporter API we depend on. Any
    * nodemailer-compatible transport (the real createTransport return
@@ -38,7 +38,7 @@ export namespace SmtpChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
-  /** Config knobs for {@link SmtpChannel}. */
+  /** Config knobs for {@link AuthSmtpChannel}. */
   export interface IConfig {
     /** Transporter implementing `sendMail`. Required. */
     transporter: ITransporter
@@ -52,21 +52,21 @@ export namespace SmtpChannel {
 }
 
 /**
- * SMTP channel implementation of `Channel.IChannel`. Reads the
+ * SMTP channel implementation of `AuthChannel.IChannel`. Reads the
  * recipient email from `input.identity.profile.email`; rejects with
  * AUTH/MISCONFIGURED when the identity has no email.
  */
-export class SmtpChannel implements Channel.IChannel {
-  readonly kind: Channel.Kind = 'email'
+export class AuthSmtpChannel implements AuthChannel.IChannel {
+  readonly kind: AuthChannel.Kind = 'email'
   readonly id: string
-  private readonly _transporter: SmtpChannel.ITransporter
+  private readonly _transporter: AuthSmtpChannel.ITransporter
   private readonly _from: string
-  private readonly _resolve: SmtpChannel.ITemplateResolver
+  private readonly _resolve: AuthSmtpChannel.ITemplateResolver
 
-  constructor(cfg: SmtpChannel.IConfig) {
+  constructor(cfg: AuthSmtpChannel.IConfig) {
     if (!cfg.from) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'SmtpChannel requires a non-empty `from` address',
+        detail: 'AuthSmtpChannel requires a non-empty `from` address',
       })
     }
     this._transporter = cfg.transporter
@@ -81,12 +81,12 @@ export class SmtpChannel implements Channel.IChannel {
    * the underlying error message on transporter failure so the caller
    * can retry / escalate without exception escape.
    */
-  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
+  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
     const to = getProfileString(input.identity.profile, 'email')
     if (!to) {
-      return { ok: false, error: 'identity has no email; SmtpChannel cannot deliver' }
+      return { ok: false, error: 'identity has no email; AuthSmtpChannel cannot deliver' }
     }
-    let resolved: Awaited<ReturnType<SmtpChannel.ITemplateResolver>>
+    let resolved: Awaited<ReturnType<AuthSmtpChannel.ITemplateResolver>>
     try {
       resolved = await this._resolve(input.templateId, input.vars as Record<string, unknown>)
     } catch (err) {
@@ -100,7 +100,7 @@ export class SmtpChannel implements Channel.IChannel {
         ...(resolved.text !== undefined && { text: resolved.text }),
         ...(resolved.html !== undefined && { html: resolved.html }),
       })
-      const out: Channel.SendResult = { ok: true }
+      const out: AuthChannel.SendResult = { ok: true }
       if (result.messageId !== undefined) out.providerMessageId = result.messageId
       return out
     } catch (err) {

@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { engine } from '@/lib/access'
 import { db } from '@/lib/db'
-import { accessAssignments, workspaceMembers, workspaces } from '@/lib/db/schema'
+import { iamAssignments, workspaceMembers, workspaces } from '@/lib/db/schema'
 import { createWorkspaceSchema, inviteMemberSchema } from '@/lib/validations'
 import { requireSession } from './auth'
 
@@ -185,7 +185,7 @@ export async function deleteWorkspace(workspaceId: string) {
   if (!allowed) throw new Error('Forbidden')
 
   // Clean up IAM assignments for all members
-  await db.delete(accessAssignments).where(eq(accessAssignments.scope, workspaceId))
+  await db.delete(iamAssignments).where(eq(iamAssignments.scope, workspaceId))
   await db.delete(workspaces).where(eq(workspaces.id, workspaceId))
 
   redirect('/workspaces')

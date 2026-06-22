@@ -1,33 +1,33 @@
 /**
- * Next.js App Router server-side integration.
+ * IamNext.js App Router server-side integration.
  *
  * Covers:
  *   - API route wrappers (Route Handlers)
  *   - Server Component helpers
- *   - Next.js Middleware integration
+ *   - IamNext.js Middleware integration
  *   - Permission map generation for client hydration
  */
 
-import type { Engine } from '../../core'
-import type { AccessControl, Client, Request } from '../../core/types'
+import type { IamEngine } from '../../core'
+import type { IamAccessControl, IamClient, IamRequest } from '../../core/types'
 import {
-  type AdminAudit,
-  defaultCsrfCheck,
-  METHOD_ACTION_MAP,
-  noticeCsrfDefaultIfNeeded,
-  runAdminAuthz,
-  withAdminAudit,
+  type IamAdminAudit,
+  iamDefaultCsrfCheck,
+  IAM_METHOD_ACTION_MAP,
+  iamNoticeCsrfDefaultIfNeeded,
+  iamRunAdminAuthz,
+  iamWithAdminAudit,
 } from '../generic'
 
-/** Next.js route handler context with params. */
+/** IamNext.js route handler context with params. */
 type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
-/** Next.js App Router route handler signature. */
+/** IamNext.js App Router route handler signature. */
 type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response>
 
-/** Next.js server integration types. Type-only namespace - zero bundle cost. */
-export namespace Next {
+/** IamNext.js server integration types. Type-only namespace - zero bundle cost. */
+export namespace IamNext {
   /**
-   * Describes options for {@link withAccess}.
+   * Describes options for {@link withIamAccess}.
    *
    * Every extractor has a sensible default.
    *
@@ -37,7 +37,7 @@ export namespace Next {
     /** Extracts the current user ID from the request. */
     getUserId?: (req: Request) => string | null | Promise<string | null>
     /** Extracts environment context (IP, user-agent, etc.) from the request. */
-    getEnvironment?: (req: Request) => Request.IEnvironment
+    getEnvironment?: (req: Request) => IamRequest.IEnvironment
     /** Applies a scope to the access check. */
     scope?: TScope
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
@@ -45,7 +45,7 @@ export namespace Next {
   }
 
   /**
-   * Describes options for {@link createNextMiddleware}.
+   * Describes options for {@link createIamNextMiddleware}.
    *
    * `rules` and `getUserId` are required.
    *
@@ -78,13 +78,13 @@ export namespace Next {
   /**
    * Required guard callback for admin Route Handlers.
    *
-   * Same threat model as the Express `adminRouter`: any handler that writes
+   * Same threat model as the IamExpress `adminRouter`: any handler that writes
    * policies or roles must be gated.
    */
   export type IAdminAuthorize = (req: Request) => boolean | Promise<boolean>
 
-  /** Describes options for {@link createAdminHandlers}. `authorize` is required. */
-  export interface IAdminOptions extends AdminAudit.IOptions {
+  /** Describes options for {@link createIamAdminHandlers}. `authorize` is required. */
+  export interface IAdminOptions extends IamAdminAudit.IOptions {
     /** Required. Runs before every admin handler (read or write). */
     authorize: IAdminAuthorize
     /** Overrides the 401 unauthorized response. */
@@ -97,15 +97,15 @@ export namespace Next {
      * fire-and-forget: a slow or throwing implementation never blocks the
      * request and can never alter the response. GET handlers do not fire it.
      *
-     * See {@link AdminAudit.IOptions} for additional hardening knobs:
+     * See {@link IamAdminAudit.IOptions} for additional hardening knobs:
      * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
      */
-    onAdminMutation?: AdminAudit.Hook
+    onAdminMutation?: IamAdminAudit.Hook
   }
 }
 
 /**
- * Wraps a Next.js App Router route handler with an access check.
+ * Wraps a IamNext.js App Router route handler with an access check.
  *
  * Returns 401 when no user is present, 403 when denied, and otherwise invokes
  * the wrapped handler.
@@ -122,23 +122,23 @@ export namespace Next {
  * @returns A wrapped route handler.
  * @example
  * ```ts
- * export const DELETE = withAccess(engine, 'delete', 'post', async (req, ctx) => {
+ * export const DELETE = withIamAccess(engine, 'delete', 'post', async (req, ctx) => {
  *   const { id } = await ctx.params
  *   return Response.json({ deleted: id })
  * })
  * ```
  */
-export function withAccess<
+export function withIamAccess<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 >(
-  engine: Engine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
   action: TAction,
   resourceType: TResource,
   handler: RouteHandler,
-  opts: Next.IWithAccessOptions<TScope> = {},
+  opts: IamNext.IWithAccessOptions<TScope> = {},
 ): RouteHandler {
   // getUserId required; header-derived identity is spoofable.
   if (!opts.getUserId) {
@@ -204,13 +204,13 @@ export function withAccess<
  * @param scope - Optional scope constraint.
  * @returns Resolves to `true` when allowed and `false` otherwise.
  */
-export async function checkAccess<
+export async function checkIamAccess<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 >(
-  engine: Engine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
   subjectId: string,
   action: TAction,
   resourceType: TResource,
@@ -231,7 +231,7 @@ export async function checkAccess<
 }
 
 /**
- * Builds a {@link Client.PermissionMap} for a Server Component or layout.
+ * Builds a {@link IamClient.PermissionMap} for a Server Component or layout.
  *
  * Pass the result to the React `AccessProvider` on the client side.
  *
@@ -244,21 +244,21 @@ export async function checkAccess<
  * @param checks - Lists the permission tuples to evaluate.
  * @returns A permission map keyed by `(action, resource, scope)` tuple.
  */
-export async function getPermissions<
+export async function getIamPermissions<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
 >(
-  engine: Engine<TAction, TResource, TRole, TScope>,
+  engine: IamEngine<TAction, TResource, TRole, TScope>,
   subjectId: string,
-  checks: readonly Client.IPermissionCheck<TAction, TResource, TScope>[],
-): Promise<Client.PermissionMap<TAction, TResource, TScope>> {
+  checks: readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[],
+): Promise<IamClient.PermissionMap<TAction, TResource, TScope>> {
   return engine.permissions(subjectId, checks)
 }
 
 /**
- * Builds a Next.js Edge Middleware matcher that protects routes by a list of
+ * Builds a IamNext.js Edge Middleware matcher that protects routes by a list of
  * pattern-keyed rules.
  *
  * Returns `null` when the request passes or no rule matches; otherwise returns
@@ -275,7 +275,7 @@ export async function getPermissions<
  * ```ts
  * // NEVER trust user-supplied headers for identity. Derive from a verified
  * // source: cookie session, JWT, or your auth library.
- * const mw = createNextMiddleware(engine, {
+ * const mw = createIamNextMiddleware(engine, {
  *   rules: [{ pattern: '/admin', resource: 'admin' }],
  *   getUserId: async (req) => {
  *     const session = await getServerSession(req)
@@ -285,12 +285,12 @@ export async function getPermissions<
  * export const middleware = async (req: Request) => (await mw(req)) ?? NextResponse.next()
  * ```
  */
-export function createNextMiddleware<
+export function createIamNextMiddleware<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: Engine<TAction, TResource, TRole, TScope>, opts: Next.IMiddlewareOptions<TAction, TResource, TScope>) {
+>(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNext.IMiddlewareOptions<TAction, TResource, TScope>) {
   const { onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }) } = opts
 
   return async (req: Request): Promise<Response | null> => {
@@ -312,7 +312,7 @@ export function createNextMiddleware<
     }
 
     try {
-      const action = matchedRule.action ?? (METHOD_ACTION_MAP[req.method] as TAction) ?? ('read' as TAction)
+      const action = matchedRule.action ?? (IAM_METHOD_ACTION_MAP[req.method] as TAction) ?? ('read' as TAction)
 
       const allowed = await engine.can(
         userId,
@@ -337,7 +337,7 @@ export function createNextMiddleware<
 }
 
 /**
- * Builds pre-bound admin Route Handlers for Next.js App Router.
+ * Builds pre-bound admin Route Handlers for IamNext.js App Router.
  *
  * Every handler runs `authorize(req)` first; failure replies 401. Throws at
  * construction time when `opts.authorize` is missing.
@@ -353,7 +353,7 @@ export function createNextMiddleware<
  * @example
  * ```ts
  * // app/api/admin/policies/route.ts
- * const h = createAdminHandlers(engine, {
+ * const h = createIamAdminHandlers(engine, {
  *   authorize: (req) => isAdminToken(req),
  *   onAdminMutation: (e) => auditLog.write(e),
  * })
@@ -373,19 +373,19 @@ export function createNextMiddleware<
  * }
  * ```
  */
-export function createAdminHandlers<
+export function createIamAdminHandlers<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: Engine<TAction, TResource, TRole, TScope>, opts: Next.IAdminOptions) {
+>(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNext.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam] createAdminHandlers requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam] createIamAdminHandlers requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
-  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
-  noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
+  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
+  iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
@@ -408,14 +408,14 @@ export function createAdminHandlers<
    */
   const mutate =
     <P>(
-      action: AdminAudit.Action,
-      target: AdminAudit.Target,
+      action: IamAdminAudit.Action,
+      target: IamAdminAudit.Target,
       getTargetId: ((req: Request, params: P) => string | undefined) | undefined,
       fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>,
     ) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
       // Shared CSRF + authorize phase.
-      const authz = await runAdminAuthz(req, effectiveCsrfCheck, authorize)
+      const authz = await iamRunAdminAuthz(req, effectiveCsrfCheck, authorize)
       if (authz.phase === 'forbidden') return Response.json({ error: 'Forbidden (CSRF check failed)' }, { status: 403 })
       if (authz.phase === 'unauthorized') return onUnauthorized(req)
       if (authz.phase === 'error') return onError(authz.error, req)
@@ -432,7 +432,7 @@ export function createAdminHandlers<
         path = req.url
       }
       try {
-        return await withAdminAudit(
+        return await iamWithAdminAudit(
           {
             actor: authz.actor,
             action,
@@ -456,12 +456,12 @@ export function createAdminHandlers<
     listPolicies: gate(async () => Response.json(await engine.admin.listPolicies())),
     listRoles: gate(async () => Response.json(await engine.admin.listRoles())),
     savePolicy: mutate<Record<string, string>>('replace', 'policy', undefined, async (req) => {
-      const body = (await req.json()) as AccessControl.IPolicy<TAction, TResource, TRole>
+      const body = (await req.json()) as IamAccessControl.IPolicy<TAction, TResource, TRole>
       await engine.admin.savePolicy(body)
       return Response.json({ ok: true })
     }),
     saveRole: mutate<Record<string, string>>('replace', 'role', undefined, async (req) => {
-      const body = (await req.json()) as AccessControl.IRole<TAction, TResource, TRole, TScope>
+      const body = (await req.json()) as IamAccessControl.IRole<TAction, TResource, TRole, TScope>
       await engine.admin.saveRole(body)
       return Response.json({ ok: true })
     }),

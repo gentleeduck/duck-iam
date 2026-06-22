@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Engine } from '../../engine'
-import type { AccessControl, Request } from '../../types'
-import { evaluate, evaluateFast, evaluatePolicy, evaluatePolicyFast } from '../evaluate'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import { IamEngine } from '../../engine'
+import type { IamAccessControl, IamRequest } from '../../types'
+import { iamEvaluate, iamEvaluateFast, iamEvaluatePolicy, iamEvaluatePolicyFast } from '../evaluate'
 
-function makeReq(overrides: Partial<Request.IAccessRequest> = {}): Request.IAccessRequest {
+function makeReq(overrides: Partial<IamRequest.IAccessRequest> = {}): IamRequest.IAccessRequest {
   return {
     subject: {
       id: 'user-1',
@@ -17,7 +17,7 @@ function makeReq(overrides: Partial<Request.IAccessRequest> = {}): Request.IAcce
   }
 }
 
-const allowReadPolicy: AccessControl.IPolicy = {
+const allowReadPolicy: IamAccessControl.IPolicy = {
   id: 'allow-read',
   name: 'Allow Read',
   algorithm: 'deny-overrides',
@@ -33,7 +33,7 @@ const allowReadPolicy: AccessControl.IPolicy = {
   ],
 }
 
-const denyDeletePolicy: AccessControl.IPolicy = {
+const denyDeletePolicy: IamAccessControl.IPolicy = {
   id: 'deny-delete',
   name: 'Deny Delete',
   algorithm: 'deny-overrides',
@@ -51,19 +51,19 @@ const denyDeletePolicy: AccessControl.IPolicy = {
 
 describe('evaluatePolicy()', () => {
   it('allows when a matching allow rule exists', () => {
-    const decision = evaluatePolicy(allowReadPolicy, makeReq())
+    const decision = iamEvaluatePolicy(allowReadPolicy, makeReq())
     expect(decision.allowed).toBe(true)
     expect(decision.effect).toBe('allow')
   })
 
   it('falls to default when no rules match', () => {
-    const decision = evaluatePolicy(allowReadPolicy, makeReq({ action: 'delete' }))
+    const decision = iamEvaluatePolicy(allowReadPolicy, makeReq({ action: 'delete' }))
     expect(decision.allowed).toBe(false)
     expect(decision.effect).toBe('deny')
   })
 
   it('deny-overrides: deny wins over allow', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'mixed',
       name: 'Mixed',
       algorithm: 'deny-overrides',
@@ -79,13 +79,13 @@ describe('evaluatePolicy()', () => {
         { id: 'r-deny', effect: 'deny', priority: 10, actions: ['read'], resources: ['post'], conditions: { all: [] } },
       ],
     }
-    const decision = evaluatePolicy(policy, makeReq())
+    const decision = iamEvaluatePolicy(policy, makeReq())
     expect(decision.allowed).toBe(false)
     expect(decision.reason).toContain('r-deny')
   })
 
   it('allow-overrides: allow wins over deny', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'mixed',
       name: 'Mixed',
       algorithm: 'allow-overrides',
@@ -101,12 +101,12 @@ describe('evaluatePolicy()', () => {
         },
       ],
     }
-    const decision = evaluatePolicy(policy, makeReq())
+    const decision = iamEvaluatePolicy(policy, makeReq())
     expect(decision.allowed).toBe(true)
   })
 
   it('first-match: uses first matching rule', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'first',
       name: 'First',
       algorithm: 'first-match',
@@ -122,13 +122,13 @@ describe('evaluatePolicy()', () => {
         },
       ],
     }
-    const decision = evaluatePolicy(policy, makeReq())
+    const decision = iamEvaluatePolicy(policy, makeReq())
     expect(decision.allowed).toBe(false)
     expect(decision.reason).toContain('r-deny')
   })
 
   it('highest-priority: uses highest priority rule', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'priority',
       name: 'Priority',
       algorithm: 'highest-priority',
@@ -144,41 +144,41 @@ describe('evaluatePolicy()', () => {
         },
       ],
     }
-    const decision = evaluatePolicy(policy, makeReq())
+    const decision = iamEvaluatePolicy(policy, makeReq())
     expect(decision.allowed).toBe(true)
     expect(decision.reason).toContain('r-allow')
   })
 
   it('respects policy targets: skips policy if action does not match targets', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       ...allowReadPolicy,
       targets: { actions: ['write'] },
     }
-    const decision = evaluatePolicy(policy, makeReq())
+    const decision = iamEvaluatePolicy(policy, makeReq())
     // policy doesn't apply, falls to default (deny)
     expect(decision.allowed).toBe(false)
   })
 
   it('respects policy targets: skips policy if resource does not match targets', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       ...allowReadPolicy,
       targets: { resources: ['comment'] },
     }
-    const decision = evaluatePolicy(policy, makeReq())
+    const decision = iamEvaluatePolicy(policy, makeReq())
     expect(decision.allowed).toBe(false)
   })
 
   it('respects policy targets: skips policy if role does not match targets', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       ...allowReadPolicy,
       targets: { roles: ['admin'] },
     }
-    const decision = evaluatePolicy(policy, makeReq())
+    const decision = iamEvaluatePolicy(policy, makeReq())
     expect(decision.allowed).toBe(false)
   })
 
   it('conditions must pass for rule to match', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'cond',
       name: 'Conditional',
       algorithm: 'deny-overrides',
@@ -193,12 +193,12 @@ describe('evaluatePolicy()', () => {
         },
       ],
     }
-    const decision = evaluatePolicy(policy, makeReq())
+    const decision = iamEvaluatePolicy(policy, makeReq())
     expect(decision.allowed).toBe(false) // condition fails
   })
 
   it('wildcard actions match all', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'wildcard',
       name: 'Wildcard',
       algorithm: 'deny-overrides',
@@ -206,11 +206,11 @@ describe('evaluatePolicy()', () => {
         { id: 'r-wild', effect: 'allow', priority: 10, actions: ['*'], resources: ['post'], conditions: { all: [] } },
       ],
     }
-    expect(evaluatePolicy(policy, makeReq({ action: 'anything' })).allowed).toBe(true)
+    expect(iamEvaluatePolicy(policy, makeReq({ action: 'anything' })).allowed).toBe(true)
   })
 
   it('wildcard resources match all', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'wildcard',
       name: 'Wildcard',
       algorithm: 'deny-overrides',
@@ -218,34 +218,34 @@ describe('evaluatePolicy()', () => {
         { id: 'r-wild', effect: 'allow', priority: 10, actions: ['read'], resources: ['*'], conditions: { all: [] } },
       ],
     }
-    expect(evaluatePolicy(policy, makeReq({ resource: { type: 'anything', attributes: {} } })).allowed).toBe(true)
+    expect(iamEvaluatePolicy(policy, makeReq({ resource: { type: 'anything', attributes: {} } })).allowed).toBe(true)
   })
 })
 
 describe('evaluate() - multi-policy', () => {
   it('no policies defaults to deny', () => {
-    const decision = evaluate([], makeReq())
+    const decision = iamEvaluate([], makeReq())
     expect(decision.allowed).toBe(false)
     expect(decision.reason).toContain('No policies configured')
   })
 
   it('no policies defaults to allow when defaultEffect=allow', () => {
-    const decision = evaluate([], makeReq(), 'allow')
+    const decision = iamEvaluate([], makeReq(), 'allow')
     expect(decision.allowed).toBe(true)
   })
 
   it('single policy evaluation', () => {
-    const decision = evaluate([allowReadPolicy], makeReq())
+    const decision = iamEvaluate([allowReadPolicy], makeReq())
     expect(decision.allowed).toBe(true)
   })
 
   it('deny from any policy = overall deny (defense in depth)', () => {
-    const decision = evaluate([allowReadPolicy, denyDeletePolicy], makeReq({ action: 'delete' }))
+    const decision = iamEvaluate([allowReadPolicy, denyDeletePolicy], makeReq({ action: 'delete' }))
     expect(decision.allowed).toBe(false)
   })
 
   it('includes timing information', () => {
-    const decision = evaluate([allowReadPolicy], makeReq())
+    const decision = iamEvaluate([allowReadPolicy], makeReq())
     expect(decision.duration).toBeGreaterThanOrEqual(0)
     expect(decision.timestamp).toBeGreaterThan(0)
   })
@@ -253,7 +253,7 @@ describe('evaluate() - multi-policy', () => {
 
 describe('hierarchical resources in evaluation', () => {
   it('bare "dashboard" rule does NOT match dashboard.users (require dashboard.*)', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'hierarchy',
       name: 'Hierarchy',
       algorithm: 'deny-overrides',
@@ -270,13 +270,13 @@ describe('hierarchical resources in evaluation', () => {
     }
     const req = makeReq({ resource: { type: 'dashboard.users', attributes: {} } })
     // Bare literal patterns do not parent-match sub-resources.
-    expect(evaluatePolicy(policy, req).allowed).toBe(false)
+    expect(iamEvaluatePolicy(policy, req).allowed).toBe(false)
     // Exact literal still matches.
-    expect(evaluatePolicy(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } })).allowed).toBe(true)
+    expect(iamEvaluatePolicy(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } })).allowed).toBe(true)
   })
 
   it('dot-based hierarchy: dashboard.* rule matches dashboard.users but not dashboard', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'hierarchy',
       name: 'Hierarchy',
       algorithm: 'deny-overrides',
@@ -291,16 +291,16 @@ describe('hierarchical resources in evaluation', () => {
         },
       ],
     }
-    expect(evaluatePolicy(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } })).allowed).toBe(
+    expect(iamEvaluatePolicy(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } })).allowed).toBe(
       true,
     )
-    expect(evaluatePolicy(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } })).allowed).toBe(false)
+    expect(iamEvaluatePolicy(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } })).allowed).toBe(false)
   })
 })
 
 describe('first-match priority order', () => {
   // Both rules match; the high-priority rule (declared second) must win regardless of source order.
-  const priorityPolicy: AccessControl.IPolicy = {
+  const priorityPolicy: IamAccessControl.IPolicy = {
     id: 'first-priority',
     name: 'First Priority',
     algorithm: 'first-match',
@@ -325,20 +325,20 @@ describe('first-match priority order', () => {
   }
 
   it('trace path: highest priority wins, not source order', () => {
-    const decision = evaluatePolicy(priorityPolicy, makeReq())
+    const decision = iamEvaluatePolicy(priorityPolicy, makeReq())
     expect(decision.allowed).toBe(false)
     expect(decision.rule?.id).toBe('r-high-deny')
     expect(decision.reason).toContain('r-high-deny')
   })
 
   it('fast path: highest priority wins, not source order', () => {
-    expect(evaluatePolicyFast(priorityPolicy, makeReq())).toBe(false)
+    expect(iamEvaluatePolicyFast(priorityPolicy, makeReq())).toBe(false)
   })
 
   it('precomputed cache: highest priority wins on unconditional rules', () => {
     // Two unconditional rules -> precomputed cache fires (no wildcards, no conditions).
-    // Both paths share indexPolicy()'s WeakMap, so the same lookup must respect priority.
-    const policy: AccessControl.IPolicy = {
+    // Both paths share iamIndexPolicy()'s WeakMap, so the same lookup must respect priority.
+    const policy: IamAccessControl.IPolicy = {
       id: 'precomp',
       name: 'Precomp',
       algorithm: 'first-match',
@@ -361,12 +361,12 @@ describe('first-match priority order', () => {
         },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq())).toBe(true)
+    expect(iamEvaluatePolicyFast(policy, makeReq())).toBe(true)
   })
 
   it('ties preserve source order (stable selection)', () => {
     // Equal priority -> earlier rule wins. Mirrors evaluate.test.ts:106 behavior.
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'first-tie',
       name: 'First Tie',
       algorithm: 'first-match',
@@ -382,15 +382,15 @@ describe('first-match priority order', () => {
         },
       ],
     }
-    expect(evaluatePolicy(policy, makeReq()).rule?.id).toBe('r-deny')
-    expect(evaluatePolicyFast(policy, makeReq())).toBe(false)
+    expect(iamEvaluatePolicy(policy, makeReq()).rule?.id).toBe('r-deny')
+    expect(iamEvaluatePolicyFast(policy, makeReq())).toBe(false)
   })
 })
 
 describe('fast path: expansive action/resource patterns route via wildcardAny', () => {
   // Colon-prefix actions like 'posts:*' must route through wildcardAny so the
   // fast path matches a request like { action: 'posts:read', resource: 'post' }.
-  const colonActionPolicy: AccessControl.IPolicy = {
+  const colonActionPolicy: IamAccessControl.IPolicy = {
     id: 'colon-action',
     name: 'Colon Action',
     algorithm: 'deny-overrides',
@@ -400,17 +400,17 @@ describe('fast path: expansive action/resource patterns route via wildcardAny', 
   }
 
   it('fast path matches "posts:*" against "posts:read"', () => {
-    expect(evaluatePolicyFast(colonActionPolicy, makeReq({ action: 'posts:read' }))).toBe(true)
+    expect(iamEvaluatePolicyFast(colonActionPolicy, makeReq({ action: 'posts:read' }))).toBe(true)
   })
 
   it('trace path matches "posts:*" against "posts:read"', () => {
-    expect(evaluatePolicy(colonActionPolicy, makeReq({ action: 'posts:read' })).allowed).toBe(true)
+    expect(iamEvaluatePolicy(colonActionPolicy, makeReq({ action: 'posts:read' })).allowed).toBe(true)
   })
 
   it('fast path matches "dashboard.*" resource against "dashboard.users"', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'dot-resource',
-      name: 'Dot Request.IResource',
+      name: 'Dot IamRequest.IResource',
       algorithm: 'deny-overrides',
       rules: [
         {
@@ -423,19 +423,19 @@ describe('fast path: expansive action/resource patterns route via wildcardAny', 
         },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(true)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(true)
   })
 
   it('fast path matches "org:*" resource against "org:project"', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'colon-resource',
-      name: 'Colon Request.IResource',
+      name: 'Colon IamRequest.IResource',
       algorithm: 'deny-overrides',
       rules: [
         { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org:*'], conditions: { all: [] } },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
   })
 })
 
@@ -443,13 +443,13 @@ describe('NotApplicable semantics', () => {
   // A policy whose targets don't match the request is NotApplicable
   // (`applicable: false`) and must be skipped by the combiner, not folded as
   // the default effect.
-  const allowReadAnywhere: AccessControl.IPolicy = {
+  const allowReadAnywhere: IamAccessControl.IPolicy = {
     id: 'allow-read-anywhere',
     name: 'Allow Read Anywhere',
     algorithm: 'deny-overrides',
     rules: [{ id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['*'], conditions: { all: [] } }],
   }
-  const writesAuditPolicy: AccessControl.IPolicy = {
+  const writesAuditPolicy: IamAccessControl.IPolicy = {
     id: 'audit-writes',
     name: 'Audit Writes',
     algorithm: 'deny-overrides',
@@ -462,31 +462,31 @@ describe('NotApplicable semantics', () => {
   it('evaluate: AND combine skips NotApplicable policies', () => {
     // Read request: audit-writes targets only writes -> NotApplicable -> must NOT
     // contribute the default-deny that would have short-circuited the chain.
-    expect(evaluate([allowReadAnywhere, writesAuditPolicy], makeReq()).allowed).toBe(true)
+    expect(iamEvaluate([allowReadAnywhere, writesAuditPolicy], makeReq()).allowed).toBe(true)
   })
 
   it('evaluate: all NotApplicable falls through to default', () => {
     // Both policies NotApplicable (target only writes); no policy contributes -> default.
-    expect(evaluate([writesAuditPolicy], makeReq()).effect).toBe('deny')
-    expect(evaluate([writesAuditPolicy], makeReq(), 'allow').effect).toBe('allow')
+    expect(iamEvaluate([writesAuditPolicy], makeReq()).effect).toBe('deny')
+    expect(iamEvaluate([writesAuditPolicy], makeReq(), 'allow').effect).toBe('allow')
   })
 
   it('evaluateFast: AND combine skips NotApplicable policies', () => {
-    expect(evaluateFast([allowReadAnywhere, writesAuditPolicy], makeReq())).toBe(true)
+    expect(iamEvaluateFast([allowReadAnywhere, writesAuditPolicy], makeReq())).toBe(true)
   })
 
   it('evaluatePolicy marks NotApplicable decisions', () => {
-    const decision = evaluatePolicy(writesAuditPolicy, makeReq())
+    const decision = iamEvaluatePolicy(writesAuditPolicy, makeReq())
     expect(decision.applicable).toBe(false)
   })
 
   it('evaluatePolicyFast returns null for NotApplicable', () => {
-    expect(evaluatePolicyFast(writesAuditPolicy, makeReq())).toBe(null)
+    expect(iamEvaluatePolicyFast(writesAuditPolicy, makeReq())).toBe(null)
   })
 })
 
 describe('cross-policy combine', () => {
-  const allowPolicy: AccessControl.IPolicy = {
+  const allowPolicy: IamAccessControl.IPolicy = {
     id: 'allow',
     name: 'Allow',
     algorithm: 'deny-overrides',
@@ -494,7 +494,7 @@ describe('cross-policy combine', () => {
       { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['post'], conditions: { all: [] } },
     ],
   }
-  const denyPolicy: AccessControl.IPolicy = {
+  const denyPolicy: IamAccessControl.IPolicy = {
     id: 'deny',
     name: 'Deny',
     algorithm: 'deny-overrides',
@@ -504,34 +504,34 @@ describe('cross-policy combine', () => {
   }
 
   it('"and" (default): any deny denies overall', () => {
-    expect(evaluate([allowPolicy, denyPolicy], makeReq(), 'deny', 'and').allowed).toBe(false)
-    expect(evaluateFast([allowPolicy, denyPolicy], makeReq(), 'deny', 'and')).toBe(false)
+    expect(iamEvaluate([allowPolicy, denyPolicy], makeReq(), 'deny', 'and').allowed).toBe(false)
+    expect(iamEvaluateFast([allowPolicy, denyPolicy], makeReq(), 'deny', 'and')).toBe(false)
   })
 
   it('"and": all allow -> allow', () => {
-    expect(evaluate([allowPolicy, allowPolicy], makeReq(), 'deny', 'and').allowed).toBe(true)
-    expect(evaluateFast([allowPolicy, allowPolicy], makeReq(), 'deny', 'and')).toBe(true)
+    expect(iamEvaluate([allowPolicy, allowPolicy], makeReq(), 'deny', 'and').allowed).toBe(true)
+    expect(iamEvaluateFast([allowPolicy, allowPolicy], makeReq(), 'deny', 'and')).toBe(true)
   })
 
   it('"allow-overrides": any allow allows overall', () => {
-    expect(evaluate([denyPolicy, allowPolicy], makeReq(), 'deny', 'allow-overrides').allowed).toBe(true)
-    expect(evaluateFast([denyPolicy, allowPolicy], makeReq(), 'deny', 'allow-overrides')).toBe(true)
+    expect(iamEvaluate([denyPolicy, allowPolicy], makeReq(), 'deny', 'allow-overrides').allowed).toBe(true)
+    expect(iamEvaluateFast([denyPolicy, allowPolicy], makeReq(), 'deny', 'allow-overrides')).toBe(true)
   })
 
   it('"allow-overrides": all deny -> deny', () => {
-    expect(evaluate([denyPolicy, denyPolicy], makeReq(), 'deny', 'allow-overrides').allowed).toBe(false)
-    expect(evaluateFast([denyPolicy, denyPolicy], makeReq(), 'deny', 'allow-overrides')).toBe(false)
+    expect(iamEvaluate([denyPolicy, denyPolicy], makeReq(), 'deny', 'allow-overrides').allowed).toBe(false)
+    expect(iamEvaluateFast([denyPolicy, denyPolicy], makeReq(), 'deny', 'allow-overrides')).toBe(false)
   })
 
   it('"first-applicable": first decided policy wins', () => {
     // Both policies match - the first one (allow) wins under first-applicable.
-    expect(evaluate([allowPolicy, denyPolicy], makeReq(), 'deny', 'first-applicable').allowed).toBe(true)
+    expect(iamEvaluate([allowPolicy, denyPolicy], makeReq(), 'deny', 'first-applicable').allowed).toBe(true)
     // Reverse order: deny wins.
-    expect(evaluate([denyPolicy, allowPolicy], makeReq(), 'deny', 'first-applicable').allowed).toBe(false)
+    expect(iamEvaluate([denyPolicy, allowPolicy], makeReq(), 'deny', 'first-applicable').allowed).toBe(false)
   })
 
   it('"first-applicable" falls through to default when no rule fires', () => {
-    const noMatchPolicy: AccessControl.IPolicy = {
+    const noMatchPolicy: IamAccessControl.IPolicy = {
       id: 'nomatch',
       name: 'NoMatch',
       algorithm: 'deny-overrides',
@@ -539,8 +539,8 @@ describe('cross-policy combine', () => {
         { id: 'r1', effect: 'allow', priority: 10, actions: ['write'], resources: ['post'], conditions: { all: [] } },
       ],
     }
-    expect(evaluate([noMatchPolicy], makeReq(), 'deny', 'first-applicable').allowed).toBe(false)
-    expect(evaluate([noMatchPolicy], makeReq(), 'allow', 'first-applicable').allowed).toBe(true)
+    expect(iamEvaluate([noMatchPolicy], makeReq(), 'deny', 'first-applicable').allowed).toBe(false)
+    expect(iamEvaluate([noMatchPolicy], makeReq(), 'allow', 'first-applicable').allowed).toBe(true)
   })
 })
 
@@ -549,7 +549,7 @@ describe('fast path: literal-only resource patterns', () => {
   // recursive grants must use `:*` / `.*` explicitly.
 
   it('colon: bare "org" only matches request "org"', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'parent-colon',
       name: 'Parent Colon',
       algorithm: 'deny-overrides',
@@ -557,14 +557,14 @@ describe('fast path: literal-only resource patterns', () => {
         { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org'], conditions: { all: [] } },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(false)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(false)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org', attributes: {} } }))).toBe(true)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(false)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(false)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(false)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'org', attributes: {} } }))).toBe(true)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(false)
   })
 
   it('colon: explicit "org:*" matches sub-resources', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'wild-colon',
       name: 'Wild Colon',
       algorithm: 'deny-overrides',
@@ -572,12 +572,12 @@ describe('fast path: literal-only resource patterns', () => {
         { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org:*'], conditions: { all: [] } },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(true)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(true)
   })
 
   it('dot: bare "dashboard" only matches request "dashboard"', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       id: 'parent-dot',
       name: 'Parent Dot',
       algorithm: 'deny-overrides',
@@ -592,20 +592,20 @@ describe('fast path: literal-only resource patterns', () => {
         },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(false)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(false)
     expect(
-      evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users.settings', attributes: {} } })),
+      iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users.settings', attributes: {} } })),
     ).toBe(false)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } }))).toBe(true)
+    expect(iamEvaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } }))).toBe(true)
   })
 })
 
 describe('policy targets: dot-pattern resources', () => {
-  // Regression: when `matchesResource` was tightened to literal-only for
+  // Regression: when `iamMatchesResource` was tightened to literal-only for
   // bare patterns, `policyApplies` / `policyTargetsMatch` silently failed
-  // for dot-wildcard targets like `dashboard.*`. `matchesResource` must
+  // for dot-wildcard targets like `dashboard.*`. `iamMatchesResource` must
   // handle both `:*` and `.*` suffixes.
-  const dotTargetPolicy: AccessControl.IPolicy = {
+  const dotTargetPolicy: IamAccessControl.IPolicy = {
     id: 'dot-targets',
     name: 'Dot Targets',
     algorithm: 'deny-overrides',
@@ -614,7 +614,7 @@ describe('policy targets: dot-pattern resources', () => {
   }
 
   it('policy with target "dashboard.*" applies to "dashboard.users"', () => {
-    const decision = evaluatePolicy(
+    const decision = iamEvaluatePolicy(
       dotTargetPolicy,
       makeReq({ resource: { type: 'dashboard.users', id: 'u1', attributes: {} } }),
     )
@@ -625,12 +625,12 @@ describe('policy targets: dot-pattern resources', () => {
   })
 
   it('policy with bare target "dashboard" does NOT apply to "dashboard.users"', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       ...dotTargetPolicy,
       id: 'bare-target',
       targets: { resources: ['dashboard'] },
     }
-    const decision = evaluatePolicy(
+    const decision = iamEvaluatePolicy(
       policy,
       makeReq({ resource: { type: 'dashboard.users', id: 'u1', attributes: {} } }),
     )
@@ -638,7 +638,7 @@ describe('policy targets: dot-pattern resources', () => {
   })
 
   it('policy with target "dashboard.*" still does not apply to bare "dashboard"', () => {
-    const decision = evaluatePolicy(
+    const decision = iamEvaluatePolicy(
       dotTargetPolicy,
       makeReq({ resource: { type: 'dashboard', id: 'd', attributes: {} } }),
     )
@@ -646,12 +646,12 @@ describe('policy targets: dot-pattern resources', () => {
   })
 
   it('colon-wildcard target continues to work (regression check)', () => {
-    const policy: AccessControl.IPolicy = {
+    const policy: IamAccessControl.IPolicy = {
       ...dotTargetPolicy,
       id: 'colon-target',
       targets: { resources: ['org:billing:*'] },
     }
-    const decision = evaluatePolicy(
+    const decision = iamEvaluatePolicy(
       policy,
       makeReq({ resource: { type: 'org:billing:invoice', id: 'i', attributes: {} } }),
     )
@@ -665,19 +665,19 @@ describe('allowFailOpen enforcement (P0)', () => {
   // production. Development engines could ship with the same fail-open behavior
   // and silently mask dropped policies. Enforcement is now mode-independent.
   it("refuses defaultEffect: 'allow' in development without allowFailOpen", () => {
-    const adapter = new MemoryAdapter()
-    expect(() => new Engine({ adapter, mode: 'development', defaultEffect: 'allow' })).toThrow(/fail-open/i)
+    const adapter = new IamMemoryAdapter()
+    expect(() => new IamEngine({ adapter, mode: 'development', defaultEffect: 'allow' })).toThrow(/fail-open/i)
   })
 
   it("refuses defaultEffect: 'allow' in production without allowFailOpen", () => {
-    const adapter = new MemoryAdapter()
-    expect(() => new Engine({ adapter, mode: 'production', defaultEffect: 'allow' } as never)).toThrow(/fail-open/i)
+    const adapter = new IamMemoryAdapter()
+    expect(() => new IamEngine({ adapter, mode: 'production', defaultEffect: 'allow' } as never)).toThrow(/fail-open/i)
   })
 
   it("accepts defaultEffect: 'allow' in any mode with allowFailOpen: true", () => {
-    const adapter = new MemoryAdapter()
+    const adapter = new IamMemoryAdapter()
     expect(
-      () => new Engine({ adapter, mode: 'development', defaultEffect: 'allow', allowFailOpen: true }),
+      () => new IamEngine({ adapter, mode: 'development', defaultEffect: 'allow', allowFailOpen: true }),
     ).not.toThrow()
   })
 })

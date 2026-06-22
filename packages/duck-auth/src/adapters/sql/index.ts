@@ -1,34 +1,34 @@
 /**
- * SQL-backed adapter built on the `SqlBridge.IBridge` contract.
+ * SQL-backed adapter built on the `AuthSqlBridge.IBridge` contract.
  * Consumers implement the bridge against any ORM (Drizzle, Kysely,
  * Prisma, raw pg, mysql2, better-sqlite3, ...) and pass it to
- * `createSqlAuthStores` to get back the typed Identity + Credential +
- * Session stores.
+ * `authCreateSqlStores` to get back the typed AuthIdentity + AuthCredential +
+ * AuthSession stores.
  *
  * A reference Drizzle / pg implementation lives in
  * `src/adapters/sql/examples/drizzle-pg.example.ts`.
  */
 
-import { randomToken } from '../../core/crypto'
+import { authRandomToken } from '../../core/crypto'
 import { AuthErrorObject } from '../../core/errors'
-import type { Credential } from '../../core/types/credential'
-import type { Identity } from '../../core/types/identity'
-import type { Session } from '../../core/types/session'
-import type { SqlBridge } from './bridge'
+import type { AuthCredential } from '../../core/types/credential'
+import type { AuthIdentity } from '../../core/types/identity'
+import type { AuthSession } from '../../core/types/session'
+import type { AuthSqlBridge } from './bridge'
 
-export type { SqlBridge } from './bridge'
+export type { AuthSqlBridge } from './bridge'
 
 /**
- * Build the three IStore impls from a `SqlBridge.IBridge`. The factory
+ * Build the three IStore impls from a `AuthSqlBridge.IBridge`. The factory
  * does no schema migrations - consumers run their migration tool of
  * choice against the canonical column set captured by the row shapes.
  */
-export function createSqlAuthStores<Profile = unknown>(
-  bridge: SqlBridge.IBridge,
+export function authCreateSqlStores<Profile = unknown>(
+  bridge: AuthSqlBridge.IBridge,
 ): {
-  identities: Identity.IStore<Profile>
-  credentials: Credential.IStore
-  sessions: Session.IStore
+  identities: AuthIdentity.IStore<Profile>
+  credentials: AuthCredential.IStore
+  sessions: AuthSession.IStore
 } {
   return {
     identities: buildIdentities<Profile>(bridge.identities),
@@ -37,7 +37,7 @@ export function createSqlAuthStores<Profile = unknown>(
   }
 }
 
-function buildIdentities<Profile>(bridge: SqlBridge.IIdentity): Identity.IStore<Profile> {
+function buildIdentities<Profile>(bridge: AuthSqlBridge.IIdentity): AuthIdentity.IStore<Profile> {
   return {
     findById: async (id, ctx) => parseIdentity<Profile>(await bridge.findById(id, ctx.tenantId)),
     findByEmail: async (email, ctx) => parseIdentity<Profile>(await bridge.findByEmail(email, ctx.tenantId)),
@@ -45,8 +45,8 @@ function buildIdentities<Profile>(bridge: SqlBridge.IIdentity): Identity.IStore<
       parseIdentity<Profile>(await bridge.findByProviderSub(providerId, sub, ctx.tenantId)),
     create: async (input, ctx) => {
       const now = Date.now()
-      const row: SqlBridge.IIdentityRow = {
-        id: randomToken(16),
+      const row: AuthSqlBridge.IIdentityRow = {
+        id: authRandomToken(16),
         tenantId: input.tenantId ?? ctx.tenantId ?? null,
         profile: input.profile === undefined ? null : JSON.stringify(input.profile),
         providers: JSON.stringify(input.providers ?? []),
@@ -59,7 +59,7 @@ function buildIdentities<Profile>(bridge: SqlBridge.IIdentity): Identity.IStore<
       return parseIdentityStrict<Profile>(row)
     },
     update: async (id, patch, expectedVersion, ctx) => {
-      const sqlPatch: Partial<Omit<SqlBridge.IIdentityRow, 'id'>> = {
+      const sqlPatch: Partial<Omit<AuthSqlBridge.IIdentityRow, 'id'>> = {
         updatedAt: Date.now(),
         version: expectedVersion + 1,
       }
@@ -96,12 +96,12 @@ function buildIdentities<Profile>(bridge: SqlBridge.IIdentity): Identity.IStore<
   }
 }
 
-function buildCredentials(bridge: SqlBridge.ICredential): Credential.IStore {
+function buildCredentials(bridge: AuthSqlBridge.ICredential): AuthCredential.IStore {
   return {
     findById: async (id, ctx) => parseCredential(await bridge.findById(id, ctx.tenantId)),
     listByIdentity: async (identityId, kind, ctx) => {
       const rows = await bridge.listByIdentity(identityId, kind, ctx.tenantId)
-      return rows.map(parseCredential).filter((c): c is Credential.ICredential => c !== null)
+      return rows.map(parseCredential).filter((c): c is AuthCredential.ICredential => c !== null)
     },
     findByProviderSub: async (provider, sub, ctx) =>
       parseCredential(await bridge.findByProviderSub(provider, sub, ctx.tenantId)),
@@ -109,8 +109,8 @@ function buildCredentials(bridge: SqlBridge.ICredential): Credential.IStore {
       parseCredential(await bridge.findByHashedSecret(secretHash, kind, ctx.tenantId)),
     upsert: async (input, ctx) => {
       const now = Date.now()
-      const row: SqlBridge.ICredentialRow = {
-        id: randomToken(16),
+      const row: AuthSqlBridge.ICredentialRow = {
+        id: authRandomToken(16),
         identityId: input.identityId,
         tenantId: input.tenantId ?? ctx.tenantId ?? null,
         kind: input.kind,
@@ -166,10 +166,10 @@ function buildCredentials(bridge: SqlBridge.ICredential): Credential.IStore {
   }
 }
 
-function buildSessions(bridge: SqlBridge.ISession): Session.IStore {
+function buildSessions(bridge: AuthSqlBridge.ISession): AuthSession.IStore {
   return {
     create: async (s) => {
-      const row: SqlBridge.ISessionRow = {
+      const row: AuthSqlBridge.ISessionRow = {
         id: s.id,
         identityId: s.identityId,
         tenantId: s.tenantId ?? null,
@@ -191,7 +191,7 @@ function buildSessions(bridge: SqlBridge.ISession): Session.IStore {
     },
     getByHash: async (sidHash) => parseSession(await bridge.findByHash(sidHash)),
     update: async (id, patch) => {
-      const sqlPatch: Partial<Omit<SqlBridge.ISessionRow, 'id'>> = {}
+      const sqlPatch: Partial<Omit<AuthSqlBridge.ISessionRow, 'id'>> = {}
       if (patch.identityId !== undefined) sqlPatch.identityId = patch.identityId
       if (patch.tenantId !== undefined) sqlPatch.tenantId = patch.tenantId
       if (patch.kind !== undefined) sqlPatch.kind = patch.kind
@@ -231,15 +231,15 @@ function buildSessions(bridge: SqlBridge.ISession): Session.IStore {
   }
 }
 
-function parseIdentity<Profile>(row: SqlBridge.IIdentityRow | null): Identity.IIdentity<Profile> | null {
+function parseIdentity<Profile>(row: AuthSqlBridge.IIdentityRow | null): AuthIdentity.IIdentity<Profile> | null {
   if (!row) return null
   return parseIdentityStrict<Profile>(row)
 }
 
-function parseIdentityStrict<Profile>(row: SqlBridge.IIdentityRow): Identity.IIdentity<Profile> {
-  const out: Identity.IIdentity<Profile> = {
+function parseIdentityStrict<Profile>(row: AuthSqlBridge.IIdentityRow): AuthIdentity.IIdentity<Profile> {
+  const out: AuthIdentity.IIdentity<Profile> = {
     id: row.id,
-    providers: JSON.parse(row.providers) as Identity.ProviderLink[],
+    providers: JSON.parse(row.providers) as AuthIdentity.ProviderLink[],
     version: row.version,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -250,16 +250,16 @@ function parseIdentityStrict<Profile>(row: SqlBridge.IIdentityRow): Identity.IId
   return out
 }
 
-function parseCredential(row: SqlBridge.ICredentialRow | null): Credential.ICredential | null {
+function parseCredential(row: AuthSqlBridge.ICredentialRow | null): AuthCredential.ICredential | null {
   if (!row) return null
   return parseCredentialStrict(row)
 }
 
-function parseCredentialStrict(row: SqlBridge.ICredentialRow): Credential.ICredential {
-  const out: Credential.ICredential = {
+function parseCredentialStrict(row: AuthSqlBridge.ICredentialRow): AuthCredential.ICredential {
+  const out: AuthCredential.ICredential = {
     id: row.id,
     identityId: row.identityId,
-    kind: row.kind as Credential.Kind,
+    kind: row.kind as AuthCredential.Kind,
     secret: row.secret,
     version: row.version,
     createdAt: row.createdAt,
@@ -272,18 +272,18 @@ function parseCredentialStrict(row: SqlBridge.ICredentialRow): Credential.ICrede
   return out
 }
 
-function parseSession(row: SqlBridge.ISessionRow | null): Session.ISession | null {
+function parseSession(row: AuthSqlBridge.ISessionRow | null): AuthSession.ISession | null {
   if (!row) return null
   return parseSessionStrict(row)
 }
 
-function parseSessionStrict(row: SqlBridge.ISessionRow): Session.ISession {
-  const session: Session.ISession = {
+function parseSessionStrict(row: AuthSqlBridge.ISessionRow): AuthSession.ISession {
+  const session: AuthSession.ISession = {
     id: row.id,
     identityId: row.identityId,
-    kind: row.kind as Session.Kind,
-    aal: row.aal as Session.AAL,
-    factors: JSON.parse(row.factors) as Session.Factor[],
+    kind: row.kind as AuthSession.Kind,
+    aal: row.aal as AuthSession.AAL,
+    factors: JSON.parse(row.factors) as AuthSession.Factor[],
     createdAt: row.createdAt,
     rotatedAt: row.rotatedAt,
     expiresAt: row.expiresAt,
@@ -295,6 +295,6 @@ function parseSessionStrict(row: SqlBridge.ISessionRow): Session.ISession {
   if (row.ip !== null) session.ip = row.ip
   if (row.userAgent !== null) session.userAgent = row.userAgent
   if (row.fingerprint !== null) session.fingerprint = row.fingerprint
-  if (row.actingAs !== null) session.actingAs = JSON.parse(row.actingAs) as Session.ActingAs
+  if (row.actingAs !== null) session.actingAs = JSON.parse(row.actingAs) as AuthSession.ActingAs
   return session
 }

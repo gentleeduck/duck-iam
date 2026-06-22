@@ -3,7 +3,7 @@
  * refuses production boot without one wired. Dimensions configurable per app
  * (identity, ip, composite). Reference impls: memory (token bucket), redis (Lua).
  */
-export namespace Limiter {
+export namespace AuthLimiter {
   export interface IResult {
     ok: boolean
     remaining: number

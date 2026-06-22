@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Engine } from '../engine'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import { IamEngine } from '../engine'
 
 describe('Engine subject.roles type-confusion defense', () => {
   it('refuses to substring-match string-typed subject.roles against policy.targets.roles', async () => {
-    const adapter = new MemoryAdapter<string, string, string, string>({
+    const adapter = new IamMemoryAdapter<string, string, string, string>({
       policies: [
         {
           id: 'p1',
@@ -24,7 +24,7 @@ describe('Engine subject.roles type-confusion defense', () => {
         },
       ],
     })
-    const engine = new Engine<string, string, string, string, 'production'>({
+    const engine = new IamEngine<string, string, string, string, 'production'>({
       adapter,
       mode: 'production',
       defaultEffect: 'deny',
@@ -43,7 +43,7 @@ describe('Engine subject.roles type-confusion defense', () => {
   })
 
   it('refuses to substring-match via the RBAC-generated contains condition', async () => {
-    const adapter = new MemoryAdapter({
+    const adapter = new IamMemoryAdapter({
       roles: [
         {
           id: 'admin',
@@ -53,7 +53,7 @@ describe('Engine subject.roles type-confusion defense', () => {
         },
       ],
     })
-    const engine = new Engine<string, string, string, string, 'production'>({
+    const engine = new IamEngine<string, string, string, string, 'production'>({
       adapter,
       mode: 'production',
       defaultEffect: 'deny',
@@ -72,8 +72,8 @@ describe('Engine subject.roles type-confusion defense', () => {
   })
 
   it('non-array subject.roles ({}, null) is normalised to [] (no crash)', async () => {
-    const adapter = new MemoryAdapter()
-    const engine = new Engine<string, string, string, string, 'production'>({
+    const adapter = new IamMemoryAdapter()
+    const engine = new IamEngine<string, string, string, string, 'production'>({
       adapter,
       mode: 'production',
       defaultEffect: 'deny',
@@ -97,7 +97,7 @@ describe('Engine subject.roles type-confusion defense', () => {
   })
 
   it('legitimate array-typed roles still match policies correctly (no regression)', async () => {
-    const adapter = new MemoryAdapter<string, string, string, string>({
+    const adapter = new IamMemoryAdapter<string, string, string, string>({
       policies: [
         {
           id: 'p1',
@@ -117,7 +117,7 @@ describe('Engine subject.roles type-confusion defense', () => {
         },
       ],
     })
-    const engine = new Engine<string, string, string, string, 'production'>({
+    const engine = new IamEngine<string, string, string, string, 'production'>({
       adapter,
       mode: 'production',
       defaultEffect: 'deny',
@@ -132,7 +132,7 @@ describe('Engine subject.roles type-confusion defense', () => {
   })
 
   it('development mode also refuses substring-match (returns deny decision)', async () => {
-    const adapter = new MemoryAdapter<string, string, string, string>({
+    const adapter = new IamMemoryAdapter<string, string, string, string>({
       policies: [
         {
           id: 'p1',
@@ -152,7 +152,7 @@ describe('Engine subject.roles type-confusion defense', () => {
         },
       ],
     })
-    const engine = new Engine<string, string, string, string, 'development'>({
+    const engine = new IamEngine<string, string, string, string, 'development'>({
       adapter,
       mode: 'development',
       defaultEffect: 'deny',

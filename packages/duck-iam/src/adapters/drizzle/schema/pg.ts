@@ -12,10 +12,10 @@ import {
   timestamp,
   unique,
 } from 'drizzle-orm/pg-core'
-import type { AccessControl, Primitives } from '../../../core/types'
+import type { IamAccessControl, IamPrimitives } from '../../../core/types'
 
 /**
- * PostgreSQL schema for the duck-iam Drizzle adapter.
+ * PostgreSQL schema for the duck-iam IamDrizzle adapter.
  *
  * Run `drizzle-kit generate` against this file to emit migrations.
  *
@@ -42,7 +42,7 @@ import type { AccessControl, Primitives } from '../../../core/types'
  */
 
 /**
- * Postgres enum mirroring {@link AccessControl.CombiningAlgorithm}. The
+ * Postgres enum mirroring {@link IamAccessControl.CombiningAlgorithm}. The
  * `satisfies` clause turns any drift between this list and the engine union
  * into a compile error.
  */
@@ -51,13 +51,13 @@ export const combineAlgorithm = pgEnum('access_combine_algorithm', [
   'allow-overrides',
   'first-match',
   'highest-priority',
-] as const satisfies readonly AccessControl.CombiningAlgorithm[])
+] as const satisfies readonly IamAccessControl.CombiningAlgorithm[])
 
 /**
  * Stored ABAC policies. `rules` and `targets` carry the policy payload as
  * `jsonb`; `algorithm` is constrained to the engine's combining algorithms.
  */
-export const accessPolicies = pgTable(
+export const iamPolicies = pgTable(
   'access_policies',
   {
     id: text('id').notNull(),
@@ -65,8 +65,8 @@ export const accessPolicies = pgTable(
     description: text('description'),
     version: integer('version').notNull().default(1),
     algorithm: combineAlgorithm('algorithm').notNull().default('deny-overrides'),
-    rules: jsonb('rules').$type<AccessControl.IRule[]>().notNull(),
-    targets: jsonb('targets').$type<NonNullable<AccessControl.IPolicy['targets']>>(),
+    rules: jsonb('rules').$type<IamAccessControl.IRule[]>().notNull(),
+    targets: jsonb('targets').$type<NonNullable<IamAccessControl.IPolicy['targets']>>(),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -89,16 +89,16 @@ export const accessPolicies = pgTable(
  * Stored RBAC roles. `permissions` and `metadata` are `jsonb`; `inherits` is a
  * `jsonb` array of parent role IDs.
  */
-export const accessRoles = pgTable(
+export const iamRoles = pgTable(
   'access_roles',
   {
     id: text('id').notNull(),
     name: text('name').notNull(),
     description: text('description'),
-    permissions: jsonb('permissions').$type<AccessControl.IPermission[]>().notNull(),
+    permissions: jsonb('permissions').$type<IamAccessControl.IPermission[]>().notNull(),
     inherits: jsonb('inherits').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     scope: text('scope'),
-    metadata: jsonb('metadata').$type<Primitives.Attributes>(),
+    metadata: jsonb('metadata').$type<IamPrimitives.Attributes>(),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -127,7 +127,7 @@ export const accessRoles = pgTable(
  * `(subject_id, role_id, scope)` with NULL scopes collapsed, so `assignRole`'s
  * `onConflictDoNothing` is idempotent for global grants too.
  */
-export const accessAssignments = pgTable(
+export const iamAssignments = pgTable(
   'access_assignments',
   {
     id: text('id').$defaultFn(() => crypto.randomUUID()),
@@ -142,7 +142,7 @@ export const accessAssignments = pgTable(
     foreignKey({
       name: 'fk_access_assignments_role',
       columns: [t.roleId],
-      foreignColumns: [accessRoles.id],
+      foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
     unique('uq_access_assignments_subject_role_scope').on(t.subjectId, t.roleId, t.scope).nullsNotDistinct(),
     index('idx_access_assignments_subject').on(t.subjectId),
@@ -158,11 +158,11 @@ export const accessAssignments = pgTable(
  * Per-subject attribute bags, one row per subject. `data` holds the
  * attribute map (`jsonb`) consumed by the ABAC condition engine.
  */
-export const accessSubjectAttrs = pgTable(
+export const iamSubjectAttrs = pgTable(
   'access_subject_attrs',
   {
     subjectId: text('subject_id').notNull(),
-    data: jsonb('data').$type<Primitives.Attributes>().notNull(),
+    data: jsonb('data').$type<IamPrimitives.Attributes>().notNull(),
     updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })

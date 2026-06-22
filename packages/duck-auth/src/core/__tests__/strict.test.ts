@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../adapters/memory'
-import { MemoryLimiter } from '../../limiters/memory'
-import { AuthRoot } from '../auth'
-import { CookieTransport } from '../transport/cookie'
+import { AuthMemoryAdapter } from '../../adapters/memory'
+import { AuthMemoryLimiter } from '../../limiters/memory'
+import { AuthEngine } from '../auth'
+import { AuthCookieTransport } from '../transport/cookie'
 
 interface MyProfile {
   email: string
@@ -16,7 +16,7 @@ function makeAuth(
     lockoutHandler: boolean
   }> = {},
 ) {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
+  const adapter = new AuthMemoryAdapter<MyProfile>()
   const o = {
     limiter: true,
     secureCookie: true,
@@ -24,15 +24,15 @@ function makeAuth(
     lockoutHandler: true,
     ...overrides,
   }
-  const auth = new AuthRoot<MyProfile>({
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: o.secureCookie, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: o.secureCookie, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    ...(o.limiter && { limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }) }),
+    ...(o.limiter && { limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }) }),
   })
   if (o.providers) {
     auth.providers.register({
@@ -52,7 +52,7 @@ function makeAuth(
   return auth
 }
 
-describe('AuthRoot.strict()', () => {
+describe('AuthEngine.strict()', () => {
   it('returns silently in development/test mode regardless of config', () => {
     const auth = makeAuth({ limiter: false, providers: false, lockoutHandler: false })
     expect(() => auth.strict({ env: 'development' })).not.toThrow()
@@ -60,12 +60,12 @@ describe('AuthRoot.strict()', () => {
   })
 
   describe('production rejections', () => {
-    it('rejects missing Limiter', () => {
+    it('rejects missing AuthLimiter', () => {
       const auth = makeAuth({ limiter: false })
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
           code: 'AUTH/MISCONFIGURED',
-          meta: expect.objectContaining({ detail: expect.stringMatching(/Limiter adapter required/) }),
+          meta: expect.objectContaining({ detail: expect.stringMatching(/AuthLimiter adapter required/) }),
         }),
       )
     })
@@ -110,14 +110,14 @@ describe('AuthRoot.strict()', () => {
       )
     })
 
-    it('rejects an explicitly-passed NoopLimiter (not just missing limiter)', async () => {
-      const adapter = new MemoryAuthAdapter<MyProfile>()
-      const { NoopLimiter } = await import('../auth')
-      const auth = new AuthRoot<MyProfile>({
+    it('rejects an explicitly-passed AuthNoopLimiter (not just missing limiter)', async () => {
+      const adapter = new AuthMemoryAdapter<MyProfile>()
+      const { AuthNoopLimiter } = await import('../auth')
+      const auth = new AuthEngine<MyProfile>({
         baseUrl: 'https://app.example.com',
-        transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
+        transport: new AuthCookieTransport({ secure: true, name: 'duck-sid' }),
         stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
-        limiter: new NoopLimiter(),
+        limiter: new AuthNoopLimiter(),
         providers: [
           {
             id: 'password',
@@ -135,7 +135,7 @@ describe('AuthRoot.strict()', () => {
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
           code: 'AUTH/MISCONFIGURED',
-          meta: expect.objectContaining({ detail: expect.stringMatching(/NoopLimiter rejected/) }),
+          meta: expect.objectContaining({ detail: expect.stringMatching(/AuthNoopLimiter rejected/) }),
         }),
       )
     })
@@ -156,16 +156,16 @@ describe('AuthRoot.strict()', () => {
     })
 
     it('refuses http:// baseUrl in production', () => {
-      const adapter = new MemoryAuthAdapter<MyProfile>()
-      const auth = new AuthRoot<MyProfile>({
+      const adapter = new AuthMemoryAdapter<MyProfile>()
+      const auth = new AuthEngine<MyProfile>({
         baseUrl: 'http://app.example.com',
-        transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
+        transport: new AuthCookieTransport({ secure: true, name: 'duck-sid' }),
         stores: {
           identities: adapter.identities,
           sessions: adapter.sessions,
           credentials: adapter.credentials,
         },
-        limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
+        limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
       })
       auth.providers.register({
         id: 'fake',

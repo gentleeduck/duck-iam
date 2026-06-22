@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EngineTypes } from '../../../core/engine/engine.types'
-import { createRedisInvalidator, type RedisInvalidator } from '../index'
+import type { IamEngineTypes } from '../../../core/engine/engine.types'
+import { createIamRedisInvalidator, type IamRedisInvalidator } from '../index'
 
 /**
  * In-memory pub/sub stub that mimics the narrow `IPubSubLike` surface. The
@@ -10,7 +10,7 @@ import { createRedisInvalidator, type RedisInvalidator } from '../index'
  * subscribe path (by invoking the saved handler directly).
  */
 function makeBus(): {
-  client: RedisInvalidator.IPubSubLike
+  client: IamRedisInvalidator.IPubSubLike
   publish: (msg: string) => void
   published: string[]
   unsubscribed: string[]
@@ -38,7 +38,7 @@ function makeBus(): {
   }
 }
 
-describe('createRedisInvalidator', () => {
+describe('createIamRedisInvalidator', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
@@ -53,10 +53,10 @@ describe('createRedisInvalidator', () => {
     const a = makeBus()
     const b = makeBus()
     const ch = `t-signed-${Math.random().toString(36).slice(2)}`
-    const invA = createRedisInvalidator({ channel: ch, client: a.client, secret: 'shared-secret' })
-    const invB = createRedisInvalidator({ channel: ch, client: b.client, secret: 'shared-secret' })
+    const invA = createIamRedisInvalidator({ channel: ch, client: a.client, secret: 'shared-secret' })
+    const invB = createIamRedisInvalidator({ channel: ch, client: b.client, secret: 'shared-secret' })
 
-    const received: EngineTypes.IInvalidateEvent[] = []
+    const received: IamEngineTypes.IInvalidateEvent[] = []
     invB.subscribe((e) => received.push(e))
 
     invA.publish({ kind: 'all' })
@@ -70,8 +70,8 @@ describe('createRedisInvalidator', () => {
   it('drops unsigned message when secret is set', () => {
     const bus = makeBus()
     const ch = `t-unsigned-${Math.random().toString(36).slice(2)}`
-    const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 's' })
-    const received: EngineTypes.IInvalidateEvent[] = []
+    const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 's' })
+    const received: IamEngineTypes.IInvalidateEvent[] = []
     inv.subscribe((e) => received.push(e))
 
     // Legacy unsigned wire format from a peer without a secret.
@@ -87,9 +87,9 @@ describe('createRedisInvalidator', () => {
     const a = makeBus()
     const b = makeBus()
     const ch = `t-tamper-${Math.random().toString(36).slice(2)}`
-    const invA = createRedisInvalidator({ channel: ch, client: a.client, secret: 'k' })
-    const invB = createRedisInvalidator({ channel: ch, client: b.client, secret: 'k' })
-    const received: EngineTypes.IInvalidateEvent[] = []
+    const invA = createIamRedisInvalidator({ channel: ch, client: a.client, secret: 'k' })
+    const invB = createIamRedisInvalidator({ channel: ch, client: b.client, secret: 'k' })
+    const received: IamEngineTypes.IInvalidateEvent[] = []
     invB.subscribe((e) => received.push(e))
 
     invA.publish({ kind: 'all' })
@@ -115,14 +115,14 @@ describe('createRedisInvalidator', () => {
       const fixed = 1_700_000_000_000
       Date.now = () => fixed
       const ch = `t-replay-${Math.random().toString(36).slice(2)}`
-      const invA = createRedisInvalidator({ channel: ch, client: a.client, secret: 'k' })
+      const invA = createIamRedisInvalidator({ channel: ch, client: a.client, secret: 'k' })
       // Publisher stamps ts = `fixed`.
       invA.publish({ kind: 'all' })
 
       // Subscriber lives 60s in the future.
       Date.now = () => fixed + 60_000
-      const invB = createRedisInvalidator({ channel: ch, client: b.client, secret: 'k' })
-      const received: EngineTypes.IInvalidateEvent[] = []
+      const invB = createIamRedisInvalidator({ channel: ch, client: b.client, secret: 'k' })
+      const received: IamEngineTypes.IInvalidateEvent[] = []
       invB.subscribe((e) => received.push(e))
       b.publish(a.published[0]!)
 
@@ -136,8 +136,8 @@ describe('createRedisInvalidator', () => {
 
   it('peer without secret accepts unsigned and warns once at construction', () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
-    const received: EngineTypes.IInvalidateEvent[] = []
+    const inv = createIamRedisInvalidator({ client: bus.client })
+    const received: IamEngineTypes.IInvalidateEvent[] = []
     inv.subscribe((e) => received.push(e))
 
     bus.publish(JSON.stringify({ event: { kind: 'all' }, instanceId: 'peer' }))
@@ -147,8 +147,8 @@ describe('createRedisInvalidator', () => {
     // level so earlier tests in this file may already have tripped it; assert
     // the warn fired at most once across multiple constructions in this case.
     const before = warnSpy.mock.calls.length
-    createRedisInvalidator({ client: makeBus().client })
-    createRedisInvalidator({ client: makeBus().client })
+    createIamRedisInvalidator({ client: makeBus().client })
+    createIamRedisInvalidator({ client: makeBus().client })
     const after = warnSpy.mock.calls.length
     const unsignedWarns = warnSpy.mock.calls
       .map((c: unknown[]) => String(c[0] ?? ''))
@@ -163,7 +163,7 @@ describe('createRedisInvalidator', () => {
     // pins the per-tenant channel-name contract that makes the isolation real.
     const subscribedChannels: string[] = []
     const publishedChannels: string[] = []
-    const client: RedisInvalidator.IPubSubLike = {
+    const client: IamRedisInvalidator.IPubSubLike = {
       publish(channel, _msg) {
         publishedChannels.push(channel)
       },
@@ -172,7 +172,7 @@ describe('createRedisInvalidator', () => {
       },
       unsubscribe() {},
     }
-    const inv = createRedisInvalidator({ client, secret: 'k', tenantId: 'acme' })
+    const inv = createIamRedisInvalidator({ client, secret: 'k', tenantId: 'acme' })
     inv.subscribe(() => {})
     inv.publish({ kind: 'all' })
     expect(subscribedChannels[0]).toBe('duck-iam:invalidate:tenant:acme')
@@ -180,16 +180,16 @@ describe('createRedisInvalidator', () => {
   })
 
   it('rejects tenantId with unsafe chars (CAVEAT-1)', () => {
-    expect(() => createRedisInvalidator({ client: makeBus().client, tenantId: 'with space' })).toThrow(/tenantId/)
-    expect(() => createRedisInvalidator({ client: makeBus().client, tenantId: 'wild*card' })).toThrow(/tenantId/)
-    expect(() => createRedisInvalidator({ client: makeBus().client, tenantId: '' })).toThrow(/tenantId/)
+    expect(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: 'with space' })).toThrow(/tenantId/)
+    expect(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: 'wild*card' })).toThrow(/tenantId/)
+    expect(() => createIamRedisInvalidator({ client: makeBus().client, tenantId: '' })).toThrow(/tenantId/)
   })
 
   it('rejects v:1 envelope in unsigned mode', () => {
     const bus = makeBus()
     const ch = `t-v1-no-secret-${Math.random().toString(36).slice(2)}`
-    const inv = createRedisInvalidator({ channel: ch, client: bus.client })
-    const received: EngineTypes.IInvalidateEvent[] = []
+    const inv = createIamRedisInvalidator({ channel: ch, client: bus.client })
+    const received: IamEngineTypes.IInvalidateEvent[] = []
     inv.subscribe((e) => received.push(e))
 
     // Attacker forges v:1 envelope without secret. instanceId is chosen to
@@ -209,9 +209,9 @@ describe('createRedisInvalidator', () => {
     const a = makeBus()
     const b = makeBus()
     const ch = `t-mismatch-${Math.random().toString(36).slice(2)}`
-    const invA = createRedisInvalidator({ channel: ch, client: a.client, secret: 'k1' })
-    const invB = createRedisInvalidator({ channel: ch, client: b.client, secret: 'k2' })
-    const received: EngineTypes.IInvalidateEvent[] = []
+    const invA = createIamRedisInvalidator({ channel: ch, client: a.client, secret: 'k1' })
+    const invB = createIamRedisInvalidator({ channel: ch, client: b.client, secret: 'k2' })
+    const received: IamEngineTypes.IInvalidateEvent[] = []
     invB.subscribe((e) => received.push(e))
 
     invA.publish({ kind: 'all' })
@@ -236,7 +236,7 @@ describe('createRedisInvalidator', () => {
     // with the suppressed count.
     const bus = makeBus()
     const ch = `t-coalesce-${Math.random().toString(36).slice(2)}`
-    const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+    const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
     inv.subscribe(() => {})
 
     const dropMsg = JSON.stringify({ v: 1, sig: 'aa', payload: { instanceId: 'x', event: { kind: 'all' } } })
@@ -255,8 +255,8 @@ describe('createRedisInvalidator', () => {
   it('drops self-published messages (instanceId guard, unchanged from P0)', () => {
     const bus = makeBus()
     const ch = `t-self-${Math.random().toString(36).slice(2)}`
-    const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
-    const received: EngineTypes.IInvalidateEvent[] = []
+    const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+    const received: IamEngineTypes.IInvalidateEvent[] = []
     inv.subscribe((e) => received.push(e))
 
     inv.publish({ kind: 'all' })
@@ -270,8 +270,8 @@ describe('createRedisInvalidator', () => {
     it('drops oversize wire message pre-parse (>16 KB)', () => {
       const bus = makeBus()
       const ch = `t-oversize-${Math.random().toString(36).slice(2)}`
-      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
-      const received: EngineTypes.IInvalidateEvent[] = []
+      const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const received: IamEngineTypes.IInvalidateEvent[] = []
       inv.subscribe((e) => received.push(e))
 
       // 32 KB blob. Stays a valid JSON string but exceeds the 16 KB wire cap.
@@ -287,8 +287,8 @@ describe('createRedisInvalidator', () => {
     it('drops surrogate-heavy payload that bypasses .length cap', () => {
       const bus = makeBus()
       const ch = `t-utf8-bytes-${Math.random().toString(36).slice(2)}`
-      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
-      const received: EngineTypes.IInvalidateEvent[] = []
+      const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const received: IamEngineTypes.IInvalidateEvent[] = []
       inv.subscribe((e) => received.push(e))
 
       // 4-byte UTF-8 payload: byte count past 16KB cap while .length stays small.
@@ -305,8 +305,8 @@ describe('createRedisInvalidator', () => {
     it('drops deeply nested payload pre-canonicalise (depth 10)', () => {
       const bus = makeBus()
       const ch = `t-deep-${Math.random().toString(36).slice(2)}`
-      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
-      const received: EngineTypes.IInvalidateEvent[] = []
+      const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const received: IamEngineTypes.IInvalidateEvent[] = []
       inv.subscribe((e) => received.push(e))
 
       // Build a depth-10 chain inside `payload`.
@@ -322,8 +322,8 @@ describe('createRedisInvalidator', () => {
     it('drops payload with > 64 keys', () => {
       const bus = makeBus()
       const ch = `t-keys-${Math.random().toString(36).slice(2)}`
-      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
-      const received: EngineTypes.IInvalidateEvent[] = []
+      const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const received: IamEngineTypes.IInvalidateEvent[] = []
       inv.subscribe((e) => received.push(e))
 
       const wide: Record<string, number> = {}
@@ -339,9 +339,9 @@ describe('createRedisInvalidator', () => {
       const a = makeBus()
       const b = makeBus()
       const ch = `t-happy-${Math.random().toString(36).slice(2)}`
-      const invA = createRedisInvalidator({ channel: ch, client: a.client, secret: 's' })
-      const invB = createRedisInvalidator({ channel: ch, client: b.client, secret: 's' })
-      const received: EngineTypes.IInvalidateEvent[] = []
+      const invA = createIamRedisInvalidator({ channel: ch, client: a.client, secret: 's' })
+      const invB = createIamRedisInvalidator({ channel: ch, client: b.client, secret: 's' })
+      const received: IamEngineTypes.IInvalidateEvent[] = []
       invB.subscribe((e) => received.push(e))
       invA.publish({ kind: 'all' })
       b.publish(a.published[0]!)
@@ -351,7 +351,7 @@ describe('createRedisInvalidator', () => {
     it('guard itself does not recurse - depth 100k payload does not RangeError', () => {
       const bus = makeBus()
       const ch = `t-norecurse-${Math.random().toString(36).slice(2)}`
-      const inv = createRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
+      const inv = createIamRedisInvalidator({ channel: ch, client: bus.client, secret: 'k' })
       inv.subscribe(() => {})
 
       // Construct a 100k-deep object iteratively (recursive JSON.parse on a
@@ -380,7 +380,7 @@ describe('createRedisInvalidator', () => {
 
   it('unsubscribes when last handler detaches', () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client, secret: 'k', channel: 'c-1' })
+    const inv = createIamRedisInvalidator({ client: bus.client, secret: 'k', channel: 'c-1' })
     const off = inv.subscribe(() => {})
     off()
     expect(bus.unsubscribed).toEqual(['c-1'])

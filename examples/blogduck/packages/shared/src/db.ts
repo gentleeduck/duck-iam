@@ -18,7 +18,7 @@ export const posts = sqliteTable('posts', {
 })
 
 // duck-iam tables
-export const accessRoles = sqliteTable('access_roles', {
+export const iamRoles = sqliteTable('access_roles', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
@@ -28,7 +28,7 @@ export const accessRoles = sqliteTable('access_roles', {
   metadata: text('metadata'),
 })
 
-export const accessPolicies = sqliteTable('access_policies', {
+export const iamPolicies = sqliteTable('access_policies', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
@@ -38,13 +38,13 @@ export const accessPolicies = sqliteTable('access_policies', {
   targets: text('targets'),
 })
 
-export const accessAssignments = sqliteTable('access_assignments', {
+export const iamAssignments = sqliteTable('access_assignments', {
   subjectId: text('subject_id').notNull(),
   roleId: text('role_id').notNull(),
   scope: text('scope'),
 })
 
-export const accessSubjectAttrs = sqliteTable('access_subject_attrs', {
+export const iamSubjectAttrs = sqliteTable('access_subject_attrs', {
   subjectId: text('subject_id').primaryKey(),
   data: text('data').notNull(),
 })

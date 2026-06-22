@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
-import { JwtTransport } from '../../../core/transport/jwt'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { GRPC_STATUS, type GrpcAdapter, httpStatusToGrpc, withAuth } from '../index'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { AuthJwtTransport } from '../../../core/transport/jwt'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AUTH_GRPC_STATUS, type AuthGrpcAdapter, authHttpStatusToGrpc, authWithGrpc } from '../index'
 
-function makeMetadata(initial: Record<string, string> = {}): GrpcAdapter.IMetadata {
+function makeMetadata(initial: Record<string, string> = {}): AuthGrpcAdapter.IMetadata {
   const store = new Map<string, string[]>()
   for (const [k, v] of Object.entries(initial)) store.set(k.toLowerCase(), [v])
   return {
@@ -27,13 +27,13 @@ interface MyProfile {
 }
 
 function buildAuth() {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const transport = new JwtTransport({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const transport = new AuthJwtTransport({
     signKey: { kid: 'k1', key: 'secret-test-32-bytes-of-material' },
     verifyKeys: [{ kid: 'k1', key: 'secret-test-32-bytes-of-material' }],
     issuer: 'https://app.test',
   })
-  const auth = new AuthRoot<MyProfile>({
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.test',
     transport,
     stores: {
@@ -41,25 +41,25 @@ function buildAuth() {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter, transport }
 }
 
-describe('httpStatusToGrpc', () => {
+describe('authHttpStatusToGrpc', () => {
   it('maps the standard auth error statuses to canonical gRPC codes', () => {
-    expect(httpStatusToGrpc(401)).toBe(GRPC_STATUS.UNAUTHENTICATED)
-    expect(httpStatusToGrpc(403)).toBe(GRPC_STATUS.PERMISSION_DENIED)
-    expect(httpStatusToGrpc(429)).toBe(GRPC_STATUS.RESOURCE_EXHAUSTED)
-    expect(httpStatusToGrpc(503)).toBe(GRPC_STATUS.UNAVAILABLE)
-    expect(httpStatusToGrpc(500)).toBe(GRPC_STATUS.INTERNAL)
-    expect(httpStatusToGrpc(400)).toBe(GRPC_STATUS.INVALID_ARGUMENT)
-    expect(httpStatusToGrpc(200)).toBe(GRPC_STATUS.OK)
+    expect(authHttpStatusToGrpc(401)).toBe(AUTH_GRPC_STATUS.UNAUTHENTICATED)
+    expect(authHttpStatusToGrpc(403)).toBe(AUTH_GRPC_STATUS.PERMISSION_DENIED)
+    expect(authHttpStatusToGrpc(429)).toBe(AUTH_GRPC_STATUS.RESOURCE_EXHAUSTED)
+    expect(authHttpStatusToGrpc(503)).toBe(AUTH_GRPC_STATUS.UNAVAILABLE)
+    expect(authHttpStatusToGrpc(500)).toBe(AUTH_GRPC_STATUS.INTERNAL)
+    expect(authHttpStatusToGrpc(400)).toBe(AUTH_GRPC_STATUS.INVALID_ARGUMENT)
+    expect(authHttpStatusToGrpc(200)).toBe(AUTH_GRPC_STATUS.OK)
   })
 })
 
-describe('withAuth interceptor', () => {
+describe('authWithGrpc interceptor', () => {
   let env: ReturnType<typeof buildAuth>
 
   beforeEach(() => {
@@ -68,14 +68,14 @@ describe('withAuth interceptor', () => {
 
   it('UNAUTHENTICATED when no token + required:true (default)', async () => {
     const handler = vi.fn()
-    const wrapped = withAuth(env.auth, handler)
-    const call: GrpcAdapter.IUnaryCall<unknown> = {
+    const wrapped = authWithGrpc(env.auth, handler)
+    const call: AuthGrpcAdapter.IUnaryCall<unknown> = {
       metadata: makeMetadata(),
       request: {},
     }
     await new Promise<void>((resolve) => {
       wrapped(call, (err) => {
-        expect(err?.code).toBe(GRPC_STATUS.UNAUTHENTICATED)
+        expect(err?.code).toBe(AUTH_GRPC_STATUS.UNAUTHENTICATED)
         expect(err?.message).toBe('AUTH/UNAUTHENTICATED')
         resolve()
       })
@@ -85,8 +85,8 @@ describe('withAuth interceptor', () => {
 
   it('required:false + no token -> handler invoked with no session attached', async () => {
     const handler = vi.fn((call, cb) => cb(null, { ok: true }))
-    const wrapped = withAuth(env.auth, handler, { required: false })
-    const call: GrpcAdapter.IUnaryCall<unknown> = {
+    const wrapped = authWithGrpc(env.auth, handler, { required: false })
+    const call: AuthGrpcAdapter.IUnaryCall<unknown> = {
       metadata: makeMetadata(),
       request: {},
     }
@@ -111,8 +111,8 @@ describe('withAuth interceptor', () => {
     const jwt = (intents.find((i) => i.type === 'json')! as { body: { access_token: string } }).body.access_token
 
     const handler = vi.fn((call, cb) => cb(null, { ok: true }))
-    const wrapped = withAuth(env.auth, handler)
-    const call: GrpcAdapter.IUnaryCall<unknown> = {
+    const wrapped = authWithGrpc(env.auth, handler)
+    const call: AuthGrpcAdapter.IUnaryCall<unknown> = {
       metadata: makeMetadata({ authorization: `Bearer ${jwt}` }),
       request: {},
     }
@@ -128,11 +128,11 @@ describe('withAuth interceptor', () => {
 
   it('custom headerName is honored', async () => {
     const handler = vi.fn((call, cb) => cb(null, { ok: true }))
-    const wrapped = withAuth(env.auth, handler, {
+    const wrapped = authWithGrpc(env.auth, handler, {
       required: false,
       headerName: 'x-api-key',
     })
-    const call: GrpcAdapter.IUnaryCall<unknown> = {
+    const call: AuthGrpcAdapter.IUnaryCall<unknown> = {
       metadata: makeMetadata({ 'x-api-key': 'no-real-key' }),
       request: {},
     }

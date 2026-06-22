@@ -1,6 +1,6 @@
-import { createAccessConfig, defineRole, Engine, MemoryAdapter, validateRoles } from '@gentleduck/iam'
+import { createIam, defineRole, IamEngine, MemoryAdapter, validateRoles } from '@gentleduck/iam'
 
-export const access = createAccessConfig({
+export const access = createIam({
   actions: ['create', 'read', 'update', 'delete', 'list', 'manage'] as const,
   resources: ['comment', 'post', 'user', 'dashboard'] as const,
   scopes: ['public', 'private'] as const,
@@ -74,7 +74,7 @@ const adapter = new MemoryAdapter({
   },
 })
 
-export const engine = new Engine({ adapter, defaultEffect: 'deny' })
+export const engine = new IamEngine({ adapter, defaultEffect: 'deny' })
 
 // Setup: alice owns post-1, bob does not
 const alicePost = {

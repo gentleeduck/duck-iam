@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { createDrizzleSqliteOidcOpStores, gcDrizzleSqliteOidcOp } from '../sqlite'
+import { authCreateDrizzleSqliteOidcOpStores, authGcDrizzleSqliteOidcOp } from '../sqlite'
 
 // biome-ignore lint/suspicious/noExplicitAny: globalThis.Bun is the canonical runtime probe
 const IS_BUN = typeof (globalThis as any).Bun !== 'undefined'
@@ -78,10 +78,10 @@ async function makeStores() {
   `)
   // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database satisfies drizzle's expected shape at runtime
   const db = drizzle(sqlite as any)
-  return { sqlite, db, stores: createDrizzleSqliteOidcOpStores(db) }
+  return { sqlite, db, stores: authCreateDrizzleSqliteOidcOpStores(db) }
 }
 
-onlyBun('createDrizzleSqliteOidcOpStores - clients', () => {
+onlyBun('authCreateDrizzleSqliteOidcOpStores - clients', () => {
   it('round-trips a client', async () => {
     const { stores } = await makeStores()
     await stores.clients.insert({
@@ -108,7 +108,7 @@ onlyBun('createDrizzleSqliteOidcOpStores - clients', () => {
   })
 })
 
-onlyBun('createDrizzleSqliteOidcOpStores - codes', () => {
+onlyBun('authCreateDrizzleSqliteOidcOpStores - codes', () => {
   it('consume is single-use', async () => {
     const { stores } = await makeStores()
     await stores.codes.insert({
@@ -150,7 +150,7 @@ onlyBun('createDrizzleSqliteOidcOpStores - codes', () => {
   })
 })
 
-onlyBun('createDrizzleSqliteOidcOpStores - access tokens', () => {
+onlyBun('authCreateDrizzleSqliteOidcOpStores - access tokens', () => {
   it('insert + find + revoke lifecycle', async () => {
     const { stores } = await makeStores()
     await stores.accessTokens.insert({
@@ -181,7 +181,7 @@ onlyBun('createDrizzleSqliteOidcOpStores - access tokens', () => {
   })
 })
 
-onlyBun('createDrizzleSqliteOidcOpStores - refresh tokens', () => {
+onlyBun('authCreateDrizzleSqliteOidcOpStores - refresh tokens', () => {
   it('consume rotates and reuse triggers family revoke', async () => {
     const { stores } = await makeStores()
     const familyId = 'fam-1'
@@ -204,7 +204,7 @@ onlyBun('createDrizzleSqliteOidcOpStores - refresh tokens', () => {
   })
 })
 
-onlyBun('createDrizzleSqliteOidcOpStores - consents', () => {
+onlyBun('authCreateDrizzleSqliteOidcOpStores - consents', () => {
   it('upsert replaces scope on second call', async () => {
     const { stores } = await makeStores()
     await stores.consents.upsert({
@@ -235,7 +235,7 @@ onlyBun('createDrizzleSqliteOidcOpStores - consents', () => {
   })
 })
 
-onlyBun('gcDrizzleSqliteOidcOp', () => {
+onlyBun('authGcDrizzleSqliteOidcOp', () => {
   it('prunes expired codes / access tokens / consumed refresh tokens', async () => {
     const { stores, db } = await makeStores()
     const now = Date.now()
@@ -270,7 +270,7 @@ onlyBun('gcDrizzleSqliteOidcOp', () => {
       exp: now + 60_000,
       consumedAt: now - 1,
     })
-    const removed = await gcDrizzleSqliteOidcOp(db, now)
+    const removed = await authGcDrizzleSqliteOidcOp(db, now)
     expect(removed).toBe(3)
   })
 })

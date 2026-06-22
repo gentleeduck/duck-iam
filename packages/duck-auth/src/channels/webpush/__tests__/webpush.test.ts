@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
-import { WebPushChannel } from '../index'
+import type { AuthIdentity } from '../../../core/types/identity'
+import { AuthWebPushChannel } from '../index'
 
-const SUB: WebPushChannel.ISubscription = {
+const SUB: AuthWebPushChannel.ISubscription = {
   endpoint: 'https://fcm.googleapis.com/x',
   keys: { p256dh: 'PUBLIC', auth: 'AUTH' },
 }
 
-function makeIdentity(subscription: WebPushChannel.ISubscription | undefined): Identity.IIdentity<unknown> {
+function makeIdentity(subscription: AuthWebPushChannel.ISubscription | undefined): AuthIdentity.IIdentity<unknown> {
   return {
     id: 'ident-1',
     profile: subscription ? { pushSubscription: subscription } : {},
@@ -18,7 +18,7 @@ function makeIdentity(subscription: WebPushChannel.ISubscription | undefined): I
   }
 }
 
-function makeModule(impl?: WebPushChannel.IModule['sendNotification']): WebPushChannel.IModule {
+function makeModule(impl?: AuthWebPushChannel.IModule['sendNotification']): AuthWebPushChannel.IModule {
   return {
     setVapidDetails: vi.fn(),
     sendNotification: vi.fn(impl ?? (async () => ({ statusCode: 201 }))),
@@ -31,10 +31,10 @@ const CFG_BASE = {
   privateKey: 'PRIV',
 }
 
-describe('WebPushChannel', () => {
+describe('AuthWebPushChannel', () => {
   it('happy path: configures VAPID + sends notification', async () => {
     const mod = makeModule()
-    const channel = new WebPushChannel({
+    const channel = new AuthWebPushChannel({
       ...CFG_BASE,
       module: mod,
       templates: () => ({ payload: JSON.stringify({ title: 'Hi' }) }),
@@ -53,12 +53,12 @@ describe('WebPushChannel', () => {
 
   it('refuses construction without VAPID details', () => {
     expect(
-      () => new WebPushChannel({ subject: '', publicKey: 'X', privateKey: 'Y', templates: () => ({ payload: '' }) }),
+      () => new AuthWebPushChannel({ subject: '', publicKey: 'X', privateKey: 'Y', templates: () => ({ payload: '' }) }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
   })
 
   it('returns ok:false when identity has no pushSubscription', async () => {
-    const channel = new WebPushChannel({
+    const channel = new AuthWebPushChannel({
       ...CFG_BASE,
       module: makeModule(),
       templates: () => ({ payload: 'x' }),
@@ -74,12 +74,12 @@ describe('WebPushChannel', () => {
   })
 
   it('returns ok:false when subscription keys are missing', async () => {
-    const channel = new WebPushChannel({
+    const channel = new AuthWebPushChannel({
       ...CFG_BASE,
       module: makeModule(),
       templates: () => ({ payload: 'x' }),
     })
-    const broken: WebPushChannel.ISubscription = {
+    const broken: AuthWebPushChannel.ISubscription = {
       endpoint: 'https://x',
       keys: { p256dh: '', auth: '' },
     }
@@ -93,7 +93,7 @@ describe('WebPushChannel', () => {
   })
 
   it('catches sendNotification throws as ok:false with statusCode prefix when available', async () => {
-    const channel = new WebPushChannel({
+    const channel = new AuthWebPushChannel({
       ...CFG_BASE,
       module: makeModule(async () => {
         const err = new Error('subscription has expired')
@@ -113,7 +113,7 @@ describe('WebPushChannel', () => {
   })
 
   it('template resolver throw becomes ok:false', async () => {
-    const channel = new WebPushChannel({
+    const channel = new AuthWebPushChannel({
       ...CFG_BASE,
       module: makeModule(),
       templates: () => {
@@ -132,7 +132,7 @@ describe('WebPushChannel', () => {
 
   it('TTL from template forwarded to sendNotification', async () => {
     const mod = makeModule()
-    const channel = new WebPushChannel({
+    const channel = new AuthWebPushChannel({
       ...CFG_BASE,
       module: mod,
       templates: () => ({ payload: 'x', ttl: 3600 }),

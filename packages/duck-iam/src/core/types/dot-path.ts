@@ -1,7 +1,7 @@
-import type { Primitives } from './primitives'
+import type { IamPrimitives } from './primitives'
 
 /** Dot-path type machinery: context-wide paths (`DotPaths`, `PathValue`, `DollarPaths`) and attribute-bag paths. */
-export namespace DotPath {
+export namespace IamDotPath {
   /**
    * String-literal union of every reachable path through `T`; arrays are leaves; index-signatures bail to `never`.
    *
@@ -11,7 +11,7 @@ export namespace DotPath {
    * @example
    * ```ts
    * type Ctx = { subject: { id: string; attributes: { status: string } } }
-   * type Paths = DotPath.DotPaths<Ctx>
+   * type Paths = IamDotPath.DotPaths<Ctx>
    * // = 'subject' | 'subject.id' | 'subject.attributes' | 'subject.attributes.status'
    * ```
    */
@@ -38,7 +38,7 @@ export namespace DotPath {
    * @example
    * ```ts
    * type Ctx = { subject: { attributes: { status: 'active' | 'banned' } } }
-   * type V = DotPath.PathValue<Ctx, 'subject.attributes.status'>
+   * type V = IamDotPath.PathValue<Ctx, 'subject.attributes.status'>
    * // = 'active' | 'banned'
    * ```
    */
@@ -58,10 +58,10 @@ export namespace DotPath {
    * @example
    * ```ts
    * type ClosedCtx = { subject: { id: string } }
-   * type Paths1 = DotPath.FlexibleDotPaths<ClosedCtx>     // = 'subject' | 'subject.id'
+   * type Paths1 = IamDotPath.FlexibleDotPaths<ClosedCtx>     // = 'subject' | 'subject.id'
    *
-   * type OpenCtx = { subject: { attributes: DotPath.IAnyAttributes } }
-   * type Paths2 = DotPath.FlexibleDotPaths<OpenCtx>       // accepts any string too
+   * type OpenCtx = { subject: { attributes: IamDotPath.IAnyAttributes } }
+   * type Paths2 = IamDotPath.FlexibleDotPaths<OpenCtx>       // accepts any string too
    * ```
    */
   export type FlexibleDotPaths<T> = true extends HasOpenIndex<T> ? DotPaths<T> | (string & {}) : DotPaths<T>
@@ -74,7 +74,7 @@ export namespace DotPath {
    * @example
    * ```ts
    * type Ctx = { subject: { id: string; roles: string[] } }
-   * type Refs = DotPath.DollarPaths<Ctx>
+   * type Refs = IamDotPath.DollarPaths<Ctx>
    * // = '$subject' | '$subject.id' | '$subject.roles'
    * ```
    */
@@ -102,20 +102,20 @@ export namespace DotPath {
    * @template TContext - The full evaluation context type.
    * @template TValue   - The attribute-compatible value type accepted by the builder.
    */
-  export type ConditionValue<TContext, TValue extends Primitives.AttributeValue> =
+  export type ConditionValue<TContext, TValue extends IamPrimitives.AttributeValue> =
     | Exclude<TValue, string>
     | (Extract<TValue, string> extends never ? never : StringConditionValue<TContext, Extract<TValue, string>>)
 
   /**
-   * Value at a context dot-path; falls back to {@link Primitives.AttributeValue} on mismatch.
+   * Value at a context dot-path; falls back to {@link IamPrimitives.AttributeValue} on mismatch.
    *
    * @template TContext - The full evaluation context type.
    * @template P        - A dot-separated path string.
    */
   export type FieldValue<TContext, P extends string> =
-    PathValue<TContext, P> extends Primitives.AttributeValue
+    PathValue<TContext, P> extends IamPrimitives.AttributeValue
       ? ConditionValue<TContext, PathValue<TContext, P>>
-      : ConditionValue<TContext, Primitives.AttributeValue>
+      : ConditionValue<TContext, IamPrimitives.AttributeValue>
 
   // ============================================================
   // Section 3: Attribute bag shape extractors
@@ -154,7 +154,7 @@ export namespace DotPath {
    * @example
    * ```ts
    * type Ctx = { subject: { attributes: { profile: { tier: string } } } }
-   * type Keys = DotPath.SubjectAttrs<Ctx>     // = 'profile' | 'profile.tier'
+   * type Keys = IamDotPath.SubjectAttrs<Ctx>     // = 'profile' | 'profile.tier'
    * ```
    */
   export type SubjectAttrs<TContext> = AttrPaths<SubjectAttrShape<TContext>>
@@ -167,7 +167,7 @@ export namespace DotPath {
    * @example
    * ```ts
    * type Ctx = { resource: { attributes: { ownerId: string; status: 'draft' | 'live' } } }
-   * type Keys = DotPath.ResourceAttrs<Ctx>    // = 'ownerId' | 'status'
+   * type Keys = IamDotPath.ResourceAttrs<Ctx>    // = 'ownerId' | 'status'
    * ```
    */
   export type ResourceAttrs<TContext> = AttrPaths<ResourceAttrShape<TContext>>
@@ -235,7 +235,7 @@ export namespace DotPath {
       : never
 
   /**
-   * Constrained value lookup at `P` in attribute bag `T`; falls back to {@link Primitives.AttributeValue}.
+   * Constrained value lookup at `P` in attribute bag `T`; falls back to {@link IamPrimitives.AttributeValue}.
    *
    * @template T - The attribute-bag object type.
    * @template P - The dot-separated path string.
@@ -243,23 +243,23 @@ export namespace DotPath {
    * @example
    * ```ts
    * type Bag = { profile: { tier: 'gold' | 'silver' } }
-   * type V = DotPath.AttrValue<Bag, 'profile.tier'>     // = 'gold' | 'silver'
+   * type V = IamDotPath.AttrValue<Bag, 'profile.tier'>     // = 'gold' | 'silver'
    * ```
    */
   export type AttrValue<T, P extends string> =
     T extends Record<string, unknown>
-      ? AttrValueAt<T, P> extends Primitives.AttributeValue
+      ? AttrValueAt<T, P> extends IamPrimitives.AttributeValue
         ? Exclude<AttrValueAt<T, P>, undefined>
-        : Primitives.AttributeValue
-      : Primitives.AttributeValue
+        : IamPrimitives.AttributeValue
+      : IamPrimitives.AttributeValue
 
   // ============================================================
   // Section 7: Default attribute bag + context shapes
   // ============================================================
 
-  /** Marker for open-ended attribute bags; index signature returns {@link Primitives.AttributeValue}. */
+  /** Marker for open-ended attribute bags; index signature returns {@link IamPrimitives.AttributeValue}. */
   export interface IAnyAttributes {
-    [key: string]: Primitives.AttributeValue
+    [key: string]: IamPrimitives.AttributeValue
   }
 
   /**
@@ -267,7 +267,7 @@ export namespace DotPath {
    *
    * @example
    * ```ts
-   * const ctx: DotPath.IDefaultContext = {
+   * const ctx: IamDotPath.IDefaultContext = {
    *   action: 'read',
    *   subject: { id: 'u-1', roles: ['editor'], attributes: { tier: 'gold' } },
    *   resource: { type: 'post', id: 'p-42', attributes: { ownerId: 'u-1' } },

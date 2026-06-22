@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AccessControl, Adapter } from '../../../core/types'
+import type { IamAccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { PrismaAdapter } from '../index'
+import { IamPrismaAdapter } from '../index'
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
@@ -124,22 +124,22 @@ function makePrismaMock() {
   }
 }
 
-// Adapter compliance - fresh prisma mock per call.
-runAdapterCompliance('PrismaAdapter', () => new PrismaAdapter(makePrismaMock() as never) as never)
+// IamAdapter compliance - fresh prisma mock per call.
+runAdapterCompliance('IamPrismaAdapter', () => new IamPrismaAdapter(makePrismaMock() as never) as never)
 
-describe('PrismaAdapter', () => {
+describe('IamPrismaAdapter', () => {
   let prisma: ReturnType<typeof makePrismaMock>
-  let adapter: PrismaAdapter<A, R, Ro, S>
+  let adapter: IamPrismaAdapter<A, R, Ro, S>
 
   beforeEach(() => {
     prisma = makePrismaMock()
-    adapter = new PrismaAdapter<A, R, Ro, S>(prisma)
+    adapter = new IamPrismaAdapter<A, R, Ro, S>(prisma)
   })
 
-  describe('Adapter.IPolicyStore', () => {
-    const policy: AccessControl.IPolicy<A, R, Ro> = {
+  describe('IamAdapter.IPolicyStore', () => {
+    const policy: IamAccessControl.IPolicy<A, R, Ro> = {
       id: 'p1',
-      name: 'Test AccessControl.IPolicy',
+      name: 'Test IamAccessControl.IPolicy',
       description: 'desc',
       version: 1,
       algorithm: 'deny-overrides',
@@ -205,8 +205,8 @@ describe('PrismaAdapter', () => {
     })
   })
 
-  describe('Adapter.IRoleStore', () => {
-    const role: AccessControl.IRole<A, R, Ro, S> = {
+  describe('IamAdapter.IRoleStore', () => {
+    const role: IamAccessControl.IRole<A, R, Ro, S> = {
       id: 'editor',
       name: 'Editor',
       description: 'Can edit',
@@ -265,7 +265,7 @@ describe('PrismaAdapter', () => {
     })
   })
 
-  describe('Adapter.ISubjectStore', () => {
+  describe('IamAdapter.ISubjectStore', () => {
     it('getSubjectRoles returns deduplicated list', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')

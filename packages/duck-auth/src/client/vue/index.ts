@@ -1,17 +1,17 @@
 /** Vue 3 plugin + composables; `vue` is an OPTIONAL peerDep resolved lazily. */
-import { createAuthClient, type VanillaClient } from '../vanilla'
+import { authCreateClient, type AuthVanillaClient } from '../vanilla'
 
 /**
  * Build a Vue 3 plugin that installs the auth client + composables.
  * The returned object is plugin-shaped (`{ install }`) so it works
  * with `app.use(authPlugin)` from a `createApp` boot.
  */
-export function createAuthVuePlugin<Profile = unknown>(cfg: VueClient.IPluginConfig<Profile> = {}): VueClient.IPlugin {
-  const client = cfg.client ?? createAuthClient<Profile>(cfg)
+export function authCreateVuePlugin<Profile = unknown>(cfg: AuthVueClient.IPluginConfig<Profile> = {}): AuthVueClient.IPlugin {
+  const client = cfg.client ?? authCreateClient<Profile>(cfg)
   return {
-    install(app: VueClient.IApp): void {
+    install(app: AuthVueClient.IApp): void {
       const vue = loadVueSync()
-      const state = vue.ref<VanillaClient.ISessionResult<Profile>>({ identity: null, session: null })
+      const state = vue.ref<AuthVanillaClient.ISessionResult<Profile>>({ identity: null, session: null })
       const status = vue.ref<'loading' | 'authed' | 'guest'>(cfg.noInitialFetch ? 'guest' : 'loading')
       client.onChange((s) => {
         state.value = s
@@ -22,31 +22,31 @@ export function createAuthVuePlugin<Profile = unknown>(cfg: VueClient.IPluginCon
           status.value = 'guest'
         })
       }
-      const ctx: VueClient.IInjected<Profile> = { client, refresh: () => client.refresh(), state, status }
-      app.provide(VUE_AUTH_KEY, ctx)
+      const ctx: AuthVueClient.IInjected<Profile> = { client, refresh: () => client.refresh(), state, status }
+      app.provide(AUTH_VUE_KEY, ctx)
     },
   }
 }
 
 /** Shared Symbol key used by `app.provide` / `inject`. */
-export const VUE_AUTH_KEY = Symbol.for('@gentleduck/auth/client/vue')
+export const AUTH_VUE_KEY = Symbol.for('@gentleduck/auth/client/vue')
 
-function useAuthCtx<Profile = unknown>(): VueClient.IInjected<Profile> {
+function useAuthCtx<Profile = unknown>(): AuthVueClient.IInjected<Profile> {
   const vue = loadVueSync()
-  const ctx = vue.inject(VUE_AUTH_KEY) as VueClient.IInjected<Profile> | undefined
+  const ctx = vue.inject(AUTH_VUE_KEY) as AuthVueClient.IInjected<Profile> | undefined
   if (!ctx) {
-    throw new Error('[@gentleduck/auth/client/vue] useSession / useSignIn requires app.use(createAuthVuePlugin(...))')
+    throw new Error('[@gentleduck/auth/client/vue] authUseSession / authUseSignIn requires app.use(authCreateVuePlugin(...))')
   }
   return ctx
 }
 
-/** `useSession`. */
-export function useSession<Profile = unknown>(): VueClient.IUseSessionResult<Profile> {
+/** `authUseSession`. */
+export function authUseSession<Profile = unknown>(): AuthVueClient.IUseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, refresh: ctx.refresh, status: ctx.status }
 }
 
-function useMutation<I, O>(fn: (input: I) => Promise<O>): VueClient.IMutationResult<I, O> {
+function useMutation<I, O>(fn: (input: I) => Promise<O>): AuthVueClient.IMutationResult<I, O> {
   const vue = loadVueSync()
   const loading = vue.ref(false)
   const error = vue.ref<unknown | null>(null)
@@ -65,42 +65,42 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): VueClient.IMutationRes
   return { error, loading, mutate }
 }
 
-/** `useSignIn`. */
-export function useSignIn<Profile = unknown>(): VueClient.IMutationResult<
-  VanillaClient.ISignInOptions,
-  VanillaClient.ISignInResult<Profile>
+/** `authUseSignIn`. */
+export function authUseSignIn<Profile = unknown>(): AuthVueClient.IMutationResult<
+  AuthVanillaClient.ISignInOptions,
+  AuthVanillaClient.ISignInResult<Profile>
 > {
   const { client } = useAuthCtx<Profile>()
-  return useMutation((opts: VanillaClient.ISignInOptions) => client.signIn(opts))
+  return useMutation((opts: AuthVanillaClient.ISignInOptions) => client.signIn(opts))
 }
 
-/** `useSignOut`. */
-export function useSignOut(): VueClient.IMutationResult<void, { ok: true }> {
+/** `authUseSignOut`. */
+export function authUseSignOut(): AuthVueClient.IMutationResult<void, { ok: true }> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
-/** `useAuthClient`. */
-export function useAuthClient<Profile = unknown>(): VanillaClient.IClient<Profile> {
+/** `authUseClient`. */
+export function authUseClient<Profile = unknown>(): AuthVanillaClient.IClient<Profile> {
   return useAuthCtx<Profile>().client
 }
 
-let _vueModule: VueClient.IVueModule | null = null
-function loadVueSync(): VueClient.IVueModule {
+let _vueModule: AuthVueClient.IVueModule | null = null
+function loadVueSync(): AuthVueClient.IVueModule {
   if (_vueModule) return _vueModule
   // CJS-style require keeps this synchronous: composables MUST run
   // inside Vue's reactive scope, so a Promise here would break the
   // `setup()` contract.
   try {
     const req = new Function('return require')() as (id: string) => unknown
-    _vueModule = req('vue') as VueClient.IVueModule
+    _vueModule = req('vue') as AuthVueClient.IVueModule
     return _vueModule
   } catch {
     throw new Error('[@gentleduck/auth/client/vue] `vue` is not installed. Add it: `bun add vue` (^3).')
   }
 }
 
-export namespace VueClient {
+export namespace AuthVueClient {
   /** Minimal `Ref<T>` surface compatible with Vue 3 `vue.ref`. */
   export interface IRef<T> {
     value: T
@@ -121,24 +121,24 @@ export namespace VueClient {
     install(app: IApp): void
   }
 
-  export interface IPluginConfig<Profile = unknown> extends VanillaClient.IConfig {
+  export interface IPluginConfig<Profile = unknown> extends AuthVanillaClient.IConfig {
     /** Pre-built client; overrides config. */
-    client?: VanillaClient.IClient<Profile>
+    client?: AuthVanillaClient.IClient<Profile>
     /** Disable the initial automatic /session fetch on plugin install. */
     noInitialFetch?: boolean
   }
 
   export interface IInjected<Profile = unknown> {
-    client: VanillaClient.IClient<Profile>
-    state: IRef<VanillaClient.ISessionResult<Profile>>
+    client: AuthVanillaClient.IClient<Profile>
+    state: IRef<AuthVanillaClient.ISessionResult<Profile>>
     status: IRef<'loading' | 'authed' | 'guest'>
-    refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+    refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
   }
 
   export interface IUseSessionResult<Profile = unknown> {
-    data: IRef<VanillaClient.ISessionResult<Profile>>
+    data: IRef<AuthVanillaClient.ISessionResult<Profile>>
     status: IRef<'loading' | 'authed' | 'guest'>
-    refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+    refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
   }
 
   export interface IMutationResult<I, O> {

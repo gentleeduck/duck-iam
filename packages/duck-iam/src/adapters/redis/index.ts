@@ -1,10 +1,10 @@
-import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
-import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import { iamParsePolicyRow, iamParseRoleRow, iamValidatePolicy, iamValidateRole } from '../../core/validate'
 
-/** Redis adapter integration types. Type-only namespace - zero bundle cost. */
-export namespace Redis {
+/** IamRedis adapter integration types. Type-only namespace - zero bundle cost. */
+export namespace IamRedis {
   /**
-   * Describes the minimal Redis client surface used by {@link RedisAdapter}.
+   * Describes the minimal IamRedis client surface used by {@link IamRedisAdapter}.
    *
    * Both ioredis and node-redis (v4+) implement these methods, so consumers can
    * pass either without a hard dependency.
@@ -26,9 +26,9 @@ export namespace Redis {
     eval?(script: string, numkeys: number, ...keysAndArgs: string[]): Promise<unknown>
   }
 
-  /** Describes the configuration required to construct a {@link RedisAdapter}. */
+  /** Describes the configuration required to construct a {@link IamRedisAdapter}. */
   export interface IConfig {
-    /** Provides the Redis client instance (ioredis, node-redis v4+, or compatible). */
+    /** Provides the IamRedis client instance (ioredis, node-redis v4+, or compatible). */
     client: ILike
     /** Optional key prefix that namespaces every duck-iam key. */
     keyPrefix?: string
@@ -43,7 +43,7 @@ export namespace Redis {
 }
 
 /**
- * Redis-backed adapter using hashes + sets. Layout (with `keyPrefix`):
+ * IamRedis-backed adapter using hashes + sets. Layout (with `keyPrefix`):
  * `${p}policies` (hash), `${p}roles` (hash), `${p}assignments:${id}` (set: `roleId\x00scope`), `${p}attrs:${id}` (JSON).
  *
  * @template TAction - Constrains valid action strings.
@@ -51,21 +51,21 @@ export namespace Redis {
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
  */
-export class RedisAdapter<
+export class IamRedisAdapter<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-> implements Adapter.IAdapter<TAction, TResource, TRole, TScope>
+> implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
-  private _client: Redis.ILike
+  private _client: IamRedis.ILike
   private _prefix: string
   private _onPolicyError?: (err: Error, ctx: { adapter: 'redis'; rowId: string }) => void
   /**
    * Per-assignment-key serialisation. Read-modify-write on the legacy
    * migration path can race with concurrent `revokeRole` and resurrect a
    * just-deleted assignment. Without `EVAL`/`MULTI` in the minimal
-   * `Redis.ILike` interface, the soundest in-process fix is to serialise
+   * `IamRedis.ILike` interface, the soundest in-process fix is to serialise
    * writes against a single assignments key behind a chained promise.
    * Cross-process races remain - operators running multiple writer
    * processes should rely on the Lua `eval` path when available.
@@ -73,11 +73,11 @@ export class RedisAdapter<
   private _assignmentWriteLocks = new Map<string, Promise<unknown>>()
 
   /**
-   * Creates a new Redis-backed adapter.
+   * Creates a new IamRedis-backed adapter.
    *
    * @param config - Provides the client and optional key prefix.
    */
-  constructor(config: Redis.IConfig) {
+  constructor(config: IamRedis.IConfig) {
     this._client = config.client
     this._prefix = config.keyPrefix ?? ''
     this._onPolicyError = config.onPolicyError
@@ -88,7 +88,7 @@ export class RedisAdapter<
    * shape mismatch and routes the failure through `onPolicyError` (or the
    * console as a last resort) so the malformed row never reaches the engine.
    */
-  private _safeParsePolicy(raw: string, rowId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _safeParsePolicy(raw: string, rowId: string): IamAccessControl.IPolicy<TAction, TResource, TRole> | null {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
@@ -96,9 +96,9 @@ export class RedisAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
       return null
     }
-    const policy = parsePolicyRow<TAction, TResource, TRole>(parsed)
+    const policy = iamParsePolicyRow<TAction, TResource, TRole>(parsed)
     if (policy === null) {
-      const issues = validatePolicy(parsed)
+      const issues = iamValidatePolicy(parsed)
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
@@ -107,7 +107,7 @@ export class RedisAdapter<
     return policy
   }
 
-  private _safeParseRole(raw: string, rowId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _safeParseRole(raw: string, rowId: string): IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null {
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
@@ -115,9 +115,9 @@ export class RedisAdapter<
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
       return null
     }
-    const role = parseRoleRow<TAction, TResource, TRole, TScope>(parsed)
+    const role = iamParseRoleRow<TAction, TResource, TRole, TScope>(parsed)
     if (role === null) {
-      const issues = validateRole(parsed)
+      const issues = iamValidateRole(parsed)
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
@@ -171,7 +171,7 @@ export class RedisAdapter<
    * so the migration corrects rather than corrupts them.
    */
   private _isLegacyEncoded(member: string): boolean {
-    if (member.includes(RedisAdapter._SEP)) return false
+    if (member.includes(IamRedisAdapter._SEP)) return false
     const first = member.indexOf(' ')
     if (first === -1) return false
     return member.indexOf(' ', first + 1) === -1
@@ -180,13 +180,13 @@ export class RedisAdapter<
   private _encodeAssignment(roleId: TRole, scope?: TScope | null): string {
     const r = roleId as string
     const s = (scope ?? '') as string
-    if (r.includes(RedisAdapter._SEP) || s.includes(RedisAdapter._SEP)) {
+    if (r.includes(IamRedisAdapter._SEP) || s.includes(IamRedisAdapter._SEP)) {
       throw new Error('[@gentleduck/iam:redis] role / scope must not contain NUL bytes')
     }
-    return `${r}${RedisAdapter._SEP}${s}`
+    return `${r}${IamRedisAdapter._SEP}${s}`
   }
   private _decodeAssignment(member: string): { role: TRole; scope?: TScope } {
-    const sep = member.indexOf(RedisAdapter._SEP)
+    const sep = member.indexOf(IamRedisAdapter._SEP)
     if (sep === -1) {
       // Legacy-format fallback: older versions used a space separator.
       // Accept exactly-one-space entries here; the caller
@@ -261,7 +261,7 @@ export class RedisAdapter<
     })
   }
 
-  /** Cross-process atomic legacy-assignment migration via Redis EVAL; ARGV pairs `[migrated, legacy]`. */
+  /** Cross-process atomic legacy-assignment migration via IamRedis EVAL; ARGV pairs `[migrated, legacy]`. */
   private static readonly _MIGRATE_LUA = `
     local key = KEYS[1]
     for i = 1, #ARGV, 2 do
@@ -283,21 +283,21 @@ export class RedisAdapter<
       }
       const evalFn = this._client.eval
       if (!evalFn) return
-      await evalFn.call(this._client, RedisAdapter._MIGRATE_LUA, 1, key, ...args)
+      await evalFn.call(this._client, IamRedisAdapter._MIGRATE_LUA, 1, key, ...args)
     } catch (err) {
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), `assignments:${subjectId}`)
     }
   }
 
   /**
-   * Lists every policy stored in the Redis hash.
+   * Lists every policy stored in the IamRedis hash.
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies decoded from the `policies` hash.
    */
-  async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const entries = await this._client.hgetall(this._policiesKey())
-    const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
+    const out: IamAccessControl.IPolicy<TAction, TResource, TRole>[] = []
     for (const [rowId, raw] of Object.entries(entries)) {
       const parsed = this._safeParsePolicy(raw, rowId)
       if (parsed) out.push(parsed)
@@ -314,8 +314,8 @@ export class RedisAdapter<
    */
   async getPolicy(
     id: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const value = await this._client.hget(this._policiesKey(), id)
     return value ? this._safeParsePolicy(value, id) : null
   }
@@ -326,7 +326,7 @@ export class RedisAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the HSET completes.
    */
-  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     await this._client.hset(this._policiesKey(), p.id, JSON.stringify(p))
   }
 
@@ -341,14 +341,14 @@ export class RedisAdapter<
   }
 
   /**
-   * Lists every role stored in the Redis hash.
+   * Lists every role stored in the IamRedis hash.
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles decoded from the `roles` hash.
    */
-  async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const entries = await this._client.hgetall(this._rolesKey())
-    const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
+    const out: IamAccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const [rowId, raw] of Object.entries(entries)) {
       const parsed = this._safeParseRole(raw, rowId)
       if (parsed) out.push(parsed)
@@ -365,8 +365,8 @@ export class RedisAdapter<
    */
   async getRole(
     id: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const value = await this._client.hget(this._rolesKey(), id)
     return value ? this._safeParseRole(value, id) : null
   }
@@ -377,7 +377,7 @@ export class RedisAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the HSET completes.
    */
-  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     await this._client.hset(this._rolesKey(), r.id, JSON.stringify(r))
   }
 
@@ -398,7 +398,7 @@ export class RedisAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs.
    */
-  async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
+  async getSubjectRoles(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const members = await this._client.smembers(this._assignmentsKey(subjectId))
     const roles = new Set<TRole>()
     for (const m of members) {
@@ -421,10 +421,10 @@ export class RedisAdapter<
    */
   async getSubjectScopedRoles(
     subjectId: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<Request.IScopedRole<TRole, TScope>[]> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     const members = await this._client.smembers(this._assignmentsKey(subjectId))
-    const out: Request.IScopedRole<TRole, TScope>[] = []
+    const out: IamRequest.IScopedRole<TRole, TScope>[] = []
     for (const m of members) {
       const decoded = this._decodeAssignment(m)
       if (decoded.scope !== undefined) out.push({ role: decoded.role, scope: decoded.scope })
@@ -436,7 +436,7 @@ export class RedisAdapter<
   /**
    * Grants a role to a subject, optionally restricted to a scope.
    *
-   * Idempotent thanks to Redis set semantics.
+   * Idempotent thanks to IamRedis set semantics.
    *
    * @param subjectId - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.
@@ -486,7 +486,7 @@ export class RedisAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
    */
-  async getSubjectAttributes(subjectId: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
+  async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     const value = await this._client.get(this._attrsKey(subjectId))
     if (!value) return {}
     let parsed: unknown
@@ -501,7 +501,7 @@ export class RedisAdapter<
       this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object`), subjectId)
       throw new Error(`[@gentleduck/iam:redis] corrupted attributes for "${subjectId}" (not a JSON object)`)
     }
-    return parsed as Primitives.Attributes
+    return parsed as IamPrimitives.Attributes
   }
 
   /**
@@ -511,11 +511,11 @@ export class RedisAdapter<
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the SET completes.
    */
-  async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
+  async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
     // Admin write path is the one place a corrupt existing blob must NOT
     // lock the operator out of recovering. Treat corrupt as `{}` and log
     // through _reportPolicyError so the operator still sees the signal.
-    let existing: Primitives.Attributes
+    let existing: IamPrimitives.Attributes
     try {
       existing = await this.getSubjectAttributes(subjectId)
     } catch (err) {

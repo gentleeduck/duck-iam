@@ -1,13 +1,13 @@
 import React from 'react'
-import type { AccessControl } from '../../core/types'
+import type { IamAccessControl } from '../../core/types'
 import { ChevronDown, ChevronRight, CornerUpRight, Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
-import type { IDevtoolsEngine } from '../lib/types'
+import type { IamIDevtoolsEngine } from '../lib/types'
 
-export function RolesPanel({ engine }: { engine: IDevtoolsEngine }) {
-  const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
+export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
+  const [roles, setRoles] = React.useState<IamAccessControl.IRole[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [filter, setFilter] = React.useState('')
@@ -111,7 +111,7 @@ export function RolesPanel({ engine }: { engine: IDevtoolsEngine }) {
   )
 }
 
-function PermRow({ perm }: { perm: AccessControl.IPermission }) {
+function PermRow({ perm }: { perm: IamAccessControl.IPermission }) {
   const [open, setOpen] = React.useState(false)
   const hasDetail = !!perm.conditions || !!perm.scope
   return (

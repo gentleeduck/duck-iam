@@ -1,6 +1,6 @@
 /**
  * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 
 import { cn } from '@gentleduck/libs/cn'
@@ -11,7 +11,7 @@ import type { ReactNode } from 'react'
  * auth surface on a muted background. Stack any of the duck-auth UI
  * components inside (e.g. `<SignInForm />` + `<ProvidersList />`).
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export function AuthLayout(props: AuthLayout.IProps): React.JSX.Element {
   return (
@@ -30,7 +30,7 @@ export function AuthLayout(props: AuthLayout.IProps): React.JSX.Element {
 /**
  * Namespace merge for AuthLayout.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export namespace AuthLayout {
   export interface IProps {

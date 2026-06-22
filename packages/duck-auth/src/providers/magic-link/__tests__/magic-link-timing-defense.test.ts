@@ -1,31 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
-import { CookieTransport } from '../../../core/transport/cookie'
-import type { Channel } from '../../../core/types/channel'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { magicLink } from '../index'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { AuthCookieTransport } from '../../../core/transport/cookie'
+import type { AuthChannel } from '../../../core/types/channel'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { authMagicLink } from '../index'
 
 interface MyProfile {
   email: string
 }
 
-function buildAuth(channel: Channel.IChannel): { auth: AuthRoot<MyProfile>; adapter: MemoryAuthAdapter<MyProfile> } {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const auth = new AuthRoot<MyProfile>({
+function buildAuth(channel: AuthChannel.IChannel): { auth: AuthEngine<MyProfile>; adapter: AuthMemoryAdapter<MyProfile> } {
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   auth.providers.register(
-    magicLink<MyProfile>({
+    authMagicLink<MyProfile>({
       channels: { email: channel },
       findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
       autoCreateIdentity: false,
@@ -37,7 +37,7 @@ function buildAuth(channel: Channel.IChannel): { auth: AuthRoot<MyProfile>; adap
 
 // A channel whose send() resolves only after `delayMs`. Used to
 // simulate a real-world SMTP / SES network call.
-function makeSlowChannel(delayMs: number): Channel.IChannel & { sendStarted: number } {
+function makeSlowChannel(delayMs: number): AuthChannel.IChannel & { sendStarted: number } {
   const ch = {
     kind: 'email' as const,
     id: 'slow',
@@ -87,7 +87,7 @@ describe('magic-link.begin - timing-defense', () => {
   })
 
   it('channel.send rejection does NOT crash the fire-and-forget - emits signin.failed', async () => {
-    const failingChannel: Channel.IChannel = {
+    const failingChannel: AuthChannel.IChannel = {
       kind: 'email',
       id: 'failing',
       async send() {
@@ -114,7 +114,7 @@ describe('magic-link.begin - timing-defense', () => {
   })
 
   it('channel.send returning ok:false emits signin.failed with the canonical reason', async () => {
-    const rejectingChannel: Channel.IChannel = {
+    const rejectingChannel: AuthChannel.IChannel = {
       kind: 'email',
       id: 'reject',
       async send() {

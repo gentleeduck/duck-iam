@@ -1,5 +1,11 @@
 # @gentleduck/iam
 
+## 5.0.0
+
+### Major Changes
+
+- Prefix all public exports with package namespace (`Auth*`/`Iam*`/`IAM_*`/`AUTH_*`) so the origin is clear at the type level when both packages are imported together. This is a breaking change — all consumers must update import references to the new names.
+
 ## 4.0.0
 
 ### Major Changes

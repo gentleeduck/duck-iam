@@ -1,10 +1,10 @@
 import { getProfileString } from '../credential-utils'
 import { AuthErrorObject } from '../errors'
-import type { TenantContext } from '../types/context'
-import type { Credential } from '../types/credential'
-import type { Events } from '../types/events'
-import type { Identity } from '../types/identity'
-import type { Session } from '../types/session'
+import type { AuthTenantContext } from '../types/context'
+import type { AuthCredential } from '../types/credential'
+import type { AuthEvents } from '../types/events'
+import type { AuthIdentity } from '../types/identity'
+import type { AuthSession } from '../types/session'
 
 export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacet.IConfig = {
   softDeleteGracePeriodMs: 7 * 24 * 60 * 60 * 1000,
@@ -13,14 +13,14 @@ export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacet.IConfig = {
 
 /**
  * Identities facet - CRUD + linking + merging + GDPR primitives.
- * Optimistic locking discipline: every write that mutates `Identity` flows
+ * Optimistic locking discipline: every write that mutates `AuthIdentity` flows
  * through `update(expectedVersion)`; callers that pass a stale version see
  * `AUTH/STALE_WRITE` and decide retry/surface.
  */
 export class IdentitiesFacet<Profile = unknown> {
   constructor(
-    private readonly _store: Identity.IStore<Profile>,
-    private readonly _events: Events.IBus,
+    private readonly _store: AuthIdentity.IStore<Profile>,
+    private readonly _events: AuthEvents.IBus,
     private readonly _cfg: IdentitiesFacet.IConfig = DEFAULT_IDENTITIES_CONFIG,
   ) {}
 
@@ -38,11 +38,11 @@ export class IdentitiesFacet<Profile = unknown> {
 
   // --- lookup -----------------------------------------------------------
 
-  async getById(id: string, ctx: TenantContext = {}): Promise<Identity.IIdentity<Profile> | null> {
+  async getById(id: string, ctx: AuthTenantContext = {}): Promise<AuthIdentity.IIdentity<Profile> | null> {
     return this._store.findById(id, ctx)
   }
 
-  async getByEmail(email: string, ctx: TenantContext = {}): Promise<Identity.IIdentity<Profile> | null> {
+  async getByEmail(email: string, ctx: AuthTenantContext = {}): Promise<AuthIdentity.IIdentity<Profile> | null> {
     // RFC 5321 cap + typeof guard: prevents multi-MB lookups + non-string crashes
     // before reaching adapter.
     if (typeof email !== 'string' || email.length === 0 || email.length > 254) return null
@@ -52,8 +52,8 @@ export class IdentitiesFacet<Profile = unknown> {
   async getByProviderSub(
     providerId: string,
     sub: string,
-    ctx: TenantContext = {},
-  ): Promise<Identity.IIdentity<Profile> | null> {
+    ctx: AuthTenantContext = {},
+  ): Promise<AuthIdentity.IIdentity<Profile> | null> {
     // Defensive caps; both keys flow into SQL `=`-comparisons + JSONB extracts.
     if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 128) return null
     if (typeof sub !== 'string' || sub.length === 0 || sub.length > 512) return null
@@ -63,9 +63,9 @@ export class IdentitiesFacet<Profile = unknown> {
   // --- create / update --------------------------------------------------
 
   async create(
-    input: { profile?: Profile; tenantId?: string; providers?: Identity.ProviderLink[] },
-    ctx: TenantContext = {},
-  ): Promise<Identity.IIdentity<Profile>> {
+    input: { profile?: Profile; tenantId?: string; providers?: AuthIdentity.ProviderLink[] },
+    ctx: AuthTenantContext = {},
+  ): Promise<AuthIdentity.IIdentity<Profile>> {
     if (input.profile !== undefined) this._assertProfileWithinCap(input.profile)
     const created = await this._store.create(
       {
@@ -83,8 +83,8 @@ export class IdentitiesFacet<Profile = unknown> {
     id: string,
     profilePatch: Partial<Profile>,
     expectedVersion: number,
-    ctx: TenantContext = {},
-  ): Promise<Identity.IIdentity<Profile>> {
+    ctx: AuthTenantContext = {},
+  ): Promise<AuthIdentity.IIdentity<Profile>> {
     const cur = await this._store.findById(id, ctx)
     if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
     const nextProfile = { ...(cur.profile ?? {}), ...profilePatch } as Profile
@@ -128,7 +128,7 @@ export class IdentitiesFacet<Profile = unknown> {
 
   // --- provider linking ------------------------------------------------
 
-  async link(identityId: string, link: Omit<Identity.ProviderLink, 'addedAt'>, ctx: TenantContext = {}): Promise<void> {
+  async link(identityId: string, link: Omit<AuthIdentity.ProviderLink, 'addedAt'>, ctx: AuthTenantContext = {}): Promise<void> {
     const cur = await this._store.findById(identityId, ctx)
     if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
     // Reject duplicate provider link for same identity.
@@ -142,7 +142,7 @@ export class IdentitiesFacet<Profile = unknown> {
     await this._events.emit('identity.linked', { identityId, providerId: link.providerId })
   }
 
-  async unlink(identityId: string, providerId: string, ctx: TenantContext = {}): Promise<void> {
+  async unlink(identityId: string, providerId: string, ctx: AuthTenantContext = {}): Promise<void> {
     const cur = await this._store.findById(identityId, ctx)
     if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
     // Don't allow unlinking the last credential surface - leaves account inaccessible.
@@ -155,7 +155,7 @@ export class IdentitiesFacet<Profile = unknown> {
     await this._store.unlink(identityId, providerId, ctx)
   }
 
-  async merge(survivorId: string, dupId: string, ctx: TenantContext = {}): Promise<void> {
+  async merge(survivorId: string, dupId: string, ctx: AuthTenantContext = {}): Promise<void> {
     if (survivorId === dupId) {
       throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
         providerId: 'merge',
@@ -171,16 +171,16 @@ export class IdentitiesFacet<Profile = unknown> {
 
   // --- soft-delete / restore / erase ----------------------------------
 
-  async softDelete(id: string, ctx: TenantContext = {}): Promise<void> {
+  async softDelete(id: string, ctx: AuthTenantContext = {}): Promise<void> {
     await this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs, ctx)
   }
 
-  async restore(id: string, ctx: TenantContext = {}): Promise<Identity.IIdentity<Profile>> {
+  async restore(id: string, ctx: AuthTenantContext = {}): Promise<AuthIdentity.IIdentity<Profile>> {
     return this._store.restore(id, ctx)
   }
 
   /** Hard-erase. Audit-logged for compliance. Cannot be undone. */
-  async erase(id: string, opts: { reason: string; operatorId?: string }, ctx: TenantContext = {}): Promise<void> {
+  async erase(id: string, opts: { reason: string; operatorId?: string }, ctx: AuthTenantContext = {}): Promise<void> {
     await this._store.erase(id, ctx)
     // Caller emits its own compliance event with reason; library stays out of
     // the audit-envelope shape for the erase action.
@@ -198,10 +198,10 @@ export class IdentitiesFacet<Profile = unknown> {
     rows: Array<{
       profile?: Profile
       tenantId?: string
-      providers?: Identity.ProviderLink[]
+      providers?: AuthIdentity.ProviderLink[]
     }>,
     opts: { mode?: 'skipExisting' | 'merge' | 'replace' } = {},
-    ctx: TenantContext = {},
+    ctx: AuthTenantContext = {},
   ): Promise<{ created: number; skipped: number; failed: number }> {
     const mode = opts.mode ?? 'skipExisting'
     let created = 0
@@ -247,9 +247,9 @@ export class IdentitiesFacet<Profile = unknown> {
    */
   async exportAll(
     id: string,
-    credentials: Credential.IStore,
-    ctx: TenantContext = {},
-    opts: { sessions?: Session.IStore } = {},
+    credentials: AuthCredential.IStore,
+    ctx: AuthTenantContext = {},
+    opts: { sessions?: AuthSession.IStore } = {},
   ): Promise<IdentitiesFacet.IExportBlob<Profile>> {
     const identity = await this._store.findById(id, ctx)
     if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
@@ -310,10 +310,10 @@ export namespace IdentitiesFacet {
   }
 
   export interface IExportBlob<Profile> {
-    identity: Identity.IIdentity<Profile>
-    credentials: Array<Omit<Credential.ICredential, 'secret'>>
+    identity: AuthIdentity.IIdentity<Profile>
+    credentials: Array<Omit<AuthCredential.ICredential, 'secret'>>
     /** Live + recently-revoked sessions. Empty when caller skips sessions store. */
-    sessions: Array<Omit<Session.ISession, 'csrfHash'>>
+    sessions: Array<Omit<AuthSession.ISession, 'csrfHash'>>
     /** GDPR Article 20 envelope: schema version + export timestamp. */
     schemaVersion: '1'
     exportedAt: number

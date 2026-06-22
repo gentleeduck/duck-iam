@@ -1,27 +1,27 @@
 import { cn } from '@gentleduck/libs/cn'
 import React from 'react'
-import type { IFlowRecorder } from './lib/flow'
+import type { IamIFlowRecorder } from './lib/flow'
 import { isDevtoolsBlocked } from './lib/guard'
 import { ensureStylesInjected } from './lib/styles'
-import type { IDecisionInput, IDevtoolsEngine, IDevtoolsMetrics, PanelKey } from './lib/types'
-import { DecisionInspector } from './panels/decision'
-import { FlowPanel } from './panels/flow'
-import { MetricsPanel } from './panels/metrics'
-import { PoliciesPanel } from './panels/policies'
-import { RolesPanel } from './panels/roles'
-import { SubjectsPanel } from './panels/subjects'
+import type { IamIDecisionInput, IamIDevtoolsEngine, IamIDevtoolsMetrics, IamPanelKey } from './lib/types'
+import { IamDecisionInspector } from './panels/decision'
+import { IamFlowPanel } from './panels/flow'
+import { IamMetricsPanel } from './panels/metrics'
+import { IamPoliciesPanel } from './panels/policies'
+import { IamRolesPanel } from './panels/roles'
+import { IamSubjectsPanel } from './panels/subjects'
 
 export interface IIamDevtoolsInnerProps {
-  engine: IDevtoolsEngine
-  metrics?: IDevtoolsMetrics
-  flow?: IFlowRecorder
-  initialPanel?: PanelKey
-  defaultRequest?: Partial<IDecisionInput>
+  engine: IamIDevtoolsEngine
+  metrics?: IamIDevtoolsMetrics
+  flow?: IamIFlowRecorder
+  initialPanel?: IamPanelKey
+  defaultRequest?: Partial<IamIDecisionInput>
   pollMs?: number
   embedded?: boolean
 }
 
-const TABS: { key: PanelKey; label: string; dot: string }[] = [
+const TABS: { key: IamPanelKey; label: string; dot: string }[] = [
   { key: 'flow', label: 'Flow', dot: '#84cc16' },
   { key: 'decision', label: 'Decision', dot: '#60a5fa' },
   { key: 'policies', label: 'Policies', dot: '#a78bfa' },
@@ -50,7 +50,7 @@ function IamDevtoolsInnerImpl({
   React.useEffect(() => {
     ensureStylesInjected()
   }, [])
-  const [active, setActive] = React.useState<PanelKey>(initialPanel)
+  const [active, setActive] = React.useState<IamPanelKey>(initialPanel)
 
   const content = (
     <>
@@ -83,18 +83,18 @@ function IamDevtoolsInnerImpl({
         })}
       </nav>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {active === 'flow' && flow && <FlowPanel flow={flow} />}
+        {active === 'flow' && flow && <IamFlowPanel flow={flow} />}
         {active === 'flow' && !flow && (
           <div className="m-3 rounded-md border border-border/60 border-dashed bg-muted/20 p-4 text-muted-foreground text-xs">
             No flow recorder wired. Pass <code className="font-mono">flow=&#123;recorder&#125;</code> to the devtool and
             bind it to your engine's <code className="font-mono">afterEvaluate</code> hook.
           </div>
         )}
-        {active === 'decision' && <DecisionInspector defaults={defaultRequest} engine={engine} />}
-        {active === 'policies' && <PoliciesPanel engine={engine} />}
-        {active === 'roles' && <RolesPanel engine={engine} />}
-        {active === 'subjects' && <SubjectsPanel engine={engine} />}
-        {active === 'metrics' && <MetricsPanel engine={engine} metrics={metrics} pollMs={pollMs} />}
+        {active === 'decision' && <IamDecisionInspector defaults={defaultRequest} engine={engine} />}
+        {active === 'policies' && <IamPoliciesPanel engine={engine} />}
+        {active === 'roles' && <IamRolesPanel engine={engine} />}
+        {active === 'subjects' && <IamSubjectsPanel engine={engine} />}
+        {active === 'metrics' && <IamMetricsPanel engine={engine} metrics={metrics} pollMs={pollMs} />}
       </div>
     </>
   )

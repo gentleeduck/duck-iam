@@ -1,6 +1,6 @@
-import type { AccessControl } from '../types'
-/** JSON Schema (Draft 2020-12) for {@link AccessControl.IPolicy}; tighten action/resource slots via `$ref` downstream. */
-export const POLICY_JSON_SCHEMA = {
+import type { IamAccessControl } from '../types'
+/** JSON Schema (Draft 2020-12) for {@link IamAccessControl.IPolicy}; tighten action/resource slots via `$ref` downstream. */
+export const IAM_POLICY_JSON_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://gentleduck.dev/duck-iam/policy.schema.json',
   title: 'duck-iam Policy',

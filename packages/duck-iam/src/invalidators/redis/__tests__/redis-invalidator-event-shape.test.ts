@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createRedisInvalidator, type RedisInvalidator } from '../index'
+import { createIamRedisInvalidator, type IamRedisInvalidator } from '../index'
 
 function makeBus(): {
-  client: RedisInvalidator.IPubSubLike
+  client: IamRedisInvalidator.IPubSubLike
   publish: (msg: string) => void
 } {
   let handler: ((m: string) => void) | null = null
@@ -33,7 +33,7 @@ describe('Redis invalidator event-shape validation', () => {
 
   it('drops {kind:"subject"} missing subjectId', async () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
+    const inv = createIamRedisInvalidator({ client: bus.client })
     const seen: unknown[] = []
     inv.subscribe((ev) => {
       seen.push(ev)
@@ -44,7 +44,7 @@ describe('Redis invalidator event-shape validation', () => {
 
   it('drops {kind:"subject", subjectId: 42} (non-string)', async () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
+    const inv = createIamRedisInvalidator({ client: bus.client })
     const seen: unknown[] = []
     inv.subscribe((ev) => {
       seen.push(ev)
@@ -55,7 +55,7 @@ describe('Redis invalidator event-shape validation', () => {
 
   it('drops {kind:"subject", subjectId: ""} (empty string)', async () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
+    const inv = createIamRedisInvalidator({ client: bus.client })
     const seen: unknown[] = []
     inv.subscribe((ev) => {
       seen.push(ev)
@@ -66,7 +66,7 @@ describe('Redis invalidator event-shape validation', () => {
 
   it('drops {kind:"roles", roleId: 42} (non-string roleId)', async () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
+    const inv = createIamRedisInvalidator({ client: bus.client })
     const seen: unknown[] = []
     inv.subscribe((ev) => {
       seen.push(ev)
@@ -77,7 +77,7 @@ describe('Redis invalidator event-shape validation', () => {
 
   it('accepts {kind:"roles"} without roleId (the field is optional)', async () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
+    const inv = createIamRedisInvalidator({ client: bus.client })
     const seen: unknown[] = []
     inv.subscribe((ev) => {
       seen.push(ev)
@@ -88,7 +88,7 @@ describe('Redis invalidator event-shape validation', () => {
 
   it('accepts well-formed {kind:"subject", subjectId:"user-1"}', async () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
+    const inv = createIamRedisInvalidator({ client: bus.client })
     const seen: unknown[] = []
     inv.subscribe((ev) => {
       seen.push(ev)
@@ -99,7 +99,7 @@ describe('Redis invalidator event-shape validation', () => {
 
   it('accepts well-formed {kind:"all"} and {kind:"policies"}', async () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
+    const inv = createIamRedisInvalidator({ client: bus.client })
     const seen: unknown[] = []
     inv.subscribe((ev) => {
       seen.push(ev)
@@ -111,7 +111,7 @@ describe('Redis invalidator event-shape validation', () => {
 
   it('drops malformed kind ({kind:"unknown"} or missing)', async () => {
     const bus = makeBus()
-    const inv = createRedisInvalidator({ client: bus.client })
+    const inv = createIamRedisInvalidator({ client: bus.client })
     const seen: unknown[] = []
     inv.subscribe((ev) => {
       seen.push(ev)

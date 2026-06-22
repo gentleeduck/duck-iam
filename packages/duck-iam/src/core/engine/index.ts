@@ -1,2 +1,2 @@
-export { Engine, flushSharedCaches } from './engine'
-export type { EngineTypes } from './engine.types'
+export { IamEngine, iamFlushSharedCaches } from './engine'
+export type { IamEngineTypes } from './engine.types'

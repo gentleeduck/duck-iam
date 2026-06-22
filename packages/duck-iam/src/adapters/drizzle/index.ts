@@ -1,7 +1,7 @@
-import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
-import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import { iamParsePolicyRow, iamParseRoleRow, iamValidatePolicy, iamValidateRole } from '../../core/validate'
 
-/** Row shapes returned by Drizzle queries. */
+/** Row shapes returned by IamDrizzle queries. */
 interface PolicyRow {
   id: string
   name: string
@@ -36,39 +36,39 @@ interface AttrRow {
   data: string | unknown
 }
 
-/** Drizzle adapter integration types. Type-only namespace - zero bundle cost. */
-export namespace Drizzle {
+/** IamDrizzle adapter integration types. Type-only namespace - zero bundle cost. */
+export namespace IamDrizzle {
   /**
-   * Describes the wiring required to instantiate a {@link DrizzleAdapter}.
+   * Describes the wiring required to instantiate a {@link IamDrizzleAdapter}.
    *
    * @example
    * ```ts
    * import { drizzle } from 'drizzle-orm/node-postgres'
    * import { eq, and } from 'drizzle-orm'
-   * import { accessPolicies, accessRoles, accessAssignments, accessSubjectAttrs } from './schema'
+   * import { iamPolicies, iamRoles, iamAssignments, iamSubjectAttrs } from './schema'
    *
-   * const config: Drizzle.IConfig = {
+   * const config: IamDrizzle.IConfig = {
    *   db: drizzle(pool),
-   *   tables: { policies: accessPolicies, roles: accessRoles, assignments: accessAssignments, attrs: accessSubjectAttrs },
+   *   tables: { policies: iamPolicies, roles: iamRoles, assignments: iamAssignments, attrs: iamSubjectAttrs },
    *   ops: { eq, and },
    * }
    * ```
    */
   export interface IConfig {
-    /** Provides the Drizzle database instance with select/insert/delete builders. */
+    /** Provides the IamDrizzle database instance with select/insert/delete builders. */
     db: {
       select: () => { from: (table: unknown) => DrizzleQuery }
       insert: (table: unknown) => { values: (data: Record<string, unknown>) => DrizzleInsert }
       delete: (table: unknown) => { where: (condition: unknown) => Promise<unknown> }
     }
-    /** Provides references to the four Drizzle table schemas used by the adapter. */
+    /** Provides references to the four IamDrizzle table schemas used by the adapter. */
     tables: {
       policies: DrizzleTable
       roles: DrizzleTable
       assignments: DrizzleTable
       attrs: DrizzleTable
     }
-    /** Provides Drizzle operator functions for building WHERE clauses. */
+    /** Provides IamDrizzle operator functions for building WHERE clauses. */
     ops: {
       eq: (col: unknown, val: unknown) => unknown
       and: (...conditions: unknown[]) => unknown
@@ -95,7 +95,7 @@ export namespace Drizzle {
   }
 }
 
-/** Minimal shape of a Drizzle table object with optional column references. */
+/** Minimal shape of a IamDrizzle table object with optional column references. */
 interface DrizzleTable {
   id?: unknown
   subjectId?: unknown
@@ -104,7 +104,7 @@ interface DrizzleTable {
   [key: string]: unknown
 }
 
-/** Minimal shape of a chainable Drizzle SELECT query. */
+/** Minimal shape of a chainable IamDrizzle SELECT query. */
 interface DrizzleQuery {
   where: (condition: unknown) => { limit: (n: number) => Promise<Record<string, unknown>[]> }
   limit: (n: number) => Promise<Record<string, unknown>[]>
@@ -112,14 +112,14 @@ interface DrizzleQuery {
   [Symbol.iterator]?: unknown
 }
 
-/** Minimal shape of a chainable Drizzle INSERT query with conflict handling. */
+/** Minimal shape of a chainable IamDrizzle INSERT query with conflict handling. */
 interface DrizzleInsert {
   onConflictDoUpdate: (args: { target: unknown; set: Record<string, unknown> }) => Promise<unknown>
   onConflictDoNothing: () => Promise<unknown>
 }
 
 /**
- * Drizzle-backed adapter; needs 4 tables (policies, roles, assignments, subject attributes) and `{ eq, and }` ops.
+ * IamDrizzle-backed adapter; needs 4 tables (policies, roles, assignments, subject attributes) and `{ eq, and }` ops.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -130,32 +130,32 @@ interface DrizzleInsert {
  * ```ts
  * import { drizzle } from 'drizzle-orm/node-postgres'
  * import { eq, and } from 'drizzle-orm'
- * import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+ * import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
  *
- * const adapter = new DrizzleAdapter({ db: drizzle(pool), tables, ops: { eq, and } })
- * const engine = new Engine({ adapter })
+ * const adapter = new IamDrizzleAdapter({ db: drizzle(pool), tables, ops: { eq, and } })
+ * const engine = new IamEngine({ adapter })
  * ```
  */
-export class DrizzleAdapter<
+export class IamDrizzleAdapter<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-> implements Adapter.IAdapter<TAction, TResource, TRole, TScope>
+> implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
-  private _db: Drizzle.IConfig['db']
-  private _t: Drizzle.IConfig['tables']
-  private _eq: Drizzle.IConfig['ops']['eq']
-  private _and: Drizzle.IConfig['ops']['and']
+  private _db: IamDrizzle.IConfig['db']
+  private _t: IamDrizzle.IConfig['tables']
+  private _eq: IamDrizzle.IConfig['ops']['eq']
+  private _and: IamDrizzle.IConfig['ops']['and']
   private _json: 'native' | 'string'
   private _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
 
   /**
-   * Creates a new Drizzle adapter.
+   * Creates a new IamDrizzle adapter.
    *
-   * @param config - Provides the Drizzle db, tables, and operator functions.
+   * @param config - Provides the IamDrizzle db, tables, and operator functions.
    */
-  constructor(config: Drizzle.IConfig) {
+  constructor(config: IamDrizzle.IConfig) {
     this._db = config.db
     this._t = config.tables
     this._eq = config.ops.eq
@@ -166,7 +166,7 @@ export class DrizzleAdapter<
 
   /**
    * Typed SELECT helpers consolidate the `as unknown as RowType[]` casts at
-   * the module edge into one place. Drizzle's `select().from()` returns
+   * the module edge into one place. IamDrizzle's `select().from()` returns
    * untyped rows; row shapes are pinned at the boundary here.
    */
   private async _selectAll<T>(table: unknown): Promise<T[]> {
@@ -193,16 +193,16 @@ export class DrizzleAdapter<
    * Parse a row's JSON columns + validate the policy shape. Returns `null` on
    * any failure (parse error or invalid shape) so the caller can drop the row.
    */
-  private _safeParsePolicy(row: PolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+  private _safeParsePolicy(row: PolicyRow): IamAccessControl.IPolicy<TAction, TResource, TRole> | null {
     let parsedRules: unknown
     let parsedTargets: unknown
     try {
       parsedRules =
-        typeof row.rules === 'string' ? JSON.parse(row.rules) : (row.rules as AccessControl.IPolicy['rules'])
+        typeof row.rules === 'string' ? JSON.parse(row.rules) : (row.rules as IamAccessControl.IPolicy['rules'])
       parsedTargets = row.targets
         ? typeof row.targets === 'string'
           ? JSON.parse(row.targets)
-          : (row.targets as AccessControl.IPolicy['targets'])
+          : (row.targets as IamAccessControl.IPolicy['targets'])
         : undefined
     } catch (err) {
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
@@ -214,13 +214,13 @@ export class DrizzleAdapter<
       name: row.name,
       description: row.description ?? undefined,
       version: row.version,
-      algorithm: row.algorithm as AccessControl.IPolicy['algorithm'],
+      algorithm: row.algorithm as IamAccessControl.IPolicy['algorithm'],
       rules: parsedRules,
       targets: parsedTargets,
     }
-    const policy = parsePolicyRow<TAction, TResource, TRole>(candidate)
+    const policy = iamParsePolicyRow<TAction, TResource, TRole>(candidate)
     if (policy === null) {
-      const issues = validatePolicy(candidate)
+      const issues = iamValidatePolicy(candidate)
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid policy "${row.id}": ${issues}`), row.id)
@@ -229,7 +229,7 @@ export class DrizzleAdapter<
     return policy
   }
 
-  private _safeParseRole(row: RoleRow): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+  private _safeParseRole(row: RoleRow): IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null {
     let permissions: unknown
     let inherits: unknown
     let metadata: unknown
@@ -237,12 +237,12 @@ export class DrizzleAdapter<
       permissions =
         typeof row.permissions === 'string'
           ? JSON.parse(row.permissions)
-          : (row.permissions as AccessControl.IRole['permissions'])
+          : (row.permissions as IamAccessControl.IRole['permissions'])
       inherits = typeof row.inherits === 'string' ? JSON.parse(row.inherits) : ((row.inherits as string[] | null) ?? [])
       metadata = row.metadata
         ? typeof row.metadata === 'string'
           ? JSON.parse(row.metadata)
-          : (row.metadata as AccessControl.IRole['metadata'])
+          : (row.metadata as IamAccessControl.IRole['metadata'])
         : undefined
     } catch (err) {
       this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
@@ -258,9 +258,9 @@ export class DrizzleAdapter<
       scope: row.scope ?? undefined,
       metadata,
     }
-    const role = parseRoleRow<TAction, TResource, TRole, TScope>(candidate)
+    const role = iamParseRoleRow<TAction, TResource, TRole, TScope>(candidate)
     if (role === null) {
-      const issues = validateRole(candidate)
+      const issues = iamValidateRole(candidate)
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid role "${row.id}": ${issues}`), row.id)
@@ -275,9 +275,9 @@ export class DrizzleAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies parsed from the policies table.
    */
-  async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = await this._selectAll<PolicyRow>(this._t.policies)
-    const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
+    const out: IamAccessControl.IPolicy<TAction, TResource, TRole>[] = []
     for (const row of rows) {
       const parsed = this._safeParsePolicy(row)
       if (parsed) out.push(parsed)
@@ -294,8 +294,8 @@ export class DrizzleAdapter<
    */
   async getPolicy(
     id: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const row = await this._selectFirst<PolicyRow>(this._t.policies, this._t.policies.id, id)
     return row ? this._safeParsePolicy(row) : null
   }
@@ -306,7 +306,7 @@ export class DrizzleAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the upsert completes.
    */
-  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const data = serializePolicy(p, this._json)
     await this._db.insert(this._t.policies).values(data).onConflictDoUpdate({ target: this._t.policies.id, set: data })
   }
@@ -327,9 +327,9 @@ export class DrizzleAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles parsed from the roles table.
    */
-  async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this._selectAll<RoleRow>(this._t.roles)
-    const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
+    const out: IamAccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const row of rows) {
       const parsed = this._safeParseRole(row)
       if (parsed) out.push(parsed)
@@ -346,8 +346,8 @@ export class DrizzleAdapter<
    */
   async getRole(
     id: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     const row = await this._selectFirst<RoleRow>(this._t.roles, this._t.roles.id, id)
     return row ? this._safeParseRole(row) : null
   }
@@ -358,7 +358,7 @@ export class DrizzleAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the upsert completes.
    */
-  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = serializeRole(r, this._json)
     await this._db.insert(this._t.roles).values(data).onConflictDoUpdate({ target: this._t.roles.id, set: data })
   }
@@ -380,7 +380,7 @@ export class DrizzleAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs.
    */
-  async getSubjectRoles(subjectId: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
+  async getSubjectRoles(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const rows = await this._selectWhere<AssignmentRow>(this._t.assignments, this._t.assignments.subjectId, subjectId)
     // Unscoped (global) roles only - mirrors file/memory/redis adapters.
     return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
@@ -395,8 +395,8 @@ export class DrizzleAdapter<
    */
   async getSubjectScopedRoles(
     subjectId: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<Request.IScopedRole<TRole, TScope>[]> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     const rows = await this._selectWhere<AssignmentRow>(this._t.assignments, this._t.assignments.subjectId, subjectId)
     return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
   }
@@ -442,7 +442,7 @@ export class DrizzleAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
    */
-  async getSubjectAttributes(subjectId: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
+  async getSubjectAttributes(subjectId: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     const row = await this._selectFirst<AttrRow>(this._t.attrs, this._t.attrs.subjectId, subjectId)
     if (!row) return {}
     const data = row.data
@@ -461,13 +461,13 @@ export class DrizzleAdapter<
     return this._validateAttributesShape(data, subjectId)
   }
 
-  private _validateAttributesShape(value: unknown, subjectId: string): Primitives.Attributes {
+  private _validateAttributesShape(value: unknown, subjectId: string): IamPrimitives.Attributes {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
       this._reportPolicyError(new Error(`Attributes for "${subjectId}" must be a JSON object (got ${got})`), subjectId)
       throw new Error(`[@gentleduck/iam:drizzle] corrupted attributes for "${subjectId}" (not a JSON object)`)
     }
-    return value as Primitives.Attributes
+    return value as IamPrimitives.Attributes
   }
 
   /**
@@ -477,10 +477,10 @@ export class DrizzleAdapter<
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the upsert completes.
    */
-  async setSubjectAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void> {
+  async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
     // Admin overwrite must recover from corrupt existing data instead of
     // locking the operator out.
-    let existing: Primitives.Attributes
+    let existing: IamPrimitives.Attributes
     try {
       existing = await this.getSubjectAttributes(subjectId)
     } catch (err) {
@@ -499,14 +499,14 @@ export class DrizzleAdapter<
 /**
  * Encodes a JSON payload for storage: `JSON.stringify` in `'string'` mode
  * (SQLite / text columns), or the value untouched in `'native'` mode so
- * Drizzle hands a real object to a `jsonb`/`json` column.
+ * IamDrizzle hands a real object to a `jsonb`/`json` column.
  */
 function encodeJson(value: unknown, mode: 'native' | 'string'): unknown {
   return mode === 'string' ? JSON.stringify(value) : value
 }
 
 /** Converts a Policy object into a flat record for storage under the given JSON mode. */
-function serializePolicy(p: AccessControl.IPolicy, json: 'native' | 'string'): Record<string, unknown> {
+function serializePolicy(p: IamAccessControl.IPolicy, json: 'native' | 'string'): Record<string, unknown> {
   return {
     id: p.id,
     name: p.name,
@@ -519,7 +519,7 @@ function serializePolicy(p: AccessControl.IPolicy, json: 'native' | 'string'): R
 }
 
 /** Converts a Role object into a flat record for storage under the given JSON mode. */
-function serializeRole(r: AccessControl.IRole, json: 'native' | 'string'): Record<string, unknown> {
+function serializeRole(r: IamAccessControl.IRole, json: 'native' | 'string'): Record<string, unknown> {
   return {
     id: r.id,
     name: r.name,

@@ -1,10 +1,10 @@
 /**
  * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 
-import { useSignIn } from '@gentleduck/auth/client/react'
-import type { VanillaClient } from '@gentleduck/auth/client/vanilla'
+import { authUseSignIn } from '@gentleduck/auth/client/react'
+import type { AuthVanillaClient } from '@gentleduck/auth/client/vanilla'
 import { cn } from '@gentleduck/libs/cn'
 import { Alert, AlertDescription, AlertTitle } from '@gentleduck/registry-ui/alert'
 import { Button } from '@gentleduck/registry-ui/button'
@@ -14,16 +14,16 @@ import { Label } from '@gentleduck/registry-ui/label'
 import { type FormEvent, useState } from 'react'
 
 /**
- * `<SignInForm />` — email + password form wired to `useSignIn`.
+ * `<SignInForm />` — email + password form wired to `authUseSignIn`.
  * Renders a registry-ui Card with Field-pattern Inputs and a primary
  * Button. Surfaces inline error state via `<Alert />`. Composable —
  * drop into a route as-is, or pass `onSuccess` to redirect.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export function SignInForm<Profile = unknown>(props: SignInForm.IProps<Profile>): React.JSX.Element {
   const { className, onSuccess, providerId = 'password', title = 'Sign in', description } = props
-  const signIn = useSignIn<Profile>()
+  const signIn = authUseSignIn<Profile>()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
@@ -99,7 +99,7 @@ function describeError(err: unknown): string {
 /**
  * Namespace merge for SignInForm.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export namespace SignInForm {
   export interface IProps<Profile = unknown> {
@@ -108,6 +108,6 @@ export namespace SignInForm {
     description?: string
     /** Default `'password'`. Use a different id when wiring this form to a non-password provider. */
     providerId?: string
-    onSuccess?(result: VanillaClient.ISignInResult<Profile>): void
+    onSuccess?(result: AuthVanillaClient.ISignInResult<Profile>): void
   }
 }

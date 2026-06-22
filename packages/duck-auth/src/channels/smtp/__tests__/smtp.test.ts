@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
-import { SmtpChannel } from '../index'
+import type { AuthIdentity } from '../../../core/types/identity'
+import { AuthSmtpChannel } from '../index'
 
-function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
+function makeIdentity(email: string | undefined): AuthIdentity.IIdentity<unknown> {
   return {
     id: 'ident-1',
     profile: email ? { email } : undefined,
@@ -13,16 +13,16 @@ function makeIdentity(email: string | undefined): Identity.IIdentity<unknown> {
   }
 }
 
-function makeTransporter(impl?: SmtpChannel.ITransporter['sendMail']): SmtpChannel.ITransporter {
+function makeTransporter(impl?: AuthSmtpChannel.ITransporter['sendMail']): AuthSmtpChannel.ITransporter {
   return {
     sendMail: vi.fn(impl ?? (async () => ({ messageId: 'mid-1' }))),
   }
 }
 
-describe('SmtpChannel', () => {
+describe('AuthSmtpChannel', () => {
   it('resolves the template + sends with the configured `from`', async () => {
     const transporter = makeTransporter()
-    const channel = new SmtpChannel({
+    const channel = new AuthSmtpChannel({
       transporter,
       from: 'noreply@app.test',
       templates: () => ({ subject: 'Hi', html: '<p>Hi</p>' }),
@@ -48,7 +48,7 @@ describe('SmtpChannel', () => {
   it('refuses construction when from is empty', () => {
     expect(
       () =>
-        new SmtpChannel({
+        new AuthSmtpChannel({
           transporter: makeTransporter(),
           from: '',
           templates: () => ({ subject: 'x' }),
@@ -57,7 +57,7 @@ describe('SmtpChannel', () => {
   })
 
   it('returns ok:false when the identity has no email', async () => {
-    const channel = new SmtpChannel({
+    const channel = new AuthSmtpChannel({
       transporter: makeTransporter(),
       from: 'noreply@app.test',
       templates: () => ({ subject: 'x' }),
@@ -73,7 +73,7 @@ describe('SmtpChannel', () => {
   })
 
   it('returns ok:false when the template resolver throws', async () => {
-    const channel = new SmtpChannel({
+    const channel = new AuthSmtpChannel({
       transporter: makeTransporter(),
       from: 'noreply@app.test',
       templates: () => {
@@ -91,7 +91,7 @@ describe('SmtpChannel', () => {
   })
 
   it('returns ok:false when the transporter throws', async () => {
-    const channel = new SmtpChannel({
+    const channel = new AuthSmtpChannel({
       transporter: makeTransporter(async () => {
         throw new Error('smtp-timeout')
       }),
@@ -110,7 +110,7 @@ describe('SmtpChannel', () => {
 
   it('passes through the resolved text body when html is absent', async () => {
     const transporter = makeTransporter()
-    const channel = new SmtpChannel({
+    const channel = new AuthSmtpChannel({
       transporter,
       from: 'noreply@app.test',
       templates: () => ({ subject: 'x', text: 'plain text body' }),

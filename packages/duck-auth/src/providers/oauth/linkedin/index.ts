@@ -5,30 +5,30 @@
  */
 
 import { AuthErrorObject } from '../../../core/errors'
-import type { Provider } from '../../../core/types/provider'
-import { OAuthClient } from '../core/client'
-import { type OAuthProvider, oauthProvider } from '../core/provider'
+import type { AuthProvider } from '../../../core/types/provider'
+import { AuthOAuthClient } from '../core/client'
+import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const LINKEDIN_ENDPOINTS: OAuthClient.IEndpoints = {
-  authorizationEndpoint: 'https://www.linkedin.com/oauth/v2/authorization',
-  tokenEndpoint: 'https://www.linkedin.com/oauth/v2/accessToken',
-  userinfoEndpoint: 'https://api.linkedin.com/v2/userinfo',
+const LINKEDIN_ENDPOINTS: AuthOAuthClient.IEndpoints = {
+  authorizationEndpoint: 'https://www.authLinkedin.com/oauth/v2/authorization',
+  tokenEndpoint: 'https://www.authLinkedin.com/oauth/v2/accessToken',
+  userinfoEndpoint: 'https://api.authLinkedin.com/v2/userinfo',
 }
 
-export namespace LinkedInOAuth {
+export namespace AuthLinkedInOAuth {
   /** LinkedIn-specific options. */
-  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
     /** Default `['openid', 'profile', 'email']`. */
     scopes?: string[]
   }
 }
 
 /** LinkedIn OIDC provider factory. */
-export function linkedin<Profile = unknown>(
-  opts: LinkedInOAuth.IOptions<Profile>,
-): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
-  const client = new OAuthClient({
+export function authLinkedin<Profile = unknown>(
+  opts: AuthLinkedInOAuth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
+  const client = new AuthOAuthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: LINKEDIN_ENDPOINTS,
@@ -36,7 +36,7 @@ export function linkedin<Profile = unknown>(
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
   return oauthProvider<Profile>({
-    providerId: 'linkedin',
+    providerId: 'authLinkedin',
     client,
     endpoints: LINKEDIN_ENDPOINTS,
     redirectUri: opts.redirectUri,
@@ -51,7 +51,7 @@ export function linkedin<Profile = unknown>(
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
-          providerId: 'linkedin',
+          providerId: 'authLinkedin',
           detail: 'LinkedIn userinfo missing sub',
         })
       }

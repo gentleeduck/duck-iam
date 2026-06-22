@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildOpenApiSpec, renderOpenApiYaml } from '../index'
+import { authBuildOpenApiSpec, authRenderOpenApiYaml } from '../index'
 
-describe('buildOpenApiSpec', () => {
+describe('authBuildOpenApiSpec', () => {
   it('emits openapi: 3.1.0 + the configured title + version', () => {
-    const spec = buildOpenApiSpec({
+    const spec = authBuildOpenApiSpec({
       baseUrl: 'https://app.test',
       title: 'My Auth',
       version: '2.5.0',
@@ -15,7 +15,7 @@ describe('buildOpenApiSpec', () => {
   })
 
   it('default config emits routes for password + magic-link + oauth + passkey', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test' })
+    const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test' })
     const paths = Object.keys(spec.paths)
     expect(paths).toContain('/auth/password/sign-in')
     expect(paths).toContain('/auth/magic-link/request')
@@ -29,7 +29,7 @@ describe('buildOpenApiSpec', () => {
   })
 
   it('providers:[] narrows the surface to just the framework routes', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test', providers: [] })
+    const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test', providers: [] })
     const paths = Object.keys(spec.paths)
     expect(paths).not.toContain('/auth/password/sign-in')
     expect(paths).not.toContain('/auth/magic-link/request')
@@ -38,39 +38,39 @@ describe('buildOpenApiSpec', () => {
   })
 
   it('includeJwks:true adds the /.well-known/jwks.json route', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test', includeJwks: true })
+    const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test', includeJwks: true })
     expect(Object.keys(spec.paths)).toContain('/.well-known/jwks.json')
   })
 
-  it('idempotent POST routes declare an Idempotency-Key parameter', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test' })
+  it('idempotent POST routes declare an AuthIdempotency-Key parameter', () => {
+    const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test' })
     const passwordRoute = spec.paths['/auth/password/sign-in']!.post as {
       parameters?: Array<{ name: string }>
     }
-    expect(passwordRoute.parameters?.some((p) => p.name === 'Idempotency-Key')).toBe(true)
+    expect(passwordRoute.parameters?.some((p) => p.name === 'AuthIdempotency-Key')).toBe(true)
   })
 
   it('security schemes include cookieAuth + bearerAuth + dpop', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test' })
+    const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test' })
     expect(Object.keys(spec.components.securitySchemes).sort()).toEqual(['bearerAuth', 'cookieAuth', 'dpop'])
   })
 
-  it('components.schemas covers AuthError + Session + SignInResult', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test' })
-    expect(Object.keys(spec.components.schemas).sort()).toEqual(['AuthError', 'Session', 'SignInResult'])
+  it('components.schemas covers AuthError + AuthSession + SignInResult', () => {
+    const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test' })
+    expect(Object.keys(spec.components.schemas).sort()).toEqual(['AuthError', 'AuthSession', 'SignInResult'])
   })
 
   it('respects a custom prefix', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test', prefix: '/v2/auth' })
+    const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test', prefix: '/v2/auth' })
     expect(Object.keys(spec.paths)).toContain('/v2/auth/password/sign-in')
     expect(Object.keys(spec.paths)).toContain('/v2/auth/session')
   })
 })
 
-describe('renderOpenApiYaml', () => {
+describe('authRenderOpenApiYaml', () => {
   it('round-trips with JSON.parse via a YAML parser equivalent (structural check)', () => {
-    const spec = buildOpenApiSpec({ baseUrl: 'https://app.test' })
-    const yaml = renderOpenApiYaml(spec)
+    const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test' })
+    const yaml = authRenderOpenApiYaml(spec)
     expect(yaml).toContain('openapi: 3.1.0')
     expect(yaml).toContain('title: Auth API')
     expect(yaml).toContain('/auth/password/sign-in')
@@ -78,10 +78,10 @@ describe('renderOpenApiYaml', () => {
   })
 
   it('quotes strings containing special chars', () => {
-    const spec = buildOpenApiSpec({
+    const spec = authBuildOpenApiSpec({
       baseUrl: 'https://app.test',
       title: 'has: colon',
     })
-    expect(renderOpenApiYaml(spec)).toContain('title: "has: colon"')
+    expect(authRenderOpenApiYaml(spec)).toContain('title: "has: colon"')
   })
 })

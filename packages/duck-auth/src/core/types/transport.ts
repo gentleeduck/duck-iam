@@ -1,11 +1,11 @@
-import type { Provider } from './provider'
-import type { Session } from './session'
+import type { AuthProvider } from './provider'
+import type { AuthSession } from './session'
 
 /**
- * Session-bearer transport contract. Cookie (web), Bearer (native + API keys),
- * JWT (stateless edge). Apps pick one or compose; the same AuthRoot wires them.
+ * AuthSession-bearer transport contract. Cookie (web), Bearer (native + API keys),
+ * JWT (stateless edge). Apps pick one or compose; the same AuthEngine wires them.
  */
-export namespace Transport {
+export namespace AuthTransport {
   export interface CookieOptions {
     domain?: string
     path?: string
@@ -44,13 +44,13 @@ export namespace Transport {
      * Cookie transport -> setCookie intent. JWT transport -> setCookie (refresh)
      * + json (access token); the access token is derived from `session`.
      */
-    issue(sid: string, session: Session.ISession, opts: IssueOpts): Provider.Intent[]
+    issue(sid: string, session: AuthSession.ISession, opts: IssueOpts): AuthProvider.Intent[]
     /** Build a response Intent that revokes any persisted bearer. */
-    revoke(): Provider.Intent[]
+    revoke(): AuthProvider.Intent[]
     /**
-     * Optional verify step - JWT transports verify locally and reconstruct Session
-     * without a store hit; opaque transports return null and rely on Session.IStore lookup.
+     * Optional verify step - JWT transports verify locally and reconstruct AuthSession
+     * without a store hit; opaque transports return null and rely on AuthSession.IStore lookup.
      */
-    verify?(token: string): Promise<Session.ISession | null>
+    verify?(token: string): Promise<AuthSession.ISession | null>
   }
 }

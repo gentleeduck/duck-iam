@@ -1,12 +1,12 @@
 import { AuthErrorObject } from '../../core/errors'
-import type { Session } from '../../core/types/session'
-import type { RedisLike } from './redis-like'
+import type { AuthSession } from '../../core/types/session'
+import type { AuthRedisLike } from './redis-like'
 
-export namespace RedisSessionStore {
-  /** Config knobs for {@link RedisSessionStore}. */
+export namespace AuthRedisSessionStore {
+  /** Config knobs for {@link AuthRedisSessionStore}. */
   export interface IConfig {
-    /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
-    redis: RedisLike.IClient
+    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    redis: AuthRedisLike.IClient
     /**
      * Key namespace prefix. Default: `auth`. Final keys:
      *   `${prefix}:sess:{sessionId}`
@@ -23,16 +23,16 @@ export namespace RedisSessionStore {
 }
 
 /**
- * Redis-backed `Session.IStore`. Session.id is already the sha-256 of
+ * Redis-backed `AuthSession.IStore`. AuthSession.id is already the sha-256 of
  * the plaintext sid (see SessionsFacet) so the primary key + lookup
  * key are the same value.
  */
-export class RedisSessionStore implements Session.IStore {
-  private readonly _redis: RedisLike.IClient
+export class AuthRedisSessionStore implements AuthSession.IStore {
+  private readonly _redis: AuthRedisLike.IClient
   private readonly _prefix: string
   private readonly _maxTtlSec: number
 
-  constructor(cfg: RedisSessionStore.IConfig) {
+  constructor(cfg: AuthRedisSessionStore.IConfig) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth'
     this._maxTtlSec = cfg.maxTtlSec ?? 30 * 24 * 60 * 60
@@ -46,16 +46,16 @@ export class RedisSessionStore implements Session.IStore {
     return `${this._prefix}:idx:identity:${identityId}`
   }
 
-  private _ttlFor(session: Session.ISession): number {
+  private _ttlFor(session: AuthSession.ISession): number {
     const remainingMs = Math.max(0, session.absoluteExpiresAt - Date.now())
     const remainingSec = Math.ceil(remainingMs / 1000)
     return Math.max(1, Math.min(this._maxTtlSec, remainingSec))
   }
 
-  async create(s: Session.ISession): Promise<void> {
+  async create(s: AuthSession.ISession): Promise<void> {
     if (!s.id) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'RedisSessionStore.create requires session.id to be set (sha-256 of sid)',
+        detail: 'AuthRedisSessionStore.create requires session.id to be set (sha-256 of sid)',
       })
     }
     const ttl = this._ttlFor(s)
@@ -66,13 +66,13 @@ export class RedisSessionStore implements Session.IStore {
     }
   }
 
-  async getByHash(sidHash: string): Promise<Session.ISession | null> {
+  async getByHash(sidHash: string): Promise<AuthSession.ISession | null> {
     const raw = await this._redis.get(this._sessKey(sidHash))
     if (!raw) return null
     return parseStoredSession(raw)
   }
 
-  async update(id: string, patch: Partial<Session.ISession>): Promise<Session.ISession> {
+  async update(id: string, patch: Partial<AuthSession.ISession>): Promise<AuthSession.ISession> {
     const raw = await this._redis.get(this._sessKey(id))
     if (!raw) {
       throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: `session ${id} not found` })
@@ -81,7 +81,7 @@ export class RedisSessionStore implements Session.IStore {
     if (!current) {
       throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: `session ${id} corrupted` })
     }
-    const next: Session.ISession = { ...current, ...patch }
+    const next: AuthSession.ISession = { ...current, ...patch }
     const ttl = this._ttlFor(next)
     await this._redis.set(this._sessKey(id), JSON.stringify(next), { ex: ttl })
     if (next.identityId) {
@@ -101,10 +101,10 @@ export class RedisSessionStore implements Session.IStore {
     }
   }
 
-  async listByIdentity(identityId: string): Promise<Session.ISession[]> {
+  async listByIdentity(identityId: string): Promise<AuthSession.ISession[]> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length === 0) return []
-    const out: Session.ISession[] = []
+    const out: AuthSession.ISession[] = []
     const stale: string[] = []
     for (const id of ids) {
       const raw = await this._redis.get(this._sessKey(id))
@@ -159,7 +159,7 @@ export class RedisSessionStore implements Session.IStore {
 }
 
 /** Structural validator for a stored Redis session; SEC-critical fields enforced, rest is trusted. */
-function parseStoredSession(raw: string): Session.ISession | null {
+function parseStoredSession(raw: string): AuthSession.ISession | null {
   let obj: unknown
   try {
     obj = JSON.parse(raw)
@@ -173,5 +173,5 @@ function parseStoredSession(raw: string): Session.ISession | null {
   if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null
   const absoluteExpiresAt: unknown = Reflect.get(obj, 'absoluteExpiresAt')
   if (typeof absoluteExpiresAt !== 'number' || !Number.isFinite(absoluteExpiresAt)) return null
-  return obj as Session.ISession
+  return obj as AuthSession.ISession
 }

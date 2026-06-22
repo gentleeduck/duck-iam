@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
 import { totpAt } from '../../mfa/totp'
-import { ScryptHasher } from '../../password/scrypt'
-import { CookieTransport } from '../../transport/cookie'
-import type { Channel } from '../../types/channel'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthCookieTransport } from '../../transport/cookie'
+import type { AuthChannel } from '../../types/channel'
 
 interface MyProfile {
   email: string
 }
 
-function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
   return {
     kind: 'email',
@@ -27,22 +27,22 @@ function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: stri
 }
 
 function buildAuth(): {
-  auth: AuthRoot<MyProfile>
-  adapter: MemoryAuthAdapter<MyProfile>
-  channel: Channel.IChannel & { sent: Array<{ to: string; url: string }> }
+  auth: AuthEngine<MyProfile>
+  adapter: AuthMemoryAdapter<MyProfile>
+  channel: AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }
 } {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
+  const adapter = new AuthMemoryAdapter<MyProfile>()
   const channel = fakeChannel()
-  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
-  const auth = new AuthRoot<MyProfile>({
+  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+    limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
     passwords: { hasher: fastHasher },
   })
   return { auth, adapter, channel }

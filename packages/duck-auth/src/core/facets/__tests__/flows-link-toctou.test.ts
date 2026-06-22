@@ -1,33 +1,33 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
-import { CookieTransport } from '../../transport/cookie'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthCookieTransport } from '../../transport/cookie'
 
 interface ProfileShape {
   email: string
 }
 
 function build() {
-  const adapter = new MemoryAuthAdapter<ProfileShape>()
-  const auth = new AuthRoot<ProfileShape>({
+  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'https://app.test',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
-  let auth: AuthRoot<ProfileShape>
-  let adapter: MemoryAuthAdapter<ProfileShape>
+  let auth: AuthEngine<ProfileShape>
+  let adapter: AuthMemoryAdapter<ProfileShape>
   let identityA: string
   let identityB: string
 
@@ -41,8 +41,8 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
 
   it('two concurrent linkProvider calls for same (providerId, providerSub) onto DIFFERENT identities: exactly one succeeds', async () => {
     const results = await Promise.allSettled([
-      auth.flows.linkProvider({ identityId: identityA, providerId: 'google', providerSub: 'sub-X' }),
-      auth.flows.linkProvider({ identityId: identityB, providerId: 'google', providerSub: 'sub-X' }),
+      auth.flows.linkProvider({ identityId: identityA, providerId: 'authGoogle', providerSub: 'sub-X' }),
+      auth.flows.linkProvider({ identityId: identityB, providerId: 'authGoogle', providerSub: 'sub-X' }),
     ])
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
     const rejected = results.filter((r) => r.status === 'rejected')
@@ -61,11 +61,11 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
 
   it('after race, findByProviderSub returns exactly ONE identity (no inconsistent state)', async () => {
     await Promise.allSettled([
-      auth.flows.linkProvider({ identityId: identityA, providerId: 'google', providerSub: 'sub-X' }),
-      auth.flows.linkProvider({ identityId: identityB, providerId: 'google', providerSub: 'sub-X' }),
+      auth.flows.linkProvider({ identityId: identityA, providerId: 'authGoogle', providerSub: 'sub-X' }),
+      auth.flows.linkProvider({ identityId: identityB, providerId: 'authGoogle', providerSub: 'sub-X' }),
     ])
     // Whichever identity won, ONLY that one has the link.
-    const found = await adapter.identities.findByProviderSub('google', 'sub-X', {})
+    const found = await adapter.identities.findByProviderSub('authGoogle', 'sub-X', {})
     expect(found).not.toBeNull()
     const otherId = found?.id === identityA ? identityB : identityA
     const other = await adapter.identities.findById(otherId, {})
@@ -80,7 +80,7 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
       identities.push(ident.id)
     }
     const calls = identities.map((id) =>
-      auth.flows.linkProvider({ identityId: id, providerId: 'github', providerSub: 'race-sub' }),
+      auth.flows.linkProvider({ identityId: id, providerId: 'authGithub', providerSub: 'race-sub' }),
     )
     const results = await Promise.allSettled(calls)
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -89,12 +89,12 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
   })
 
   it('idempotent re-link onto SAME identity is allowed (no false race)', async () => {
-    await auth.flows.linkProvider({ identityId: identityA, providerId: 'google', providerSub: 'sub-Y' })
+    await auth.flows.linkProvider({ identityId: identityA, providerId: 'authGoogle', providerSub: 'sub-Y' })
     // Second link to same identity is a no-op (the facet's
     // alreadyLinked check fires before the store call).
     const r = await auth.flows.linkProvider({
       identityId: identityA,
-      providerId: 'google',
+      providerId: 'authGoogle',
       providerSub: 'sub-Y',
     })
     expect(r.identityId).toBe(identityA)
@@ -105,11 +105,11 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
     // catch the duplicate even without the facet's pre-check.
     await adapter.identities.link(
       identityA,
-      { providerId: 'github', providerSub: 'direct-sub', addedAt: Date.now() },
+      { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: Date.now() },
       {},
     )
     await expect(
-      adapter.identities.link(identityB, { providerId: 'github', providerSub: 'direct-sub', addedAt: Date.now() }, {}),
+      adapter.identities.link(identityB, { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: Date.now() }, {}),
     ).rejects.toMatchObject({
       code: 'AUTH/PROVIDER_FAILED',
       meta: { detail: 'provider sub already linked to a different identity' },

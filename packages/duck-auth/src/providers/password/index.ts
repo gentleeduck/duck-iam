@@ -1,9 +1,9 @@
 import { AuthErrorObject } from '../../core/errors'
 import type { PasswordsFacet } from '../../core/facets/passwords'
-import type { Provider } from '../../core/types/provider'
+import type { AuthProvider } from '../../core/types/provider'
 
-export namespace PasswordProvider {
-  /** Config knobs for {@link password}. */
+export namespace AuthPasswordProvider {
+  /** Config knobs for {@link authPassword}. */
   export interface IOptions {
     /** Function to find an identity given an email. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
@@ -15,7 +15,7 @@ export namespace PasswordProvider {
     autoRehash?: boolean
   }
 
-  /** Input to begin (unused for password but kept for parity). */
+  /** Input to begin (unused for authPassword but kept for parity). */
   export interface IBeginInput {
     email: string
   }
@@ -23,22 +23,22 @@ export namespace PasswordProvider {
   /** Input to complete. */
   export interface ICompleteInput {
     email: string
-    password: string
+    authPassword: string
   }
 }
 
 /**
- * Password provider - email + password sign-in. Operates against the
+ * Password provider - email + authPassword sign-in. Operates against the
  * configured PasswordsFacet so hashing/strength rules live in one
  * place.
  *
- * `begin` is a no-op; password flow has no challenge round-trip.
+ * `begin` is a no-op; authPassword flow has no challenge round-trip.
  * `complete` validates input + rate-limits per email + verifies + emits
  * a `startSession` Intent.
  */
-export function password<Profile = unknown>(
-  opts: PasswordProvider.IOptions,
-): Provider.IProvider<PasswordProvider.IBeginInput, PasswordProvider.ICompleteInput, Profile> {
+export function authPassword<Profile = unknown>(
+  opts: AuthPasswordProvider.IOptions,
+): AuthProvider.IProvider<AuthPasswordProvider.IBeginInput, AuthPasswordProvider.ICompleteInput, Profile> {
   const prefix = opts.limiterKeyPrefix ?? 'signin:password:'
   const autoRehash = opts.autoRehash ?? true
   return {
@@ -48,8 +48,8 @@ export function password<Profile = unknown>(
       return []
     },
     async complete(ctx, input) {
-      const { email, password: pw } = input
-      // email cap per RFC 5321 (254); password cap matches the
+      const { email, authPassword: pw } = input
+      // email cap per RFC 5321 (254); authPassword cap matches the
       // PasswordsFacet maxLength (default 1024). Without caps, an
       // attacker can DoS via huge inputs reaching the hasher / store.
       if (

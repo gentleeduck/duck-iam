@@ -1,5 +1,5 @@
-import type { AccessControl, Adapter, Primitives, Request } from '../types'
-export namespace EngineTypes {
+import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
+export namespace IamEngineTypes {
   /**
    * Administrative interface for managing policies, roles, and subject data.
    * Accessed via `engine.admin`. Mutation methods invalidate the relevant caches.
@@ -15,17 +15,17 @@ export namespace EngineTypes {
     TRole extends string = string,
     TScope extends string = string,
   > {
-    listPolicies(): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
-    getPolicy(id: string): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
+    listPolicies(): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]>
+    getPolicy(id: string): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null>
     /** Invalidates the policy cache. */
-    savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
+    savePolicy(policy: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
     /** Invalidates the policy cache. */
     deletePolicy(id: string): Promise<void>
 
-    listRoles(): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]>
-    getRole(id: string): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
+    listRoles(): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]>
+    getRole(id: string): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null>
     /** Invalidates role + subject caches keyed on `role.id`. */
-    saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
+    saveRole(role: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
     /** Invalidates role + subject caches keyed on `id`. */
     deleteRole(id: string): Promise<void>
 
@@ -34,8 +34,8 @@ export namespace EngineTypes {
     /** Invalidates the subject's cache entry. */
     revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
     /** Merges into the subject's attribute bag; invalidates the subject's cache entry. */
-    setAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void>
-    getAttributes(subjectId: string): Promise<Primitives.Attributes>
+    setAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
+    getAttributes(subjectId: string): Promise<IamPrimitives.Attributes>
 
     /**
      * Export a *configuration* snapshot - policies + roles. Subject/assignment
@@ -76,8 +76,8 @@ export namespace EngineTypes {
   > {
     readonly schemaVersion: 1
     readonly exportedAt: string
-    readonly policies: readonly AccessControl.IPolicy<TAction, TResource, TRole>[]
-    readonly roles: readonly AccessControl.IRole<TAction, TResource, TRole, TScope>[]
+    readonly policies: readonly IamAccessControl.IPolicy<TAction, TResource, TRole>[]
+    readonly roles: readonly IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]
   }
 
   /** Options for {@link IAdmin.import}. */
@@ -116,7 +116,7 @@ export namespace EngineTypes {
     /** Wall-clock duration of the evaluation in milliseconds. */
     readonly durationMs: number
     /** Engine mode in effect (`'production'` or `'development'`). */
-    readonly mode: AccessControl.Mode
+    readonly mode: IamAccessControl.Mode
     /**
      * `true` when the verdict was `allow` solely because the engine's
      * `defaultEffect: 'allow'` fallback fired (no applicable policy). Always
@@ -138,7 +138,7 @@ export namespace EngineTypes {
    * @template TScope    - Union of valid scope strings.
    * @example
    * ```ts
-   * const hooks: EngineTypes.IHooks = {
+   * const hooks: IamEngineTypes.IHooks = {
    *   beforeEvaluate: req => ({ ...req, environment: { ...req.environment, hour: new Date().getHours() } }),
    *   onDeny: (req, decision) => console.warn('denied', req, decision.reason),
    * }
@@ -151,20 +151,20 @@ export namespace EngineTypes {
   > {
     /** Called before policy evaluation. May return a modified request. */
     beforeEvaluate?(
-      request: Request.IAccessRequest<TAction, TResource, TScope>,
-    ): Request.IAccessRequest<TAction, TResource, TScope> | Promise<Request.IAccessRequest<TAction, TResource, TScope>>
+      request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+    ): IamRequest.IAccessRequest<TAction, TResource, TScope> | Promise<IamRequest.IAccessRequest<TAction, TResource, TScope>>
     /** Called after every evaluation with the final decision (development mode only). */
     afterEvaluate?(
-      request: Request.IAccessRequest<TAction, TResource, TScope>,
-      decision: AccessControl.IDecision,
+      request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+      decision: IamAccessControl.IDecision,
     ): void | Promise<void>
     /** Called only when a request is denied (development mode only). */
     onDeny?(
-      request: Request.IAccessRequest<TAction, TResource, TScope>,
-      decision: AccessControl.IDecision,
+      request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+      decision: IamAccessControl.IDecision,
     ): void | Promise<void>
     /** Called when an error occurs during evaluation. The engine then returns a deny. */
-    onError?(error: Error, request: Request.IAccessRequest<TAction, TResource, TScope>): void | Promise<void>
+    onError?(error: Error, request: IamRequest.IAccessRequest<TAction, TResource, TScope>): void | Promise<void>
     /**
      * Called when evaluation of a single policy throws (malformed rule, bad
      * condition tree, adapter returning garbage). The policy is treated as
@@ -175,13 +175,13 @@ export namespace EngineTypes {
     /**
      * Called once per evaluation with a primitive-only event. Cheap in both
      * modes - production callers can wire this for latency / outcome telemetry
-     * without paying the cost of a full {@link AccessControl.IDecision}.
+     * without paying the cost of a full {@link IamAccessControl.IDecision}.
      */
     onMetrics?(event: IMetricsEvent<TAction, TResource>): void
   }
 
   /**
-   * Configuration for creating an {@link Engine} instance.
+   * Configuration for creating an {@link IamEngine} instance.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
@@ -190,7 +190,7 @@ export namespace EngineTypes {
    * @template TMode     - Engine mode (`'development'` or `'production'`).
    * @example
    * ```ts
-   * const config: EngineTypes.IConfig = {
+   * const config: IamEngineTypes.IConfig = {
    *   adapter: new InMemoryAdapter(),
    *   defaultEffect: 'deny',
    *   mode: 'development',
@@ -202,10 +202,10 @@ export namespace EngineTypes {
     TResource extends string = string,
     TRole extends string = string,
     TScope extends string = string,
-    TMode extends AccessControl.Mode = 'development',
+    TMode extends IamAccessControl.Mode = 'development',
   > {
     /** The storage adapter that provides policies, roles, and subject data. */
-    readonly adapter: Adapter.IAdapter<TAction, TResource, TRole, TScope>
+    readonly adapter: IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
     /** The default effect when no rule matches. Defaults to `'deny'`. */
     readonly defaultEffect?: 'allow' | 'deny'
     /** Cache time-to-live in seconds. Defaults to `60`. Set to `0` to disable caching. */
@@ -218,9 +218,9 @@ export namespace EngineTypes {
     readonly mode?: TMode
     /**
      * Strategy for combining decisions across multiple policies. Defaults to
-     * `'and'` (every policy must allow). See {@link AccessControl.PolicyCombine}.
+     * `'and'` (every policy must allow). See {@link IamAccessControl.PolicyCombine}.
      */
-    readonly policyCombine?: AccessControl.PolicyCombine
+    readonly policyCombine?: IamAccessControl.PolicyCombine
     /**
      * Hard ceiling on how many policies the engine will load from its adapter.
      * Loads beyond the cap throw at construction-time of the cache, not
@@ -292,13 +292,13 @@ export namespace EngineTypes {
   export interface IHealth {
     /** Overall result; `false` means the orchestrator should pull this instance. */
     readonly ok: boolean
-    /** Adapter probe outcome. */
+    /** IamAdapter probe outcome. */
     readonly adapter: 'ok' | 'fail'
     /** Aggregate cache hit rate across all caches. `0` when no traffic yet. */
     readonly cacheHitRate: number
     /** Latency of the adapter probe in milliseconds (rounded). */
     readonly adapterLatencyMs: number
-    /** Adapter error message when `adapter === 'fail'`. */
+    /** IamAdapter error message when `adapter === 'fail'`. */
     readonly lastError?: string
   }
 }

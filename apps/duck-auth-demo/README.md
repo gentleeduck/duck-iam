@@ -35,8 +35,8 @@ the `duck-auth-demo-pgdata` volume; `bun run db:down` removes both.
 |------|-------------|--------|
 | Password | `POST /auth/signin` (provider `password`) | always on |
 | Magic-link | `POST /auth/providers/magic-link/begin` then `GET /auth/magic-link/verify?token=…` | always on (link printed to console + `/__dev/outbox`) |
-| Google OAuth | `POST /auth/providers/google/begin` + `GET /auth/providers/google/callback` | requires `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` |
-| GitHub OAuth | `POST /auth/providers/github/begin` + `GET /auth/providers/github/callback` | requires `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` |
+| Google OAuth | `POST /auth/providers/authGoogle/begin` + `GET /auth/providers/authGoogle/callback` | requires `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` |
+| GitHub OAuth | `POST /auth/providers/authGithub/begin` + `GET /auth/providers/authGithub/callback` | requires `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` |
 | Passkey enroll | `POST /auth/passkey/registration/{begin,finish}` | always on |
 | Passkey sign-in | `POST /auth/passkey/authentication/{begin,finish}` | always on |
 | TOTP enroll | `POST /auth/mfa/totp/begin` + `POST /auth/mfa/totp/confirm` | always on |

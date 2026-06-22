@@ -1,16 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import { LRUCache } from '../../../shared/cache'
-import type { AccessControl, Request } from '../../types'
+import { IamLRUCache } from '../../../shared/cache'
+import type { IamAccessControl, IamRequest } from '../../types'
 import { disposeInvalidator, preloadEngine, runHealthCheck } from '../engine.lifecycle'
-import type { ICachesForStats } from '../engine.stats'
+import type { IIamCachesForStats } from '../engine.stats'
 
-function caches(): ICachesForStats {
+function caches(): IIamCachesForStats {
   return {
-    policyCache: new LRUCache<AccessControl.IPolicy[]>(100, 60_000),
-    roleCache: new LRUCache<AccessControl.IRole[]>(100, 60_000),
-    rbacPolicyCache: new LRUCache<AccessControl.IPolicy>(100, 60_000),
-    mergedPolicyCache: new LRUCache<AccessControl.IPolicy[]>(100, 60_000),
-    subjectCache: new LRUCache<Request.ISubject>(100, 60_000),
+    policyCache: new IamLRUCache<IamAccessControl.IPolicy[]>(100, 60_000),
+    roleCache: new IamLRUCache<IamAccessControl.IRole[]>(100, 60_000),
+    rbacPolicyCache: new IamLRUCache<IamAccessControl.IPolicy>(100, 60_000),
+    mergedPolicyCache: new IamLRUCache<IamAccessControl.IPolicy[]>(100, 60_000),
+    subjectCache: new IamLRUCache<IamRequest.ISubject>(100, 60_000),
   }
 }
 

@@ -1,15 +1,15 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18.4-alpine3.24
     restart: unless-stopped
     environment:
       POSTGRES_USER: docduck
       POSTGRES_PASSWORD: docduck
       POSTGRES_DB: docduck
     ports:
-      - '5488:5432'
+      - "5488:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
 
 volumes:
   pgdata:

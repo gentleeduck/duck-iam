@@ -1,16 +1,16 @@
-/** i18n catalogue: zero-dep `I18nMessageCatalog` and Lingui adapter. */
+/** i18n catalogue: zero-dep `AuthI18nMessageCatalog` and Lingui adapter. */
 
 import { AuthErrorObject } from '../core/errors'
 
 /** Zero-dep i18n catalogue. `{{var}}` placeholders only; no escaping / plural rules. */
-export class I18nMessageCatalog implements I18n.IResolver {
-  private readonly _messages: I18n.ICatalogShape
+export class AuthI18nMessageCatalog implements AuthI18n.IResolver {
+  private readonly _messages: AuthI18n.ICatalogShape
   private readonly _defaultLocale: string
 
-  constructor(cfg: I18n.IConfig) {
+  constructor(cfg: AuthI18n.IConfig) {
     if (!cfg.messages || Object.keys(cfg.messages).length === 0) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'I18nMessageCatalog requires a non-empty `messages` object',
+        detail: 'AuthI18nMessageCatalog requires a non-empty `messages` object',
       })
     }
     this._messages = cfg.messages
@@ -39,11 +39,11 @@ export class I18nMessageCatalog implements I18n.IResolver {
 }
 
 /** Lingui adapter. Forwards `t()` to `i18n._()`; concurrent locale switches need one resolver per request. */
-export class LinguiResolver implements I18n.IResolver {
-  constructor(private readonly _i18n: I18n.ILingui) {
+export class AuthLinguiResolver implements AuthI18n.IResolver {
+  constructor(private readonly _i18n: AuthI18n.ILingui) {
     if (!_i18n || typeof _i18n._ !== 'function') {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'LinguiResolver requires a Lingui i18n instance with a `_` method',
+        detail: 'AuthLinguiResolver requires a Lingui i18n instance with a `_` method',
       })
     }
   }
@@ -77,7 +77,7 @@ export class LinguiResolver implements I18n.IResolver {
  * Apps merge in their own catalogue; this gives the library a sane
  * fallback so an English-only deploy works without configuration.
  */
-export const DEFAULT_EN_MESSAGES: Record<string, string> = {
+export const AUTH_DEFAULT_EN_MESSAGES: Record<string, string> = {
   'AUTH/UNAUTHENTICATED': 'Sign in to continue.',
   'AUTH/SESSION_EXPIRED': 'Your session expired. Sign in again.',
   'AUTH/SESSION_REVOKED': 'Your session was revoked. Sign in again.',
@@ -99,7 +99,7 @@ export const DEFAULT_EN_MESSAGES: Record<string, string> = {
   'account-deletion.body': 'Confirm deletion: {{url}} (expires in {{ttlMin}} minutes).',
 }
 
-export namespace I18n {
+export namespace AuthI18n {
   export interface IResolver {
     /** Resolve a message id under the chosen locale; falls back to the default locale. */
     t(messageId: string, opts?: { locale?: string; vars?: Record<string, unknown> }): string
@@ -113,7 +113,7 @@ export namespace I18n {
 
   export interface IConfig {
     /** Catalogue keyed by locale -> messageId -> template. */
-    messages: I18n.ICatalogShape
+    messages: AuthI18n.ICatalogShape
     /** Locale used when the requested one is missing. Default `'en'`. */
     defaultLocale?: string
   }

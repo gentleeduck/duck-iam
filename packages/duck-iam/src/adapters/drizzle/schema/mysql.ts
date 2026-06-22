@@ -13,10 +13,10 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/mysql-core'
-import type { AccessControl, Primitives } from '../../../core/types'
+import type { IamAccessControl, IamPrimitives } from '../../../core/types'
 
 /**
- * MySQL schema for the duck-iam Drizzle adapter.
+ * MySQL schema for the duck-iam IamDrizzle adapter.
  *
  * With the adapter's default `json: 'native'` mode, payload columns hold real
  * `json`; columns are typed with `$type<>()` for read-path safety. CHECK
@@ -32,28 +32,28 @@ import type { AccessControl, Primitives } from '../../../core/types'
  * schema for fuller notes. Constraint naming: `pk_` `fk_` `uq_` `idx_` `ch_`.
  */
 
-/** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
-const COMBINE_ALGORITHMS = [
+/** Allowed combining algorithms, kept in sync with {@link IamAccessControl.CombiningAlgorithm}. */
+const IAM_COMBINE_ALGORITHMS = [
   'deny-overrides',
   'allow-overrides',
   'first-match',
   'highest-priority',
-] as const satisfies readonly AccessControl.CombiningAlgorithm[]
+] as const satisfies readonly IamAccessControl.CombiningAlgorithm[]
 
 /** Per-row current timestamp with millisecond precision. */
 const nowMs = sql`CURRENT_TIMESTAMP(3)`
 
 /** Stored ABAC policies. */
-export const accessPolicies = mysqlTable(
+export const iamPolicies = mysqlTable(
   'access_policies',
   {
     id: varchar('id', { length: 191 }).notNull(),
     name: varchar('name', { length: 191 }).notNull(),
     description: varchar('description', { length: 1024 }),
     version: int('version').notNull().default(1),
-    algorithm: mysqlEnum('algorithm', COMBINE_ALGORITHMS).notNull().default('deny-overrides'),
-    rules: json('rules').$type<AccessControl.IRule[]>().notNull(),
-    targets: json('targets').$type<NonNullable<AccessControl.IPolicy['targets']>>(),
+    algorithm: mysqlEnum('algorithm', IAM_COMBINE_ALGORITHMS).notNull().default('deny-overrides'),
+    rules: json('rules').$type<IamAccessControl.IRule[]>().notNull(),
+    targets: json('targets').$type<NonNullable<IamAccessControl.IPolicy['targets']>>(),
     createdBy: varchar('created_by', { length: 191 }),
     updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
@@ -71,16 +71,16 @@ export const accessPolicies = mysqlTable(
 )
 
 /** Stored RBAC roles. `inherits` is a JSON array of parent role IDs. */
-export const accessRoles = mysqlTable(
+export const iamRoles = mysqlTable(
   'access_roles',
   {
     id: varchar('id', { length: 191 }).notNull(),
     name: varchar('name', { length: 191 }).notNull(),
     description: varchar('description', { length: 1024 }),
-    permissions: json('permissions').$type<AccessControl.IPermission[]>().notNull(),
+    permissions: json('permissions').$type<IamAccessControl.IPermission[]>().notNull(),
     inherits: json('inherits').$type<string[]>().notNull(),
     scope: varchar('scope', { length: 191 }),
-    metadata: json('metadata').$type<Primitives.Attributes>(),
+    metadata: json('metadata').$type<IamPrimitives.Attributes>(),
     createdBy: varchar('created_by', { length: 191 }),
     updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
@@ -99,7 +99,7 @@ export const accessRoles = mysqlTable(
 )
 
 /** Subject-to-role assignments. NULL scope is a global (unscoped) grant. */
-export const accessAssignments = mysqlTable(
+export const iamAssignments = mysqlTable(
   'access_assignments',
   {
     id: varchar('id', { length: 191 }).$defaultFn(() => crypto.randomUUID()),
@@ -114,7 +114,7 @@ export const accessAssignments = mysqlTable(
     foreignKey({
       name: 'fk_access_assignments_role',
       columns: [t.roleId],
-      foreignColumns: [accessRoles.id],
+      foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
     // COALESCE collapses NULL scopes so duplicate global grants conflict.
     uniqueIndex('uq_access_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`(coalesce(${t.scope}, ''))`),
@@ -125,11 +125,11 @@ export const accessAssignments = mysqlTable(
 )
 
 /** Per-subject attribute bags, one row per subject. */
-export const accessSubjectAttrs = mysqlTable(
+export const iamSubjectAttrs = mysqlTable(
   'access_subject_attrs',
   {
     subjectId: varchar('subject_id', { length: 191 }).notNull(),
-    data: json('data').$type<Primitives.Attributes>().notNull(),
+    data: json('data').$type<IamPrimitives.Attributes>().notNull(),
     updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
     updatedAt: datetime('updated_at', { fsp: 3 })

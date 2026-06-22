@@ -1,8 +1,8 @@
-import type { AccessControl, Adapter, Primitives, Request } from '../../core/types'
+import type { IamAccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 
-export namespace Memory {
+export namespace IamMemory {
   /**
-   * Describes initial seed data for {@link MemoryAdapter}.
+   * Describes initial seed data for {@link IamMemoryAdapter}.
    *
    * @template TAction - Constrains valid action strings.
    * @template TResource - Constrains valid resource strings.
@@ -16,42 +16,42 @@ export namespace Memory {
     TScope extends string = string,
   > {
     /** Seeds the adapter with these policies on construction. */
-    policies?: AccessControl.IPolicy<TAction, TResource, TRole>[]
+    policies?: IamAccessControl.IPolicy<TAction, TResource, TRole>[]
     /** Seeds the adapter with these roles on construction. */
-    roles?: AccessControl.IRole<TAction, TResource, TRole, TScope>[]
+    roles?: IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]
     /** Maps subject IDs to their initial unscoped roles. */
     assignments?: Record<string, TRole[]>
     /** Maps subject IDs to their initial attribute bag. */
-    attributes?: Record<string, Primitives.Attributes>
+    attributes?: Record<string, IamPrimitives.Attributes>
   }
 }
 
 /**
- * In-memory {@link Adapter.IAdapter} backed by `Map` storage; tests + prototypes only.
+ * In-memory {@link IamAdapter.IAdapter} backed by `Map` storage; tests + prototypes only.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
  */
-export class MemoryAdapter<
+export class IamMemoryAdapter<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-> implements Adapter.IAdapter<TAction, TResource, TRole, TScope>
+> implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
-  private _policies = new Map<string, AccessControl.IPolicy<TAction, TResource, TRole>>()
-  private _roles = new Map<string, AccessControl.IRole<TAction, TResource, TRole, TScope>>()
+  private _policies = new Map<string, IamAccessControl.IPolicy<TAction, TResource, TRole>>()
+  private _roles = new Map<string, IamAccessControl.IRole<TAction, TResource, TRole, TScope>>()
   private _assignments = new Map<string, Array<{ role: TRole; scope?: TScope }>>()
-  private _attributes = new Map<string, Primitives.Attributes>()
+  private _attributes = new Map<string, IamPrimitives.Attributes>()
 
   /**
    * Creates a new in-memory adapter, optionally seeded with initial data.
    *
    * @param init - Provides optional seed policies, roles, assignments, and attributes.
    */
-  constructor(init?: Memory.IInit<TAction, TResource, TRole, TScope>) {
+  constructor(init?: IamMemory.IInit<TAction, TResource, TRole, TScope>) {
     for (const p of init?.policies ?? []) this._policies.set(p.id, p)
     for (const r of init?.roles ?? []) this._roles.set(r.id, r)
     for (const [uid, roles] of Object.entries(init?.assignments ?? {})) {
@@ -71,7 +71,7 @@ export class MemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies currently held in memory.
    */
-  async listPolicies(_opts?: Adapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
+  async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole>[]> {
     return [...this._policies.values()]
   }
 
@@ -84,8 +84,8 @@ export class MemoryAdapter<
    */
   async getPolicy(
     id: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IPolicy<TAction, TResource, TRole> | null> {
     return this._policies.get(id) ?? null
   }
 
@@ -95,7 +95,7 @@ export class MemoryAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the write completes.
    */
-  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(p: IamAccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     this._policies.set(p.id, p)
   }
 
@@ -115,7 +115,7 @@ export class MemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles currently held in memory.
    */
-  async listRoles(_opts?: Adapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     return [...this._roles.values()]
   }
 
@@ -128,8 +128,8 @@ export class MemoryAdapter<
    */
   async getRole(
     id: string,
-    _opts?: Adapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
+    _opts?: IamAdapter.IReadOptions,
+  ): Promise<IamAccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     return this._roles.get(id) ?? null
   }
 
@@ -139,7 +139,7 @@ export class MemoryAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the write completes.
    */
-  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(r: IamAccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     this._roles.set(r.id, r)
   }
 
@@ -160,7 +160,7 @@ export class MemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Deduplicated array of role IDs without any scope binding.
    */
-  async getSubjectRoles(id: string, _opts?: Adapter.IReadOptions): Promise<TRole[]> {
+  async getSubjectRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     const entries = this._assignments.get(id) ?? []
     return [...new Set(entries.filter((e) => e.scope == null).map((e) => e.role))]
   }
@@ -172,7 +172,7 @@ export class MemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns Array of `(role, scope)` pairs for scoped assignments only.
    */
-  async getSubjectScopedRoles(id: string, _opts?: Adapter.IReadOptions): Promise<Request.IScopedRole<TRole, TScope>[]> {
+  async getSubjectScopedRoles(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     const hasScope = (e: { role: TRole; scope?: TScope }): e is { role: TRole; scope: TScope } => e.scope != null
     return (this._assignments.get(id) ?? []).filter(hasScope).map((e) => ({ role: e.role, scope: e.scope }))
   }
@@ -225,7 +225,7 @@ export class MemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns The subject's attributes or `{}` when none are recorded.
    */
-  async getSubjectAttributes(id: string, _opts?: Adapter.IReadOptions): Promise<Primitives.Attributes> {
+  async getSubjectAttributes(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     return this._attributes.get(id) ?? {}
   }
 
@@ -236,7 +236,7 @@ export class MemoryAdapter<
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the merge completes.
    */
-  async setSubjectAttributes(id: string, attrs: Primitives.Attributes): Promise<void> {
+  async setSubjectAttributes(id: string, attrs: IamPrimitives.Attributes): Promise<void> {
     if (typeof attrs !== 'object' || attrs === null || Array.isArray(attrs)) {
       const got = attrs === null ? 'null' : Array.isArray(attrs) ? 'array' : typeof attrs
       throw new Error(`[@gentleduck/iam:memory] attributes for "${id}" must be a plain object (got ${got})`)

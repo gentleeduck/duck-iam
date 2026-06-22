@@ -1,4 +1,4 @@
-export namespace RedisLike {
+export namespace AuthRedisLike {
   /**
    * Minimal Redis interface the auth adapters consume. Both `ioredis`
    * and `@upstash/redis` already implement this surface; consumers
@@ -40,7 +40,7 @@ export namespace RedisLike {
  * adapter shape without a real Redis dependency at runtime. Same surface
  * as ioredis / upstash; TTLs honored via setTimeout cleanup on read.
  */
-export class FakeRedis implements RedisLike.IClient {
+export class AuthFakeRedis implements AuthRedisLike.IClient {
   private readonly _data = new Map<string, { value: string; expiresAt: number | null }>()
   private readonly _sets = new Map<string, Set<string>>()
   private readonly _channels = new Map<string, Set<(channel: string, message: string) => void | Promise<void>>>()
@@ -52,14 +52,14 @@ export class FakeRedis implements RedisLike.IClient {
     }
   }
 
-  /** `RedisLike.get` substitute. Returns null on miss or after TTL elapsed. */
+  /** `AuthRedisLike.get` substitute. Returns null on miss or after TTL elapsed. */
   async get(key: string): Promise<string | null> {
     this._maybeExpire(key)
     return this._data.get(key)?.value ?? null
   }
 
   /**
-   * `RedisLike.set` with optional `EX` (TTL seconds) + `NX` (only-if-absent).
+   * `AuthRedisLike.set` with optional `EX` (TTL seconds) + `NX` (only-if-absent).
    * Returns 'OK' on success, null when NX condition fails.
    */
   async set(key: string, value: string, opts: { ex?: number; nx?: boolean } = {}): Promise<'OK' | null> {
@@ -72,7 +72,7 @@ export class FakeRedis implements RedisLike.IClient {
     return 'OK'
   }
 
-  /** `RedisLike.del` variadic. Returns count of keys actually removed. */
+  /** `AuthRedisLike.del` variadic. Returns count of keys actually removed. */
   async del(...keys: string[]): Promise<number> {
     let deleted = 0
     for (const k of keys) {
@@ -82,7 +82,7 @@ export class FakeRedis implements RedisLike.IClient {
   }
 
   /**
-   * `RedisLike.expire` (re)sets TTL on a live key. Returns 1 on success,
+   * `AuthRedisLike.expire` (re)sets TTL on a live key. Returns 1 on success,
    * 0 when the key does not exist.
    */
   async expire(key: string, seconds: number): Promise<number> {
@@ -94,7 +94,7 @@ export class FakeRedis implements RedisLike.IClient {
   }
 
   /**
-   * `RedisLike.scan` cursor pagination. Match patterns honor `*` wildcard.
+   * `AuthRedisLike.scan` cursor pagination. Match patterns honor `*` wildcard.
    * Walks both string keys and set keys (real Redis SCAN is type-agnostic).
    */
   async scan(cursor: string, opts: { match?: string; count?: number } = {}): Promise<[string, string[]]> {
@@ -117,7 +117,7 @@ export class FakeRedis implements RedisLike.IClient {
     return [nextCursor, matched]
   }
 
-  /** `RedisLike.incr` atomic increment. Creates the key at 1 when missing. */
+  /** `AuthRedisLike.incr` atomic increment. Creates the key at 1 when missing. */
   async incr(key: string): Promise<number> {
     this._maybeExpire(key)
     const entry = this._data.get(key)
@@ -130,7 +130,7 @@ export class FakeRedis implements RedisLike.IClient {
     return next
   }
 
-  /** `RedisLike.sadd` variadic. Returns count of new members. */
+  /** `AuthRedisLike.sadd` variadic. Returns count of new members. */
   async sadd(key: string, ...members: string[]): Promise<number> {
     let set = this._sets.get(key)
     if (!set) {
@@ -147,7 +147,7 @@ export class FakeRedis implements RedisLike.IClient {
     return added
   }
 
-  /** `RedisLike.srem` variadic. Returns count of removed members. */
+  /** `AuthRedisLike.srem` variadic. Returns count of removed members. */
   async srem(key: string, ...members: string[]): Promise<number> {
     const set = this._sets.get(key)
     if (!set) return 0
@@ -159,7 +159,7 @@ export class FakeRedis implements RedisLike.IClient {
     return removed
   }
 
-  /** `RedisLike.smembers`. Returns empty array when key missing. */
+  /** `AuthRedisLike.smembers`. Returns empty array when key missing. */
   async smembers(key: string): Promise<string[]> {
     return [...(this._sets.get(key) ?? [])]
   }

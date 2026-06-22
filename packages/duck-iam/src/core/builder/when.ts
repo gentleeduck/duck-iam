@@ -1,17 +1,17 @@
-import type { AccessControl, DotPath, Primitives } from '../types'
+import type { IamAccessControl, IamDotPath, IamPrimitives } from '../types'
 /**
  * Fluent condition builder for duck-iam rules and role permissions.
  *
- * `When` accumulates a list of {@link AccessControl.ICondition} and nested {@link AccessControl.IConditionGroup}
+ * `IamWhen` accumulates a list of {@link IamAccessControl.ICondition} and nested {@link IamAccessControl.IConditionGroup}
  * items and then emits them as an `all` (AND), `any` (OR), or `none` (NOT) group
  * via the terminal build methods. It is used as the callback argument in
- * {@link RuleBuilder.when}, {@link RuleBuilder.whenAny}, and
- * {@link RoleBuilder.grantWhen}.
+ * {@link IamRuleBuilder.when}, {@link IamRuleBuilder.whenAny}, and
+ * {@link IamRoleBuilder.grantWhen}.
  *
  * @example
  * ```ts
  * // Inside a rule
- * defineRule('expense.approve')
+ * iamDefineRule('expense.approve')
  *   .allow()
  *   .on('approve').of('expense')
  *   .when(w => w
@@ -20,7 +20,7 @@ import type { AccessControl, DotPath, Primitives } from '../types'
  *   )
  *
  * // Nested OR inside an AND
- * defineRule('post.edit')
+ * iamDefineRule('post.edit')
  *   .allow()
  *   .on('update').of('post')
  *   .when(w => w
@@ -34,25 +34,25 @@ import type { AccessControl, DotPath, Primitives } from '../types'
  * @template TRole           - Union of valid role ID strings
  * @template TScope          - Union of valid scope strings
  * @template TContext        - Shape of the full evaluation context for typed dot-paths
- * @template TActiveResource - Resource narrowed by the parent `RuleBuilder.of()` (typed `resourceAttr`)
+ * @template TActiveResource - Resource narrowed by the parent `IamRuleBuilder.of()` (typed `resourceAttr`)
  */
-export class When<
+export class IamWhen<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-  TContext extends object = DotPath.IDefaultContext,
+  TContext extends object = IamDotPath.IDefaultContext,
   TActiveResource extends string = string,
 > {
-  private _items: Array<AccessControl.ICondition | AccessControl.IConditionGroup> = []
+  private _items: Array<IamAccessControl.ICondition | IamAccessControl.IConditionGroup> = []
 
   /**
-   * Appends a raw {@link AccessControl.ICondition} to the builder with fully typed dot-path
+   * Appends a raw {@link IamAccessControl.ICondition} to the builder with fully typed dot-path
    * field access. The `field` parameter is constrained to valid paths within
    * `TContext`, and `value` is inferred from the type at that path.
    *
    * @param field - Dot-path to the attribute being tested (e.g. `'subject.attributes.tier'`)
-   * @param op    - The {@link AccessControl.Operator} to apply
+   * @param op    - The {@link IamAccessControl.Operator} to apply
    * @param value - The right-hand side value (omit for `exists`)
    * @returns `this` for chaining
    *
@@ -65,10 +65,10 @@ export class When<
    * ```
    * @returns `this` for chaining.
    */
-  check<P extends DotPath.FlexibleDotPaths<TContext>>(
+  check<P extends IamDotPath.FlexibleDotPaths<TContext>>(
     field: P,
-    op: AccessControl.Operator,
-    value?: DotPath.FieldValue<TContext, P> | DotPath.FlexibleDollarPaths<TContext>,
+    op: IamAccessControl.Operator,
+    value?: IamDotPath.FieldValue<TContext, P> | IamDotPath.FlexibleDollarPaths<TContext>,
   ): this {
     this._items.push({ field, operator: op, value })
     return this
@@ -81,9 +81,9 @@ export class When<
    * @param value - Expected value (inferred from path type)
    * @returns `this` for chaining
    */
-  eq<P extends DotPath.FlexibleDotPaths<TContext>>(
+  eq<P extends IamDotPath.FlexibleDotPaths<TContext>>(
     field: P,
-    value: DotPath.FieldValue<TContext, P> | DotPath.FlexibleDollarPaths<TContext>,
+    value: IamDotPath.FieldValue<TContext, P> | IamDotPath.FlexibleDollarPaths<TContext>,
   ): this {
     this._items.push({ field, operator: 'eq', value })
     return this
@@ -96,9 +96,9 @@ export class When<
    * @param value - Value the field must not equal
    * @returns `this` for chaining
    */
-  neq<P extends DotPath.FlexibleDotPaths<TContext>>(
+  neq<P extends IamDotPath.FlexibleDotPaths<TContext>>(
     field: P,
-    value: DotPath.FieldValue<TContext, P> | DotPath.FlexibleDollarPaths<TContext>,
+    value: IamDotPath.FieldValue<TContext, P> | IamDotPath.FlexibleDollarPaths<TContext>,
   ): this {
     this._items.push({ field, operator: 'neq', value })
     return this
@@ -111,11 +111,11 @@ export class When<
    * @param values - Array of acceptable values
    * @returns `this` for chaining
    */
-  in<P extends DotPath.FlexibleDotPaths<TContext>>(
+  in<P extends IamDotPath.FlexibleDotPaths<TContext>>(
     field: P,
-    values: Array<DotPath.FieldValue<TContext, P> | DotPath.FlexibleDollarPaths<TContext>>,
+    values: Array<IamDotPath.FieldValue<TContext, P> | IamDotPath.FlexibleDollarPaths<TContext>>,
   ): this {
-    this._items.push({ field, operator: 'in', value: values as Primitives.AttributeValue })
+    this._items.push({ field, operator: 'in', value: values as IamPrimitives.AttributeValue })
     return this
   }
 
@@ -129,7 +129,7 @@ export class When<
    * @param value - The value that must be present in the array
    * @returns `this` for chaining
    */
-  contains<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: string): this {
+  contains<P extends IamDotPath.FlexibleDotPaths<TContext>>(field: P, value: string): this {
     this._items.push({ field, operator: 'contains', value })
     return this
   }
@@ -140,7 +140,7 @@ export class When<
    * @param field - Typed dot-path attribute path to check for existence
    * @returns `this` for chaining
    */
-  exists<P extends DotPath.FlexibleDotPaths<TContext>>(field: P): this {
+  exists<P extends IamDotPath.FlexibleDotPaths<TContext>>(field: P): this {
     this._items.push({ field, operator: 'exists' })
     return this
   }
@@ -152,7 +152,7 @@ export class When<
    * @param value - Numeric lower bound (exclusive)
    * @returns `this` for chaining
    */
-  gt<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
+  gt<P extends IamDotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'gt', value })
     return this
   }
@@ -164,7 +164,7 @@ export class When<
    * @param value - Numeric lower bound (inclusive)
    * @returns `this` for chaining
    */
-  gte<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
+  gte<P extends IamDotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'gte', value })
     return this
   }
@@ -176,7 +176,7 @@ export class When<
    * @param value - Numeric upper bound (exclusive)
    * @returns `this` for chaining
    */
-  lt<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
+  lt<P extends IamDotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'lt', value })
     return this
   }
@@ -188,7 +188,7 @@ export class When<
    * @param value - Numeric upper bound (inclusive)
    * @returns `this` for chaining
    */
-  lte<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
+  lte<P extends IamDotPath.FlexibleDotPaths<TContext>>(field: P, value: number): this {
     this._items.push({ field, operator: 'lte', value })
     return this
   }
@@ -200,7 +200,7 @@ export class When<
    * @param regex - Regular expression pattern (as a string)
    * @returns `this` for chaining
    */
-  matches<P extends DotPath.FlexibleDotPaths<TContext>>(field: P, regex: string): this {
+  matches<P extends IamDotPath.FlexibleDotPaths<TContext>>(field: P, regex: string): this {
     this._items.push({ field, operator: 'matches', value: regex })
     return this
   }
@@ -277,7 +277,7 @@ export class When<
    * @returns `this` for chaining
    */
   isOwner(
-    ownerField: DotPath.FlexibleDotPaths<TContext> = 'resource.attributes.ownerId' as DotPath.FlexibleDotPaths<TContext>,
+    ownerField: IamDotPath.FlexibleDotPaths<TContext> = 'resource.attributes.ownerId' as IamDotPath.FlexibleDotPaths<TContext>,
   ): this {
     this._items.push({ field: ownerField, operator: 'eq', value: '$subject.id' })
     return this
@@ -308,16 +308,16 @@ export class When<
    * ```
    *
    * @param path  - Typed attribute key under `subject.attributes`
-   * @param op    - The {@link AccessControl.Operator} to apply
+   * @param op    - The {@link IamAccessControl.Operator} to apply
    * @param value - Right-hand side value (inferred from type)
    * @returns `this` for chaining
    */
-  attr<K extends DotPath.SubjectAttrs<TContext> & string>(
+  attr<K extends IamDotPath.SubjectAttrs<TContext> & string>(
     path: K,
-    op: AccessControl.Operator,
+    op: IamAccessControl.Operator,
     value?:
-      | DotPath.ConditionValue<TContext, DotPath.AttrValue<DotPath.SubjectAttrShape<TContext>, K>>
-      | DotPath.FlexibleDollarPaths<TContext>,
+      | IamDotPath.ConditionValue<TContext, IamDotPath.AttrValue<IamDotPath.SubjectAttrShape<TContext>, K>>
+      | IamDotPath.FlexibleDollarPaths<TContext>,
   ): this {
     this._items.push({ field: `subject.attributes.${path}`, operator: op, value })
     return this
@@ -335,16 +335,16 @@ export class When<
    * ```
    *
    * @param path  - Typed attribute key under `resource.attributes`
-   * @param op    - The {@link AccessControl.Operator} to apply
+   * @param op    - The {@link IamAccessControl.Operator} to apply
    * @param value - Right-hand side value (inferred from type)
    * @returns `this` for chaining
    */
-  resourceAttr<K extends DotPath.ResolvedResourceAttrPaths<TContext, TActiveResource> & string>(
+  resourceAttr<K extends IamDotPath.ResolvedResourceAttrPaths<TContext, TActiveResource> & string>(
     path: K,
-    op: AccessControl.Operator,
+    op: IamAccessControl.Operator,
     value?:
-      | DotPath.ConditionValue<TContext, DotPath.AttrValue<DotPath.ResolvedResourceAttrs<TContext, TActiveResource>, K>>
-      | DotPath.FlexibleDollarPaths<TContext>,
+      | IamDotPath.ConditionValue<TContext, IamDotPath.AttrValue<IamDotPath.ResolvedResourceAttrs<TContext, TActiveResource>, K>>
+      | IamDotPath.FlexibleDollarPaths<TContext>,
   ): this {
     this._items.push({ field: `resource.attributes.${path}`, operator: op, value })
     return this
@@ -363,16 +363,16 @@ export class When<
    * ```
    *
    * @param path  - Typed attribute key under `environment`
-   * @param op    - The {@link AccessControl.Operator} to apply
+   * @param op    - The {@link IamAccessControl.Operator} to apply
    * @param value - Right-hand side value (inferred from type)
    * @returns `this` for chaining
    */
-  env<K extends DotPath.EnvAttrs<TContext> & string>(
+  env<K extends IamDotPath.EnvAttrs<TContext> & string>(
     path: K,
-    op: AccessControl.Operator,
+    op: IamAccessControl.Operator,
     value?:
-      | DotPath.ConditionValue<TContext, DotPath.AttrValue<DotPath.EnvAttrShape<TContext>, K>>
-      | DotPath.FlexibleDollarPaths<TContext>,
+      | IamDotPath.ConditionValue<TContext, IamDotPath.AttrValue<IamDotPath.EnvAttrShape<TContext>, K>>
+      | IamDotPath.FlexibleDollarPaths<TContext>,
   ): this {
     this._items.push({ field: `environment.${path}`, operator: op, value })
     return this
@@ -389,15 +389,15 @@ export class When<
    * w.and(a => a.attr('tier', 'eq', 'premium').env('region', 'eq', 'us'))
    * ```
    *
-   * @param fn - Callback that receives a nested {@link When} and returns it
+   * @param fn - Callback that receives a nested {@link IamWhen} and returns it
    * @returns `this` for chaining
    */
   and(
     fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+      w: IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
-    const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
+    const nested = new IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(nested)
     this._items.push(nested.buildAll())
     return this
@@ -414,15 +414,15 @@ export class When<
    * // passes if subject is owner OR has the admin role
    * ```
    *
-   * @param fn - Callback that receives a nested {@link When} and returns it
+   * @param fn - Callback that receives a nested {@link IamWhen} and returns it
    * @returns `this` for chaining
    */
   or(
     fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+      w: IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
-    const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
+    const nested = new IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(nested)
     this._items.push(nested.buildAny())
     return this
@@ -440,15 +440,15 @@ export class When<
    * // passes if subject.attributes.status is NOT 'banned'
    * ```
    *
-   * @param fn - Callback that receives a nested {@link When} and returns it
+   * @param fn - Callback that receives a nested {@link IamWhen} and returns it
    * @returns `this` for chaining
    */
   not(
     fn: (
-      w: When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
-    ) => When<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+      w: IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
+    ) => IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>,
   ): this {
-    const nested = new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
+    const nested = new IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
     fn(nested)
     this._items.push(nested.buildNone())
     return this
@@ -458,11 +458,11 @@ export class When<
    * Emits the accumulated conditions as an ALL-of (`{ all: [...] }`) group.
    *
    * Every condition in the list must hold. This is the default used by
-   * {@link RuleBuilder.when} and {@link RoleBuilder.grantWhen}.
+   * {@link IamRuleBuilder.when} and {@link IamRoleBuilder.grantWhen}.
    *
    * @returns A readonly `all` condition group
    */
-  buildAll(): { readonly all: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
+  buildAll(): { readonly all: ReadonlyArray<IamAccessControl.ICondition | IamAccessControl.IConditionGroup> } {
     return { all: this._items }
   }
 
@@ -470,11 +470,11 @@ export class When<
    * Emits the accumulated conditions as an ANY-of (`{ any: [...] }`) group.
    *
    * At least one condition in the list must hold. Used by
-   * {@link RuleBuilder.whenAny}.
+   * {@link IamRuleBuilder.whenAny}.
    *
    * @returns A readonly `any` condition group
    */
-  buildAny(): { readonly any: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
+  buildAny(): { readonly any: ReadonlyArray<IamAccessControl.ICondition | IamAccessControl.IConditionGroup> } {
     return { any: this._items }
   }
 
@@ -486,15 +486,15 @@ export class When<
    *
    * @returns A readonly `none` condition group
    */
-  buildNone(): { readonly none: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
+  buildNone(): { readonly none: ReadonlyArray<IamAccessControl.ICondition | IamAccessControl.IConditionGroup> } {
     return { none: this._items }
   }
 }
 
 /**
- * Creates a standalone {@link When} condition builder.
+ * Creates a standalone {@link IamWhen} condition builder.
  *
- * Useful when you need to construct a {@link AccessControl.IConditionGroup} outside of a
+ * Useful when you need to construct a {@link IamAccessControl.IConditionGroup} outside of a
  * rule or role builder - for example, to build a reusable condition and
  * spread it across multiple rules.
  *
@@ -507,20 +507,20 @@ export class When<
  *   .buildAll()
  * ```
  *
- * @returns A new {@link When} instance
+ * @returns A new {@link IamWhen} instance
  *
  * @template TAction         - Union of valid action strings
  * @template TResource       - Union of valid resource strings
  * @template TRole           - Union of valid role ID strings
  * @template TScope          - Union of valid scope strings
  * @template TContext        - Shape of the full evaluation context for typed dot-paths
- * @template TActiveResource - Resource narrowed by the parent `RuleBuilder.of()` (typed `resourceAttr`)
+ * @template TActiveResource - Resource narrowed by the parent `IamRuleBuilder.of()` (typed `resourceAttr`)
  */
-export const when = <
+export const iamWhen = <
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
   TRole extends string = string,
-  TContext extends object = DotPath.IDefaultContext,
+  TContext extends object = IamDotPath.IDefaultContext,
   TActiveResource extends string = string,
->() => new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()
+>() => new IamWhen<TAction, TResource, TRole, TScope, TContext, TActiveResource>()

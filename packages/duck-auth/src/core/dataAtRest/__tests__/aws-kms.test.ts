@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import { AwsKmsProvider } from '../aws-kms'
-import { KmsEnvelopeDataAtRest } from '../kms-envelope'
+import { AuthAwsKmsProvider } from '../aws-kms'
+import { AuthKmsEnvelopeDataAtRest } from '../kms-envelope'
 
 /** Mock `KmsClient.send` that matches the AWS SDK call shape. */
 function makeClient() {
@@ -45,20 +45,20 @@ vi.mock('@aws-sdk/client-kms', () => ({
   },
 }))
 
-describe('AwsKmsProvider (with mocked @aws-sdk/client-kms)', () => {
+describe('AuthAwsKmsProvider (with mocked @aws-sdk/client-kms)', () => {
   it('generateDataKey returns plaintext + ciphertext + keyId', async () => {
     const client = makeClient()
-    const p = new AwsKmsProvider({ client, keyId: 'alias/duck' })
+    const p = new AuthAwsKmsProvider({ client, keyId: 'alias/duck' })
     const dek = await p.generateDataKey({ field: 'ssn', identityId: 'u1' })
     expect(dek.plaintext).toHaveLength(32)
     expect(dek.ciphertext.length).toBeGreaterThan(0)
     expect(dek.keyId).toBe('k1')
   })
 
-  it('end-to-end with KmsEnvelopeDataAtRest', async () => {
+  it('end-to-end with AuthKmsEnvelopeDataAtRest', async () => {
     const client = makeClient()
-    const provider = new AwsKmsProvider({ client, keyId: 'alias/duck' })
-    const a = new KmsEnvelopeDataAtRest({ kms: provider })
+    const provider = new AuthAwsKmsProvider({ client, keyId: 'alias/duck' })
+    const a = new AuthKmsEnvelopeDataAtRest({ kms: provider })
     const ct = await a.encrypt('hello', { field: 'phone', identityId: 'u1' })
     const plain = await a.decrypt(ct, { field: 'phone', identityId: 'u1' })
     expect(plain).toBe('hello')
@@ -66,7 +66,7 @@ describe('AwsKmsProvider (with mocked @aws-sdk/client-kms)', () => {
 
   it('forwards EncryptionContext to AWS', async () => {
     const client = makeClient()
-    const p = new AwsKmsProvider({ client, keyId: 'alias/duck' })
+    const p = new AuthAwsKmsProvider({ client, keyId: 'alias/duck' })
     await p.generateDataKey({ field: 'ssn', identityId: 'u1' })
     expect(client.send).toHaveBeenCalledWith(
       expect.objectContaining({

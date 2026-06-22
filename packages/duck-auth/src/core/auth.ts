@@ -1,6 +1,6 @@
-import { randomToken, sha256, timingSafeEqual } from './crypto'
+import { authRandomToken, authSha256, authTimingSafeEqual } from './crypto'
 import { AuthErrorObject } from './errors'
-import { InMemoryEvents } from './events'
+import { AuthInMemoryEvents } from './events'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from './facets/anomaly'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from './facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from './facets/flows'
@@ -13,27 +13,27 @@ import { OrgsFacet } from './facets/orgs'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from './facets/passwords'
 import { ProvidersFacet } from './facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from './facets/sessions'
-import { ScryptHasher } from './password/scrypt'
-import { PluginRegistry } from './plugin'
-import type { Credential } from './types/credential'
-import type { Events } from './types/events'
-import type { Hasher } from './types/hasher'
-import type { Identity } from './types/identity'
-import type { Limiter, Limiter as LimiterNs } from './types/limiter'
-import type { Org } from './types/org'
-import type { Provider } from './types/provider'
-import type { Session } from './types/session'
-import type { Transport } from './types/transport'
+import { AuthScryptHasher } from './password/scrypt'
+import { AuthPluginRegistry } from './plugin'
+import type { AuthCredential } from './types/credential'
+import type { AuthEvents } from './types/events'
+import type { AuthHasher } from './types/hasher'
+import type { AuthIdentity } from './types/identity'
+import type { AuthLimiter, AuthLimiter as LimiterNs } from './types/limiter'
+import type { AuthOrg } from './types/org'
+import type { AuthProvider } from './types/provider'
+import type { AuthSession } from './types/session'
+import type { AuthTransport } from './types/transport'
 
 /**
  * Faceted authentication root. Composition surface only - every operation
  * lives on a facet (sessions, identities, providers, mfa, flows, ...).
  * Facets are added one at a time as features land.
  */
-export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  readonly config: AuthRoot.IConfig<Profile, Tenant, OrgMeta>
-  readonly events: Events.IBus
-  readonly transport: Transport.ITransport
+export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
+  readonly config: AuthEngine.IConfig<Profile, Tenant, OrgMeta>
+  readonly events: AuthEvents.IBus
+  readonly transport: AuthTransport.ITransport
   readonly sessions: SessionsFacet
   readonly identities: IdentitiesFacet<Profile>
   readonly passwords: PasswordsFacet
@@ -43,17 +43,17 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly orgs: OrgsFacet<OrgMeta> | null
   readonly flows: FlowsFacet<Profile>
   readonly limiter: LimiterNs.ILimiter
-  readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
+  readonly plugins: AuthPluginRegistry<Profile, Tenant, OrgMeta>
   readonly operations: OperationsFacet
   readonly idempotency: IdempotencyFacet
   readonly hijack: HijackFacet
   readonly anomaly: AnomalyFacet
 
-  constructor(config: AuthRoot.IConfig<Profile, Tenant, OrgMeta>) {
+  constructor(config: AuthEngine.IConfig<Profile, Tenant, OrgMeta>) {
     this.config = config
-    this.events = config.events ?? new InMemoryEvents()
+    this.events = config.events ?? new AuthInMemoryEvents()
     this.transport = config.transport
-    this.limiter = config.limiter ?? new NoopLimiter()
+    this.limiter = config.limiter ?? new AuthNoopLimiter()
     this.sessions = new SessionsFacet(config.stores.sessions, this.events, {
       ttlMs: config.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
       absoluteTtlMs: config.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
@@ -64,7 +64,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
-    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
+    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new AuthScryptHasher(), {
       minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
       maxLength: config.passwords?.maxLength ?? DEFAULT_PASSWORDS_CONFIG.maxLength,
       rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
@@ -78,14 +78,14 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     this.apiKeys = new ApiKeysFacet(
       config.stores.credentials,
       this.events,
-      { randomToken, sha256 },
+      { authRandomToken, authSha256 },
       {
         prefix: config.apiKeys?.prefix ?? DEFAULT_APIKEYS_CONFIG.prefix,
         randomBytes: config.apiKeys?.randomBytes ?? DEFAULT_APIKEYS_CONFIG.randomBytes,
       },
     )
     this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
-    this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
+    this.plugins = new AuthPluginRegistry<Profile, Tenant, OrgMeta>()
     this.operations = new OperationsFacet(this.events)
     this.idempotency = new IdempotencyFacet(new MemoryIdempotencyStore(), DEFAULT_IDEMPOTENCY_CONFIG)
     this.hijack = new HijackFacet(this.events, config.hijack ?? {})
@@ -103,9 +103,9 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
         limiter: this.limiter,
         events: this.events,
         crypto: {
-          randomToken: (bytes) => randomToken(bytes),
-          sha256: (s) => sha256(s),
-          timingSafeEqual,
+          authRandomToken: (bytes) => authRandomToken(bytes),
+          authSha256: (s) => authSha256(s),
+          authTimingSafeEqual,
         },
       }),
       this.passwords,
@@ -118,15 +118,15 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
    * Resolve the current session from the request. Returns `null` when no
    * transport token is present or the token doesn't match a live session.
    *
-   * Delegates to {@link Transport.verify} when the transport can verify
-   * stateless tokens (JWT); otherwise looks up via {@link Session.IStore}.
+   * Delegates to {@link AuthTransport.verify} when the transport can verify
+   * stateless tokens (JWT); otherwise looks up via {@link AuthSession.IStore}.
    */
   async resolveSession(
     req: { headers: Headers },
-    opts: { expectedTenantId?: string; requestSnapshot?: import('./types/anomaly').Anomaly.RequestSnapshot } = {},
+    opts: { expectedTenantId?: string; requestSnapshot?: import('./types/anomaly').AuthAnomaly.RequestSnapshot } = {},
   ): Promise<{
-    session: Session.ISession
-    identity: Identity.IIdentity<Profile> | null
+    session: AuthSession.ISession
+    identity: AuthIdentity.IIdentity<Profile> | null
     /**
      * Aggregate anomaly decision when at least one detector is
      * registered AND `opts.requestSnapshot` was supplied. Operators
@@ -139,11 +139,11 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     if (!token) return null
 
     const finalize = async (
-      session: Session.ISession,
-      identity: Identity.IIdentity<Profile> | null,
+      session: AuthSession.ISession,
+      identity: AuthIdentity.IIdentity<Profile> | null,
     ): Promise<{
-      session: Session.ISession
-      identity: Identity.IIdentity<Profile> | null
+      session: AuthSession.ISession
+      identity: AuthIdentity.IIdentity<Profile> | null
       anomaly?: import('./facets/anomaly').AnomalyFacet.IResult
     }> => {
       // Auto-evaluate anomaly detectors so routes branch on a single field.
@@ -187,7 +187,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   }
 
   /** Install a plugin atomically (providers + events + facets) */
-  async use(plugin: PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
+  async use(plugin: AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
     await this.plugins.install(this, plugin)
   }
 
@@ -197,9 +197,9 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
 
     const errors: string[] = []
 
-    // Reject NoopLimiter via class brand (bundlers rename constructors).
+    // Reject AuthNoopLimiter via class brand (bundlers rename constructors).
     if (!this.config.limiter || (this.limiter as { __isNoopLimiter?: boolean }).__isNoopLimiter === true) {
-      errors.push('Limiter adapter required (brute-force protection); NoopLimiter rejected in production')
+      errors.push('AuthLimiter adapter required (brute-force protection); AuthNoopLimiter rejected in production')
     }
 
     // Memory adapter detection over every store; mixed deployments would otherwise
@@ -216,11 +216,11 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       }
     }
 
-    // Transport secure-cookie check via the public `secure` getter so
+    // AuthTransport secure-cookie check via the public `secure` getter so
     // we never reach into private state.
     const maybeSecureGetter = (this.config.transport as { secure?: boolean }).secure
     if (typeof maybeSecureGetter === 'boolean' && maybeSecureGetter === false) {
-      errors.push('CookieTransport secure=false rejected in production')
+      errors.push('AuthCookieTransport secure=false rejected in production')
     }
 
     // baseUrl must use HTTPS in production so OAuth callback URLs, magic-link
@@ -242,7 +242,7 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
 
     // `lockout` listener via the public `listenerCount` introspection
     // helper. Bus implementations without the helper skip this check
-    // (we cannot enforce against a foreign Events.IBus impl).
+    // (we cannot enforce against a foreign AuthEvents.IBus impl).
     const listenerCount = (this.events as { listenerCount?: (event: string) => number }).listenerCount
     if (typeof listenerCount === 'function' && listenerCount.call(this.events, 'lockout') === 0) {
       errors.push('no `lockout` event handler subscribed; operators must wire one (paging, audit, etc.)')
@@ -261,16 +261,16 @@ export class AuthRoot<Profile = unknown, Tenant = string, OrgMeta = unknown> {
 export { SessionsFacet } from './facets/sessions'
 
 // Used by other facets that need the hashing scheme. Kept private to the package.
-export const __hashSid = sha256
+export const __hashSid = authSha256
 
 /**
- * No-op limiter used when no Limiter adapter is configured. Always allows.
+ * No-op limiter used when no AuthLimiter adapter is configured. Always allows.
  * `strict({ env: 'production' })` rejects this - production must supply a real
- * Limiter (redis/upstash) for brute-force protection.
+ * AuthLimiter (redis/upstash) for brute-force protection.
  */
-export class NoopLimiter implements LimiterNs.ILimiter {
-  /** Brand consumed by `AuthRoot.strict({ env: 'production' })` to
-   * detect "explicit NoopLimiter" - class-identity comparison breaks
+export class AuthNoopLimiter implements LimiterNs.ILimiter {
+  /** Brand consumed by `AuthEngine.strict({ env: 'production' })` to
+   * detect "explicit AuthNoopLimiter" - class-identity comparison breaks
    * across bundler rewrites (treeshaken duplicates / nested workspaces)
    * so we tag every instance and check the tag instead. */
   readonly __isNoopLimiter = true as const
@@ -280,19 +280,19 @@ export class NoopLimiter implements LimiterNs.ILimiter {
   async reset(_key: string): Promise<void> {}
 }
 
-export namespace AuthRoot {
+export namespace AuthEngine {
   export interface IConfig<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     baseUrl: string
-    transport: Transport.ITransport
+    transport: AuthTransport.ITransport
     stores: {
-      identities: Identity.IStore<Profile>
-      sessions: Session.IStore
-      credentials: Credential.IStore
-      orgs?: Org.IStore<OrgMeta>
+      identities: AuthIdentity.IStore<Profile>
+      sessions: AuthSession.IStore
+      credentials: AuthCredential.IStore
+      orgs?: AuthOrg.IStore<OrgMeta>
     }
-    limiter?: Limiter.ILimiter
-    providers?: Provider.IProvider<unknown, unknown, Profile>[]
-    events?: Events.IBus
+    limiter?: AuthLimiter.ILimiter
+    providers?: AuthProvider.IProvider<unknown, unknown, Profile>[]
+    events?: AuthEvents.IBus
     session?: {
       ttlMs?: number
       absoluteTtlMs?: number
@@ -304,13 +304,13 @@ export namespace AuthRoot {
       profileMaxBytes?: number
     }
     passwords?: {
-      /** Min length, default 8. Compliance presets bump to 12+. */
+      /** Min length, default 8. AuthCompliance presets bump to 12+. */
       minLength?: number
       /** Max length, default 1024. SEC: caps argon2/scrypt DoS surface. */
       maxLength?: number
       rejectCommon?: boolean
       /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
-      hasher?: Hasher.IHasher
+      hasher?: AuthHasher.IHasher
     }
     mfa?: {
       /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */

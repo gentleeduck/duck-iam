@@ -1,8 +1,8 @@
 import { isRevoked } from '../credential-utils'
 import { AuthErrorObject } from '../errors'
-import type { TenantContext } from '../types/context'
-import type { Credential } from '../types/credential'
-import type { Hasher } from '../types/hasher'
+import type { AuthTenantContext } from '../types/context'
+import type { AuthCredential } from '../types/credential'
+import type { AuthHasher } from '../types/hasher'
 
 export const DEFAULT_PASSWORDS_CONFIG: PasswordsFacet.IConfig = {
   minLength: 8,
@@ -24,7 +24,7 @@ const COMMON_PASSWORDS = new Set([
 
 /**
  * Passwords facet - credential CRUD + verify, with constant-time discipline.
- * Plaintext never leaves a method call; storage always goes through {@link Hasher.IHasher}.
+ * Plaintext never leaves a method call; storage always goes through {@link AuthHasher.IHasher}.
  */
 export class PasswordsFacet {
   // Lazy reference hash used by verify() in the no-credential branch
@@ -33,8 +33,8 @@ export class PasswordsFacet {
   private _referenceHash: string | null = null
 
   constructor(
-    private readonly _credentials: Credential.IStore,
-    private readonly _hasher: Hasher.IHasher,
+    private readonly _credentials: AuthCredential.IStore,
+    private readonly _hasher: AuthHasher.IHasher,
     private readonly _cfg: PasswordsFacet.IConfig = DEFAULT_PASSWORDS_CONFIG,
   ) {}
 
@@ -67,7 +67,7 @@ export class PasswordsFacet {
   }
 
   /** Set/replace the password credential for an identity. Used by signUp + reset flows. */
-  async set(identityId: string, plaintext: string, ctx: TenantContext = {}): Promise<void> {
+  async set(identityId: string, plaintext: string, ctx: AuthTenantContext = {}): Promise<void> {
     if (typeof identityId !== 'string' || identityId.length === 0 || identityId.length > 256) {
       throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
     }
@@ -99,7 +99,7 @@ export class PasswordsFacet {
   async verify(
     identityId: string,
     plaintext: string,
-    ctx: TenantContext = {},
+    ctx: AuthTenantContext = {},
   ): Promise<{ ok: true; needsRehash: boolean } | { ok: false }> {
     // Cap plaintext before hashing so a multi-MB input cannot DoS
     // the argon2/scrypt verify path.
@@ -123,7 +123,7 @@ export class PasswordsFacet {
    * verify when {@link verify} returns `needsRehash: true`, so a slow
    * parameter upgrade rolls out as users sign in.
    */
-  async rehash(identityId: string, plaintext: string, ctx: TenantContext = {}): Promise<void> {
+  async rehash(identityId: string, plaintext: string, ctx: AuthTenantContext = {}): Promise<void> {
     if (plaintext.length > this._cfg.maxLength) return
     const rows = await this._credentials.listByIdentity(identityId, 'password', ctx)
     const row = rows.find((c) => !isRevoked(c))

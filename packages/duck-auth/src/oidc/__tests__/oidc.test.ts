@@ -1,21 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  buildOidcDiscovery,
-  buildOidcRoutes,
-  configureOidcDiscoveryCache,
-  fetchOidcDiscovery,
-  flushOidcDiscoveryCache,
+  authBuildOidcDiscovery,
+  authBuildOidcRoutes,
+  authConfigureOidcDiscoveryCache,
+  authFetchOidcDiscovery,
+  authFlushOidcDiscoveryCache,
 } from '../index'
 
-describe('buildOidcDiscovery', () => {
+describe('authBuildOidcDiscovery', () => {
   it('refuses missing issuer', () => {
-    expect(() => buildOidcDiscovery({ issuer: '' })).toThrowError(
+    expect(() => authBuildOidcDiscovery({ issuer: '' })).toThrowError(
       expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
     )
   })
 
   it('emits required OIDC discovery fields', () => {
-    const d = buildOidcDiscovery({ issuer: 'https://app.test' })
+    const d = authBuildOidcDiscovery({ issuer: 'https://app.test' })
     expect(d.issuer).toBe('https://app.test')
     expect(d.jwks_uri).toBe('https://app.test/.well-known/jwks.json')
     expect(d.authorization_endpoint).toBe('https://app.test/auth/oauth/authorize')
@@ -25,15 +25,15 @@ describe('buildOidcDiscovery', () => {
   })
 
   it('exposes introspection + revocation endpoints out of the box', () => {
-    const d = buildOidcDiscovery({ issuer: 'https://app.test' })
+    const d = authBuildOidcDiscovery({ issuer: 'https://app.test' })
     expect(d.introspection_endpoint).toBe('https://app.test/auth/oauth/introspect')
     expect(d.revocation_endpoint).toBe('https://app.test/auth/oauth/revoke')
   })
 
   it('only emits registration_endpoint when explicitly opted-in', () => {
-    const off = buildOidcDiscovery({ issuer: 'https://app.test' })
+    const off = authBuildOidcDiscovery({ issuer: 'https://app.test' })
     expect(off.registration_endpoint).toBeUndefined()
-    const on = buildOidcDiscovery({
+    const on = authBuildOidcDiscovery({
       issuer: 'https://app.test',
       registrationEndpoint: 'https://app.test/auth/oauth/register',
     })
@@ -41,13 +41,13 @@ describe('buildOidcDiscovery', () => {
   })
 
   it('strips trailing slash from issuer', () => {
-    const d = buildOidcDiscovery({ issuer: 'https://app.test/' })
+    const d = authBuildOidcDiscovery({ issuer: 'https://app.test/' })
     expect(d.issuer).toBe('https://app.test')
     expect(d.token_endpoint).toBe('https://app.test/auth/oauth/token')
   })
 
   it('respects custom prefix + jwksPath + algs', () => {
-    const d = buildOidcDiscovery({
+    const d = authBuildOidcDiscovery({
       issuer: 'https://app.test',
       prefix: '/v2/auth',
       jwksPath: '/keys.json',
@@ -59,7 +59,7 @@ describe('buildOidcDiscovery', () => {
   })
 
   it('extraClaims merges into the top-level document', () => {
-    const d = buildOidcDiscovery({
+    const d = authBuildOidcDiscovery({
       issuer: 'https://app.test',
       extraClaims: { service_documentation: 'https://app.test/docs/auth' },
     })
@@ -67,7 +67,7 @@ describe('buildOidcDiscovery', () => {
   })
 
   it('extraClaims cannot shadow canonical fields (issuer/jwks_uri/etc)', () => {
-    const d = buildOidcDiscovery({
+    const d = authBuildOidcDiscovery({
       issuer: 'https://legit.test',
       extraClaims: {
         issuer: 'https://attacker.test',
@@ -82,23 +82,23 @@ describe('buildOidcDiscovery', () => {
 
   it('refuses non-HTTPS issuer unless allowHttp is set', () => {
     try {
-      buildOidcDiscovery({ issuer: 'http://app.test' })
+      authBuildOidcDiscovery({ issuer: 'http://app.test' })
       throw new Error('expected throw')
     } catch (err) {
       expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
       expect((err as { meta: { detail: string } }).meta.detail).toMatch(/HTTPS/)
     }
-    const d = buildOidcDiscovery({ issuer: 'http://localhost:3000', allowHttp: true })
+    const d = authBuildOidcDiscovery({ issuer: 'http://localhost:3000', allowHttp: true })
     expect(d.issuer).toBe('http://localhost:3000')
   })
 
   it("drops 'none' from token_endpoint_auth_methods_supported by default", () => {
-    const d = buildOidcDiscovery({ issuer: 'https://app.test' })
+    const d = authBuildOidcDiscovery({ issuer: 'https://app.test' })
     expect(d.token_endpoint_auth_methods_supported).not.toContain('none')
   })
 
   it("explicit tokenEndpointAuthMethodsSupported including 'none' is honored", () => {
-    const d = buildOidcDiscovery({
+    const d = authBuildOidcDiscovery({
       issuer: 'https://app.test',
       tokenEndpointAuthMethodsSupported: ['none', 'client_secret_basic'],
     })
@@ -107,7 +107,7 @@ describe('buildOidcDiscovery', () => {
 
   it('refuses invalid URL as issuer', () => {
     try {
-      buildOidcDiscovery({ issuer: 'not a url' })
+      authBuildOidcDiscovery({ issuer: 'not a url' })
       throw new Error('expected throw')
     } catch (err) {
       expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
@@ -116,12 +116,12 @@ describe('buildOidcDiscovery', () => {
   })
 })
 
-describe('buildOidcRoutes', () => {
+describe('authBuildOidcRoutes', () => {
   it('returns discovery + jwks pass-through', () => {
     const transport = {
       jwks: () => ({ keys: [{ kid: 'k1', kty: 'EC', alg: 'ES256' }] }),
     }
-    const out = buildOidcRoutes({
+    const out = authBuildOidcRoutes({
       config: { issuer: 'https://app.test' },
       transport,
     })
@@ -131,10 +131,10 @@ describe('buildOidcRoutes', () => {
   })
 })
 
-describe('fetchOidcDiscovery - RP-side cache', () => {
+describe('authFetchOidcDiscovery - RP-side cache', () => {
   beforeEach(() => {
-    flushOidcDiscoveryCache()
-    configureOidcDiscoveryCache({ ttlMs: 60_000, capacity: 4 })
+    authFlushOidcDiscoveryCache()
+    authConfigureOidcDiscoveryCache({ ttlMs: 60_000, capacity: 4 })
   })
 
   it('fetches + caches the discovery document; second call does not hit the network', async () => {
@@ -160,8 +160,8 @@ describe('fetchOidcDiscovery - RP-side cache', () => {
         { status: 200 },
       )
     }) as unknown as typeof globalThis.fetch
-    const a = await fetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })
-    const b = await fetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })
+    const a = await authFetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })
+    const b = await authFetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })
     expect(a.issuer).toBe('https://idp.test')
     expect(b.issuer).toBe('https://idp.test')
     expect(fetches).toBe(1)
@@ -192,13 +192,13 @@ describe('fetchOidcDiscovery - RP-side cache', () => {
           { status: 200 },
         ),
     ) as unknown as typeof globalThis.fetch
-    await expect(fetchOidcDiscovery('https://legit.test', { fetch: fakeFetch })).rejects.toMatchObject({
+    await expect(authFetchOidcDiscovery('https://legit.test', { fetch: fakeFetch })).rejects.toMatchObject({
       code: 'AUTH/PROVIDER_FAILED',
     })
   })
 
   it('refuses non-HTTPS issuer unless allowHttp is set', async () => {
-    await expect(fetchOidcDiscovery('http://idp.test', { fetch: vi.fn() as never })).rejects.toMatchObject({
+    await expect(authFetchOidcDiscovery('http://idp.test', { fetch: vi.fn() as never })).rejects.toMatchObject({
       code: 'AUTH/PROVIDER_FAILED',
     })
   })
@@ -226,8 +226,8 @@ describe('fetchOidcDiscovery - RP-side cache', () => {
         { status: 200 },
       )
     }) as unknown as typeof globalThis.fetch
-    await fetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })
-    await fetchOidcDiscovery('https://idp.test', { fetch: fakeFetch, bypassCache: true })
+    await authFetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })
+    await authFetchOidcDiscovery('https://idp.test', { fetch: fakeFetch, bypassCache: true })
     expect(fetches).toBe(2)
   })
 
@@ -241,7 +241,7 @@ describe('fetchOidcDiscovery - RP-side cache', () => {
           status: 200,
         }),
     ) as unknown as typeof globalThis.fetch
-    await expect(fetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })).rejects.toMatchObject({
+    await expect(authFetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })).rejects.toMatchObject({
       code: 'AUTH/PROVIDER_FAILED',
     })
   })
@@ -268,7 +268,7 @@ describe('fetchOidcDiscovery - RP-side cache', () => {
           { status: 200 },
         ),
     ) as unknown as typeof globalThis.fetch
-    await expect(fetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })).rejects.toMatchObject({
+    await expect(authFetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })).rejects.toMatchObject({
       code: 'AUTH/PROVIDER_FAILED',
     })
   })

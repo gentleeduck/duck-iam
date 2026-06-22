@@ -1,11 +1,11 @@
-import type { TenantContext } from './context'
+import type { AuthTenantContext } from './context'
 
 /**
  * Stable identity record. Opaque to the auth core - application-specific shape
  * carried in `profile`. The iam-auth-bridge projects this into Subject for
  * iam evaluation; non-iam apps leave the bridge unwired and pay zero coupling.
  */
-export namespace Identity {
+export namespace AuthIdentity {
   export interface ProviderLink {
     providerId: string
     providerSub?: string
@@ -26,24 +26,24 @@ export namespace Identity {
   }
 
   export interface IStore<Profile = unknown> {
-    findById(id: string, ctx: TenantContext): Promise<IIdentity<Profile> | null>
-    findByEmail(email: string, ctx: TenantContext): Promise<IIdentity<Profile> | null>
-    findByProviderSub(providerId: string, sub: string, ctx: TenantContext): Promise<IIdentity<Profile> | null>
+    findById(id: string, ctx: AuthTenantContext): Promise<IIdentity<Profile> | null>
+    findByEmail(email: string, ctx: AuthTenantContext): Promise<IIdentity<Profile> | null>
+    findByProviderSub(providerId: string, sub: string, ctx: AuthTenantContext): Promise<IIdentity<Profile> | null>
     create(
       input: Omit<IIdentity<Profile>, 'id' | 'version' | 'createdAt' | 'updatedAt'>,
-      ctx: TenantContext,
+      ctx: AuthTenantContext,
     ): Promise<IIdentity<Profile>>
     update(
       id: string,
       patch: Partial<IIdentity<Profile>>,
       expectedVersion: number,
-      ctx: TenantContext,
+      ctx: AuthTenantContext,
     ): Promise<IIdentity<Profile>>
-    softDelete(id: string, gracePeriodMs: number, ctx: TenantContext): Promise<void>
-    restore(id: string, ctx: TenantContext): Promise<IIdentity<Profile>>
-    erase(id: string, ctx: TenantContext): Promise<void>
-    link(identityId: string, link: ProviderLink, ctx: TenantContext): Promise<void>
-    unlink(identityId: string, providerId: string, ctx: TenantContext): Promise<void>
-    merge(survivorId: string, dupId: string, ctx: TenantContext): Promise<void>
+    softDelete(id: string, gracePeriodMs: number, ctx: AuthTenantContext): Promise<void>
+    restore(id: string, ctx: AuthTenantContext): Promise<IIdentity<Profile>>
+    erase(id: string, ctx: AuthTenantContext): Promise<void>
+    link(identityId: string, link: ProviderLink, ctx: AuthTenantContext): Promise<void>
+    unlink(identityId: string, providerId: string, ctx: AuthTenantContext): Promise<void>
+    merge(survivorId: string, dupId: string, ctx: AuthTenantContext): Promise<void>
   }
 }

@@ -1,11 +1,11 @@
-import { type Adapter, createAccessConfig } from '@gentleduck/iam'
-import { DrizzleAdapter, type DrizzleConfig } from '@gentleduck/iam/adapters/drizzle'
+import { type IamAdapter, createIam } from '@gentleduck/iam'
+import { IamDrizzleAdapter, type IamDrizzle } from '@gentleduck/iam/adapters/drizzle'
 import { and, eq } from 'drizzle-orm'
-import { accessAssignments, accessPolicies, accessRoles, accessSubjectAttrs, db } from './db'
+import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs, db } from './db'
 
 // ── Config ──────────────────────────────────────────────────────
 
-export const access = createAccessConfig({
+export const access = createIam({
   actions: ['create', 'read', 'update', 'delete'] as const,
   resources: ['post', 'user'] as const,
   scopes: ['org-1', 'org-2'] as const,
@@ -43,16 +43,16 @@ export const allRoles = [viewer, editor, admin]
 
 // ── Adapter ─────────────────────────────────────────────────────
 
-const adapter = new DrizzleAdapter({
+const adapter = new IamDrizzleAdapter({
   db,
   tables: {
-    policies: accessPolicies,
-    roles: accessRoles,
-    assignments: accessAssignments,
-    attrs: accessSubjectAttrs,
+    policies: iamPolicies,
+    roles: iamRoles,
+    assignments: iamAssignments,
+    attrs: iamSubjectAttrs,
   },
   ops: { eq, and },
-} as unknown as DrizzleConfig) as unknown as Adapter<AppAction, AppResource, string, never>
+} as unknown as IamDrizzle.IConfig) as unknown as IamAdapter<AppAction, AppResource, string, never>
 
 // ── Engine ──────────────────────────────────────────────────────
 

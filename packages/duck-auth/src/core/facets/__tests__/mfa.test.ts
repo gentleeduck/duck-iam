@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { sha256 } from '../../crypto'
-import { InMemoryEvents } from '../../events'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { authSha256 } from '../../crypto'
+import { AuthInMemoryEvents } from '../../events'
 import { totpAt } from '../../mfa/totp'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
 
 describe('MfaFacet - TOTP', () => {
-  let adapter: MemoryAuthAdapter
-  let events: InMemoryEvents
+  let adapter: AuthMemoryAdapter
+  let events: AuthInMemoryEvents
   let facet: MfaFacet
 
   beforeEach(() => {
-    adapter = new MemoryAuthAdapter()
-    events = new InMemoryEvents()
+    adapter = new AuthMemoryAdapter()
+    events = new AuthInMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
   })
 
@@ -61,7 +61,7 @@ describe('MfaFacet - TOTP', () => {
     })
   })
 
-  describe('verifyTotp', () => {
+  describe('authVerifyTotp', () => {
     it('verifies the current code against a confirmed enrollment', async () => {
       const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
       const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
@@ -82,7 +82,7 @@ describe('MfaFacet - TOTP', () => {
     })
 
     describe('revoked credential gating', () => {
-      it('verifyTotp ignores a TOTP enrollment with revokedAt === 0 (legitimate epoch number, previously slipped past `!r.revokedAt`)', async () => {
+      it('authVerifyTotp ignores a TOTP enrollment with revokedAt === 0 (legitimate epoch number, previously slipped past `!r.revokedAt`)', async () => {
         const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
         const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
         await facet.confirmTotpEnrollment('user-1', code)
@@ -98,7 +98,7 @@ describe('MfaFacet - TOTP', () => {
         expect(await facet.hasTotp('user-1')).toBe(false)
       })
 
-      it('verifyTotp ignores a TOTP enrollment with non-numeric revokedAt', async () => {
+      it('authVerifyTotp ignores a TOTP enrollment with non-numeric revokedAt', async () => {
         const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
         const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
         await facet.confirmTotpEnrollment('user-1', code)
@@ -128,13 +128,13 @@ describe('MfaFacet - TOTP', () => {
 })
 
 describe('MfaFacet - backup codes', () => {
-  let adapter: MemoryAuthAdapter
-  let events: InMemoryEvents
+  let adapter: AuthMemoryAdapter
+  let events: AuthInMemoryEvents
   let facet: MfaFacet
 
   beforeEach(() => {
-    adapter = new MemoryAuthAdapter()
-    events = new InMemoryEvents()
+    adapter = new AuthMemoryAdapter()
+    events = new AuthInMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
   })
 
@@ -156,7 +156,7 @@ describe('MfaFacet - backup codes', () => {
     const codes = await facet.regenerateBackupCodes('user-1')
     const code = codes[0]
     if (!code) throw new Error('no codes')
-    const codeHash = sha256(code.trim().toLowerCase())
+    const codeHash = authSha256(code.trim().toLowerCase())
     const rows = await adapter.credentials.listByIdentity('user-1', 'recovery', {})
     const matching = rows.find((r) => r.secret === codeHash)
     if (!matching) throw new Error('matching row missing')
@@ -174,8 +174,8 @@ describe('MfaFacet - backup codes', () => {
 })
 
 describe('MfaFacet - WebAuthn-MFA', () => {
-  let adapter: MemoryAuthAdapter
-  let events: InMemoryEvents
+  let adapter: AuthMemoryAdapter
+  let events: AuthInMemoryEvents
   let facet: MfaFacet
   let identityId: string
 
@@ -219,8 +219,8 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   }
 
   beforeEach(() => {
-    adapter = new MemoryAuthAdapter()
-    events = new InMemoryEvents()
+    adapter = new AuthMemoryAdapter()
+    events = new AuthInMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
     identityId = 'user-wa-mfa-1'
   })

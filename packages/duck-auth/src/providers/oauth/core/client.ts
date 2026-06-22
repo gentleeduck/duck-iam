@@ -1,6 +1,6 @@
 import { AuthErrorObject } from '../../../core/errors'
 
-export namespace OAuthClient {
+export namespace AuthOAuthClient {
   /**
    * OIDC / OAuth2 endpoints. Supplied directly (Google, GitHub,
    * static well-known providers) or resolved at runtime via discovery
@@ -45,10 +45,10 @@ export namespace OAuthClient {
   }
 }
 
-export class OAuthClient {
-  private _endpoints: OAuthClient.IEndpoints | null = null
+export class AuthOAuthClient {
+  private _endpoints: AuthOAuthClient.IEndpoints | null = null
 
-  constructor(private readonly _opts: OAuthClient.IOptions) {}
+  constructor(private readonly _opts: AuthOAuthClient.IOptions) {}
 
   /**
    * Resolve the per-call client_secret. Dynamic generator wins when
@@ -67,7 +67,7 @@ export class OAuthClient {
     return this._opts.clientSecret || undefined
   }
 
-  private async _resolveEndpoints(): Promise<OAuthClient.IEndpoints> {
+  private async _resolveEndpoints(): Promise<AuthOAuthClient.IEndpoints> {
     if (this._endpoints) return this._endpoints
     const e = typeof this._opts.endpoints === 'function' ? await this._opts.endpoints() : this._opts.endpoints
     // Validate endpoint URLs at resolution time. A buggy/typo'd dynamic
@@ -124,7 +124,7 @@ export class OAuthClient {
     code: string
     redirectUri: string
     codeVerifier: string
-  }): Promise<OAuthClient.ITokenResponse> {
+  }): Promise<AuthOAuthClient.ITokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
@@ -160,7 +160,7 @@ export class OAuthClient {
   }
 
   /** Refresh-token rotation; throws on any non-2xx. */
-  async refresh(refreshToken: string): Promise<OAuthClient.ITokenResponse> {
+  async refresh(refreshToken: string): Promise<AuthOAuthClient.ITokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
@@ -274,7 +274,7 @@ async function readJsonSafe(res: Response): Promise<unknown> {
 }
 
 /** Validator for OAuth2 token-endpoint responses (RFC 6749 section 5.1). */
-function parseTokenResponse(raw: unknown): OAuthClient.ITokenResponse | null {
+function parseTokenResponse(raw: unknown): AuthOAuthClient.ITokenResponse | null {
   if (!isPlainObject(raw)) return null
   const { access_token, token_type, expires_in, refresh_token, id_token, scope } = raw
   if (typeof access_token !== 'string' || access_token.length === 0) return null
@@ -283,7 +283,7 @@ function parseTokenResponse(raw: unknown): OAuthClient.ITokenResponse | null {
   if (refresh_token !== undefined && typeof refresh_token !== 'string') return null
   if (id_token !== undefined && typeof id_token !== 'string') return null
   if (scope !== undefined && typeof scope !== 'string') return null
-  const r: OAuthClient.ITokenResponse = { access_token, token_type }
+  const r: AuthOAuthClient.ITokenResponse = { access_token, token_type }
   if (expires_in !== undefined) r.expires_in = expires_in
   if (refresh_token !== undefined) r.refresh_token = refresh_token
   if (id_token !== undefined) r.id_token = id_token

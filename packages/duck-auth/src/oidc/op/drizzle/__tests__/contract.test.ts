@@ -19,11 +19,11 @@ import * as pg from '../pg'
 import * as sqlite from '../sqlite'
 
 const EXPECTED_TABLES = [
-  'oidcClientsTable',
-  'oidcCodesTable',
-  'oidcAccessTokensTable',
-  'oidcRefreshTokensTable',
-  'oidcConsentsTable',
+  'authOidcClientsTable',
+  'authOidcCodesTable',
+  'authOidcAccessTokensTable',
+  'authOidcRefreshTokensTable',
+  'authOidcConsentsTable',
 ] as const
 
 describe('pg dialect surface', () => {
@@ -33,12 +33,12 @@ describe('pg dialect surface', () => {
     }
   })
 
-  it('exports createDrizzlePgOidcOpStores factory', () => {
-    expect(typeof pg.createDrizzlePgOidcOpStores).toBe('function')
+  it('exports authCreateDrizzlePgOidcOpStores factory', () => {
+    expect(typeof pg.authCreateDrizzlePgOidcOpStores).toBe('function')
   })
 
-  it('exports gcDrizzlePgOidcOp helper', () => {
-    expect(typeof pg.gcDrizzlePgOidcOp).toBe('function')
+  it('exports authGcDrizzlePgOidcOp helper', () => {
+    expect(typeof pg.authGcDrizzlePgOidcOp).toBe('function')
   })
 })
 
@@ -49,12 +49,12 @@ describe('mysql dialect surface', () => {
     }
   })
 
-  it('exports createDrizzleMysqlOidcOpStores factory', () => {
-    expect(typeof mysql.createDrizzleMysqlOidcOpStores).toBe('function')
+  it('exports authCreateDrizzleMysqlOidcOpStores factory', () => {
+    expect(typeof mysql.authCreateDrizzleMysqlOidcOpStores).toBe('function')
   })
 
-  it('exports gcDrizzleMysqlOidcOp helper', () => {
-    expect(typeof mysql.gcDrizzleMysqlOidcOp).toBe('function')
+  it('exports authGcDrizzleMysqlOidcOp helper', () => {
+    expect(typeof mysql.authGcDrizzleMysqlOidcOp).toBe('function')
   })
 })
 
@@ -65,8 +65,8 @@ describe('sqlite dialect surface', () => {
     }
   })
 
-  it('exports createDrizzleSqliteOidcOpStores factory', () => {
-    expect(typeof sqlite.createDrizzleSqliteOidcOpStores).toBe('function')
+  it('exports authCreateDrizzleSqliteOidcOpStores factory', () => {
+    expect(typeof sqlite.authCreateDrizzleSqliteOidcOpStores).toBe('function')
   })
 })
 
@@ -94,25 +94,25 @@ describe('cross-dialect schema parity', () => {
   it('clients table has the same column names across dialects', () => {
     // Drizzle exposes column metadata via the symbol; check by inspecting
     // the table's runtime shape.
-    const pgCols = columnKeys(pg.oidcClientsTable)
-    const sqliteCols = columnKeys(sqlite.oidcClientsTable)
-    const mysqlCols = columnKeys(mysql.oidcClientsTable)
+    const pgCols = columnKeys(pg.authOidcClientsTable)
+    const sqliteCols = columnKeys(sqlite.authOidcClientsTable)
+    const mysqlCols = columnKeys(mysql.authOidcClientsTable)
     expect(pgCols).toEqual(sqliteCols)
     expect(pgCols).toEqual(mysqlCols)
   })
 
   it('codes table has the same column names across dialects', () => {
-    const pgCols = columnKeys(pg.oidcCodesTable)
-    const sqliteCols = columnKeys(sqlite.oidcCodesTable)
-    const mysqlCols = columnKeys(mysql.oidcCodesTable)
+    const pgCols = columnKeys(pg.authOidcCodesTable)
+    const sqliteCols = columnKeys(sqlite.authOidcCodesTable)
+    const mysqlCols = columnKeys(mysql.authOidcCodesTable)
     expect(pgCols).toEqual(sqliteCols)
     expect(pgCols).toEqual(mysqlCols)
   })
 
   it('refresh-tokens table has the same column names across dialects', () => {
-    const pgCols = columnKeys(pg.oidcRefreshTokensTable)
-    const sqliteCols = columnKeys(sqlite.oidcRefreshTokensTable)
-    const mysqlCols = columnKeys(mysql.oidcRefreshTokensTable)
+    const pgCols = columnKeys(pg.authOidcRefreshTokensTable)
+    const sqliteCols = columnKeys(sqlite.authOidcRefreshTokensTable)
+    const mysqlCols = columnKeys(mysql.authOidcRefreshTokensTable)
     expect(pgCols).toEqual(sqliteCols)
     expect(pgCols).toEqual(mysqlCols)
   })

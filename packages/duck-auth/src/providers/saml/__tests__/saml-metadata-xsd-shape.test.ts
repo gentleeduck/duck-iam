@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildSpMetadata } from '../index'
+import { authBuildSpMetadata } from '../index'
 
 const VALID_BINDING_HTTP_POST = 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST'
 const VALID_BINDING_HTTP_REDIRECT = 'urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect'
@@ -30,7 +30,7 @@ const VALID_NAMEID_FORMATS = [
 function buildBasicMetadata(
   overrides: Partial<{ entityId: string; acsUrl: string; sloUrl: string; signingCert: string }> = {},
 ) {
-  return buildSpMetadata({
+  return authBuildSpMetadata({
     metadata: {
       entityId: overrides.entityId ?? 'https://app.example.com',
       acsUrl: overrides.acsUrl ?? 'https://app.example.com/auth/saml/callback',

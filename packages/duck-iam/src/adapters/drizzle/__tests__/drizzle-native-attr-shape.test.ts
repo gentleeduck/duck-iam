@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { type Drizzle, DrizzleAdapter } from '../index'
+import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 
 type A = 'read'
 type R = 'post'
@@ -11,7 +11,7 @@ interface Row {
 }
 
 function makeMock(initialAttrs: Row[]) {
-  const tableRefs: Drizzle.IConfig['tables'] = {
+  const tableRefs: IamDrizzle.IConfig['tables'] = {
     policies: { id: { name: 'id' } },
     roles: { id: { name: 'id' } },
     assignments: {
@@ -56,14 +56,14 @@ function makeMock(initialAttrs: Row[]) {
     return chain
   }
 
-  const config: Drizzle.IConfig = {
+  const config: IamDrizzle.IConfig = {
     db: {
       select: vi.fn(
         () =>
           ({
             from: () => buildSelect(initialAttrs),
-          }) as unknown as ReturnType<Drizzle.IConfig['db']['select']>,
-      ) as unknown as Drizzle.IConfig['db']['select'],
+          }) as unknown as ReturnType<IamDrizzle.IConfig['db']['select']>,
+      ) as unknown as IamDrizzle.IConfig['db']['select'],
       insert: vi.fn(),
       delete: vi.fn(),
     },
@@ -76,7 +76,7 @@ function makeMock(initialAttrs: Row[]) {
   return config
 }
 
-describe('DrizzleAdapter native JSONB shape validation', () => {
+describe('IamDrizzleAdapter native JSONB shape validation', () => {
   let onPolicyErrorMock: ReturnType<typeof vi.fn<(err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void>>
 
   beforeEach(() => {
@@ -85,7 +85,7 @@ describe('DrizzleAdapter native JSONB shape validation', () => {
 
   function buildAdapter(initialAttrs: Row[]) {
     const config = makeMock(initialAttrs)
-    return new DrizzleAdapter<A, R, Ro, S>({ ...config, onPolicyError: onPolicyErrorMock })
+    return new IamDrizzleAdapter<A, R, Ro, S>({ ...config, onPolicyError: onPolicyErrorMock })
   }
 
   it('throws when native data column holds an array', async () => {

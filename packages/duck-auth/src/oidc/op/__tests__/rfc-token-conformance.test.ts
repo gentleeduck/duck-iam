@@ -9,27 +9,27 @@
 
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { sha256 } from '../../../core/crypto'
-import { ScryptHasher } from '../../../core/password/scrypt'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { createOidcOP, type OidcOPRoot } from '../index'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { authSha256 } from '../../../core/crypto'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { authCreateOidcOP, type AuthOidcOpRoot } from '../index'
 
 interface ProfileShape {
   email: string
 }
 
-function buildOp(): { op: OidcOPRoot<ProfileShape>; auth: AuthRoot<ProfileShape> } {
-  const adapter = new MemoryAuthAdapter<ProfileShape>()
-  const auth = new AuthRoot<ProfileShape>({
+function buildOp(): { op: AuthOidcOpRoot<ProfileShape>; auth: AuthEngine<ProfileShape> } {
+  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid' }),
-    passwords: { hasher: new ScryptHasher() },
+    transport: new AuthCookieTransport({ name: 'duck-sid' }),
+    passwords: { hasher: new AuthScryptHasher() },
   })
   const secret = 'dev-hmac-secret'
-  const op = createOidcOP<ProfileShape>({
+  const op = authCreateOidcOP<ProfileShape>({
     auth,
     config: {
       issuer: 'http://localhost:8787/auth',
@@ -48,12 +48,12 @@ function buildOp(): { op: OidcOPRoot<ProfileShape>; auth: AuthRoot<ProfileShape>
 
 function pkce(): { verifier: string; challenge: string } {
   const verifier = 'a'.repeat(64)
-  const hex = sha256(verifier)
+  const hex = authSha256(verifier)
   const challenge = Buffer.from(hex, 'hex').toString('base64url')
   return { verifier, challenge }
 }
 
-async function mintTokens(op: OidcOPRoot<ProfileShape>, auth: AuthRoot<ProfileShape>, scope = 'openid offline_access') {
+async function mintTokens(op: AuthOidcOpRoot<ProfileShape>, auth: AuthEngine<ProfileShape>, scope = 'openid offline_access') {
   await op.registerClient({
     client_id: 'spa',
     redirect_uris: ['http://localhost/cb'],
@@ -90,8 +90,8 @@ async function mintTokens(op: OidcOPRoot<ProfileShape>, auth: AuthRoot<ProfileSh
 }
 
 describe('RFC 6749 §5.1 - successful token response shape', () => {
-  let op: OidcOPRoot<ProfileShape>
-  let auth: AuthRoot<ProfileShape>
+  let op: AuthOidcOpRoot<ProfileShape>
+  let auth: AuthEngine<ProfileShape>
   beforeEach(() => {
     ;({ op, auth } = buildOp())
   })
@@ -180,7 +180,7 @@ describe('RFC 6749 §5.1 - successful token response shape', () => {
 })
 
 describe('RFC 6749 §5.2 - error response shape', () => {
-  let op: OidcOPRoot<ProfileShape>
+  let op: AuthOidcOpRoot<ProfileShape>
   beforeEach(() => {
     ;({ op } = buildOp())
   })
@@ -217,8 +217,8 @@ describe('RFC 6749 §5.2 - error response shape', () => {
 })
 
 describe('RFC 6749 §3.1.2 - authorize redirect format', () => {
-  let op: OidcOPRoot<ProfileShape>
-  let auth: AuthRoot<ProfileShape>
+  let op: AuthOidcOpRoot<ProfileShape>
+  let auth: AuthEngine<ProfileShape>
   beforeEach(() => {
     ;({ op, auth } = buildOp())
   })
@@ -316,8 +316,8 @@ describe('RFC 6749 §3.1.2 - authorize redirect format', () => {
 })
 
 describe('RFC 7662 §2 - introspection response shape', () => {
-  let op: OidcOPRoot<ProfileShape>
-  let auth: AuthRoot<ProfileShape>
+  let op: AuthOidcOpRoot<ProfileShape>
+  let auth: AuthEngine<ProfileShape>
   beforeEach(() => {
     ;({ op, auth } = buildOp())
   })

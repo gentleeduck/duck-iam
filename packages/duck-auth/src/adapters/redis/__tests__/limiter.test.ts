@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { RedisLimiter } from '../limiter'
-import { FakeRedis } from '../redis-like'
+import { AuthRedisLimiter } from '../limiter'
+import { AuthFakeRedis } from '../redis-like'
 
-describe('RedisLimiter', () => {
-  let redis: FakeRedis
-  let limiter: RedisLimiter
+describe('AuthRedisLimiter', () => {
+  let redis: AuthFakeRedis
+  let limiter: AuthRedisLimiter
 
   beforeEach(() => {
-    redis = new FakeRedis()
-    limiter = new RedisLimiter({ redis, max: 3, windowMs: 60_000, prefix: 'test:rl' })
+    redis = new AuthFakeRedis()
+    limiter = new AuthRedisLimiter({ redis, max: 3, windowMs: 60_000, prefix: 'test:rl' })
   })
 
   it('allows up to max requests', async () => {

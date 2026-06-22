@@ -3,7 +3,7 @@ import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { Section } from '../components/layout'
 import { Badge, Button, Empty } from '../components/ui'
-import type { IDevtoolsEngine, IDevtoolsMetrics } from '../lib/types'
+import type { IamIDevtoolsEngine, IamIDevtoolsMetrics } from '../lib/types'
 
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
@@ -15,13 +15,13 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
   )
 }
 
-export function MetricsPanel({
+export function IamMetricsPanel({
   engine,
   metrics,
   pollMs = 1000,
 }: {
-  engine: IDevtoolsEngine
-  metrics?: IDevtoolsMetrics
+  engine: IamIDevtoolsEngine
+  metrics?: IamIDevtoolsMetrics
   pollMs?: number
 }) {
   const [stats, setStats] = React.useState(() => engine.stats())

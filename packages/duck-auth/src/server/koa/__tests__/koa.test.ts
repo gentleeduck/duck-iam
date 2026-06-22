@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { password } from '../../../providers/password'
-import { type KoaAdapter, koaProviderBegin, koaSession, koaSignIn, koaSignOut } from '../index'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { authPassword } from '../../../providers/password'
+import { type AuthKoaAdapter, authKoaProviderBegin, authKoaSession, authKoaSignIn, authKoaSignOut } from '../index'
 
 function makeCtx(
-  overrides: Partial<KoaAdapter.IContext['request']> & { params?: Record<string, string> } = {},
-): KoaAdapter.IContext & {
+  overrides: Partial<AuthKoaAdapter.IContext['request']> & { params?: Record<string, string> } = {},
+): AuthKoaAdapter.IContext & {
   _headers: Map<string, string[]>
 } {
   const headers = new Map<string, string[]>()
-  const ctx: KoaAdapter.IContext & { _headers: Map<string, string[]> } = {
+  const ctx: AuthKoaAdapter.IContext & { _headers: Map<string, string[]> } = {
     request: {
       method: overrides.method ?? 'POST',
       url: overrides.url ?? '/auth/x',
@@ -44,20 +44,20 @@ interface MyProfile {
 }
 
 function buildAuth() {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const auth = new AuthRoot<MyProfile>({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   auth.providers.register(
-    password({
+    authPassword({
       passwords: auth.passwords,
       findIdentityByEmail: async (email) => (await adapter.identities.findByEmail(email, {})) as { id: string } | null,
     }),
@@ -75,7 +75,7 @@ describe('Koa adapter', () => {
 
   it('signIn rejects missing providerId with 400 + AUTH/INVALID_CREDENTIALS body', async () => {
     const ctx = makeCtx({ body: {} })
-    await koaSignIn(auth)(ctx)
+    await authKoaSignIn(auth)(ctx)
     expect(ctx.status).toBe(400)
     expect(String(ctx.body)).toContain('AUTH/INVALID_CREDENTIALS')
   })
@@ -89,7 +89,7 @@ describe('Koa adapter', () => {
         input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
       },
     })
-    await koaSignIn(auth)(ctx)
+    await authKoaSignIn(auth)(ctx)
     expect(ctx.status).toBe(200)
     const cookies = ctx._headers.get('set-cookie') ?? []
     expect(cookies.length).toBeGreaterThan(0)
@@ -98,14 +98,14 @@ describe('Koa adapter', () => {
 
   it('session returns null body when no cookie', async () => {
     const ctx = makeCtx({ method: 'GET', body: undefined })
-    await koaSession(auth)(ctx)
+    await authKoaSession(auth)(ctx)
     expect(ctx.status).toBe(200)
     expect(JSON.parse(String(ctx.body))).toEqual({ session: null, identity: null })
   })
 
   it('signOut clears the cookie even without a session', async () => {
     const ctx = makeCtx({ body: undefined })
-    await koaSignOut(auth)(ctx)
+    await authKoaSignOut(auth)(ctx)
     const cookies = ctx._headers.get('set-cookie') ?? []
     expect(cookies.length).toBeGreaterThan(0)
     expect(cookies[0]).toMatch(/Max-Age=0/i)
@@ -113,7 +113,7 @@ describe('Koa adapter', () => {
 
   it('providerBegin requires :id', async () => {
     const ctx = makeCtx({ body: {}, params: {} })
-    await koaProviderBegin(auth)(ctx)
+    await authKoaProviderBegin(auth)(ctx)
     expect(ctx.status).toBe(400)
     expect(String(ctx.body)).toContain('AUTH/PROVIDER_FAILED')
   })

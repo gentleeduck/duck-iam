@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryEvents } from '../../events'
-import type { Session } from '../../types/session'
+import { AuthInMemoryEvents } from '../../events'
+import type { AuthSession } from '../../types/session'
 import { HijackFacet } from '../hijack'
 
-function makeSession(overrides: Partial<Session.ISession> = {}): Session.ISession {
+function makeSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession.ISession {
   const now = Date.now()
   return {
     id: 'sid',
@@ -23,10 +23,10 @@ function makeSession(overrides: Partial<Session.ISession> = {}): Session.ISessio
 }
 
 describe('HijackFacet', () => {
-  let events: InMemoryEvents
+  let events: AuthInMemoryEvents
 
   beforeEach(() => {
-    events = new InMemoryEvents()
+    events = new AuthInMemoryEvents()
   })
 
   it('returns ok:true when fingerprint matches', async () => {
@@ -93,7 +93,7 @@ describe('HijackFacet', () => {
     const handler = vi.fn()
     events.on('suspicious', handler)
     const facet = new HijackFacet(events, { onIpChange: 'mfa' })
-    // Session has IP but request does not - asymmetric drift. The
+    // AuthSession has IP but request does not - asymmetric drift. The
     // configured `'mfa'` reaction is downgraded to `'rotate'` so a
     // request behind a UA-stripping proxy doesn't force MFA, but the
     // audit pipeline still sees the drift.

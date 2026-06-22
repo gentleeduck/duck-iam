@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { HttpAdapter } from '../index'
+import { IamHttpAdapter } from '../index'
 
 type A = 'read'
 type R = 'post'
@@ -15,11 +15,11 @@ function makeResponse(body: string, status = 400): Response {
   } as unknown as Response
 }
 
-describe('HttpAdapter error body cap', () => {
+describe('IamHttpAdapter error body cap', () => {
   it('caps a 10 MiB upstream error body at 200 chars + marker', async () => {
     const evilBody = 'X'.repeat(10 * 1024 * 1024)
     const fetch = vi.fn(async () => makeResponse(evilBody)) as unknown as typeof globalThis.fetch
-    const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
+    const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
     try {
       await adapter.listPolicies()
       throw new Error('expected throw')
@@ -36,7 +36,7 @@ describe('HttpAdapter error body cap', () => {
     const fetch = vi.fn(async () =>
       makeResponse('validation failed for field X', 400),
     ) as unknown as typeof globalThis.fetch
-    const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
+    const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
     try {
       await adapter.listPolicies()
       throw new Error('expected throw')
@@ -50,7 +50,7 @@ describe('HttpAdapter error body cap', () => {
   it('caps body at exactly 200 chars (boundary)', async () => {
     const body = 'A'.repeat(201)
     const fetch = vi.fn(async () => makeResponse(body, 400)) as unknown as typeof globalThis.fetch
-    const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
+    const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
     try {
       await adapter.listPolicies()
       throw new Error('expected throw')
@@ -65,7 +65,7 @@ describe('HttpAdapter error body cap', () => {
   it('passes through a 200-char body unchanged', async () => {
     const body = 'A'.repeat(200)
     const fetch = vi.fn(async () => makeResponse(body, 400)) as unknown as typeof globalThis.fetch
-    const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
+    const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
     try {
       await adapter.listPolicies()
       throw new Error('expected throw')
@@ -85,7 +85,7 @@ describe('HttpAdapter error body cap', () => {
       json: async () => ({}),
     } as unknown as Response
     const fetch = vi.fn(async () => broken) as unknown as typeof globalThis.fetch
-    const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
+    const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
     try {
       await adapter.listPolicies()
       throw new Error('expected throw')
@@ -99,7 +99,7 @@ describe('HttpAdapter error body cap', () => {
   it('returns body-capped messages on the 5xx path too (transient errors)', async () => {
     const evilBody = 'Z'.repeat(5000)
     const fetch = vi.fn(async () => makeResponse(evilBody, 503)) as unknown as typeof globalThis.fetch
-    const adapter = new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
+    const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
     try {
       await adapter.listPolicies()
       throw new Error('expected throw')

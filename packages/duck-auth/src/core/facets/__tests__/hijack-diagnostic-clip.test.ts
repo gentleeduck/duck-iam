@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { InMemoryEvents } from '../../events'
-import type { Session } from '../../types/session'
+import { AuthInMemoryEvents } from '../../events'
+import type { AuthSession } from '../../types/session'
 import { HijackFacet } from '../hijack'
 
-function fakeSession(overrides: Partial<Session.ISession> = {}): Session.ISession {
+function fakeSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession.ISession {
   const now = Date.now()
   return {
     id: 'sess-1',
@@ -21,12 +21,12 @@ function fakeSession(overrides: Partial<Session.ISession> = {}): Session.ISessio
 }
 
 describe('HijackFacet - diagnostic-string clip', () => {
-  let events: InMemoryEvents
+  let events: AuthInMemoryEvents
   let facet: HijackFacet
   let seen: Array<{ from: string; to: string }>
 
   beforeEach(() => {
-    events = new InMemoryEvents()
+    events = new AuthInMemoryEvents()
     facet = new HijackFacet(events, { onIpChange: 'mfa', onUserAgentChange: 'mfa' })
     seen = []
     events.on('suspicious', (payload) => {

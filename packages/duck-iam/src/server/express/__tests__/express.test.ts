@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Engine } from '../../../core/engine'
-import type { AccessControl } from '../../../core/types'
-import { accessMiddleware, adminRouter, guard } from '../index'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import { IamEngine } from '../../../core/engine'
+import type { IamAccessControl } from '../../../core/types'
+import { iamAccessMiddleware, iamAdminRouter, iamGuard } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
 type ResourceType = 'post' | 'comment'
 type RoleId = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [
@@ -18,7 +18,7 @@ const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   ],
 }
 
-const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -30,11 +30,11 @@ const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
 }
 
 function makeEngine() {
-  const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+  const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: [viewerRole, editorRole],
     assignments: { 'user-viewer': ['viewer'], 'user-editor': ['editor'] },
   })
-  return new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 }
 
 interface MockRes {
@@ -59,15 +59,15 @@ function makeRes(): MockRes {
   return res
 }
 
-describe('accessMiddleware (express)', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+describe('iamAccessMiddleware (express)', () => {
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = makeEngine()
   })
 
   it('returns 401 when no userId resolved', async () => {
-    const mw = accessMiddleware(engine)
+    const mw = iamAccessMiddleware(engine)
     const res = makeRes()
     const next = vi.fn()
     await mw(
@@ -80,7 +80,7 @@ describe('accessMiddleware (express)', () => {
   })
 
   it('calls next() when allowed', async () => {
-    const mw = accessMiddleware(engine, { getUserId: () => 'user-viewer' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'user-viewer' })
     const res = makeRes()
     const next = vi.fn()
     await mw({ method: 'GET', path: '/post' } as Parameters<typeof mw>[0], res as Parameters<typeof mw>[1], next)
@@ -89,7 +89,7 @@ describe('accessMiddleware (express)', () => {
   })
 
   it('returns 403 default onDenied when not allowed', async () => {
-    const mw = accessMiddleware(engine, { getUserId: () => 'user-viewer' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'user-viewer' })
     const res = makeRes()
     const next = vi.fn()
     await mw({ method: 'DELETE', path: '/post' } as Parameters<typeof mw>[0], res as Parameters<typeof mw>[1], next)
@@ -97,9 +97,9 @@ describe('accessMiddleware (express)', () => {
     expect(res.statusCode).toBe(403)
   })
 
-  it('infers action from METHOD_ACTION_MAP', async () => {
+  it('infers action from IAM_METHOD_ACTION_MAP', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine, { getUserId: () => 'user-x' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'user-x' })
     await mw(
       { method: 'POST', path: '/post' } as Parameters<typeof mw>[0],
       makeRes() as Parameters<typeof mw>[1],
@@ -111,7 +111,7 @@ describe('accessMiddleware (express)', () => {
 
   it('infers resource from path first segment', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine, { getUserId: () => 'user-x' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'user-x' })
     await mw(
       { method: 'GET', path: '/comment/42' } as Parameters<typeof mw>[0],
       makeRes() as Parameters<typeof mw>[1],
@@ -125,7 +125,7 @@ describe('accessMiddleware (express)', () => {
 
   it('uses custom getResource and getAction', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine, {
+    const mw = iamAccessMiddleware(engine, {
       getUserId: () => 'user-x',
       getResource: () => ({ type: 'post', id: 'x', attributes: { foo: 'bar' } }),
       getAction: () => 'update',
@@ -142,7 +142,7 @@ describe('accessMiddleware (express)', () => {
 
   it('passes scope when getScope provided', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware<Action, ResourceType, RoleId, Scope>(engine, {
+    const mw = iamAccessMiddleware<Action, ResourceType, RoleId, Scope>(engine, {
       getUserId: () => 'user-x',
       getScope: () => 'org-1',
     })
@@ -159,7 +159,7 @@ describe('accessMiddleware (express)', () => {
     const onDenied = vi.fn((_req, res: MockRes) => {
       res.status(418).json({ msg: 'teapot' })
     })
-    const mw = accessMiddleware(engine, { getUserId: () => 'user-viewer', onDenied: onDenied as never })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'user-viewer', onDenied: onDenied as never })
     const res = makeRes()
     await mw({ method: 'DELETE', path: '/post' } as Parameters<typeof mw>[0], res as Parameters<typeof mw>[1], vi.fn())
     expect(res.statusCode).toBe(418)
@@ -171,7 +171,7 @@ describe('accessMiddleware (express)', () => {
     const onError = vi.fn((_err, _req, res: MockRes) => {
       res.status(599).json({})
     })
-    const mw = accessMiddleware(engine, { getUserId: () => 'user-x', onError: onError as never })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'user-x', onError: onError as never })
     const res = makeRes()
     await mw({ method: 'GET', path: '/post' } as Parameters<typeof mw>[0], res as Parameters<typeof mw>[1], vi.fn())
     expect(onError).toHaveBeenCalledOnce()
@@ -180,7 +180,7 @@ describe('accessMiddleware (express)', () => {
 
   it('default getUserId reads req.user.id', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = accessMiddleware(engine)
+    const mw = iamAccessMiddleware(engine)
     await mw(
       { method: 'GET', path: '/post', user: { id: 'user-from-jwt' } } as Parameters<typeof mw>[0],
       makeRes() as Parameters<typeof mw>[1],
@@ -191,15 +191,15 @@ describe('accessMiddleware (express)', () => {
   })
 })
 
-describe('guard (express)', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+describe('iamGuard (express)', () => {
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = makeEngine()
   })
 
   it('returns 401 when no userId', async () => {
-    const mw = guard(engine, 'delete', 'post')
+    const mw = iamGuard(engine, 'delete', 'post')
     const res = makeRes()
     const next = vi.fn()
     await mw({ method: 'DELETE', path: '/post/1' } as Parameters<typeof mw>[0], res as Parameters<typeof mw>[1], next)
@@ -207,7 +207,7 @@ describe('guard (express)', () => {
   })
 
   it('next() when allowed', async () => {
-    const mw = guard(engine, 'delete', 'post', { getUserId: () => 'user-editor' })
+    const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'user-editor' })
     const next = vi.fn()
     await mw(
       { method: 'DELETE', path: '/post/1', params: { id: '1' } } as Parameters<typeof mw>[0],
@@ -218,7 +218,7 @@ describe('guard (express)', () => {
   })
 
   it('onDenied 403 when not allowed', async () => {
-    const mw = guard(engine, 'delete', 'post', { getUserId: () => 'user-viewer' })
+    const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'user-viewer' })
     const res = makeRes()
     const next = vi.fn()
     await mw(
@@ -232,7 +232,7 @@ describe('guard (express)', () => {
 
   it('passes resourceId from params and scope', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = guard<Action, ResourceType, RoleId, Scope>(engine, 'update', 'post', {
+    const mw = iamGuard<Action, ResourceType, RoleId, Scope>(engine, 'update', 'post', {
       getUserId: () => 'u',
       scope: 'org-1',
     })
@@ -248,7 +248,7 @@ describe('guard (express)', () => {
 
   it('forwards engine errors to next()', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('engine err'))
-    const mw = guard(engine, 'delete', 'post', { getUserId: () => 'u' })
+    const mw = iamGuard(engine, 'delete', 'post', { getUserId: () => 'u' })
     const next = vi.fn()
     await mw(
       { method: 'DELETE', path: '/post/1' } as Parameters<typeof mw>[0],
@@ -260,7 +260,7 @@ describe('guard (express)', () => {
   })
 })
 
-describe('adminRouter (express)', () => {
+describe('iamAdminRouter (express)', () => {
   type RouteHandler = (req: never, res: never) => Promise<void> | void
 
   const makeRouter = () => {
@@ -281,7 +281,7 @@ describe('adminRouter (express)', () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
 
-    const mounted = adminRouter(engine, { authorize: () => true })(() => router as never)
+    const mounted = iamAdminRouter(engine, { authorize: () => true })(() => router as never)
     expect(mounted).toBe(router as unknown)
 
     const res = makeRes()
@@ -311,16 +311,16 @@ describe('adminRouter (express)', () => {
 
   it('rejects construction without an authorize callback', () => {
     const engine = makeEngine()
-    expect(() => adminRouter(engine, undefined as never)).toThrow(/authorize/)
-    expect(() => adminRouter(engine, {} as never)).toThrow(/authorize/)
+    expect(() => iamAdminRouter(engine, undefined as never)).toThrow(/authorize/)
+    expect(() => iamAdminRouter(engine, {} as never)).toThrow(/authorize/)
   })
 
   it('default csrfCheck rejects Sec-Fetch-Site: cross-site automatically (CAVEAT-2)', async () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
     let authorizeCalled = false
-    // No csrfCheck supplied - defaultCsrfCheck is applied.
-    adminRouter(engine, {
+    // No csrfCheck supplied - iamDefaultCsrfCheck is applied.
+    iamAdminRouter(engine, {
       authorize: () => {
         authorizeCalled = true
         return true
@@ -336,7 +336,7 @@ describe('adminRouter (express)', () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
     let authorizeCalled = false
-    adminRouter(engine, {
+    iamAdminRouter(engine, {
       authorize: () => {
         authorizeCalled = true
         return true
@@ -361,7 +361,7 @@ describe('adminRouter (express)', () => {
     // Even if authorize() would allow, csrfCheck blocks cross-site requests
     // before authorize ever runs.
     let authorizeCalled = false
-    adminRouter(engine, {
+    iamAdminRouter(engine, {
       authorize: () => {
         authorizeCalled = true
         return true
@@ -377,7 +377,7 @@ describe('adminRouter (express)', () => {
   it('returns 401 when authorize returns false', async () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
-    adminRouter(engine, { authorize: () => false })(() => router as never)
+    iamAdminRouter(engine, { authorize: () => false })(() => router as never)
     const res = makeRes()
 
     await handlers['PUT /policies']!({ body: {} } as never, res as never)
@@ -389,7 +389,7 @@ describe('adminRouter (express)', () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
     const seen: Array<{ user?: { id: string; role?: string } }> = []
-    adminRouter(engine, {
+    iamAdminRouter(engine, {
       authorize: (req) => {
         seen.push(req as { user?: { id: string; role?: string } })
         return (req as { user?: { role?: string } }).user?.role === 'admin'
@@ -409,7 +409,7 @@ describe('adminRouter (express)', () => {
     const engine = makeEngine()
     const { router, handlers } = makeRouter()
     const boom = new Error('boom')
-    adminRouter(engine, {
+    iamAdminRouter(engine, {
       authorize: () => true,
       onError: (err, _req, res) => res.status(500).json({ error: err.message }),
     })(() => router as never)
@@ -431,7 +431,7 @@ describe('adminRouter (express)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: unknown[] = []
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: (() => ({ id: 'admin-1' })) as never,
         onAdminMutation: (e) => {
           events.push(e)
@@ -472,7 +472,7 @@ describe('adminRouter (express)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: unknown[] = []
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: () => true,
         onAdminMutation: (e) => {
           events.push(e)
@@ -497,7 +497,7 @@ describe('adminRouter (express)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: unknown[] = []
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: () => true,
         onAdminMutation: (e) => {
           events.push(e)
@@ -514,7 +514,7 @@ describe('adminRouter (express)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: () => true,
         onAdminMutation: () => {
           throw new Error('hook-explode')
@@ -540,7 +540,7 @@ describe('adminRouter (express)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: Array<{ path: string }> = []
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: () => true,
         onAdminMutation: (e) => {
           events.push(e)
@@ -568,7 +568,7 @@ describe('adminRouter (express)', () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
       const captured: Array<{ err: unknown; event: { action: string; target: string } }> = []
       const boom = new Error('hook-boom')
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: () => true,
         onAdminMutation: () => {
           throw boom
@@ -600,7 +600,7 @@ describe('adminRouter (express)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: () => true,
         onAdminMutation: () => {
           throw new Error('hook-boom')
@@ -628,7 +628,7 @@ describe('adminRouter (express)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: Array<{ success: boolean; error?: string }> = []
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: () => true,
         onAdminMutation: (e) => {
           events.push(e)
@@ -657,7 +657,7 @@ describe('adminRouter (express)', () => {
       const engine = makeEngine()
       const { router, handlers } = makeRouter()
       const events: Array<{ error?: string }> = []
-      adminRouter(engine, {
+      iamAdminRouter(engine, {
         authorize: () => true,
         includeErrorMessage: true,
         onAdminMutation: (e) => {

@@ -1,4 +1,4 @@
-import type { Session } from './types/session'
+import type { AuthSession } from './types/session'
 
 const STATUS_FOR: Record<AuthErrorObject.IAuthErrorCode, number> = {
   'AUTH/UNAUTHENTICATED': 401,
@@ -99,7 +99,7 @@ export namespace AuthErrorObject {
     | { code: 'AUTH/UNAUTHENTICATED'; status: 401 }
     | { code: 'AUTH/SESSION_EXPIRED'; status: 401; expiredAt: number }
     | { code: 'AUTH/SESSION_REVOKED'; status: 401; reason: string }
-    | { code: 'AUTH/AAL_INSUFFICIENT'; status: 401; required: Session.AAL; have: Session.AAL }
+    | { code: 'AUTH/AAL_INSUFFICIENT'; status: 401; required: AuthSession.AAL; have: AuthSession.AAL }
     | { code: 'AUTH/STEP_UP_REQUIRED'; status: 401; challenge: unknown }
     | { code: 'AUTH/MFA_REQUIRED'; status: 401; methods: string[] }
     | { code: 'AUTH/INVALID_CREDENTIALS'; status: 401 }

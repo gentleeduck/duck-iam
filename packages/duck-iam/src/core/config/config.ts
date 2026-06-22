@@ -1,15 +1,15 @@
-import { PolicyBuilder, RoleBuilder, RuleBuilder, When } from '../builder'
-import type { EngineTypes } from '../engine'
-import { Engine } from '../engine'
-import type { AccessControl, Client, DotPath } from '../types'
-import { validatePolicy, validateRoles } from '../validate'
-import type { Config } from './config.types'
+import { IamPolicyBuilder, IamRoleBuilder, IamRuleBuilder, IamWhen } from '../builder'
+import type { IamEngineTypes } from '../engine'
+import { IamEngine } from '../engine'
+import type { IamAccessControl, IamClient, IamDotPath } from '../types'
+import { iamValidatePolicy, iamValidateRoles } from '../validate'
+import type { IamConfig } from './config.types'
 
 /**
  * Creates a type-safe access configuration for your application.
  *
  * The primary entry point for duck-iam. Pass your permission schema
- * using `as const` arrays and get back an {@link Config.IAccessConfig} with fully typed
+ * using `as const` arrays and get back an {@link IamConfig.IAccessConfig} with fully typed
  * builder methods.
  *
  * @template TActions   - Tuple of action strings, declared `as const`.
@@ -19,11 +19,11 @@ import type { Config } from './config.types'
  * @template TContext   - Shape of the evaluation context for typed dot-paths.
  *
  * @param input - Your permission schema: actions, resources, and optionally scopes, roles, and context.
- * @returns A typed {@link Config.IAccessConfig} with constrained builder methods.
+ * @returns A typed {@link IamConfig.IAccessConfig} with constrained builder methods.
  *
  * @example
  * ```ts
- * const access = createAccessConfig({
+ * const iam = createIam({
  *   actions: ['create', 'read', 'update', 'delete'] as const,
  *   resources: ['post', 'comment', 'user'] as const,
  *   roles: ['viewer', 'editor', 'admin'] as const,
@@ -31,19 +31,19 @@ import type { Config } from './config.types'
  * })
  *
  * // All builders are now type-safe:
- * access.defineRole('viewer').grant('read', 'post')   // OK
- * access.defineRole('viewer').grant('raed', 'post')   // compile error
+ * iam.iamDefineRole('viewer').grant('read', 'post')   // OK
+ * iam.iamDefineRole('viewer').grant('raed', 'post')   // compile error
  * ```
  */
-export function createAccessConfig<
+export function createIam<
   const TActions extends readonly string[],
   const TResources extends readonly string[],
   const TScopes extends readonly string[] = readonly string[],
   const TRoles extends readonly string[] = readonly string[],
-  TContext extends object = DotPath.IDefaultContext,
+  TContext extends object = IamDotPath.IDefaultContext,
 >(
-  input: Config.IAccessConfigInput<TActions, TResources, TScopes, TRoles, TContext>,
-): Config.IAccessConfig<TActions[number], TResources[number], TScopes[number], TRoles[number], TContext> {
+  input: IamConfig.IAccessConfigInput<TActions, TResources, TScopes, TRoles, TContext>,
+): IamConfig.IAccessConfig<TActions[number], TResources[number], TScopes[number], TRoles[number], TContext> {
   type TAction = TActions[number]
   type TResource = TResources[number]
   type TScope = TScopes[number]
@@ -55,22 +55,22 @@ export function createAccessConfig<
     scopes: input.scopes ?? [],
     roles: input.roles ?? [],
 
-    defineRole: (id: TRole) => new RoleBuilder<TAction, TResource, TRole, TScope, TContext>(id),
+    iamDefineRole: (id: TRole) => new IamRoleBuilder<TAction, TResource, TRole, TScope, TContext>(id),
 
-    definePolicy: (id: string) => new PolicyBuilder<TAction, TResource, TRole, TScope, TContext>(id),
+    iamDefinePolicy: (id: string) => new IamPolicyBuilder<TAction, TResource, TRole, TScope, TContext>(id),
 
-    defineRule: (id: string) => new RuleBuilder<TAction, TResource, TScope, TRole, TContext>(id),
+    iamDefineRule: (id: string) => new IamRuleBuilder<TAction, TResource, TScope, TRole, TContext>(id),
 
-    when: () => new When<TAction, TResource, TRole, TScope, TContext>(),
+    when: () => new IamWhen<TAction, TResource, TRole, TScope, TContext>(),
 
-    createEngine: <TMode extends AccessControl.Mode = 'development'>(
-      config: EngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
-    ) => new Engine<TAction, TResource, TRole, TScope, TMode>(config),
+    createEngine: <TMode extends IamAccessControl.Mode = 'development'>(
+      config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
+    ) => new IamEngine<TAction, TResource, TRole, TScope, TMode>(config),
 
-    checks: <const T extends readonly Client.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => checks,
+    checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => checks,
 
-    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[]) => validateRoles(roles),
+    iamValidateRoles: (roles: readonly IamAccessControl.IRole<TAction, TResource, string, TScope>[]) => iamValidateRoles(roles),
 
-    validatePolicy: (input: unknown) => validatePolicy(input),
+    iamValidatePolicy: (input: unknown) => iamValidatePolicy(input),
   }
 }

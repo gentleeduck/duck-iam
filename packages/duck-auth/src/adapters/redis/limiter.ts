@@ -1,11 +1,11 @@
-import type { Limiter } from '../../core/types/limiter'
-import type { RedisLike } from './redis-like'
+import type { AuthLimiter } from '../../core/types/limiter'
+import type { AuthRedisLike } from './redis-like'
 
-export namespace RedisLimiter {
-  /** Config knobs for {@link RedisLimiter}. */
+export namespace AuthRedisLimiter {
+  /** Config knobs for {@link AuthRedisLimiter}. */
   export interface IConfig {
-    /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
-    redis: RedisLike.IClient
+    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+    redis: AuthRedisLike.IClient
     /** Max consumed weight per window. Default 10. */
     max?: number
     /** Window size in ms. Default 15 minutes. */
@@ -21,13 +21,13 @@ export namespace RedisLimiter {
  * Redis primary; for clustered Redis with cross-shard accuracy use a
  * Lua script (see `evalScript` below).
  */
-export class RedisLimiter implements Limiter.ILimiter {
-  private readonly _redis: RedisLike.IClient
+export class AuthRedisLimiter implements AuthLimiter.ILimiter {
+  private readonly _redis: AuthRedisLike.IClient
   private readonly _max: number
   private readonly _windowMs: number
   private readonly _prefix: string
 
-  constructor(cfg: RedisLimiter.IConfig) {
+  constructor(cfg: AuthRedisLimiter.IConfig) {
     this._redis = cfg.redis
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000
@@ -42,9 +42,9 @@ export class RedisLimiter implements Limiter.ILimiter {
   /**
    * Consume `weight` units. Atomic per call: a single INCR establishes
    * the new count, then EXPIRE sets the TTL on the first hit of the
-   * window. Returns the standard `Limiter.IResult` shape.
+   * window. Returns the standard `AuthLimiter.IResult` shape.
    */
-  async consume(key: string, weight = 1): Promise<Limiter.IResult> {
+  async consume(key: string, weight = 1): Promise<AuthLimiter.IResult> {
     const now0 = Date.now()
     if (typeof key !== 'string' || key.length === 0 || key.length > 1024) {
       return { ok: false, remaining: 0, resetAt: now0 + this._windowMs }

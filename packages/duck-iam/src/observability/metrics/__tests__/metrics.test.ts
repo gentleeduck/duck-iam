@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { EngineTypes } from '../../../core/engine/engine.types'
-import { createMetricsAggregator } from '../index'
+import type { IamEngineTypes } from '../../../core/engine/engine.types'
+import { iamCreateMetricsAggregator } from '../index'
 
-function fakeEvent(durationMs: number, allowed = true, failOpen = false): EngineTypes.IMetricsEvent {
+function fakeEvent(durationMs: number, allowed = true, failOpen = false): IamEngineTypes.IMetricsEvent {
   return {
     subjectId: 'u',
     action: 'read',
@@ -14,9 +14,9 @@ function fakeEvent(durationMs: number, allowed = true, failOpen = false): Engine
   }
 }
 
-describe('createMetricsAggregator', () => {
+describe('iamCreateMetricsAggregator', () => {
   it('counts allow / deny verdicts', () => {
-    const m = createMetricsAggregator()
+    const m = iamCreateMetricsAggregator()
     for (let i = 0; i < 7; i++) m.record(fakeEvent(1, true))
     for (let i = 0; i < 3; i++) m.record(fakeEvent(1, false))
     const s = m.snapshot()
@@ -26,7 +26,7 @@ describe('createMetricsAggregator', () => {
   })
 
   it('computes p50 / p95 / p99 over the rolling window', () => {
-    const m = createMetricsAggregator()
+    const m = iamCreateMetricsAggregator()
     for (let i = 1; i <= 100; i++) m.record(fakeEvent(i))
     const s = m.snapshot()
     expect(s.p50).toBeGreaterThanOrEqual(49)
@@ -40,7 +40,7 @@ describe('createMetricsAggregator', () => {
   })
 
   it('evicts oldest samples beyond sampleSize', () => {
-    const m = createMetricsAggregator({ sampleSize: 10 })
+    const m = iamCreateMetricsAggregator({ sampleSize: 10 })
     for (let i = 1; i <= 100; i++) m.record(fakeEvent(i))
     const s = m.snapshot()
     expect(s.samples).toBe(10)
@@ -51,7 +51,7 @@ describe('createMetricsAggregator', () => {
   })
 
   it('reset zeroes counters but keeps the buffer allocation', () => {
-    const m = createMetricsAggregator()
+    const m = iamCreateMetricsAggregator()
     m.record(fakeEvent(5))
     m.reset()
     const s = m.snapshot()
@@ -62,13 +62,13 @@ describe('createMetricsAggregator', () => {
   })
 
   it('returns zeros on empty window', () => {
-    const m = createMetricsAggregator()
+    const m = iamCreateMetricsAggregator()
     const s = m.snapshot()
     expect(s).toEqual({ total: 0, allow: 0, deny: 0, failOpen: 0, p50: 0, p95: 0, p99: 0, max: 0, samples: 0 })
   })
 
   it('counts failOpen as a subset of allow', () => {
-    const m = createMetricsAggregator()
+    const m = iamCreateMetricsAggregator()
     // 5 normal allows
     for (let i = 0; i < 5; i++) m.record(fakeEvent(1, true, false))
     // 3 fail-open allows
@@ -83,7 +83,7 @@ describe('createMetricsAggregator', () => {
   })
 
   it('reset zeroes failOpen counter', () => {
-    const m = createMetricsAggregator()
+    const m = iamCreateMetricsAggregator()
     m.record(fakeEvent(1, true, true))
     m.reset()
     expect(m.snapshot().failOpen).toBe(0)

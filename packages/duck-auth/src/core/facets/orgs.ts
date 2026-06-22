@@ -1,7 +1,7 @@
 import { AuthErrorObject } from '../errors'
-import type { TenantContext } from '../types/context'
-import type { Events } from '../types/events'
-import type { Org } from '../types/org'
+import type { AuthTenantContext } from '../types/context'
+import type { AuthEvents } from '../types/events'
+import type { AuthOrg } from '../types/org'
 
 /**
  * Orgs + Membership facet. Locked to core in v4.2 (Q1 decision). Apps
@@ -15,22 +15,22 @@ import type { Org } from '../types/org'
  */
 export class OrgsFacet<OrgMeta = unknown> {
   constructor(
-    private readonly _store: Org.IStore<OrgMeta>,
-    readonly _events: Events.IBus,
+    private readonly _store: AuthOrg.IStore<OrgMeta>,
+    readonly _events: AuthEvents.IBus,
   ) {}
 
   /** Get an org by id. */
-  async get(id: string, ctx: TenantContext = {}): Promise<Org.IOrg<OrgMeta> | null> {
+  async get(id: string, ctx: AuthTenantContext = {}): Promise<AuthOrg.IOrg<OrgMeta> | null> {
     return this._store.getOrg(id, ctx)
   }
 
   /** List the orgs an identity belongs to. */
-  async listForIdentity(identityId: string, ctx: TenantContext = {}): Promise<Org.IOrg<OrgMeta>[]> {
+  async listForIdentity(identityId: string, ctx: AuthTenantContext = {}): Promise<AuthOrg.IOrg<OrgMeta>[]> {
     return this._store.listOrgsForIdentity(identityId, ctx)
   }
 
   /** List the memberships of an org. */
-  async listMembers(orgId: string, ctx: TenantContext = {}): Promise<Org.IMembership[]> {
+  async listMembers(orgId: string, ctx: AuthTenantContext = {}): Promise<AuthOrg.IMembership[]> {
     return this._store.listMembers(orgId, ctx)
   }
 
@@ -41,8 +41,8 @@ export class OrgsFacet<OrgMeta = unknown> {
    */
   async addMember(
     input: { orgId: string; identityId: string; roles?: string[] },
-    ctx: TenantContext = {},
-  ): Promise<Org.IMembership> {
+    ctx: AuthTenantContext = {},
+  ): Promise<AuthOrg.IMembership> {
     const existing = await this._store.listMembers(input.orgId, ctx)
     const live = existing.find((m) => m.identityId === input.identityId && !m.leftAt)
     if (live) {
@@ -59,12 +59,12 @@ export class OrgsFacet<OrgMeta = unknown> {
   }
 
   /** Remove (mark leftAt) a membership. Idempotent. */
-  async removeMember(orgId: string, identityId: string, ctx: TenantContext = {}): Promise<void> {
+  async removeMember(orgId: string, identityId: string, ctx: AuthTenantContext = {}): Promise<void> {
     await this._store.removeMember(orgId, identityId, ctx)
   }
 
   /** Replace the role set for a member. */
-  async setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext = {}): Promise<void> {
+  async setRoles(orgId: string, identityId: string, roles: string[], ctx: AuthTenantContext = {}): Promise<void> {
     await this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx)
   }
 
@@ -72,7 +72,7 @@ export class OrgsFacet<OrgMeta = unknown> {
    * Resolve the membership of (identity, org) for the in-tenant scope.
    * Returns null when the identity is not a live member.
    */
-  async resolveMembership(orgId: string, identityId: string, ctx: TenantContext = {}): Promise<Org.IMembership | null> {
+  async resolveMembership(orgId: string, identityId: string, ctx: AuthTenantContext = {}): Promise<AuthOrg.IMembership | null> {
     const members = await this._store.listMembers(orgId, ctx)
     return members.find((m) => m.identityId === identityId && !m.leftAt) ?? null
   }

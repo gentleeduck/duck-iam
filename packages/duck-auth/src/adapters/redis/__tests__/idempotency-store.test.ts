@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { RedisIdempotencyStore } from '../idempotency-store'
-import { FakeRedis } from '../redis-like'
+import { AuthRedisIdempotencyStore } from '../idempotency-store'
+import { AuthFakeRedis } from '../redis-like'
 
 const ctx = { tenantId: 'acme' }
 
-describe('RedisIdempotencyStore', () => {
-  let redis: FakeRedis
-  let store: RedisIdempotencyStore
+describe('AuthRedisIdempotencyStore', () => {
+  let redis: AuthFakeRedis
+  let store: AuthRedisIdempotencyStore
 
   beforeEach(() => {
-    redis = new FakeRedis()
-    store = new RedisIdempotencyStore({ redis, prefix: 'test:idem' })
+    redis = new AuthFakeRedis()
+    store = new AuthRedisIdempotencyStore({ redis, prefix: 'test:idem' })
   })
 
   it('claim() returns true on first call, false on second', async () => {
@@ -43,7 +43,7 @@ describe('RedisIdempotencyStore', () => {
   })
 
   it('TTL is honored; expired claim is reclaimable', async () => {
-    // Real Redis TTL granularity is seconds; FakeRedis honors EX seconds too.
+    // Real Redis TTL granularity is seconds; AuthFakeRedis honors EX seconds too.
     await store.claim('k1', 1000, ctx)
     await new Promise((r) => setTimeout(r, 1100))
     expect(await store.claim('k1', 60_000, ctx)).toBe(true)

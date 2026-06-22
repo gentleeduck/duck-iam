@@ -1,18 +1,18 @@
-import type { AuthRoot } from './auth'
-import type { Events } from './types/events'
-import type { Provider } from './types/provider'
+import type { AuthEngine } from './auth'
+import type { AuthEvents } from './types/events'
+import type { AuthProvider } from './types/provider'
 
 /**
- * Plugin registry. Generic over the AuthRoot generics so `install` does not
- * need a cast at the call site; `AuthRoot.use(plugin)` forwards its own
+ * Plugin registry. Generic over the AuthEngine generics so `install` does not
+ * need a cast at the call site; `AuthEngine.use(plugin)` forwards its own
  * generics unchanged.
  */
-export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  private readonly _plugins = new Map<string, PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>>()
+export class AuthPluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknown> {
+  private readonly _plugins = new Map<string, AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>>()
   private readonly _eventUnsubs: Array<() => void> = []
 
   /** All installed plugins keyed by id. */
-  get installed(): ReadonlyMap<string, PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>> {
+  get installed(): ReadonlyMap<string, AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>> {
     return this._plugins
   }
 
@@ -21,8 +21,8 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
 
   /** Install a plugin atomically. */
   async install(
-    auth: AuthRoot<Profile, Tenant, OrgMeta>,
-    plugin: PluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>,
+    auth: AuthEngine<Profile, Tenant, OrgMeta>,
+    plugin: AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>,
   ): Promise<void> {
     if (typeof plugin?.id !== 'string' || plugin.id.length === 0 || plugin.id.length > 128) {
       throw new Error('@gentleduck/auth: plugin.id must be a non-empty string <=128 chars')
@@ -39,7 +39,7 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
     if (plugin.events) {
       for (const [event, handler] of Object.entries(plugin.events)) {
         if (handler === undefined) continue
-        const unsub = auth.events.on(event as keyof Events.EventMap, handler as (p: unknown) => void | Promise<void>)
+        const unsub = auth.events.on(event as keyof AuthEvents.EventMap, handler as (p: unknown) => void | Promise<void>)
         this._eventUnsubs.push(unsub)
       }
     }
@@ -60,19 +60,19 @@ export class PluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknow
   }
 }
 
-export namespace PluginRegistry {
+export namespace AuthPluginRegistry {
   export interface IAuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     /** Stable id; library refuses duplicate ids. */
     id: string
     /** Optional providers to register at install time. */
-    providers?: Provider.IProvider<unknown, unknown, Profile>[]
+    providers?: AuthProvider.IProvider<unknown, unknown, Profile>[]
     /** Optional event subscriptions; library auto-attaches on install. */
-    events?: Partial<{ [K in keyof Events.EventMap]: (p: Events.EventMap[K]) => void | Promise<void> }>
+    events?: Partial<{ [K in keyof AuthEvents.EventMap]: (p: AuthEvents.EventMap[K]) => void | Promise<void> }>
     /**
      * Optional install hook. Runs once at `auth.use()` time. Receives the
-     * AuthRoot so the plugin can read config or wire additional facets.
+     * AuthEngine so the plugin can read config or wire additional facets.
      */
-    install?(auth: AuthRoot<Profile, Tenant, OrgMeta>): void | Promise<void>
+    install?(auth: AuthEngine<Profile, Tenant, OrgMeta>): void | Promise<void>
     /**
      * Optional custom facet exposed under `auth.plugins.facets[id]`. Authors
      * keep this surface narrow + typed via their own export.

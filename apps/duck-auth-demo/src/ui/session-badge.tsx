@@ -1,9 +1,9 @@
 /**
  * @packageDocumentation
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 
-import { useSession } from '@gentleduck/auth/client/react'
+import { authUseSession } from '@gentleduck/auth/client/react'
 import { Badge } from '@gentleduck/registry-ui/badge'
 
 /**
@@ -12,10 +12,10 @@ import { Badge } from '@gentleduck/registry-ui/badge'
  * label via `formatIdentity`). Builds on the registry-ui Badge so
  * variant colors stay consistent with the rest of the design system.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export function SessionBadge<Profile = unknown>(props: SessionBadge.IProps<Profile>): React.JSX.Element {
-  const session = useSession<Profile>()
+  const session = authUseSession<Profile>()
   if (session.status === 'loading') {
     return <Badge variant="secondary">Loading</Badge>
   }
@@ -28,7 +28,7 @@ export function SessionBadge<Profile = unknown>(props: SessionBadge.IProps<Profi
 /**
  * Namespace merge for SessionBadge.
  *
- * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export namespace SessionBadge {
   export interface IProps<Profile = unknown> {

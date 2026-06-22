@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { CookieTransport } from '../../../core/transport/cookie'
-import type { Channel } from '../../../core/types/channel'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { magicLink } from '../index'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { AuthCookieTransport } from '../../../core/transport/cookie'
+import type { AuthChannel } from '../../../core/types/channel'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { authMagicLink } from '../index'
 
 interface MyProfile {
   email: string
 }
 
-function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
   return {
     kind: 'email',
@@ -25,25 +25,25 @@ function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: stri
   }
 }
 
-function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.IChannel } = {}): {
-  auth: AuthRoot<MyProfile>
-  adapter: MemoryAuthAdapter<MyProfile>
-  channel: Channel.IChannel & { sent: Array<{ to: string; url: string }> }
+function buildAuth(opts: { autoCreate?: boolean; channel?: AuthChannel.IChannel } = {}): {
+  auth: AuthEngine<MyProfile>
+  adapter: AuthMemoryAdapter<MyProfile>
+  channel: AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }
 } {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const channel = (opts.channel as Channel.IChannel & { sent: Array<{ to: string; url: string }> }) ?? fakeChannel()
-  const auth = new AuthRoot<MyProfile>({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const channel = (opts.channel as AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }) ?? fakeChannel()
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
+    limiter: new AuthMemoryLimiter({ max: 3, windowMs: 60_000 }),
   })
   auth.providers.register(
-    magicLink<MyProfile>({
+    authMagicLink<MyProfile>({
       channels: { email: channel },
       findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
       autoCreateIdentity: opts.autoCreate ?? false,
@@ -101,7 +101,7 @@ describe('magic-link provider', () => {
     })
 
     it('channel send failure does NOT surface to the caller; emits signin.failed for operator visibility', async () => {
-      const broken: Channel.IChannel = {
+      const broken: AuthChannel.IChannel = {
         kind: 'email',
         id: 'broken',
         async send() {
@@ -138,7 +138,7 @@ describe('magic-link provider', () => {
   describe('callbackPath open-redirect defense', () => {
     it('throws AUTH/MISCONFIGURED at construction when callbackPath is protocol-relative `//evil.com`', () => {
       expect(() =>
-        magicLink<MyProfile>({
+        authMagicLink<MyProfile>({
           channels: { email: fakeChannel() },
           findIdentityByEmail: async () => null,
           callbackPath: '//evil.com',
@@ -148,7 +148,7 @@ describe('magic-link provider', () => {
 
     it('throws on `/\\evil.com` (Windows-style escape)', () => {
       expect(() =>
-        magicLink<MyProfile>({
+        authMagicLink<MyProfile>({
           channels: { email: fakeChannel() },
           findIdentityByEmail: async () => null,
           callbackPath: '/\\evil.com',
@@ -158,7 +158,7 @@ describe('magic-link provider', () => {
 
     it('throws when callbackPath does not start with `/`', () => {
       expect(() =>
-        magicLink<MyProfile>({
+        authMagicLink<MyProfile>({
           channels: { email: fakeChannel() },
           findIdentityByEmail: async () => null,
           callbackPath: 'https://evil.com',
@@ -168,7 +168,7 @@ describe('magic-link provider', () => {
 
     it('accepts a safe same-origin callback path', () => {
       expect(() =>
-        magicLink<MyProfile>({
+        authMagicLink<MyProfile>({
           channels: { email: fakeChannel() },
           findIdentityByEmail: async () => null,
           callbackPath: '/login/finish',
@@ -239,10 +239,10 @@ describe('magic-link provider', () => {
 
     describe('defensive guards against malformed adapter rows', () => {
       async function mintTokenAndGrabRow(): Promise<{
-        auth: AuthRoot<MyProfile>
-        adapter: MemoryAuthAdapter<MyProfile>
+        auth: AuthEngine<MyProfile>
+        adapter: AuthMemoryAdapter<MyProfile>
         token: string
-        row: Awaited<ReturnType<MemoryAuthAdapter<MyProfile>['credentials']['findByHashedSecret']>>
+        row: Awaited<ReturnType<AuthMemoryAdapter<MyProfile>['credentials']['findByHashedSecret']>>
       }> {
         const { auth, adapter, channel } = buildAuth({ autoCreate: true })
         await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })

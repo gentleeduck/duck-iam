@@ -1,11 +1,11 @@
 import { AuthErrorObject } from '../../core/errors'
 import type { ApiKeysFacet } from '../../core/facets/apikeys'
-import type { Provider } from '../../core/types/provider'
+import type { AuthProvider } from '../../core/types/provider'
 
-export namespace ApiKeyProvider {
-  /** Config knobs for {@link apiKey}. */
+export namespace AuthApiKeyProvider {
+  /** Config knobs for {@link authApiKey}. */
   export interface IOptions {
-    /** Bound `ApiKeysFacet`. Provider delegates verify + scope checks. */
+    /** Bound `ApiKeysFacet`. AuthProvider delegates verify + scope checks. */
     apiKeys: ApiKeysFacet
     /** Per-key rate-limit key prefix. Default `signin:api-key:`. */
     limiterKeyPrefix?: string
@@ -34,26 +34,26 @@ export namespace ApiKeyProvider {
  * applies the configured per-key rate-limit, and emits a `startSession`
  * Intent with `kind: 'apikey'` + `aal: 1`.
  */
-export function apiKey<Profile = unknown>(
-  opts: ApiKeyProvider.IOptions,
-): Provider.IProvider<ApiKeyProvider.IBeginInput, ApiKeyProvider.ICompleteInput, Profile> {
+export function authApiKey<Profile = unknown>(
+  opts: AuthApiKeyProvider.IOptions,
+): AuthProvider.IProvider<AuthApiKeyProvider.IBeginInput, AuthApiKeyProvider.ICompleteInput, Profile> {
   const prefix = opts.limiterKeyPrefix ?? 'signin:api-key:'
   return {
     id: 'api-key',
     kind: 'api-key',
 
-    async begin(): Promise<Provider.Intent[]> {
+    async begin(): Promise<AuthProvider.Intent[]> {
       return []
     },
 
-    async complete(ctx, input): Promise<Provider.Intent[]> {
+    async complete(ctx, input): Promise<AuthProvider.Intent[]> {
       // typeof-guard prevents sha256(non-string) throwing TypeError before the
       // rate limiter can fire (caller would see 500 instead of 401, plus the
       // call would bypass the per-token brute-force quota).
       if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 512) {
         throw new AuthErrorObject('AUTH/APIKEY_INVALID')
       }
-      const keyHash = ctx.crypto.sha256(input.token).slice(0, 16)
+      const keyHash = ctx.crypto.authSha256(input.token).slice(0, 16)
       const rl = await ctx.limiter.consume(`${prefix}${keyHash}`)
       if (!rl.ok) {
         throw new AuthErrorObject('AUTH/RATE_LIMITED', {

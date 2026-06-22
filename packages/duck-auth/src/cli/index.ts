@@ -22,7 +22,7 @@ const COMMANDS: CliCommand[] = [
   },
   {
     name: 'doctor',
-    description: 'Load the local auth.ts and run AuthRoot.strict() to surface misconfigurations',
+    description: 'Load the local auth.ts and run AuthEngine.strict() to surface misconfigurations',
     run: cmdDoctor,
   },
   {
@@ -32,12 +32,12 @@ const COMMANDS: CliCommand[] = [
   },
   {
     name: 'migrate',
-    description: 'Emit CREATE TABLE DDL for the SqlBridge schema (`migrate <pg|mysql|sqlite>`)',
+    description: 'Emit CREATE TABLE DDL for the AuthSqlBridge schema (`migrate <pg|mysql|sqlite>`)',
     run: cmdMigrate,
   },
   {
     name: 'emit-openapi',
-    description: 'Print the OpenAPI 3.1 spec for the locally-defined AuthRoot to stdout (or --out=path)',
+    description: 'Print the OpenAPI 3.1 spec for the locally-defined AuthEngine to stdout (or --out=path)',
     run: cmdEmitOpenapi,
   },
   {
@@ -65,30 +65,30 @@ function printHelp(): void {
  */
 function scaffoldTemplate(flavor: 'quickstart' | 'production'): string {
   if (flavor === 'quickstart') {
-    return `import { AuthRoot, InMemoryEvents, ScryptHasher } from '@gentleduck/auth/core'
-import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
-import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
-import { CookieTransport } from '@gentleduck/auth/core/transport'
+    return `import { AuthEngine, AuthInMemoryEvents, AuthScryptHasher } from '@gentleduck/auth/core'
+import { AuthMemoryAdapter } from '@gentleduck/auth/adapters/memory'
+import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
+import { AuthCookieTransport } from '@gentleduck/auth/core/transport'
 
-const adapter = new MemoryAuthAdapter()
+const adapter = new AuthMemoryAdapter()
 
-export const auth = new AuthRoot({
+export const auth = new AuthEngine({
   baseUrl: process.env.DUCK_AUTH_BASE_URL ?? 'http://localhost:3000',
-  transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+  transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
   stores: {
     identities: adapter.identities,
     sessions: adapter.sessions,
     credentials: adapter.credentials,
   },
-  events: new InMemoryEvents(),
-  limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
-  passwords: { hasher: new ScryptHasher() },
+  events: new AuthInMemoryEvents(),
+  limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
+  passwords: { hasher: new AuthScryptHasher() },
 })
 `
   }
-  return `import { AuthRoot, Argon2idHasher } from '@gentleduck/auth/core'
+  return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/auth/core'
 import { JwtTransport } from '@gentleduck/auth/core/transport'
-import { RedisIdempotencyStore, RedisLimiter, RedisSessionStore } from '@gentleduck/auth/adapters/redis'
+import { AuthRedisIdempotencyStore, AuthRedisLimiter, AuthRedisSessionStore } from '@gentleduck/auth/adapters/redis'
 import { Redis } from 'ioredis'
 
 const redis = new Redis(process.env.REDIS_URL!)
@@ -98,7 +98,7 @@ const redis = new Redis(process.env.REDIS_URL!)
 declare const identities: never
 declare const credentials: never
 
-export const auth = new AuthRoot({
+export const auth = new AuthEngine({
   baseUrl: process.env.DUCK_AUTH_BASE_URL!,
   transport: new JwtTransport({
     issuer: process.env.DUCK_AUTH_ISSUER!,
@@ -108,12 +108,12 @@ export const auth = new AuthRoot({
   }),
   stores: {
     identities,
-    sessions: new RedisSessionStore({ redis }),
+    sessions: new AuthRedisSessionStore({ redis }),
     credentials,
   },
-  limiter: new RedisLimiter({ redis, max: 5, windowMs: 60_000 }),
-  passwords: { hasher: new Argon2idHasher() },
-  idempotency: { store: new RedisIdempotencyStore({ redis }), ttlMs: 24 * 60 * 60 * 1000 },
+  limiter: new AuthRedisLimiter({ redis, max: 5, windowMs: 60_000 }),
+  passwords: { hasher: new AuthArgon2idHasher() },
+  idempotency: { store: new AuthRedisIdempotencyStore({ redis }), ttlMs: 24 * 60 * 60 * 1000 },
   env: 'production',
 })
 `
@@ -186,7 +186,7 @@ async function cmdDoctor(args: string[]): Promise<number> {
       return 1
     }
     mod.auth.strict()
-    process.stdout.write('AuthRoot.strict() OK\n')
+    process.stdout.write('AuthEngine.strict() OK\n')
     return 0
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -273,7 +273,7 @@ async function cmdKeys(args: string[]): Promise<number> {
   return 0
 }
 
-/** `duck-auth migrate <pg|mysql|sqlite> [--prefix=auth_] [--out=path]` emits SqlBridge CREATE TABLE DDL. */
+/** `duck-auth migrate <pg|mysql|sqlite> [--prefix=auth_] [--out=path]` emits AuthSqlBridge CREATE TABLE DDL. */
 async function cmdMigrate(args: string[]): Promise<number> {
   const dialect = args.find((a) => !a.startsWith('--')) as 'pg' | 'mysql' | 'sqlite' | undefined
   if (!dialect || !['pg', 'mysql', 'sqlite'].includes(dialect)) {
@@ -446,9 +446,9 @@ ${createIdx} ${prefix}sessions_identity ON ${prefix}sessions(identity_id);
 ${createIdx} ${prefix}sessions_expires ON ${prefix}sessions(expires_at);
 ${createIdx} ${prefix}sessions_absolute_expires ON ${prefix}sessions(absolute_expires_at);`
 
-  const header = `-- @gentleduck/auth SqlBridge schema (${dialect})
+  const header = `-- @gentleduck/auth AuthSqlBridge schema (${dialect})
 -- Generated by \`duck-auth migrate ${dialect}\`. Tables prefixed with \`${prefix}\`.
--- Columns mirror SqlBridge.{IIdentityRow,ICredentialRow,ISessionRow}; bigints
+-- Columns mirror AuthSqlBridge.{IIdentityRow,ICredentialRow,ISessionRow}; bigints
 -- are ms-since-epoch; JSON blobs are stored as text for cross-dialect parity.
 `
   return `${header}\n${identities}\n\n${credentials}\n\n${sessions}\n`
@@ -459,7 +459,7 @@ ${createIdx} ${prefix}sessions_absolute_expires ON ${prefix}sessions(absolute_ex
  * surfaces errors back through the exit code. Exported so the bin
  * shim can call it.
  */
-export async function run(argv: string[]): Promise<number> {
+export async function authRun(argv: string[]): Promise<number> {
   const [sub, ...rest] = argv
   if (!sub || sub === '--help' || sub === '-h') {
     printHelp()
@@ -476,7 +476,7 @@ export async function run(argv: string[]): Promise<number> {
 
 // Avoid silent eats when imported by another module - run only when invoked.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  run(process.argv.slice(2)).then((code) => {
+  authRun(process.argv.slice(2)).then((code) => {
     process.exit(code)
   })
 }

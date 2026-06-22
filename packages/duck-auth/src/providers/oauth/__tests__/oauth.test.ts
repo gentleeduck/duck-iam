@@ -1,14 +1,14 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { ScryptHasher } from '../../../core/password/scrypt'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { OAuthClient } from '../core/client'
-import { generatePkce } from '../core/pkce'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthOAuthClient } from '../core/client'
+import { authGeneratePkce } from '../core/pkce'
 import { oauthProvider } from '../core/provider'
-import { buildState, signState, verifyState } from '../core/state'
+import { authBuildState, signState, authVerifyState } from '../core/state'
 
 /**
  * SEC helper: mint a properly-signed state string from a caller-supplied
@@ -28,69 +28,69 @@ interface MyProfile {
 }
 
 describe('OAuth core - PKCE + state', () => {
-  it('generatePkce produces an S256 challenge derived from the verifier', () => {
-    const { verifier, challenge, method } = generatePkce()
+  it('authGeneratePkce produces an S256 challenge derived from the verifier', () => {
+    const { verifier, challenge, method } = authGeneratePkce()
     expect(method).toBe('S256')
     expect(verifier).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(challenge).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(challenge).not.toBe(verifier)
   })
 
-  it('signState / verifyState roundtrip', () => {
-    const payload = buildState('oauth:google', 'verifier-xyz')
+  it('signState / authVerifyState roundtrip', () => {
+    const payload = authBuildState('oauth:authGoogle', 'verifier-xyz')
     const state = signState(payload, 'secret')
-    const back = verifyState(state, 'secret')
-    expect(back?.providerId).toBe('oauth:google')
+    const back = authVerifyState(state, 'secret')
+    expect(back?.providerId).toBe('oauth:authGoogle')
     expect(back?.verifier).toBe('verifier-xyz')
     expect(back?.nonce).toBe(payload.nonce)
   })
 
-  it('verifyState rejects tampered signature', () => {
-    const payload = buildState('oauth:google', 'v')
+  it('authVerifyState rejects tampered signature', () => {
+    const payload = authBuildState('oauth:authGoogle', 'v')
     const state = signState(payload, 'secret')
     const tampered = `${state.slice(0, -3)}xxx`
-    expect(verifyState(tampered, 'secret')).toBeNull()
+    expect(authVerifyState(tampered, 'secret')).toBeNull()
   })
 
-  it('verifyState rejects wrong secret', () => {
-    const state = signState(buildState('oauth:google', 'v'), 'secret-a')
-    expect(verifyState(state, 'secret-b')).toBeNull()
+  it('authVerifyState rejects wrong secret', () => {
+    const state = signState(authBuildState('oauth:authGoogle', 'v'), 'secret-a')
+    expect(authVerifyState(state, 'secret-b')).toBeNull()
   })
 
-  it('verifyState rejects expired state past maxAgeMs', () => {
-    const payload = { ...buildState('oauth:google', 'v'), iat: Date.now() - 11 * 60 * 1000 }
+  it('authVerifyState rejects expired state past maxAgeMs', () => {
+    const payload = { ...authBuildState('oauth:authGoogle', 'v'), iat: Date.now() - 11 * 60 * 1000 }
     const state = signState(payload, 'secret')
-    expect(verifyState(state, 'secret')).toBeNull()
+    expect(authVerifyState(state, 'secret')).toBeNull()
   })
 
-  describe('verifyState - SEC: payload validation', () => {
+  describe('authVerifyState - SEC: payload validation', () => {
     const SECRET = 'secret'
-    const base = buildState('oauth:google', 'verifier-xyz')
+    const base = authBuildState('oauth:authGoogle', 'verifier-xyz')
 
     it('rejects payload whose iat is missing (would bypass expiry via NaN math)', () => {
       const { iat, ...noIat } = base
       void iat
-      expect(verifyState(mintRawState(noIat, SECRET), SECRET)).toBeNull()
+      expect(authVerifyState(mintRawState(noIat, SECRET), SECRET)).toBeNull()
     })
 
     it('rejects payload whose iat is a string', () => {
-      expect(verifyState(mintRawState({ ...base, iat: String(base.iat) }, SECRET), SECRET)).toBeNull()
+      expect(authVerifyState(mintRawState({ ...base, iat: String(base.iat) }, SECRET), SECRET)).toBeNull()
     })
 
     it('rejects payload whose providerId is a non-string (would skew downstream callback check)', () => {
-      expect(verifyState(mintRawState({ ...base, providerId: { evil: 'object' } }, SECRET), SECRET)).toBeNull()
+      expect(authVerifyState(mintRawState({ ...base, providerId: { evil: 'object' } }, SECRET), SECRET)).toBeNull()
     })
 
     it('rejects payload whose verifier is a non-string (would corrupt PKCE token exchange)', () => {
-      expect(verifyState(mintRawState({ ...base, verifier: 42 }, SECRET), SECRET)).toBeNull()
+      expect(authVerifyState(mintRawState({ ...base, verifier: 42 }, SECRET), SECRET)).toBeNull()
     })
 
     it('rejects payload whose nonce is a non-string (would weaken one-time-use guarantee)', () => {
-      expect(verifyState(mintRawState({ ...base, nonce: null }, SECRET), SECRET)).toBeNull()
+      expect(authVerifyState(mintRawState({ ...base, nonce: null }, SECRET), SECRET)).toBeNull()
     })
 
     it('rejects payload whose returnTo is a non-string (open-redirect defense)', () => {
-      expect(verifyState(mintRawState({ ...base, returnTo: { url: '/evil' } }, SECRET), SECRET)).toBeNull()
+      expect(authVerifyState(mintRawState({ ...base, returnTo: { url: '/evil' } }, SECRET), SECRET)).toBeNull()
     })
 
     it('rejects payload whose returnTo is oversize (URL-bomb defense)', () => {
@@ -99,22 +99,22 @@ describe('OAuth core - PKCE + state', () => {
       // mint state cookies / URLs that overflow browser/provider limits
       // and cause unpredictable failures. Cap at 2048.
       const huge = 'x'.repeat(2049)
-      expect(verifyState(mintRawState({ ...base, returnTo: huge }, SECRET), SECRET)).toBeNull()
+      expect(authVerifyState(mintRawState({ ...base, returnTo: huge }, SECRET), SECRET)).toBeNull()
     })
 
     it('accepts returnTo at the exact cap (2048 chars)', () => {
       const max = 'x'.repeat(2048)
-      const result = verifyState(mintRawState({ ...base, returnTo: max }, SECRET), SECRET)
+      const result = authVerifyState(mintRawState({ ...base, returnTo: max }, SECRET), SECRET)
       expect(result?.returnTo).toBe(max)
     })
 
     it('rejects payload that is a JSON array (not an object)', () => {
-      expect(verifyState(mintRawState(['not', 'an', 'object'], SECRET), SECRET)).toBeNull()
+      expect(authVerifyState(mintRawState(['not', 'an', 'object'], SECRET), SECRET)).toBeNull()
     })
 
     it('rejects a state string with extra dot-separated segments (no longer relies on parts cast)', () => {
       const goodState = signState(base, SECRET)
-      expect(verifyState(`${goodState}.extra`, SECRET)).toBeNull()
+      expect(authVerifyState(`${goodState}.extra`, SECRET)).toBeNull()
     })
 
     it('rejects an oversize state parameter (>8192 chars, resource amplification defense)', () => {
@@ -122,13 +122,13 @@ describe('OAuth core - PKCE + state', () => {
       // state and force a base64 decode + JSON.parse over the whole
       // blob (regardless of HMAC outcome the decode still runs).
       const huge = 'x'.repeat(8193)
-      expect(verifyState(huge, SECRET)).toBeNull()
+      expect(authVerifyState(huge, SECRET)).toBeNull()
     })
 
     it('rejects a non-string state without crashing on .split (typeof guard)', () => {
-      expect(verifyState(undefined as unknown as string, SECRET)).toBeNull()
-      expect(verifyState(42 as unknown as string, SECRET)).toBeNull()
-      expect(verifyState('' as string, SECRET)).toBeNull()
+      expect(authVerifyState(undefined as unknown as string, SECRET)).toBeNull()
+      expect(authVerifyState(42 as unknown as string, SECRET)).toBeNull()
+      expect(authVerifyState('' as string, SECRET)).toBeNull()
     })
 
     it('accepts a state at the exact cap (8192 chars) - well-formed signed state at boundary still validates', () => {
@@ -139,14 +139,14 @@ describe('OAuth core - PKCE + state', () => {
       // The signed state is well under 8192 in practice (~3K with
       // returnTo at cap); verify it still validates.
       expect(state.length).toBeLessThan(8192)
-      expect(verifyState(state, SECRET)?.returnTo).toBe(longReturnTo)
+      expect(authVerifyState(state, SECRET)?.returnTo).toBe(longReturnTo)
     })
   })
 })
 
-describe('OAuthClient - SEC: token response validation', () => {
-  function clientWithResponse(body: unknown, status = 200): OAuthClient {
-    return new OAuthClient({
+describe('AuthOAuthClient - SEC: token response validation', () => {
+  function clientWithResponse(body: unknown, status = 200): AuthOAuthClient {
+    return new AuthOAuthClient({
       clientId: 'cid',
       endpoints: {
         authorizationEndpoint: 'https://idp/authorize',
@@ -200,7 +200,7 @@ describe('OAuthClient - SEC: token response validation', () => {
   })
 
   it('exchangeCode rejects invalid JSON body', async () => {
-    const client = new OAuthClient({
+    const client = new AuthOAuthClient({
       clientId: 'cid',
       endpoints: { authorizationEndpoint: 'https://idp/a', tokenEndpoint: 'https://idp/t' },
       scopes: ['openid'],
@@ -217,9 +217,9 @@ describe('OAuthClient - SEC: token response validation', () => {
   })
 })
 
-describe('OAuthClient.buildAuthorizeUrl', () => {
+describe('AuthOAuthClient.buildAuthorizeUrl', () => {
   it('emits the RFC 6749 authorization URL with PKCE + state', async () => {
-    const client = new OAuthClient({
+    const client = new AuthOAuthClient({
       clientId: 'cid',
       endpoints: {
         authorizationEndpoint: 'https://idp.example.com/authorize',
@@ -246,20 +246,20 @@ describe('OAuthClient.buildAuthorizeUrl', () => {
 
 describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
   function buildAuth(fakeIdp: typeof globalThis.fetch) {
-    const adapter = new MemoryAuthAdapter<MyProfile>()
-    const auth = new AuthRoot<MyProfile>({
+    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
-      transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+      transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
       stores: {
         identities: adapter.identities,
         sessions: adapter.sessions,
         credentials: adapter.credentials,
       },
-      limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
-      passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+      limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
+      passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
     })
 
-    const client = new OAuthClient({
+    const client = new AuthOAuthClient({
       clientId: 'cid',
       clientSecret: 'csec',
       endpoints: {
@@ -397,7 +397,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
     const { auth } = buildAuth(fetchImpl)
     // Forge a state signed correctly but for a different providerId.
-    const payload = buildState('oauth:google', 'v')
+    const payload = authBuildState('oauth:authGoogle', 'v')
     const state = signState(payload, 'super-secret')
     await expect(
       auth.flows.signIn({
@@ -438,7 +438,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
 describe('oauthProvider - redirectUri construction guard', () => {
   const baseOpts = {
     providerId: 'fakeoidc',
-    client: new OAuthClient({
+    client: new AuthOAuthClient({
       clientId: 'cid',
       clientSecret: 'csec',
       endpoints: {

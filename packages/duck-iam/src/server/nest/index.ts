@@ -1,12 +1,12 @@
-import type { Engine } from '../../core'
-import type { AccessControl, Request } from '../../core/types'
+import type { IamEngine } from '../../core'
+import type { IamAccessControl, IamRequest } from '../../core/types'
 import {
-  type AdminAudit,
-  defaultCsrfCheck,
-  extractEnvironment,
-  METHOD_ACTION_MAP,
-  noticeCsrfDefaultIfNeeded,
-  withAdminAudit,
+  type IamAdminAudit,
+  iamDefaultCsrfCheck,
+  iamExtractEnvironment,
+  IAM_METHOD_ACTION_MAP,
+  iamNoticeCsrfDefaultIfNeeded,
+  iamWithAdminAudit,
 } from '../generic'
 
 // Reflect.defineMetadata/getMetadata come from reflect-metadata (used by NestJS)
@@ -36,13 +36,13 @@ interface NestExecutionContext {
   getHandler(): object
 }
 
-/** Metadata key for the @Authorize decorator. */
-export const ACCESS_METADATA_KEY = 'duck-iam:authorize'
+/** Metadata key for the @IamAuthorize decorator. */
+export const IAM_ACCESS_METADATA_KEY = 'duck-iam:authorize'
 
 /** NestJS server integration types. Type-only namespace - zero bundle cost. */
-export namespace Nest {
+export namespace IamNest {
   /**
-   * Describes the metadata payload attached by the {@link Authorize} decorator.
+   * Describes the metadata payload attached by the {@link IamAuthorize} decorator.
    *
    * @template TAction - Constrains valid action strings.
    * @template TResource - Constrains valid resource strings.
@@ -64,7 +64,7 @@ export namespace Nest {
   }
 
   /**
-   * Describes options for {@link nestAccessGuard}.
+   * Describes options for {@link iamNestAccessGuard}.
    *
    * Each extractor has a sensible default.
    *
@@ -74,7 +74,7 @@ export namespace Nest {
     /** Extracts the current user ID from the request. */
     getUserId?: (request: NestRequest) => string | null
     /** Extracts environment context (IP, user-agent, etc.) from the request. */
-    getEnvironment?: (request: NestRequest) => Request.IEnvironment
+    getEnvironment?: (request: NestRequest) => IamRequest.IEnvironment
     /** Extracts the resource ID from the request. */
     getResourceId?: (request: NestRequest) => string | undefined
     /** Determines the scope used for the access check. */
@@ -86,8 +86,8 @@ export namespace Nest {
   /** Required guard callback for the admin controller methods. */
   export type IAdminAuthorize = (request: NestRequest) => boolean | Promise<boolean>
 
-  /** Describes options for {@link createAdminOperations}. `authorize` is required. */
-  export interface IAdminOptions extends AdminAudit.IOptions {
+  /** Describes options for {@link createIamAdminOperations}. `authorize` is required. */
+  export interface IAdminOptions extends IamAdminAudit.IOptions {
     /** Required. Runs before every admin operation. */
     authorize: IAdminAuthorize
     /**
@@ -97,16 +97,16 @@ export namespace Nest {
      * blocks the request and can never alter the response. `listPolicies` /
      * `listRoles` (reads) do not fire it.
      *
-     * See {@link AdminAudit.IOptions} for additional hardening knobs:
+     * See {@link IamAdminAudit.IOptions} for additional hardening knobs:
      * `redactPath`, `onAuditHookError`, and `includeErrorMessage`.
      */
-    onAdminMutation?: AdminAudit.Hook
+    onAdminMutation?: IamAdminAudit.Hook
   }
 }
 
 /** Handler function with attached authorize metadata. */
 interface HandlerWithMeta {
-  __accessMeta?: Nest.IAuthorizeMeta
+  __accessMeta?: IamNest.IAuthorizeMeta
 }
 
 /**
@@ -121,12 +121,12 @@ interface HandlerWithMeta {
  * @param meta - Configures the access metadata; defaults to `{ infer: true }`.
  * @returns A NestJS `MethodDecorator`.
  */
-export function Authorize<
+export function IamAuthorize<
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
 >(
-  meta: Nest.IAuthorizeMeta<TAction, TResource, TScope> = { infer: true } as Nest.IAuthorizeMeta<
+  meta: IamNest.IAuthorizeMeta<TAction, TResource, TScope> = { infer: true } as IamNest.IAuthorizeMeta<
     TAction,
     TResource,
     TScope
@@ -134,7 +134,7 @@ export function Authorize<
 ): MethodDecorator {
   return (_target, _propertyKey, descriptor) => {
     if (Reflect?.defineMetadata) {
-      Reflect.defineMetadata(ACCESS_METADATA_KEY, meta, descriptor.value as object)
+      Reflect.defineMetadata(IAM_ACCESS_METADATA_KEY, meta, descriptor.value as object)
     }
     if (descriptor.value != null) {
       Object.defineProperty(descriptor.value, '__accessMeta', { value: meta, configurable: true, writable: true })
@@ -144,18 +144,18 @@ export function Authorize<
 }
 
 /** Extract authorize metadata from a handler. */
-function getHandlerMeta(handler: object): Nest.IAuthorizeMeta | undefined {
+function getHandlerMeta(handler: object): IamNest.IAuthorizeMeta | undefined {
   if ('__accessMeta' in handler) {
     return (handler as HandlerWithMeta).__accessMeta
   }
   if (Reflect?.getMetadata) {
-    return Reflect.getMetadata(ACCESS_METADATA_KEY, handler) as Nest.IAuthorizeMeta | undefined
+    return Reflect.getMetadata(IAM_ACCESS_METADATA_KEY, handler) as IamNest.IAuthorizeMeta | undefined
   }
   return undefined
 }
 
 /**
- * Builds a NestJS `canActivate` function that reads {@link Authorize} metadata
+ * Builds a NestJS `canActivate` function that reads {@link IamAuthorize} metadata
  * off the handler and runs `engine.can(...)`.
  *
  * Handlers without metadata pass through (allow).
@@ -171,19 +171,19 @@ function getHandlerMeta(handler: object): Nest.IAuthorizeMeta | undefined {
  * ```ts
  * @Injectable()
  * class AccessGuard implements CanActivate {
- *   canActivate = nestAccessGuard(engine)
+ *   canActivate = iamNestAccessGuard(engine)
  * }
  * ```
  */
-export function nestAccessGuard<
+export function iamNestAccessGuard<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: Engine<TAction, TResource, TRole, TScope>, opts: Nest.IGuardOptions<TScope> = {}) {
+>(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNest.IGuardOptions<TScope> = {}) {
   const {
     getUserId = (req: NestRequest) => (req.user?.id as string) ?? (req.user?.sub as string) ?? null,
-    getEnvironment = (req: NestRequest) => extractEnvironment(req),
+    getEnvironment = (req: NestRequest) => iamExtractEnvironment(req),
     getResourceId = (req: NestRequest) => req.params?.id,
     getScope,
     onError = () => false,
@@ -195,12 +195,12 @@ export function nestAccessGuard<
 
     const meta = getHandlerMeta(handler)
 
-    if (!meta) return true // No @Authorize decorator: allow.
+    if (!meta) return true // No @IamAuthorize decorator: allow.
 
     const userId = getUserId(request)
     if (!userId) return false
 
-    const action = meta.infer ? (METHOD_ACTION_MAP[request.method] ?? 'read') : (meta.action ?? 'read')
+    const action = meta.infer ? (IAM_METHOD_ACTION_MAP[request.method] ?? 'read') : (meta.action ?? 'read')
 
     const resource = meta.infer ? inferResource(request) : (meta.resource ?? 'unknown')
 
@@ -228,29 +228,29 @@ function inferResource(request: NestRequest): string {
 }
 
 /**
- * Builds a pre-typed `Authorize` decorator constrained to your app's
+ * Builds a pre-typed `IamAuthorize` decorator constrained to your app's
  * action/resource/scope unions.
  *
- * Typos like `@Authorize({ action: 'craete' })` become compile errors.
+ * Typos like `@IamAuthorize({ action: 'craete' })` become compile errors.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
  * @template TScope - Constrains valid scope strings.
- * @returns A typed wrapper around {@link Authorize}.
+ * @returns A typed wrapper around {@link IamAuthorize}.
  */
-export function createTypedAuthorize<
+export function createIamTypedAuthorize<
   TAction extends string,
   TResource extends string,
   TScope extends string = string,
 >() {
-  return Authorize as (meta?: Nest.IAuthorizeMeta<TAction, TResource, TScope>) => MethodDecorator
+  return IamAuthorize as (meta?: IamNest.IAuthorizeMeta<TAction, TResource, TScope>) => MethodDecorator
 }
 
 /** DI token for the access Engine in NestJS. */
-export const ACCESS_ENGINE_TOKEN = 'ACCESS_ENGINE'
+export const IAM_ACCESS_ENGINE_TOKEN = 'ACCESS_ENGINE'
 
 /**
- * Builds a NestJS provider descriptor bound to {@link ACCESS_ENGINE_TOKEN}.
+ * Builds a NestJS provider descriptor bound to {@link IAM_ACCESS_ENGINE_TOKEN}.
  *
  * @template TAction - Constrains valid action strings.
  * @template TResource - Constrains valid resource strings.
@@ -259,14 +259,14 @@ export const ACCESS_ENGINE_TOKEN = 'ACCESS_ENGINE'
  * @param factory - Provides the sync or async engine factory.
  * @returns A `{ provide, useFactory }` descriptor for NestJS DI.
  */
-export function createEngineProvider<
+export function createIamEngineProvider<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(factory: () => Engine<TAction, TResource, TRole, TScope> | Promise<Engine<TAction, TResource, TRole, TScope>>) {
+>(factory: () => IamEngine<TAction, TResource, TRole, TScope> | Promise<IamEngine<TAction, TResource, TRole, TScope>>) {
   return {
-    provide: ACCESS_ENGINE_TOKEN,
+    provide: IAM_ACCESS_ENGINE_TOKEN,
     useFactory: factory,
   }
 }
@@ -274,7 +274,7 @@ export function createEngineProvider<
 /**
  * Builds framework-agnostic admin operations for use inside a NestJS controller.
  *
- * Nest's decorator-driven routing means we do not ship a router factory;
+ * IamNest's decorator-driven routing means we do not ship a router factory;
  * instead this returns a record of admin handlers the user wires into their
  * `@Controller` methods. Enforces `authorize` at construction time so the
  * controller cannot be instantiated unguarded.
@@ -291,7 +291,7 @@ export function createEngineProvider<
  * ```ts
  * @Controller('admin')
  * class IamAdminController {
- *   private h = createAdminOperations(engine, {
+ *   private h = createIamAdminOperations(engine, {
  *     authorize: (req) => isAdmin(req.user),
  *     onAdminMutation: (e) => auditLog.write(e),
  *   })
@@ -299,7 +299,7 @@ export function createEngineProvider<
  * }
  * ```
  * @example
- * Rate limiting is out of scope; compose with Nest's `@nestjs/throttler` or a
+ * Rate limiting is out of scope; compose with IamNest's `@nestjs/throttler` or a
  * global guard. Pseudocode:
  * ```ts
  * @UseGuards(ThrottlerGuard)
@@ -307,22 +307,22 @@ export function createEngineProvider<
  * @Controller('admin') class IamAdminController { ... }
  * ```
  */
-export function createAdminOperations<
+export function createIamAdminOperations<
   TAction extends string = string,
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
->(engine: Engine<TAction, TResource, TRole, TScope>, opts: Nest.IAdminOptions) {
+>(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNest.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam] createAdminOperations requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam] createIamAdminOperations requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
-  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? defaultCsrfCheck)
-  noticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
+  const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
+  iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
   /**
-   * Gate that returns whatever {@link Nest.IAdminAuthorize} returned so the value
+   * Gate that returns whatever {@link IamNest.IAdminAuthorize} returned so the value
    * can be forwarded into the audit event as `actor`. Throws a 401-flavoured
    * Error on denial so the calling controller surfaces a NestJS exception.
    */
@@ -349,15 +349,15 @@ export function createAdminOperations<
    */
   const runMutation = async <T>(
     req: NestRequest,
-    action: AdminAudit.Action,
-    target: AdminAudit.Target,
+    action: IamAdminAudit.Action,
+    target: IamAdminAudit.Target,
     targetId: string | undefined,
     handler: () => Promise<T>,
   ): Promise<T> => {
-    // Authorize denial or throw - do NOT emit audit (mutation never started).
+    // IamAuthorize denial or throw - do NOT emit audit (mutation never started).
     const actor = await gateWithActor(req)
     // Shared audit wrapper.
-    return withAdminAudit(
+    return iamWithAdminAudit(
       {
         actor,
         action,
@@ -387,13 +387,13 @@ export function createAdminOperations<
       await gate(req)
       return engine.admin.listRoles()
     },
-    async savePolicy(req: NestRequest, body: AccessControl.IPolicy<TAction, TResource, TRole>) {
+    async savePolicy(req: NestRequest, body: IamAccessControl.IPolicy<TAction, TResource, TRole>) {
       return runMutation(req, 'replace', 'policy', (body as { id?: string } | undefined)?.id, async () => {
         await engine.admin.savePolicy(body)
         return { ok: true as const }
       })
     },
-    async saveRole(req: NestRequest, body: AccessControl.IRole<TAction, TResource, TRole, TScope>) {
+    async saveRole(req: NestRequest, body: IamAccessControl.IRole<TAction, TResource, TRole, TScope>) {
       return runMutation(req, 'replace', 'role', (body as { id?: string } | undefined)?.id, async () => {
         await engine.admin.saveRole(body)
         return { ok: true as const }

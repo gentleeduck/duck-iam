@@ -1,5 +1,5 @@
 import { AuthErrorObject } from '../errors'
-import type { Events } from '../types/events'
+import type { AuthEvents } from '../types/events'
 
 /**
  * Operations facet. Drives the two ambient deploy switches every
@@ -22,7 +22,7 @@ export class OperationsFacet {
     readOnly: { on: false },
   }
 
-  constructor(private readonly _events: Events.IBus) {}
+  constructor(private readonly _events: AuthEvents.IBus) {}
 
   /** Read the current state snapshot. */
   snapshot(): OperationsFacet.IState {

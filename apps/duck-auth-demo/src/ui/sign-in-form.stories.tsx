@@ -1,10 +1,10 @@
-import { withAuth } from '@gentleduck/auth/client/react/storybook'
+import { authWithStorybook } from '@gentleduck/auth/client/react/storybook'
 import type { Meta, StoryObj } from '@storybook/react'
 import { SignInForm } from './sign-in-form'
 
 const meta: Meta<typeof SignInForm> = {
   component: SignInForm,
-  decorators: [withAuth({})],
+  decorators: [authWithStorybook({})],
   title: 'Auth / SignInForm',
 }
 export default meta
@@ -21,7 +21,7 @@ export const WithDescription: Story = {
 
 export const AuthedAlready: Story = {
   decorators: [
-    withAuth({
+    authWithStorybook({
       identity: { id: 'identity-1', profile: { email: 'demo@gentleduck.org' } },
       session: { aal: 2, factors: [{ method: 'password', completedAt: Date.now() }], id: 'sess-1' },
     }),
@@ -36,5 +36,5 @@ export const AuthedAlready: Story = {
  */
 export const Live: Story = {
   args: { description: 'Live backend — http://localhost:8787' },
-  decorators: [withAuth({ live: true })],
+  decorators: [authWithStorybook({ live: true })],
 }

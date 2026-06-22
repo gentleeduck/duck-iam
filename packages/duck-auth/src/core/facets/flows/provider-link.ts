@@ -1,6 +1,6 @@
 import { isRevoked } from '../../credential-utils'
 import { AuthErrorObject } from '../../errors'
-import type { TenantContext } from '../../types/context'
+import type { AuthTenantContext } from '../../types/context'
 import type { FlowsFacet } from '../flows'
 
 function isProviderIdSafe(providerId: unknown): providerId is string {
@@ -23,7 +23,7 @@ export async function linkProvider<Profile>(
       detail: 'invalid providerSub',
     })
   }
-  const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+  const tenant: AuthTenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
   const identity = await flows._identities.getById(opts.identityId, tenant)
   if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
 
@@ -68,7 +68,7 @@ export async function unlinkProvider<Profile>(
       detail: 'invalid providerId',
     })
   }
-  const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+  const tenant: AuthTenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
   const identity = await flows._identities.getById(opts.identityId, tenant)
   if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
 

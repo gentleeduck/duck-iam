@@ -1,16 +1,16 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { bindPayloadToDPoP, computeJwkThumbprint, DPoPVerifier, MemoryDPoPNonceStore } from '../dpop'
+import { authBindPayloadToDPoP, authComputeJwkThumbprint, AuthDPoPVerifier, AuthMemoryDPoPNonceStore } from '../dpop'
 
 interface KeyPair {
-  publicJwk: DPoPVerifier.IJsonWebKey
+  publicJwk: AuthDPoPVerifier.IJsonWebKey
   privateKey: KeyObject
 }
 
 function generateES256KeyPair(): KeyPair {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
   return {
-    publicJwk: publicKey.export({ format: 'jwk' }) as DPoPVerifier.IJsonWebKey,
+    publicJwk: publicKey.export({ format: 'jwk' }) as AuthDPoPVerifier.IJsonWebKey,
     privateKey,
   }
 }
@@ -19,7 +19,7 @@ function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64url')
 }
 
-function derToJoseEs256(der: Buffer): Buffer {
+function authDerToJoseEs256(der: Buffer): Buffer {
   // Minimal DER -> r||s decode for ES256 (P-256 = 32 byte halves).
   if (der[0] !== 0x30) throw new Error('not a DER sequence')
   let offset = 2
@@ -40,13 +40,13 @@ function derToJoseEs256(der: Buffer): Buffer {
   return Buffer.concat([rPad, sPad])
 }
 
-function mintDpopProof(kp: KeyPair, claims: Partial<DPoPVerifier.IClaims> & { htm: string; htu: string }): string {
+function mintDpopProof(kp: KeyPair, claims: Partial<AuthDPoPVerifier.IClaims> & { htm: string; htu: string }): string {
   const header = {
     alg: 'ES256',
     typ: 'dpop+jwt',
     jwk: kp.publicJwk,
   }
-  const payload: DPoPVerifier.IClaims = {
+  const payload: AuthDPoPVerifier.IClaims = {
     jti: 'jti-' + Math.random().toString(36).slice(2),
     htm: claims.htm,
     htu: claims.htu,
@@ -61,16 +61,16 @@ function mintDpopProof(kp: KeyPair, claims: Partial<DPoPVerifier.IClaims> & { ht
   signer.update(signingInput)
   signer.end()
   const der = signer.sign(kp.privateKey)
-  const sig = derToJoseEs256(der)
+  const sig = authDerToJoseEs256(der)
   return `${signingInput}.${base64url(sig)}`
 }
 
-describe('DPoPVerifier', () => {
-  let verifier: DPoPVerifier
+describe('AuthDPoPVerifier', () => {
+  let verifier: AuthDPoPVerifier
   let kp: KeyPair
 
   beforeEach(() => {
-    verifier = new DPoPVerifier()
+    verifier = new AuthDPoPVerifier()
     kp = generateES256KeyPair()
   })
 
@@ -80,7 +80,7 @@ describe('DPoPVerifier', () => {
       method: 'POST',
       url: 'https://api.test/resource',
     })
-    expect(result.jkt).toBe(computeJwkThumbprint(kp.publicJwk))
+    expect(result.jkt).toBe(authComputeJwkThumbprint(kp.publicJwk))
   })
 
   it('rejects when htm differs from request method', async () => {
@@ -137,7 +137,7 @@ describe('DPoPVerifier', () => {
     const signer = createSign('SHA256')
     signer.update(signingInput)
     signer.end()
-    const sig = derToJoseEs256(signer.sign(kp.privateKey))
+    const sig = authDerToJoseEs256(signer.sign(kp.privateKey))
     const proof = `${signingInput}.${base64url(sig)}`
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
       code: 'AUTH/DPOP_INVALID',
@@ -157,7 +157,7 @@ describe('DPoPVerifier', () => {
     const signer = createSign('SHA256')
     signer.update(signingInput)
     signer.end()
-    const sig = derToJoseEs256(signer.sign(kp.privateKey))
+    const sig = authDerToJoseEs256(signer.sign(kp.privateKey))
     const proof = `${signingInput}.${base64url(sig)}`
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
       code: 'AUTH/DPOP_INVALID',
@@ -196,7 +196,7 @@ describe('DPoPVerifier', () => {
   })
 
   it('enforces expectedNonce when configured (RFC 9449 §8/9)', async () => {
-    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const v = new AuthDPoPVerifier({ expectedNonce: 'srv-nonce-1' })
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'wrong-nonce' })
     await expect(v.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
       code: 'AUTH/DPOP_INVALID',
@@ -205,7 +205,7 @@ describe('DPoPVerifier', () => {
   })
 
   it('passes when proof nonce matches expectedNonce', async () => {
-    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const v = new AuthDPoPVerifier({ expectedNonce: 'srv-nonce-1' })
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'srv-nonce-1' })
     const r = await v.verify(proof, { method: 'GET', url: 'https://api.test/x' })
     expect(r.jkt).toBeTruthy()
@@ -213,7 +213,7 @@ describe('DPoPVerifier', () => {
 
   it('expectedNonce thunk lets ops rotate the challenge', async () => {
     let nonce = 'srv-nonce-old'
-    const v = new DPoPVerifier({ expectedNonce: () => nonce })
+    const v = new AuthDPoPVerifier({ expectedNonce: () => nonce })
     const proof1 = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'srv-nonce-old' })
     await expect(v.verify(proof1, { method: 'GET', url: 'https://api.test/x' })).resolves.toBeDefined()
     // Rotate the nonce server-side; the old one no longer satisfies.
@@ -242,7 +242,7 @@ describe('DPoPVerifier', () => {
     const signer = createSign('SHA256')
     signer.update(signingInput)
     signer.end()
-    const sig = derToJoseEs256(signer.sign(kp.privateKey))
+    const sig = authDerToJoseEs256(signer.sign(kp.privateKey))
     return `${signingInput}.${base64url(sig)}`
   }
 
@@ -313,7 +313,7 @@ describe('DPoPVerifier', () => {
   })
 
   it('rejects a proof whose nonce is a non-string', async () => {
-    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const v = new AuthDPoPVerifier({ expectedNonce: 'srv-nonce-1' })
     const proof = mintWithRawClaims({
       jti: 'jti-obj-nonce',
       htm: 'GET',
@@ -336,7 +336,7 @@ describe('DPoPVerifier', () => {
     const signer = createSign('SHA256')
     signer.update(signingInput)
     signer.end()
-    const sig = derToJoseEs256(signer.sign(kp.privateKey))
+    const sig = authDerToJoseEs256(signer.sign(kp.privateKey))
     const proof = `${signingInput}.${base64url(sig)}`
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
       code: 'AUTH/DPOP_INVALID',
@@ -345,28 +345,28 @@ describe('DPoPVerifier', () => {
   })
 })
 
-describe('computeJwkThumbprint', () => {
+describe('authComputeJwkThumbprint', () => {
   it('is deterministic across calls with the same JWK', () => {
-    const jwk: DPoPVerifier.IJsonWebKey = {
+    const jwk: AuthDPoPVerifier.IJsonWebKey = {
       kty: 'EC',
       crv: 'P-256',
       x: 'f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU',
       y: 'x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0',
     }
-    const a = computeJwkThumbprint(jwk)
-    const b = computeJwkThumbprint(jwk)
+    const a = authComputeJwkThumbprint(jwk)
+    const b = authComputeJwkThumbprint(jwk)
     expect(a).toBe(b)
     expect(a).toMatch(/^[A-Za-z0-9_-]+$/)
   })
 
   it('ignores property order in the input JWK (canonical EC ordering)', () => {
-    const a = computeJwkThumbprint({
+    const a = authComputeJwkThumbprint({
       kty: 'EC',
       crv: 'P-256',
       x: 'X',
       y: 'Y',
     })
-    const b = computeJwkThumbprint({
+    const b = authComputeJwkThumbprint({
       y: 'Y',
       crv: 'P-256',
       x: 'X',
@@ -376,27 +376,27 @@ describe('computeJwkThumbprint', () => {
   })
 
   it('refuses unsupported kty', () => {
-    expect(() => computeJwkThumbprint({ kty: 'OCT' as unknown as 'EC' })).toThrow()
+    expect(() => authComputeJwkThumbprint({ kty: 'OCT' as unknown as 'EC' })).toThrow()
   })
 })
 
-describe('bindPayloadToDPoP', () => {
+describe('authBindPayloadToDPoP', () => {
   it('appends cnf.jkt to a payload object without mutating other claims', () => {
     const payload = { sub: 'user-1', aud: 'app' }
-    const bound = bindPayloadToDPoP(payload, 'jkt-1')
+    const bound = authBindPayloadToDPoP(payload, 'jkt-1')
     expect(bound).toEqual({ sub: 'user-1', aud: 'app', cnf: { jkt: 'jkt-1' } })
   })
 })
 
-describe('MemoryDPoPNonceStore', () => {
+describe('AuthMemoryDPoPNonceStore', () => {
   it('recordSeen returns true once, false on replay', async () => {
-    const store = new MemoryDPoPNonceStore()
+    const store = new AuthMemoryDPoPNonceStore()
     expect(await store.recordSeen('jti-1', 60_000)).toBe(true)
     expect(await store.recordSeen('jti-1', 60_000)).toBe(false)
   })
 
   it('expired entries free up the jti for reuse', async () => {
-    const store = new MemoryDPoPNonceStore()
+    const store = new AuthMemoryDPoPNonceStore()
     await store.recordSeen('jti-1', 10)
     await new Promise((r) => setTimeout(r, 15))
     expect(await store.recordSeen('jti-1', 60_000)).toBe(true)
@@ -407,7 +407,7 @@ describe('MemoryDPoPNonceStore', () => {
     // turning each call under load into an O(N) sweep. With the
     // insertion-order break-on-non-expired loop, a typical call walks
     // only the freshly-expired prefix.
-    const store = new MemoryDPoPNonceStore()
+    const store = new AuthMemoryDPoPNonceStore()
     // Seed 10k entries with the SAME short TTL - uniform TTL is the
     // contract under which the early-break is correct.
     for (let i = 0; i < 10_000; i++) {
@@ -431,7 +431,7 @@ describe('MemoryDPoPNonceStore', () => {
   it('stops pruning at the first non-expired entry (does not touch fresh entries)', async () => {
     // Construct: 3 fresh entries first, then attempt prune - the loop
     // must NOT delete them.
-    const store = new MemoryDPoPNonceStore()
+    const store = new AuthMemoryDPoPNonceStore()
     await store.recordSeen('fresh-1', 60_000)
     await store.recordSeen('fresh-2', 60_000)
     await store.recordSeen('fresh-3', 60_000)

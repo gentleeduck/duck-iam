@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
-import { JwtTransport } from '../../transport/jwt'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthJwtTransport } from '../../transport/jwt'
 import { M2MFacet } from '../m2m'
 
 interface MyProfile {
@@ -11,14 +11,14 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const transport = new JwtTransport({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const transport = new AuthJwtTransport({
     signKey: { kid: 'k1', key: 'secret-32-bytes-of-test-material' },
     verifyKeys: [{ kid: 'k1', key: 'secret-32-bytes-of-test-material' }],
     issuer: 'https://app.test',
     ttlMs: 60 * 60 * 1000,
   })
-  const auth = new AuthRoot<MyProfile>({
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.test',
     transport,
     stores: {
@@ -26,8 +26,8 @@ function build() {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   const m2m = new M2MFacet(auth.apiKeys, auth.sessions, auth.transport)
   return { auth, adapter, transport, m2m }
@@ -59,7 +59,7 @@ describe('M2MFacet - client_credentials grant', () => {
     expect(result.scope).toContain('read:users')
   })
 
-  it('access_token verifies via the JwtTransport (round-trip)', async () => {
+  it('access_token verifies via the AuthJwtTransport (round-trip)', async () => {
     const result = await env.m2m.exchange({ clientId, clientSecret })
     const session = await env.transport.verify(result.access_token)
     expect(session).not.toBeNull()

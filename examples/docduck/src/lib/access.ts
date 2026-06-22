@@ -1,8 +1,8 @@
-import { type Adapter, createAccessConfig } from '@gentleduck/iam'
-import { type Drizzle, DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
-import { and, eq, isNull } from 'drizzle-orm'
+import { createIam } from '@gentleduck/iam'
+import { type IamDrizzle, IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+import { and, eq } from 'drizzle-orm'
 import { db } from './db'
-import { accessAssignments, accessPolicies, accessRoles, accessSubjectAttrs } from './db/schema'
+import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from './db/schema'
 
 // ── Typed context for ABAC policies ────────────────────────────────
 
@@ -21,7 +21,7 @@ interface DocDuckContext {
 
 // ── Config ─────────────────────────────────────────────────────────
 
-export const access = createAccessConfig({
+export const access = createIam({
   actions: ['create', 'read', 'update', 'delete', 'share', 'manage'] as const,
   resources: ['document', 'workspace', 'member'] as const,
   context: {} as unknown as DocDuckContext,
@@ -105,39 +105,18 @@ export const allPolicies: (typeof docOwnershipPolicy)[] = []
 
 // ── Adapter ────────────────────────────────────────────────────────
 
-// Wrap DrizzleAdapter to fix getSubjectRoles: only return UNSCOPED roles.
-// The default adapter returns all roles (including scoped ones), which bleeds
-// permissions across workspaces. Scoped roles are handled separately via
-// getSubjectScopedRoles + enrichSubjectWithScopedRoles in the engine.
-const baseAdapter = new DrizzleAdapter({
+// IamDrizzleAdapter.getSubjectRoles already filters to unscoped (scope IS NULL) only.
+// IamDrizzleAdapter.getSubjectScopedRoles returns scoped assignments for scope-aware checks.
+const adapter = new IamDrizzleAdapter({
   db,
   tables: {
-    policies: accessPolicies,
-    roles: accessRoles,
-    assignments: accessAssignments,
-    attrs: accessSubjectAttrs,
+    policies: iamPolicies,
+    roles: iamRoles,
+    assignments: iamAssignments,
+    attrs: iamSubjectAttrs,
   },
   ops: { eq, and },
-} as unknown as Drizzle.IConfig) as unknown as Adapter.IAdapter<AppAction, AppResource, string, string>
-
-// Create a proxy that intercepts getSubjectRoles to only return unscoped assignments
-const adapter = new Proxy(baseAdapter, {
-  get(target, prop, receiver) {
-    if (prop === 'getSubjectRoles') {
-      return async (subjectId: string) => {
-        // Only return roles from unscoped assignments (scope IS NULL).
-        // Our app uses only scoped assignments, so this returns [].
-        // The engine then uses getSubjectScopedRoles for workspace-specific roles.
-        const rows = await db
-          .select()
-          .from(accessAssignments)
-          .where(and(eq(accessAssignments.subjectId, subjectId), isNull(accessAssignments.scope)))
-        return [...new Set(rows.map((r) => r.roleId))]
-      }
-    }
-    return Reflect.get(target, prop, receiver)
-  },
-})
+} as unknown as IamDrizzle.IConfig)
 
 // ── Engine ─────────────────────────────────────────────────────────
 

@@ -1,28 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import type { AccessControl, Request } from '../../types'
-import { type Explain, escapeHtml } from '..'
-import { explainEvaluation } from '../explain'
+import type { IamAccessControl, IamRequest } from '../../types'
+import { type IamExplain, iamEscapeHtml } from '..'
+import { iamExplainEvaluation } from '../explain'
 
-describe('escapeHtml', () => {
+describe('iamEscapeHtml', () => {
   it('escapes & < > " \' to HTML entities', () => {
-    expect(escapeHtml('a & b')).toBe('a &amp; b')
-    expect(escapeHtml('<script>')).toBe('&lt;script&gt;')
-    expect(escapeHtml('"x"')).toBe('&quot;x&quot;')
-    expect(escapeHtml("o'brien")).toBe('o&#39;brien')
+    expect(iamEscapeHtml('a & b')).toBe('a &amp; b')
+    expect(iamEscapeHtml('<script>')).toBe('&lt;script&gt;')
+    expect(iamEscapeHtml('"x"')).toBe('&quot;x&quot;')
+    expect(iamEscapeHtml("o'brien")).toBe('o&#39;brien')
   })
 
   it('orders replacement so & is escaped first', () => {
     // If `<` were replaced first, &lt; would be re-escaped to &amp;lt;.
-    expect(escapeHtml('<&>')).toBe('&lt;&amp;&gt;')
+    expect(iamEscapeHtml('<&>')).toBe('&lt;&amp;&gt;')
   })
 
   it('passes through safe strings unchanged', () => {
-    expect(escapeHtml('hello world')).toBe('hello world')
-    expect(escapeHtml('123 abc')).toBe('123 abc')
+    expect(iamEscapeHtml('hello world')).toBe('hello world')
+    expect(iamEscapeHtml('123 abc')).toBe('123 abc')
   })
 })
 
-function makeReq(overrides: Partial<Request.IAccessRequest> = {}): Request.IAccessRequest {
+function makeReq(overrides: Partial<IamRequest.IAccessRequest> = {}): IamRequest.IAccessRequest {
   return {
     subject: {
       id: 'user-1',
@@ -35,7 +35,7 @@ function makeReq(overrides: Partial<Request.IAccessRequest> = {}): Request.IAcce
   }
 }
 
-const allowReadPolicy: AccessControl.IPolicy = {
+const allowReadPolicy: IamAccessControl.IPolicy = {
   id: 'allow-read',
   name: 'Allow Read',
   algorithm: 'deny-overrides',
@@ -51,7 +51,7 @@ const allowReadPolicy: AccessControl.IPolicy = {
   ],
 }
 
-const denyAllPolicy: AccessControl.IPolicy = {
+const denyAllPolicy: IamAccessControl.IPolicy = {
   id: 'deny-all',
   name: 'Deny All',
   algorithm: 'deny-overrides',
@@ -73,9 +73,9 @@ const subjectInfo = {
   scopedRolesApplied: [],
 }
 
-describe('explainEvaluation()', () => {
-  it('returns an Explain.IResult with decision, request, subject, policies, summary', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
+describe('iamExplainEvaluation()', () => {
+  it('returns an IamExplain.IResult with decision, request, subject, policies, summary', () => {
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.decision.allowed).toBe(true)
     expect(result.request.action).toBe('read')
     expect(result.request.resourceType).toBe('post')
@@ -87,26 +87,26 @@ describe('explainEvaluation()', () => {
   })
 
   it('correctly reports an allowed decision', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.decision.allowed).toBe(true)
     expect(result.decision.effect).toBe('allow')
   })
 
   it('correctly reports a denied decision', () => {
-    const result = explainEvaluation([denyAllPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([denyAllPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.decision.allowed).toBe(false)
     expect(result.decision.effect).toBe('deny')
   })
 
   it('traces all policies without short-circuiting', () => {
-    const result = explainEvaluation([allowReadPolicy, denyAllPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy, denyAllPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.policies).toHaveLength(2)
     expect(result.policies[0]!.policyId).toBe('allow-read')
     expect(result.policies[1]!.policyId).toBe('deny-all')
   })
 
   it('traces rule matching details', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
     const policyTrace = result.policies[0]!
     expect(policyTrace.rules).toHaveLength(1)
     const rule = policyTrace.rules[0]!
@@ -119,27 +119,27 @@ describe('explainEvaluation()', () => {
   })
 
   it('reports non-matching rules correctly', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq({ action: 'delete' }), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq({ action: 'delete' }), 'deny', subjectInfo)
     const rule = result.policies[0]!.rules[0]!
     expect(rule.actionMatch).toBe(false)
     expect(rule.matched).toBe(false)
   })
 
   it('includes request details', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq({ scope: 'org-1' }), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq({ scope: 'org-1' }), 'deny', subjectInfo)
     expect(result.request.action).toBe('read')
     expect(result.request.resourceType).toBe('post')
     expect(result.request.scope).toBe('org-1')
   })
 
   it('includes subject details', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.subject.id).toBe('user-1')
     expect(result.subject.roles).toEqual(['editor'])
   })
 
   it('generates a human-readable summary', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.summary).toContain('ALLOWED')
     expect(result.summary).toContain('user-1')
     expect(result.summary).toContain('read')
@@ -147,47 +147,47 @@ describe('explainEvaluation()', () => {
   })
 
   it('summary reports DENIED for denied requests', () => {
-    const result = explainEvaluation([denyAllPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([denyAllPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.summary).toContain('DENIED')
   })
 
   it('handles no policies', () => {
-    const result = explainEvaluation([], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([], makeReq(), 'deny', subjectInfo)
     expect(result.decision.allowed).toBe(false)
     expect(result.policies).toHaveLength(0)
   })
 
   it('handles no policies with allow default', () => {
-    const result = explainEvaluation([], makeReq(), 'allow', subjectInfo)
+    const result = iamExplainEvaluation([], makeReq(), 'allow', subjectInfo)
     expect(result.decision.allowed).toBe(true) // defaultEffect=allow is used when no policies exist
   })
 
   it('reports policy target mismatches', () => {
-    const targetedPolicy: AccessControl.IPolicy = {
+    const targetedPolicy: IamAccessControl.IPolicy = {
       ...allowReadPolicy,
       targets: { actions: ['write'] },
     }
-    const result = explainEvaluation([targetedPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([targetedPolicy], makeReq(), 'deny', subjectInfo)
     const pt = result.policies[0]!
     expect(pt.targetMatch).toBe(false)
     expect(pt.rules).toHaveLength(0) // rules not evaluated when targets don't match
   })
 
   it('includes timing information', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.decision.duration).toBeGreaterThanOrEqual(0)
     expect(result.decision.timestamp).toBeGreaterThan(0)
   })
 
   it('includes scoped roles in summary', () => {
     const scopedInfo = { ...subjectInfo, scopedRolesApplied: ['org-editor'] }
-    const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', scopedInfo)
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq(), 'deny', scopedInfo)
     expect(result.summary).toContain('scoped')
     expect(result.summary).toContain('org-editor')
   })
 
   it('traces conditions inside rules', () => {
-    const conditionalPolicy: AccessControl.IPolicy = {
+    const conditionalPolicy: IamAccessControl.IPolicy = {
       id: 'conditional',
       name: 'Conditional',
       algorithm: 'deny-overrides',
@@ -204,7 +204,7 @@ describe('explainEvaluation()', () => {
         },
       ],
     }
-    const result = explainEvaluation([conditionalPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([conditionalPolicy], makeReq(), 'deny', subjectInfo)
     const ruleTrace = result.policies[0]!.rules[0]!
     expect(ruleTrace.conditionsMet).toBe(true)
     expect(ruleTrace.conditions.type).toBe('group')
@@ -214,8 +214,8 @@ describe('explainEvaluation()', () => {
     expect(child.result).toBe(true)
   })
 
-  it('populates AccessControl.IDecision.rule with the deciding rule on allow', () => {
-    const result = explainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
+  it('populates IamAccessControl.IDecision.rule with the deciding rule on allow', () => {
+    const result = iamExplainEvaluation([allowReadPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.decision.rule).toBeDefined()
     expect(result.decision.rule?.id).toBe('r1')
     expect(result.decision.rule?.effect).toBe('allow')
@@ -223,31 +223,31 @@ describe('explainEvaluation()', () => {
     expect(result.policies[0]!.decidingRule?.id).toBe('r1')
   })
 
-  it('populates AccessControl.IDecision.rule with the deciding rule on deny', () => {
-    const result = explainEvaluation([denyAllPolicy], makeReq(), 'deny', subjectInfo)
+  it('populates IamAccessControl.IDecision.rule with the deciding rule on deny', () => {
+    const result = iamExplainEvaluation([denyAllPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.decision.rule).toBeDefined()
     expect(result.decision.rule?.id).toBe('r-deny')
     expect(result.decision.rule?.effect).toBe('deny')
     expect(result.policies[0]!.decidingRule?.id).toBe('r-deny')
   })
 
-  it('omits AccessControl.IDecision.rule when no rule fires (default-effect path)', () => {
+  it('omits IamAccessControl.IDecision.rule when no rule fires (default-effect path)', () => {
     // No matching rule -> default-effect result; no deciding rule to report.
-    const result = explainEvaluation([{ ...allowReadPolicy }], makeReq({ action: 'write' }), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([{ ...allowReadPolicy }], makeReq({ action: 'write' }), 'deny', subjectInfo)
     expect(result.decision.effect).toBe('deny')
     expect(result.decision.rule).toBeUndefined()
   })
 
-  it('AccessControl.IDecision.rule reflects the denying policy when allow + deny chained', () => {
+  it('IamAccessControl.IDecision.rule reflects the denying policy when allow + deny chained', () => {
     // AND-combination: deny-all short-circuits, deciding rule must come from that policy.
-    const result = explainEvaluation([allowReadPolicy, denyAllPolicy], makeReq(), 'deny', subjectInfo)
+    const result = iamExplainEvaluation([allowReadPolicy, denyAllPolicy], makeReq(), 'deny', subjectInfo)
     expect(result.decision.allowed).toBe(false)
     expect(result.decision.policy).toBe('deny-all')
     expect(result.decision.rule?.id).toBe('r-deny')
   })
 
   it('combine="allow-overrides": allowing policy wins despite a denying sibling', () => {
-    const result = explainEvaluation(
+    const result = iamExplainEvaluation(
       [denyAllPolicy, allowReadPolicy],
       makeReq(),
       'deny',
@@ -260,7 +260,7 @@ describe('explainEvaluation()', () => {
   })
 
   it('combine="first-applicable": first policy with a deciding rule wins', () => {
-    const result = explainEvaluation(
+    const result = iamExplainEvaluation(
       [allowReadPolicy, denyAllPolicy],
       makeReq(),
       'deny',
@@ -273,7 +273,7 @@ describe('explainEvaluation()', () => {
 
   it('combine="first-applicable": falls through to default when no rule fires', () => {
     // Different action so no rules in either policy match.
-    const result = explainEvaluation(
+    const result = iamExplainEvaluation(
       [allowReadPolicy],
       makeReq({ action: 'write' }),
       'deny',

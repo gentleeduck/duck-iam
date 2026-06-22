@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { HttpAdapter } from '../index'
+import { IamHttpAdapter } from '../index'
 
 type A = 'read'
 type R = 'post'
@@ -15,15 +15,15 @@ function makeJsonResponse(body: unknown, status = 200): Response {
   } as unknown as Response
 }
 
-function buildAdapter(handler: (path: string) => unknown): HttpAdapter<A, R, Ro, S> {
+function buildAdapter(handler: (path: string) => unknown): IamHttpAdapter<A, R, Ro, S> {
   const fetch = vi.fn(async (url: string) => {
     const path = new URL(url).pathname
     return makeJsonResponse(handler(path))
   }) as unknown as typeof globalThis.fetch
-  return new HttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
+  return new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://api.example.com', fetch, retries: 0 })
 }
 
-describe('HttpAdapter subject-data shape validation', () => {
+describe('IamHttpAdapter subject-data shape validation', () => {
   describe('getSubjectAttributes', () => {
     it('rejects a string response (the corruption-as-string class)', async () => {
       const adapter = buildAdapter(() => 'admin=true')

@@ -8,7 +8,7 @@
 
 import { createRoot } from 'solid-js'
 import { describe, expect, it, vi } from 'vitest'
-import { useSession as _useSession, useSignIn } from '../index'
+import { authUseSession as _useSession, authUseSignIn } from '../index'
 
 function mockFetch(handler: (path: string) => { status: number; body: unknown }) {
   return vi.fn(async (url: string) => {
@@ -25,13 +25,13 @@ function mockFetch(handler: (path: string) => { status: number; body: unknown })
 describe('Solid client', () => {
   it('throws if hooks used outside AuthProvider', () => {
     createRoot((dispose) => {
-      expect(() => useSignIn()).toThrow(/AuthProvider/)
+      expect(() => authUseSignIn()).toThrow(/AuthProvider/)
       dispose()
     })
   })
 
   it('module exports the expected hook surface', () => {
-    expect(typeof useSignIn).toBe('function')
+    expect(typeof authUseSignIn).toBe('function')
     expect(typeof _useSession).toBe('function')
   })
 

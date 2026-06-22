@@ -1,22 +1,22 @@
 /** Svelte client - exposes the vanilla AuthClient as duck-typed `Readable` stores. */
-import { createAuthClient, type VanillaClient } from '../vanilla'
+import { authCreateClient, type AuthVanillaClient } from '../vanilla'
 
 /**
  * Build a Svelte-compatible auth store + signIn/signOut actions.
  * Returns the bag eagerly (no Svelte runtime needed); `state` is a
  * `Readable` and updates whenever the underlying vanilla client emits.
  */
-export function createAuthStore<Profile = unknown>(
-  cfg: SvelteClient.IConfig<Profile> = {},
-): SvelteClient.IAuthStoreBag<Profile> {
-  const client = cfg.client ?? createAuthClient<Profile>(cfg)
-  let current: SvelteClient.IAuthState<Profile> = {
+export function authCreateStore<Profile = unknown>(
+  cfg: AuthSvelteClient.IConfig<Profile> = {},
+): AuthSvelteClient.IAuthStoreBag<Profile> {
+  const client = cfg.client ?? authCreateClient<Profile>(cfg)
+  let current: AuthSvelteClient.IAuthState<Profile> = {
     identity: null,
     session: null,
     status: cfg.noInitialFetch ? 'guest' : 'loading',
   }
-  const subs = new Set<(value: SvelteClient.IAuthState<Profile>) => void>()
-  const notify = (next: SvelteClient.IAuthState<Profile>): void => {
+  const subs = new Set<(value: AuthSvelteClient.IAuthState<Profile>) => void>()
+  const notify = (next: AuthSvelteClient.IAuthState<Profile>): void => {
     current = next
     for (const fn of subs) fn(current)
   }
@@ -30,7 +30,7 @@ export function createAuthStore<Profile = unknown>(
   if (!cfg.noInitialFetch) {
     client.refresh().catch(() => notify({ ...current, status: 'guest' }))
   }
-  const state: SvelteClient.IReadable<SvelteClient.IAuthState<Profile>> = {
+  const state: AuthSvelteClient.IReadable<AuthSvelteClient.IAuthState<Profile>> = {
     subscribe(run) {
       subs.add(run)
       run(current)
@@ -48,7 +48,7 @@ export function createAuthStore<Profile = unknown>(
   }
 }
 
-export namespace SvelteClient {
+export namespace AuthSvelteClient {
   /**
    * The minimal Svelte-store contract. Compatible with
    * `import type { Readable } from 'svelte/store'` without depending
@@ -58,16 +58,16 @@ export namespace SvelteClient {
     subscribe(run: (value: T) => void): () => void
   }
 
-  export interface IConfig<Profile = unknown> extends VanillaClient.IConfig {
+  export interface IConfig<Profile = unknown> extends AuthVanillaClient.IConfig {
     /** Pre-built client; overrides cfg. */
-    client?: VanillaClient.IClient<Profile>
+    client?: AuthVanillaClient.IClient<Profile>
     /** Disable the initial automatic /session fetch on store creation. */
     noInitialFetch?: boolean
   }
 
   export interface IAuthState<Profile = unknown> {
-    session: VanillaClient.ISessionResult<Profile>['session']
-    identity: VanillaClient.ISessionResult<Profile>['identity']
+    session: AuthVanillaClient.ISessionResult<Profile>['session']
+    identity: AuthVanillaClient.ISessionResult<Profile>['identity']
     status: 'loading' | 'authed' | 'guest'
   }
 
@@ -75,9 +75,9 @@ export namespace SvelteClient {
     /** Svelte store exposing `{ session, identity, status }`. */
     state: IReadable<IAuthState<Profile>>
     /** The underlying vanilla client (for advanced flows). */
-    client: VanillaClient.IClient<Profile>
-    signIn(opts: VanillaClient.ISignInOptions): Promise<VanillaClient.ISignInResult<Profile>>
+    client: AuthVanillaClient.IClient<Profile>
+    signIn(opts: AuthVanillaClient.ISignInOptions): Promise<AuthVanillaClient.ISignInResult<Profile>>
     signOut(): Promise<{ ok: true }>
-    refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+    refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
   }
 }

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
-import { ConsoleChannel, NoopChannel, TestChannel } from '../index'
+import type { AuthIdentity } from '../../../core/types/identity'
+import { AuthConsoleChannel, AuthNoopChannel, AuthTestChannel } from '../index'
 
-function makeIdentity(): Identity.IIdentity<unknown> {
+function makeIdentity(): AuthIdentity.IIdentity<unknown> {
   return {
     id: 'ident-1',
     providers: [],
@@ -12,10 +12,10 @@ function makeIdentity(): Identity.IIdentity<unknown> {
   }
 }
 
-describe('ConsoleChannel', () => {
+describe('AuthConsoleChannel', () => {
   it('writes one JSON line per send', async () => {
     const sink = vi.fn()
-    const ch = new ConsoleChannel({ sink })
+    const ch = new AuthConsoleChannel({ sink })
     const result = await ch.send({
       identity: makeIdentity(),
       templateId: 'magic-link',
@@ -33,14 +33,14 @@ describe('ConsoleChannel', () => {
   })
 
   it('uses kind from config (sms / webpush)', () => {
-    expect(new ConsoleChannel({ kind: 'sms' }).kind).toBe('sms')
-    expect(new ConsoleChannel({ kind: 'webpush' }).kind).toBe('webpush')
+    expect(new AuthConsoleChannel({ kind: 'sms' }).kind).toBe('sms')
+    expect(new AuthConsoleChannel({ kind: 'webpush' }).kind).toBe('webpush')
   })
 })
 
-describe('NoopChannel', () => {
+describe('AuthNoopChannel', () => {
   it('discards every send + returns ok', async () => {
-    const ch = new NoopChannel()
+    const ch = new AuthNoopChannel()
     const result = await ch.send({
       identity: makeIdentity(),
       templateId: 'verify-email',
@@ -52,9 +52,9 @@ describe('NoopChannel', () => {
   })
 })
 
-describe('TestChannel', () => {
+describe('AuthTestChannel', () => {
   it('captures every send into outbox', async () => {
-    const ch = new TestChannel()
+    const ch = new AuthTestChannel()
     await ch.send({
       identity: makeIdentity(),
       templateId: 'magic-link',

@@ -9,12 +9,12 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { TestChannel } from '../../../channels/console'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
-import { CookieTransport } from '../../transport/cookie'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthTestChannel } from '../../../channels/console'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthCookieTransport } from '../../transport/cookie'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../flows/account-deletion'
 import { completeEmailVerification, requestEmailVerification } from '../flows/email-verification'
 import { impersonate, releaseImpersonation } from '../flows/impersonate'
@@ -28,20 +28,20 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const auth = new AuthRoot<MyProfile>({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
-    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
 describe('flows/password-reset.ts - direct exports', () => {
-  let auth: AuthRoot<MyProfile>
-  let adapter: MemoryAuthAdapter<MyProfile>
+  let auth: AuthEngine<MyProfile>
+  let adapter: AuthMemoryAdapter<MyProfile>
   beforeEach(() => {
     ;({ auth, adapter } = build())
   })
@@ -52,7 +52,7 @@ describe('flows/password-reset.ts - direct exports', () => {
   })
 
   it('requestPasswordReset called directly produces an enumeration-safe ok-true', async () => {
-    const channel = new TestChannel()
+    const channel = new AuthTestChannel()
     const out = await requestPasswordReset(auth.flows, {
       input: { email: 'never-exists@x.com' },
       findIdentityByEmail: async () => null,
@@ -68,7 +68,7 @@ describe('flows/password-reset.ts - direct exports', () => {
   })
 
   it('direct call matches class-method call (no extra side effects)', async () => {
-    const channel = new TestChannel()
+    const channel = new AuthTestChannel()
     const directOut = await requestPasswordReset(auth.flows, {
       input: { email: 'a@x.com' },
       findIdentityByEmail: async () => null,
@@ -86,7 +86,7 @@ describe('flows/password-reset.ts - direct exports', () => {
 })
 
 describe('flows/email-verification.ts - direct exports', () => {
-  let auth: AuthRoot<MyProfile>
+  let auth: AuthEngine<MyProfile>
   beforeEach(() => {
     ;({ auth } = build())
   })
@@ -104,7 +104,7 @@ describe('flows/email-verification.ts - direct exports', () => {
 })
 
 describe('flows/account-deletion.ts - direct exports', () => {
-  let auth: AuthRoot<MyProfile>
+  let auth: AuthEngine<MyProfile>
   beforeEach(() => {
     ;({ auth } = build())
   })
@@ -123,7 +123,7 @@ describe('flows/account-deletion.ts - direct exports', () => {
 })
 
 describe('flows/signup.ts - direct exports', () => {
-  let auth: AuthRoot<MyProfile>
+  let auth: AuthEngine<MyProfile>
   beforeEach(() => {
     ;({ auth } = build())
   })
@@ -157,7 +157,7 @@ describe('flows/signup.ts - direct exports', () => {
 })
 
 describe('flows/impersonate.ts - direct exports', () => {
-  let auth: AuthRoot<MyProfile>
+  let auth: AuthEngine<MyProfile>
   beforeEach(() => {
     ;({ auth } = build())
   })
@@ -211,7 +211,7 @@ describe('flows/impersonate.ts - direct exports', () => {
 })
 
 describe('flows/provider-link.ts - direct exports', () => {
-  let auth: AuthRoot<MyProfile>
+  let auth: AuthEngine<MyProfile>
   beforeEach(() => {
     ;({ auth } = build())
   })
@@ -225,13 +225,13 @@ describe('flows/provider-link.ts - direct exports', () => {
     const ident = await auth.identities.create({ profile: { email: 'b@x.com' } })
     const out = await linkProvider(auth.flows, {
       identityId: ident.id,
-      providerId: 'github',
+      providerId: 'authGithub',
       providerSub: 'gh-sub-1',
     })
     expect(out.identityId).toBe(ident.id)
-    expect(out.providerId).toBe('github')
+    expect(out.providerId).toBe('authGithub')
     const refreshed = await auth.identities.getById(ident.id)
-    expect(refreshed?.providers.some((p) => p.providerId === 'github')).toBe(true)
+    expect(refreshed?.providers.some((p) => p.providerId === 'authGithub')).toBe(true)
   })
 
   it('linkProvider rejects invalid providerId', async () => {
@@ -242,20 +242,20 @@ describe('flows/provider-link.ts - direct exports', () => {
 
   it('unlinkProvider lockout guard refuses to leave identity with no factors', async () => {
     const ident = await auth.identities.create({ profile: { email: 'c@x.com' } })
-    await linkProvider(auth.flows, { identityId: ident.id, providerId: 'github', providerSub: 'gh-1' })
-    await expect(unlinkProvider(auth.flows, { identityId: ident.id, providerId: 'github' })).rejects.toMatchObject({
+    await linkProvider(auth.flows, { identityId: ident.id, providerId: 'authGithub', providerSub: 'gh-1' })
+    await expect(unlinkProvider(auth.flows, { identityId: ident.id, providerId: 'authGithub' })).rejects.toMatchObject({
       code: 'AUTH/PROVIDER_FAILED',
     })
   })
 
   it('unlinkProvider allows lockout when allowLockout: true', async () => {
     const ident = await auth.identities.create({ profile: { email: 'd@x.com' } })
-    await linkProvider(auth.flows, { identityId: ident.id, providerId: 'github', providerSub: 'gh-2' })
+    await linkProvider(auth.flows, { identityId: ident.id, providerId: 'authGithub', providerSub: 'gh-2' })
     const out = await unlinkProvider(auth.flows, {
       identityId: ident.id,
-      providerId: 'github',
+      providerId: 'authGithub',
       allowLockout: true,
     })
-    expect(out.providerId).toBe('github')
+    expect(out.providerId).toBe('authGithub')
   })
 })

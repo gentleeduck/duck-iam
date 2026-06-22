@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { InMemoryEvents } from '../../events'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthInMemoryEvents } from '../../events'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../identities'
 
 interface MyProfile {
@@ -10,13 +10,13 @@ interface MyProfile {
 }
 
 describe('IdentitiesFacet', () => {
-  let adapter: MemoryAuthAdapter<MyProfile>
-  let events: InMemoryEvents
+  let adapter: AuthMemoryAdapter<MyProfile>
+  let events: AuthInMemoryEvents
   let facet: IdentitiesFacet<MyProfile>
 
   beforeEach(() => {
-    adapter = new MemoryAuthAdapter<MyProfile>()
-    events = new InMemoryEvents()
+    adapter = new AuthMemoryAdapter<MyProfile>()
+    events = new AuthInMemoryEvents()
     facet = new IdentitiesFacet<MyProfile>(adapter.identities, events, DEFAULT_IDENTITIES_CONFIG)
   })
 
@@ -123,18 +123,18 @@ describe('IdentitiesFacet', () => {
       })
       const handler = vi.fn()
       events.on('identity.linked', handler)
-      await facet.link(i.id, { providerId: 'oauth:google', providerSub: 'g-123' })
+      await facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'g-123' })
       expect(handler).toHaveBeenCalledOnce()
       const fresh = await facet.getById(i.id)
-      expect(fresh?.providers.some((p) => p.providerId === 'oauth:google')).toBe(true)
+      expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
     })
 
     it('link rejects duplicate providerId for same identity', async () => {
       const i = await facet.create({
         profile: { email: 'a@x.com' },
-        providers: [{ providerId: 'oauth:google', addedAt: Date.now() }],
+        providers: [{ providerId: 'oauth:authGoogle', addedAt: Date.now() }],
       })
-      await expect(facet.link(i.id, { providerId: 'oauth:google' })).rejects.toMatchObject({
+      await expect(facet.link(i.id, { providerId: 'oauth:authGoogle' })).rejects.toMatchObject({
         code: 'AUTH/PROVIDER_FAILED',
       })
     })
@@ -154,10 +154,10 @@ describe('IdentitiesFacet', () => {
         profile: { email: 'a@x.com' },
         providers: [
           { providerId: 'password', addedAt: Date.now() },
-          { providerId: 'oauth:google', addedAt: Date.now() },
+          { providerId: 'oauth:authGoogle', addedAt: Date.now() },
         ],
       })
-      await facet.unlink(i.id, 'oauth:google')
+      await facet.unlink(i.id, 'oauth:authGoogle')
       const fresh = await facet.getById(i.id)
       expect(fresh?.providers).toHaveLength(1)
     })
@@ -176,14 +176,14 @@ describe('IdentitiesFacet', () => {
       })
       const dup = await facet.create({
         profile: { email: 'd@x.com' },
-        providers: [{ providerId: 'oauth:google', providerSub: 'g-1', addedAt: Date.now() }],
+        providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g-1', addedAt: Date.now() }],
       })
       const handler = vi.fn()
       events.on('identity.merged', handler)
       await facet.merge(survivor.id, dup.id)
       expect(handler).toHaveBeenCalledOnce()
       const fresh = await facet.getById(survivor.id)
-      expect(fresh?.providers.some((p) => p.providerId === 'oauth:google')).toBe(true)
+      expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
       expect(await facet.getById(dup.id)).toBeNull()
     })
   })
@@ -232,13 +232,13 @@ describe('IdentitiesFacet', () => {
         [
           {
             profile: { email: 'a@x.com' },
-            providers: [{ providerId: 'oauth:google', providerSub: 'g', addedAt: Date.now() }],
+            providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: Date.now() }],
           },
         ],
         { mode: 'merge' },
       )
       const fresh = await facet.getById(i.id)
-      expect(fresh?.providers.some((p) => p.providerId === 'oauth:google')).toBe(true)
+      expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
     })
 
     it('replace erases pre-existing identities by email then creates fresh', async () => {

@@ -10,13 +10,13 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
-import type { AccessControl } from '../../../core/types'
+import type { IamAccessControl } from '../../../core/types'
 
 /**
- * SQLite schema for the duck-iam Drizzle adapter.
+ * SQLite schema for the duck-iam IamDrizzle adapter.
  *
  * SQLite has no native JSON or array type, so every payload column is TEXT and
- * the adapter must run in `json: 'string'` mode (`new DrizzleAdapter({ ...,
+ * the adapter must run in `json: 'string'` mode (`new IamDrizzleAdapter({ ...,
  * json: 'string' })`). Columns are typed with `$type<string>()` to reflect the
  * stored JSON text. `algorithm` is constrained via a CHECK.
  *
@@ -28,26 +28,26 @@ import type { AccessControl } from '../../../core/types'
  * naming: `pk_` `fk_` `uq_` `idx_` `ch_`.
  */
 
-/** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
-export const COMBINE_ALGORITHMS = [
+/** Allowed combining algorithms, kept in sync with {@link IamAccessControl.CombiningAlgorithm}. */
+export const IAM_COMBINE_ALGORITHMS = [
   'deny-overrides',
   'allow-overrides',
   'first-match',
   'highest-priority',
-] as const satisfies readonly AccessControl.CombiningAlgorithm[]
+] as const satisfies readonly IamAccessControl.CombiningAlgorithm[]
 
 /** Per-row epoch-millisecond timestamp. */
 const nowMs = sql`(unixepoch() * 1000)`
 
 /** Stored ABAC policies. JSON payloads are TEXT and parsed by the adapter. */
-export const accessPolicies = sqliteTable(
+export const iamPolicies = sqliteTable(
   'access_policies',
   {
     id: text('id').notNull(),
     name: text('name').notNull(),
     description: text('description'),
     version: integer('version').notNull().default(1),
-    algorithm: text('algorithm').$type<AccessControl.CombiningAlgorithm>().notNull().default('deny-overrides'),
+    algorithm: text('algorithm').$type<IamAccessControl.CombiningAlgorithm>().notNull().default('deny-overrides'),
     rules: text('rules').$type<string>().notNull(),
     targets: text('targets').$type<string>(),
     createdBy: text('created_by'),
@@ -71,7 +71,7 @@ export const accessPolicies = sqliteTable(
 )
 
 /** Stored RBAC roles. `inherits` is JSON TEXT defaulting to `'[]'`. */
-export const accessRoles = sqliteTable(
+export const iamRoles = sqliteTable(
   'access_roles',
   {
     id: text('id').notNull(),
@@ -100,7 +100,7 @@ export const accessRoles = sqliteTable(
 )
 
 /** Subject-to-role assignments. NULL scope is a global (unscoped) grant. */
-export const accessAssignments = sqliteTable(
+export const iamAssignments = sqliteTable(
   'access_assignments',
   {
     id: text('id').$defaultFn(() => crypto.randomUUID()),
@@ -115,7 +115,7 @@ export const accessAssignments = sqliteTable(
     foreignKey({
       name: 'fk_access_assignments_role',
       columns: [t.roleId],
-      foreignColumns: [accessRoles.id],
+      foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
     // COALESCE collapses NULL scopes so duplicate global grants conflict.
     uniqueIndex('uq_access_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`coalesce(${t.scope}, '')`),
@@ -128,7 +128,7 @@ export const accessAssignments = sqliteTable(
 )
 
 /** Per-subject attribute bags, one row per subject. JSON TEXT under `data`. */
-export const accessSubjectAttrs = sqliteTable(
+export const iamSubjectAttrs = sqliteTable(
   'access_subject_attrs',
   {
     subjectId: text('subject_id').notNull(),

@@ -65,7 +65,7 @@ function isSecurityPath(path: string): boolean {
   return SECURITY_PATHS.some((p) => path.includes(p))
 }
 
-const SECRET_GEN_ALLOWED_HELPERS = ['randomToken', 'randomBytes', 'randomUUID', 'createHash', 'createHmac']
+const SECRET_GEN_ALLOWED_HELPERS = ['authRandomToken', 'randomBytes', 'randomUUID', 'createHash', 'createHmac']
 
 describe('No Math.random in security paths', () => {
   it('Math.random must not appear in core / providers / oidc / transport', () => {
@@ -117,8 +117,8 @@ describe('No console.log in security paths', () => {
   })
 })
 
-describe('Recovery / signup / reset tokens are sha256-hashed at rest', () => {
-  it('every secret-write path passes the secret through sha256 before storage', () => {
+describe('Recovery / signup / reset tokens are authSha256-hashed at rest', () => {
+  it('every secret-write path passes the secret through authSha256 before storage', () => {
     // The presence of `secret: secretHash` and the absence of
     // `secret: token,` (raw token written directly) is the structural
     // invariant. The actual hash function is in core/crypto.ts.
@@ -136,16 +136,16 @@ describe('Recovery / signup / reset tokens are sha256-hashed at rest', () => {
 })
 
 describe('OAuth / OIDC state nonces are crypto-random', () => {
-  it('OIDC OP issues codes via randomToken (not Math.random / Date.now)', () => {
+  it('OIDC OP issues codes via authRandomToken (not Math.random / Date.now)', () => {
     const opFile = ALL_FILES.find((f) => f.path === 'oidc/op/index.ts')
     expect(opFile).toBeDefined()
     if (!opFile) return
-    expect(opFile.contents).toContain('randomToken(')
+    expect(opFile.contents).toContain('authRandomToken(')
     expect(opFile.contents).not.toMatch(/code\s*=\s*Date\.now/)
     expect(opFile.contents).not.toMatch(/code\s*=\s*Math\.random/)
   })
 
-  it('OAuth state / nonce generation routes through randomToken', () => {
+  it('OAuth state / nonce generation routes through authRandomToken', () => {
     const oauthFiles = filesMatching((f) => /providers\/oauth\/.*\.ts$/.test(f.path))
     for (const f of oauthFiles) {
       if (!/state|nonce/i.test(f.contents)) continue
@@ -173,7 +173,7 @@ describe('Length caps on user-supplied strings before they enter URLs / headers 
   // strings into upstream IO.
   it('every provider main file has length caps somewhere', () => {
     const providerEntries = filesMatching((f) =>
-      /providers\/(password|magic-link|saml|passkey|oauth\/(google|github|microsoft|discord|linkedin|apple))\.ts$/.test(
+      /providers\/(password|magic-link|saml|passkey|oauth\/(authGoogle|authGithub|authMicrosoft|authDiscord|authLinkedin|authApple))\.ts$/.test(
         f.path,
       ),
     )
@@ -192,7 +192,7 @@ describe('Length caps on user-supplied strings before they enter URLs / headers 
 })
 
 describe('Cookie defaults are HttpOnly + Secure + SameSite', () => {
-  it('CookieTransport defaults assert HttpOnly + secure + sameSite', () => {
+  it('AuthCookieTransport defaults assert HttpOnly + secure + sameSite', () => {
     const cookieFile = ALL_FILES.find((f) => f.path === 'core/transport/cookie.ts')
     expect(cookieFile).toBeDefined()
     if (!cookieFile) return
@@ -203,7 +203,7 @@ describe('Cookie defaults are HttpOnly + Secure + SameSite', () => {
 })
 
 describe('JWT alg pinning prevents alg-confusion (RFC 8725 §3.1)', () => {
-  it('JwtTransport verify path checks alg against the verify key, not the header', () => {
+  it('AuthJwtTransport verify path checks alg against the verify key, not the header', () => {
     const jwtFile = ALL_FILES.find((f) => f.path === 'core/transport/jwt.ts')
     expect(jwtFile).toBeDefined()
     if (!jwtFile) return

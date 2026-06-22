@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { File, FileAdapter } from '../index'
+import { IamFile, IamFileAdapter } from '../index'
 
 type Action = 'read' | 'write'
 type Resource = 'post'
 type Role = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-function makeFs(initial: string): File.IFS {
+function makeFs(initial: string): IamFile.IFS {
   const files = new Map<string, string>([['/store.json', initial]])
   return {
     async readFile(p: string) {
@@ -23,10 +23,10 @@ function makeFs(initial: string): File.IFS {
 
 async function makeAdapter(
   raw: unknown,
-): Promise<{ adapter: FileAdapter<Action, Resource, Role, Scope>; errors: string[] }> {
+): Promise<{ adapter: IamFileAdapter<Action, Resource, Role, Scope>; errors: string[] }> {
   const errors: string[] = []
   const fs = makeFs(JSON.stringify(raw))
-  const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+  const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
     path: '/store.json',
     fs,
     rootDir: '/',
@@ -37,7 +37,7 @@ async function makeAdapter(
   return { adapter, errors }
 }
 
-describe('FileAdapter malformed assignments/attributes', () => {
+describe('IamFileAdapter malformed assignments/attributes', () => {
   it('drops assignments when the whole field is a string', async () => {
     const { adapter, errors } = await makeAdapter({ assignments: 'oops' })
     const roles = await adapter.getSubjectRoles('user-1')

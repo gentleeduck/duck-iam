@@ -2,7 +2,7 @@ import React from 'react'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamDevtools } from '../iam-devtools-panel'
-import type { IDevtoolsEngine } from '../lib/types'
+import type { IamIDevtoolsEngine } from '../lib/types'
 
 /**
  * Compatibility shim: bun's test runner doesn't ship `vi.stubGlobal`. Track
@@ -35,11 +35,11 @@ function unstubAllCompat(): void {
 }
 
 /**
- * Build a minimal `IDevtoolsEngine`-shaped object carrying an optional `mode`.
+ * Build a minimal `IamIDevtoolsEngine`-shaped object carrying an optional `mode`.
  * Methods reject so any panel that slips past the guard would fail loudly in
  * a test; the guard tests below assert nothing slips past.
  */
-function makeMockEngine(mode?: 'production' | 'development'): IDevtoolsEngine {
+function makeMockEngine(mode?: 'production' | 'development'): IamIDevtoolsEngine {
   const trap = (label: string) => () => {
     throw new Error(`engine.${label} should not be called when devtools is guarded`)
   }
@@ -60,7 +60,7 @@ function makeMockEngine(mode?: 'production' | 'development'): IDevtoolsEngine {
       getAttributes: trap('admin.getAttributes'),
       export: trap('admin.export'),
     },
-  } as unknown as IDevtoolsEngine
+  } as unknown as IamIDevtoolsEngine
   return engine
 }
 

@@ -1,15 +1,15 @@
-import { sha256 } from '../../../core/crypto'
+import { authSha256 } from '../../../core/crypto'
 import { AuthErrorObject } from '../../../core/errors'
-import type { Provider } from '../../../core/types/provider'
-import type { OAuthClient } from './client'
-import { generatePkce } from './pkce'
-import { buildState, signState, verifyState } from './state'
+import type { AuthProvider } from '../../../core/types/provider'
+import type { AuthOAuthClient } from './client'
+import { authGeneratePkce } from './pkce'
+import { authBuildState, signState, authVerifyState } from './state'
 
-export namespace OAuthProvider {
+export namespace AuthOAuthProvider {
   /**
    * Canonical profile shape after a provider extracts it from
    * userinfo / id_token / provider-specific endpoint. Providers
-   * (google, github, ...) map their idiosyncratic field names to this
+   * (authGoogle, authGithub, ...) map their idiosyncratic field names to this
    * shape.
    */
   export interface IProfile {
@@ -32,7 +32,7 @@ export namespace OAuthProvider {
     clientSecret: string
     /** Exact callback URL registered with the IdP. Must match. */
     redirectUri: string
-    /** Per-AuthRoot signing secret for the OAuth `state` parameter. */
+    /** Per-AuthEngine signing secret for the OAuth `state` parameter. */
     stateSigningSecret: string
     /** Override IdP scopes; falls back to provider default. */
     scopes?: string[]
@@ -48,17 +48,17 @@ export namespace OAuthProvider {
   export interface IOptions<Profile = unknown> {
     /** Stable id; library prefixes with `oauth:` for consistency. */
     providerId: string
-    client: OAuthClient
-    endpoints: OAuthClient.IEndpoints | (() => Promise<OAuthClient.IEndpoints>)
+    client: AuthOAuthClient
+    endpoints: AuthOAuthClient.IEndpoints | (() => Promise<AuthOAuthClient.IEndpoints>)
     /** Redirect URI registered with the provider. */
     redirectUri: string
     /** Secret used to sign the OAuth `state` parameter. */
     stateSigningSecret: string
     /** Extract a canonical profile from the token response + userinfo. */
-    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OAuthClient) => Promise<IProfile>
+    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: AuthOAuthClient) => Promise<IProfile>
     /** Map IProfile -> consumer Profile shape on first sign-in. */
     profileToIdentityProfile?: (p: IProfile) => Profile
-    /** Identity-resolution override; null return refuses sign-in. */
+    /** AuthIdentity-resolution override; null return refuses sign-in. */
     onSignIn?: (ctx: {
       profile: IProfile
       findByProviderSub: (providerSub: string) => Promise<{ id: string } | null>
@@ -82,7 +82,7 @@ export namespace OAuthProvider {
      *   hook for "merge-after-confirmation" - the app prompts the
      *   user out-of-band and resolves with the verdict.
      */
-    onFederationConflict?: OAuthProvider.IFederationPolicy
+    onFederationConflict?: AuthOAuthProvider.IFederationPolicy
   }
 
   /** Policy + hook shape for the federation conflict workflow. */
@@ -107,12 +107,12 @@ export namespace OAuthProvider {
 }
 
 /**
- * Generic OAuth provider. Specific provider modules (google, github,
+ * Generic OAuth provider. Specific provider modules (authGoogle, authGithub,
  * ...) pre-fill endpoints + scopes + fetchProfile and re-export.
  */
 export function oauthProvider<Profile = unknown>(
-  opts: OAuthProvider.IOptions<Profile>,
-): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
+  opts: AuthOAuthProvider.IOptions<Profile>,
+): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
   const fullProviderId = `oauth:${opts.providerId}`
   // Refuse a malformed `redirectUri` at construction so a misconfigured
   // value (e.g. `javascript:alert(1)`, an unparseable string, or one carrying
@@ -127,8 +127,8 @@ export function oauthProvider<Profile = unknown>(
     id: fullProviderId,
     kind: 'oauth',
     async begin(_ctx, input) {
-      const pkce = generatePkce()
-      const statePayload = buildState(fullProviderId, pkce.verifier, {
+      const pkce = authGeneratePkce()
+      const statePayload = authBuildState(fullProviderId, pkce.verifier, {
         ...(input?.returnTo !== undefined && { returnTo: input.returnTo }),
       })
       const state = signState(statePayload, opts.stateSigningSecret)
@@ -147,7 +147,7 @@ export function oauthProvider<Profile = unknown>(
           detail: 'invalid authorization code',
         })
       }
-      const verified = verifyState(input.state, opts.stateSigningSecret)
+      const verified = authVerifyState(input.state, opts.stateSigningSecret)
       if (!verified) {
         throw new AuthErrorObject('AUTH/OAUTH_STATE_MISMATCH')
       }
@@ -244,12 +244,12 @@ export function oauthProvider<Profile = unknown>(
       }
 
       if (tokens.refresh_token) {
-        const familyId = `${fullProviderId}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
+        const familyId = `${fullProviderId}:${profile.sub}:${authSha256(input.code).slice(0, 16)}`
         await ctx.stores.credentials.upsert(
           {
             identityId,
             kind: 'oauth',
-            secret: sha256(tokens.refresh_token),
+            secret: authSha256(tokens.refresh_token),
             metadata: {
               provider: fullProviderId,
               sub: profile.sub,
@@ -282,8 +282,8 @@ export function oauthProvider<Profile = unknown>(
  * `profile.emailVerified === true` AND an unambiguous email match).
  */
 async function resolveFederationConflict(
-  policy: OAuthProvider.IFederationPolicy,
-  ctx: { existingIdentityId: string; profile: OAuthProvider.IProfile; providerId: string },
+  policy: AuthOAuthProvider.IFederationPolicy,
+  ctx: { existingIdentityId: string; profile: AuthOAuthProvider.IProfile; providerId: string },
 ): Promise<'link' | 'reject'> {
   if (policy === 'reject') return 'reject'
   if (policy === 'link-if-verified') {

@@ -1,14 +1,14 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { AuthRoot } from '../../../core/auth'
-import { sha256 } from '../../../core/crypto'
-import { ScryptHasher } from '../../../core/password/scrypt'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { createOidcOP, type OidcOPRoot } from '../index'
-import type { OidcOP } from '../types'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthEngine } from '../../../core/auth'
+import { authSha256 } from '../../../core/crypto'
+import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { authCreateOidcOP, type AuthOidcOpRoot } from '../index'
+import type { AuthOidcOP } from '../types'
 
-function isOAuthError(v: OidcOP.IOAuthError | object): v is OidcOP.IOAuthError {
+function isOAuthError(v: AuthOidcOP.IOAuthError | object): v is AuthOidcOP.IOAuthError {
   return 'error' in v && typeof v.error === 'string' && !('sub' in v)
 }
 
@@ -19,18 +19,18 @@ interface ProfileShape {
 }
 
 function buildAuth() {
-  const adapter = new MemoryAuthAdapter<ProfileShape>()
-  return new AuthRoot<ProfileShape>({
+  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  return new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
-    transport: new CookieTransport({ name: 'duck-sid' }),
-    passwords: { hasher: new ScryptHasher() },
+    transport: new AuthCookieTransport({ name: 'duck-sid' }),
+    passwords: { hasher: new AuthScryptHasher() },
   })
 }
 
-function buildOp(auth: ReturnType<typeof buildAuth>): OidcOPRoot<ProfileShape> {
+function buildOp(auth: ReturnType<typeof buildAuth>): AuthOidcOpRoot<ProfileShape> {
   const secret = 'dev-hmac-secret'
-  return createOidcOP<ProfileShape>({
+  return authCreateOidcOP<ProfileShape>({
     auth,
     config: {
       issuer: 'http://localhost:8787/auth',
@@ -59,12 +59,12 @@ function decodeJwt(token: string): Record<string, unknown> {
 
 function pkceVerifierAndChallenge(): { verifier: string; challenge: string } {
   const verifier = 'a'.repeat(64)
-  const hex = sha256(verifier)
+  const hex = authSha256(verifier)
   const challenge = Buffer.from(hex, 'hex').toString('base64url')
   return { verifier, challenge }
 }
 
-describe('OidcOPRoot.registerClient', () => {
+describe('AuthOidcOpRoot.registerClient', () => {
   it('returns a generated client_secret for confidential clients', async () => {
     const op = buildOp(buildAuth())
     const out = await op.registerClient({
@@ -128,7 +128,7 @@ describe('OidcOPRoot.registerClient', () => {
   })
 })
 
-describe('OidcOPRoot.authorize gate', () => {
+describe('AuthOidcOpRoot.authorize gate', () => {
   it('rejects unknown client without redirecting', async () => {
     const op = buildOp(buildAuth())
     const result = await op.authorize(
@@ -334,9 +334,9 @@ describe('OidcOPRoot.authorize gate', () => {
   })
 })
 
-describe('OidcOPRoot end-to-end code flow', () => {
+describe('AuthOidcOpRoot end-to-end code flow', () => {
   let auth: ReturnType<typeof buildAuth>
-  let op: OidcOPRoot<ProfileShape>
+  let op: AuthOidcOpRoot<ProfileShape>
 
   beforeEach(() => {
     auth = buildAuth()

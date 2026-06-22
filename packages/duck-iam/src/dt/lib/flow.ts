@@ -1,4 +1,4 @@
-export interface IFlowEntry {
+export interface IamIFlowEntry {
   id: number
   ts: number
   subjectId: string
@@ -14,26 +14,26 @@ export interface IFlowEntry {
   environment?: Record<string, unknown>
 }
 
-type IFlowRecordInput = Omit<IFlowEntry, 'id' | 'ts'> & { ts?: number }
+type IFlowRecordInput = Omit<IamIFlowEntry, 'id' | 'ts'> & { ts?: number }
 
-export interface IFlowRecorder {
-  record(entry: IFlowRecordInput): IFlowEntry
-  list(): readonly IFlowEntry[]
-  get(id: number): IFlowEntry | undefined
+export interface IamIFlowRecorder {
+  record(entry: IFlowRecordInput): IamIFlowEntry
+  list(): readonly IamIFlowEntry[]
+  get(id: number): IamIFlowEntry | undefined
   clear(): void
   subscribe(listener: () => void): () => void
 }
 
-export interface IFlowRecorderOptions {
+export interface IamIFlowRecorderOptions {
   bufferSize?: number
 }
 
 const DEFAULT_BUFFER = 250
 
-export function createFlowRecorder(options: IFlowRecorderOptions = {}): IFlowRecorder {
+export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): IamIFlowRecorder {
   const bufferSize = options.bufferSize ?? DEFAULT_BUFFER
   let nextId = 1
-  let buffer: IFlowEntry[] = []
+  let buffer: IamIFlowEntry[] = []
   const listeners = new Set<() => void>()
 
   function notify() {
@@ -51,7 +51,7 @@ export function createFlowRecorder(options: IFlowRecorderOptions = {}): IFlowRec
 
   return {
     record(input) {
-      const entry: IFlowEntry = {
+      const entry: IamIFlowEntry = {
         id: nextId++,
         ts: input.ts ?? Date.now(),
         subjectId: input.subjectId,

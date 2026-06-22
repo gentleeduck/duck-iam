@@ -1,30 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../adapters/memory'
-import { MemoryLimiter } from '../../limiters/memory'
-import { AuthRoot } from '../auth'
-import { sha256 } from '../crypto'
-import { CookieTransport } from '../transport/cookie'
+import { AuthMemoryAdapter } from '../../adapters/memory'
+import { AuthMemoryLimiter } from '../../limiters/memory'
+import { AuthEngine } from '../auth'
+import { authSha256 } from '../crypto'
+import { AuthCookieTransport } from '../transport/cookie'
 
 interface Profile {
   email: string
 }
 
-function buildAuth(): { auth: AuthRoot<Profile>; adapter: MemoryAuthAdapter<Profile> } {
-  const adapter = new MemoryAuthAdapter<Profile>()
-  const auth = new AuthRoot<Profile>({
+function buildAuth(): { auth: AuthEngine<Profile>; adapter: AuthMemoryAdapter<Profile> } {
+  const adapter = new AuthMemoryAdapter<Profile>()
+  const auth = new AuthEngine<Profile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
+    limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
   })
   return { auth, adapter }
 }
 
-describe('AuthRoot.resolveSession - SEC: cross-tenant access guard', () => {
+describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
   it('rejects when session.tenantId mismatches expectedTenantId', async () => {
     const { auth, adapter } = buildAuth()
     const identity = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
@@ -87,6 +87,6 @@ describe('AuthRoot.resolveSession - SEC: cross-tenant access guard', () => {
       factors: [],
       tenantId: 't1',
     })
-    expect(await adapter.sessions.getByHash(sha256(sid))).not.toBeNull()
+    expect(await adapter.sessions.getByHash(authSha256(sid))).not.toBeNull()
   })
 })

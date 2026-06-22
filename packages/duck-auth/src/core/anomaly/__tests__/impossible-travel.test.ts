@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import type { Identity } from '../../types/identity'
-import type { Session } from '../../types/session'
-import { impossibleTravelDetector } from '../impossible-travel'
+import type { AuthIdentity } from '../../types/identity'
+import type { AuthSession } from '../../types/session'
+import { authImpossibleTravelDetector } from '../impossible-travel'
 
-const identity: Identity.IIdentity = {
+const identity: AuthIdentity.IIdentity = {
   id: 'u',
   providers: [],
   version: 1,
   createdAt: 0,
   updatedAt: 0,
 }
-const session: Session.ISession = {
+const session: AuthSession.ISession = {
   id: 'sid',
   identityId: 'u',
   kind: 'user',
@@ -23,9 +23,9 @@ const session: Session.ISession = {
   fresh: true,
 }
 
-describe('impossibleTravelDetector', () => {
+describe('authImpossibleTravelDetector', () => {
   it('emits no signal when no last-seen recorded', async () => {
-    const detector = impossibleTravelDetector({ getLastSeen: async () => null })
+    const detector = authImpossibleTravelDetector({ getLastSeen: async () => null })
     const r = await detector.evaluate({
       session,
       identity,
@@ -35,7 +35,7 @@ describe('impossibleTravelDetector', () => {
   })
 
   it('emits no signal when request has no geo', async () => {
-    const detector = impossibleTravelDetector({
+    const detector = authImpossibleTravelDetector({
       getLastSeen: async () => ({ lat: 0, lon: 0, at: 0 }),
     })
     const r = await detector.evaluate({ session, identity, req: { now: Date.now() } })
@@ -44,7 +44,7 @@ describe('impossibleTravelDetector', () => {
 
   it('emits no signal for plausible travel (NYC -> LA over 6 hours)', async () => {
     const now = Date.now()
-    const detector = impossibleTravelDetector({
+    const detector = authImpossibleTravelDetector({
       getLastSeen: async () => ({ lat: 40.7128, lon: -74.006, at: now - 6 * 3_600_000 }),
     })
     const r = await detector.evaluate({
@@ -57,7 +57,7 @@ describe('impossibleTravelDetector', () => {
 
   it('emits high-score signal for impossible travel (NYC -> Tokyo in 30 minutes)', async () => {
     const now = Date.now()
-    const detector = impossibleTravelDetector({
+    const detector = authImpossibleTravelDetector({
       getLastSeen: async () => ({ lat: 40.7128, lon: -74.006, at: now - 30 * 60_000 }),
     })
     const r = await detector.evaluate({
@@ -73,7 +73,7 @@ describe('impossibleTravelDetector', () => {
 
   it('elapsed-ms threshold suppresses sub-minute samples (NAT mobility)', async () => {
     const now = Date.now()
-    const detector = impossibleTravelDetector({
+    const detector = authImpossibleTravelDetector({
       getLastSeen: async () => ({ lat: 40.7128, lon: -74.006, at: now - 10_000 }), // 10s ago
     })
     const r = await detector.evaluate({

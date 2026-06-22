@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { TestChannel } from '../../../channels/console'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
-import { CookieTransport } from '../../transport/cookie'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthTestChannel } from '../../../channels/console'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthCookieTransport } from '../../transport/cookie'
 
 interface MyProfile {
   email: string
@@ -12,17 +12,17 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const auth = new AuthRoot<MyProfile>({
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
@@ -39,7 +39,7 @@ const ATTACKER_VALUES: ReadonlyArray<string> = [
   '/path\r\nLocation: https://evil.com',
 ]
 
-function getUrlFromOutbox(channel: TestChannel): URL {
+function getUrlFromOutbox(channel: AuthTestChannel): URL {
   expect(channel.outbox).toHaveLength(1)
   const vars = channel.outbox[0]!.vars
   if (!vars || typeof vars !== 'object' || !('url' in vars) || typeof vars.url !== 'string') {
@@ -50,14 +50,14 @@ function getUrlFromOutbox(channel: TestChannel): URL {
 
 describe('FlowsFacet - callbackPath sanitization', () => {
   describe('requestPasswordReset', () => {
-    let auth: AuthRoot<MyProfile>
-    let channel: TestChannel
+    let auth: AuthEngine<MyProfile>
+    let channel: AuthTestChannel
     let findIdentityByEmail: (email: string) => Promise<{ id: string } | null>
 
     beforeEach(async () => {
       const built = build()
       auth = built.auth
-      channel = new TestChannel()
+      channel = new AuthTestChannel()
       const ident = await auth.identities.create({ profile: { email: 'victim@x.com' } })
       findIdentityByEmail = async () => ({ id: ident.id })
     })
@@ -86,16 +86,16 @@ describe('FlowsFacet - callbackPath sanitization', () => {
   })
 
   describe('requestEmailVerification', () => {
-    let auth: AuthRoot<MyProfile>
+    let auth: AuthEngine<MyProfile>
     let identityId: string
-    let channel: TestChannel
+    let channel: AuthTestChannel
 
     beforeEach(async () => {
       const built = build()
       auth = built.auth
       const ident = await auth.identities.create({ profile: { email: 'a@x.com', emailVerified: false } })
       identityId = ident.id
-      channel = new TestChannel()
+      channel = new AuthTestChannel()
     })
 
     it.each(ATTACKER_VALUES)('attacker callbackPath %p -> emailed URL stays on app.example.com', async (bad) => {
@@ -122,16 +122,16 @@ describe('FlowsFacet - callbackPath sanitization', () => {
   })
 
   describe('requestAccountDeletion', () => {
-    let auth: AuthRoot<MyProfile>
+    let auth: AuthEngine<MyProfile>
     let identityId: string
-    let channel: TestChannel
+    let channel: AuthTestChannel
 
     beforeEach(async () => {
       const built = build()
       auth = built.auth
       const ident = await auth.identities.create({ profile: { email: 'a@x.com' } })
       identityId = ident.id
-      channel = new TestChannel()
+      channel = new AuthTestChannel()
     })
 
     it.each(ATTACKER_VALUES)('attacker callbackPath %p -> emailed URL stays on app.example.com', async (bad) => {

@@ -1,5 +1,5 @@
 /** Password hasher contract. Must be salt-deterministic, constant-time verify, and expose `needsRehash`. */
-export namespace Hasher {
+export namespace AuthHasher {
   export interface IHasher {
     /** Identifier for the algorithm + parameter set encoded into the hash. */
     readonly id: string

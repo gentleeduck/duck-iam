@@ -1,37 +1,37 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: index iteration guarded by length check. */
 
-import { evaluateOperator, resolveConditionValue } from '../conditions'
-import { matchesAction, matchesResource, matchesResourceHierarchical, resolve } from '../resolve'
-import type { AccessControl, Request } from '../types'
-import type { Explain } from './explain.types'
+import { iamEvaluateOperator, iamResolveConditionValue } from '../conditions'
+import { iamResolve, iamMatchesAction, iamMatchesResource, iamMatchesResourceHierarchical } from '../resolve'
+import type { IamAccessControl, IamRequest } from '../types'
+import type { IamExplain } from './explain.types'
 
 /** Maximum nesting depth for traced condition groups. */
 const MAX_TRACE_DEPTH = 10
 
-/** Type guard that distinguishes a flat {@link AccessControl.ICondition} from a nested {@link AccessControl.IConditionGroup}. */
-function isCondition(item: AccessControl.ICondition | AccessControl.IConditionGroup): item is AccessControl.ICondition {
+/** Type guard that distinguishes a flat {@link IamAccessControl.ICondition} from a nested {@link IamAccessControl.IConditionGroup}. */
+function iamIsCondition(item: IamAccessControl.ICondition | IamAccessControl.IConditionGroup): item is IamAccessControl.ICondition {
   return 'field' in item
 }
 
 /** Trace a single leaf condition, capturing actual vs expected values and the result. */
-function traceLeaf(req: Request.IAccessRequest, cond: AccessControl.ICondition): Explain.ILeafTrace {
-  const actual = resolve(req, cond.field)
-  const expected = resolveConditionValue(req, cond.value ?? null)
-  const result = evaluateOperator(cond.operator, actual, expected)
+function traceLeaf(req: IamRequest.IAccessRequest, cond: IamAccessControl.ICondition): IamExplain.ILeafTrace {
+  const actual = iamResolve(req, cond.field)
+  const expected = iamResolveConditionValue(req, cond.value ?? null)
+  const result = iamEvaluateOperator(cond.operator, actual, expected)
   return { type: 'condition', field: cond.field, operator: cond.operator, expected, actual, result }
 }
 
 /** Trace a single condition item, dispatching to leaf or group tracer. */
 function traceItem(
-  req: Request.IAccessRequest,
-  item: AccessControl.ICondition | AccessControl.IConditionGroup,
+  req: IamRequest.IAccessRequest,
+  item: IamAccessControl.ICondition | IamAccessControl.IConditionGroup,
   depth: number,
-): Explain.Trace {
-  return isCondition(item) ? traceLeaf(req, item) : traceGroup(req, item, depth)
+): IamExplain.Trace {
+  return iamIsCondition(item) ? traceLeaf(req, item) : traceGroup(req, item, depth)
 }
 
 /** Recursively trace a condition group, producing child traces for each item. */
-function traceGroup(req: Request.IAccessRequest, group: AccessControl.IConditionGroup, depth = 0): Explain.IGroupTrace {
+function traceGroup(req: IamRequest.IAccessRequest, group: IamAccessControl.IConditionGroup, depth = 0): IamExplain.IGroupTrace {
   if (depth >= MAX_TRACE_DEPTH) {
     return { type: 'group', logic: 'all', result: false, children: [] }
   }
@@ -55,14 +55,14 @@ function traceGroup(req: Request.IAccessRequest, group: AccessControl.ICondition
 }
 
 /** Trace a single rule evaluation: action match, resource match, and condition tree. */
-function traceRule(rule: AccessControl.IRule, req: Request.IAccessRequest): Explain.IRuleTrace {
-  const actionMatch = rule.actions.some((a) => matchesAction(a, req.action))
+function traceRule(rule: IamAccessControl.IRule, req: IamRequest.IAccessRequest): IamExplain.IRuleTrace {
+  const actionMatch = rule.actions.some((a) => iamMatchesAction(a, req.action))
 
   const resourceMatch = rule.resources.some((r) => {
     if (r.includes('.') || req.resource.type.includes('.')) {
-      return matchesResourceHierarchical(r, req.resource.type)
+      return iamMatchesResourceHierarchical(r, req.resource.type)
     }
-    return matchesResource(r, req.resource.type)
+    return iamMatchesResource(r, req.resource.type)
   })
 
   const conditions = traceGroup(req, rule.conditions)
@@ -80,12 +80,12 @@ function traceRule(rule: AccessControl.IRule, req: Request.IAccessRequest): Expl
   }
 }
 
-/** Apply a combining algorithm to matched rule traces, mirroring the evaluate module logic. */
+/** Apply a combining algorithm to matched rule traces, mirroring the iamEvaluate module logic. */
 function applyCombiner(
-  algorithm: AccessControl.CombiningAlgorithm,
-  matched: readonly Explain.IRuleTrace[],
-  defaultEffect: AccessControl.Effect,
-): { effect: AccessControl.Effect; reason: string; decidingRuleId?: string } {
+  algorithm: IamAccessControl.CombiningAlgorithm,
+  matched: readonly IamExplain.IRuleTrace[],
+  defaultEffect: IamAccessControl.Effect,
+): { effect: IamAccessControl.Effect; reason: string; decidingRuleId?: string } {
   switch (algorithm) {
     case 'deny-overrides': {
       const deny = matched.find((r) => r.effect === 'deny')
@@ -133,11 +133,11 @@ function applyCombiner(
 }
 
 /** Check whether a policy's target constraints match the request. */
-function policyTargetsMatch(policy: AccessControl.IPolicy, req: Request.IAccessRequest): boolean {
+function policyTargetsMatch(policy: IamAccessControl.IPolicy, req: IamRequest.IAccessRequest): boolean {
   if (!policy.targets) return true
   const { actions, resources, roles } = policy.targets
-  if (actions?.length && !actions.some((a) => matchesAction(a, req.action))) return false
-  if (resources?.length && !resources.some((r) => matchesResource(r, req.resource.type))) return false
+  if (actions?.length && !actions.some((a) => iamMatchesAction(a, req.action))) return false
+  if (resources?.length && !resources.some((r) => iamMatchesResource(r, req.resource.type))) return false
   if (roles?.length) {
     const subjectRoles = Array.isArray(req.subject.roles) ? req.subject.roles : []
     if (!roles.some((role) => subjectRoles.includes(role))) return false
@@ -152,13 +152,13 @@ function policyTargetsMatch(policy: AccessControl.IPolicy, req: Request.IAccessR
  * @param policy        - The policy to trace.
  * @param req           - The access request being evaluated.
  * @param defaultEffect - Effect to record when no rule fires.
- * @returns An {@link Explain.IPolicyTrace} describing the policy's outcome.
+ * @returns An {@link IamExplain.IPolicyTrace} describing the policy's outcome.
  */
 export function tracePolicy(
-  policy: AccessControl.IPolicy,
-  req: Request.IAccessRequest,
-  defaultEffect: AccessControl.Effect,
-): Explain.IPolicyTrace {
+  policy: IamAccessControl.IPolicy,
+  req: IamRequest.IAccessRequest,
+  defaultEffect: IamAccessControl.Effect,
+): IamExplain.IPolicyTrace {
   const targetMatch = policyTargetsMatch(policy, req)
 
   if (!targetMatch) {

@@ -4,7 +4,7 @@
  * service accounts can mint JWT access tokens with the supplied
  * scopes without user interaction.
  *
- * Storage shape: client credentials are kept in `Credential.kind =
+ * Storage shape: client credentials are kept in `AuthCredential.kind =
  * 'api-key'` (so the existing ApiKeysFacet powers lookup + rotation).
  * The grant verifies `client_id`+`client_secret`, mints a JWT via the
  * supplied JwtTransport, and returns the standard
@@ -12,9 +12,9 @@
  */
 
 import { AuthErrorObject } from '../errors'
-import type { Provider } from '../types/provider'
-import type { Session } from '../types/session'
-import type { Transport } from '../types/transport'
+import type { AuthProvider } from '../types/provider'
+import type { AuthSession } from '../types/session'
+import type { AuthTransport } from '../types/transport'
 import type { ApiKeysFacet } from './apikeys'
 import type { SessionsFacet } from './sessions'
 
@@ -25,7 +25,7 @@ export const DEFAULT_M2M_CONFIG: M2MFacet.IConfig = {
 
 /**
  * M2M facet. Wires the existing `ApiKeysFacet` + `SessionsFacet` +
- * `Transport.ITransport` together. Caller mounts a `/oauth/token`
+ * `AuthTransport.ITransport` together. Caller mounts a `/oauth/token`
  * route that calls `exchange()` on a body shaped like
  * `{ grant_type:'client_credentials', client_id, client_secret, scope }`.
  *
@@ -40,7 +40,7 @@ export class M2MFacet {
   constructor(
     private readonly _apiKeys: ApiKeysFacet,
     private readonly _sessions: SessionsFacet,
-    private readonly _transport: Transport.ITransport,
+    private readonly _transport: AuthTransport.ITransport,
     private readonly _cfg: M2MFacet.IConfig = DEFAULT_M2M_CONFIG,
   ) {}
 
@@ -95,7 +95,7 @@ export class M2MFacet {
     })
     // Cap the session's expiry at the M2M ttl so the issued JWT lifetime
     // tracks the configured M2M policy rather than the SessionsFacet default.
-    const issuedSession: Session.ISession = {
+    const issuedSession: AuthSession.ISession = {
       ...session,
       expiresAt: Math.min(session.expiresAt, now + this._cfg.ttlMs),
     }
@@ -105,7 +105,7 @@ export class M2MFacet {
       absolute: false,
       scope: granted.join(' '),
     })
-    const jsonIntent = intents.find((i): i is Extract<Provider.Intent, { type: 'json' }> => i.type === 'json')
+    const jsonIntent = intents.find((i): i is Extract<AuthProvider.Intent, { type: 'json' }> => i.type === 'json')
     if (!jsonIntent) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
         detail: 'M2MFacet requires JwtTransport (or equivalent) - cookie transports do not work here',

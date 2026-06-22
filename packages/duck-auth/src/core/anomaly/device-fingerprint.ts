@@ -1,9 +1,9 @@
 /** Device-fingerprint detector: emit `new-device` on first sight of (identity, ua+ipSubnet). */
 
-import type { Anomaly } from '../types/anomaly'
+import type { AuthAnomaly } from '../types/anomaly'
 
 /** Reference in-memory device-fingerprint store; production wires Redis. */
-export class MemoryDeviceFingerprintStore implements DeviceFingerprint.IStore {
+export class AuthMemoryDeviceFingerprintStore implements AuthDeviceFingerprint.IStore {
   private readonly _known = new Map<string, Set<string>>()
 
   /**
@@ -30,13 +30,13 @@ export class MemoryDeviceFingerprintStore implements DeviceFingerprint.IStore {
   }
 }
 
-/** sha256(`${ua}|${ipSubnet}`); /24 IPv4, /48 IPv6. Roaming-tolerant, ISP-sensitive. */
-function defaultCompose(req: Anomaly.RequestSnapshot, sha256: (s: string) => string): string | null {
+/** authSha256(`${ua}|${ipSubnet}`); /24 IPv4, /48 IPv6. Roaming-tolerant, ISP-sensitive. */
+function defaultCompose(req: AuthAnomaly.RequestSnapshot, authSha256: (s: string) => string): string | null {
   const ua = req.userAgent?.trim()
   const ip = req.ip
   if (!ua || !ip) return null
   if (ua.length > 1024 || ip.length > 64) return null
-  return sha256(`${ua}|${ipSubnet(ip)}`)
+  return authSha256(`${ua}|${ipSubnet(ip)}`)
 }
 
 function ipSubnet(ip: string): string {
@@ -72,21 +72,21 @@ function expandIpv6(addr: string): string {
  * (identity, fingerprint) pair the detector emits a single signal
  * with the configured score; subsequent sightings emit nothing.
  */
-export function deviceFingerprintDetector(cfg: DeviceFingerprint.IConfig): Anomaly.IDetector {
+export function deviceFingerprintDetector(cfg: AuthDeviceFingerprint.IConfig): AuthAnomaly.IDetector {
   const score = cfg.score ?? 0.7
   if (!Number.isFinite(score) || score < 0 || score > 1) {
     throw new Error(`deviceFingerprintDetector: score must be a finite number in [0, 1] (got ${score})`)
   }
   const compose = cfg.compose
     ? cfg.compose
-    : (req: Anomaly.RequestSnapshot): string | null => {
-        if (!cfg.sha256) return null
-        return defaultCompose(req, cfg.sha256)
+    : (req: AuthAnomaly.RequestSnapshot): string | null => {
+        if (!cfg.authSha256) return null
+        return defaultCompose(req, cfg.authSha256)
       }
 
   return {
     id: 'new-device',
-    async evaluate({ identity, req }): Promise<Anomaly.Signal[]> {
+    async evaluate({ identity, req }): Promise<AuthAnomaly.Signal[]> {
       const fp = compose(req)
       if (!fp) return []
       const known = await cfg.store.checkAndRemember(identity.id, fp)
@@ -106,13 +106,13 @@ export function deviceFingerprintDetector(cfg: DeviceFingerprint.IConfig): Anoma
   }
 }
 
-export namespace DeviceFingerprint {
+export namespace AuthDeviceFingerprint {
   export interface IConfig {
     /**
      * Persistence backing. Memory impl in tests; Redis impl in prod.
      * Required.
      */
-    store: DeviceFingerprint.IStore
+    store: AuthDeviceFingerprint.IStore
     /**
      * Score emitted on first sight. Default 0.7 (high but below the
      * default suspicious threshold of 0.8 so it does not auto-step-up
@@ -124,9 +124,9 @@ export namespace DeviceFingerprint {
      * via the bound crypto helper. Custom composers can add accept-
      * language, screen size (from a beacon), etc.
      */
-    compose?: (req: Anomaly.RequestSnapshot) => string | null
-    /** Hashing helper (sha256). Required when relying on default compose. */
-    sha256?: (s: string) => string
+    compose?: (req: AuthAnomaly.RequestSnapshot) => string | null
+    /** Hashing helper (authSha256). Required when relying on default compose. */
+    authSha256?: (s: string) => string
   }
 
   export interface IStore {

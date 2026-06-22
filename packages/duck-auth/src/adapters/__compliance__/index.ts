@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import type { Credential } from '../../core/types/credential'
-import type { Identity } from '../../core/types/identity'
-import type { Session } from '../../core/types/session'
+import type { AuthCredential } from '../../core/types/credential'
+import type { AuthIdentity } from '../../core/types/identity'
+import type { AuthSession } from '../../core/types/session'
 
 /**
- * Compliance test matrix for Identity stores. Every shipped adapter (memory,
+ * AuthCompliance test matrix for AuthIdentity stores. Every shipped adapter (memory,
  * redis, drizzle, prisma) imports this and runs it against a fresh instance;
  * the same assertions guarantee behaviour parity across adapters.
  *
- * @param factory - factory returning a fresh `Identity.IStore` per test
+ * @param factory - factory returning a fresh `AuthIdentity.IStore` per test
  */
-export function runIdentityStoreCompliance<P = { email: string }>(factory: () => Identity.IStore<P>): void {
-  describe('Identity.IStore compliance', () => {
+export function authRunIdentityStoreCompliance<P = { email: string }>(factory: () => AuthIdentity.IStore<P>): void {
+  describe('AuthIdentity.IStore compliance', () => {
     it('create stamps id, version=1, createdAt, updatedAt; respects providers + tenantId', async () => {
       const store = factory()
       const i = await store.create(
@@ -58,11 +58,11 @@ export function runIdentityStoreCompliance<P = { email: string }>(factory: () =>
     it('link / unlink mutate providers; findByProviderSub locates linked identities', async () => {
       const store = factory()
       const i = await store.create({ profile: { email: 'a@x' } as unknown as P, providers: [] }, {})
-      await store.link(i.id, { providerId: 'oauth:google', providerSub: 'sub-1', addedAt: Date.now() }, {})
-      const found = await store.findByProviderSub('oauth:google', 'sub-1', {})
+      await store.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'sub-1', addedAt: Date.now() }, {})
+      const found = await store.findByProviderSub('oauth:authGoogle', 'sub-1', {})
       expect(found?.id).toBe(i.id)
-      await store.unlink(i.id, 'oauth:google', {})
-      expect(await store.findByProviderSub('oauth:google', 'sub-1', {})).toBeNull()
+      await store.unlink(i.id, 'oauth:authGoogle', {})
+      expect(await store.findByProviderSub('oauth:authGoogle', 'sub-1', {})).toBeNull()
     })
 
     it('merge moves providers from dup into survivor + deletes dup', async () => {
@@ -77,27 +77,27 @@ export function runIdentityStoreCompliance<P = { email: string }>(factory: () =>
       const dup = await store.create(
         {
           profile: { email: 'd@x' } as unknown as P,
-          providers: [{ providerId: 'oauth:google', providerSub: 'g', addedAt: Date.now() }],
+          providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: Date.now() }],
         },
         {},
       )
       await store.merge(survivor.id, dup.id, {})
       const fresh = await store.findById(survivor.id, {})
-      expect(fresh?.providers.some((p) => p.providerId === 'oauth:google')).toBe(true)
+      expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
       expect(await store.findById(dup.id, {})).toBeNull()
     })
   })
 }
 
 /**
- * Compliance matrix for Session stores. Verifies hashed-key storage,
+ * AuthCompliance matrix for AuthSession stores. Verifies hashed-key storage,
  * listing, GC purge of expired rows, and per-identity bulk delete.
  */
-export function runSessionStoreCompliance(factory: () => Session.IStore): void {
-  describe('Session.IStore compliance', () => {
+export function authRunSessionStoreCompliance(factory: () => AuthSession.IStore): void {
+  describe('AuthSession.IStore compliance', () => {
     it('create + getByHash roundtrip uses the row id directly', async () => {
       const store = factory()
-      const session: Session.ISession = {
+      const session: AuthSession.ISession = {
         id: 'hash-1',
         identityId: 'u',
         kind: 'user',
@@ -188,12 +188,12 @@ export function runSessionStoreCompliance(factory: () => Session.IStore): void {
 }
 
 /**
- * Compliance matrix for Credential stores. Covers upsert + findById +
+ * AuthCompliance matrix for AuthCredential stores. Covers upsert + findById +
  * findByHashedSecret semantics (revoked rows distinguished from missing),
  * rotate optimistic-lock, deleteByKind cleanup.
  */
-export function runCredentialStoreCompliance(factory: () => Credential.IStore): void {
-  describe('Credential.IStore compliance', () => {
+export function authRunCredentialStoreCompliance(factory: () => AuthCredential.IStore): void {
+  describe('AuthCredential.IStore compliance', () => {
     it('upsert stamps id + version=1; findById retrieves it', async () => {
       const store = factory()
       const c = await store.upsert({ identityId: 'u', kind: 'password', secret: 'hashed-pw', metadata: {} }, {})

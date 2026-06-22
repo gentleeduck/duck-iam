@@ -12,10 +12,10 @@
  */
 
 import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type KeyObject } from 'node:crypto'
-import { timingSafeEqual } from '../crypto'
+import { authTimingSafeEqual } from '../crypto'
 import { AuthErrorObject } from '../errors'
 
-export namespace DPoPVerifier {
+export namespace AuthDPoPVerifier {
   /**
    * RFC 7517 JSON Web Key shape. Re-declared because Node's
    * @types/node does not export `JsonWebKey` from `node:crypto`.
@@ -46,7 +46,7 @@ export namespace DPoPVerifier {
     recordSeen(jti: string, ttlMs: number): Promise<boolean>
   }
 
-  /** Config knobs for {@link DPoPVerifier}. */
+  /** Config knobs for {@link AuthDPoPVerifier}. */
   export interface IConfig {
     /** Tolerated clock skew between client + server, ms. Default 30s. */
     clockSkewMs?: number
@@ -104,7 +104,7 @@ export namespace DPoPVerifier {
  * In-memory nonce store. Single-process only; multi-pod deploys must
  * wire a Redis-backed store using `SETNX` for true atomic claim.
  */
-export class MemoryDPoPNonceStore implements DPoPVerifier.INonceStore {
+export class AuthMemoryDPoPNonceStore implements AuthDPoPVerifier.INonceStore {
   private readonly _seen = new Map<string, number>()
 
   /** Mark `jti`. Lazy prune assumes uniform TTL; cross-TTL stragglers fail closed (false-positive). */
@@ -128,17 +128,17 @@ export class MemoryDPoPNonceStore implements DPoPVerifier.INonceStore {
  * store. Throws `AUTH/DPOP_INVALID` on any failure so the framework
  * adapter can wrap calls in a single try/catch.
  */
-export class DPoPVerifier {
+export class AuthDPoPVerifier {
   private readonly _clockSkewMs: number
   private readonly _freshnessMs: number
-  private readonly _nonceStore: DPoPVerifier.INonceStore
-  private readonly _expectedNonce: DPoPVerifier.IConfig['expectedNonce']
+  private readonly _nonceStore: AuthDPoPVerifier.INonceStore
+  private readonly _expectedNonce: AuthDPoPVerifier.IConfig['expectedNonce']
   private readonly _acceptedAlgs: Set<string>
 
-  constructor(cfg: DPoPVerifier.IConfig = {}) {
+  constructor(cfg: AuthDPoPVerifier.IConfig = {}) {
     this._clockSkewMs = cfg.clockSkewMs ?? 30_000
     this._freshnessMs = cfg.freshnessMs ?? 60_000
-    this._nonceStore = cfg.nonceStore ?? new MemoryDPoPNonceStore()
+    this._nonceStore = cfg.nonceStore ?? new AuthMemoryDPoPNonceStore()
     this._expectedNonce = cfg.expectedNonce
     this._acceptedAlgs = new Set(cfg.acceptedAlgs ?? ['ES256', 'EdDSA'])
   }
@@ -151,7 +151,7 @@ export class DPoPVerifier {
     dpopHeader: string,
     request: { method: string; url: string },
     accessToken?: string,
-  ): Promise<DPoPVerifier.IVerified> {
+  ): Promise<AuthDPoPVerifier.IVerified> {
     if (typeof dpopHeader !== 'string' || dpopHeader.length === 0) {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'missing DPoP header' })
     }
@@ -210,7 +210,7 @@ export class DPoPVerifier {
       }
       const expected = sha256base64url(accessToken)
       // timingSafeEqual defense-in-depth (signature still gates).
-      if (!timingSafeEqual(claims.ath, expected)) {
+      if (!authTimingSafeEqual(claims.ath, expected)) {
         throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'ath mismatch' })
       }
     } else if (claims.ath !== undefined) {
@@ -222,7 +222,7 @@ export class DPoPVerifier {
       const expectedNonce =
         typeof this._expectedNonce === 'function' ? await this._expectedNonce() : this._expectedNonce
       // timingSafeEqual so `!==` does not leak the nonce byte-by-byte.
-      if (claims.nonce === undefined || !timingSafeEqual(claims.nonce, expectedNonce)) {
+      if (claims.nonce === undefined || !authTimingSafeEqual(claims.nonce, expectedNonce)) {
         throw new AuthErrorObject('AUTH/DPOP_INVALID', {
           reason: 'nonce mismatch',
           expectedNonce,
@@ -235,7 +235,7 @@ export class DPoPVerifier {
       throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'jti replay detected' })
     }
 
-    return { jkt: computeJwkThumbprint(header.jwk), claims }
+    return { jkt: authComputeJwkThumbprint(header.jwk), claims }
   }
 }
 
@@ -243,7 +243,7 @@ export class DPoPVerifier {
  * Compute the RFC 7638 JWK thumbprint of a public key. Used to bind a
  * DPoP proof's JWK to the `cnf.jkt` claim on the access token.
  */
-export function computeJwkThumbprint(jwk: DPoPVerifier.IJsonWebKey): string {
+export function authComputeJwkThumbprint(jwk: AuthDPoPVerifier.IJsonWebKey): string {
   let canonical: string
   switch (jwk.kty) {
     case 'EC':
@@ -270,14 +270,14 @@ type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 interface DpopHeaderShape {
   alg: string
   typ: 'dpop+jwt'
-  jwk: DPoPVerifier.IJsonWebKey
+  jwk: AuthDPoPVerifier.IJsonWebKey
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-function isJsonWebKey(v: unknown): v is DPoPVerifier.IJsonWebKey {
+function isJsonWebKey(v: unknown): v is AuthDPoPVerifier.IJsonWebKey {
   if (!isPlainObject(v)) return false
   return v.kty === 'EC' || v.kty === 'OKP' || v.kty === 'RSA'
 }
@@ -312,7 +312,7 @@ function parseDpopHeader(raw: unknown, acceptedAlgs: ReadonlySet<string>): Parse
  * (d) sneak through `ath`/`nonce` value-equality checks with object
  *     identity.
  */
-function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.IClaims> {
+function parseDpopClaims(raw: unknown): ParseResult<AuthDPoPVerifier.IClaims> {
   if (!isPlainObject(raw)) {
     return { ok: false, reason: 'malformed payload' }
   }
@@ -335,7 +335,7 @@ function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.IClaims> {
   if (nonce !== undefined && typeof nonce !== 'string') {
     return { ok: false, reason: 'nonce not a string' }
   }
-  const claims: DPoPVerifier.IClaims = { jti, htm, htu, iat }
+  const claims: AuthDPoPVerifier.IClaims = { jti, htm, htu, iat }
   if (ath !== undefined) claims.ath = ath
   if (nonce !== undefined) claims.nonce = nonce
   return { ok: true, value: claims }
@@ -345,7 +345,7 @@ function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.IClaims> {
  * Inject a `cnf.jkt` confirmation claim into an existing access-token
  * payload object.
  */
-export function bindPayloadToDPoP<P extends Record<string, unknown>>(
+export function authBindPayloadToDPoP<P extends Record<string, unknown>>(
   payload: P,
   jkt: string,
 ): P & { cnf: { jkt: string } } {

@@ -1,21 +1,21 @@
 /**
  * Postgres Drizzle stores for the OIDC OP.
  *
- * Provides the five table schemas + a `createDrizzlePgOidcOpStores(db)`
+ * Provides the five table schemas + a `authCreateDrizzlePgOidcOpStores(db)`
  * factory that returns one row store per OP concern. Plug the result
- * into `createOidcOP({ stores: ... })`.
+ * into `authCreateOidcOP({ stores: ... })`.
  */
 
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import { bigint, index, pgTable, text } from 'drizzle-orm/pg-core'
-import type { OidcOP } from '../types'
+import type { AuthOidcOP } from '../types'
 
 // ---------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------
 
-export const oidcClientsTable = pgTable('oidc_clients', {
+export const authOidcClientsTable = pgTable('oidc_clients', {
   clientId: text('client_id').primaryKey(),
   clientSecretHash: text('client_secret_hash'),
   redirectUris: text('redirect_uris').notNull(),
@@ -29,7 +29,7 @@ export const oidcClientsTable = pgTable('oidc_clients', {
   createdAt: bigint('created_at', { mode: 'number' }).notNull(),
 })
 
-export const oidcCodesTable = pgTable(
+export const authOidcCodesTable = pgTable(
   'oidc_codes',
   {
     code: text('code').primaryKey(),
@@ -47,7 +47,7 @@ export const oidcCodesTable = pgTable(
   (t) => [index('oidc_codes_exp').on(t.exp)],
 )
 
-export const oidcAccessTokensTable = pgTable(
+export const authOidcAccessTokensTable = pgTable(
   'oidc_access_tokens',
   {
     tokenHash: text('token_hash').primaryKey(),
@@ -60,7 +60,7 @@ export const oidcAccessTokensTable = pgTable(
   (t) => [index('oidc_at_exp').on(t.exp)],
 )
 
-export const oidcRefreshTokensTable = pgTable(
+export const authOidcRefreshTokensTable = pgTable(
   'oidc_refresh_tokens',
   {
     tokenHash: text('token_hash').primaryKey(),
@@ -75,7 +75,7 @@ export const oidcRefreshTokensTable = pgTable(
   (t) => [index('oidc_rt_family').on(t.familyId), index('oidc_rt_exp').on(t.exp)],
 )
 
-export const oidcConsentsTable = pgTable(
+export const authOidcConsentsTable = pgTable(
   'oidc_consents',
   {
     identityId: text('identity_id').notNull(),
@@ -103,7 +103,7 @@ function decodeArray(s: string): string[] {
   return out
 }
 
-function rowToClient(row: typeof oidcClientsTable.$inferSelect): OidcOP.IClient {
+function rowToClient(row: typeof authOidcClientsTable.$inferSelect): AuthOidcOP.IClient {
   const grantTypes = decodeArray(row.grantTypes).filter(isGrantType)
   const responseTypes = decodeArray(row.responseTypes).filter(isResponseType)
   const tokenAuth = isTokenAuthMethod(row.tokenEndpointAuthMethod) ? row.tokenEndpointAuthMethod : 'none'
@@ -122,20 +122,20 @@ function rowToClient(row: typeof oidcClientsTable.$inferSelect): OidcOP.IClient 
   }
 }
 
-function isGrantType(v: string): v is OidcOP.IGrantType {
+function isGrantType(v: string): v is AuthOidcOP.IGrantType {
   return v === 'authorization_code' || v === 'refresh_token'
 }
-function isResponseType(v: string): v is OidcOP.IResponseType {
+function isResponseType(v: string): v is AuthOidcOP.IResponseType {
   return v === 'code'
 }
-function isTokenAuthMethod(v: string): v is OidcOP.ITokenEndpointAuthMethod {
+function isTokenAuthMethod(v: string): v is AuthOidcOP.ITokenEndpointAuthMethod {
   return v === 'client_secret_basic' || v === 'client_secret_post' || v === 'none'
 }
-function isCodeChallengeMethod(v: string): v is OidcOP.ICodeChallengeMethod {
+function isCodeChallengeMethod(v: string): v is AuthOidcOP.ICodeChallengeMethod {
   return v === 'S256' || v === 'plain'
 }
 
-function rowToCode(row: typeof oidcCodesTable.$inferSelect): OidcOP.ICode {
+function rowToCode(row: typeof authOidcCodesTable.$inferSelect): AuthOidcOP.ICode {
   return {
     code: row.code,
     client_id: row.clientId,
@@ -154,7 +154,7 @@ function rowToCode(row: typeof oidcCodesTable.$inferSelect): OidcOP.ICode {
   }
 }
 
-function rowToAccess(row: typeof oidcAccessTokensTable.$inferSelect): OidcOP.IAccessToken {
+function rowToAccess(row: typeof authOidcAccessTokensTable.$inferSelect): AuthOidcOP.IAccessToken {
   return {
     token_hash: row.tokenHash,
     client_id: row.clientId,
@@ -165,7 +165,7 @@ function rowToAccess(row: typeof oidcAccessTokensTable.$inferSelect): OidcOP.IAc
   }
 }
 
-function rowToRefresh(row: typeof oidcRefreshTokensTable.$inferSelect): OidcOP.IRefreshToken {
+function rowToRefresh(row: typeof authOidcRefreshTokensTable.$inferSelect): AuthOidcOP.IRefreshToken {
   return {
     token_hash: row.tokenHash,
     family_id: row.familyId,
@@ -178,7 +178,7 @@ function rowToRefresh(row: typeof oidcRefreshTokensTable.$inferSelect): OidcOP.I
   }
 }
 
-function rowToConsent(row: typeof oidcConsentsTable.$inferSelect): OidcOP.IConsent {
+function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): AuthOidcOP.IConsent {
   return {
     identity_id: row.identityId,
     client_id: row.clientId,
@@ -194,22 +194,22 @@ function rowToConsent(row: typeof oidcConsentsTable.$inferSelect): OidcOP.IConse
 // biome-ignore lint/suspicious/noExplicitAny: drizzle schema generic; bound by caller's PgDatabase
 type AnyPgDatabase = PgDatabase<PgQueryResultHKT, any>
 
-export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
-  clients: OidcOP.IClientStore
-  codes: OidcOP.ICodeStore
-  accessTokens: OidcOP.IAccessTokenStore
-  refreshTokens: OidcOP.IRefreshTokenStore
-  consents: OidcOP.IConsentStore
+export function authCreateDrizzlePgOidcOpStores(db: AnyPgDatabase): {
+  clients: AuthOidcOP.IClientStore
+  codes: AuthOidcOP.ICodeStore
+  accessTokens: AuthOidcOP.IAccessTokenStore
+  refreshTokens: AuthOidcOP.IRefreshTokenStore
+  consents: AuthOidcOP.IConsentStore
 } {
   return {
     clients: {
       async findById(client_id) {
-        const rows = await db.select().from(oidcClientsTable).where(eq(oidcClientsTable.clientId, client_id)).limit(1)
+        const rows = await db.select().from(authOidcClientsTable).where(eq(authOidcClientsTable.clientId, client_id)).limit(1)
         const row = rows[0]
         return row ? rowToClient(row) : null
       },
       async insert(c) {
-        await db.insert(oidcClientsTable).values({
+        await db.insert(authOidcClientsTable).values({
           clientId: c.client_id,
           clientSecretHash: c.client_secret_hash,
           redirectUris: encodeArray(c.redirect_uris),
@@ -226,7 +226,7 @@ export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
     },
     codes: {
       async insert(c) {
-        await db.insert(oidcCodesTable).values({
+        await db.insert(authOidcCodesTable).values({
           code: c.code,
           clientId: c.client_id,
           identityId: c.identity_id,
@@ -241,7 +241,7 @@ export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
         })
       },
       async consume(code, now) {
-        const rows = await db.delete(oidcCodesTable).where(eq(oidcCodesTable.code, code)).returning()
+        const rows = await db.delete(authOidcCodesTable).where(eq(authOidcCodesTable.code, code)).returning()
         const row = rows[0]
         if (!row) return null
         if (row.exp <= now) return null
@@ -250,7 +250,7 @@ export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
     },
     accessTokens: {
       async insert(t) {
-        await db.insert(oidcAccessTokensTable).values({
+        await db.insert(authOidcAccessTokensTable).values({
           tokenHash: t.token_hash,
           clientId: t.client_id,
           identityId: t.identity_id,
@@ -262,24 +262,24 @@ export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
       async findByHash(hash, now) {
         const rows = await db
           .select()
-          .from(oidcAccessTokensTable)
-          .where(eq(oidcAccessTokensTable.tokenHash, hash))
+          .from(authOidcAccessTokensTable)
+          .where(eq(authOidcAccessTokensTable.tokenHash, hash))
           .limit(1)
         const row = rows[0]
         if (!row) return null
         if (row.exp <= now) {
-          await db.delete(oidcAccessTokensTable).where(eq(oidcAccessTokensTable.tokenHash, hash))
+          await db.delete(authOidcAccessTokensTable).where(eq(authOidcAccessTokensTable.tokenHash, hash))
           return null
         }
         return rowToAccess(row)
       },
       async revokeByHash(hash) {
-        await db.delete(oidcAccessTokensTable).where(eq(oidcAccessTokensTable.tokenHash, hash))
+        await db.delete(authOidcAccessTokensTable).where(eq(authOidcAccessTokensTable.tokenHash, hash))
       },
     },
     refreshTokens: {
       async insert(t) {
-        await db.insert(oidcRefreshTokensTable).values({
+        await db.insert(authOidcRefreshTokensTable).values({
           tokenHash: t.token_hash,
           familyId: t.family_id,
           clientId: t.client_id,
@@ -293,22 +293,22 @@ export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
       async findByHash(hash, now) {
         const rows = await db
           .select()
-          .from(oidcRefreshTokensTable)
-          .where(eq(oidcRefreshTokensTable.tokenHash, hash))
+          .from(authOidcRefreshTokensTable)
+          .where(eq(authOidcRefreshTokensTable.tokenHash, hash))
           .limit(1)
         const row = rows[0]
         if (!row) return null
         if (row.exp <= now) {
-          await db.delete(oidcRefreshTokensTable).where(eq(oidcRefreshTokensTable.tokenHash, hash))
+          await db.delete(authOidcRefreshTokensTable).where(eq(authOidcRefreshTokensTable.tokenHash, hash))
           return null
         }
         return rowToRefresh(row)
       },
       async consume(hash, now) {
         const updated = await db
-          .update(oidcRefreshTokensTable)
+          .update(authOidcRefreshTokensTable)
           .set({ consumedAt: now })
-          .where(and(eq(oidcRefreshTokensTable.tokenHash, hash), isNull(oidcRefreshTokensTable.consumedAt)))
+          .where(and(eq(authOidcRefreshTokensTable.tokenHash, hash), isNull(authOidcRefreshTokensTable.consumedAt)))
           .returning()
         const row = updated[0]
         if (!row) return null
@@ -316,22 +316,22 @@ export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
         return rowToRefresh(row)
       },
       async revokeFamily(family_id) {
-        await db.delete(oidcRefreshTokensTable).where(eq(oidcRefreshTokensTable.familyId, family_id))
+        await db.delete(authOidcRefreshTokensTable).where(eq(authOidcRefreshTokensTable.familyId, family_id))
       },
     },
     consents: {
       async find(identity_id, client_id) {
         const rows = await db
           .select()
-          .from(oidcConsentsTable)
-          .where(and(eq(oidcConsentsTable.identityId, identity_id), eq(oidcConsentsTable.clientId, client_id)))
+          .from(authOidcConsentsTable)
+          .where(and(eq(authOidcConsentsTable.identityId, identity_id), eq(authOidcConsentsTable.clientId, client_id)))
           .limit(1)
         const row = rows[0]
         return row ? rowToConsent(row) : null
       },
       async upsert(c) {
         await db
-          .insert(oidcConsentsTable)
+          .insert(authOidcConsentsTable)
           .values({
             identityId: c.identity_id,
             clientId: c.client_id,
@@ -339,7 +339,7 @@ export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
             grantedAt: c.grantedAt,
           })
           .onConflictDoUpdate({
-            target: [oidcConsentsTable.identityId, oidcConsentsTable.clientId],
+            target: [authOidcConsentsTable.identityId, authOidcConsentsTable.clientId],
             set: { scope: encodeArray(c.scope), grantedAt: c.grantedAt },
           })
       },
@@ -351,18 +351,18 @@ export function createDrizzlePgOidcOpStores(db: AnyPgDatabase): {
  * Best-effort GC. Run on a cron to prune expired codes / access tokens /
  * refresh tokens. Returns the number of rows removed (sum across tables).
  */
-export async function gcDrizzlePgOidcOp(db: AnyPgDatabase, now: number = Date.now()): Promise<number> {
+export async function authGcDrizzlePgOidcOp(db: AnyPgDatabase, now: number = Date.now()): Promise<number> {
   const codes = await db
-    .delete(oidcCodesTable)
-    .where(lt(oidcCodesTable.exp, now))
-    .returning({ code: oidcCodesTable.code })
+    .delete(authOidcCodesTable)
+    .where(lt(authOidcCodesTable.exp, now))
+    .returning({ code: authOidcCodesTable.code })
   const access = await db
-    .delete(oidcAccessTokensTable)
-    .where(lt(oidcAccessTokensTable.exp, now))
-    .returning({ token_hash: oidcAccessTokensTable.tokenHash })
+    .delete(authOidcAccessTokensTable)
+    .where(lt(authOidcAccessTokensTable.exp, now))
+    .returning({ token_hash: authOidcAccessTokensTable.tokenHash })
   const refresh = await db
-    .delete(oidcRefreshTokensTable)
-    .where(or(lt(oidcRefreshTokensTable.exp, now), sql`${oidcRefreshTokensTable.consumedAt} IS NOT NULL`))
-    .returning({ token_hash: oidcRefreshTokensTable.tokenHash })
+    .delete(authOidcRefreshTokensTable)
+    .where(or(lt(authOidcRefreshTokensTable.exp, now), sql`${authOidcRefreshTokensTable.consumedAt} IS NOT NULL`))
+    .returning({ token_hash: authOidcRefreshTokensTable.tokenHash })
   return codes.length + access.length + refresh.length
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AccessControl, Adapter } from '../../../core/types'
+import type { IamAccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { type Drizzle, DrizzleAdapter } from '../index'
+import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
@@ -36,7 +36,7 @@ function rowMatches(row: Row, cond: unknown): boolean {
 }
 
 function makeDrizzleMock(): {
-  config: Drizzle.IConfig
+  config: IamDrizzle.IConfig
   tables: { policies: Row[]; roles: Row[]; assignments: Row[]; attrs: Row[] }
 } {
   const tables = {
@@ -46,7 +46,7 @@ function makeDrizzleMock(): {
     attrs: [] as Row[],
   }
 
-  const tableRefs: Drizzle.IConfig['tables'] = {
+  const tableRefs: IamDrizzle.IConfig['tables'] = {
     policies: { id: { name: 'id' } },
     roles: { id: { name: 'id' } },
     assignments: {
@@ -90,16 +90,16 @@ function makeDrizzleMock(): {
     return chain
   }
 
-  const config: Drizzle.IConfig = {
+  const config: IamDrizzle.IConfig = {
     db: {
       select: vi.fn(() => ({
         from: (tableRef: unknown) =>
-          buildSelect(tableForRef(tableRef)) as unknown as ReturnType<Drizzle.IConfig['db']['select']>['from'] extends (
+          buildSelect(tableForRef(tableRef)) as unknown as ReturnType<IamDrizzle.IConfig['db']['select']>['from'] extends (
             ...a: any
           ) => infer X
             ? X
             : never,
-      })) as unknown as Drizzle.IConfig['db']['select'],
+      })) as unknown as IamDrizzle.IConfig['db']['select'],
       insert: vi.fn((tableRef: unknown) => {
         const table = tableForRef(tableRef)
         return {
@@ -120,7 +120,7 @@ function makeDrizzleMock(): {
             }
           },
         }
-      }) as unknown as Drizzle.IConfig['db']['insert'],
+      }) as unknown as IamDrizzle.IConfig['db']['insert'],
       delete: vi.fn((tableRef: unknown) => {
         const table = tableForRef(tableRef)
         return {
@@ -131,7 +131,7 @@ function makeDrizzleMock(): {
             return Promise.resolve(undefined)
           },
         }
-      }) as unknown as Drizzle.IConfig['db']['delete'],
+      }) as unknown as IamDrizzle.IConfig['db']['delete'],
     },
     tables: tableRefs,
     ops: {
@@ -143,22 +143,22 @@ function makeDrizzleMock(): {
   return { config, tables }
 }
 
-// Adapter compliance - fresh mock per call.
-runAdapterCompliance('DrizzleAdapter', () => new DrizzleAdapter(makeDrizzleMock().config) as never)
+// IamAdapter compliance - fresh mock per call.
+runAdapterCompliance('IamDrizzleAdapter', () => new IamDrizzleAdapter(makeDrizzleMock().config) as never)
 
-describe('DrizzleAdapter', () => {
+describe('IamDrizzleAdapter', () => {
   let mock: ReturnType<typeof makeDrizzleMock>
-  let adapter: DrizzleAdapter<A, R, Ro, S>
+  let adapter: IamDrizzleAdapter<A, R, Ro, S>
 
   beforeEach(() => {
     mock = makeDrizzleMock()
-    adapter = new DrizzleAdapter<A, R, Ro, S>(mock.config)
+    adapter = new IamDrizzleAdapter<A, R, Ro, S>(mock.config)
   })
 
-  describe('Adapter.IPolicyStore', () => {
-    const policy: AccessControl.IPolicy<A, R, Ro> = {
+  describe('IamAdapter.IPolicyStore', () => {
+    const policy: IamAccessControl.IPolicy<A, R, Ro> = {
       id: 'p1',
-      name: 'Test AccessControl.IPolicy',
+      name: 'Test IamAccessControl.IPolicy',
       description: 'desc',
       version: 2,
       algorithm: 'deny-overrides',
@@ -187,7 +187,7 @@ describe('DrizzleAdapter', () => {
 
     it('rules and targets stringified in json:string mode', async () => {
       const m = makeDrizzleMock()
-      const a = new DrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
+      const a = new IamDrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
       await a.savePolicy(policy)
       const raw = m.tables.policies[0]!
       expect(typeof raw.rules).toBe('string')
@@ -244,8 +244,8 @@ describe('DrizzleAdapter', () => {
     })
   })
 
-  describe('Adapter.IRoleStore', () => {
-    const role: AccessControl.IRole<A, R, Ro, S> = {
+  describe('IamAdapter.IRoleStore', () => {
+    const role: IamAccessControl.IRole<A, R, Ro, S> = {
       id: 'editor',
       name: 'Editor',
       description: 'desc',
@@ -265,7 +265,7 @@ describe('DrizzleAdapter', () => {
 
     it('saveRole stringifies JSON columns in json:string mode', async () => {
       const m = makeDrizzleMock()
-      const a = new DrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
+      const a = new IamDrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
       await a.saveRole(role)
       const raw = m.tables.roles[0]!
       expect(typeof raw.permissions).toBe('string')
@@ -322,7 +322,7 @@ describe('DrizzleAdapter', () => {
     })
   })
 
-  describe('Adapter.ISubjectStore', () => {
+  describe('IamAdapter.ISubjectStore', () => {
     it('assignRole + getSubjectRoles dedups', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
@@ -377,7 +377,7 @@ describe('DrizzleAdapter', () => {
 
     it('setSubjectAttributes stringifies in json:string mode', async () => {
       const m = makeDrizzleMock()
-      const a = new DrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
+      const a = new IamDrizzleAdapter<A, R, Ro, S>({ ...m.config, json: 'string' })
       await a.setSubjectAttributes('user-1', { team: 'A' })
       expect(typeof m.tables.attrs[0]?.data).toBe('string')
       expect(await a.getSubjectAttributes('user-1')).toEqual({ team: 'A' })
@@ -406,13 +406,13 @@ describe('DrizzleAdapter', () => {
   })
 
   describe('malformed-row drop (P0)', () => {
-    // Drizzle's JSON-stringified columns can desync from the row shape via
+    // IamDrizzle's JSON-stringified columns can desync from the row shape via
     // partial migrations or manual SQL edits. The adapter must validate +
     // drop instead of letting a corrupt row escape into the evaluator.
     it('drops a policy row whose rules column is unparseable', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
-      const adapter = new DrizzleAdapter<A, R, Ro, S>({
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S>({
         ...mock.config,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
@@ -444,7 +444,7 @@ describe('DrizzleAdapter', () => {
     it('drops a policy row that parses but fails shape validation', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
-      const adapter = new DrizzleAdapter<A, R, Ro, S>({
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S>({
         ...mock.config,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
@@ -466,7 +466,7 @@ describe('DrizzleAdapter', () => {
     it('drops a role row whose permissions column is unparseable', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
-      const adapter = new DrizzleAdapter<A, R, Ro, S>({
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S>({
         ...mock.config,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
@@ -496,7 +496,7 @@ describe('DrizzleAdapter', () => {
     it('getPolicy returns null when row fails validation', async () => {
       const errors: Array<{ rowId: string }> = []
       const mock = makeDrizzleMock()
-      const adapter = new DrizzleAdapter<A, R, Ro, S>({
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S>({
         ...mock.config,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })

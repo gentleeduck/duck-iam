@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { MemoryAdapter } from '../src/adapters/memory'
-import { Engine } from '../src/core/engine/engine'
+import { IamEngine } from '../src/core/engine/engine'
 import { evaluate, evaluatePolicy } from '../src/core/evaluate'
 import type { AccessRequest, Policy } from '../src/core/types'
 
@@ -177,7 +177,7 @@ const adapter = new MemoryAdapter({
   },
 })
 
-const engine = new Engine({ adapter, defaultEffect: 'deny' })
+const engine = new IamEngine({ adapter, defaultEffect: 'deny' })
 
 // Warmup cache
 await engine.can('user-1', 'read', { type: 'post', attributes: {} })

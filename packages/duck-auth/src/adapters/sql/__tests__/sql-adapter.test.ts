@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createSqlAuthStores, SqlBridge } from '../index'
+import { authCreateSqlStores, AuthSqlBridge } from '../index'
 
 /**
- * Pure in-memory `SqlBridge` for tests. Mirrors the rowwise contract a
+ * Pure in-memory `AuthSqlBridge` for tests. Mirrors the rowwise contract a
  * real ORM impl would expose. Sufficient to exercise the wrapper logic
  * (JSON encode/decode, tenant scoping, optimistic version, null vs
  * undefined coercion) without spinning up Postgres.
  */
-function makeInMemoryBridge(): SqlBridge.IBridge {
-  const identities = new Map<string, SqlBridge.IIdentityRow>()
-  const credentials = new Map<string, SqlBridge.ICredentialRow>()
-  const sessions = new Map<string, SqlBridge.ISessionRow>()
+function makeInMemoryBridge(): AuthSqlBridge.IBridge {
+  const identities = new Map<string, AuthSqlBridge.IIdentityRow>()
+  const credentials = new Map<string, AuthSqlBridge.ICredentialRow>()
+  const sessions = new Map<string, AuthSqlBridge.ISessionRow>()
 
   return {
     identities: {
@@ -40,7 +40,7 @@ function makeInMemoryBridge(): SqlBridge.IBridge {
       updateConditional: async (id, patch, expectedVersion, _tid) => {
         const cur = identities.get(id)
         if (!cur || cur.version !== expectedVersion) return null
-        const next = { ...cur, ...patch } as SqlBridge.IIdentityRow
+        const next = { ...cur, ...patch } as AuthSqlBridge.IIdentityRow
         identities.set(id, next)
         return next
       },
@@ -114,7 +114,7 @@ function makeInMemoryBridge(): SqlBridge.IBridge {
       updateConditional: async (id, patch, expectedVersion) => {
         const cur = credentials.get(id)
         if (!cur || cur.version !== expectedVersion) return null
-        const next = { ...cur, ...patch } as SqlBridge.ICredentialRow
+        const next = { ...cur, ...patch } as AuthSqlBridge.ICredentialRow
         credentials.set(id, next)
         return next
       },
@@ -139,7 +139,7 @@ function makeInMemoryBridge(): SqlBridge.IBridge {
       update: async (id, patch) => {
         const cur = sessions.get(id)
         if (!cur) return null
-        const next = { ...cur, ...patch } as SqlBridge.ISessionRow
+        const next = { ...cur, ...patch } as AuthSqlBridge.ISessionRow
         sessions.set(id, next)
         return next
       },
@@ -166,17 +166,17 @@ function makeInMemoryBridge(): SqlBridge.IBridge {
   }
 }
 
-describe('createSqlAuthStores', () => {
+describe('authCreateSqlStores', () => {
   interface ProfileShape {
     email: string
     name?: string
   }
-  let bridge: SqlBridge.IBridge
-  let stores: ReturnType<typeof createSqlAuthStores<ProfileShape>>
+  let bridge: AuthSqlBridge.IBridge
+  let stores: ReturnType<typeof authCreateSqlStores<ProfileShape>>
 
   beforeEach(() => {
     bridge = makeInMemoryBridge()
-    stores = createSqlAuthStores<ProfileShape>(bridge)
+    stores = authCreateSqlStores<ProfileShape>(bridge)
   })
 
   it('identities.create -> findById round-trips the profile JSON encoded', async () => {

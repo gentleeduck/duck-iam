@@ -1,6 +1,6 @@
 import { isCredentialExpired, isRevoked } from '../../credential-utils'
 import { AuthErrorObject } from '../../errors'
-import type { Session } from '../../types/session'
+import type { AuthSession } from '../../types/session'
 import type { FlowsFacet } from '../flows'
 
 export async function beginSignUp<Profile>(
@@ -34,11 +34,11 @@ export async function beginSignUp<Profile>(
     ctx.tenant,
   )
 
-  const flowToken = ctx.crypto.randomToken(32)
-  const flowTokenHash = ctx.crypto.sha256(flowToken)
+  const flowToken = ctx.crypto.authRandomToken(32)
+  const flowTokenHash = ctx.crypto.authSha256(flowToken)
   const dataInit = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
   const flow: FlowsFacet.ISignUpFlowState<Profile> = {
-    id: ctx.crypto.randomToken(8),
+    id: ctx.crypto.authRandomToken(8),
     identityId: created.id,
     required,
     completed: ['email-collected'],
@@ -66,7 +66,7 @@ export async function getSignUpFlow<Profile>(
   tenantId?: string,
 ): Promise<FlowsFacet.ISignUpFlowState<Profile> | null> {
   const ctx = flows._ctxFactory(tenantId)
-  const hash = ctx.crypto.sha256(flowToken)
+  const hash = ctx.crypto.authSha256(flowToken)
   const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
   if (!row || isRevoked(row)) return null
   const now = Date.now()
@@ -93,7 +93,7 @@ export async function advanceSignUp<Profile>(
     throw new AuthErrorObject('AUTH/SIGNUP_TOKEN_INVALID')
   }
   const ctx = flows._ctxFactory(opts.tenantId)
-  const hash = ctx.crypto.sha256(opts.flowToken)
+  const hash = ctx.crypto.authSha256(opts.flowToken)
   const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
   if (!row || isRevoked(row)) throw new AuthErrorObject('AUTH/SIGNUP_TOKEN_INVALID')
   const flow = parseSignUpFlow<Profile>(row.metadata)
@@ -131,8 +131,8 @@ export async function completeSignUp<Profile>(
   flows: FlowsFacet<Profile>,
   opts: {
     flowToken: string
-    aal?: Session.AAL
-    factors?: Session.Factor[]
+    aal?: AuthSession.AAL
+    factors?: AuthSession.Factor[]
     tenantId?: string
     ip?: string
     userAgent?: string
@@ -143,7 +143,7 @@ export async function completeSignUp<Profile>(
     throw new AuthErrorObject('AUTH/SIGNUP_TOKEN_INVALID')
   }
   const ctx = flows._ctxFactory(opts.tenantId)
-  const hash = ctx.crypto.sha256(opts.flowToken)
+  const hash = ctx.crypto.authSha256(opts.flowToken)
   const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
   if (!row || isRevoked(row)) throw new AuthErrorObject('AUTH/SIGNUP_TOKEN_INVALID')
   const flow = parseSignUpFlow<Profile>(row.metadata)

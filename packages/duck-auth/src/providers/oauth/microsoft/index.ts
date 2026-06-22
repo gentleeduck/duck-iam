@@ -1,21 +1,21 @@
 /** Microsoft Entra ID (formerly Azure AD) OAuth 2.0 / OIDC provider. */
 import { AuthErrorObject } from '../../../core/errors'
-import type { Provider } from '../../../core/types/provider'
-import { OAuthClient } from '../core/client'
-import { type OAuthProvider, oauthProvider } from '../core/provider'
+import type { AuthProvider } from '../../../core/types/provider'
+import { AuthOAuthClient } from '../core/client'
+import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoString } from '../core/userinfo'
 
-function endpointsFor(tenant: string): OAuthClient.IEndpoints {
+function endpointsFor(tenant: string): AuthOAuthClient.IEndpoints {
   return {
     authorizationEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`,
     tokenEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
-    userinfoEndpoint: 'https://graph.microsoft.com/oidc/userinfo',
+    userinfoEndpoint: 'https://graph.authMicrosoft.com/oidc/userinfo',
   }
 }
 
-export namespace MicrosoftOAuth {
+export namespace AuthMicrosoftOAuth {
   /** Microsoft Entra ID-specific options. */
-  export interface IOptions<Profile = unknown> extends OAuthProvider.IOptionsBase<Profile> {
+  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
     /**
      * Tenant: `common` (any AAD tenant + personal accounts),
      * `organizations` (any AAD tenant), `consumers` (personal only),
@@ -28,12 +28,12 @@ export namespace MicrosoftOAuth {
 }
 
 /** Microsoft Entra ID OIDC provider factory. */
-export function microsoft<Profile = unknown>(
-  opts: MicrosoftOAuth.IOptions<Profile>,
-): Provider.IProvider<OAuthProvider.IBeginInput, OAuthProvider.ICompleteInput, Profile> {
+export function authMicrosoft<Profile = unknown>(
+  opts: AuthMicrosoftOAuth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
   const tenant = opts.tenant ?? 'common'
   const endpoints = endpointsFor(tenant)
-  const client = new OAuthClient({
+  const client = new AuthOAuthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints,
@@ -41,7 +41,7 @@ export function microsoft<Profile = unknown>(
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
   return oauthProvider<Profile>({
-    providerId: 'microsoft',
+    providerId: 'authMicrosoft',
     client,
     endpoints,
     redirectUri: opts.redirectUri,
@@ -56,7 +56,7 @@ export function microsoft<Profile = unknown>(
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
         throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
-          providerId: 'microsoft',
+          providerId: 'authMicrosoft',
           detail: 'Microsoft userinfo missing sub',
         })
       }

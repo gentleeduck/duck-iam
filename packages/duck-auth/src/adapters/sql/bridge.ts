@@ -1,5 +1,5 @@
-export namespace SqlBridge {
-  /** Aggregate bridge consumers wire into `createSqlAuthStores`. */
+export namespace AuthSqlBridge {
+  /** Aggregate bridge consumers wire into `authCreateSqlStores`. */
   export interface IBridge {
     identities: IIdentity
     credentials: ICredential
@@ -8,7 +8,7 @@ export namespace SqlBridge {
 
   /**
    * Bridge for the `identities` table. Bridges return raw rows; the
-   * adapter wraps them in the typed `Identity.IIdentity` shape.
+   * adapter wraps them in the typed `AuthIdentity.IIdentity` shape.
    */
   export interface IIdentity {
     findById(id: string, tenantId: string | undefined): Promise<IIdentityRow | null>
@@ -63,7 +63,7 @@ export namespace SqlBridge {
     deleteByKind(identityId: string, kind: string, tenantId: string | undefined): Promise<void>
   }
 
-  /** Bridge for the `sessions` table. Primary lookup is by sha256(sid). */
+  /** Bridge for the `sessions` table. Primary lookup is by authSha256(sid). */
   export interface ISession {
     insert(row: ISessionRow): Promise<void>
     findByHash(sidHash: string): Promise<ISessionRow | null>

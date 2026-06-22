@@ -1,18 +1,18 @@
-import type { Identity } from '../../core/types/identity'
-import type { Session } from '../../core/types/session'
+import type { AuthIdentity } from '../../core/types/identity'
+import type { AuthSession } from '../../core/types/session'
 
-/** `createAuthClient`. */
-export function createAuthClient<Profile = unknown>(cfg: VanillaClient.IConfig = {}): VanillaClient.IClient<Profile> {
+/** `authCreateClient`. */
+export function authCreateClient<Profile = unknown>(cfg: AuthVanillaClient.IConfig = {}): AuthVanillaClient.IClient<Profile> {
   const baseUrl = (cfg.baseUrl ?? '/auth').replace(/\/$/, '')
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)
   if (!fetchImpl) {
     throw new Error('@gentleduck/auth/client/vanilla: no fetch available - pass `fetch` via config')
   }
   const headers = { 'content-type': 'application/json', ...(cfg.headers ?? {}) }
-  const observers = new Set<(state: VanillaClient.ISessionResult<Profile>) => void>()
-  let lastState: VanillaClient.ISessionResult<Profile> = { session: null, identity: null }
+  const observers = new Set<(state: AuthVanillaClient.ISessionResult<Profile>) => void>()
+  let lastState: AuthVanillaClient.ISessionResult<Profile> = { session: null, identity: null }
 
-  function notify(state: VanillaClient.ISessionResult<Profile>): void {
+  function notify(state: AuthVanillaClient.ISessionResult<Profile>): void {
     lastState = state
     for (const fn of observers) {
       try {
@@ -63,7 +63,7 @@ export function createAuthClient<Profile = unknown>(cfg: VanillaClient.IConfig =
     },
     async getSession() {
       const { body } = await call('GET', '/session')
-      const state = body as VanillaClient.ISessionResult<Profile>
+      const state = body as AuthVanillaClient.ISessionResult<Profile>
       notify(state)
       return state
     },
@@ -82,7 +82,7 @@ export function createAuthClient<Profile = unknown>(cfg: VanillaClient.IConfig =
   }
 }
 
-export namespace VanillaClient {
+export namespace AuthVanillaClient {
   export interface IConfig {
     /** Mount point on the server. Default `/auth`. */
     baseUrl?: string
@@ -103,29 +103,29 @@ export namespace VanillaClient {
 
   export interface ISignInResult<Profile = unknown> {
     ok: boolean
-    session: Session.ISession | null
-    identity: Identity.IIdentity<Profile> | null
+    session: AuthSession.ISession | null
+    identity: AuthIdentity.IIdentity<Profile> | null
     /** Echo of the route response body for non-session intents (json results). */
     body?: unknown
   }
 
   export interface ISessionResult<Profile = unknown> {
-    session: Session.ISession | null
-    identity: Identity.IIdentity<Profile> | null
+    session: AuthSession.ISession | null
+    identity: AuthIdentity.IIdentity<Profile> | null
   }
 
   export interface IClient<Profile = unknown> {
     /** POST /auth/signin */
-    signIn(opts: VanillaClient.ISignInOptions): Promise<VanillaClient.ISignInResult<Profile>>
+    signIn(opts: AuthVanillaClient.ISignInOptions): Promise<AuthVanillaClient.ISignInResult<Profile>>
     /** POST /auth/signout */
     signOut(): Promise<{ ok: true }>
     /** GET /auth/session */
-    getSession(): Promise<VanillaClient.ISessionResult<Profile>>
+    getSession(): Promise<AuthVanillaClient.ISessionResult<Profile>>
     /** POST /auth/providers/:id/begin */
     beginProvider(id: string, input?: unknown): Promise<{ body: unknown }>
     /** Observe session changes. Returned function unsubscribes. */
-    onChange(handler: (state: VanillaClient.ISessionResult<Profile>) => void): () => void
+    onChange(handler: (state: AuthVanillaClient.ISessionResult<Profile>) => void): () => void
     /** Force a session refetch + notify observers. */
-    refresh(): Promise<VanillaClient.ISessionResult<Profile>>
+    refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
   }
 }

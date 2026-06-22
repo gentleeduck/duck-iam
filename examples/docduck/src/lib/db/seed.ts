@@ -4,10 +4,10 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { allPolicies, allRoles } from '../access'
 import {
-  accessAssignments,
-  accessPolicies,
-  accessRoles,
-  accessSubjectAttrs,
+  iamAssignments,
+  iamPolicies,
+  iamRoles,
+  iamSubjectAttrs,
   accounts,
   documents,
   users,
@@ -130,10 +130,10 @@ async function seed() {
   `)
 
   console.log('Cleaning existing data...')
-  await db.delete(accessAssignments)
-  await db.delete(accessSubjectAttrs)
-  await db.delete(accessPolicies)
-  await db.delete(accessRoles)
+  await db.delete(iamAssignments)
+  await db.delete(iamSubjectAttrs)
+  await db.delete(iamPolicies)
+  await db.delete(iamRoles)
   await db.delete(documents)
   await db.delete(workspaceMembers)
   await db.delete(workspaces)
@@ -218,7 +218,7 @@ async function seed() {
 
   console.log('Seeding IAM roles...')
   for (const role of allRoles) {
-    await db.insert(accessRoles).values({
+    await db.insert(iamRoles).values({
       id: role.id,
       name: role.name,
       description: role.description,
@@ -231,7 +231,7 @@ async function seed() {
 
   console.log('Seeding IAM policies...')
   for (const policy of allPolicies) {
-    await db.insert(accessPolicies).values({
+    await db.insert(iamPolicies).values({
       id: policy.id,
       name: policy.name,
       description: policy.description,
@@ -243,7 +243,7 @@ async function seed() {
   }
 
   console.log('Seeding IAM role assignments...')
-  await db.insert(accessAssignments).values([
+  await db.insert(iamAssignments).values([
     // Acme Corp scoped assignments
     { subjectId: 'user-alice', roleId: 'owner', scope: 'ws-acme' },
     { subjectId: 'user-bob', roleId: 'editor', scope: 'ws-acme' },
@@ -255,7 +255,7 @@ async function seed() {
   ])
 
   console.log('Seeding subject attributes...')
-  await db.insert(accessSubjectAttrs).values(
+  await db.insert(iamSubjectAttrs).values(
     demoUsers.map((u) => ({
       subjectId: u.id,
       data: { name: u.name, email: u.email },

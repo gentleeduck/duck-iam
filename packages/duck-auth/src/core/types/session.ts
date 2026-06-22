@@ -1,8 +1,8 @@
 /**
  * Authenticated (or guest, or API-key) bearer of access. Issued by the configured
- * Transport; resolved on every authed request. AAL + factor model follows NIST 800-63B.
+ * AuthTransport; resolved on every authed request. AAL + factor model follows NIST 800-63B.
  */
-export namespace Session {
+export namespace AuthSession {
   /** NIST 800-63B Authentication Assurance Levels. */
   export type AAL = 1 | 2 | 3
 

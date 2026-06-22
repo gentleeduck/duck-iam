@@ -50,7 +50,7 @@ workspace gate, and `Why publish?` traces flip from ALLOW to DENY.
 src/
 ├── iam/                       # all duck-iam wiring
 │   ├── types.ts               # AppAction / AppResource / AppRole + typed Ctx
-│   ├── config.ts              # createAccessConfig
+│   ├── config.ts              # createIam
 │   ├── roles.ts               # RBAC tree
 │   ├── policies.ts            # ABAC rules + bundle
 │   ├── mock-backend.ts        # in-memory store w/ simulated latency

@@ -1,13 +1,13 @@
 import { type AppAction, type AppResource, CHECKS } from '@blogduck/shared'
-import type { Engine } from '@gentleduck/iam'
+import type { IamEngine } from '@gentleduck/iam'
 import { generatePermissionMap } from '@gentleduck/iam/server/generic'
-import { ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
+import { IAM_ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
 import { Controller, Get, Inject, Req, UnauthorizedException } from '@nestjs/common'
 import type { Request } from 'express'
 
 @Controller('permissions')
 export class PermissionsController {
-  constructor(@Inject(ACCESS_ENGINE_TOKEN) private readonly engine: Engine<AppAction, AppResource>) {}
+  constructor(@Inject(IAM_ACCESS_ENGINE_TOKEN) private readonly engine: IamEngine<AppAction, AppResource>) {}
 
   @Get()
   async getPermissions(@Req() req: Request) {

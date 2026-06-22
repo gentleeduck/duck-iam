@@ -3,10 +3,10 @@
 import { AuthErrorObject } from '../core/errors'
 
 /** Build the discovery document; `extraClaims` is appended verbatim. */
-export function buildOidcDiscovery(cfg: OidcDiscovery.IConfig): OidcDiscovery.IDocument {
+export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.IConfig): AuthOidcDiscovery.IDocument {
   if (!cfg.issuer) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: 'buildOidcDiscovery requires a non-empty issuer',
+      detail: 'authBuildOidcDiscovery requires a non-empty issuer',
     })
   }
   // Reject non-http(s) schemes; normalise so issuer claim matches RP computation
@@ -16,12 +16,12 @@ export function buildOidcDiscovery(cfg: OidcDiscovery.IConfig): OidcDiscovery.ID
     parsed = new URL(cfg.issuer)
   } catch {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: `buildOidcDiscovery: issuer '${cfg.issuer}' is not a valid URL`,
+      detail: `authBuildOidcDiscovery: issuer '${cfg.issuer}' is not a valid URL`,
     })
   }
   if (parsed.protocol !== 'https:' && !cfg.allowHttp) {
     throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-      detail: `buildOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
+      detail: `authBuildOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
     })
   }
   const canonicalPath = parsed.pathname.replace(/\/+$/, '')
@@ -30,7 +30,7 @@ export function buildOidcDiscovery(cfg: OidcDiscovery.IConfig): OidcDiscovery.ID
   const jwks = cfg.jwksPath ?? '/.well-known/jwks.json'
   const algs = cfg.signingAlgs ?? ['HS256']
   // Spread `extraClaims` first so canonical fields cannot be shadowed.
-  const doc: OidcDiscovery.IDocument = {
+  const doc: AuthOidcDiscovery.IDocument = {
     ...(cfg.extraClaims ?? {}),
     issuer,
     authorization_endpoint: `${issuer}${prefix}/oauth/authorize`,
@@ -60,17 +60,17 @@ export function buildOidcDiscovery(cfg: OidcDiscovery.IConfig): OidcDiscovery.ID
  * factory that produces the JSON body + a JWKS body the adapter can
  * mount under `/.well-known/jwks.json` directly.
  */
-export function buildOidcRoutes(opts: { config: OidcDiscovery.IConfig; transport: OidcDiscovery.IJwtTransport }): {
-  discovery: OidcDiscovery.IDocument
+export function authBuildOidcRoutes(opts: { config: AuthOidcDiscovery.IConfig; transport: AuthOidcDiscovery.IJwtTransport }): {
+  discovery: AuthOidcDiscovery.IDocument
   jwks: { keys: Array<Record<string, unknown>> }
 } {
-  const discovery = buildOidcDiscovery(opts.config)
+  const discovery = authBuildOidcDiscovery(opts.config)
   const jwks = opts.transport.jwks()
   return { discovery, jwks }
 }
 
 /** RP-side OIDC discovery fetcher; in-process LRU (TTL 1h, capacity 32); rejects non-HTTPS unless `allowHttp`. */
-export async function fetchOidcDiscovery(
+export async function authFetchOidcDiscovery(
   issuer: string,
   opts: {
     fetch?: typeof globalThis.fetch
@@ -79,20 +79,20 @@ export async function fetchOidcDiscovery(
     /** Skip the cache lookup; still writes the result. Use for forced refresh. */
     bypassCache?: boolean
   } = {},
-): Promise<OidcDiscovery.IDocument> {
+): Promise<AuthOidcDiscovery.IDocument> {
   let parsed: URL
   try {
     parsed = new URL(issuer)
   } catch {
     throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
       providerId: 'oidc',
-      detail: `fetchOidcDiscovery: issuer ${issuer} is not a valid URL`,
+      detail: `authFetchOidcDiscovery: issuer ${issuer} is not a valid URL`,
     })
   }
   if (parsed.protocol !== 'https:' && !opts.allowHttp) {
     throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
       providerId: 'oidc',
-      detail: `fetchOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
+      detail: `authFetchOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
     })
   }
   const canonical = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`
@@ -107,7 +107,7 @@ export async function fetchOidcDiscovery(
   if (!res.ok) {
     throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
       providerId: 'oidc',
-      detail: `fetchOidcDiscovery ${url} returned ${res.status}`,
+      detail: `authFetchOidcDiscovery ${url} returned ${res.status}`,
     })
   }
   const raw: unknown = await res.json()
@@ -115,7 +115,7 @@ export async function fetchOidcDiscovery(
   if (!doc) {
     throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
       providerId: 'oidc',
-      detail: `fetchOidcDiscovery ${url}: malformed discovery document`,
+      detail: `authFetchOidcDiscovery ${url}: malformed discovery document`,
     })
   }
   // the upstream's `issuer` claim MUST equal the requested issuer
@@ -124,7 +124,7 @@ export async function fetchOidcDiscovery(
   if (doc.issuer.replace(/\/+$/, '') !== canonical) {
     throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
       providerId: 'oidc',
-      detail: `fetchOidcDiscovery: issuer mismatch (requested ${canonical}, got ${doc.issuer})`,
+      detail: `authFetchOidcDiscovery: issuer mismatch (requested ${canonical}, got ${doc.issuer})`,
     })
   }
   const ttlMs = opts.ttlMs ?? _discoveryTtlMs
@@ -139,7 +139,7 @@ export async function fetchOidcDiscovery(
 }
 
 /** Structural validator for an OIDC discovery doc; `null` on any required-field shape mismatch. */
-function parseDiscoveryDoc(raw: unknown): OidcDiscovery.IDocument | null {
+function parseDiscoveryDoc(raw: unknown): AuthOidcDiscovery.IDocument | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   const requireString = (key: string): string | null => {
     const v: unknown = Reflect.get(raw, key)
@@ -191,7 +191,7 @@ function parseDiscoveryDoc(raw: unknown): OidcDiscovery.IDocument | null {
   }
   const reg: unknown = Reflect.get(raw, 'registration_endpoint')
   if (reg !== undefined && (typeof reg !== 'string' || reg.length === 0)) return null
-  const out: OidcDiscovery.IDocument = {
+  const out: AuthOidcDiscovery.IDocument = {
     issuer,
     authorization_endpoint,
     token_endpoint,
@@ -215,7 +215,7 @@ function parseDiscoveryDoc(raw: unknown): OidcDiscovery.IDocument | null {
 }
 
 interface DiscoveryCacheEntry {
-  doc: OidcDiscovery.IDocument
+  doc: AuthOidcDiscovery.IDocument
   expiresAt: number
 }
 let _discoveryTtlMs = 60 * 60 * 1000
@@ -224,19 +224,19 @@ const _discoveryCache = new Map<string, DiscoveryCacheEntry>()
 
 /**
  * Tune the RP-side discovery cache. Called once at boot; affects
- * every subsequent `fetchOidcDiscovery` call across the process.
+ * every subsequent `authFetchOidcDiscovery` call across the process.
  */
-export function configureOidcDiscoveryCache(opts: { ttlMs?: number; capacity?: number }): void {
+export function authConfigureOidcDiscoveryCache(opts: { ttlMs?: number; capacity?: number }): void {
   if (opts.ttlMs !== undefined) _discoveryTtlMs = opts.ttlMs
   if (opts.capacity !== undefined) _discoveryCapacity = opts.capacity
 }
 
 /** Drop every cached discovery doc; useful for tests + ops rotation. */
-export function flushOidcDiscoveryCache(): void {
+export function authFlushOidcDiscoveryCache(): void {
   _discoveryCache.clear()
 }
 
-export namespace OidcDiscovery {
+export namespace AuthOidcDiscovery {
   export interface IConfig {
     /** Required. Public issuer URL (no trailing slash). */
     issuer: string
@@ -261,7 +261,7 @@ export namespace OidcDiscovery {
     tokenEndpointAuthMethodsSupported?: string[]
     /**
      * Advertise a `registration_endpoint` (RFC 7591). Set when the
-     * host wires `OidcOP.register` on a public route. Omit to suppress
+     * host wires `AuthOidcOP.register` on a public route. Omit to suppress
      * the field entirely.
      */
     registrationEndpoint?: string

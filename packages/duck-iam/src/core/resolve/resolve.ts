@@ -1,8 +1,8 @@
-import type { Primitives, Request } from '../types'
+import type { IamPrimitives, IamRequest } from '../types'
 // Bare resource patterns (no `:*` / `.*` suffix) match ONLY the literal
 // resource; recursive matching requires the explicit `:*` / `.*` suffix.
 /** Top-level path prefixes accepted by {@link resolve}. */
-export const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
+export const IAM_ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
 
 /** Property names refused at any segment - blocks prototype-pollution lookups. */
 const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
@@ -12,26 +12,26 @@ const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
  * (path string + segment array), so 10k entries ~ 2 MB worst case.
  * Insertion-order eviction (FIFO) when the cap is hit.
  */
-export const PATH_CACHE_MAX = 10_000
+export const IAM_PATH_CACHE_MAX = 10_000
 
 /**
  * Process-wide default path-segment cache. Used when a caller does not pass
  * a per-instance cache. Multi-tenant deployments should prefer per-Engine
  * caches to prevent cross-tenant eviction.
  */
-export const pathCache = new Map<string, string[] | null>()
+export const iamPathCache = new Map<string, string[] | null>()
 
 /**
  * Drop every entry in the process-wide path cache. Intended for multi-tenant
  * operators who flush periodically to bound any single tenant's eviction
  * influence.
  */
-export function clearPathCache(): void {
-  pathCache.clear()
+export function iamClearPathCache(): void {
+  iamPathCache.clear()
 }
 
 function rememberPath(cache: Map<string, string[] | null>, path: string, value: string[] | null): string[] | null {
-  if (cache.size >= PATH_CACHE_MAX) {
+  if (cache.size >= IAM_PATH_CACHE_MAX) {
     const oldest = cache.keys().next().value
     if (oldest !== undefined) cache.delete(oldest)
   }
@@ -43,13 +43,13 @@ function rememberPath(cache: Map<string, string[] | null>, path: string, value: 
  * Splits and validates a dot-path, memoizing the result.
  * Returns `null` for paths with an unknown root or a blocked segment.
  */
-function getSegments(path: string, cache: Map<string, string[] | null> = pathCache): string[] | null {
+function getSegments(path: string, cache: Map<string, string[] | null> = iamPathCache): string[] | null {
   const cached = cache.get(path)
   if (cached !== undefined) return cached
 
   const segments = path.split('.')
 
-  if (!segments[0] || !ALLOWED_ROOTS.has(segments[0])) return rememberPath(cache, path, null)
+  if (!segments[0] || !IAM_ALLOWED_ROOTS.has(segments[0])) return rememberPath(cache, path, null)
 
   for (const seg of segments) {
     if (BLOCKED_SEGMENTS.has(seg)) return rememberPath(cache, path, null)
@@ -59,17 +59,17 @@ function getSegments(path: string, cache: Map<string, string[] | null> = pathCac
 }
 
 /**
- * Resolve a dot-path field against an {@link Request.IAccessRequest}; blocks `__proto__` / `constructor` / `prototype`.
+ * Resolve a dot-path field against an {@link IamRequest.IAccessRequest}; blocks `__proto__` / `constructor` / `prototype`.
  *
  * @param request - The access request providing root data.
  * @param path    - Dot-path string starting with an allowed root or shorthand.
  * @returns The resolved attribute value, or `null` when the path is invalid or missing.
  */
-export function resolve(
-  request: Request.IAccessRequest,
+export function iamResolve(
+  request: IamRequest.IAccessRequest,
   path: string,
   caches?: { path?: Map<string, string[] | null> },
-): Primitives.AttributeValue {
+): IamPrimitives.AttributeValue {
   if (path === 'action') return request.action
   if (path === 'scope') return request.scope ?? null
 
@@ -84,7 +84,7 @@ export function resolve(
     node = Reflect.get(node, seg)
   }
 
-  return node === undefined ? null : (node as Primitives.AttributeValue)
+  return node === undefined ? null : (node as IamPrimitives.AttributeValue)
 }
 
 /**
@@ -95,7 +95,7 @@ export function resolve(
  * @param action  - The literal action from the request.
  * @returns `true` when the request action matches the pattern.
  */
-export function matchesAction(pattern: string, action: string): boolean {
+export function iamMatchesAction(pattern: string, action: string): boolean {
   if (pattern === '*') return true
   if (pattern === action) return true
 
@@ -114,7 +114,7 @@ export function matchesAction(pattern: string, action: string): boolean {
  * @param resourceType - The literal resource type from the request.
  * @returns `true` when the request resource type matches the pattern.
  */
-export function matchesResource(pattern: string, resourceType: string): boolean {
+export function iamMatchesResource(pattern: string, resourceType: string): boolean {
   if (pattern === '*') return true
   if (pattern === resourceType) return true
 
@@ -136,7 +136,7 @@ export function matchesResource(pattern: string, resourceType: string): boolean 
  * @param resourceType - The literal resource type from the request.
  * @returns `true` when the request resource type matches the pattern.
  */
-export function matchesResourceHierarchical(pattern: string, resourceType: string): boolean {
+export function iamMatchesResourceHierarchical(pattern: string, resourceType: string): boolean {
   if (pattern === '*') return true
   if (pattern === resourceType) return true
 
@@ -160,7 +160,7 @@ export function matchesResourceHierarchical(pattern: string, resourceType: strin
  * @param scope   - The request's scope (may be `undefined` or `null`).
  * @returns `true` when the request scope matches the pattern.
  */
-export function matchesScope(pattern: string | undefined | null, scope: string | undefined | null): boolean {
+export function iamMatchesScope(pattern: string | undefined | null, scope: string | undefined | null): boolean {
   if (!pattern || pattern === '*') return true
   if (!scope) return false
   return pattern === scope

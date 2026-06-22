@@ -4,7 +4,7 @@ import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Badge, Button } from '../components/ui'
-import type { IFlowEntry, IFlowRecorder } from '../lib/flow'
+import type { IamIFlowEntry, IamIFlowRecorder } from '../lib/flow'
 
 function pad(n: number, w = 2) {
   return String(n).padStart(w, '0')
@@ -48,8 +48,8 @@ function SubjectChip({ id }: { id: string }) {
   )
 }
 
-export function FlowPanel({ flow }: { flow: IFlowRecorder }) {
-  const [entries, setEntries] = React.useState<readonly IFlowEntry[]>(() => flow.list())
+export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
+  const [entries, setEntries] = React.useState<readonly IamIFlowEntry[]>(() => flow.list())
   const [selected, setSelected] = React.useState<number | null>(null)
   const [filter, setFilter] = React.useState('')
   const [showAllow, setShowAllow] = React.useState(true)

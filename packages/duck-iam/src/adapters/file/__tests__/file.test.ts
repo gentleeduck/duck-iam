@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AccessControl } from '../../../core/types'
+import type { IamAccessControl } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { File, FileAdapter } from '../index'
+import { IamFile, IamFileAdapter } from '../index'
 
 type Action = 'read' | 'write'
 type Resource = 'post'
 type Role = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-type FakeFS = File.IFS & {
+type FakeFS = IamFile.IFS & {
   files: Map<string, string>
   dirs: Set<string>
   realpathMap?: Map<string, string>
@@ -55,28 +55,28 @@ afterEach(() => {
   _warnSpy?.mockRestore()
 })
 
-// Adapter compliance - fresh in-memory fake FS per call so each scenario
+// IamAdapter compliance - fresh in-memory fake FS per call so each scenario
 // runs against an empty store.
-runAdapterCompliance('FileAdapter', () => new FileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never)
+runAdapterCompliance('IamFileAdapter', () => new IamFileAdapter({ fs: makeFakeFS(), path: '/store.json' }) as never)
 
-const policy: AccessControl.IPolicy<Action, Resource, Role> = {
+const policy: IamAccessControl.IPolicy<Action, Resource, Role> = {
   id: 'p1',
   name: 'Allow Read',
   algorithm: 'deny-overrides',
   rules: [{ id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['post'], conditions: { all: [] } }],
 }
 
-describe('FileAdapter', () => {
+describe('IamFileAdapter', () => {
   it('starts empty when file missing', async () => {
     const fs = makeFakeFS()
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     expect(await adapter.listPolicies()).toEqual([])
     expect(await adapter.listRoles()).toEqual([])
   })
 
   it('savePolicy + listPolicies roundtrips through JSON', async () => {
     const fs = makeFakeFS()
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await adapter.savePolicy(policy)
     expect(await adapter.listPolicies()).toEqual([policy])
     // Verify on-disk JSON
@@ -86,7 +86,7 @@ describe('FileAdapter', () => {
 
   it('mkdir is called with the parent directory before first write', async () => {
     const fs = makeFakeFS()
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/data/iam/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/data/iam/store.json', fs })
     await adapter.savePolicy(policy)
     expect(fs.dirs.has('/data/iam')).toBe(true)
   })
@@ -94,21 +94,21 @@ describe('FileAdapter', () => {
   it('reloads state from existing file', async () => {
     const seeded = JSON.stringify({ policies: { p1: policy }, roles: {}, assignments: {}, attributes: {} })
     const fs = makeFakeFS(seeded)
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     const out = await adapter.getPolicy('p1')
     expect(out?.name).toBe('Allow Read')
   })
 
   it('assignRole + getSubjectRoles persists across calls', async () => {
     const fs = makeFakeFS()
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await adapter.assignRole('user-1', 'viewer')
     expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })
 
   it('scoped assignments are exposed via getSubjectScopedRoles only', async () => {
     const fs = makeFakeFS()
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await adapter.assignRole('user-1', 'editor', 'org-1')
     expect(await adapter.getSubjectRoles('user-1')).toEqual([])
     expect(await adapter.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
@@ -116,7 +116,7 @@ describe('FileAdapter', () => {
 
   it('setSubjectAttributes merges, does not replace', async () => {
     const fs = makeFakeFS()
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await adapter.setSubjectAttributes('user-1', { department: 'eng' })
     await adapter.setSubjectAttributes('user-1', { status: 'active' })
     expect(await adapter.getSubjectAttributes('user-1')).toEqual({ department: 'eng', status: 'active' })
@@ -124,7 +124,7 @@ describe('FileAdapter', () => {
 
   it('deletePolicy removes the entry on disk', async () => {
     const fs = makeFakeFS()
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await adapter.savePolicy(policy)
     await adapter.deletePolicy('p1')
     expect(await adapter.listPolicies()).toEqual([])
@@ -136,12 +136,12 @@ describe('FileAdapter', () => {
     // Previous behaviour silently populated _cache = {} which the next
     // flush would persist, permanently destroying recoverable data.
     const fs = makeFakeFS('not-json{')
-    const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
     await expect(adapter.listPolicies()).rejects.toThrow(/corrupt.*refusing to load/)
   })
 
   describe('malformed-row drop (P0)', () => {
-    // Same guarantee the Redis adapter provides: a corrupt row stored on
+    // Same guarantee the IamRedis adapter provides: a corrupt row stored on
     // disk (manual edit, partial migration, etc) must be dropped, not
     // returned as-is. The engine's safeEval would otherwise treat it as
     // NotApplicable and silently strip any deny rules it would have carried.
@@ -158,7 +158,7 @@ describe('FileAdapter', () => {
       })
       const errors: Array<{ rowId: string }> = []
       const fs = makeFakeFS(seeded)
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/store.json',
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
@@ -180,7 +180,7 @@ describe('FileAdapter', () => {
       })
       const errors: Array<{ rowId: string }> = []
       const fs = makeFakeFS(seeded)
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/store.json',
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
@@ -193,7 +193,7 @@ describe('FileAdapter', () => {
     it('reports a malformed JSON file via onPolicyError + throws', async () => {
       const errors: Array<{ rowId: string }> = []
       const fs = makeFakeFS('not-json{')
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/store.json',
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
@@ -208,7 +208,7 @@ describe('FileAdapter', () => {
       const fs = makeFakeFS()
       expect(
         () =>
-          new FileAdapter<Action, Resource, Role, Scope>({
+          new IamFileAdapter<Action, Resource, Role, Scope>({
             path: '/var/lib/iam/../../etc/passwd',
             fs,
           }),
@@ -219,7 +219,7 @@ describe('FileAdapter', () => {
       const fs = makeFakeFS()
       expect(
         () =>
-          new FileAdapter<Action, Resource, Role, Scope>({
+          new IamFileAdapter<Action, Resource, Role, Scope>({
             path: 'store.json',
             fs,
           }),
@@ -228,7 +228,7 @@ describe('FileAdapter', () => {
 
     it('accepts a happy-path absolute path under rootDir', async () => {
       const fs = makeFakeFS(undefined, { storePath: '/srv/iam/store.json' })
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/srv/iam/store.json',
         rootDir: '/srv/iam',
         fs,
@@ -241,7 +241,7 @@ describe('FileAdapter', () => {
       const fs = makeFakeFS()
       expect(
         () =>
-          new FileAdapter<Action, Resource, Role, Scope>({
+          new IamFileAdapter<Action, Resource, Role, Scope>({
             path: '/etc/passwd',
             rootDir: '/srv/iam',
             fs,
@@ -256,9 +256,9 @@ describe('FileAdapter', () => {
       // tripped it, so the warn for these constructions may not fire at all.
       // Contract is `at most one` across multiple constructions, never per-
       // construction spam.
-      new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-1.json', fs })
-      new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-2.json', fs })
-      new FileAdapter<Action, Resource, Role, Scope>({ path: '/store-3.json', fs })
+      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-1.json', fs })
+      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-2.json', fs })
+      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-3.json', fs })
       const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c: unknown[]) => /rootDir/.test(String(c[0])))
       expect(rootDirWarns.length).toBeLessThanOrEqual(1)
     })
@@ -267,7 +267,7 @@ describe('FileAdapter', () => {
       _warnSpy?.mockClear()
       const fs = makeFakeFS()
       const uniquePath = `/very-unique-path-${Date.now()}.json`
-      new FileAdapter<Action, Resource, Role, Scope>({ path: uniquePath, fs })
+      new IamFileAdapter<Action, Resource, Role, Scope>({ path: uniquePath, fs })
       const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c: unknown[]) => /rootDir/.test(String(c[0])))
       // Latch may already have fired in prior tests, so this assertion only
       // applies if a fresh warn did fire here.
@@ -281,7 +281,7 @@ describe('FileAdapter', () => {
       // actually a symlink to /etc/passwd on disk. The constructor's textual
       // check passes (path string is under rootDir) but the async realpath
       // check on first read must reject.
-      const fs: File.IFS = {
+      const fs: IamFile.IFS = {
         async readFile() {
           throw new Error('should never read - rejected first')
         },
@@ -295,7 +295,7 @@ describe('FileAdapter', () => {
           throw new Error('ENOENT')
         },
       }
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/srv/iam/store.json',
         rootDir: '/srv/iam',
         fs,
@@ -307,7 +307,7 @@ describe('FileAdapter', () => {
       // A symlink-loop on the file (ELOOP) was previously silenced by the
       // parent-realpath fallback, letting a hostile symlink bypass the
       // containment check.
-      const fs: File.IFS = {
+      const fs: IamFile.IFS = {
         async readFile() {
           return JSON.stringify({ policies: {}, roles: {}, assignments: {}, attributes: {} })
         },
@@ -323,7 +323,7 @@ describe('FileAdapter', () => {
           throw new Error('ENOENT')
         },
       }
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/srv/iam/store.json',
         rootDir: '/srv/iam',
         fs,
@@ -334,7 +334,7 @@ describe('FileAdapter', () => {
     it('still falls back to parent realpath when file is ENOENT', async () => {
       // ENOENT (file genuinely missing on first run) keeps the legitimate
       // fallback alive - containment is asserted via the parent + basename.
-      const fs: File.IFS = {
+      const fs: IamFile.IFS = {
         async readFile() {
           throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
         },
@@ -350,7 +350,7 @@ describe('FileAdapter', () => {
           throw new Error('ENOENT')
         },
       }
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/srv/iam/store.json',
         rootDir: '/srv/iam',
         fs,
@@ -364,7 +364,7 @@ describe('FileAdapter', () => {
       // can be re-tried; otherwise a rejected promise would pin the adapter
       // in permanent failure.
       let escapingSymlink = true
-      const fs: File.IFS = {
+      const fs: IamFile.IFS = {
         async readFile() {
           return JSON.stringify({ policies: {}, roles: {}, assignments: {}, attributes: {} })
         },
@@ -376,7 +376,7 @@ describe('FileAdapter', () => {
           throw new Error('ENOENT')
         },
       }
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/srv/iam/store.json',
         rootDir: '/srv/iam',
         fs,
@@ -392,26 +392,26 @@ describe('FileAdapter', () => {
       // EACCES (permissions drift), EISDIR (path overwritten), etc. must
       // surface immediately. A silent empty-store fallback would let the
       // engine see zero policies and let defaultEffect decide every request.
-      const fs: File.IFS = {
+      const fs: IamFile.IFS = {
         async readFile() {
           throw Object.assign(new Error('EACCES'), { code: 'EACCES' })
         },
         async writeFile() {},
         async mkdir() {},
       }
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
       await expect(adapter.listPolicies()).rejects.toThrow(/load failed \(EACCES\)/)
     })
 
     it('still treats genuinely-missing file as empty store (ENOENT)', async () => {
-      const fs: File.IFS = {
+      const fs: IamFile.IFS = {
         async readFile() {
           throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
         },
         async writeFile() {},
         async mkdir() {},
       }
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
       expect(await adapter.listPolicies()).toEqual([])
     })
 
@@ -421,7 +421,7 @@ describe('FileAdapter', () => {
       // one-shot _rootCheckDone latch would have let the symlink through.
       let realpathCalls = 0
       let swapped = false
-      const fs: File.IFS = {
+      const fs: IamFile.IFS = {
         async readFile() {
           return JSON.stringify({ policies: {}, roles: {}, assignments: {}, attributes: {} })
         },
@@ -434,7 +434,7 @@ describe('FileAdapter', () => {
           throw new Error('ENOENT')
         },
       }
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/srv/iam/store.json',
         rootDir: '/srv/iam',
         fs,
@@ -457,7 +457,7 @@ describe('FileAdapter', () => {
       // Pre-seed the immediate parent so the non-recursive mkdir EEXISTs and
       // succeeds; the grandparent is never touched.
       const fs = makeFakeFS(undefined, { storePath: '/srv/iam/store.json', preCreatedDirs: ['/srv/iam'] })
-      const adapter = new FileAdapter<Action, Resource, Role, Scope>({
+      const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({
         path: '/srv/iam/store.json',
         rootDir: '/srv/iam',
         fs,

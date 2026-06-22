@@ -38,10 +38,10 @@ bun add @gentleduck/iam
 ## Quick start
 
 ```typescript
-import { createAccessConfig } from '@gentleduck/iam/core'
+import { createIam } from '@gentleduck/iam/core'
 import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
-const access = createAccessConfig({
+const access = createIam({
   actions: ['create', 'read', 'update', 'delete'] as const,
   resources: ['post', 'comment', 'user'] as const,
   roles: ['viewer', 'editor', 'admin'] as const,
@@ -87,7 +87,7 @@ For the smallest bundle, import only what you use via subpaths:
 
 ```typescript
 // Engine-only (skip adapters, server middleware, client wrappers)
-import { Engine, evaluatePolicyFast } from '@gentleduck/iam/core'
+import { IamEngine, evaluatePolicyFast } from '@gentleduck/iam/core'
 
 // Each adapter, server adapter, and client wrapper is a separate entry
 import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
@@ -193,7 +193,7 @@ import { createRedisInvalidator } from '@gentleduck/iam/invalidators/redis'
 import { createMetricsAggregator } from '@gentleduck/iam/observability/metrics'
 
 const metrics = createMetricsAggregator()
-const engine = new Engine({
+const engine = new IamEngine({
   adapter,
   invalidator: createRedisInvalidator({ client: redis }),
   hooks: { onMetrics: metrics.record },

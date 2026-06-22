@@ -1,6 +1,6 @@
-import type { Primitives } from './primitives'
+import type { IamPrimitives } from './primitives'
 
-export namespace Request {
+export namespace IamRequest {
   /**
    * A role assignment scoped to a tenant, organization, or workspace. Used in
    * multi-tenant applications where a user holds different roles in different
@@ -31,7 +31,7 @@ export namespace Request {
     /** Scoped role assignments for multi-tenant authorization. */
     readonly scopedRoles?: readonly IScopedRole<TRole, TScope>[]
     /** Subject attributes available to conditions. */
-    readonly attributes: Readonly<Primitives.Attributes>
+    readonly attributes: Readonly<IamPrimitives.Attributes>
   }
 
   /**
@@ -45,20 +45,20 @@ export namespace Request {
     /** Specific instance ID (e.g. `'post-123'`). */
     readonly id?: string
     /** Resource attributes available to conditions. */
-    readonly attributes: Readonly<Primitives.Attributes>
+    readonly attributes: Readonly<IamPrimitives.Attributes>
   }
 
   /**
-   * Request-level context not specific to subject or resource - client IP,
+   * IamRequest-level context not specific to subject or resource - client IP,
    * user agent, timestamp, feature flags, etc. Custom keys allowed via the
    * string index signature.
    */
   export interface IEnvironment {
     readonly ip?: string
     readonly userAgent?: string
-    /** Request timestamp in milliseconds since epoch. */
+    /** IamRequest timestamp in milliseconds since epoch. */
     readonly timestamp?: number
-    readonly [key: string]: Primitives.AttributeValue | undefined
+    readonly [key: string]: IamPrimitives.AttributeValue | undefined
   }
 
   /**

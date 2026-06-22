@@ -39,8 +39,8 @@ export async function requestEmailVerification<Profile>(
 
   await ctx.stores.credentials.deleteByKind(opts.identityId, 'recovery', ctx.tenant)
 
-  const token = ctx.crypto.randomToken(32)
-  const tokenHash = ctx.crypto.sha256(token)
+  const token = ctx.crypto.authRandomToken(32)
+  const tokenHash = ctx.crypto.authSha256(token)
   const now = Date.now()
   await ctx.stores.credentials.upsert(
     {
@@ -71,7 +71,7 @@ export async function completeEmailVerification<Profile>(
     throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
   }
   const ctx = flows._ctxFactory(input.tenantId)
-  const hash = ctx.crypto.sha256(input.token)
+  const hash = ctx.crypto.authSha256(input.token)
   const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
   const now = Date.now()
   if (!row || isRevoked(row) || getCredentialPurpose(row) !== 'email-verification') {

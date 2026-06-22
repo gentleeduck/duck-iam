@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { AccessControl, Adapter } from '../../core/types'
+import type { IamAccessControl, IamAdapter } from '../../core/types'
 
 /**
  * Shared adapter compliance suite.
  *
- * Every shipped adapter (`MemoryAdapter`, `FileAdapter`, `RedisAdapter`,
- * `DrizzleAdapter`, `PrismaAdapter`, `HttpAdapter`) and every third-party
+ * Every shipped adapter (`IamMemoryAdapter`, `IamFileAdapter`, `IamRedisAdapter`,
+ * `IamDrizzleAdapter`, `IamPrismaAdapter`, `IamHttpAdapter`) and every third-party
  * adapter must pass this matrix. The suite pins the cross-backend contract
  * so the same scenarios produce identical results regardless of storage.
  *
@@ -18,9 +18,9 @@ import type { AccessControl, Adapter } from '../../core/types'
  * The factory MUST return a fresh, empty adapter on each call.
  */
 
-type AnyAdapter = Adapter.IAdapter<string, string, string, string>
+type AnyAdapter = IamAdapter.IAdapter<string, string, string, string>
 
-const samplePolicy: AccessControl.IPolicy = {
+const samplePolicy: IamAccessControl.IPolicy = {
   id: 'p-compliance',
   name: 'Compliance Test Policy',
   algorithm: 'deny-overrides',
@@ -36,7 +36,7 @@ const samplePolicy: AccessControl.IPolicy = {
   ],
 }
 
-const sampleRole: AccessControl.IRole = {
+const sampleRole: IamAccessControl.IRole = {
   id: 'editor',
   name: 'Editor',
   permissions: [{ action: 'read', resource: 'post' }],
@@ -51,7 +51,7 @@ const sampleRole: AccessControl.IRole = {
  *   clean slate).
  */
 export function runAdapterCompliance(adapterName: string, factory: () => AnyAdapter | Promise<AnyAdapter>): void {
-  describe(`Adapter compliance: ${adapterName}`, () => {
+  describe(`IamAdapter compliance: ${adapterName}`, () => {
     describe('IPolicyStore', () => {
       it('listPolicies returns [] on empty store', async () => {
         const a = await factory()

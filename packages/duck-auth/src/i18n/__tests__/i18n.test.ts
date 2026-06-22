@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_EN_MESSAGES, type I18n, I18nMessageCatalog, LinguiResolver } from '../index'
+import { AUTH_DEFAULT_EN_MESSAGES, type AuthI18n, AuthI18nMessageCatalog, AuthLinguiResolver } from '../index'
 
-describe('I18nMessageCatalog', () => {
+describe('AuthI18nMessageCatalog', () => {
   it('refuses empty messages object', () => {
-    expect(() => new I18nMessageCatalog({ messages: {} })).toThrowError(
+    expect(() => new AuthI18nMessageCatalog({ messages: {} })).toThrowError(
       expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
     )
   })
 
   it('returns translation for configured locale', () => {
-    const cat = new I18nMessageCatalog({
+    const cat = new AuthI18nMessageCatalog({
       messages: {
         en: { 'AUTH/INVALID_CREDENTIALS': 'Bad password.' },
         fr: { 'AUTH/INVALID_CREDENTIALS': 'Identifiants invalides.' },
@@ -19,7 +19,7 @@ describe('I18nMessageCatalog', () => {
   })
 
   it('falls back to defaultLocale when target locale missing', () => {
-    const cat = new I18nMessageCatalog({
+    const cat = new AuthI18nMessageCatalog({
       messages: { en: { hello: 'Hi' } },
       defaultLocale: 'en',
     })
@@ -27,32 +27,32 @@ describe('I18nMessageCatalog', () => {
   })
 
   it('falls back to messageId when neither locale has it', () => {
-    const cat = new I18nMessageCatalog({ messages: { en: {} } })
+    const cat = new AuthI18nMessageCatalog({ messages: { en: {} } })
     expect(cat.t('AUTH/UNKNOWN')).toBe('AUTH/UNKNOWN')
   })
 
   it('substitutes {{var}} placeholders from vars', () => {
-    const cat = new I18nMessageCatalog({
+    const cat = new AuthI18nMessageCatalog({
       messages: { en: { greet: 'Hi {{name}}, you have {{n}} new.' } },
     })
     expect(cat.t('greet', { vars: { name: 'Ada', n: 3 } })).toBe('Hi Ada, you have 3 new.')
   })
 
   it('leaves unresolved placeholders intact', () => {
-    const cat = new I18nMessageCatalog({
+    const cat = new AuthI18nMessageCatalog({
       messages: { en: { greet: 'Hi {{name}}, you are {{role}}.' } },
     })
     expect(cat.t('greet', { vars: { name: 'Ada' } })).toBe('Hi Ada, you are {{role}}.')
   })
 
   it('locales accessor returns the keys of messages', () => {
-    const cat = new I18nMessageCatalog({
+    const cat = new AuthI18nMessageCatalog({
       messages: { en: {}, fr: {}, de: {} },
     })
     expect(cat.locales.sort()).toEqual(['de', 'en', 'fr'])
   })
 
-  it('DEFAULT_EN_MESSAGES covers every shipped flow + the common error codes', () => {
+  it('AUTH_DEFAULT_EN_MESSAGES covers every shipped flow + the common error codes', () => {
     const required = [
       'AUTH/UNAUTHENTICATED',
       'AUTH/INVALID_CREDENTIALS',
@@ -63,12 +63,12 @@ describe('I18nMessageCatalog', () => {
       'password-reset.subject',
       'account-deletion.subject',
     ]
-    for (const id of required) expect(DEFAULT_EN_MESSAGES[id]).toBeTruthy()
+    for (const id of required) expect(AUTH_DEFAULT_EN_MESSAGES[id]).toBeTruthy()
   })
 })
 
-describe('LinguiResolver', () => {
-  function makeLingui(overrides: Partial<I18n.ILingui> = {}): I18n.ILingui {
+describe('AuthLinguiResolver', () => {
+  function makeLingui(overrides: Partial<AuthI18n.ILingui> = {}): AuthI18n.ILingui {
     let locale = overrides.locale ?? 'en'
     return {
       get locale() {
@@ -88,29 +88,29 @@ describe('LinguiResolver', () => {
   }
 
   it('refuses construction without a valid i18n', () => {
-    expect(() => new LinguiResolver({} as never)).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    expect(() => new AuthLinguiResolver({} as never)).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
   })
 
   it('t forwards to i18n._ at the current locale', () => {
-    const r = new LinguiResolver(makeLingui())
+    const r = new AuthLinguiResolver(makeLingui())
     expect(r.t('AUTH/INVALID_CREDENTIALS')).toBe('AUTH/INVALID_CREDENTIALS@en')
   })
 
   it('opts.locale temporarily activates then restores the prior locale', () => {
     const lingui = makeLingui({ locale: 'en' })
-    const r = new LinguiResolver(lingui)
+    const r = new AuthLinguiResolver(lingui)
     expect(r.t('hello', { locale: 'fr' })).toBe('hello@fr')
     // Prior locale restored.
     expect(r.t('hello')).toBe('hello@en')
   })
 
   it('forwards vars to i18n._', () => {
-    const r = new LinguiResolver(makeLingui())
+    const r = new AuthLinguiResolver(makeLingui())
     expect(r.t('greet', { vars: { name: 'Ada' } })).toBe('greet:{"name":"Ada"}@en')
   })
 
   it('exposes Lingui.locales', () => {
-    const r = new LinguiResolver(makeLingui({ locales: ['en', 'de'] }))
+    const r = new AuthLinguiResolver(makeLingui({ locales: ['en', 'de'] }))
     expect(r.locales).toEqual(['en', 'de'])
   })
 })

@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { randomToken, sha256 } from '../../crypto'
-import { InMemoryEvents } from '../../events'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { authRandomToken, authSha256 } from '../../crypto'
+import { AuthInMemoryEvents } from '../../events'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../apikeys'
 
 describe('ApiKeysFacet', () => {
-  let adapter: MemoryAuthAdapter
-  let events: InMemoryEvents
+  let adapter: AuthMemoryAdapter
+  let events: AuthInMemoryEvents
   let facet: ApiKeysFacet
 
   beforeEach(() => {
-    adapter = new MemoryAuthAdapter()
-    events = new InMemoryEvents()
-    facet = new ApiKeysFacet(adapter.credentials, events, { randomToken, sha256 }, DEFAULT_APIKEYS_CONFIG)
+    adapter = new AuthMemoryAdapter()
+    events = new AuthInMemoryEvents()
+    facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 }, DEFAULT_APIKEYS_CONFIG)
   })
 
   describe('create', () => {
@@ -25,7 +25,7 @@ describe('ApiKeysFacet', () => {
       expect(plaintext.length).toBeGreaterThan('ak_live_'.length + 30)
       const rows = await adapter.credentials.listByIdentity('user-1', 'api-key', {})
       expect(rows).toHaveLength(1)
-      expect(rows[0]?.secret).toBe(sha256(plaintext))
+      expect(rows[0]?.secret).toBe(authSha256(plaintext))
       expect((rows[0]?.metadata as { scopes: string[] }).scopes).toEqual(['deploy.write'])
       expect(key.name).toBe('CI deploy')
     })
@@ -70,7 +70,7 @@ describe('ApiKeysFacet', () => {
         row: NonNullable<Awaited<ReturnType<typeof adapter.credentials.findByHashedSecret>>>
       }> {
         const { plaintext } = await facet.create('user-1', { name: 'k', scopes: ['read'] })
-        const row = await adapter.credentials.findByHashedSecret(sha256(plaintext), 'api-key', {})
+        const row = await adapter.credentials.findByHashedSecret(authSha256(plaintext), 'api-key', {})
         if (!row) throw new Error('row missing')
         return { plaintext, row }
       }

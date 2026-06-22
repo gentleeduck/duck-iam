@@ -3,15 +3,15 @@
  * five caches.
  */
 
-import type { LRUCache } from '../../shared/cache'
-import type { AccessControl, Request } from '../types'
+import type { IamLRUCache } from '../../shared/cache'
+import type { IamAccessControl, IamRequest } from '../types'
 
-export interface ICachesForStats {
-  policyCache: LRUCache<AccessControl.IPolicy[]>
-  roleCache: LRUCache<AccessControl.IRole[]>
-  rbacPolicyCache: LRUCache<AccessControl.IPolicy>
-  mergedPolicyCache: LRUCache<AccessControl.IPolicy[]>
-  subjectCache: LRUCache<Request.ISubject>
+export interface IIamCachesForStats {
+  policyCache: IamLRUCache<IamAccessControl.IPolicy[]>
+  roleCache: IamLRUCache<IamAccessControl.IRole[]>
+  rbacPolicyCache: IamLRUCache<IamAccessControl.IPolicy>
+  mergedPolicyCache: IamLRUCache<IamAccessControl.IPolicy[]>
+  subjectCache: IamLRUCache<IamRequest.ISubject>
 }
 
 export interface IStatsSnapshot {
@@ -22,7 +22,7 @@ export interface IStatsSnapshot {
   subjects: { hits: number; misses: number; size: number }
 }
 
-export function statsSnapshot(c: ICachesForStats): IStatsSnapshot {
+export function statsSnapshot(c: IIamCachesForStats): IStatsSnapshot {
   return {
     policies: c.policyCache.stats,
     roles: c.roleCache.stats,
@@ -32,7 +32,7 @@ export function statsSnapshot(c: ICachesForStats): IStatsSnapshot {
   }
 }
 
-export function resetStats(c: ICachesForStats): void {
+export function resetStats(c: IIamCachesForStats): void {
   c.policyCache.resetStats()
   c.roleCache.resetStats()
   c.rbacPolicyCache.resetStats()

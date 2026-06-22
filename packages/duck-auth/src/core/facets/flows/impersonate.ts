@@ -1,12 +1,12 @@
 import { AuthErrorObject } from '../../errors'
-import type { Provider } from '../../types/provider'
-import type { Session } from '../../types/session'
+import type { AuthProvider } from '../../types/provider'
+import type { AuthSession } from '../../types/session'
 import type { FlowsFacet } from '../flows'
 
 export async function impersonate<Profile>(
   flows: FlowsFacet<Profile>,
   opts: FlowsFacet.IImpersonateOptions & {
-    authorize: (realSession: Session.ISession, targetIdentityId: string) => Promise<boolean>
+    authorize: (realSession: AuthSession.ISession, targetIdentityId: string) => Promise<boolean>
   },
 ): Promise<FlowsFacet.IImpersonateOutcome> {
   if (
@@ -66,7 +66,7 @@ export async function impersonate<Profile>(
 export async function releaseImpersonation<Profile>(
   flows: FlowsFacet<Profile>,
   impersonationSid: string,
-): Promise<{ intents: Provider.Intent[] }> {
+): Promise<{ intents: AuthProvider.Intent[] }> {
   const session = await flows._sessions.getBySid(impersonationSid)
   if (!session?.actingAs) {
     throw new AuthErrorObject('AUTH/IMPERSONATE_EXPIRED')

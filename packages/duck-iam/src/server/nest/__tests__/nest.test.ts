@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Engine } from '../../../core/engine'
-import type { AccessControl } from '../../../core/types'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import { IamEngine } from '../../../core/engine'
+import type { IamAccessControl } from '../../../core/types'
 import {
-  ACCESS_ENGINE_TOKEN,
-  ACCESS_METADATA_KEY,
-  Authorize,
-  createAdminOperations,
-  createEngineProvider,
-  createTypedAuthorize,
-  nestAccessGuard,
+  IAM_ACCESS_ENGINE_TOKEN,
+  IAM_ACCESS_METADATA_KEY,
+  IamAuthorize,
+  createIamAdminOperations,
+  createIamEngineProvider,
+  createIamTypedAuthorize,
+  iamNestAccessGuard,
 } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
@@ -17,12 +17,12 @@ type ResourceType = 'post' | 'comment'
 type RoleId = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [{ action: 'read', resource: 'post' }],
 }
-const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -33,11 +33,11 @@ const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
 }
 
 function makeEngine() {
-  const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+  const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: [viewerRole, editorRole],
     assignments: { 'user-viewer': ['viewer'], 'user-editor': ['editor'] },
   })
-  return new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 }
 
 function makeCtx(opts: {
@@ -70,13 +70,13 @@ function makeCtx(opts: {
   }
 }
 
-describe('@Authorize decorator', () => {
+describe('@IamAuthorize decorator', () => {
   it('attaches __accessMeta to descriptor.value', () => {
     const fn = function handler() {
       return null
     }
     const desc = { value: fn, configurable: true, writable: true } as PropertyDescriptor
-    const dec = Authorize({ action: 'delete', resource: 'post' })
+    const dec = IamAuthorize({ action: 'delete', resource: 'post' })
     dec({} as never, 'method', desc)
     expect((fn as unknown as { __accessMeta: { action: string } }).__accessMeta).toEqual({
       action: 'delete',
@@ -89,35 +89,35 @@ describe('@Authorize decorator', () => {
       return null
     }
     const desc = { value: fn, configurable: true, writable: true } as PropertyDescriptor
-    Authorize()({} as never, 'method', desc)
+    IamAuthorize()({} as never, 'method', desc)
     expect((fn as unknown as { __accessMeta: { infer: boolean } }).__accessMeta.infer).toBe(true)
   })
 
-  it('createTypedAuthorize returns Authorize itself', () => {
-    expect(createTypedAuthorize<Action, ResourceType, Scope>()).toBe(Authorize)
+  it('createIamTypedAuthorize returns IamAuthorize itself', () => {
+    expect(createIamTypedAuthorize<Action, ResourceType, Scope>()).toBe(IamAuthorize)
   })
 
   it('exports stable metadata key', () => {
-    expect(ACCESS_METADATA_KEY).toBe('duck-iam:authorize')
+    expect(IAM_ACCESS_METADATA_KEY).toBe('duck-iam:authorize')
   })
 })
 
-describe('nestAccessGuard', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+describe('iamNestAccessGuard', () => {
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = makeEngine()
   })
 
-  it('returns true when handler has no @Authorize meta', async () => {
-    const guard = nestAccessGuard(engine)
+  it('returns true when handler has no @IamAuthorize meta', async () => {
+    const guard = iamNestAccessGuard(engine)
     const handler = function noAuth() {}
     const ctx = makeCtx({ user: { id: 'user-viewer' }, handler })
     expect(await guard(ctx)).toBe(true)
   })
 
   it('returns false when no userId resolved', async () => {
-    const guard = nestAccessGuard(engine)
+    const guard = iamNestAccessGuard(engine)
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', {
       value: { action: 'delete', resource: 'post' },
@@ -127,7 +127,7 @@ describe('nestAccessGuard', () => {
   })
 
   it('returns true when allowed', async () => {
-    const guard = nestAccessGuard(engine)
+    const guard = iamNestAccessGuard(engine)
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', {
       value: { action: 'delete', resource: 'post' },
@@ -137,7 +137,7 @@ describe('nestAccessGuard', () => {
   })
 
   it('returns false when denied', async () => {
-    const guard = nestAccessGuard(engine)
+    const guard = iamNestAccessGuard(engine)
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', {
       value: { action: 'delete', resource: 'post' },
@@ -148,7 +148,7 @@ describe('nestAccessGuard', () => {
 
   it('uses user.sub fallback when user.id missing', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const guard = nestAccessGuard(engine)
+    const guard = iamNestAccessGuard(engine)
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', {
       value: { action: 'read', resource: 'post' },
@@ -161,7 +161,7 @@ describe('nestAccessGuard', () => {
 
   it('uses params.id as resource id', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const guard = nestAccessGuard(engine)
+    const guard = iamNestAccessGuard(engine)
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', {
       value: { action: 'delete', resource: 'post' },
@@ -174,7 +174,7 @@ describe('nestAccessGuard', () => {
 
   it('infer:true derives action from method and resource from path', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const guard = nestAccessGuard(engine)
+    const guard = iamNestAccessGuard(engine)
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', { value: { infer: true } })
     const ctx = makeCtx({
@@ -190,7 +190,7 @@ describe('nestAccessGuard', () => {
 
   it('decorator scope takes precedence over getScope', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const guard = nestAccessGuard<Action, ResourceType, RoleId, Scope>(engine, {
+    const guard = iamNestAccessGuard<Action, ResourceType, RoleId, Scope>(engine, {
       getScope: () => 'org-1',
     })
     const handler = function h() {}
@@ -205,7 +205,7 @@ describe('nestAccessGuard', () => {
 
   it('falls back to getScope when decorator scope absent', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const guard = nestAccessGuard<Action, ResourceType, RoleId, Scope>(engine, {
+    const guard = iamNestAccessGuard<Action, ResourceType, RoleId, Scope>(engine, {
       getScope: () => 'org-1',
     })
     const handler = function h() {}
@@ -220,7 +220,7 @@ describe('nestAccessGuard', () => {
 
   it('onError handles engine throw - default returns false', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('boom'))
-    const guard = nestAccessGuard(engine)
+    const guard = iamNestAccessGuard(engine)
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', {
       value: { action: 'delete', resource: 'post' },
@@ -232,7 +232,7 @@ describe('nestAccessGuard', () => {
   it('custom onError can override result', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('boom'))
     const onError = vi.fn(() => true)
-    const guard = nestAccessGuard(engine, { onError })
+    const guard = iamNestAccessGuard(engine, { onError })
     const handler = function h() {}
     Object.defineProperty(handler, '__accessMeta', {
       value: { action: 'delete', resource: 'post' },
@@ -243,25 +243,25 @@ describe('nestAccessGuard', () => {
   })
 })
 
-describe('createEngineProvider', () => {
+describe('createIamEngineProvider', () => {
   it('creates a NestJS provider with the engine token', () => {
     const factory = () => makeEngine()
-    const provider = createEngineProvider(factory)
-    expect(provider.provide).toBe(ACCESS_ENGINE_TOKEN)
+    const provider = createIamEngineProvider(factory)
+    expect(provider.provide).toBe(IAM_ACCESS_ENGINE_TOKEN)
     expect(provider.useFactory).toBe(factory)
   })
 
   it('exports stable engine token', () => {
-    expect(ACCESS_ENGINE_TOKEN).toBe('ACCESS_ENGINE')
+    expect(IAM_ACCESS_ENGINE_TOKEN).toBe('ACCESS_ENGINE')
   })
 })
 
-describe('createAdminOperations onAdminMutation', () => {
+describe('createIamAdminOperations onAdminMutation', () => {
   const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
 
   function makeAdminReq(method: string, path = '/admin/policies') {
     return { method, path, route: { path } } as unknown as Parameters<
-      ReturnType<typeof createAdminOperations<Action, ResourceType, RoleId, Scope>>['savePolicy']
+      ReturnType<typeof createIamAdminOperations<Action, ResourceType, RoleId, Scope>>['savePolicy']
     >[0]
   }
 
@@ -274,7 +274,7 @@ describe('createAdminOperations onAdminMutation', () => {
       savedPolicy = true
       return origSave(p)
     }
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: (() => {
         authorizeCalled = true
         return { id: 'admin-1' }
@@ -296,7 +296,7 @@ describe('createAdminOperations onAdminMutation', () => {
   it('savePolicy fires with action:replace, target:policy, success:true', async () => {
     const engine = makeEngine()
     const events: unknown[] = []
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: (() => ({ id: 'admin-1' })) as never,
       onAdminMutation: (e) => {
         events.push(e)
@@ -307,7 +307,7 @@ describe('createAdminOperations onAdminMutation', () => {
       name: 'P',
       algorithm: 'deny-overrides',
       rules: [],
-    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+    } as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>)
     await flushMicrotasks()
     expect(events).toHaveLength(1)
     const ev = events[0] as {
@@ -333,14 +333,14 @@ describe('createAdminOperations onAdminMutation', () => {
     engine.admin.savePolicy = async () => {
       throw new Error('save-failed')
     }
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: () => true,
       onAdminMutation: (e) => {
         events.push(e)
       },
     })
     await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
+      h.savePolicy(makeAdminReq('PUT'), {} as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>),
     ).rejects.toThrow('save-failed')
     await flushMicrotasks()
     engine.admin.savePolicy = original
@@ -354,7 +354,7 @@ describe('createAdminOperations onAdminMutation', () => {
   it('does NOT fire on listPolicies / listRoles (reads)', async () => {
     const engine = makeEngine()
     const events: unknown[] = []
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: () => true,
       onAdminMutation: (e) => {
         events.push(e)
@@ -369,7 +369,7 @@ describe('createAdminOperations onAdminMutation', () => {
   it('hook is fire-and-forget - a throwing hook does not affect the response', async () => {
     const engine = makeEngine()
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: () => true,
       onAdminMutation: () => {
         throw new Error('hook-explode')
@@ -380,7 +380,7 @@ describe('createAdminOperations onAdminMutation', () => {
       name: 'P',
       algorithm: 'deny-overrides',
       rules: [],
-    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+    } as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>)
     expect(out.ok).toBe(true)
     expect(errSpy).toHaveBeenCalled()
     errSpy.mockRestore()
@@ -389,7 +389,7 @@ describe('createAdminOperations onAdminMutation', () => {
   it('redactPath rewrites event.path before the hook is called', async () => {
     const engine = makeEngine()
     const events: Array<{ path: string }> = []
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: () => true,
       onAdminMutation: (e) => {
         events.push(e)
@@ -412,7 +412,7 @@ describe('createAdminOperations onAdminMutation', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const captured: Array<{ err: unknown; event: { action: string; target: string } }> = []
     const boom = new Error('hook-boom')
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: () => true,
       onAdminMutation: () => {
         throw boom
@@ -426,7 +426,7 @@ describe('createAdminOperations onAdminMutation', () => {
       name: 'P',
       algorithm: 'deny-overrides',
       rules: [],
-    } as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>)
+    } as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>)
     await flushMicrotasks()
     expect(captured).toHaveLength(1)
     expect(captured[0]!.err).toBe(boom)
@@ -448,14 +448,14 @@ describe('createAdminOperations onAdminMutation', () => {
     engine.admin.savePolicy = async () => {
       throw new PolicyValidationError()
     }
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: () => true,
       onAdminMutation: (e) => {
         events.push(e)
       },
     })
     await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
+      h.savePolicy(makeAdminReq('PUT'), {} as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>),
     ).rejects.toBeInstanceOf(PolicyValidationError)
     await flushMicrotasks()
     engine.admin.savePolicy = original
@@ -471,7 +471,7 @@ describe('createAdminOperations onAdminMutation', () => {
     engine.admin.savePolicy = async () => {
       throw new Error('full-detailed-message')
     }
-    const h = createAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
+    const h = createIamAdminOperations<Action, ResourceType, RoleId, Scope>(engine, {
       authorize: () => true,
       includeErrorMessage: true,
       onAdminMutation: (e) => {
@@ -479,7 +479,7 @@ describe('createAdminOperations onAdminMutation', () => {
       },
     })
     await expect(
-      h.savePolicy(makeAdminReq('PUT'), {} as unknown as AccessControl.IPolicy<Action, ResourceType, RoleId>),
+      h.savePolicy(makeAdminReq('PUT'), {} as unknown as IamAccessControl.IPolicy<Action, ResourceType, RoleId>),
     ).rejects.toThrow('full-detailed-message')
     await flushMicrotasks()
     engine.admin.savePolicy = original

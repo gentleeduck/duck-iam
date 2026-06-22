@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { randomToken, sha256 } from '../../crypto'
-import { RememberMeFacet } from '../remember-me'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { authRandomToken, authSha256 } from '../../crypto'
+import { AuthRememberMeFacet } from '../remember-me'
 
-describe('RememberMeFacet', () => {
-  let adapter: MemoryAuthAdapter
-  let facet: RememberMeFacet
+describe('AuthRememberMeFacet', () => {
+  let adapter: AuthMemoryAdapter
+  let facet: AuthRememberMeFacet
   let identityId: string
 
   beforeEach(async () => {
-    adapter = new MemoryAuthAdapter()
-    facet = new RememberMeFacet(adapter.credentials, { randomToken, sha256 })
+    adapter = new AuthMemoryAdapter()
+    facet = new AuthRememberMeFacet(adapter.credentials, { authRandomToken, authSha256 })
     const ident = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
     identityId = ident.id
   })
@@ -70,12 +70,12 @@ describe('RememberMeFacet', () => {
   it('does not match recovery rows of a different purpose', async () => {
     // Manually insert a non-trusted-device recovery row + ensure verify
     // does not accept it as a trusted device.
-    const token = randomToken(32)
+    const token = authRandomToken(32)
     await adapter.credentials.upsert(
       {
         identityId,
         kind: 'recovery',
-        secret: sha256(token),
+        secret: authSha256(token),
         metadata: { purpose: 'email-verification' },
       },
       {},
@@ -84,7 +84,7 @@ describe('RememberMeFacet', () => {
   })
 
   it('respects ttl: expired token returns null + is auto-deleted', async () => {
-    const tiny = new RememberMeFacet(adapter.credentials, { randomToken, sha256 }, { ttlMs: 5, byteLength: 32 })
+    const tiny = new AuthRememberMeFacet(adapter.credentials, { authRandomToken, authSha256 }, { ttlMs: 5, byteLength: 32 })
     const { token, credentialId } = await tiny.issue(identityId)
     await new Promise((r) => setTimeout(r, 20))
     expect(await tiny.verify(token)).toBeNull()

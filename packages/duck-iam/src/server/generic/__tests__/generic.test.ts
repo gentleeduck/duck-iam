@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Engine } from '../../../core/engine'
-import type { AccessControl } from '../../../core/types'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import { IamEngine } from '../../../core/engine'
+import type { IamAccessControl } from '../../../core/types'
 import {
-  createSubjectCan,
-  errorToAuditString,
-  extractEnvironment,
-  generatePermissionMap,
-  METHOD_ACTION_MAP,
+  createIamSubjectCan,
+  iamErrorToAuditString,
+  iamExtractEnvironment,
+  generateIamPermissionMap,
+  IAM_METHOD_ACTION_MAP,
 } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
@@ -15,7 +15,7 @@ type ResourceType = 'post' | 'comment'
 type RoleId = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [
@@ -24,7 +24,7 @@ const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   ],
 }
 
-const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -35,20 +35,20 @@ const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
 }
 
 function createEngine() {
-  const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+  const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: [viewerRole, editorRole],
     assignments: {
       'user-viewer': ['viewer'],
       'user-editor': ['editor'],
     },
   })
-  return new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 }
 
-describe('generatePermissionMap()', () => {
+describe('generateIamPermissionMap()', () => {
   it('generates a permission map for a subject', async () => {
     const engine = createEngine()
-    const map = await generatePermissionMap(engine, 'user-viewer', [
+    const map = await generateIamPermissionMap(engine, 'user-viewer', [
       { action: 'read', resource: 'post' },
       { action: 'create', resource: 'post' },
     ])
@@ -58,7 +58,7 @@ describe('generatePermissionMap()', () => {
 
   it('generates correct map for editor', async () => {
     const engine = createEngine()
-    const map = await generatePermissionMap(engine, 'user-editor', [
+    const map = await generateIamPermissionMap(engine, 'user-editor', [
       { action: 'read', resource: 'post' },
       { action: 'create', resource: 'post' },
       { action: 'update', resource: 'post' },
@@ -71,10 +71,10 @@ describe('generatePermissionMap()', () => {
   })
 })
 
-describe('createSubjectCan()', () => {
+describe('createIamSubjectCan()', () => {
   it('returns a function that checks permissions', async () => {
     const engine = createEngine()
-    const can = createSubjectCan(engine, 'user-viewer')
+    const can = createIamSubjectCan(engine, 'user-viewer')
 
     expect(await can('read', 'post')).toBe(true)
     expect(await can('create', 'post')).toBe(false)
@@ -82,15 +82,15 @@ describe('createSubjectCan()', () => {
 
   it('supports resourceId parameter', async () => {
     const engine = createEngine()
-    const can = createSubjectCan(engine, 'user-viewer')
+    const can = createIamSubjectCan(engine, 'user-viewer')
 
     expect(await can('read', 'post', 'post-42')).toBe(true)
   })
 })
 
-describe('extractEnvironment()', () => {
+describe('iamExtractEnvironment()', () => {
   it('extracts IP and user agent from request object', () => {
-    const env = extractEnvironment({
+    const env = iamExtractEnvironment({
       ip: '192.168.1.1',
       headers: { 'user-agent': 'Mozilla/5.0' },
     })
@@ -100,14 +100,14 @@ describe('extractEnvironment()', () => {
   })
 
   it('falls back to x-forwarded-for header', () => {
-    const env = extractEnvironment({
+    const env = iamExtractEnvironment({
       headers: { 'x-forwarded-for': '10.0.0.1' },
     })
     expect(env.ip).toBe('10.0.0.1')
   })
 
   it('falls back to x-real-ip header', () => {
-    const env = extractEnvironment({
+    const env = iamExtractEnvironment({
       headers: { 'x-real-ip': '10.0.0.2' },
     })
     expect(env.ip).toBe('10.0.0.2')
@@ -118,82 +118,82 @@ describe('extractEnvironment()', () => {
     headers.set('user-agent', 'TestAgent')
     headers.set('x-forwarded-for', '10.0.0.3')
 
-    const env = extractEnvironment({ headers })
+    const env = iamExtractEnvironment({ headers })
     expect(env.userAgent).toBe('TestAgent')
     expect(env.ip).toBe('10.0.0.3')
   })
 
   it('handles missing headers gracefully', () => {
-    const env = extractEnvironment({})
+    const env = iamExtractEnvironment({})
     expect(env.ip).toBeUndefined()
     expect(env.userAgent).toBeUndefined()
   })
 
   it('handles array header values', () => {
-    const env = extractEnvironment({
+    const env = iamExtractEnvironment({
       headers: { 'x-forwarded-for': ['10.0.0.1', '10.0.0.2'] },
     })
     expect(env.ip).toBe('10.0.0.1')
   })
 })
 
-describe('METHOD_ACTION_MAP', () => {
+describe('IAM_METHOD_ACTION_MAP', () => {
   it('maps GET to read', () => {
-    expect(METHOD_ACTION_MAP.GET).toBe('read')
+    expect(IAM_METHOD_ACTION_MAP.GET).toBe('read')
   })
 
   it('maps POST to create', () => {
-    expect(METHOD_ACTION_MAP.POST).toBe('create')
+    expect(IAM_METHOD_ACTION_MAP.POST).toBe('create')
   })
 
   it('maps PUT and PATCH to update', () => {
-    expect(METHOD_ACTION_MAP.PUT).toBe('update')
-    expect(METHOD_ACTION_MAP.PATCH).toBe('update')
+    expect(IAM_METHOD_ACTION_MAP.PUT).toBe('update')
+    expect(IAM_METHOD_ACTION_MAP.PATCH).toBe('update')
   })
 
   it('maps DELETE to delete', () => {
-    expect(METHOD_ACTION_MAP.DELETE).toBe('delete')
+    expect(IAM_METHOD_ACTION_MAP.DELETE).toBe('delete')
   })
 
   it('maps HEAD and OPTIONS to read', () => {
-    expect(METHOD_ACTION_MAP.HEAD).toBe('read')
-    expect(METHOD_ACTION_MAP.OPTIONS).toBe('read')
+    expect(IAM_METHOD_ACTION_MAP.HEAD).toBe('read')
+    expect(IAM_METHOD_ACTION_MAP.OPTIONS).toBe('read')
   })
 })
 
-describe('errorToAuditString', () => {
+describe('iamErrorToAuditString', () => {
   it('returns class name when includeMessage is omitted (default safe)', () => {
-    expect(errorToAuditString(new TypeError('boom'))).toBe('TypeError')
+    expect(iamErrorToAuditString(new TypeError('boom'))).toBe('TypeError')
   })
 
   it('returns Error.message when includeMessage is true', () => {
-    expect(errorToAuditString(new Error('explicit'), true)).toBe('explicit')
+    expect(iamErrorToAuditString(new Error('explicit'), true)).toBe('explicit')
   })
 
   it('tags non-Error throws + caps length when includeMessage is true', () => {
     const longSecret = 'X'.repeat(2000)
-    const out = errorToAuditString(longSecret, true)
+    const out = iamErrorToAuditString(longSecret, true)
     expect(out.startsWith('<non-Error string>')).toBe(true)
     expect(out).toContain('XXX')
     expect(out.length).toBeLessThan(500)
   })
 
   it('JSON.stringifies plain object non-Errors when includeMessage is true', () => {
-    expect(errorToAuditString({ kind: 'wrapper' }, true)).toBe('<non-Error object> {"kind":"wrapper"}')
+    expect(iamErrorToAuditString({ kind: 'wrapper' }, true)).toBe('<non-Error object> {"kind":"wrapper"}')
   })
 
   it('falls back to String() on circular references', () => {
     const circ: Record<string, unknown> = {}
     circ.self = circ
-    const out = errorToAuditString(circ, true)
+    const out = iamErrorToAuditString(circ, true)
     expect(out.startsWith('<non-Error object>')).toBe(true)
     expect(out).toContain('[object Object]')
   })
 
   it('safe defaults for undefined / null', () => {
-    expect(errorToAuditString(undefined)).toBe('undefined')
-    expect(errorToAuditString(null)).toBe('null')
-    expect(errorToAuditString(undefined, true)).toBe('undefined')
-    expect(errorToAuditString(null, true)).toBe('null')
+    expect(iamErrorToAuditString(undefined)).toBe('undefined')
+    expect(iamErrorToAuditString(null)).toBe('null')
+    expect(iamErrorToAuditString(undefined, true)).toBe('undefined')
+    expect(iamErrorToAuditString(null, true)).toBe('null')
   })
 })

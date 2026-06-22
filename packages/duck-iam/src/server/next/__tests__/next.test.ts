@@ -1,20 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Engine } from '../../../core/engine'
-import type { AccessControl } from '../../../core/types'
-import { checkAccess, createAdminHandlers, createNextMiddleware, getPermissions, withAccess } from '../index'
+import { IamMemoryAdapter } from '../../../adapters/memory'
+import { IamEngine } from '../../../core/engine'
+import type { IamAccessControl } from '../../../core/types'
+import { checkIamAccess, createIamAdminHandlers, createIamNextMiddleware, getIamPermissions, withIamAccess } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
 type ResourceType = 'post' | 'comment'
 type RoleId = 'viewer' | 'editor'
 type Scope = 'org-1'
 
-const viewerRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const viewerRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'viewer',
   name: 'Viewer',
   permissions: [{ action: 'read', resource: 'post' }],
 }
-const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
+const editorRole: IamAccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
   id: 'editor',
   name: 'Editor',
   inherits: ['viewer'],
@@ -26,11 +26,11 @@ const editorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = {
 }
 
 function makeEngine() {
-  const adapter = new MemoryAdapter<Action, ResourceType, RoleId, Scope>({
+  const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: [viewerRole, editorRole],
     assignments: { 'user-viewer': ['viewer'], 'user-editor': ['editor'] },
   })
-  return new Engine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
 }
 
 function makeRequest(opts: { url?: string; method?: string; headers?: Record<string, string> } = {}): Request {
@@ -40,8 +40,8 @@ function makeRequest(opts: { url?: string; method?: string; headers?: Record<str
   return new Request(url, init)
 }
 
-describe('withAccess', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+describe('withIamAccess', () => {
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = makeEngine()
@@ -49,7 +49,7 @@ describe('withAccess', () => {
 
   it('returns 401 when getUserId returns null', async () => {
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'delete', 'post', handler, { getUserId: () => null })
+    const wrapped = withIamAccess(engine, 'delete', 'post', handler, { getUserId: () => null })
     const res = await wrapped(makeRequest({ method: 'DELETE' }), { params: {} })
     expect(res.status).toBe(401)
     expect(handler).not.toHaveBeenCalled()
@@ -57,12 +57,12 @@ describe('withAccess', () => {
 
   it('throws at construction when getUserId is omitted', () => {
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    expect(() => withAccess(engine, 'delete', 'post', handler)).toThrow(/getUserId is required/)
+    expect(() => withIamAccess(engine, 'delete', 'post', handler)).toThrow(/getUserId is required/)
   })
 
   it('returns 403 when not allowed', async () => {
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'delete', 'post', handler, { getUserId: () => 'user-viewer' })
+    const wrapped = withIamAccess(engine, 'delete', 'post', handler, { getUserId: () => 'user-viewer' })
     const res = await wrapped(makeRequest({ method: 'DELETE' }), { params: {} })
     expect(res.status).toBe(403)
     expect(handler).not.toHaveBeenCalled()
@@ -70,7 +70,7 @@ describe('withAccess', () => {
 
   it('calls handler when allowed', async () => {
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'delete', 'post', handler, { getUserId: () => 'user-editor' })
+    const wrapped = withIamAccess(engine, 'delete', 'post', handler, { getUserId: () => 'user-editor' })
     const res = await wrapped(makeRequest({ method: 'DELETE' }), { params: {} })
     expect(handler).toHaveBeenCalledOnce()
     expect(res.status).toBe(200)
@@ -79,7 +79,7 @@ describe('withAccess', () => {
   it('awaits Promise params', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'delete', 'post', handler, { getUserId: () => 'u' })
+    const wrapped = withIamAccess(engine, 'delete', 'post', handler, { getUserId: () => 'u' })
     await wrapped(makeRequest({ method: 'DELETE' }), { params: Promise.resolve({ id: '99' }) })
     expect(can.mock.calls[0]?.[2]?.id).toBe('99')
     can.mockRestore()
@@ -88,7 +88,7 @@ describe('withAccess', () => {
   it('passes scope option', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess<Action, ResourceType, RoleId, Scope>(engine, 'delete', 'post', handler, {
+    const wrapped = withIamAccess<Action, ResourceType, RoleId, Scope>(engine, 'delete', 'post', handler, {
       getUserId: () => 'u',
       scope: 'org-1',
     })
@@ -100,7 +100,7 @@ describe('withAccess', () => {
   it('default getEnvironment reads x-forwarded-for + ua', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'read', 'post', handler, { getUserId: () => 'u' })
+    const wrapped = withIamAccess(engine, 'read', 'post', handler, { getUserId: () => 'u' })
     await wrapped(makeRequest({ headers: { 'x-forwarded-for': '1.1.1.1', 'user-agent': 'curl' } }), { params: {} })
     expect(can.mock.calls[0]?.[3]?.ip).toBe('1.1.1.1')
     expect(can.mock.calls[0]?.[3]?.userAgent).toBe('curl')
@@ -111,7 +111,7 @@ describe('withAccess', () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('boom'))
     const onError = vi.fn(() => Response.json({ err: true }, { status: 599 }))
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'read', 'post', handler, { getUserId: () => 'u', onError })
+    const wrapped = withIamAccess(engine, 'read', 'post', handler, { getUserId: () => 'u', onError })
     const res = await wrapped(makeRequest(), { params: {} })
     expect(res.status).toBe(599)
     expect(onError).toHaveBeenCalledOnce()
@@ -120,7 +120,7 @@ describe('withAccess', () => {
   it('async getUserId supported', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withAccess(engine, 'read', 'post', handler, {
+    const wrapped = withIamAccess(engine, 'read', 'post', handler, {
       getUserId: async () => 'async-user',
     })
     await wrapped(makeRequest(), { params: {} })
@@ -129,11 +129,11 @@ describe('withAccess', () => {
   })
 })
 
-describe('checkAccess', () => {
+describe('checkIamAccess', () => {
   it('delegates to engine.can with attributes:{}', async () => {
     const engine = makeEngine()
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const result = await checkAccess(engine, 'user-1', 'read', 'post', 'res-id', 'org-1' as Scope)
+    const result = await checkIamAccess(engine, 'user-1', 'read', 'post', 'res-id', 'org-1' as Scope)
     expect(result).toBe(true)
     expect(can).toHaveBeenCalledWith(
       'user-1',
@@ -146,10 +146,10 @@ describe('checkAccess', () => {
   })
 })
 
-describe('getPermissions', () => {
+describe('getIamPermissions', () => {
   it('delegates to engine.permissions', async () => {
     const engine = makeEngine()
-    const map = await getPermissions(engine, 'user-viewer', [
+    const map = await getIamPermissions(engine, 'user-viewer', [
       { action: 'read', resource: 'post' },
       { action: 'delete', resource: 'post' },
     ])
@@ -158,15 +158,15 @@ describe('getPermissions', () => {
   })
 })
 
-describe('createNextMiddleware', () => {
-  let engine: Engine<Action, ResourceType, RoleId, Scope>
+describe('createIamNextMiddleware', () => {
+  let engine: IamEngine<Action, ResourceType, RoleId, Scope>
 
   beforeEach(() => {
     engine = makeEngine()
   })
 
   it('returns null when no rule matches', async () => {
-    const mw = createNextMiddleware(engine, {
+    const mw = createIamNextMiddleware(engine, {
       rules: [{ pattern: '/admin', resource: 'post' }],
       getUserId: () => 'u',
     })
@@ -175,7 +175,7 @@ describe('createNextMiddleware', () => {
   })
 
   it('returns 401 when user missing', async () => {
-    const mw = createNextMiddleware(engine, {
+    const mw = createIamNextMiddleware(engine, {
       rules: [{ pattern: '/post', resource: 'post' }],
       getUserId: () => null,
     })
@@ -184,7 +184,7 @@ describe('createNextMiddleware', () => {
   })
 
   it('returns null (allow) when user is allowed', async () => {
-    const mw = createNextMiddleware(engine, {
+    const mw = createIamNextMiddleware(engine, {
       rules: [{ pattern: '/post', resource: 'post', action: 'read' }],
       getUserId: () => 'user-viewer',
     })
@@ -193,7 +193,7 @@ describe('createNextMiddleware', () => {
   })
 
   it('returns 403 when not allowed', async () => {
-    const mw = createNextMiddleware(engine, {
+    const mw = createIamNextMiddleware(engine, {
       rules: [{ pattern: '/post', resource: 'post', action: 'delete' }],
       getUserId: () => 'user-viewer',
     })
@@ -202,7 +202,7 @@ describe('createNextMiddleware', () => {
   })
 
   it('regex pattern works', async () => {
-    const mw = createNextMiddleware(engine, {
+    const mw = createIamNextMiddleware(engine, {
       rules: [{ pattern: /^\/admin\/.*/, resource: 'post', action: 'delete' }],
       getUserId: () => 'user-editor',
     })
@@ -212,7 +212,7 @@ describe('createNextMiddleware', () => {
 
   it('infers action from method when not set', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = createNextMiddleware(engine, {
+    const mw = createIamNextMiddleware(engine, {
       rules: [{ pattern: '/post', resource: 'post' }],
       getUserId: () => 'u',
     })
@@ -223,7 +223,7 @@ describe('createNextMiddleware', () => {
 
   it('passes scope from rule', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = createNextMiddleware<Action, ResourceType, RoleId, Scope>(engine, {
+    const mw = createIamNextMiddleware<Action, ResourceType, RoleId, Scope>(engine, {
       rules: [{ pattern: '/post', resource: 'post', action: 'read', scope: 'org-1' }],
       getUserId: () => 'u',
     })
@@ -235,7 +235,7 @@ describe('createNextMiddleware', () => {
   it('onError invoked on engine throw', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('boom'))
     const onError = vi.fn(() => Response.json({ err: true }, { status: 599 }))
-    const mw = createNextMiddleware(engine, {
+    const mw = createIamNextMiddleware(engine, {
       rules: [{ pattern: '/post', resource: 'post', action: 'read' }],
       getUserId: () => 'u',
       onError,
@@ -245,7 +245,7 @@ describe('createNextMiddleware', () => {
   })
 })
 
-describe('createAdminHandlers onAdminMutation', () => {
+describe('createIamAdminHandlers onAdminMutation', () => {
   const flushMicrotasks = () => new Promise((r) => setTimeout(r, 0))
 
   function makeAdminReq(opts: { method: string; url?: string; body?: unknown }): Request {
@@ -267,7 +267,7 @@ describe('createAdminHandlers onAdminMutation', () => {
       savedPolicy = true
       return origSave(p)
     }
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: (() => {
         authorizeCalled = true
         return { id: 'admin-1' }
@@ -288,7 +288,7 @@ describe('createAdminHandlers onAdminMutation', () => {
   it('savePolicy fires with action:replace, target:policy, success:true', async () => {
     const engine = makeEngine()
     const events: unknown[] = []
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: (() => ({ id: 'admin-1' })) as never,
       onAdminMutation: (e) => {
         events.push(e)
@@ -328,7 +328,7 @@ describe('createAdminHandlers onAdminMutation', () => {
     engine.admin.savePolicy = async () => {
       throw new Error('save-failed')
     }
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: () => true,
       onAdminMutation: (e) => {
         events.push(e)
@@ -348,7 +348,7 @@ describe('createAdminHandlers onAdminMutation', () => {
   it('does NOT fire on GET (read) handlers', async () => {
     const engine = makeEngine()
     const events: unknown[] = []
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: () => true,
       onAdminMutation: (e) => {
         events.push(e)
@@ -363,7 +363,7 @@ describe('createAdminHandlers onAdminMutation', () => {
   it('hook is fire-and-forget - a throwing hook does not affect the response', async () => {
     const engine = makeEngine()
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: () => true,
       onAdminMutation: () => {
         throw new Error('hook-explode')
@@ -386,7 +386,7 @@ describe('createAdminHandlers onAdminMutation', () => {
   it('redactPath rewrites event.path before the hook is called', async () => {
     const engine = makeEngine()
     const events: Array<{ path: string }> = []
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: () => true,
       onAdminMutation: (e) => {
         events.push(e)
@@ -408,7 +408,7 @@ describe('createAdminHandlers onAdminMutation', () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const captured: Array<{ err: unknown; event: { action: string; target: string } }> = []
     const boom = new Error('hook-boom')
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: () => true,
       onAdminMutation: () => {
         throw boom
@@ -445,7 +445,7 @@ describe('createAdminHandlers onAdminMutation', () => {
     engine.admin.savePolicy = async () => {
       throw new PolicyValidationError()
     }
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: () => true,
       onAdminMutation: (e) => {
         events.push(e)
@@ -466,7 +466,7 @@ describe('createAdminHandlers onAdminMutation', () => {
     engine.admin.savePolicy = async () => {
       throw new Error('full-detailed-message')
     }
-    const h = createAdminHandlers(engine, {
+    const h = createIamAdminHandlers(engine, {
       authorize: () => true,
       includeErrorMessage: true,
       onAdminMutation: (e) => {

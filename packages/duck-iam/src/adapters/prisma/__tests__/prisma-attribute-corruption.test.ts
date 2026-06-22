@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { PrismaAdapter } from '../index'
+import { IamPrismaAdapter } from '../index'
 
 function makePrismaWithAttrs(data: unknown): {
-  adapter: PrismaAdapter
+  adapter: IamPrismaAdapter
   attrs: Map<string, { subjectId: string; data: unknown }>
 } {
   const attrs = new Map<string, { subjectId: string; data: unknown }>()
@@ -45,11 +45,11 @@ function makePrismaWithAttrs(data: unknown): {
       ),
     },
   }
-  const adapter = new PrismaAdapter(prisma)
+  const adapter = new IamPrismaAdapter(prisma)
   return { adapter, attrs }
 }
 
-describe('PrismaAdapter attribute corruption defense', () => {
+describe('IamPrismaAdapter attribute corruption defense', () => {
   it('returns {} when no row exists (control)', async () => {
     const { adapter } = makePrismaWithAttrs(undefined)
     expect(await adapter.getSubjectAttributes('user-1')).toEqual({})

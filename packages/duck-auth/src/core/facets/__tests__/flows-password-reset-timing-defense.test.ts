@@ -1,32 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAuthAdapter } from '../../../adapters/memory'
-import { MemoryLimiter } from '../../../limiters/memory'
-import { AuthRoot } from '../../auth'
-import { ScryptHasher } from '../../password/scrypt'
-import { CookieTransport } from '../../transport/cookie'
-import type { Channel } from '../../types/channel'
+import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { AuthEngine } from '../../auth'
+import { AuthScryptHasher } from '../../password/scrypt'
+import { AuthCookieTransport } from '../../transport/cookie'
+import type { AuthChannel } from '../../types/channel'
 
 interface MyProfile {
   email: string
 }
 
-function buildAuth(): { auth: AuthRoot<MyProfile>; adapter: MemoryAuthAdapter<MyProfile> } {
-  const adapter = new MemoryAuthAdapter<MyProfile>()
-  const auth = new AuthRoot<MyProfile>({
+function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: AuthMemoryAdapter<MyProfile> } {
+  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
-function makeSlowChannel(delayMs: number): Channel.IChannel & { sendStarted: number } {
+function makeSlowChannel(delayMs: number): AuthChannel.IChannel & { sendStarted: number } {
   const ch = {
     kind: 'email' as const,
     id: 'slow',
@@ -88,7 +88,7 @@ describe('flows.requestPasswordReset - timing-defense', () => {
   })
 
   it('channel.send throw -> signin.failed event with reason; no caller-side error', async () => {
-    const failingChannel: Channel.IChannel = {
+    const failingChannel: AuthChannel.IChannel = {
       kind: 'email',
       id: 'failing',
       async send() {
@@ -117,7 +117,7 @@ describe('flows.requestPasswordReset - timing-defense', () => {
   })
 
   it('channel.send returning ok:false -> signin.failed event; no caller-side error', async () => {
-    const rejecting: Channel.IChannel = {
+    const rejecting: AuthChannel.IChannel = {
       kind: 'email',
       id: 'reject',
       async send() {

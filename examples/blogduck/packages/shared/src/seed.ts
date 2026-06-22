@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { allRoles } from './access'
-import { accessAssignments, accessRoles, db, posts, users } from './db'
+import { iamAssignments, iamRoles, db, posts, users } from './db'
 
 const dbPath = new URL('../data.db', import.meta.url).pathname
 const sqlite = new Database(dbPath)
@@ -54,7 +54,7 @@ sqlite.exec(`
 `)
 
 for (const role of allRoles) {
-  db.insert(accessRoles)
+  db.insert(iamRoles)
     .values({
       id: role.id,
       name: role.name,
@@ -75,7 +75,7 @@ db.insert(users)
   ])
   .run()
 
-db.insert(accessAssignments)
+db.insert(iamAssignments)
   .values([
     { subjectId: 'alice', roleId: 'viewer', scope: null },
     { subjectId: 'bob', roleId: 'editor', scope: null },

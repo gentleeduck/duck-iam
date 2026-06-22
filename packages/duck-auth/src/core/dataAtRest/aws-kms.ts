@@ -1,22 +1,22 @@
 import { AuthErrorObject } from '../errors'
-import type { Kms } from '../types/kms'
+import type { AuthKms } from '../types/kms'
 
-/** Reference `Kms.IProvider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
-export class AwsKmsProvider implements Kms.IProvider {
+/** Reference `AuthKms.IProvider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
+export class AuthAwsKmsProvider implements AuthKms.IProvider {
   readonly id = 'aws-kms'
   private readonly _keyId: string
-  private readonly _client: AwsKmsProvider.IKmsLike
+  private readonly _client: AuthAwsKmsProvider.IKmsLike
 
-  constructor(cfg: AwsKmsProvider.IConfig) {
+  constructor(cfg: AuthAwsKmsProvider.IConfig) {
     this._keyId = cfg.keyId
     this._client = cfg.client
   }
 
-  async generateDataKey(ctx?: Kms.IEncryptionContext): Promise<Kms.IDataKey> {
+  async generateDataKey(ctx?: AuthKms.IEncryptionContext): Promise<AuthKms.IDataKey> {
     const cmd = await loadCommand('GenerateDataKeyCommand')
     const out = (await this._client.send(
       new cmd({ KeyId: this._keyId, KeySpec: 'AES_256', EncryptionContext: ctx }),
-    )) as AwsKmsProvider.IGenerateDataKeyOutput
+    )) as AuthAwsKmsProvider.IGenerateDataKeyOutput
     if (!out.Plaintext || !out.CiphertextBlob) {
       throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
         detail: 'aws-kms: GenerateDataKey returned no key material',
@@ -29,11 +29,11 @@ export class AwsKmsProvider implements Kms.IProvider {
     }
   }
 
-  async decryptDataKey(wrapped: Uint8Array, ctx?: Kms.IEncryptionContext): Promise<Uint8Array> {
+  async decryptDataKey(wrapped: Uint8Array, ctx?: AuthKms.IEncryptionContext): Promise<Uint8Array> {
     const cmd = await loadCommand('DecryptCommand')
     const out = (await this._client.send(
       new cmd({ CiphertextBlob: wrapped, EncryptionContext: ctx, KeyId: this._keyId }),
-    )) as AwsKmsProvider.IDecryptOutput
+    )) as AuthAwsKmsProvider.IDecryptOutput
     if (!out.Plaintext) {
       throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
         detail: 'aws-kms: Decrypt returned no plaintext',
@@ -73,7 +73,7 @@ function toUint8(v: Uint8Array | Buffer | ArrayBuffer): Uint8Array {
   return new Uint8Array(v as ArrayBuffer)
 }
 
-export namespace AwsKmsProvider {
+export namespace AuthAwsKmsProvider {
   export interface IKmsLike {
     send(command: unknown): Promise<unknown>
   }

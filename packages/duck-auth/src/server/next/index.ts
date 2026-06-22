@@ -1,41 +1,41 @@
-import type { AuthRoot } from '../../core/auth'
-import { csrfGuard } from '../../core/csrf'
-import { errorToHttp, executeIntents, isValidProviderId, parseProviderBeginBody, parseSignInBody } from '../generic'
+import type { AuthEngine } from '../../core/auth'
+import { authCsrfGuard } from '../../core/csrf'
+import { authErrorToHttp, authExecuteIntents, authIsValidProviderId, authParseProviderBeginBody, authParseSignInBody } from '../generic'
 
-/** `nextSignIn`. CSRF-guarded. */
-export function nextSignIn(auth: AuthRoot): NextAdapter.IHandler {
+/** `authNextSignIn`. CSRF-guarded. */
+export function authNextSignIn(auth: AuthEngine): AuthNextAdapter.IHandler {
   return async (req) => {
     try {
-      await csrfGuard(auth, { method: req.method, headers: req.headers })
-      const parsed = parseSignInBody(await req.json().catch(() => null))
+      await authCsrfGuard(auth, { method: req.method, headers: req.headers })
+      const parsed = authParseSignInBody(await req.json().catch(() => null))
       if (!parsed) {
-        return executeIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+        return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
       }
       const result = await auth.flows.signIn(parsed)
-      return executeIntents(result.intents)
+      return authExecuteIntents(result.intents)
     } catch (err) {
       return handleError(err)
     }
   }
 }
 
-/** `nextSignOut`. CSRF-guarded. */
-export function nextSignOut(auth: AuthRoot): NextAdapter.IHandler {
+/** `authNextSignOut`. CSRF-guarded. */
+export function authNextSignOut(auth: AuthEngine): AuthNextAdapter.IHandler {
   return async (req) => {
     try {
-      await csrfGuard(auth, { method: req.method, headers: req.headers })
+      await authCsrfGuard(auth, { method: req.method, headers: req.headers })
       const sid = auth.transport.extract({ headers: req.headers })
-      if (!sid) return executeIntents(auth.transport.revoke())
+      if (!sid) return authExecuteIntents(auth.transport.revoke())
       const { intents } = await auth.flows.signOut(sid)
-      return executeIntents(intents)
+      return authExecuteIntents(intents)
     } catch (err) {
       return handleError(err)
     }
   }
 }
 
-/** `nextSession`. */
-export function nextSession(auth: AuthRoot): NextAdapter.IHandler {
+/** `authNextSession`. */
+export function authNextSession(auth: AuthEngine): AuthNextAdapter.IHandler {
   return async (req) => {
     try {
       const resolved = await auth.resolveSession({ headers: req.headers })
@@ -50,22 +50,22 @@ export function nextSession(auth: AuthRoot): NextAdapter.IHandler {
 }
 
 /**
- * Provider begin handler. Extract the provider id from the URL path or pass
+ * AuthProvider begin handler. Extract the provider id from the URL path or pass
  * via the second arg; both flows fit the App Router shape.
  */
-export function nextProviderBegin(auth: AuthRoot, providerId: string): NextAdapter.IHandler {
+export function authNextProviderBegin(auth: AuthEngine, providerId: string): AuthNextAdapter.IHandler {
   return async (req) => {
     try {
-      if (!isValidProviderId(providerId)) {
-        return executeIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
+      if (!authIsValidProviderId(providerId)) {
+        return authExecuteIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
       }
-      await csrfGuard(auth, { method: req.method, headers: req.headers })
-      const body = parseProviderBeginBody(await req.json().catch(() => null))
+      await authCsrfGuard(auth, { method: req.method, headers: req.headers })
+      const body = authParseProviderBeginBody(await req.json().catch(() => null))
       if (body === null) {
-        return executeIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+        return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
       }
       const intents = await auth.flows.beginProvider(providerId, body)
-      return executeIntents(intents)
+      return authExecuteIntents(intents)
     } catch (err) {
       return handleError(err)
     }
@@ -74,18 +74,18 @@ export function nextProviderBegin(auth: AuthRoot, providerId: string): NextAdapt
 
 /**
  * Catch-all router for `app/api/auth/[...auth]/route.ts`. Returns `{ GET, POST }`
- * tied to the configured AuthRoot. Apps map the parsed path segments to
+ * tied to the configured AuthEngine. Apps map the parsed path segments to
  * provider/flow handlers.
  *
- * Apps can also wire the individual nextSignIn / nextSignOut / etc. directly
- * - `mountNext` is an ergonomic helper.
+ * Apps can also wire the individual authNextSignIn / authNextSignOut / etc. directly
+ * - `authMountNext` is an ergonomic helper.
  */
-export function mountNext(
-  auth: AuthRoot,
+export function authMountNext(
+  auth: AuthEngine,
   opts: { signin?: boolean; signout?: boolean; session?: boolean; providerBegin?: boolean } = {},
 ): {
-  POST: NextAdapter.IHandler
-  GET: NextAdapter.IHandler
+  POST: AuthNextAdapter.IHandler
+  GET: AuthNextAdapter.IHandler
 } {
   const enabled = {
     signin: opts.signin ?? true,
@@ -100,12 +100,12 @@ export function mountNext(
       // last segments after '/auth/'
       const last = segments[segments.length - 1] ?? ''
       const second = segments[segments.length - 2] ?? ''
-      if (enabled.signin && last === 'signin') return nextSignIn(auth)(req)
-      if (enabled.signout && last === 'signout') return nextSignOut(auth)(req)
+      if (enabled.signin && last === 'signin') return authNextSignIn(auth)(req)
+      if (enabled.signout && last === 'signout') return authNextSignOut(auth)(req)
       if (enabled.providerBegin && last === 'begin' && second) {
-        return nextProviderBegin(auth, second)(req)
+        return authNextProviderBegin(auth, second)(req)
       }
-      return executeIntents([
+      return authExecuteIntents([
         { type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 404, detail: 'unknown auth route' },
       ])
     },
@@ -113,8 +113,8 @@ export function mountNext(
       const url = new URL(req.url)
       const segments = url.pathname.split('/').filter(Boolean)
       const last = segments[segments.length - 1] ?? ''
-      if (enabled.session && last === 'session') return nextSession(auth)(req)
-      return executeIntents([
+      if (enabled.session && last === 'session') return authNextSession(auth)(req)
+      return authExecuteIntents([
         { type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 404, detail: 'unknown auth route' },
       ])
     },
@@ -122,10 +122,10 @@ export function mountNext(
 }
 
 function handleError(err: unknown): Response {
-  const { status, body } = errorToHttp(err)
+  const { status, body } = authErrorToHttp(err)
   return Response.json(body, { status })
 }
 
-export namespace NextAdapter {
+export namespace AuthNextAdapter {
   export type IHandler = (req: Request) => Promise<Response>
 }

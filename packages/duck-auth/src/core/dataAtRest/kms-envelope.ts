@@ -1,25 +1,25 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { AuthErrorObject } from '../errors'
-import type { DataAtRest } from '../types/dataAtRest'
-import type { Kms } from '../types/kms'
+import type { AuthDataAtRest } from '../types/dataAtRest'
+import type { AuthKms } from '../types/kms'
 
 /**
- * Envelope-encryption `DataAtRest.IAdapter` driven by any `Kms.IProvider`.
+ * Envelope-encryption `AuthDataAtRest.IAdapter` driven by any `AuthKms.IProvider`.
  * Per-record DEK + AES-256-GCM locally; `{identityId, field}` is pinned in
  * the KMS encryption context (AAD) to defeat ciphertext relocation.
  *
  * Ciphertext layout: `kms-env$v1$<keyId>$<wrappedB64u>$<ivB64u>$<tagB64u>$<ctB64u>`.
  */
-export class KmsEnvelopeDataAtRest implements DataAtRest.IAdapter {
+export class AuthKmsEnvelopeDataAtRest implements AuthDataAtRest.IAdapter {
   readonly id: string
-  private readonly _kms: Kms.IProvider
+  private readonly _kms: AuthKms.IProvider
 
-  constructor(cfg: KmsEnvelopeDataAtRest.IConfig) {
+  constructor(cfg: AuthKmsEnvelopeDataAtRest.IConfig) {
     this._kms = cfg.kms
     this.id = `kms-envelope:${cfg.kms.id}`
   }
 
-  async encrypt(plain: string, ctx: DataAtRest.IContext): Promise<string> {
+  async encrypt(plain: string, ctx: AuthDataAtRest.IContext): Promise<string> {
     const dek = await this._kms.generateDataKey(this._aad(ctx))
     if (dek.plaintext.length !== 32) {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', {
@@ -45,7 +45,7 @@ export class KmsEnvelopeDataAtRest implements DataAtRest.IAdapter {
     ].join('$')
   }
 
-  async decrypt(cipherText: string, ctx: DataAtRest.IContext): Promise<string> {
+  async decrypt(cipherText: string, ctx: AuthDataAtRest.IContext): Promise<string> {
     const parts = cipherText.split('$')
     if (parts.length !== 7 || parts[0] !== 'kms-env' || parts[1] !== 'v1') {
       throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'kms-envelope: malformed ciphertext' })
@@ -79,8 +79,8 @@ export class KmsEnvelopeDataAtRest implements DataAtRest.IAdapter {
     return false
   }
 
-  private _aad(ctx: DataAtRest.IContext): Kms.IEncryptionContext {
-    const aad: Kms.IEncryptionContext = {
+  private _aad(ctx: AuthDataAtRest.IContext): AuthKms.IEncryptionContext {
+    const aad: AuthKms.IEncryptionContext = {
       field: ctx.field,
       identityId: ctx.identityId,
     }
@@ -89,8 +89,8 @@ export class KmsEnvelopeDataAtRest implements DataAtRest.IAdapter {
   }
 }
 
-export namespace KmsEnvelopeDataAtRest {
+export namespace AuthKmsEnvelopeDataAtRest {
   export interface IConfig {
-    kms: Kms.IProvider
+    kms: AuthKms.IProvider
   }
 }

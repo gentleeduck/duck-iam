@@ -1,13 +1,13 @@
-import type { Identity } from './identity'
-import type { Session } from './session'
+import type { AuthIdentity } from './identity'
+import type { AuthSession } from './session'
 
 /**
- * Anomaly-detection adapter contract. Each detector evaluates a request
+ * AuthAnomaly-detection adapter contract. Each detector evaluates a request
  * + session and returns zero or more signals. Apps register one or more
- * detectors; AuthRoot aggregates the scores and emits `suspicious` when
+ * detectors; AuthEngine aggregates the scores and emits `suspicious` when
  * thresholds trip
  */
-export namespace Anomaly {
+export namespace AuthAnomaly {
   export type Kind = 'impossible-travel' | 'new-device' | 'high-velocity' | 'off-hours' | 'concurrent-geo'
 
   export interface Signal {
@@ -26,6 +26,6 @@ export namespace Anomaly {
 
   export interface IDetector {
     readonly id: string
-    evaluate(ctx: { session: Session.ISession; identity: Identity.IIdentity; req: RequestSnapshot }): Promise<Signal[]>
+    evaluate(ctx: { session: AuthSession.ISession; identity: AuthIdentity.IIdentity; req: RequestSnapshot }): Promise<Signal[]>
   }
 }

@@ -1,8 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import type { EngineTypes } from '../../core/engine/engine.types'
+import type { IamEngineTypes } from '../../core/engine/engine.types'
 
 /** Redis invalidator integration types. Type-only namespace - zero bundle cost. */
-export namespace RedisInvalidator {
+export namespace IamRedisInvalidator {
   /**
    * Describes the minimum pub/sub surface needed by the Redis invalidator.
    *
@@ -40,7 +40,7 @@ export namespace RedisInvalidator {
     unsubscribe?(channel: string): void | Promise<void>
   }
 
-  /** Configures {@link createRedisInvalidator}. */
+  /** Configures {@link createIamRedisInvalidator}. */
   export interface IConfig {
     /** Redis pub/sub adapter implementing {@link IPubSubLike}. */
     client: IPubSubLike
@@ -64,7 +64,7 @@ export namespace RedisInvalidator {
      *
      * @example
      * ```ts
-     * createRedisInvalidator({ client, secret, tenantId: req.tenantSlug })
+     * createIamRedisInvalidator({ client, secret, tenantId: req.tenantSlug })
      * ```
      */
     tenantId?: string
@@ -186,7 +186,7 @@ interface SignedEnvelope<TRole extends string> {
   readonly sig: string
   readonly payload: {
     readonly instanceId: string
-    readonly event: EngineTypes.IInvalidateEvent<TRole>
+    readonly event: IamEngineTypes.IInvalidateEvent<TRole>
     readonly ts: number
   }
 }
@@ -227,24 +227,24 @@ function safeHexEqual(a: string, b: string): boolean {
  * caches -> set a secret in production.
  *
  * @template TRole - Role identifier union the engine is parameterised over.
- * @param config - Supplies the client and optional channel; see {@link RedisInvalidator.IConfig}.
- * @returns An {@link EngineTypes.IInvalidator} bound to the configured channel.
+ * @param config - Supplies the client and optional channel; see {@link IamRedisInvalidator.IConfig}.
+ * @returns An {@link IamEngineTypes.IInvalidator} bound to the configured channel.
  * @example
  * ```ts
- * import { createRedisInvalidator } from '@gentleduck/iam/invalidators/redis'
+ * import { createIamRedisInvalidator } from '@gentleduck/iam/invalidators/redis'
  *
- * const engine = new Engine({
+ * const engine = new IamEngine({
  *   adapter,
- *   invalidator: createRedisInvalidator({
+ *   invalidator: createIamRedisInvalidator({
  *     client: redisPubSub,
  *     secret: process.env.IAM_INVALIDATE_SECRET,
  *   }),
  * })
  * ```
  */
-export function createRedisInvalidator<TRole extends string = string>(
-  config: RedisInvalidator.IConfig,
-): EngineTypes.IInvalidator<TRole> {
+export function createIamRedisInvalidator<TRole extends string = string>(
+  config: IamRedisInvalidator.IConfig,
+): IamEngineTypes.IInvalidator<TRole> {
   const baseChannel = config.channel ?? DEFAULT_CHANNEL
   // Tenant slug shape-validated to prevent pub/sub wildcard injection.
   let channel = baseChannel
@@ -259,7 +259,7 @@ export function createRedisInvalidator<TRole extends string = string>(
     channel = `${baseChannel}:tenant:${config.tenantId}`
   }
   const instanceId = generateInstanceId()
-  const handlers = new Set<(event: EngineTypes.IInvalidateEvent<TRole>) => void>()
+  const handlers = new Set<(event: IamEngineTypes.IInvalidateEvent<TRole>) => void>()
   const secret = config.secret ?? null
 
   if (secret === null && !_UNSIGNED_WARNED.fired) {
@@ -368,7 +368,7 @@ function parseIncoming<TRole extends string>(
   secret: string | null,
   channel: string,
   warnDropOnce: (channel: string, reason: string) => void,
-): { instanceId: string; event: EngineTypes.IInvalidateEvent<TRole> } | null {
+): { instanceId: string; event: IamEngineTypes.IInvalidateEvent<TRole> } | null {
   // Pre-auth size cap; canonicalJSON runs before HMAC verify.
   if (typeof s !== 'string') return null
   // Byte length (not `s.length`); surrogate pairs would sneak past the cap.
@@ -453,11 +453,11 @@ function parseIncoming<TRole extends string>(
 }
 
 /**
- * Type predicate for the {@link EngineTypes.IInvalidateEvent} discriminated
+ * Type predicate for the {@link IamEngineTypes.IInvalidateEvent} discriminated
  * union. Enforces per-kind required fields so a tampered payload cannot
  * trigger an invalidate with an undefined `subjectId` or `roleId`.
  */
-function _isValidEvent<TRole extends string>(ev: unknown): ev is EngineTypes.IInvalidateEvent<TRole> {
+function _isValidEvent<TRole extends string>(ev: unknown): ev is IamEngineTypes.IInvalidateEvent<TRole> {
   if (typeof ev !== 'object' || ev === null || Array.isArray(ev)) return false
   const kind = Reflect.get(ev, 'kind')
   if (kind === 'all' || kind === 'policies') return true

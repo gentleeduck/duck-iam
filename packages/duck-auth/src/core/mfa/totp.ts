@@ -10,7 +10,7 @@ export const TOTP_DEFAULTS: Totp.IParams = {
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 
 /** Encode bytes as RFC 4648 base32 (no padding). */
-export function base32Encode(buf: Buffer): string {
+export function authBase32Encode(buf: Buffer): string {
   let bits = 0
   let value = 0
   let out = ''
@@ -29,7 +29,7 @@ export function base32Encode(buf: Buffer): string {
 }
 
 /** Decode RFC 4648 base32 (case-insensitive, ignores padding + spaces). */
-export function base32Decode(s: string): Buffer {
+export function authBase32Decode(s: string): Buffer {
   const cleaned = s.toUpperCase().replace(/[\s=]/g, '')
   let bits = 0
   let value = 0
@@ -49,8 +49,8 @@ export function base32Decode(s: string): Buffer {
 }
 
 /** Generate a fresh 20-byte secret base32-encoded for storage + QR. */
-export function generateSecret(): string {
-  return base32Encode(randomBytes(20))
+export function authGenerateSecret(): string {
+  return authBase32Encode(randomBytes(20))
 }
 
 /** Build an otpauth:// URI suitable for QR generation by the consumer. */
@@ -75,10 +75,10 @@ export function buildOtpAuthUri(opts: {
 
 /**
  * Compute the TOTP code at the given step. Hot path; constant-time-safe
- * comparison happens in {@link verifyTotp}.
+ * comparison happens in {@link authVerifyTotp}.
  */
 export function totpAt(secretB32: string, stepIndex: number, params: Totp.IParams = TOTP_DEFAULTS): string {
-  const secret = base32Decode(secretB32)
+  const secret = authBase32Decode(secretB32)
   const buf = Buffer.alloc(8)
   // RFC 4226 section 5.3 - 8-byte big-endian counter.
   buf.writeBigUInt64BE(BigInt(stepIndex))
@@ -99,7 +99,7 @@ export function totpAt(secretB32: string, stepIndex: number, params: Totp.IParam
  *
  * `nowMs` defaults to `Date.now()`; tests pass it explicitly for determinism.
  */
-export function verifyTotp(
+export function authVerifyTotp(
   secretB32: string,
   code: string,
   opts: { params?: Totp.IParams; nowMs?: number } = {},

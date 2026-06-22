@@ -1,45 +1,45 @@
-import type { Explain } from '../../core/explain'
-import type { AccessControl, Primitives } from '../../core/types'
-import type { Metrics } from '../../observability/metrics'
+import type { IamExplain } from '../../core/explain'
+import type { IamAccessControl, IamPrimitives } from '../../core/types'
+import type { IamMetrics } from '../../observability/metrics'
 
 /**
  * Minimal engine surface the devtool relies on. Lets consumers pass any
  * concrete `Engine<...>` without variance issues.
  */
-export interface IDevtoolsEngine {
+export interface IamIDevtoolsEngine {
   can(
     subjectId: string,
     action: string,
-    resource: { type: string; id?: string; attributes?: Record<string, Primitives.AttributeValue> },
+    resource: { type: string; id?: string; attributes?: Record<string, IamPrimitives.AttributeValue> },
     environment?: Record<string, unknown>,
   ): Promise<unknown>
   explain(
     subjectId: string,
     action: string,
-    resource: { type: string; id?: string; attributes?: Record<string, Primitives.AttributeValue> },
+    resource: { type: string; id?: string; attributes?: Record<string, IamPrimitives.AttributeValue> },
     environment?: Record<string, unknown>,
-  ): Promise<Explain.IResult>
+  ): Promise<IamExplain.IResult>
   stats(): Record<string, { hits: number; misses: number; size: number }>
   resetStats(): void
   admin: {
-    listPolicies(): Promise<AccessControl.IPolicy[]>
-    listRoles(): Promise<AccessControl.IRole[]>
-    getPolicy(id: string): Promise<AccessControl.IPolicy | null>
-    getRole(id: string): Promise<AccessControl.IRole | null>
+    listPolicies(): Promise<IamAccessControl.IPolicy[]>
+    listRoles(): Promise<IamAccessControl.IRole[]>
+    getPolicy(id: string): Promise<IamAccessControl.IPolicy | null>
+    getRole(id: string): Promise<IamAccessControl.IRole | null>
     assignRole(subjectId: string, roleId: string, scope?: string): Promise<void>
     revokeRole(subjectId: string, roleId: string, scope?: string): Promise<void>
-    setAttributes(subjectId: string, attrs: Primitives.Attributes): Promise<void>
-    getAttributes(subjectId: string): Promise<Primitives.Attributes>
+    setAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
+    getAttributes(subjectId: string): Promise<IamPrimitives.Attributes>
     export(): Promise<unknown>
   }
 }
 
-export interface IDevtoolsMetrics {
-  snapshot(): Metrics.ISnapshot
+export interface IamIDevtoolsMetrics {
+  snapshot(): IamMetrics.ISnapshot
   reset(): void
 }
 
-export interface IDecisionInput {
+export interface IamIDecisionInput {
   subjectId: string
   action: string
   resourceType: string
@@ -49,4 +49,4 @@ export interface IDecisionInput {
   scope: string
 }
 
-export type PanelKey = 'flow' | 'decision' | 'policies' | 'roles' | 'subjects' | 'metrics'
+export type IamPanelKey = 'flow' | 'decision' | 'policies' | 'roles' | 'subjects' | 'metrics'

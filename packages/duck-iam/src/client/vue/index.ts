@@ -18,13 +18,13 @@
  *   <button v-if="can('delete', 'post')">Delete</button>
  */
 
-import type { Client } from '../../core/types'
-import { buildPermissionKey } from '../../shared/keys'
+import type { IamClient } from '../../core/types'
+import { iamBuildPermissionKey } from '../../shared/keys'
 
 /** Vue injection key for the access control state. */
-export const ACCESS_INJECTION_KEY = Symbol('duck-iam')
+export const IAM_ACCESS_INJECTION_KEY = Symbol('duck-iam')
 
-// Vue is a peer dep; consumers inject their own Vue via createVueAccess(vue).
+// Vue is a peer dep; consumers inject their own Vue via createIamVueAccess(vue).
 
 /** Minimal Vue ref type. */
 interface VueRef<T> {
@@ -61,18 +61,18 @@ interface VueApp {
  * @template TResource - Constrains valid resource strings.
  * @template TScope - Constrains valid scope strings.
  * @param vue - Provides the host Vue module so we never bundle our own copy.
- * @returns `{ createAccessState, provideAccess, useAccess, createAccessPlugin, Can, Cannot, ACCESS_INJECTION_KEY }`.
+ * @returns `{ createAccessState, provideAccess, useAccess, createAccessPlugin, Can, Cannot, IAM_ACCESS_INJECTION_KEY }`.
  * @example
  * ```ts
  * import { ref, computed, inject, provide, defineComponent, h } from 'vue'
- * import { createVueAccess } from 'duck-iam/client/vue'
+ * import { createIamVueAccess } from 'duck-iam/client/vue'
  *
- * export const { useAccess, createAccessPlugin } = createVueAccess({
+ * export const { useAccess, createAccessPlugin } = createIamVueAccess({
  *   ref, computed, inject, provide, defineComponent, h,
  * })
  * ```
  */
-export function createVueAccess<
+export function createIamVueAccess<
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
@@ -80,11 +80,11 @@ export function createVueAccess<
   const { ref, inject, provide, defineComponent } = vue
 
   /** Create reactive access control state with can/cannot helpers. */
-  function createAccessState(initialPermissions: Client.PermissionMap<TAction, TResource, TScope>) {
+  function createAccessState(initialPermissions: IamClient.PermissionMap<TAction, TResource, TScope>) {
     const permissions = ref(initialPermissions)
 
     const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
-      const key = buildPermissionKey(action, resource, resourceId, scope)
+      const key = iamBuildPermissionKey(action, resource, resourceId, scope)
       return (permissions.value as Record<string, boolean>)[key] ?? false
     }
 
@@ -92,7 +92,7 @@ export function createVueAccess<
       return !can(action, resource, resourceId, scope)
     }
 
-    const update = (newPerms: Client.PermissionMap<TAction, TResource, TScope>) => {
+    const update = (newPerms: IamClient.PermissionMap<TAction, TResource, TScope>) => {
       permissions.value = newPerms
     }
 
@@ -100,15 +100,15 @@ export function createVueAccess<
   }
 
   /** Provide access control state to child components via Vue's provide/inject. */
-  function provideAccess(permissions: Client.PermissionMap<TAction, TResource, TScope>) {
+  function provideAccess(permissions: IamClient.PermissionMap<TAction, TResource, TScope>) {
     const state = createAccessState(permissions)
-    provide(ACCESS_INJECTION_KEY, state)
+    provide(IAM_ACCESS_INJECTION_KEY, state)
     return state
   }
 
   /** Composable to access the permission state from a parent provider. */
   function useAccess() {
-    const state = inject(ACCESS_INJECTION_KEY)
+    const state = inject(IAM_ACCESS_INJECTION_KEY)
     if (!state) {
       throw new Error(
         '[@gentleduck/iam:vue] useAccess() called without provideAccess(). ' +
@@ -119,11 +119,11 @@ export function createVueAccess<
   }
 
   /** Create a Vue plugin that installs access control globally. */
-  function createAccessPlugin(permissions: Client.PermissionMap<TAction, TResource, TScope>) {
+  function createAccessPlugin(permissions: IamClient.PermissionMap<TAction, TResource, TScope>) {
     return {
       install(app: VueApp) {
         const state = createAccessState(permissions)
-        app.provide(ACCESS_INJECTION_KEY, state)
+        app.provide(IAM_ACCESS_INJECTION_KEY, state)
 
         app.config.globalProperties.$can = state.can
         app.config.globalProperties.$cannot = state.cannot
@@ -203,6 +203,6 @@ export function createVueAccess<
     createAccessPlugin,
     Can,
     Cannot,
-    ACCESS_INJECTION_KEY,
+    IAM_ACCESS_INJECTION_KEY,
   }
 }

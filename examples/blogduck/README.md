@@ -53,7 +53,7 @@ blogduck/
 Everything starts in `shared/src/access.ts`. You declare your actions and resources, then build roles with a type-safe builder:
 
 ```ts
-const access = createAccessConfig({
+const access = createIam({
   actions: ['create', 'read', 'update', 'delete'] as const,
   resources: ['post', 'user'] as const,
 })
@@ -88,18 +88,18 @@ The `as const` on the config input is what makes everything type-safe. If you wr
 
 ### 2. Store roles in your database
 
-The `DrizzleAdapter` reads and writes roles, policies, and assignments from your database. You define the tables alongside your app's tables:
+The `IamDrizzleAdapter` reads and writes roles, policies, and assignments from your database. You define the tables alongside your app's tables:
 
 ```ts
 // duck-iam tables - live next to your app tables
-const accessRoles        = sqliteTable('access_roles', { ... })
-const accessPolicies     = sqliteTable('access_policies', { ... })
-const accessAssignments  = sqliteTable('access_assignments', { ... })
-const accessSubjectAttrs = sqliteTable('access_subject_attrs', { ... })
+const iamRoles        = sqliteTable('access_roles', { ... })
+const iamPolicies     = sqliteTable('access_policies', { ... })
+const iamAssignments  = sqliteTable('access_assignments', { ... })
+const iamSubjectAttrs = sqliteTable('access_subject_attrs', { ... })
 
-const adapter = new DrizzleAdapter({
+const adapter = new IamDrizzleAdapter({
   db,
-  tables: { policies: accessPolicies, roles: accessRoles, assignments: accessAssignments, attrs: accessSubjectAttrs },
+  tables: { policies: iamPolicies, roles: iamRoles, assignments: iamAssignments, attrs: iamSubjectAttrs },
   ops: { eq, and },
 })
 ```
@@ -213,7 +213,7 @@ You can't ship a permission check that references something that doesn't exist.
 
 ### Database-backed roles (not hardcoded)
 
-Roles, policies, and assignments live in your database, not in code. The `DrizzleAdapter` reads them at runtime. This means:
+Roles, policies, and assignments live in your database, not in code. The `IamDrizzleAdapter` reads them at runtime. This means:
 
 - You can add new roles without redeploying
 - You can assign and revoke roles through an admin API (`engine.admin.assignRole()`, `engine.admin.revokeRole()`)

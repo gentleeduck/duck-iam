@@ -9,9 +9,9 @@
  * claim mapping, distributed claims, RP-initiated logout (separate).
  */
 
-import type { Identity } from '../../core/types/identity'
+import type { AuthIdentity } from '../../core/types/identity'
 
-export namespace OidcOP {
+export namespace AuthOidcOP {
   export type IGrantType = 'authorization_code' | 'refresh_token'
   export type IResponseType = 'code'
   export type ITokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
@@ -21,7 +21,7 @@ export namespace OidcOP {
   /** A registered OIDC client. */
   export interface IClient {
     client_id: string
-    /** Hashed (sha256) secret. `null` for public clients. */
+    /** Hashed (authSha256) secret. `null` for public clients. */
     client_secret_hash: string | null
     redirect_uris: string[]
     grant_types: IGrantType[]
@@ -50,7 +50,7 @@ export namespace OidcOP {
     code_challenge_method: ICodeChallengeMethod | null
     /** Tenant binding for cross-tenant guard. */
     tenant_id: string | null
-    /** Session id used to mint this code; surfaced into id_token sid claim. */
+    /** AuthSession id used to mint this code; surfaced into id_token sid claim. */
     sid: string
     /** Expiry, ms epoch. */
     exp: number
@@ -58,7 +58,7 @@ export namespace OidcOP {
 
   /** An issued opaque access token. */
   export interface IAccessToken {
-    /** Hashed token (sha256). Plaintext is only ever returned at issue time. */
+    /** Hashed token (authSha256). Plaintext is only ever returned at issue time. */
     token_hash: string
     client_id: string
     identity_id: string
@@ -178,7 +178,7 @@ export namespace OidcOP {
   export type IAuthorizeResult =
     | { kind: 'redirect'; url: string }
     | { kind: 'login_required'; reason: 'no_session' | 'prompt_login' | 'max_age_exceeded' }
-    | { kind: 'consent_required'; client: IClient; scope: string[]; identity: Identity.IIdentity<unknown> }
+    | { kind: 'consent_required'; client: IClient; scope: string[]; identity: AuthIdentity.IIdentity<unknown> }
     | { kind: 'error'; status: number; body: IOAuthError; redirectUri?: string }
 
   /** /token request shape, post body parse. */
