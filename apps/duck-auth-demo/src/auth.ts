@@ -4,7 +4,7 @@
  * skipped when env keys missing), authPasskey (WebAuthn), TOTP/backup
  * codes. Storage: Postgres via the bundled Drizzle adapter.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { authDrizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
@@ -54,14 +54,14 @@ export const auth = createAuth<DemoProfile>({
       authGoogle<DemoProfile>({
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
-        redirectUri: `${BASE_URL}/auth/providers/authGoogle/callback`,
+        redirectUri: `${BASE_URL}/auth/providers/google/callback`,
         stateSigningSecret: STATE,
       }),
     process.env.GITHUB_CLIENT_ID &&
       authGithub<DemoProfile>({
         clientId: process.env.GITHUB_CLIENT_ID,
         clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
-        redirectUri: `${BASE_URL}/auth/providers/authGithub/callback`,
+        redirectUri: `${BASE_URL}/auth/providers/github/callback`,
         stateSigningSecret: STATE,
       }),
     () =>

@@ -3,7 +3,7 @@
  * CORS is wired for the Storybook origin so Live stories on :6006
  * can speak to :8787 with credentials.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { authMountHono } from '@gentleduck/auth/server/hono'
