@@ -38,33 +38,33 @@ describe('condition operators', () => {
 
   describe('gt / gte / lt / lte', () => {
     it('gt compares numbers', () => {
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'gt', value: 3 }] }),
-      ).toBe(true)
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'gt', value: 5 }] }),
-      ).toBe(false)
+      expect(evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'gt', value: 3 }] })).toBe(
+        true,
+      )
+      expect(evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'gt', value: 5 }] })).toBe(
+        false,
+      )
     })
 
     it('gte includes equal', () => {
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'gte', value: 5 }] }),
-      ).toBe(true)
+      expect(evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'gte', value: 5 }] })).toBe(
+        true,
+      )
     })
 
     it('lt compares numbers', () => {
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'lt', value: 10 }] }),
-      ).toBe(true)
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'lt', value: 5 }] }),
-      ).toBe(false)
+      expect(evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'lt', value: 10 }] })).toBe(
+        true,
+      )
+      expect(evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'lt', value: 5 }] })).toBe(
+        false,
+      )
     })
 
     it('lte includes equal', () => {
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'lte', value: 5 }] }),
-      ).toBe(true)
+      expect(evalConditionGroup(req, { all: [{ field: 'subject.attributes.level', operator: 'lte', value: 5 }] })).toBe(
+        true,
+      )
     })
 
     it('numeric ops return false for non-number fields', () => {
@@ -77,9 +77,9 @@ describe('condition operators', () => {
       expect(evalConditionGroup(req, { all: [{ field: 'action', operator: 'in', value: ['read', 'write'] }] })).toBe(
         true,
       )
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'action', operator: 'in', value: ['write', 'delete'] }] }),
-      ).toBe(false)
+      expect(evalConditionGroup(req, { all: [{ field: 'action', operator: 'in', value: ['write', 'delete'] }] })).toBe(
+        false,
+      )
     })
 
     it('in with array field checks intersection', () => {
@@ -96,12 +96,12 @@ describe('condition operators', () => {
     })
 
     it('nin is the negation of in', () => {
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'action', operator: 'nin', value: ['write', 'delete'] }] }),
-      ).toBe(true)
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'action', operator: 'nin', value: ['read', 'write'] }] }),
-      ).toBe(false)
+      expect(evalConditionGroup(req, { all: [{ field: 'action', operator: 'nin', value: ['write', 'delete'] }] })).toBe(
+        true,
+      )
+      expect(evalConditionGroup(req, { all: [{ field: 'action', operator: 'nin', value: ['read', 'write'] }] })).toBe(
+        false,
+      )
     })
   })
 
@@ -110,9 +110,9 @@ describe('condition operators', () => {
       expect(
         evalConditionGroup(req, { all: [{ field: 'subject.roles', operator: 'contains', value: 'editor' }] }),
       ).toBe(true)
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'subject.roles', operator: 'contains', value: 'admin' }] }),
-      ).toBe(false)
+      expect(evalConditionGroup(req, { all: [{ field: 'subject.roles', operator: 'contains', value: 'admin' }] })).toBe(
+        false,
+      )
     })
 
     it('string contains substring', () => {
@@ -208,9 +208,9 @@ describe('condition operators', () => {
     })
 
     it('not_exists returns true for missing fields', () => {
-      expect(
-        evalConditionGroup(req, { all: [{ field: 'subject.attributes.missing', operator: 'not_exists' }] }),
-      ).toBe(true)
+      expect(evalConditionGroup(req, { all: [{ field: 'subject.attributes.missing', operator: 'not_exists' }] })).toBe(
+        true,
+      )
     })
   })
 

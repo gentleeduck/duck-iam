@@ -182,9 +182,7 @@ function freezeConditionGroup(group: AccessControl.IConditionGroup): void {
   Object.freeze(group)
 }
 
-function freezeConditionArray(
-  arr: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup>,
-): void {
+function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup>): void {
   for (const item of arr) {
     if ('field' in item) Object.freeze(item)
     else freezeConditionGroup(item)

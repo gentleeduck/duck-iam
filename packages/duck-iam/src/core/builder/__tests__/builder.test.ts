@@ -1,15 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DotPath } from '../../types'
-import {
-  PolicyBuilder,
-  RoleBuilder,
-  RuleBuilder,
-  When,
-  definePolicy,
-  defineRole,
-  defineRule,
-  when,
-} from '..'
+import { definePolicy, defineRole, defineRule, PolicyBuilder, RoleBuilder, RuleBuilder, When, when } from '..'
 
 interface TypedBuilderContext {
   action: 'read' | 'update'
@@ -59,9 +50,7 @@ describe('When (condition builder)', () => {
   })
 
   it('builds a none-group', () => {
-    const group = new When<string, string, string, string, DotPath.IDefaultContext>()
-      .eq('action', 'delete')
-      .buildNone()
+    const group = new When<string, string, string, string, DotPath.IDefaultContext>().eq('action', 'delete').buildNone()
     expect('none' in group).toBe(true)
   })
 
@@ -102,9 +91,7 @@ describe('When (condition builder)', () => {
   })
 
   it('attr() prefixes with subject.attributes', () => {
-    const group = new When<string, string, string, string, DotPath.IDefaultContext>()
-      .attr('level', 'gte', 5)
-      .buildAll()
+    const group = new When<string, string, string, string, DotPath.IDefaultContext>().attr('level', 'gte', 5).buildAll()
     expect(group.all[0]).toMatchObject({ field: 'subject.attributes.level', operator: 'gte', value: 5 })
   })
 

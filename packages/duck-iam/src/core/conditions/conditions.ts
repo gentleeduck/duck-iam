@@ -1,5 +1,5 @@
 import type { AccessControl, IamPrimitives, IamRequest } from '../types'
-import { MAX_CONDITION_DEPTH, evalCondition, isCondition, ops, resolveValue } from './conditions.libs'
+import { evalCondition, isCondition, MAX_CONDITION_DEPTH, ops, resolveValue } from './conditions.libs'
 
 /**
  * Evaluate a single operator. Exposed for explain/trace functionality.

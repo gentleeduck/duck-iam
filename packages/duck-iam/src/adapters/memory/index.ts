@@ -115,9 +115,7 @@ export class IamMemoryAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles currently held in memory.
    */
-  async listRoles(
-    _opts?: IamAdapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     return [...this._roles.values()]
   }
 

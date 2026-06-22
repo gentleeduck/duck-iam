@@ -84,11 +84,7 @@ describe('RememberMeFacet', () => {
   })
 
   it('respects ttl: expired token returns null + is auto-deleted', async () => {
-    const tiny = new RememberMeFacet(
-      adapter.credentials,
-      { authRandomToken, authSha256 },
-      { ttlMs: 5, byteLength: 32 },
-    )
+    const tiny = new RememberMeFacet(adapter.credentials, { authRandomToken, authSha256 }, { ttlMs: 5, byteLength: 32 })
     const { token, credentialId } = await tiny.issue(identityId)
     await new Promise((r) => setTimeout(r, 20))
     expect(await tiny.verify(token)).toBeNull()

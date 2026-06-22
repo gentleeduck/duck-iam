@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AuthInMemoryEvents } from '../../events'
-import { WebhookDeliverer, signWebhookBody, verifyWebhookSignature } from '../index'
+import { signWebhookBody, verifyWebhookSignature, WebhookDeliverer } from '../index'
 
 function makeFetch(
   responses: Array<{ ok: boolean; throws?: boolean }>,

@@ -544,9 +544,7 @@ export class IamHttpAdapter<
    * @param opts - Optional read options forwarded to fetch.
    * @returns Array of roles returned by `GET /roles`.
    */
-  async listRoles(
-    opts?: IamAdapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     return this._request('/roles', undefined, opts)
   }
   /**

@@ -343,10 +343,7 @@ export class When<
     path: K,
     op: AccessControl.Operator,
     value?:
-      | DotPath.ConditionValue<
-          TContext,
-          DotPath.AttrValue<DotPath.ResolvedResourceAttrs<TContext, TActiveResource>, K>
-        >
+      | DotPath.ConditionValue<TContext, DotPath.AttrValue<DotPath.ResolvedResourceAttrs<TContext, TActiveResource>, K>>
       | DotPath.FlexibleDollarPaths<TContext>,
   ): this {
     this._items.push({ field: `resource.attributes.${path}`, operator: op, value })

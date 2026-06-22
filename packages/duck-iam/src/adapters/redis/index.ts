@@ -346,9 +346,7 @@ export class IamRedisAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles decoded from the `roles` hash.
    */
-  async listRoles(
-    _opts?: IamAdapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const entries = await this._client.hgetall(this._rolesKey())
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const [rowId, raw] of Object.entries(entries)) {

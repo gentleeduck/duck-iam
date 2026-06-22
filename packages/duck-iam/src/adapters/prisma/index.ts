@@ -163,9 +163,7 @@ export class IamPrismaAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles parsed from `accessRole` rows.
    */
-  async listRoles(
-    _opts?: IamAdapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this.prisma.accessRole.findMany()
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const row of rows) {

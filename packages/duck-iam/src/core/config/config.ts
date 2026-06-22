@@ -1,7 +1,7 @@
 import { PolicyBuilder, RoleBuilder, RuleBuilder, When } from '../builder'
 import type { IamEngineTypes } from '../engine'
 import { IamEngine } from '../engine'
-import type { AccessControl, IamClient, DotPath } from '../types'
+import type { AccessControl, DotPath, IamClient } from '../types'
 import { validatePolicy, validateRoles } from '../validate'
 import type { IamConfig } from './config.types'
 
@@ -69,8 +69,7 @@ export function createIam<
 
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => checks,
 
-    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[]) =>
-      validateRoles(roles),
+    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[]) => validateRoles(roles),
 
     validatePolicy: (input: unknown) => validatePolicy(input),
   }

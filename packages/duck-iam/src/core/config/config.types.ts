@@ -1,6 +1,6 @@
 import type { PolicyBuilder, RoleBuilder, RuleBuilder, When } from '../builder'
 import type { IamEngine, IamEngineTypes } from '../engine'
-import type { AccessControl, IamClient, DotPath } from '../types'
+import type { AccessControl, DotPath, IamClient } from '../types'
 import type { IamValidate } from '../validate'
 
 export namespace IamConfig {
@@ -96,9 +96,7 @@ export namespace IamConfig {
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => T
 
     /** Role validation: duplicate IDs, dangling inherits, circular inheritance, empty roles. */
-    validateRoles: (
-      roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[],
-    ) => IamValidate.IResult
+    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[]) => IamValidate.IResult
 
     /**
      * IamValidate a policy object from an untrusted source (database, API, JSON).

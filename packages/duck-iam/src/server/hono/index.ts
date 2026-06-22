@@ -275,9 +275,11 @@ export function iamBindAdminRouter<
   router.put(
     '/policies',
     mutate('replace', 'policy', undefined, async (c) => {
-      const body = (await (
-        c as unknown as { req: { json(): Promise<unknown> } }
-      ).req.json()) as AccessControl.IPolicy<TAction, TResource, TRole>
+      const body = (await (c as unknown as { req: { json(): Promise<unknown> } }).req.json()) as AccessControl.IPolicy<
+        TAction,
+        TResource,
+        TRole
+      >
       await engine.admin.savePolicy(body)
       return c.json({ ok: true })
     }),

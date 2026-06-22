@@ -17,20 +17,20 @@ import { authRandomToken, authSha256, authTimingSafeEqual } from '../../core/cry
 import type { AuthIdentity } from '../../core/types/identity'
 import {
   AuthMemoryAccessTokenStore,
-  MemoryClientStore,
   AuthMemoryCodeStore,
   AuthMemoryConsentStore,
   AuthMemoryRefreshTokenStore,
+  MemoryClientStore,
 } from './stores'
 import type { AuthOidcOP } from './types'
 
 export type { AuthOidcOP } from './types'
 export {
   AuthMemoryAccessTokenStore,
-  MemoryClientStore,
   AuthMemoryCodeStore,
   AuthMemoryConsentStore,
   AuthMemoryRefreshTokenStore,
+  MemoryClientStore,
 }
 
 interface IDeps<Profile> {

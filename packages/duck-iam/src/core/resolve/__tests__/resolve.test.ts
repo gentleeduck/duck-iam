@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { IamRequest } from '../../types'
-import {
-  matchesAction,
-  matchesResource,
-  matchesResourceHierarchical,
-  matchesScope,
-  resolve,
-} from '../resolve'
+import { matchesAction, matchesResource, matchesResourceHierarchical, matchesScope, resolve } from '../resolve'
 
 const baseRequest: IamRequest.IAccessRequest = {
   subject: {

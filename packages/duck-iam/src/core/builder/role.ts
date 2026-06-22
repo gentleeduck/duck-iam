@@ -341,9 +341,7 @@ export class RoleBuilder<
       const errs = result.issues
         .filter((i) => i.type === 'error')
         .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
-      throw new Error(
-        `[@gentleduck/iam:builder] RoleBuilder.build(): role rejected by validator - ${errs.join('; ')}`,
-      )
+      throw new Error(`[@gentleduck/iam:builder] RoleBuilder.build(): role rejected by validator - ${errs.join('; ')}`)
     }
     return role
   }

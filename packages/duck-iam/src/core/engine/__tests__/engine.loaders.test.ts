@@ -63,9 +63,7 @@ describe('loadPolicies', () => {
   })
 
   it('caches the policy list under "all"', async () => {
-    const policies: AccessControl.IPolicy[] = [
-      { id: 'p', name: 'p', algorithm: 'deny-overrides' as const, rules: [] },
-    ]
+    const policies: AccessControl.IPolicy[] = [{ id: 'p', name: 'p', algorithm: 'deny-overrides' as const, rules: [] }]
     deps.adapter.listPolicies = vi.fn(async () => policies)
     await loadPolicies(deps)
     expect(deps.policyCache.get('all')).toEqual(policies)

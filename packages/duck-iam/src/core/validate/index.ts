@@ -1,5 +1,6 @@
 export { parsePolicyRow, parseRoleRow, validatePolicy, validateRole, validateRoles } from './validate'
 export {
+  detectCatastrophicRegex,
   MAX_CONDITION_VALUE_LENGTH,
   MAX_FIELD_LENGTH,
   MAX_UNBOUNDED_QUANTIFIERS,
@@ -7,6 +8,5 @@ export {
   VALID_ALGORITHMS,
   VALID_EFFECTS,
   VALID_OPERATORS,
-  detectCatastrophicRegex,
 } from './validate.libs'
 export type { IamValidate } from './validate.types'

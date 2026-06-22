@@ -558,9 +558,7 @@ describe('fast path: literal-only resource patterns', () => {
       ],
     }
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(false)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(
-      false,
-    )
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(false)
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org', attributes: {} } }))).toBe(true)
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(false)
   })
@@ -594,9 +592,7 @@ describe('fast path: literal-only resource patterns', () => {
         },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(
-      false,
-    )
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(false)
     expect(
       evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users.settings', attributes: {} } })),
     ).toBe(false)

@@ -1,10 +1,10 @@
 import * as nodePath from 'node:path'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import {
-  validatePolicy,
-  validateRole,
   parsePolicyRow as parsePolicyRowShared,
   parseRoleRow as parseRoleRowShared,
+  validatePolicy,
+  validateRole,
 } from '../../core/validate'
 
 export namespace IamFile {
@@ -419,9 +419,7 @@ export class IamFileAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All stored roles.
    */
-  async listRoles(
-    _opts?: IamAdapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const s = await this._loadState()
     return Object.values(s.roles)
   }

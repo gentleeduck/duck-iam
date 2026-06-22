@@ -26,9 +26,7 @@ describe('validateRoles()', () => {
   })
 
   it('detects dangling inherits references', () => {
-    const roles: AccessControl.IRole[] = [
-      { id: 'editor', name: 'Editor', inherits: ['nonexistent'], permissions: [] },
-    ]
+    const roles: AccessControl.IRole[] = [{ id: 'editor', name: 'Editor', inherits: ['nonexistent'], permissions: [] }]
     const result = validateRoles(roles)
     expect(result.valid).toBe(false)
     expect(result.issues.some((i) => i.code === 'DANGLING_INHERIT')).toBe(true)

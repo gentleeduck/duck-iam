@@ -327,9 +327,7 @@ export class IamDrizzleAdapter<
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles parsed from the roles table.
    */
-  async listRoles(
-    _opts?: IamAdapter.IReadOptions,
-  ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
+  async listRoles(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
     const rows = await this._selectAll<RoleRow>(this._t.roles)
     const out: AccessControl.IRole<TAction, TResource, TRole, TScope>[] = []
     for (const row of rows) {

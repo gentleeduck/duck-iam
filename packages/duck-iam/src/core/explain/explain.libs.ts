@@ -9,9 +9,7 @@ import type { Explain } from './explain.types'
 const MAX_TRACE_DEPTH = 10
 
 /** Type guard that distinguishes a flat {@link AccessControl.ICondition} from a nested {@link AccessControl.IConditionGroup}. */
-function isCondition(
-  item: AccessControl.ICondition | AccessControl.IConditionGroup,
-): item is AccessControl.ICondition {
+function isCondition(item: AccessControl.ICondition | AccessControl.IConditionGroup): item is AccessControl.ICondition {
   return 'field' in item
 }
 
