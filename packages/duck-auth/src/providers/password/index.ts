@@ -23,7 +23,7 @@ export namespace AuthPasswordProvider {
   /** Input to complete. */
   export interface ICompleteInput {
     email: string
-    authPassword: string
+    password: string
   }
 }
 
@@ -48,7 +48,7 @@ export function authPassword<Profile = unknown>(
       return []
     },
     async complete(ctx, input) {
-      const { email, authPassword: pw } = input
+      const { email, password: pw } = input
       // email cap per RFC 5321 (254); authPassword cap matches the
       // PasswordsFacet maxLength (default 1024). Without caps, an
       // attacker can DoS via huge inputs reaching the hasher / store.

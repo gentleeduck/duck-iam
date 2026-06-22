@@ -83,7 +83,7 @@ describe('authCreateClient', () => {
         return { status: 200, body: null }
       })
       const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never })
-      await client.beginProvider('oauth:authGoogle')
+      await client.beginProvider('oauth:google')
       expect(captured).toBe('/auth/providers/oauth%3Agoogle/begin')
     })
   })
