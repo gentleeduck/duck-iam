@@ -146,6 +146,55 @@ import { authDrizzleSqliteStorage } from '@gentleduck/auth/adapters/drizzle/sqli
 import { authDrizzleMysqlStorage } from '@gentleduck/auth/adapters/drizzle/mysql'
 ```
 
+### `orgs` store — what it is and where to get it
+
+`authDrizzlePgStorage` (and the other SQL adapters) do **not** include an `orgs` store.
+`storage.orgs` is optional; omit it unless your app uses org-scoped sessions or duck-iam org scopes.
+
+When you do need it, implement `AuthOrg.IStore<OrgMeta>` yourself against your own orgs table
+and pass it into `createAuth`:
+
+```ts
+import type { AuthOrg } from '@gentleduck/auth/core/types'
+import { orgsTable } from './schema'  // your own table
+import { eq } from 'drizzle-orm'
+
+const orgStore: AuthOrg.IStore<{ plan: string }> = {
+  async findById(id, ctx) {
+    const rows = await db.select().from(orgsTable).where(eq(orgsTable.id, id)).limit(1)
+    return rows[0] ?? null
+  },
+  async listForIdentity(identityId, ctx) {
+    // join your memberships table → orgs
+    return []
+  },
+  async listMembers(orgId, ctx) {
+    return []
+  },
+  async addMember(orgId, identityId, role, ctx) {
+    // insert into memberships
+  },
+  async updateMember(orgId, identityId, patch, ctx) {},
+  async removeMember(orgId, identityId, ctx) {},
+}
+
+export const auth = createAuth<Profile, string, { plan: string }>({
+  storage: {
+    ...authDrizzlePgStorage<Profile>(db),
+    orgs: orgStore,
+  },
+  // ...
+})
+```
+
+**When using duck-iam in the same project**: the IAM `scope` (e.g. `'org:acme'`) is the canonical
+identifier for an org across both packages. Use the same org ID string in both:
+- `engine.admin.assignRole(userId, 'editor', 'org:acme')` — IAM side
+- `auth.orgs.addMember('org:acme', userId, 'editor')` — auth side
+
+The two stores are independent; duck-iam does not read from `auth.stores.orgs` and vice versa.
+Share the same database table if you want a single source of truth.
+
 ---
 
 ## 3. Transports

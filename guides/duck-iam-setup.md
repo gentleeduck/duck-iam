@@ -439,6 +439,42 @@ auth.events.on('signin.success', async ({ session }) => {
 })
 ```
 
+### Orgs: duck-auth `storage.orgs` vs duck-iam scopes
+
+The two packages use org IDs independently:
+
+| | duck-auth | duck-iam |
+|---|---|---|
+| Concept | `AuthOrg.IStore<OrgMeta>` — org membership + metadata | `scope` string — constrains role assignment |
+| Format | any string (e.g. `'org:acme'`) | same string as the scope arg |
+| Store | `auth.stores.orgs` — your implementation | `engine.admin.assignRole(userId, role, scope)` |
+
+**Key facts:**
+
+- `authDrizzlePgStorage` does **not** expose an `orgs` store. Implement `AuthOrg.IStore<OrgMeta>`
+  yourself using your org table and pass it as `storage.orgs` in `createAuth`.
+- duck-iam does not read from `auth.stores.orgs`. Org membership in auth and scoped role
+  assignments in IAM are separate records — they just share the same org ID string.
+- To keep them in sync, listen to auth org events and mirror into IAM:
+
+```ts
+auth.events.on('org.member.added', async ({ orgId, identityId, role }) => {
+  // mirror the org membership as a scoped IAM role
+  await engine.admin.assignRole(identityId, role, `org:${orgId}`)
+})
+
+auth.events.on('org.member.removed', async ({ orgId, identityId }) => {
+  // revoke all scoped roles for this org
+  const assignments = await engine.admin.listAssignments(identityId)
+  for (const a of assignments.filter((x) => x.scope === `org:${orgId}`)) {
+    await engine.admin.revokeRole(identityId, a.role, a.scope)
+  }
+})
+```
+
+- If you do not use `auth.orgs` at all (e.g. org data lives in a separate service),
+  omit `storage.orgs` from `createAuth`. duck-iam still works; just use scopes directly.
+
 ---
 
 ## 13. Validation

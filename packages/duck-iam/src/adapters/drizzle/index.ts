@@ -44,16 +44,26 @@ export namespace IamDrizzle {
    * }
    * ```
    */
-  export interface IConfig<TDb extends AnyDrizzleDb = AnyDrizzleDb> {
+  /**
+   * Shape that the four IAM tables must satisfy.
+   * Pass your concrete table types (from `iamPolicies`, `iamRoles`, etc.)
+   * as `TTables` so TypeScript infers column types throughout the adapter.
+   */
+  export type ITableSchema<TDb extends AnyDrizzleDb = AnyDrizzleDb> = {
+    policies: DbTableFor<TDb>
+    roles: DbTableFor<TDb>
+    assignments: DbTableFor<TDb>
+    attrs: DbTableFor<TDb>
+  }
+
+  export interface IConfig<
+    TDb extends AnyDrizzleDb = AnyDrizzleDb,
+    TTables extends ITableSchema<TDb> = ITableSchema<TDb>,
+  > {
     /** Provides the IamDrizzle database instance with select/insert/delete builders. */
     db: TDb
     /** Provides references to the four IamDrizzle table schemas used by the adapter. */
-    tables: {
-      policies: DbTableFor<TDb>
-      roles: DbTableFor<TDb>
-      assignments: DbTableFor<TDb>
-      attrs: DbTableFor<TDb>
-    }
+    tables: TTables
     /** Provides IamDrizzle operator functions for building WHERE clauses. */
     ops: {
       eq: (col: unknown, val: unknown) => unknown
@@ -151,10 +161,11 @@ export class IamDrizzleAdapter<
   TRole extends string = string,
   TScope extends string = string,
   TDb extends IamDrizzle.AnyDrizzleDb = IamDrizzle.AnyDrizzleDb,
+  TTables extends IamDrizzle.ITableSchema<TDb> = IamDrizzle.ITableSchema<TDb>,
 > implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
   private _db: TDb
-  private _t: IamDrizzle.IConfig<TDb>['tables']
+  private _t: TTables
   private _eq: IamDrizzle.IConfig['ops']['eq']
   private _and: IamDrizzle.IConfig['ops']['and']
   private _json: 'native' | 'string'
@@ -165,7 +176,7 @@ export class IamDrizzleAdapter<
    *
    * @param config - Provides the IamDrizzle db, tables, and operator functions.
    */
-  constructor(config: IamDrizzle.IConfig<TDb>) {
+  constructor(config: IamDrizzle.IConfig<TDb, TTables>) {
     this._db = config.db
     this._t = config.tables
     this._eq = config.ops.eq

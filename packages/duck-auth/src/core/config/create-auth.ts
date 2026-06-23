@@ -31,7 +31,11 @@ export function createAuth<Profile = unknown, Tenant = string, OrgMeta = unknown
   config: AuthDefine.IConfig<Profile, Tenant, OrgMeta>,
 ): AuthEngine<Profile, Tenant, OrgMeta> {
   const transport = config.transport ?? new AuthCookieTransport({ name: 'duck-sid' })
-  const passwords = config.hasher ? { hasher: config.hasher } : { hasher: new AuthScryptHasher() }
+
+  // `passwords` field wins over shorthand `hasher` when both are set.
+  const passwords: AuthEngineTypes.IConfig['passwords'] = config.passwords
+    ? { hasher: new AuthScryptHasher(), ...config.passwords }
+    : { hasher: config.hasher ?? new AuthScryptHasher() }
 
   const rootConfig: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta> = {
     baseUrl: config.baseUrl,
@@ -46,6 +50,7 @@ export function createAuth<Profile = unknown, Tenant = string, OrgMeta = unknown
     ...(config.limiter !== undefined && { limiter: config.limiter }),
     ...(config.events !== undefined && { events: config.events }),
     ...(config.session !== undefined && { session: config.session }),
+    ...(config.identities !== undefined && { identities: config.identities }),
     ...(config.mfa !== undefined && { mfa: config.mfa }),
     ...(config.apiKeys !== undefined && { apiKeys: config.apiKeys }),
     ...(config.hijack !== undefined && { hijack: config.hijack }),
@@ -55,7 +60,8 @@ export function createAuth<Profile = unknown, Tenant = string, OrgMeta = unknown
 
   for (const entry of config.providers ?? []) {
     if (!entry) continue
-    const p = typeof entry === 'function' ? entry(auth) : entry
+    // Pass channels as second arg so magic-link / OTP thunks can bind without repeating config.
+    const p = typeof entry === 'function' ? entry(auth, config.channels) : entry
     if (!p) continue
     auth.providers.register(p)
   }

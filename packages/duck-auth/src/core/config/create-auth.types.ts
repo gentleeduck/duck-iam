@@ -12,15 +12,20 @@ import type { AuthSession } from '../types/session'
 import type { AuthTransport } from '../types/transport'
 
 export namespace AuthDefine {
-  /** Skipped-or-included provider entry; falsy values dropped, thunks receive the constructed AuthEngine. */
-  export type IProviderEntry<Profile> =
+  /**
+   * Skipped-or-included provider entry. Falsy values silently dropped.
+   * Thunks receive the constructed `AuthEngine` and the resolved channel bundle
+   * so magic-link / OTP providers can bind both without repeating config.
+   */
+  export type IProviderEntry<Profile, Tenant = string, OrgMeta = unknown> =
     | AuthProvider.IProvider<unknown, unknown, Profile>
     | false
     | null
     | undefined
     | ''
     | ((
-        auth: AuthEngine<Profile, any, any>,
+        auth: AuthEngine<Profile, Tenant, OrgMeta>,
+        channels: IChannels | undefined,
       ) => AuthProvider.IProvider<unknown, unknown, Profile> | false | null | undefined | '')
 
   /** Skipped-or-included plugin entry — same falsy-drop rules as providers. */
@@ -36,10 +41,15 @@ export namespace AuthDefine {
     identities: AuthIdentity.IStore<Profile>
     sessions: AuthSession.IStore
     credentials: AuthCredential.IStore
+    /**
+     * Optional org store. Not provided by `authDrizzlePgStorage` — implement
+     * `AuthOrg.IStore<OrgMeta>` against your own org table and pass it here.
+     * Omit if you are not using org-scoped sessions or duck-iam org scopes.
+     */
     orgs?: AuthOrg.IStore<OrgMeta>
   }
 
-  /** Channel bundle keyed by channel kind. */
+  /** Channel bundle keyed by channel kind. Passed to provider thunks as second arg. */
   export interface IChannels {
     email?: AuthChannel.IChannel
     sms?: AuthChannel.IChannel
@@ -51,10 +61,10 @@ export namespace AuthDefine {
    * {@link AuthEngine} directly.
    *
    * @template Profile  - Shape of the user profile stored on identities.
-   * @template _Tenant  - Tenant discriminator type (phantom; drives type-safety only).
+   * @template Tenant   - Tenant discriminator type (phantom; drives type-safety only).
    * @template OrgMeta  - Shape of organization metadata.
    */
-  export interface IConfig<Profile = unknown, _Tenant = string, OrgMeta = unknown> {
+  export interface IConfig<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     /** Public-facing URL of the app. Used for OAuth redirect-URI derivation, magic-link URLs, etc. */
     baseUrl: string
     /** Storage triple — output of `authMemoryStorage()` / `authDrizzlePgStorage(...)` etc. */
@@ -63,23 +73,34 @@ export namespace AuthDefine {
     transport?: AuthTransport.ITransport
     /** Token-bucket limiter. Omit for `AuthNoopLimiter` (rejected by `strict('production')`). */
     limiter?: AuthLimiter.ILimiter
-    /** Password hasher. Defaults to `AuthScryptHasher`; pass `new AuthArgon2idHasher()` for production. */
+    /**
+     * Password hasher. Defaults to `AuthScryptHasher`.
+     * Pass `new AuthArgon2idHasher()` for production / HIPAA / FIPS.
+     * Superseded by `passwords.hasher` when both are set.
+     */
     hasher?: AuthHasher.IHasher
-    /** Optional channel bundle for magic-link / OTP delivery. */
+    /** Channel bundle forwarded to provider thunks as second argument. */
     channels?: IChannels
-    /** OAuth-wide defaults. `stateSigningSecret` reserved for future per-provider auto-fill. */
+    /** OAuth-wide defaults. `stateSigningSecret` used for state HMAC across all OAuth providers. */
     oauth?: { stateSigningSecret?: string }
     /** Provider array — falsy entries silently skipped. */
-    providers?: IProviderEntry<Profile>[]
+    providers?: IProviderEntry<Profile, Tenant, OrgMeta>[]
     /** Plugins applied via `auth.plugins.install(p)`. Falsy entries skipped. */
-    plugins?: IPluginEntry<Profile, _Tenant, OrgMeta>[]
+    plugins?: IPluginEntry<Profile, Tenant, OrgMeta>[]
     /** Custom event bus (defaults to `AuthInMemoryEvents` inside `AuthEngine`). */
     events?: AuthEvents.IBus
-    /** Session-config knobs passed straight to `AuthEngineTypes.IConfig.session`. */
-    session?: AuthEngineTypes.IConfig<Profile>['session']
-    mfa?: AuthEngineTypes.IConfig<Profile>['mfa']
-    apiKeys?: AuthEngineTypes.IConfig<Profile>['apiKeys']
-    hijack?: AuthEngineTypes.IConfig<Profile>['hijack']
+    /** Session TTL knobs forwarded straight to `AuthEngineTypes.IConfig`. */
+    session?: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>['session']
+    /** Identity-store knobs: soft-delete grace period, max profile size. */
+    identities?: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>['identities']
+    /**
+     * Password policy overrides. `hasher` here takes precedence over the
+     * top-level `hasher` shorthand when both are provided.
+     */
+    passwords?: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>['passwords']
+    mfa?: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>['mfa']
+    apiKeys?: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>['apiKeys']
+    hijack?: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>['hijack']
     /** When set, runs `auth.strict({ env })` at end of construction. */
     strict?: 'development' | 'production' | 'test'
   }
