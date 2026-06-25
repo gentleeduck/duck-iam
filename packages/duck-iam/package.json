@@ -330,7 +330,7 @@
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^26.0.0",
     "@types/react": "^19.2.17",
-    "accesscontrol": "^2.2.1",
+    "accesscontrol": "^3.0.0",
     "casbin": "^5.50.0",
     "drizzle-orm": "^0.45.2",
     "easy-rbac": "^4.0.0",
