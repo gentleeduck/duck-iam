@@ -4,8 +4,8 @@
  */
 
 import { getProfileString } from '../../core/credential-utils'
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthChannel } from '../../core/types/channel'
+import { AuthError } from '../../core/errors'
+import type { Channel } from '../../core/types/infra'
 
 export namespace AuthResendChannel {
   /**
@@ -53,13 +53,11 @@ let _resendModule: { Resend: new (key: string) => AuthResendChannel.IClient } | 
 async function loadResend(): Promise<{ Resend: new (key: string) => AuthResendChannel.IClient }> {
   if (_resendModule) return _resendModule
   try {
-    const mod = (await import('resend' as string)) as {
-      Resend: new (key: string) => AuthResendChannel.IClient
-    }
+    const mod = await import('resend' as string)
     _resendModule = mod
     return mod
   } catch {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail:
         'AuthResendChannel requires the `resend` peerDep. Install via `bun add resend` (or `npm install resend`).',
     })
@@ -67,12 +65,12 @@ async function loadResend(): Promise<{ Resend: new (key: string) => AuthResendCh
 }
 
 /**
- * Resend channel implementation of `AuthChannel.IChannel`. Reads the
+ * Resend channel implementation of `Channel.IChannel`. Reads the
  * recipient email from `input.identity.profile.email`; returns
  * ok:false (never throws) on any Resend error.
  */
-export class AuthResendChannel implements AuthChannel.IChannel {
-  readonly kind: AuthChannel.Kind = 'email'
+export class AuthResendChannel implements Channel.IChannel {
+  readonly kind: Channel.Kind = 'email'
   readonly id: string
   private readonly _from: string
   private readonly _resolve: AuthResendChannel.ITemplateResolver
@@ -80,12 +78,12 @@ export class AuthResendChannel implements AuthChannel.IChannel {
 
   constructor(cfg: AuthResendChannel.IConfig) {
     if (!cfg.from) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthResendChannel requires a non-empty `from` address (must be on a verified Resend domain)',
       })
     }
     if (!cfg.apiKey && !cfg.client) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthResendChannel requires either an apiKey or a pre-built client',
       })
     }
@@ -105,14 +103,14 @@ export class AuthResendChannel implements AuthChannel.IChannel {
    * Resolve the template, look up the recipient, hand the rendered
    * email to Resend.
    */
-  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
+  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     const to = getProfileString(input.identity.profile, 'email')
     if (!to) {
       return { ok: false, error: 'identity has no email; AuthResendChannel cannot deliver' }
     }
     let resolved: Awaited<ReturnType<AuthResendChannel.ITemplateResolver>>
     try {
-      resolved = await this._resolve(input.templateId, input.vars as Record<string, unknown>)
+      resolved = await this._resolve(input.templateId, input.vars)
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -131,7 +129,7 @@ export class AuthResendChannel implements AuthChannel.IChannel {
       if (response.error) {
         return { ok: false, error: response.error.message }
       }
-      const out: AuthChannel.SendResult = { ok: true }
+      const out: Channel.SendResult = { ok: true }
       if (response.data?.id !== undefined) out.providerMessageId = response.data.id
       return out
     } catch (err) {

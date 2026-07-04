@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthIdentity } from '../../../core/types/identity'
+import type { Identity } from '../../../core/types/identity'
 import { AuthConsoleChannel, AuthNoopChannel, AuthTestChannel } from '../index'
 
-function makeIdentity(): AuthIdentity.IIdentity<unknown> {
+function makeIdentity(): Identity.Me<unknown> {
   return {
     id: 'ident-1',
     providers: [],
+    emailVerified: false,
     version: 1,
-    createdAt: 0,
-    updatedAt: 0,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
   }
 }
 

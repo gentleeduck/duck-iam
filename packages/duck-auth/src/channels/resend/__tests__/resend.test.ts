@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthIdentity } from '../../../core/types/identity'
+import type { Identity } from '../../../core/types/identity'
 import { AuthResendChannel } from '../index'
 
-function makeIdentity(email: string | undefined): AuthIdentity.IIdentity<unknown> {
+function makeIdentity(email: string | undefined): Identity.Me<unknown> {
   return {
     id: 'ident-1',
     profile: email ? { email } : undefined,
     providers: [],
+    emailVerified: false,
     version: 1,
-    createdAt: 0,
-    updatedAt: 0,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
   }
 }
 
@@ -50,7 +51,7 @@ describe('AuthResendChannel', () => {
           client: makeClient(),
           templates: () => ({ subject: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('refuses construction without apiKey or client', () => {
@@ -60,7 +61,7 @@ describe('AuthResendChannel', () => {
           from: 'noreply@app.test',
           templates: () => ({ subject: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('returns ok:false when identity has no email', async () => {

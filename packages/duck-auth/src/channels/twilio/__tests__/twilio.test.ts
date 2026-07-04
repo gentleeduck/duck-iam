@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthIdentity } from '../../../core/types/identity'
+import type { Identity } from '../../../core/types/identity'
 import { AuthTwilioChannel } from '../index'
 
-function makeIdentity(phone: string | undefined): AuthIdentity.IIdentity<unknown> {
+function makeIdentity(phone: string | undefined): Identity.Me<unknown> {
   return {
     id: 'ident-1',
     profile: phone ? { phone } : undefined,
     providers: [],
+    emailVerified: false,
     version: 1,
-    createdAt: 0,
-    updatedAt: 0,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
   }
 }
 
@@ -71,7 +72,7 @@ describe('AuthTwilioChannel', () => {
           client: makeClient(),
           templates: () => ({ body: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('refuses construction when neither from nor messagingServiceSid', () => {
@@ -81,7 +82,7 @@ describe('AuthTwilioChannel', () => {
           client: makeClient(),
           templates: () => ({ body: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('refuses construction when neither client nor credentials supplied', () => {
@@ -91,7 +92,7 @@ describe('AuthTwilioChannel', () => {
           from: '+1',
           templates: () => ({ body: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('returns ok:false when identity has no phone', async () => {

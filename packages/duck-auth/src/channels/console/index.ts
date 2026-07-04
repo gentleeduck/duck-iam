@@ -3,7 +3,7 @@
  * sink. Built for local development + tests; never wire into production.
  */
 
-import type { AuthChannel } from '../../core/types/channel'
+import type { Channel } from '../../core/types/infra'
 
 export namespace AuthConsoleChannel {
   /**
@@ -15,7 +15,7 @@ export namespace AuthConsoleChannel {
   /** Config for the channel. */
   export interface IConfig {
     /** `email` | `sms` | `webpush`. Default `email`. */
-    kind?: AuthChannel.Kind
+    kind?: Channel.Kind
     /** Identifier appearing in logs + diagnostics. Default `console`. */
     id?: string
     /** Override the sink (e.g. for tests). Default `console.log`. */
@@ -30,8 +30,8 @@ export namespace AuthConsoleChannel {
  * `providerMessageId` of the form `console:<nanos>:<random>` for
  * diagnostics-friendly correlation in tests.
  */
-export class AuthConsoleChannel implements AuthChannel.IChannel {
-  readonly kind: AuthChannel.Kind
+export class AuthConsoleChannel implements Channel.IChannel {
+  readonly kind: Channel.Kind
   readonly id: string
   private readonly _sink: AuthConsoleChannel.ISink
 
@@ -47,7 +47,7 @@ export class AuthConsoleChannel implements AuthChannel.IChannel {
    * `<identityId>` only; full payloads stay in the `vars` field which
    * the caller controls.
    */
-  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
+  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     const messageId = `console:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
     this._sink(
       JSON.stringify({
@@ -69,8 +69,8 @@ export class AuthConsoleChannel implements AuthChannel.IChannel {
  * tenants on a free plan where the magic-link / verification email is
  * gated to the in-product inbox only.
  */
-export class AuthNoopChannel implements AuthChannel.IChannel {
-  readonly kind: AuthChannel.Kind
+export class AuthNoopChannel implements Channel.IChannel {
+  readonly kind: Channel.Kind
   readonly id: string
 
   constructor(cfg: AuthNoopChannel.IConfig = {}) {
@@ -79,14 +79,14 @@ export class AuthNoopChannel implements AuthChannel.IChannel {
   }
 
   /** Drop the send on the floor. Always returns ok with a stub message id. */
-  async send(_input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
+  async send(_input: Channel.SendInput): Promise<Channel.SendResult> {
     return { ok: true, providerMessageId: `noop:${Date.now()}` }
   }
 }
 
 export namespace AuthNoopChannel {
   export interface IConfig {
-    kind?: AuthChannel.Kind
+    kind?: Channel.Kind
     id?: string
   }
 }
@@ -95,8 +95,8 @@ export namespace AuthNoopChannel {
  * Captures every send into an in-memory array. The intended consumer is
  * `vitest`; production code must not use this channel.
  */
-export class AuthTestChannel implements AuthChannel.IChannel {
-  readonly kind: AuthChannel.Kind
+export class AuthTestChannel implements Channel.IChannel {
+  readonly kind: Channel.Kind
   readonly id: string
   readonly outbox: AuthTestChannel.IOutboxEntry[] = []
 
@@ -109,12 +109,12 @@ export class AuthTestChannel implements AuthChannel.IChannel {
    * Append the send envelope to `this.outbox` for later assertion;
    * always returns ok.
    */
-  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
+  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     this.outbox.push({
       templateId: input.templateId,
       identityId: input.identity.id,
       tenantId: input.tenant.tenantId ?? null,
-      vars: input.vars as Record<string, unknown>,
+      vars: input.vars,
     })
     return { ok: true, providerMessageId: `test:${this.outbox.length}` }
   }
@@ -122,7 +122,7 @@ export class AuthTestChannel implements AuthChannel.IChannel {
 
 export namespace AuthTestChannel {
   export interface IConfig {
-    kind?: AuthChannel.Kind
+    kind?: Channel.Kind
     id?: string
   }
   export interface IOutboxEntry {
