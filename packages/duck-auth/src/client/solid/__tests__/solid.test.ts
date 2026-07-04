@@ -37,7 +37,7 @@ describe('Solid client', () => {
 
   it('mockFetch helper builds a Response-shaped object (smoke)', async () => {
     const f = mockFetch(() => ({ body: { ok: true }, status: 200 }))
-    const res = await f('http://x/auth/session')
+    const res = await f('http://x/AUTH/session')
     expect(res.status).toBe(200)
   })
 })
