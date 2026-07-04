@@ -1,26 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
 import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../../../providers/password'
 import {
-  type AuthFastifyAdapter,
-  authFastifyProviderBegin,
-  authFastifySession,
-  authFastifySignIn,
-  authFastifySignOut,
-  authRegisterFastify,
+  type FastifyAdapter,
+  fastifyProviderBegin,
+  fastifySession,
+  fastifySignIn,
+  fastifySignOut,
+  registerFastify,
 } from '../index'
 
-function makeReply(): AuthFastifyAdapter.IReply & {
+function makeReply(): FastifyAdapter.Reply & {
   _status?: number
   _headers: Map<string, string[]>
   _body?: string
 } {
   const headers = new Map<string, string[]>()
-  const reply: AuthFastifyAdapter.IReply & {
+  const reply: FastifyAdapter.Reply & {
     _status?: number
     _headers: Map<string, string[]>
     _body?: string
@@ -45,12 +45,13 @@ function makeReply(): AuthFastifyAdapter.IReply & {
   return reply
 }
 
-interface MyProfile {
+type MyProfile = {
+  username: string
   email: string
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -80,28 +81,31 @@ describe('Fastify adapter', () => {
   })
 
   it('signIn rejects missing providerId with INVALID_CREDENTIALS 400', async () => {
-    const handler = authFastifySignIn(auth)
+    const handler = fastifySignIn(auth)
     const reply = makeReply()
-    await handler({ method: 'POST', url: '/auth/signin', headers: {}, body: {} } as AuthFastifyAdapter.IRequest, reply)
+    await handler({ method: 'POST', url: '/AUTH/signin', headers: {}, body: {} } as FastifyAdapter.Request, reply)
     expect(reply._status).toBe(400)
-    expect(reply._body).toContain('AUTH/INVALID_CREDENTIALS')
+    expect(reply._body).toContain('AUTH_INVALID_CREDENTIALS')
   })
 
   it('signIn -> startSession sets the cookie + replies 200 OK', async () => {
-    const ident = await adapter.identities.create({ profile: { email: 'user@x.com' }, providers: [] }, {})
+    const ident = await adapter.identities.create(
+      { profile: { username: 'user', email: 'user@x.com' }, providers: [] },
+      {},
+    )
     await auth.passwords.set(ident.id, 'correcthorsebatterystaple', {})
-    const handler = authFastifySignIn(auth)
+    const handler = fastifySignIn(auth)
     const reply = makeReply()
     await handler(
       {
         method: 'POST',
-        url: '/auth/signin',
+        url: '/AUTH/signin',
         headers: {},
         body: {
           providerId: 'password',
           input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
         },
-      } as AuthFastifyAdapter.IRequest,
+      } as FastifyAdapter.Request,
       reply,
     )
     expect(reply._status).toBe(200)
@@ -111,53 +115,53 @@ describe('Fastify adapter', () => {
   })
 
   it('session returns null body when no cookie', async () => {
-    const handler = authFastifySession(auth)
+    const handler = fastifySession(auth)
     const reply = makeReply()
-    await handler({ method: 'GET', url: '/auth/session', headers: {} } as AuthFastifyAdapter.IRequest, reply)
+    await handler({ method: 'GET', url: '/AUTH/session', headers: {} } as FastifyAdapter.Request, reply)
     expect(reply._status).toBe(200)
     expect(JSON.parse(reply._body!)).toEqual({ session: null, identity: null })
   })
 
   it('signOut clears the cookie even without a session', async () => {
-    const handler = authFastifySignOut(auth)
+    const handler = fastifySignOut(auth)
     const reply = makeReply()
-    await handler({ method: 'POST', url: '/auth/signout', headers: {} } as AuthFastifyAdapter.IRequest, reply)
+    await handler({ method: 'POST', url: '/AUTH/signout', headers: {} } as FastifyAdapter.Request, reply)
     const cookies = reply._headers.get('set-cookie') ?? []
     expect(cookies.length).toBeGreaterThan(0)
     expect(cookies[0]).toMatch(/Max-Age=0/i)
   })
 
   it('providerBegin requires :id param', async () => {
-    const handler = authFastifyProviderBegin(auth)
+    const handler = fastifyProviderBegin(auth)
     const reply = makeReply()
     await handler(
       {
         method: 'POST',
-        url: '/auth/providers//begin',
+        url: '/AUTH/providers//begin',
         headers: {},
         body: {},
         params: {},
-      } as AuthFastifyAdapter.IRequest,
+      } as FastifyAdapter.Request,
       reply,
     )
     expect(reply._status).toBe(400)
-    expect(reply._body).toContain('AUTH/PROVIDER_FAILED')
+    expect(reply._body).toContain('AUTH_PROVIDER_FAILED')
   })
 
-  it('authRegisterFastify mounts all four routes under the prefix', () => {
+  it('registerFastify mounts all four routes under the prefix', () => {
     const post = vi.fn()
     const get = vi.fn()
-    authRegisterFastify({ post, get }, auth)
+    registerFastify({ post, get }, auth)
     expect(post).toHaveBeenCalledWith('/auth/signin', expect.any(Function))
     expect(post).toHaveBeenCalledWith('/auth/signout', expect.any(Function))
     expect(get).toHaveBeenCalledWith('/auth/session', expect.any(Function))
     expect(post).toHaveBeenCalledWith('/auth/providers/:id/begin', expect.any(Function))
   })
 
-  it('authRegisterFastify honors custom prefix', () => {
+  it('registerFastify honors custom prefix', () => {
     const post = vi.fn()
     const get = vi.fn()
-    authRegisterFastify({ post, get }, auth, { prefix: '/api/v2/auth' })
+    registerFastify({ post, get }, auth, { prefix: '/api/v2/auth' })
     expect(post).toHaveBeenCalledWith('/api/v2/auth/signin', expect.any(Function))
     expect(get).toHaveBeenCalledWith('/api/v2/auth/session', expect.any(Function))
   })

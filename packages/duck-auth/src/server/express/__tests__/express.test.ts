@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
 import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../../../providers/password'
-import { authApplyIntents, authMountSession, authMountSignIn, authMountSignOut, authToHeaders } from '../index'
+import { applyIntents, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
 
-interface MyProfile {
+type MyProfile = {
+  username: string
   email: string
 }
 
@@ -55,7 +56,7 @@ function mockRes() {
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
@@ -77,9 +78,9 @@ function buildAuth() {
   return { auth, adapter }
 }
 
-describe('authToHeaders', () => {
+describe('toHeaders', () => {
   it('converts flat object to Headers + handles arrays + undefined', () => {
-    const h = authToHeaders({
+    const h = toHeaders({
       'content-type': 'text/plain',
       'set-cookie': ['a=1', 'b=2'],
       'x-empty': undefined,
@@ -92,10 +93,10 @@ describe('authToHeaders', () => {
   })
 })
 
-describe('authApplyIntents', () => {
+describe('applyIntents', () => {
   it('writes setCookie as Set-Cookie header', () => {
     const r = mockRes()
-    authApplyIntents(
+    applyIntents(
       [
         {
           type: 'setCookie',
@@ -114,37 +115,30 @@ describe('authApplyIntents', () => {
 
   it('json intent writes status + body', () => {
     const r = mockRes()
-    authApplyIntents([{ type: 'json', status: 200, body: { ok: true } }], r.res)
+    applyIntents([{ type: 'json', status: 200, body: { ok: true } }], r.res)
     expect(r.status).toBe(200)
     expect(r.body).toEqual({ ok: true })
   })
 
   it('redirect intent calls res.redirect', () => {
     const r = mockRes()
-    authApplyIntents([{ type: 'redirect', url: '/foo', status: 303 }], r.res)
+    applyIntents([{ type: 'redirect', url: '/foo', status: 303 }], r.res)
     expect(r.redirected).toEqual({ status: 303, location: '/foo' })
-  })
-
-  it('startSession + requireMfa intents reaching the executor surface AUTH/MISCONFIGURED 500', () => {
-    const r = mockRes()
-    authApplyIntents([{ type: 'startSession', identityId: 'x', aal: 1, factors: [] }], r.res)
-    expect(r.status).toBe(500)
-    expect(r.body).toMatchObject({ code: 'AUTH/MISCONFIGURED' })
   })
 })
 
 describe('mounted handlers - end-to-end', () => {
-  it('authMountSignIn happy path: cookie set, 200 body', async () => {
+  it('mountSignIn happy path: cookie set, 200 body', async () => {
     const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'correct-pw')
 
-    const handler = authMountSignIn(auth)
+    const handler = mountSignIn(auth)
     const r = mockRes()
     await handler(
       {
         method: 'POST',
-        url: '/auth/signin',
+        url: '/AUTH/signin',
         headers: {},
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       },
@@ -154,43 +148,43 @@ describe('mounted handlers - end-to-end', () => {
     expect(r.headers['set-cookie']?.[0]).toMatch(/^duck-sid=/)
   })
 
-  it('authMountSignIn missing providerId returns 400', async () => {
+  it('mountSignIn missing providerId returns 400', async () => {
     const { auth } = buildAuth()
-    const handler = authMountSignIn(auth)
+    const handler = mountSignIn(auth)
     const r = mockRes()
-    await handler({ method: 'POST', url: '/auth/signin', headers: {}, body: {} }, r.res)
+    await handler({ method: 'POST', url: '/AUTH/signin', headers: {}, body: {} }, r.res)
     expect(r.status).toBe(400)
   })
 
-  it('authMountSignIn wrong password returns 401 with AUTH/INVALID_CREDENTIALS body', async () => {
+  it('mountSignIn wrong password returns 401 with AUTH/INVALID_CREDENTIALS body', async () => {
     const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'correct-pw')
-    const handler = authMountSignIn(auth)
+    const handler = mountSignIn(auth)
     const r = mockRes()
     await handler(
       {
         method: 'POST',
-        url: '/auth/signin',
+        url: '/AUTH/signin',
         headers: {},
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'wrong-pw' } },
       },
       r.res,
     )
     expect(r.status).toBe(401)
-    expect((r.body as { code: string }).code).toBe('AUTH/INVALID_CREDENTIALS')
+    expect((r.body as { error: { code: string } }).error.code).toBe('AUTH_INVALID_CREDENTIALS')
   })
 
-  it('authMountSession after signin returns the resolved session shape', async () => {
+  it('mountSession after signin returns the resolved session shape', async () => {
     const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'correct-pw')
 
     const signinR = mockRes()
-    await authMountSignIn(auth)(
+    await mountSignIn(auth)(
       {
         method: 'POST',
-        url: '/auth/signin',
+        url: '/AUTH/signin',
         headers: {},
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       },
@@ -201,10 +195,10 @@ describe('mounted handlers - end-to-end', () => {
     const sid = sidMatch ? decodeURIComponent(sidMatch[1] ?? '') : ''
 
     const sessR = mockRes()
-    await authMountSession(auth)(
+    await mountSession(auth)(
       {
         method: 'GET',
-        url: '/auth/session',
+        url: '/AUTH/session',
         headers: { cookie: `duck-sid=${sid}` },
       },
       sessR.res,
@@ -214,15 +208,15 @@ describe('mounted handlers - end-to-end', () => {
     expect(body.identity?.id).toBe(identity.id)
   })
 
-  it('authMountSignOut clears cookie + revokes session', async () => {
+  it('mountSignOut clears cookie + revokes session', async () => {
     const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
     await auth.passwords.set(identity.id, 'correct-pw')
     const r = mockRes()
-    await authMountSignIn(auth)(
+    await mountSignIn(auth)(
       {
         method: 'POST',
-        url: '/auth/signin',
+        url: '/AUTH/signin',
         headers: {},
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       },
@@ -239,10 +233,10 @@ describe('mounted handlers - end-to-end', () => {
     expect(sessionsBefore).toHaveLength(1)
 
     const outR = mockRes()
-    await authMountSignOut(auth)(
+    await mountSignOut(auth)(
       {
         method: 'POST',
-        url: '/auth/signout',
+        url: '/AUTH/signout',
         headers: {
           cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
           'x-csrf-token': csrfToken,

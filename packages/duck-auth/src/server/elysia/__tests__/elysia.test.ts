@@ -1,24 +1,19 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
 import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authPassword } from '../../../providers/password'
-import {
-  type AuthElysiaAdapter,
-  authElysiaProviderBegin,
-  authElysiaSession,
-  authElysiaSignIn,
-  authElysiaSignOut,
-} from '../index'
+import { type ElysiaAdapter, elysiaProviderBegin, elysiaSession, elysiaSignIn, elysiaSignOut } from '../index'
 
-interface MyProfile {
+type MyProfile = {
+  username: string
   email: string
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -43,9 +38,9 @@ function ctx(
   body: unknown = {},
   params: Record<string, string> = {},
   headers: HeadersInit = {},
-): AuthElysiaAdapter.IContext {
+): ElysiaAdapter.Context {
   return {
-    request: new Request('https://app/auth/x', { method: 'POST', headers }),
+    request: new Request('https://app/AUTH/x', { method: 'POST', headers }),
     body,
     params,
   }
@@ -60,15 +55,18 @@ describe('Elysia adapter', () => {
   })
 
   it('signIn rejects missing providerId with 400', async () => {
-    const res = await authElysiaSignIn(auth)(ctx({}))
+    const res = await elysiaSignIn(auth)(ctx({}))
     expect(res.status).toBe(400)
-    expect(await res.text()).toContain('AUTH/INVALID_CREDENTIALS')
+    expect(await res.text()).toContain('AUTH_INVALID_CREDENTIALS')
   })
 
   it('signIn happy path sets cookie + 200', async () => {
-    const ident = await adapter.identities.create({ profile: { email: 'user@x.com' }, providers: [] }, {})
+    const ident = await adapter.identities.create(
+      { profile: { username: 'user', email: 'user@x.com' }, providers: [] },
+      {},
+    )
     await auth.passwords.set(ident.id, 'correcthorsebatterystaple', {})
-    const res = await authElysiaSignIn(auth)(
+    const res = await elysiaSignIn(auth)(
       ctx({
         providerId: 'password',
         input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
@@ -80,20 +78,20 @@ describe('Elysia adapter', () => {
   })
 
   it('session returns null body without cookie', async () => {
-    const res = await authElysiaSession(auth)(ctx())
+    const res = await elysiaSession(auth)(ctx())
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ session: null, identity: null })
   })
 
   it('signOut clears cookie without session', async () => {
-    const res = await authElysiaSignOut(auth)(ctx())
+    const res = await elysiaSignOut(auth)(ctx())
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toMatch(/Max-Age=0/i)
   })
 
   it('providerBegin requires :id', async () => {
-    const res = await authElysiaProviderBegin(auth)(ctx({}, {}))
+    const res = await elysiaProviderBegin(auth)(ctx({}, {}))
     expect(res.status).toBe(400)
-    expect(await res.text()).toContain('AUTH/PROVIDER_FAILED')
+    expect(await res.text()).toContain('AUTH_PROVIDER_FAILED')
   })
 })
