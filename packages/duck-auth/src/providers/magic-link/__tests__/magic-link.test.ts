@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
-import type { AuthChannel } from '../../../core/types/channel'
+import type { Channel } from '../../../core/types/infra'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authMagicLink } from '../index'
 
@@ -10,7 +10,7 @@ interface MyProfile {
   email: string
 }
 
-function fakeChannel(): AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
   return {
     kind: 'email',
@@ -25,13 +25,13 @@ function fakeChannel(): AuthChannel.IChannel & { sent: Array<{ to: string; url: 
   }
 }
 
-function buildAuth(opts: { autoCreate?: boolean; channel?: AuthChannel.IChannel } = {}): {
+function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.IChannel } = {}): {
   auth: AuthEngine<MyProfile>
-  adapter: AuthMemoryAdapter<MyProfile>
-  channel: AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }
+  adapter: MemoryAdapter<MyProfile>
+  channel: Channel.IChannel & { sent: Array<{ to: string; url: string }> }
 } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
-  const channel = (opts.channel as AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }) ?? fakeChannel()
+  const adapter = new MemoryAdapter<MyProfile>()
+  const channel = (opts.channel as Channel.IChannel & { sent: Array<{ to: string; url: string }> }) ?? fakeChannel()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -96,12 +96,12 @@ describe('magic-link provider', () => {
         await auth.flows.beginProvider('magic-link', { email: 'x@x.com' }).catch(() => {})
       }
       await expect(auth.flows.beginProvider('magic-link', { email: 'x@x.com' })).rejects.toMatchObject({
-        code: 'AUTH/RATE_LIMITED',
+        code: 'AUTH_RATE_LIMITED',
       })
     })
 
     it('channel send failure does NOT surface to the caller; emits signin.failed for operator visibility', async () => {
-      const broken: AuthChannel.IChannel = {
+      const broken: Channel.IChannel = {
         kind: 'email',
         id: 'broken',
         async send() {
@@ -130,7 +130,7 @@ describe('magic-link provider', () => {
       const { auth } = buildAuth()
       await auth.identities.create({ profile: { email: 'a@x.com' } })
       await expect(auth.flows.beginProvider('magic-link', { email: 'a@x.com', channel: 'sms' })).rejects.toMatchObject({
-        code: 'AUTH/MISCONFIGURED',
+        code: 'AUTH_MISCONFIGURED',
       })
     })
   })
@@ -196,7 +196,7 @@ describe('magic-link provider', () => {
       const token = extractToken(channel.sent[0]?.url ?? '')
       await auth.flows.signIn({ providerId: 'magic-link', input: { token } })
       await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
-        code: 'AUTH/RECOVERY_TOKEN_INVALID',
+        code: 'AUTH_RECOVERY_TOKEN_INVALID',
       })
     })
 
@@ -212,7 +212,7 @@ describe('magic-link provider', () => {
       const rejected = results.filter((r) => r.status === 'rejected')
       expect(fulfilled).toHaveLength(1)
       expect(rejected).toHaveLength(1)
-      expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'AUTH/RECOVERY_TOKEN_INVALID' })
+      expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
     })
 
     it('expired token surfaces AUTH/RECOVERY_TOKEN_EXPIRED', async () => {
@@ -226,23 +226,23 @@ describe('magic-link provider', () => {
       if (!cred) throw new Error('credential missing')
       ;(cred as { expiresAt?: number }).expiresAt = Date.now() - 1
       await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
-        code: 'AUTH/RECOVERY_TOKEN_EXPIRED',
+        code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
       })
     })
 
     it('bogus token surfaces AUTH/RECOVERY_TOKEN_INVALID', async () => {
       const { auth } = buildAuth({ autoCreate: true })
       await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token: 'not-real' } })).rejects.toMatchObject(
-        { code: 'AUTH/RECOVERY_TOKEN_INVALID' },
+        { code: 'AUTH_RECOVERY_TOKEN_INVALID' },
       )
     })
 
     describe('defensive guards against malformed adapter rows', () => {
       async function mintTokenAndGrabRow(): Promise<{
         auth: AuthEngine<MyProfile>
-        adapter: AuthMemoryAdapter<MyProfile>
+        adapter: MemoryAdapter<MyProfile>
         token: string
-        row: Awaited<ReturnType<AuthMemoryAdapter<MyProfile>['credentials']['findByHashedSecret']>>
+        row: Awaited<ReturnType<MemoryAdapter<MyProfile>['credentials']['findByHashedSecret']>>
       }> {
         const { auth, adapter, channel } = buildAuth({ autoCreate: true })
         await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
@@ -265,16 +265,16 @@ describe('magic-link provider', () => {
         // @ts-expect-error: SEC test intentionally violates the typed shape
         row.expiresAt = 'not-a-number'
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
-          code: 'AUTH/RECOVERY_TOKEN_EXPIRED',
+          code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
         })
       })
 
       it('revokedAt === 0 (legitimate epoch number) is now treated as revoked (previously slipped past `!revokedAt`)', async () => {
         const { auth, row, token } = await mintTokenAndGrabRow()
         if (!row) throw new Error('row missing')
-        row.revokedAt = 0
+        row.revokedAt = new Date(0)
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
-          code: 'AUTH/RECOVERY_TOKEN_INVALID',
+          code: 'AUTH_RECOVERY_TOKEN_INVALID',
         })
       })
 
@@ -284,7 +284,7 @@ describe('magic-link provider', () => {
         // @ts-expect-error: SEC test intentionally violates the typed shape
         row.revokedAt = 'truthy-but-not-a-timestamp'
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
-          code: 'AUTH/RECOVERY_TOKEN_INVALID',
+          code: 'AUTH_RECOVERY_TOKEN_INVALID',
         })
       })
     })

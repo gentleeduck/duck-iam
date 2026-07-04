@@ -1,14 +1,14 @@
 import { isCredentialExpired } from '../../core/credential-utils'
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthChannel } from '../../core/types/channel'
+import { AuthError } from '../../core/errors'
+import type { Channel } from '../../core/types/infra'
 import type { AuthProvider } from '../../core/types/provider'
 import { isSafeCallbackPath } from '../../core/url-validators'
 
 export namespace AuthMagicLinkProvider {
   /** Config knobs for {@link authMagicLink}. */
   export interface IOptions<Profile = unknown> {
-    /** AuthChannel implementations keyed by their `kind`. */
-    channels: { email?: AuthChannel.IChannel; sms?: AuthChannel.IChannel; webpush?: AuthChannel.IChannel }
+    /** Channel implementations keyed by their `kind`. */
+    channels: { email?: Channel.IChannel; sms?: Channel.IChannel; webpush?: Channel.IChannel }
     /** Library uses this to find the identity given an email. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
     /**
@@ -36,6 +36,12 @@ export namespace AuthMagicLinkProvider {
   export interface ICompleteInput {
     token: string
   }
+
+  /** Shape stored in `Credential.ICredential.metadata` for magic-link credentials. */
+  export interface ICredentialMetadata {
+    email: string
+    channel: 'email' | 'sms' | 'webpush'
+  }
 }
 
 /**
@@ -59,11 +65,11 @@ export function authMagicLink<Profile = unknown>(
   // that exfiltrates the token (browser resolves `https://app//evil.com?...`
   // as `https://evil.com?...`).
   if (opts.callbackPath !== undefined && !isSafeCallbackPath(opts.callbackPath)) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'magic-link.callbackPath must be a same-origin path (starts with `/`, no `//`, no CR/LF, <=256 chars)',
     })
   }
-  const callbackPath = opts.callbackPath ?? '/auth/magic-link/callback'
+  const callbackPath = opts.callbackPath ?? '/AUTH/magic-link/callback'
 
   return {
     id: 'magic-link',
@@ -79,11 +85,11 @@ export function authMagicLink<Profile = unknown>(
           : 'email'
       // RFC 5321 254-char cap; protects limiter store + downstream lookups.
       if (typeof email !== 'string' || email.length === 0 || email.length > 254) {
-        throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
+        throw new AuthError('AUTH_INVALID_CREDENTIALS')
       }
       const channel = opts.channels[channelKind]
       if (!channel) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: `magic-link: channel "${channelKind}" not configured`,
         })
       }
@@ -93,8 +99,8 @@ export function authMagicLink<Profile = unknown>(
       const emailCanonical = email.trim().toLowerCase()
       const limited = await ctx.limiter.consume(`${prefix}${emailCanonical}`)
       if (!limited.ok) {
-        throw new AuthErrorObject('AUTH/RATE_LIMITED', {
-          retryAfter: Math.max(0, Math.ceil((limited.resetAt - Date.now()) / 1000)),
+        throw new AuthError('AUTH_RATE_LIMITED', {
+          retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
         })
       }
 
@@ -103,10 +109,9 @@ export function authMagicLink<Profile = unknown>(
         if (!opts.autoCreateIdentity) {
           return [{ type: 'json', status: 200, body: { ok: true } }]
         }
-        const profile = (opts.autoCreateProfile?.(emailCanonical) ??
-          ({ email: emailCanonical } as unknown as Profile)) as Profile
+        const profile = opts.autoCreateProfile?.(emailCanonical)
         const created = await ctx.stores.identities.create(
-          { profile, providers: [{ providerId: 'magic-link', addedAt: Date.now() }] },
+          { profile, providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }] },
           ctx.tenant,
         )
         identityId = created.id
@@ -114,14 +119,13 @@ export function authMagicLink<Profile = unknown>(
 
       const token = ctx.crypto.authRandomToken(32)
       const tokenHash = ctx.crypto.authSha256(token)
-      const now = Date.now()
       await ctx.stores.credentials.upsert(
         {
           identityId,
           kind: 'magic-link',
           secret: tokenHash,
-          metadata: { email: emailCanonical, channel: channelKind },
-          expiresAt: now + ttlMs,
+          metadata: { email: emailCanonical, channel: channelKind } satisfies AuthMagicLinkProvider.ICredentialMetadata,
+          expiresAt: new Date(Date.now() + ttlMs),
         },
         ctx.tenant,
       )
@@ -168,26 +172,26 @@ export function authMagicLink<Profile = unknown>(
       const { token } = input
       // 256-char cap to refuse multi-MB sha256 DoS.
       if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
-        throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+        throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
       }
       const hash = ctx.crypto.authSha256(token)
       const row = await ctx.stores.credentials.findByHashedSecret(hash, 'magic-link', ctx.tenant)
-      const now = Date.now()
-      // Explicit `!== undefined`: falsy check would let `revokedAt: 0` slip past.
-      if (!row || row.revokedAt !== undefined) {
-        throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+      // `!= null` treats the null/undefined live sentinel as valid and anything
+      // else (a Date, or a stray `revokedAt: 0`) as revoked — a falsy check would leak `0`.
+      if (!row || row.revokedAt != null) {
+        throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
       }
-      if (isCredentialExpired(row, now)) {
+      if (isCredentialExpired(row)) {
         void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
-        throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_EXPIRED')
+        throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
       }
       // CAS-claim the row so concurrent requests with the same token
       // produce one session; loser sees AUTH/RECOVERY_TOKEN_INVALID.
       try {
         await ctx.stores.credentials.rotate(row.id, row.secret, row.version, ctx.tenant)
       } catch (err) {
-        if (err instanceof AuthErrorObject && err.code === 'AUTH/STALE_WRITE') {
-          throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+        if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
+          throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
         }
         throw err
       }
@@ -196,7 +200,7 @@ export function authMagicLink<Profile = unknown>(
         {
           type: 'startSession',
           identityId: row.identityId,
-          factors: [{ method: 'magic-link', completedAt: now }],
+          factors: [{ method: 'magic-link', completedAt: new Date() }],
           aal: 1,
         },
       ]

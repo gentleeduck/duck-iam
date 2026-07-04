@@ -1,6 +1,16 @@
-import { AuthErrorObject } from '../../core/errors'
+import { AuthError } from '../../core/errors'
 import type { PasswordsFacet } from '../../core/facets/passwords'
 import type { AuthProvider } from '../../core/types/provider'
+
+/**
+ * Sentinel identity id fed to `verify` on the no-such-user branch to keep
+ * timing constant (defeats account enumeration). MUST be a syntactically
+ * valid UUID: the SQL adapters store `identity_id` as a `uuid` column, so a
+ * non-UUID sentinel (e.g. `'__never__'`) makes Postgres throw
+ * `invalid input syntax for type uuid` instead of returning zero rows. The
+ * all-zero UUID is well-formed and matches no real identity.
+ */
+const NO_IDENTITY_SENTINEL = '00000000-0000-0000-0000-000000000000'
 
 export namespace AuthPasswordProvider {
   /** Config knobs for {@link authPassword}. */
@@ -60,7 +70,7 @@ export function authPassword<Profile = unknown>(
         pw.length === 0 ||
         pw.length > 1024
       ) {
-        throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
+        throw new AuthError('AUTH_INVALID_CREDENTIALS')
       }
 
       // Canonical (trim + lowercase) email so the rate-limit bucket AND
@@ -72,8 +82,8 @@ export function authPassword<Profile = unknown>(
       const limitKey = `${prefix}${emailCanonical}`
       const limited = await ctx.limiter.consume(limitKey)
       if (!limited.ok) {
-        throw new AuthErrorObject('AUTH/RATE_LIMITED', {
-          retryAfter: Math.max(0, Math.ceil((limited.resetAt - Date.now()) / 1000)),
+        throw new AuthError('AUTH_RATE_LIMITED', {
+          retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
         })
       }
 
@@ -81,23 +91,22 @@ export function authPassword<Profile = unknown>(
       // ALWAYS run verify (even with no matching identity) to keep timing constant.
       const verifyResult = identity
         ? await opts.passwords.verify(identity.id, pw, ctx.tenant)
-        : await opts.passwords.verify('__never__', pw, ctx.tenant)
+        : await opts.passwords.verify(NO_IDENTITY_SENTINEL, pw, ctx.tenant)
 
       if (!identity || !verifyResult.ok) {
         await ctx.events.emit('signin.failed', { providerId: 'password', reason: 'invalid-credentials' })
-        throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
+        throw new AuthError('AUTH_INVALID_CREDENTIALS')
       }
 
       if (autoRehash && verifyResult.ok && verifyResult.needsRehash) {
         void opts.passwords.rehash(identity.id, pw, ctx.tenant).catch(() => {})
       }
 
-      const now = Date.now()
       return [
         {
           type: 'startSession',
           identityId: identity.id,
-          factors: [{ method: 'password', completedAt: now }],
+          factors: [{ method: 'password', completedAt: new Date() }],
           aal: 1,
         },
       ]

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
 import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
@@ -12,9 +12,9 @@ interface MyProfile {
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
-  adapter: AuthMemoryAdapter<MyProfile>
+  adapter: MemoryAdapter<MyProfile>
 } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
@@ -38,7 +38,7 @@ function buildAuth(): {
 
 describe('password provider - end-to-end sign-in', () => {
   let auth: AuthEngine<MyProfile>
-  let adapter: AuthMemoryAdapter<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
 
   beforeEach(() => {
     ;({ auth, adapter } = buildAuth())
@@ -82,7 +82,7 @@ describe('password provider - end-to-end sign-in', () => {
         providerId: 'password',
         input: { email: 'a@x.com', password: 'wrong-pw' },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
+    ).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
     expect(failedHandler).toHaveBeenCalledOnce()
   })
 
@@ -92,7 +92,24 @@ describe('password provider - end-to-end sign-in', () => {
         providerId: 'password',
         input: { email: 'ghost@x.com', password: 'anything-strong' },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
+    ).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
+  })
+
+  it('no-user branch queries credentials with a syntactically valid UUID (pg uuid column safe)', async () => {
+    // Regression: the timing-defense verify on the no-such-user branch must
+    // feed a well-formed UUID. A non-UUID sentinel (e.g. '__never__') makes
+    // Postgres reject `identity_id = '__never__'` on the uuid column with
+    // `invalid input syntax for type uuid`, turning a 401 into a raw 500.
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const spy = vi.spyOn(adapter.credentials, 'listByIdentity')
+
+    await auth.flows
+      .signIn({ providerId: 'password', input: { email: 'ghost@x.com', password: 'anything-strong' } })
+      .catch(() => {})
+
+    expect(spy).toHaveBeenCalled()
+    const [identityId] = spy.mock.calls[0]!
+    expect(identityId).toMatch(uuidRe)
   })
 
   it('rate limit trips after configured attempts', async () => {
@@ -112,7 +129,7 @@ describe('password provider - end-to-end sign-in', () => {
         providerId: 'password',
         input: { email: 'a@x.com', password: 'wrong' },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/RATE_LIMITED' })
+    ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
   })
 
   it('unknown provider id surfaces AUTH/PROVIDER_FAILED', async () => {
@@ -121,7 +138,7 @@ describe('password provider - end-to-end sign-in', () => {
         providerId: 'does-not-exist',
         input: {},
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('signOut revokes the session and emits clearCookie intent', async () => {
@@ -134,7 +151,7 @@ describe('password provider - end-to-end sign-in', () => {
     const { intents } = await auth.flows.signOut(signin.sid)
     expect(intents.some((i) => i.type === 'clearCookie')).toBe(true)
 
-    // AuthSession no longer resolvable via store.
+    // Session no longer resolvable via store.
     const headers = new Headers({ cookie: `duck-sid=${signin.sid}` })
     const resolved = await auth.resolveSession({ headers })
     expect(resolved).toBeNull()
@@ -176,7 +193,7 @@ describe('password provider - end-to-end sign-in', () => {
       }
       await expect(
         auth.flows.signIn({ providerId: 'password', input: { email: 'ghost@x.com', password: 'bad' } }),
-      ).rejects.toMatchObject({ code: 'AUTH/RATE_LIMITED' })
+      ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
     })
   })
 })

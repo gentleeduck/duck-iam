@@ -84,14 +84,14 @@ describe('samlSloController.beginSp', () => {
 
   it('rejects when client lacks getLogoutUrlAsync', async () => {
     const slo = authSamlSloController({ client: makeClient() })
-    await expect(slo.beginSp({ nameID: 'u', relayState: 'r' })).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    await expect(slo.beginSp({ nameID: 'u', relayState: 'r' })).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('rejects empty nameID', async () => {
     const slo = authSamlSloController({
       client: makeClient({ getLogoutUrlAsync: vi.fn(async () => 'https://idp/slo') }),
     })
-    await expect(slo.beginSp({ nameID: '', relayState: 'r' })).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    await expect(slo.beginSp({ nameID: '', relayState: 'r' })).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('rejects CR/LF in nameID and relayState', async () => {
@@ -99,10 +99,10 @@ describe('samlSloController.beginSp', () => {
       client: makeClient({ getLogoutUrlAsync: vi.fn(async () => 'https://idp/slo') }),
     })
     await expect(slo.beginSp({ nameID: 'a\nb', relayState: 'r' })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
     await expect(slo.beginSp({ nameID: 'a', relayState: 'r\r' })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 })
@@ -133,7 +133,7 @@ describe('samlSloController.completeSp', () => {
     const slo = authSamlSloController({ client })
     await expect(
       slo.completeSp({ query: { SAMLResponse: 'x' }, originalQuery: 'SAMLResponse=x' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('caps oversize originalQuery', async () => {
@@ -143,7 +143,7 @@ describe('samlSloController.completeSp', () => {
     const slo = authSamlSloController({ client })
     const huge = 'X'.repeat(2_000_000)
     await expect(slo.completeSp({ query: {}, originalQuery: huge })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 
@@ -155,7 +155,7 @@ describe('samlSloController.completeSp', () => {
     })
     const slo = authSamlSloController({ client })
     await expect(slo.completeSp({ query: {}, originalQuery: 'q=1' })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 })
@@ -193,12 +193,12 @@ describe('samlSloController.completeIdp', () => {
 
   it('rejects when neither query nor SAMLRequest is supplied', async () => {
     const slo = authSamlSloController({ client: makeClient({ getLogoutResponseUrl: vi.fn(() => '') }) })
-    await expect(slo.completeIdp({})).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    await expect(slo.completeIdp({})).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('rejects when client lacks getLogoutResponseUrl', async () => {
     const slo = authSamlSloController({ client: makeClient() })
-    await expect(slo.completeIdp({ SAMLRequest: 'x' })).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    await expect(slo.completeIdp({ SAMLRequest: 'x' })).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('rejects when the validated message is not a logout (loggedOut=false)', async () => {
@@ -211,6 +211,6 @@ describe('samlSloController.completeIdp', () => {
         getLogoutResponseUrl: vi.fn(() => ''),
       }),
     })
-    await expect(slo.completeIdp({ SAMLRequest: '<x/>' })).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    await expect(slo.completeIdp({ SAMLRequest: '<x/>' })).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 })

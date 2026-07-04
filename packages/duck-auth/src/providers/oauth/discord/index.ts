@@ -1,34 +1,34 @@
 /**
- * Discord OAuth 2.0 provider. Discord does not implement OIDC; the
+ * Discord oauth 2.0 provider. Discord does not implement OIDC; the
  * provider hits `/users/@me` directly to derive sub + email + avatar.
  */
 
-import { AuthErrorObject } from '../../../core/errors'
+import { AuthError } from '../../../core/errors'
 import type { AuthProvider } from '../../../core/types/provider'
-import { AuthOAuthClient } from '../core/client'
-import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
+import { AuthoauthClient } from '../core/client'
+import { type AuthoauthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const DISCORD_ENDPOINTS: AuthOAuthClient.IEndpoints = {
+const DISCORD_ENDPOINTS: AuthoauthClient.IEndpoints = {
   authorizationEndpoint: 'https://authDiscord.com/oauth2/authorize',
   tokenEndpoint: 'https://authDiscord.com/api/oauth2/token',
   userinfoEndpoint: 'https://authDiscord.com/api/users/@me',
   revocationEndpoint: 'https://authDiscord.com/api/oauth2/token/revoke',
 }
 
-export namespace AuthDiscordOAuth {
+export namespace AuthDiscordoauth {
   /** Discord-specific options. */
-  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
+  export interface IOptions<Profile = unknown> extends AuthoauthProvider.IOptionsBase<Profile> {
     /** Default `['identify', 'email']`. */
     scopes?: string[]
   }
 }
 
-/** Discord OAuth 2.0 provider factory. */
+/** Discord oauth 2.0 provider factory. */
 export function authDiscord<Profile = unknown>(
-  opts: AuthDiscordOAuth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
-  const client = new AuthOAuthClient({
+  opts: AuthDiscordoauth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
+  const client = new AuthoauthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: DISCORD_ENDPOINTS,
@@ -52,7 +52,7 @@ export function authDiscord<Profile = unknown>(
       // than trust the cast.
       const sub = getUserinfoString(info, 'id')
       if (sub === undefined) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId: 'authDiscord',
           detail: 'Discord userinfo missing id',
         })

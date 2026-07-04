@@ -9,7 +9,7 @@
  * a federal/military-grade artifact resolution profile.
  */
 
-import { AuthErrorObject } from '../../core/errors'
+import { AuthError } from '../../core/errors'
 import type { AuthProvider } from '../../core/types/provider'
 
 // 1 MiB cap on SAML response; larger XML inputs are adversarial.
@@ -61,7 +61,7 @@ export namespace AuthSamlProvider {
 
   /**
    * Subset of node-saml's profile we extract. Library projects 30+
-   * attributes onto the OAuth-style `{ sub, email?, name? }` shape the
+   * attributes onto the oauth-style `{ sub, email?, name? }` shape the
    * rest of the auth lib expects.
    */
   export interface IProfile {
@@ -180,23 +180,23 @@ export namespace AuthSamlProvider {
 /**
  * Build a SAML provider. Returns the standard `AuthProvider.IProvider`
  * shape so it slots into AuthEngine.providers.register alongside the
- * authPassword / OAuth providers.
+ * authPassword / oauth providers.
  */
 export function authSamlProvider<Profile = unknown>(
   opts: AuthSamlProvider.IOptions<Profile>,
 ): AuthProvider.IProvider<AuthSamlProvider.IBeginInput, AuthSamlProvider.ICompleteInput, Profile> {
   if (!opts.client) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'samlProvider requires a pre-built `client` (@node-saml/node-saml SAML instance)',
     })
   }
   if (!opts.callbackUrl) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'samlProvider requires `callbackUrl` (matches IdP AssertionConsumerService URL)',
     })
   }
   if (!opts.onSignIn) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'samlProvider requires `onSignIn` (just-in-time identity provisioning hook)',
     })
   }
@@ -214,7 +214,7 @@ export function authSamlProvider<Profile = unknown>(
         input.relayState.includes('\r') ||
         input.relayState.includes('\n')
       ) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'saml.begin requires relayState (1-256 chars, no CR/LF)',
         })
       }
@@ -225,7 +225,7 @@ export function authSamlProvider<Profile = unknown>(
         input.host.includes('\r') ||
         input.host.includes('\n')
       ) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'saml.begin requires host (1-253 chars, no CR/LF)',
         })
       }
@@ -233,7 +233,7 @@ export function authSamlProvider<Profile = unknown>(
       return [{ type: 'redirect', url, status: 302 }]
     },
 
-    async complete(ctx, input): Promise<AuthProvider.Intent[]> {
+    async complete(ctx, input): Promise<AuthProvider.IInternalIntent[]> {
       // cap SAMLResponse BEFORE handing it to
       // `validatePostResponseAsync` so adversarial multi-MB XML cannot
       // reach the parser. Real responses are 5-30 KiB; 1 MiB is generous.
@@ -244,7 +244,7 @@ export function authSamlProvider<Profile = unknown>(
       ) {
         // Generic detail: do NOT echo size / type - the attacker
         // already knows what they sent, the legit caller bumped the cap.
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'invalid SAMLResponse',
         })
@@ -259,13 +259,13 @@ export function authSamlProvider<Profile = unknown>(
         // generic detail so XML snippets do not reach the wire.
         const reason = err instanceof Error ? err.message : String(err)
         await ctx.events.emit('signin.failed', { providerId, reason })
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'SAMLResponse validation failed',
         })
       }
       if (validated.loggedOut || !validated.profile) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'IdP returned a logout response, not a sign-in',
         })
@@ -279,7 +279,7 @@ export function authSamlProvider<Profile = unknown>(
         validated.profile.nameID.length > 512
       ) {
         await ctx.events.emit('signin.failed', { providerId, reason: 'saml profile missing/invalid nameID' })
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'invalid SAML profile',
         })
@@ -293,7 +293,7 @@ export function authSamlProvider<Profile = unknown>(
         {
           type: 'startSession',
           identityId,
-          factors: [{ method: 'oauth', completedAt: Date.now() }],
+          factors: [{ method: 'oauth', completedAt: new Date() }],
           aal: 2,
         },
       ]
@@ -348,7 +348,7 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
   completeIdp(input: AuthSamlProvider.ISloCompleteIdpInput): Promise<AuthSamlProvider.ISloCompleteIdpResult>
 } {
   if (!opts.client) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'samlSloController requires a pre-built `client` (@node-saml/node-saml SAML instance)',
     })
   }
@@ -356,7 +356,7 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
   return {
     async beginSp(input) {
       if (!opts.client.getLogoutUrlAsync) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'samlSloController.beginSp: client does not implement getLogoutUrlAsync',
         })
       }
@@ -367,7 +367,7 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
         input.nameID.includes('\r') ||
         input.nameID.includes('\n')
       ) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'invalid nameID',
         })
@@ -379,7 +379,7 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
         input.relayState.includes('\r') ||
         input.relayState.includes('\n')
       ) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'slo.beginSp requires relayState (1-256 chars, no CR/LF)',
         })
       }
@@ -394,7 +394,7 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
 
     async completeSp(input) {
       if (!opts.client.validateRedirectAsync) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'samlSloController.completeSp: client does not implement validateRedirectAsync',
         })
       }
@@ -403,7 +403,7 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
         input.originalQuery.length === 0 ||
         input.originalQuery.length > SAML_RESPONSE_MAX
       ) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'invalid LogoutResponse query',
         })
@@ -412,13 +412,13 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
       try {
         validated = await opts.client.validateRedirectAsync(input.query, input.originalQuery)
       } catch {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'LogoutResponse validation failed',
         })
       }
       if (!validated.loggedOut) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'expected LogoutResponse; got sign-in assertion',
         })
@@ -428,19 +428,19 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
 
     async completeIdp(input) {
       if (!opts.client.getLogoutResponseUrl) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'samlSloController.completeIdp: client does not implement getLogoutResponseUrl',
         })
       }
       let validated: { profile: AuthSamlProvider.IProfile | null; loggedOut: boolean }
       if (input.SAMLRequest) {
         if (!opts.client.validatePostRequestAsync) {
-          throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+          throw new AuthError('AUTH_MISCONFIGURED', {
             detail: 'samlSloController.completeIdp: client does not implement validatePostRequestAsync',
           })
         }
         if (input.SAMLRequest.length === 0 || input.SAMLRequest.length > SAML_RESPONSE_MAX) {
-          throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId,
             detail: 'invalid SAMLRequest',
           })
@@ -448,19 +448,19 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
         try {
           validated = await opts.client.validatePostRequestAsync({ SAMLRequest: input.SAMLRequest })
         } catch {
-          throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId,
             detail: 'LogoutRequest validation failed',
           })
         }
       } else if (input.query && input.originalQuery) {
         if (!opts.client.validateRedirectAsync) {
-          throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+          throw new AuthError('AUTH_MISCONFIGURED', {
             detail: 'samlSloController.completeIdp: client does not implement validateRedirectAsync',
           })
         }
         if (input.originalQuery.length === 0 || input.originalQuery.length > SAML_RESPONSE_MAX) {
-          throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId,
             detail: 'invalid LogoutRequest query',
           })
@@ -468,18 +468,18 @@ export function authSamlSloController(opts: { providerId?: string; client: AuthS
         try {
           validated = await opts.client.validateRedirectAsync(input.query, input.originalQuery)
         } catch {
-          throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId,
             detail: 'LogoutRequest validation failed',
           })
         }
       } else {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'slo.completeIdp requires either { SAMLRequest } or { query, originalQuery }',
         })
       }
       if (!validated.loggedOut) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId,
           detail: 'expected LogoutRequest; got sign-in assertion',
         })

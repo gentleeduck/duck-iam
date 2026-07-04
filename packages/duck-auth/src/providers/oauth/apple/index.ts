@@ -1,5 +1,5 @@
 /**
- * Sign in with Apple. The OAuth flow shape matches the rest of the
+ * Sign in with Apple. The oauth flow shape matches the rest of the
  * providers (PKCE-S256 + HMAC state + nonce) but Apple's client_secret
  * is a per-request ES256 JWT rather than a static string. This
  * provider generates the JWT on every token exchange so consumers do
@@ -11,29 +11,29 @@
  * in the `user` form param on the AUTHORIZATION call (Apple only
  * shares it on the very first consent), so capturing it requires app
  * cooperation; for now we surface sub + email which is sufficient for
- * the AuthOAuthProvider profileToIdentityProfile hook.
+ * the AuthoauthProvider profileToIdentityProfile hook.
  */
 
 import { createSign } from 'node:crypto'
 import type { AuthProvider } from '../../../core/types/provider'
-import { AuthOAuthClient } from '../core/client'
-import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
+import { AuthoauthClient } from '../core/client'
+import { type AuthoauthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const APPLE_ENDPOINTS: AuthOAuthClient.IEndpoints = {
-  authorizationEndpoint: 'https://appleid.authApple.com/auth/authorize',
-  tokenEndpoint: 'https://appleid.authApple.com/auth/token',
+const APPLE_ENDPOINTS: AuthoauthClient.IEndpoints = {
+  authorizationEndpoint: 'https://appleid.authApple.com/AUTH/authorize',
+  tokenEndpoint: 'https://appleid.authApple.com/AUTH/token',
   userinfoEndpoint: '',
-  revocationEndpoint: 'https://appleid.authApple.com/auth/revoke',
+  revocationEndpoint: 'https://appleid.authApple.com/AUTH/revoke',
 }
 
-export namespace AuthAppleOAuth {
+export namespace AuthAppleoauth {
   /**
    * Apple-specific options. `clientSecret` from
-   * `AuthOAuthProvider.IOptionsBase` is ignored; the secret is generated
+   * `AuthoauthProvider.IOptionsBase` is ignored; the secret is generated
    * per request from the team / key / private-key triple.
    */
-  export interface IOptions<Profile = unknown> extends Omit<AuthOAuthProvider.IOptionsBase<Profile>, 'clientSecret'> {
+  export interface IOptions<Profile = unknown> extends Omit<AuthoauthProvider.IOptionsBase<Profile>, 'clientSecret'> {
     /** Apple Developer Team ID (10-char alphanumeric). */
     teamId: string
     /** Key ID associated with the AuthKey_*.p8 file. */
@@ -126,11 +126,11 @@ export function authDecodeIdToken(idToken: string): { sub: string; email?: strin
 
 /** Sign in with Apple provider factory. */
 export function authApple<Profile = unknown>(
-  opts: AuthAppleOAuth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
-  const client = new AuthOAuthClient({
+  opts: AuthAppleoauth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
+  const client = new AuthoauthClient({
     clientId: opts.clientId,
-    clientSecret: '', // ignored - the AuthOAuthClient uses the dynamic secret hook
+    clientSecret: '', // ignored - the AuthoauthClient uses the dynamic secret hook
     endpoints: APPLE_ENDPOINTS,
     scopes: opts.scopes ?? ['name', 'email'],
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
@@ -172,7 +172,7 @@ export function authApple<Profile = unknown>(
   })
 }
 
-export namespace AuthAppleOAuth {
+export namespace AuthAppleoauth {
   /** Re-export of the client_secret JWT helper for advanced callers. */
   export const generateClientSecret = generateAppleClientSecret
 }

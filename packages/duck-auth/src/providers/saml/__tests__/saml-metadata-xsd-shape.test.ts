@@ -33,7 +33,7 @@ function buildBasicMetadata(
   return authBuildSpMetadata({
     metadata: {
       entityId: overrides.entityId ?? 'https://app.example.com',
-      acsUrl: overrides.acsUrl ?? 'https://app.example.com/auth/saml/callback',
+      acsUrl: overrides.acsUrl ?? 'https://app.example.com/AUTH/saml/callback',
       ...(overrides.sloUrl !== undefined && { sloUrl: overrides.sloUrl }),
       ...(overrides.signingCert !== undefined && { signingCert: overrides.signingCert }),
     },

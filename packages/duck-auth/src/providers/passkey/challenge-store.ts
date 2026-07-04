@@ -7,14 +7,14 @@ import type { AuthPasskeyTypes } from './types'
  * implementation.
  */
 export class AuthMemoryPasskeyChallengeStore implements AuthPasskeyTypes.IChallengeStore {
-  private readonly _entries = new Map<string, { challenge: string; expiresAt: number }>()
+  private readonly _entries = new Map<string, { challenge: string; expiresAt: Date }>()
 
   /**
    * Persist a challenge under `key` for `ttlMs`. Overwrites any prior
    * entry; only one challenge is live per key at a time.
    */
   async put(key: string, challenge: string, ttlMs: number): Promise<void> {
-    this._entries.set(key, { challenge, expiresAt: Date.now() + ttlMs })
+    this._entries.set(key, { challenge, expiresAt: new Date(Date.now() + ttlMs) })
   }
 
   /**

@@ -1,17 +1,17 @@
 import { isRevoked } from '../../../core/credential-utils'
-import { authSha256 } from '../../../core/crypto'
-import { AuthErrorObject } from '../../../core/errors'
-import type { AuthTenantContext } from '../../../core/types/context'
-import type { AuthCredential } from '../../../core/types/credential'
-import type { AuthEvents } from '../../../core/types/events'
-import type { AuthOAuthClient } from './client'
+import { sha256 } from '../../../core/crypto'
+import { AuthError } from '../../../core/errors'
+import type { Credential } from '../../../core/types/identity'
+import type { TenantContext } from '../../../core/types/infra'
+import type { Events } from '../../../core/types/provider'
+import type { AuthoauthClient } from './client'
 
-export namespace AuthOAuthRefresh {
+export namespace AuthoauthRefresh {
   /**
    * Refresh-token family metadata. Persisted under `kind: 'oauth'`
-   * credentials by the OAuth provider at signin; rotated atomically by
-   * {@link authRefreshOauthToken}. Reuse of an old refresh token causes a
-   * `AUTH/OAUTH_REUSE_DETECTED` throw + revocation of the whole token
+   * credentials by the oauth provider at signin; rotated atomically by
+   * {@link authRefreshoauthToken}. Reuse of an old refresh token causes a
+   * `AUTH/oauth/REUSE_DETECTED` throw + revocation of the whole token
    * family.
    */
   export interface IFamilyMetadata {
@@ -23,7 +23,7 @@ export namespace AuthOAuthRefresh {
     accessTokenExpiresAt?: number
     /** When set, family revoked; every member rejects on lookup. */
     revokedAt?: number
-    /** Index signature for AuthCredential.metadata assignment. */
+    /** Index signature for Credential.metadata assignment. */
     [k: string]: unknown
   }
 }
@@ -32,14 +32,14 @@ export namespace AuthOAuthRefresh {
  * Stores the new refresh token + revokes the predecessor inside the
  * same family. RFC 6749 section 10.4 reuse detection.
  */
-export async function authRefreshOauthToken(opts: {
+export async function authRefreshoauthToken(opts: {
   presentedRefreshToken: string
-  tenant: AuthTenantContext
-  credentials: AuthCredential.IStore
-  events: AuthEvents.IBus
-  exchange: () => Promise<AuthOAuthClient.ITokenResponse>
-}): Promise<{ tokens: AuthOAuthClient.ITokenResponse; identityId: string; familyId: string }> {
-  const presentedHash = authSha256(opts.presentedRefreshToken)
+  tenant: TenantContext
+  credentials: Credential.Store
+  events: Events.IBus
+  exchange: () => Promise<AuthoauthClient.ITokenResponse>
+}): Promise<{ tokens: AuthoauthClient.ITokenResponse; identityId: string; familyId: string }> {
+  const presentedHash = sha256(opts.presentedRefreshToken)
   const row = await opts.credentials.findByHashedSecret(presentedHash, 'oauth', opts.tenant)
   if (!row) {
     // Unknown row: leaked/forged OR a GC'd revoked row. We cannot
@@ -49,11 +49,11 @@ export async function authRefreshOauthToken(opts: {
       score: 1,
       meta: { presentedHash },
     })
-    throw new AuthErrorObject('AUTH/OAUTH_REUSE_DETECTED', { familyRevoked: false })
+    throw new AuthError('AUTH_OAUTH_REUSE_DETECTED', { familyRevoked: false })
   }
   const meta = parseFamilyMetadata(row.metadata)
   if (!meta) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oauth',
       detail: 'refresh credential missing or malformed family metadata',
     })
@@ -67,7 +67,7 @@ export async function authRefreshOauthToken(opts: {
       score: 1,
       meta: { familyId: meta.familyId, provider: meta.provider, sub: meta.sub },
     })
-    throw new AuthErrorObject('AUTH/OAUTH_REUSE_DETECTED', { familyRevoked: true })
+    throw new AuthError('AUTH_OAUTH_REUSE_DETECTED', { familyRevoked: true })
   }
 
   // Claim the row via CAS on `version` before the (slow) exchange so
@@ -75,7 +75,7 @@ export async function authRefreshOauthToken(opts: {
   try {
     await opts.credentials.rotate(row.id, row.secret, row.version, opts.tenant)
   } catch (err) {
-    if (err instanceof AuthErrorObject && err.code === 'AUTH/STALE_WRITE') {
+    if (err instanceof AuthError && err.code === 'AUTH_STALE_WRITE') {
       // CAS loser still revokes the family (RFC 6749 10.4 reuse detection).
       await revokeFamily(opts.credentials, opts.tenant, meta.familyId)
       await opts.events.emit('suspicious', {
@@ -84,14 +84,14 @@ export async function authRefreshOauthToken(opts: {
         score: 1,
         meta: { familyId: meta.familyId, provider: meta.provider, sub: meta.sub },
       })
-      throw new AuthErrorObject('AUTH/OAUTH_REUSE_DETECTED', { familyRevoked: true })
+      throw new AuthError('AUTH_OAUTH_REUSE_DETECTED', { familyRevoked: true })
     }
     throw err
   }
 
   const fresh = await opts.exchange()
   if (!fresh.refresh_token) {
-    const updated: AuthOAuthRefresh.IFamilyMetadata = {
+    const updated: AuthoauthRefresh.IFamilyMetadata = {
       ...meta,
       accessToken: fresh.access_token,
       accessTokenExpiresAt: fresh.expires_in !== undefined ? Date.now() + fresh.expires_in * 1000 : undefined,
@@ -109,7 +109,7 @@ export async function authRefreshOauthToken(opts: {
     return { tokens: fresh, identityId: row.identityId, familyId: meta.familyId }
   }
 
-  const newMeta: AuthOAuthRefresh.IFamilyMetadata = {
+  const newMeta: AuthoauthRefresh.IFamilyMetadata = {
     ...meta,
     generation: meta.generation + 1,
     accessToken: fresh.access_token,
@@ -119,7 +119,7 @@ export async function authRefreshOauthToken(opts: {
     {
       identityId: row.identityId,
       kind: 'oauth',
-      secret: authSha256(fresh.refresh_token),
+      secret: sha256(fresh.refresh_token),
       metadata: newMeta,
     },
     opts.tenant,
@@ -128,11 +128,7 @@ export async function authRefreshOauthToken(opts: {
   return { tokens: fresh, identityId: row.identityId, familyId: meta.familyId }
 }
 
-async function revokeFamily(
-  credentials: AuthCredential.IStore,
-  ctx: AuthTenantContext,
-  familyId: string,
-): Promise<void> {
+async function revokeFamily(credentials: Credential.Store, ctx: TenantContext, familyId: string): Promise<void> {
   // Reflect.get + typeof: avoids a runtime-incorrect `as Store & {__familyRevoke?}` shape.
   const method: unknown = Reflect.get(credentials, '__familyRevoke')
   if (typeof method !== 'function') return
@@ -143,7 +139,7 @@ async function revokeFamily(
  * Convenience helper for adapters that want to project an unexpired
  * refresh row's access token (without performing a refresh round-trip).
  */
-export function projectAccessToken(row: AuthCredential.ICredential | null): {
+export function projectAccessToken(row: Credential.Me | null): {
   accessToken: string
   expiresAt: number | undefined
 } | null {
@@ -162,8 +158,8 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-/** Runtime validator for OAuth refresh-token family metadata. */
-function parseFamilyMetadata(meta: unknown): AuthOAuthRefresh.IFamilyMetadata | null {
+/** Runtime validator for oauth refresh-token family metadata. */
+function parseFamilyMetadata(meta: unknown): AuthoauthRefresh.IFamilyMetadata | null {
   if (!isPlainObject(meta)) return null
   const { provider, sub, familyId, generation, accessToken, accessTokenExpiresAt, revokedAt } = meta
   if (typeof provider !== 'string' || provider.length === 0) return null
@@ -180,7 +176,7 @@ function parseFamilyMetadata(meta: unknown): AuthOAuthRefresh.IFamilyMetadata | 
   if (revokedAt !== undefined && (typeof revokedAt !== 'number' || !Number.isFinite(revokedAt))) {
     return null
   }
-  const parsed: AuthOAuthRefresh.IFamilyMetadata = { provider, sub, familyId, generation, accessToken }
+  const parsed: AuthoauthRefresh.IFamilyMetadata = { provider, sub, familyId, generation, accessToken }
   if (accessTokenExpiresAt !== undefined) parsed.accessTokenExpiresAt = accessTokenExpiresAt
   if (revokedAt !== undefined) parsed.revokedAt = revokedAt
   // Preserve any extra index-signature fields the operator wrote.

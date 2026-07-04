@@ -1,4 +1,4 @@
-import { AuthErrorObject } from '../../core/errors'
+import { AuthError } from '../../core/errors'
 import type { ApiKeysFacet } from '../../core/facets/apikeys'
 import type { AuthProvider } from '../../core/types/provider'
 
@@ -46,18 +46,18 @@ export function authApiKey<Profile = unknown>(
       return []
     },
 
-    async complete(ctx, input): Promise<AuthProvider.Intent[]> {
+    async complete(ctx, input): Promise<AuthProvider.IInternalIntent[]> {
       // typeof-guard prevents sha256(non-string) throwing TypeError before the
       // rate limiter can fire (caller would see 500 instead of 401, plus the
       // call would bypass the per-token brute-force quota).
       if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 512) {
-        throw new AuthErrorObject('AUTH/APIKEY_INVALID')
+        throw new AuthError('AUTH_APIKEY_INVALID')
       }
       const keyHash = ctx.crypto.authSha256(input.token).slice(0, 16)
       const rl = await ctx.limiter.consume(`${prefix}${keyHash}`)
       if (!rl.ok) {
-        throw new AuthErrorObject('AUTH/RATE_LIMITED', {
-          retryAfter: Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000)),
+        throw new AuthError('AUTH_RATE_LIMITED', {
+          retryAfter: Math.max(1, Math.ceil((rl.resetAt.getTime() - Date.now()) / 1000)),
         })
       }
       const verified = await opts.apiKeys.verify(input.token, ctx.tenant)
@@ -65,7 +65,7 @@ export function authApiKey<Profile = unknown>(
       // tenant scope; otherwise the resulting session lacks the key's tenancy
       // while the caller still holds proof-of-key for that tenant.
       if (verified.tenantId !== undefined && ctx.tenant.tenantId !== verified.tenantId) {
-        throw new AuthErrorObject('AUTH/APIKEY_INVALID')
+        throw new AuthError('AUTH_APIKEY_INVALID')
       }
       if (opts.requireScopes && opts.requireScopes.length > 0) {
         opts.apiKeys.requireScopes(verified.scopes, opts.requireScopes)
@@ -74,7 +74,7 @@ export function authApiKey<Profile = unknown>(
         {
           type: 'startSession',
           identityId: verified.identityId,
-          factors: [{ method: 'api-key', completedAt: Date.now() }],
+          factors: [{ method: 'api-key', completedAt: new Date() }],
           aal: 1,
         },
       ]

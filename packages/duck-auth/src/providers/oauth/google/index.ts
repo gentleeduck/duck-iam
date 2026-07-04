@@ -1,29 +1,29 @@
-import { AuthErrorObject } from '../../../core/errors'
+import { AuthError } from '../../../core/errors'
 import type { AuthProvider } from '../../../core/types/provider'
-import { AuthOAuthClient } from '../core/client'
-import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
+import { AuthoauthClient } from '../core/client'
+import { type AuthoauthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const GOOGLE_ENDPOINTS: AuthOAuthClient.IEndpoints = {
+const GOOGLE_ENDPOINTS: AuthoauthClient.IEndpoints = {
   authorizationEndpoint: 'https://accounts.authGoogle.com/o/oauth2/v2/auth',
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
   userinfoEndpoint: 'https://openidconnect.googleapis.com/v1/userinfo',
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
 }
 
-export namespace AuthGoogleOAuth {
-  /** Google-specific options. Extends `AuthOAuthProvider.IOptionsBase`. */
-  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
+export namespace AuthGoogleoauth {
+  /** Google-specific options. Extends `AuthoauthProvider.IOptionsBase`. */
+  export interface IOptions<Profile = unknown> extends AuthoauthProvider.IOptionsBase<Profile> {
     /** Default `['openid', 'email', 'profile']`. */
     scopes?: string[]
   }
 }
 
-/** Google OAuth 2.0 / OIDC provider. */
+/** Google oauth 2.0 / OIDC provider. */
 export function authGoogle<Profile = unknown>(
-  opts: AuthGoogleOAuth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
-  const client = new AuthOAuthClient({
+  opts: AuthGoogleoauth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
+  const client = new AuthoauthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: GOOGLE_ENDPOINTS,
@@ -43,7 +43,7 @@ export function authGoogle<Profile = unknown>(
       // Safe-extract claims; cast would let non-string `sub` reach findByProviderSub.
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId: 'authGoogle',
           detail: 'Google userinfo missing sub',
         })

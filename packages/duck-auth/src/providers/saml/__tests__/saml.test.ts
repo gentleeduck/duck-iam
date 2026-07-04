@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authRandomToken, authSha256, authTimingSafeEqual } from '../../../core/crypto'
-import { AuthInMemoryEvents } from '../../../core/events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { RandomToken, sha256, timingSafeEqual } from '../../../core/crypto'
+import { InMemoryEvents } from '../../../core/events'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthSamlProvider, authSamlProvider } from '../index'
 
@@ -9,7 +9,7 @@ interface MyProfile {
   email: string
 }
 
-function ctxFor(adapter: AuthMemoryAdapter<MyProfile>) {
+function ctxFor(adapter: MemoryAdapter<MyProfile>) {
   return {
     stores: {
       identities: adapter.identities,
@@ -19,8 +19,8 @@ function ctxFor(adapter: AuthMemoryAdapter<MyProfile>) {
     tenant: {},
     baseUrl: 'https://app.test',
     limiter: new AuthMemoryLimiter(),
-    events: new AuthInMemoryEvents(),
-    crypto: { authRandomToken, authSha256, authTimingSafeEqual },
+    events: new InMemoryEvents(),
+    crypto: { authRandomToken: RandomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
   }
 }
 
@@ -39,7 +39,7 @@ describe('samlProvider - construction guards', () => {
   it('refuses without client', () => {
     expect(() =>
       authSamlProvider({ callbackUrl: 'https://app/acs', onSignIn: async () => ({ identityId: 'x' }) } as never),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('refuses without callbackUrl', () => {
@@ -49,7 +49,7 @@ describe('samlProvider - construction guards', () => {
         callbackUrl: '',
         onSignIn: async () => ({ identityId: 'x' }),
       }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('refuses without onSignIn', () => {
@@ -58,13 +58,13 @@ describe('samlProvider - construction guards', () => {
         client: makeClient(),
         callbackUrl: 'https://app/acs',
       } as never),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 })
 
 describe('samlProvider - begin', () => {
   it('returns redirect intent with IdP URL', async () => {
-    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const adapter = new MemoryAdapter<MyProfile>()
     const provider = authSamlProvider<MyProfile>({
       client: makeClient(),
       callbackUrl: 'https://app/acs',
@@ -81,21 +81,21 @@ describe('samlProvider - begin', () => {
   })
 
   it('begin missing relayState rejects MISCONFIGURED', async () => {
-    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const adapter = new MemoryAdapter<MyProfile>()
     const provider = authSamlProvider<MyProfile>({
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn: async () => ({ identityId: 'x' }),
     })
     await expect(provider.begin(ctxFor(adapter), { relayState: '', host: 'https://app' })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 })
 
 describe('samlProvider - complete', () => {
   it('validates SAMLResponse + invokes onSignIn + emits startSession (aal:2)', async () => {
-    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const adapter = new MemoryAdapter<MyProfile>()
     const onSignIn = vi.fn(async () => ({ identityId: 'ident-7' }))
     const provider = authSamlProvider<MyProfile>({
       client: makeClient(),
@@ -115,19 +115,19 @@ describe('samlProvider - complete', () => {
   })
 
   it('rejects empty SAMLResponse with PROVIDER_FAILED', async () => {
-    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const adapter = new MemoryAdapter<MyProfile>()
     const provider = authSamlProvider<MyProfile>({
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn: async () => ({ identityId: 'x' }),
     })
     await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '' })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 
   it('rejects when IdP returns loggedOut response', async () => {
-    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const adapter = new MemoryAdapter<MyProfile>()
     const provider = authSamlProvider<MyProfile>({
       client: makeClient({
         validatePostResponseAsync: async () => ({ profile: null, loggedOut: true }),
@@ -136,12 +136,12 @@ describe('samlProvider - complete', () => {
       onSignIn: async () => ({ identityId: 'x' }),
     })
     await expect(provider.complete(ctxFor(adapter), { SAMLResponse: 'XYZ' })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 
   it('client throw surfaces as PROVIDER_FAILED + detail', async () => {
-    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const adapter = new MemoryAdapter<MyProfile>()
     const provider = authSamlProvider<MyProfile>({
       client: makeClient({
         validatePostResponseAsync: async () => {
@@ -152,7 +152,7 @@ describe('samlProvider - complete', () => {
       onSignIn: async () => ({ identityId: 'x' }),
     })
     await expect(provider.complete(ctxFor(adapter), { SAMLResponse: 'XYZ' })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 })

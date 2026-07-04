@@ -1,28 +1,28 @@
-import { AuthErrorObject } from '../../../core/errors'
+import { AuthError } from '../../../core/errors'
 import type { AuthProvider } from '../../../core/types/provider'
-import { AuthOAuthClient } from '../core/client'
-import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
+import { AuthoauthClient } from '../core/client'
+import { type AuthoauthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoNumericIdAsString, getUserinfoString } from '../core/userinfo'
 
-const GITHUB_ENDPOINTS: AuthOAuthClient.IEndpoints = {
+const GITHUB_ENDPOINTS: AuthoauthClient.IEndpoints = {
   authorizationEndpoint: 'https://authGithub.com/login/oauth/authorize',
   tokenEndpoint: 'https://authGithub.com/login/oauth/access_token',
   userinfoEndpoint: 'https://api.authGithub.com/user',
 }
 
-export namespace AuthGithubOAuth {
-  /** GitHub-specific options. Extends `AuthOAuthProvider.IOptionsBase`. */
-  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
+export namespace AuthGithuboauth {
+  /** GitHub-specific options. Extends `AuthoauthProvider.IOptionsBase`. */
+  export interface IOptions<Profile = unknown> extends AuthoauthProvider.IOptionsBase<Profile> {
     /** Default `['read:user', 'user:email']`. */
     scopes?: string[]
   }
 }
 
-/** GitHub OAuth 2.0 provider. */
+/** GitHub oauth 2.0 provider. */
 export function authGithub<Profile = unknown>(
-  opts: AuthGithubOAuth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
-  const client = new AuthOAuthClient({
+  opts: AuthGithuboauth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
+  const client = new AuthoauthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: GITHUB_ENDPOINTS,
@@ -44,7 +44,7 @@ export function authGithub<Profile = unknown>(
       // Safe-extract: `String(info.id)` on null id would collide all bad ids onto one sub.
       const sub = getUserinfoNumericIdAsString(info, 'id')
       if (sub === undefined) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId: 'authGithub',
           detail: 'GitHub userinfo missing numeric id',
         })

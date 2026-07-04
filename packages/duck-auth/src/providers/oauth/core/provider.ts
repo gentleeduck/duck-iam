@@ -1,11 +1,11 @@
-import { authSha256 } from '../../../core/crypto'
-import { AuthErrorObject } from '../../../core/errors'
+import { sha256 } from '../../../core/crypto'
+import { AuthError } from '../../../core/errors'
 import type { AuthProvider } from '../../../core/types/provider'
-import type { AuthOAuthClient } from './client'
+import type { AuthoauthClient } from './client'
 import { authGeneratePkce } from './pkce'
 import { authBuildState, authVerifyState, signState } from './state'
 
-export namespace AuthOAuthProvider {
+export namespace AuthoauthProvider {
   /**
    * Canonical profile shape after a provider extracts it from
    * userinfo / id_token / provider-specific endpoint. Providers
@@ -22,17 +22,17 @@ export namespace AuthOAuthProvider {
   }
 
   /**
-   * Shared option surface every provider-specific OAuth options
+   * Shared option surface every provider-specific oauth options
    * interface (Google / GitHub / Apple / Discord / ...) extends.
    */
   export interface IOptionsBase<Profile = unknown> {
-    /** OAuth client id assigned by the IdP. */
+    /** oauth client id assigned by the IdP. */
     clientId: string
     /** Client secret. Confidential clients (server-side) only. */
     clientSecret: string
     /** Exact callback URL registered with the IdP. Must match. */
     redirectUri: string
-    /** Per-AuthEngine signing secret for the OAuth `state` parameter. */
+    /** Per-AuthEngine signing secret for the oauth `state` parameter. */
     stateSigningSecret: string
     /** Override IdP scopes; falls back to provider default. */
     scopes?: string[]
@@ -48,17 +48,17 @@ export namespace AuthOAuthProvider {
   export interface IOptions<Profile = unknown> {
     /** Stable id; library prefixes with `oauth:` for consistency. */
     providerId: string
-    client: AuthOAuthClient
-    endpoints: AuthOAuthClient.IEndpoints | (() => Promise<AuthOAuthClient.IEndpoints>)
+    client: AuthoauthClient
+    endpoints: AuthoauthClient.IEndpoints | (() => Promise<AuthoauthClient.IEndpoints>)
     /** Redirect URI registered with the provider. */
     redirectUri: string
-    /** Secret used to sign the OAuth `state` parameter. */
+    /** Secret used to sign the oauth `state` parameter. */
     stateSigningSecret: string
     /** Extract a canonical profile from the token response + userinfo. */
-    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: AuthOAuthClient) => Promise<IProfile>
+    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: AuthoauthClient) => Promise<IProfile>
     /** Map IProfile -> consumer Profile shape on first sign-in. */
     profileToIdentityProfile?: (p: IProfile) => Profile
-    /** AuthIdentity-resolution override; null return refuses sign-in. */
+    /** Identity-resolution override; null return refuses sign-in. */
     onSignIn?: (ctx: {
       profile: IProfile
       findByProviderSub: (providerSub: string) => Promise<{ id: string } | null>
@@ -68,21 +68,21 @@ export namespace AuthOAuthProvider {
     }) => Promise<{ identityId: string } | null>
     /**
      * Federation conflict policy. Fires when the
-     * OAuth profile's email matches an existing identity but no
+     * oauth profile's email matches an existing identity but no
      * matching provider-sub link exists yet. The default behaviour
-     * is `'reject'` - the safest pre-1.1 stance, because OAuth
+     * is `'reject'` - the safest pre-1.1 stance, because oauth
      * providers that do NOT mark the email as verified would
      * otherwise enable account-takeover via email squatting.
      *
      * - `'reject'`: throw `AUTH/PROVIDER_FAILED` with detail
      *   `federation-conflict`.
-     * - `'link-if-verified'`: link the new provider IFF the OAuth
+     * - `'link-if-verified'`: link the new provider IFF the oauth
      *   profile's `email_verified` claim is true; otherwise reject.
      * - `(ctx) => Promise<'link' | 'reject'>`: caller-supplied
      *   hook for "merge-after-confirmation" - the app prompts the
      *   user out-of-band and resolves with the verdict.
      */
-    onFederationConflict?: AuthOAuthProvider.IFederationPolicy
+    onFederationConflict?: AuthoauthProvider.IFederationPolicy
   }
 
   /** Policy + hook shape for the federation conflict workflow. */
@@ -104,22 +104,33 @@ export namespace AuthOAuthProvider {
     /** Opaque state value the library issued at begin. */
     state: string
   }
+
+  /** Shape stored in `Credential.ICredential.metadata` for oauth credentials. */
+  export interface ICredentialMetadata {
+    provider: string
+    sub: string
+    familyId: string
+    generation: number
+    accessToken?: string
+    /** Epoch ms when the access token expires. */
+    accessTokenExpiresAt?: number
+  }
 }
 
 /**
- * Generic OAuth provider. Specific provider modules (authGoogle, authGithub,
+ * Generic oauth provider. Specific provider modules (authGoogle, authGithub,
  * ...) pre-fill endpoints + scopes + fetchProfile and re-export.
  */
 export function oauthProvider<Profile = unknown>(
-  opts: AuthOAuthProvider.IOptions<Profile>,
-): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
+  opts: AuthoauthProvider.IOptions<Profile>,
+): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
   const fullProviderId = `oauth:${opts.providerId}`
   // Refuse a malformed `redirectUri` at construction so a misconfigured
   // value (e.g. `javascript:alert(1)`, an unparseable string, or one carrying
   // CR/LF for header injection) cannot reach the IdP authorize URL or our
   // session-issue path.
-  if (!isValidOAuthRedirectUri(opts.redirectUri)) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+  if (!isValidoauthRedirectUri(opts.redirectUri)) {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `oauth.redirectUri must be an http(s) URL with no CR/LF (got: ${typeof opts.redirectUri})`,
     })
   }
@@ -142,17 +153,17 @@ export function oauthProvider<Profile = unknown>(
     async complete(ctx, input) {
       // 2KB cap on `code` prevents outbound-amplification to the IdP.
       if (typeof input.code !== 'string' || input.code.length === 0 || input.code.length > 2048) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId: fullProviderId,
           detail: 'invalid authorization code',
         })
       }
       const verified = authVerifyState(input.state, opts.stateSigningSecret)
       if (!verified) {
-        throw new AuthErrorObject('AUTH/OAUTH_STATE_MISMATCH')
+        throw new AuthError('AUTH_OAUTH_STATE_MISMATCH')
       }
       if (verified.providerId !== fullProviderId) {
-        throw new AuthErrorObject('AUTH/OAUTH_STATE_MISMATCH')
+        throw new AuthError('AUTH_OAUTH_STATE_MISMATCH')
       }
 
       const tokens = await opts.client.exchangeCode({
@@ -162,7 +173,7 @@ export function oauthProvider<Profile = unknown>(
       })
       const profile = await opts.fetchProfile(tokens, opts.client)
       if (!profile.sub || profile.sub.length === 0) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId: fullProviderId,
           detail: 'oauth profile missing sub',
         })
@@ -178,7 +189,7 @@ export function oauthProvider<Profile = unknown>(
             const created = await ctx.stores.identities.create(
               {
                 profile: p,
-                providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: Date.now() }],
+                providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() }],
               },
               ctx.tenant,
             )
@@ -187,13 +198,13 @@ export function oauthProvider<Profile = unknown>(
           linkProvider: async (id, sub) => {
             await ctx.stores.identities.link(
               id,
-              { providerId: fullProviderId, providerSub: sub, addedAt: Date.now() },
+              { providerId: fullProviderId, providerSub: sub, addedAt: new Date() },
               ctx.tenant,
             )
           },
         })
         if (!r) {
-          throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+          throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId: fullProviderId,
             detail: 'sign-in refused by onSignIn callback',
           })
@@ -214,7 +225,7 @@ export function oauthProvider<Profile = unknown>(
               providerId: fullProviderId,
             })
             if (verdict === 'reject') {
-              throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+              throw new AuthError('AUTH_PROVIDER_FAILED', {
                 providerId: fullProviderId,
                 detail:
                   'federation-conflict: an existing identity owns this email; provider-sub link refused under the configured policy',
@@ -222,20 +233,18 @@ export function oauthProvider<Profile = unknown>(
             }
             await ctx.stores.identities.link(
               byEmail.id,
-              { providerId: fullProviderId, providerSub: profile.sub, addedAt: Date.now() },
+              { providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() },
               ctx.tenant,
             )
             identityId = byEmail.id
           }
         }
         if (!identityId) {
-          const projected =
-            opts.profileToIdentityProfile?.(profile) ??
-            ({ email: profile.email, name: profile.name } as unknown as Profile)
+          const projected = opts.profileToIdentityProfile?.(profile)
           const created = await ctx.stores.identities.create(
             {
               profile: projected,
-              providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: Date.now() }],
+              providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() }],
             },
             ctx.tenant,
           )
@@ -244,12 +253,12 @@ export function oauthProvider<Profile = unknown>(
       }
 
       if (tokens.refresh_token) {
-        const familyId = `${fullProviderId}:${profile.sub}:${authSha256(input.code).slice(0, 16)}`
+        const familyId = `${fullProviderId}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
         await ctx.stores.credentials.upsert(
           {
             identityId,
             kind: 'oauth',
-            secret: authSha256(tokens.refresh_token),
+            secret: sha256(tokens.refresh_token),
             metadata: {
               provider: fullProviderId,
               sub: profile.sub,
@@ -257,7 +266,7 @@ export function oauthProvider<Profile = unknown>(
               generation: 1,
               accessToken: tokens.access_token,
               accessTokenExpiresAt: tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined,
-            },
+            } satisfies AuthoauthProvider.ICredentialMetadata,
           },
           ctx.tenant,
         )
@@ -267,7 +276,7 @@ export function oauthProvider<Profile = unknown>(
         {
           type: 'startSession',
           identityId,
-          factors: [{ method: 'oauth', completedAt: Date.now() }],
+          factors: [{ method: 'oauth', completedAt: new Date() }],
           aal: 1,
         },
       ]
@@ -282,8 +291,8 @@ export function oauthProvider<Profile = unknown>(
  * `profile.emailVerified === true` AND an unambiguous email match).
  */
 async function resolveFederationConflict(
-  policy: AuthOAuthProvider.IFederationPolicy,
-  ctx: { existingIdentityId: string; profile: AuthOAuthProvider.IProfile; providerId: string },
+  policy: AuthoauthProvider.IFederationPolicy,
+  ctx: { existingIdentityId: string; profile: AuthoauthProvider.IProfile; providerId: string },
 ): Promise<'link' | 'reject'> {
   if (policy === 'reject') return 'reject'
   if (policy === 'link-if-verified') {
@@ -296,7 +305,7 @@ async function resolveFederationConflict(
   return verdict === 'link' ? 'link' : 'reject'
 }
 
-function isValidOAuthRedirectUri(value: unknown): value is string {
+function isValidoauthRedirectUri(value: unknown): value is string {
   if (typeof value !== 'string') return false
   if (value.length === 0 || value.length > 2048) return false
   if (value.includes('\r') || value.includes('\n')) return false

@@ -1,24 +1,24 @@
 /**
- * LinkedIn OAuth 2.0 / OIDC provider. Uses the v2 userinfo endpoint
+ * LinkedIn oauth 2.0 / OIDC provider. Uses the v2 userinfo endpoint
  * (OpenID Connect on LinkedIn) so callers do not need the legacy v1
  * profile + email API calls.
  */
 
-import { AuthErrorObject } from '../../../core/errors'
+import { AuthError } from '../../../core/errors'
 import type { AuthProvider } from '../../../core/types/provider'
-import { AuthOAuthClient } from '../core/client'
-import { type AuthOAuthProvider, oauthProvider } from '../core/provider'
+import { AuthoauthClient } from '../core/client'
+import { type AuthoauthProvider, oauthProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const LINKEDIN_ENDPOINTS: AuthOAuthClient.IEndpoints = {
+const LINKEDIN_ENDPOINTS: AuthoauthClient.IEndpoints = {
   authorizationEndpoint: 'https://www.authLinkedin.com/oauth/v2/authorization',
   tokenEndpoint: 'https://www.authLinkedin.com/oauth/v2/accessToken',
   userinfoEndpoint: 'https://api.authLinkedin.com/v2/userinfo',
 }
 
-export namespace AuthLinkedInOAuth {
+export namespace AuthLinkedInoauth {
   /** LinkedIn-specific options. */
-  export interface IOptions<Profile = unknown> extends AuthOAuthProvider.IOptionsBase<Profile> {
+  export interface IOptions<Profile = unknown> extends AuthoauthProvider.IOptionsBase<Profile> {
     /** Default `['openid', 'profile', 'email']`. */
     scopes?: string[]
   }
@@ -26,9 +26,9 @@ export namespace AuthLinkedInOAuth {
 
 /** LinkedIn OIDC provider factory. */
 export function authLinkedin<Profile = unknown>(
-  opts: AuthLinkedInOAuth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthOAuthProvider.IBeginInput, AuthOAuthProvider.ICompleteInput, Profile> {
-  const client = new AuthOAuthClient({
+  opts: AuthLinkedInoauth.IOptions<Profile>,
+): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
+  const client = new AuthoauthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: LINKEDIN_ENDPOINTS,
@@ -50,7 +50,7 @@ export function authLinkedin<Profile = unknown>(
       // safe-extract LinkedIn claims.
       const sub = getUserinfoString(info, 'sub')
       if (sub === undefined) {
-        throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        throw new AuthError('AUTH_PROVIDER_FAILED', {
           providerId: 'authLinkedin',
           detail: 'LinkedIn userinfo missing sub',
         })

@@ -1,8 +1,8 @@
-import { AuthErrorObject } from '../../../core/errors'
+import { AuthError } from '../../../core/errors'
 
-export namespace AuthOAuthClient {
+export namespace AuthoauthClient {
   /**
-   * OIDC / OAuth2 endpoints. Supplied directly (Google, GitHub,
+   * OIDC / oauth2 endpoints. Supplied directly (Google, GitHub,
    * static well-known providers) or resolved at runtime via discovery
    * for generic OIDC issuers.
    */
@@ -15,7 +15,7 @@ export namespace AuthOAuthClient {
     revocationEndpoint?: string
   }
 
-  /** Config knobs for the OAuth client. */
+  /** Config knobs for the oauth client. */
   export interface IOptions {
     clientId: string
     clientSecret?: string
@@ -28,13 +28,13 @@ export namespace AuthOAuthClient {
     dynamicClientSecret?: () => string | Promise<string>
     /** Endpoints; can be promised when discovering at boot. */
     endpoints: IEndpoints | (() => Promise<IEndpoints>)
-    /** OAuth2 scopes the provider should request. */
+    /** oauth2 scopes the provider should request. */
     scopes: string[]
     /** Override the fetch impl (test stubs). */
     fetch?: typeof globalThis.fetch
   }
 
-  /** Standard OAuth2 token-endpoint response. */
+  /** Standard oauth2 token-endpoint response. */
   export interface ITokenResponse {
     access_token: string
     token_type: string
@@ -45,10 +45,10 @@ export namespace AuthOAuthClient {
   }
 }
 
-export class AuthOAuthClient {
-  private _endpoints: AuthOAuthClient.IEndpoints | null = null
+export class AuthoauthClient {
+  private _endpoints: AuthoauthClient.IEndpoints | null = null
 
-  constructor(private readonly _opts: AuthOAuthClient.IOptions) {}
+  constructor(private readonly _opts: AuthoauthClient.IOptions) {}
 
   /**
    * Resolve the per-call client_secret. Dynamic generator wins when
@@ -67,7 +67,7 @@ export class AuthOAuthClient {
     return this._opts.clientSecret || undefined
   }
 
-  private async _resolveEndpoints(): Promise<AuthOAuthClient.IEndpoints> {
+  private async _resolveEndpoints(): Promise<AuthoauthClient.IEndpoints> {
     if (this._endpoints) return this._endpoints
     const e = typeof this._opts.endpoints === 'function' ? await this._opts.endpoints() : this._opts.endpoints
     // Validate endpoint URLs at resolution time. A buggy/typo'd dynamic
@@ -75,22 +75,22 @@ export class AuthOAuthClient {
     // otherwise reach fetch() and either fail unhelpfully or fire on an
     // unintended scheme.
     if (typeof e?.authorizationEndpoint !== 'string' || !isHttpUrl(e.authorizationEndpoint)) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'oauth: authorizationEndpoint must be an http(s) URL' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'oauth: authorizationEndpoint must be an http(s) URL' })
     }
     if (typeof e.tokenEndpoint !== 'string' || !isHttpUrl(e.tokenEndpoint)) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'oauth: tokenEndpoint must be an http(s) URL' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'oauth: tokenEndpoint must be an http(s) URL' })
     }
     if (
       e.userinfoEndpoint !== undefined &&
       (typeof e.userinfoEndpoint !== 'string' || !isHttpUrl(e.userinfoEndpoint))
     ) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'oauth: userinfoEndpoint must be an http(s) URL' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'oauth: userinfoEndpoint must be an http(s) URL' })
     }
     if (
       e.revocationEndpoint !== undefined &&
       (typeof e.revocationEndpoint !== 'string' || !isHttpUrl(e.revocationEndpoint))
     ) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'oauth: revocationEndpoint must be an http(s) URL' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'oauth: revocationEndpoint must be an http(s) URL' })
     }
     this._endpoints = e
     return e
@@ -124,7 +124,7 @@ export class AuthOAuthClient {
     code: string
     redirectUri: string
     codeVerifier: string
-  }): Promise<AuthOAuthClient.ITokenResponse> {
+  }): Promise<AuthoauthClient.ITokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
@@ -143,7 +143,7 @@ export class AuthOAuthClient {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'oauth',
         detail: `token endpoint returned ${res.status}: ${text.slice(0, 200)}`,
       })
@@ -151,7 +151,7 @@ export class AuthOAuthClient {
     // Strict parse; non-numeric `expires_in` would propagate NaN past expiry.
     const tokens = parseTokenResponse(await readJsonSafe(res))
     if (!tokens) {
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'oauth',
         detail: 'token endpoint returned malformed response',
       })
@@ -160,7 +160,7 @@ export class AuthOAuthClient {
   }
 
   /** Refresh-token rotation; throws on any non-2xx. */
-  async refresh(refreshToken: string): Promise<AuthOAuthClient.ITokenResponse> {
+  async refresh(refreshToken: string): Promise<AuthoauthClient.ITokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
@@ -177,14 +177,14 @@ export class AuthOAuthClient {
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'oauth',
         detail: `refresh failed ${res.status}: ${text.slice(0, 200)}`,
       })
     }
     const tokens = parseTokenResponse(await readJsonSafe(res))
     if (!tokens) {
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'oauth',
         detail: 'refresh endpoint returned malformed response',
       })
@@ -196,7 +196,7 @@ export class AuthOAuthClient {
   async userinfo(accessToken: string): Promise<Record<string, unknown>> {
     const e = await this._resolveEndpoints()
     if (!e.userinfoEndpoint) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'oauth: userinfoEndpoint not configured for this provider',
       })
     }
@@ -205,7 +205,7 @@ export class AuthOAuthClient {
       headers: { authorization: `Bearer ${accessToken}` },
     })
     if (!res.ok) {
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'oauth',
         detail: `userinfo failed ${res.status}`,
       })
@@ -214,7 +214,7 @@ export class AuthOAuthClient {
     // before handing the body back to caller-supplied `fetchProfile`.
     const json = await readJsonSafe(res)
     if (!isPlainObject(json)) {
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'oauth',
         detail: 'userinfo returned non-object body',
       })
@@ -238,7 +238,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 async function readJsonSafe(res: Response): Promise<unknown> {
   // Stream + cap so a hostile IdP that streams a multi-GB body cannot OOM us
-  // before we ever reach JSON.parse. Real OAuth token / userinfo bodies are
+  // before we ever reach JSON.parse. Real oauth token / userinfo bodies are
   // <10KB; 64KB is generous.
   const MAX_BYTES = 64 * 1024
   const reader = res.body?.getReader()
@@ -273,8 +273,8 @@ async function readJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
-/** Validator for OAuth2 token-endpoint responses (RFC 6749 section 5.1). */
-function parseTokenResponse(raw: unknown): AuthOAuthClient.ITokenResponse | null {
+/** Validator for oauth2 token-endpoint responses (RFC 6749 section 5.1). */
+function parseTokenResponse(raw: unknown): AuthoauthClient.ITokenResponse | null {
   if (!isPlainObject(raw)) return null
   const { access_token, token_type, expires_in, refresh_token, id_token, scope } = raw
   if (typeof access_token !== 'string' || access_token.length === 0) return null
@@ -283,7 +283,7 @@ function parseTokenResponse(raw: unknown): AuthOAuthClient.ITokenResponse | null
   if (refresh_token !== undefined && typeof refresh_token !== 'string') return null
   if (id_token !== undefined && typeof id_token !== 'string') return null
   if (scope !== undefined && typeof scope !== 'string') return null
-  const r: AuthOAuthClient.ITokenResponse = { access_token, token_type }
+  const r: AuthoauthClient.ITokenResponse = { access_token, token_type }
   if (expires_in !== undefined) r.expires_in = expires_in
   if (refresh_token !== undefined) r.refresh_token = refresh_token
   if (id_token !== undefined) r.id_token = id_token

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authRandomToken, authSha256, authTimingSafeEqual } from '../../../core/crypto'
-import { AuthInMemoryEvents } from '../../../core/events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { RandomToken, sha256, timingSafeEqual } from '../../../core/crypto'
+import { InMemoryEvents } from '../../../core/events'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthSamlProvider, authSamlProvider } from '../index'
 
@@ -9,7 +9,7 @@ interface MyProfile {
   email: string
 }
 
-function ctxFor(adapter: AuthMemoryAdapter<MyProfile>, events?: AuthInMemoryEvents) {
+function ctxFor(adapter: MemoryAdapter<MyProfile>, events?: InMemoryEvents) {
   return {
     stores: {
       identities: adapter.identities,
@@ -19,8 +19,8 @@ function ctxFor(adapter: AuthMemoryAdapter<MyProfile>, events?: AuthInMemoryEven
     tenant: {},
     baseUrl: 'https://app.test',
     limiter: new AuthMemoryLimiter(),
-    events: events ?? new AuthInMemoryEvents(),
-    crypto: { authRandomToken, authSha256, authTimingSafeEqual },
+    events: events ?? new InMemoryEvents(),
+    crypto: { authRandomToken: RandomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
   }
 }
 
@@ -36,10 +36,10 @@ function makeClient(overrides: Partial<AuthSamlProvider.IClient> = {}): AuthSaml
 }
 
 describe('samlProvider - input caps', () => {
-  let adapter: AuthMemoryAdapter<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter<MyProfile>()
+    adapter = new MemoryAdapter<MyProfile>()
   })
 
   describe('begin', () => {
@@ -52,7 +52,7 @@ describe('samlProvider - input caps', () => {
       })
       await expect(
         provider.begin(ctxFor(adapter), { relayState: 'A'.repeat(257), host: 'app.test' }),
-      ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
       expect(client.getAuthorizeUrlAsync).not.toHaveBeenCalled()
     })
 
@@ -75,7 +75,7 @@ describe('samlProvider - input caps', () => {
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(provider.begin(ctxFor(adapter), { relayState: '', host: 'app.test' })).rejects.toMatchObject({
-        code: 'AUTH/MISCONFIGURED',
+        code: 'AUTH_MISCONFIGURED',
       })
     })
 
@@ -87,7 +87,7 @@ describe('samlProvider - input caps', () => {
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(provider.begin(ctxFor(adapter), { relayState: 'rs', host: 'a'.repeat(254) })).rejects.toMatchObject({
-        code: 'AUTH/MISCONFIGURED',
+        code: 'AUTH_MISCONFIGURED',
       })
       expect(client.getAuthorizeUrlAsync).not.toHaveBeenCalled()
     })
@@ -100,7 +100,7 @@ describe('samlProvider - input caps', () => {
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(provider.begin(ctxFor(adapter), { relayState: 'rs', host: '' })).rejects.toMatchObject({
-        code: 'AUTH/MISCONFIGURED',
+        code: 'AUTH_MISCONFIGURED',
       })
     })
 
@@ -114,7 +114,7 @@ describe('samlProvider - input caps', () => {
       await expect(
         // simulate a malformed body parsed as { relayState: 42, host: 'app.test' }
         provider.begin(ctxFor(adapter), { relayState: 42 as unknown as string, host: 'app.test' }),
-      ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
     })
   })
 
@@ -128,14 +128,14 @@ describe('samlProvider - input caps', () => {
       })
       const oversize = 'A'.repeat(1_048_577)
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: oversize })).rejects.toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'invalid SAMLResponse' },
       })
       expect(client.validatePostResponseAsync).not.toHaveBeenCalled()
     })
 
     it('accepts SAMLResponse exactly at 1 MiB', async () => {
-      const adapterInner = new AuthMemoryAdapter<MyProfile>()
+      const adapterInner = new MemoryAdapter<MyProfile>()
       const ident = await adapterInner.identities.create({ profile: { email: 'u@x.com' }, providers: [] }, {})
       const client = makeClient()
       const provider = authSamlProvider({
@@ -157,7 +157,7 @@ describe('samlProvider - input caps', () => {
         onSignIn: async () => ({ identityId: 'x' }),
       })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '' })).rejects.toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'invalid SAMLResponse' },
       })
       expect(client.validatePostResponseAsync).not.toHaveBeenCalled()
@@ -173,7 +173,7 @@ describe('samlProvider - input caps', () => {
       await expect(
         provider.complete(ctxFor(adapter), { SAMLResponse: null as unknown as string }),
       ).rejects.toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'invalid SAMLResponse' },
       })
     })
@@ -196,7 +196,7 @@ describe('samlProvider - input caps', () => {
         throw new Error('expected throw')
       } catch (err) {
         const e = err as { code: string; meta: { detail: string } }
-        expect(e.code).toBe('AUTH/PROVIDER_FAILED')
+        expect(e.code).toBe('AUTH_PROVIDER_FAILED')
         expect(e.meta.detail).toBe('SAMLResponse validation failed')
         // The leaky bits MUST NOT appear in the wire detail.
         expect(e.meta.detail).not.toContain('<saml:Assertion>')
@@ -206,7 +206,7 @@ describe('samlProvider - input caps', () => {
     })
 
     it('emits the real reason on events.signin.failed for operator visibility', async () => {
-      const events = new AuthInMemoryEvents()
+      const events = new InMemoryEvents()
       const seen: Array<{ providerId: string; reason: string }> = []
       events.on('signin.failed', (payload) => {
         seen.push({ providerId: payload.providerId, reason: payload.reason })
@@ -223,7 +223,7 @@ describe('samlProvider - input caps', () => {
       })
       await expect(
         provider.complete(ctxFor(adapter, events), { SAMLResponse: '<SAMLResponse/>' }),
-      ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+      ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
       expect(seen).toHaveLength(1)
       expect(seen[0]!.providerId).toBe('saml')
       // The full reason DOES reach operators.
@@ -232,7 +232,7 @@ describe('samlProvider - input caps', () => {
     })
 
     it('non-Error throws still emit and surface generic detail (no String() leak)', async () => {
-      const events = new AuthInMemoryEvents()
+      const events = new InMemoryEvents()
       const seen: string[] = []
       events.on('signin.failed', (payload) => {
         seen.push(payload.reason)
@@ -270,7 +270,7 @@ describe('samlProvider - input caps', () => {
       const onSignIn = vi.fn(async () => ({ identityId: 'x' }))
       const provider = authSamlProvider({ client, callbackUrl: 'https://app/acs', onSignIn })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '<SAMLResponse/>' })).rejects.toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'invalid SAML profile' },
       })
       // onSignIn must NOT fire when nameID is invalid - otherwise
@@ -289,14 +289,14 @@ describe('samlProvider - input caps', () => {
       const onSignIn = vi.fn(async () => ({ identityId: 'x' }))
       const provider = authSamlProvider({ client, callbackUrl: 'https://app/acs', onSignIn })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '<SAMLResponse/>' })).rejects.toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'invalid SAML profile' },
       })
       expect(onSignIn).not.toHaveBeenCalled()
     })
 
     it('emits signin.failed when profile is structurally invalid', async () => {
-      const events = new AuthInMemoryEvents()
+      const events = new InMemoryEvents()
       const seen: string[] = []
       events.on('signin.failed', (payload) => {
         seen.push(payload.reason)
@@ -314,12 +314,12 @@ describe('samlProvider - input caps', () => {
       })
       await expect(
         provider.complete(ctxFor(adapter, events), { SAMLResponse: '<SAMLResponse/>' }),
-      ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+      ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
       expect(seen).toEqual(['saml profile missing/invalid nameID'])
     })
 
     it('valid nameID flows through to onSignIn unchanged', async () => {
-      const adapterInner = new AuthMemoryAdapter<MyProfile>()
+      const adapterInner = new MemoryAdapter<MyProfile>()
       const ident = await adapterInner.identities.create({ profile: { email: 'u@x.com' }, providers: [] }, {})
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({

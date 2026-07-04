@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { isFiniteNumber, isRevoked } from '../../core/credential-utils'
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthCredential } from '../../core/types/credential'
+import { AuthError } from '../../core/errors'
+import type { Credential } from '../../core/types/identity'
 import type { AuthProvider } from '../../core/types/provider'
 import { AuthMemoryPasskeyChallengeStore } from './challenge-store'
 import type { AuthPasskeyTypes } from './types'
@@ -47,6 +47,16 @@ export namespace AuthPasskeyProvider {
     /** Email used in begin (so verify can re-resolve the identity). */
     email?: string
   }
+
+  /** Shape stored in `Credential.ICredential.metadata` for passkey credentials. */
+  export interface ICredentialMetadata {
+    publicKey: string
+    counter: number
+    transports?: string[]
+    aaguid?: string
+    deviceType?: string
+    backedUp?: boolean
+  }
 }
 
 let _webauthnModule: AuthPasskeyTypes.ISimpleWebAuthnServerModule | null = null
@@ -62,7 +72,7 @@ async function loadWebAuthn(
     _webauthnModule = mod
     return mod
   } catch {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail:
         'AuthPasskeyProvider requires the @simplewebauthn/server peerDep. ' +
         'Install via `bun add @simplewebauthn/server` (or `npm install @simplewebauthn/server`).',
@@ -123,13 +133,13 @@ export function authPasskey<Profile = unknown>(
 
     async begin(ctx, input): Promise<AuthProvider.Intent[]> {
       if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'passkey.begin requires sessionId (string, 1-256 chars)',
         })
       }
       if (input.email !== undefined) {
         if (typeof input.email !== 'string' || input.email.length === 0 || input.email.length > 254) {
-          throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
+          throw new AuthError('AUTH_INVALID_CREDENTIALS')
         }
       }
       const webauthn = await loadWebAuthn(opts.webauthnModule)
@@ -143,15 +153,15 @@ export function authPasskey<Profile = unknown>(
       return [{ type: 'json', status: 200, body: options }]
     },
 
-    async complete(ctx, input): Promise<AuthProvider.Intent[]> {
+    async complete(ctx, input): Promise<AuthProvider.IInternalIntent[]> {
       if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'passkey.complete requires sessionId (string, 1-256 chars)',
         })
       }
       const expectedChallenge = await challengeStore.take(`auth:${input.sessionId}`)
       if (!expectedChallenge) {
-        throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
       }
       const webauthn = await loadWebAuthn(opts.webauthnModule)
 
@@ -161,11 +171,11 @@ export function authPasskey<Profile = unknown>(
       // bytes per spec -> ~340 chars max); 1024 is generous + refuses attacker
       // multi-MB IDs.
       if (typeof credentialId !== 'string' || credentialId.length === 0 || credentialId.length > 1024) {
-        throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
       }
       const cred = await ctx.stores.credentials.findByHashedSecret(credentialId, 'passkey', ctx.tenant)
       if (cred?.kind !== 'passkey' || cred.revokedAt) {
-        throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
       }
 
       // The `email` field is a security assertion - bind the credential
@@ -173,7 +183,7 @@ export function authPasskey<Profile = unknown>(
       if (input.email !== undefined) {
         const hintedIdentity = await opts.findIdentityByEmail(input.email, ctx.tenant.tenantId)
         if (!hintedIdentity || hintedIdentity.id !== cred.identityId) {
-          throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+          throw new AuthError('AUTH_PASSKEY_MISMATCH')
         }
       }
 
@@ -182,13 +192,13 @@ export function authPasskey<Profile = unknown>(
       if (responseInner?.userHandle) {
         const decoded = decodeUserHandle(responseInner.userHandle)
         if (decoded !== null && decoded !== userHandleFor(cred.identityId)) {
-          throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+          throw new AuthError('AUTH_PASSKEY_MISMATCH')
         }
       }
 
       const meta = parsePasskeyMetadata(cred.metadata)
       if (meta === null) {
-        throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
       }
 
       const verification = await webauthn.verifyAuthenticationResponse({
@@ -205,7 +215,7 @@ export function authPasskey<Profile = unknown>(
         requireUserVerification: uv === 'required',
       })
       if (!verification.verified) {
-        throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
       }
 
       // Counter rollback detection (WebAuthn L2 section 6.1.3). `newCounter === 0`
@@ -215,7 +225,7 @@ export function authPasskey<Profile = unknown>(
       const newCounter = verification.authenticationInfo.newCounter
       const oldCounter = meta.counter
       if (!Number.isFinite(newCounter) || !Number.isFinite(oldCounter)) {
-        throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
       }
       if (newCounter !== 0 && newCounter <= oldCounter) {
         await ctx.events.emit('suspicious', {
@@ -224,7 +234,7 @@ export function authPasskey<Profile = unknown>(
           score: 1,
           meta: { credentialId: cred.id, oldCounter, newCounter },
         })
-        throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
       }
       if (newCounter > oldCounter) {
         await ctx.stores.credentials.patchMetadata(cred.id, { counter: newCounter }, ctx.tenant)
@@ -234,7 +244,7 @@ export function authPasskey<Profile = unknown>(
         {
           type: 'startSession',
           identityId: cred.identityId,
-          factors: [{ method: 'passkey', completedAt: Date.now() }],
+          factors: [{ method: 'passkey', completedAt: new Date() }],
           aal: 2,
         },
       ]
@@ -276,14 +286,14 @@ export async function authCompletePasskeyRegistration(
     identityId: string
     sessionId: string
     response: unknown
-    credentialStore: AuthCredential.IStore
+    credentialStore: Credential.Store
     tenant: { tenantId?: string }
   },
 ): Promise<string> {
   const challengeStore = opts.challengeStore ?? new AuthMemoryPasskeyChallengeStore()
   const expectedChallenge = await challengeStore.take(`reg:${input.sessionId}`)
   if (!expectedChallenge) {
-    throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+    throw new AuthError('AUTH_PASSKEY_MISMATCH')
   }
   const webauthn = await loadWebAuthn(opts.webauthnModule)
   const verification = await webauthn.verifyRegistrationResponse({
@@ -294,7 +304,7 @@ export async function authCompletePasskeyRegistration(
     requireUserVerification: (opts.userVerification ?? 'preferred') === 'required',
   })
   if (!verification.verified || !verification.registrationInfo) {
-    throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+    throw new AuthError('AUTH_PASSKEY_MISMATCH')
   }
   const info: AuthPasskeyTypes.IRegistrationInfo = verification.registrationInfo
   const persisted = await input.credentialStore.upsert(
@@ -309,7 +319,7 @@ export async function authCompletePasskeyRegistration(
         aaguid: info.aaguid,
         deviceType: info.credentialDeviceType,
         backedUp: info.credentialBackedUp,
-      },
+      } satisfies AuthPasskeyProvider.ICredentialMetadata,
     },
     input.tenant,
   )
@@ -325,9 +335,7 @@ function base64UrlDecode(s: string): Uint8Array {
 }
 
 /** Parser for a authPasskey credential's `metadata`; `null` on missing publicKey or unparseable counter. */
-function parsePasskeyMetadata(
-  meta: AuthCredential.ICredential['metadata'],
-): { publicKey: string; counter: number; transports?: string[] } | null {
+function parsePasskeyMetadata(meta: Credential.Me['metadata']): AuthPasskeyProvider.ICredentialMetadata | null {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return null
   const publicKey = Reflect.get(meta, 'publicKey')
   if (typeof publicKey !== 'string' || publicKey.length === 0) return null
@@ -342,7 +350,7 @@ function parsePasskeyMetadata(
       if (typeof t === 'string') transports.push(t)
     }
   }
-  const out: { publicKey: string; counter: number; transports?: string[] } = { publicKey, counter }
+  const out: AuthPasskeyProvider.ICredentialMetadata = { publicKey, counter }
   if (transports !== undefined) out.transports = transports
   return out
 }
