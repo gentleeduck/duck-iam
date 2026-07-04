@@ -1,11 +1,9 @@
 import { getProfileString, isRevoked, isSoftDeleted } from '../../core/credential-utils'
-import { authRandomToken, authTimingSafeEqual } from '../../core/crypto'
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthTenantContext } from '../../core/types/context'
-import type { AuthCredential } from '../../core/types/credential'
-import type { AuthIdentity } from '../../core/types/identity'
-import type { AuthOrg } from '../../core/types/org'
-import type { AuthSession } from '../../core/types/session'
+import { RandomToken, timingSafeEqual } from '../../core/crypto'
+import { AuthError } from '../../core/errors'
+import type { Credential, Identity, Org } from '../../core/types/identity'
+import type { TenantContext } from '../../core/types/infra'
+import type { Session } from '../../core/types/session'
 
 /**
  * In-memory adapter - dev + test only. Production must use redis/drizzle/prisma.
@@ -13,17 +11,20 @@ import type { AuthSession } from '../../core/types/session'
  *
  * Multi-tenant: tenantId filters every query so tests can verify isolation.
  */
-export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
-  readonly identities: AuthIdentity.IStore<Profile>
-  readonly sessions: AuthSession.IStore
-  readonly credentials: AuthCredential.IStore
-  readonly orgs: AuthOrg.IStore<OrgMeta>
+export class MemoryAdapter<
+  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  OrgMeta = unknown,
+> {
+  readonly identities: Identity.Store<Profile>
+  readonly sessions: Session.Store
+  readonly credentials: Credential.Store
+  readonly orgs: Org.Store<OrgMeta>
 
-  private _identities = new Map<string, AuthIdentity.IIdentity<Profile>>()
-  private _sessions = new Map<string, AuthSession.ISession>()
-  private _credentials = new Map<string, AuthCredential.ICredential>()
-  private _orgs = new Map<string, AuthOrg.IOrg<OrgMeta>>()
-  private _memberships = new Map<string, AuthOrg.IMembership>()
+  private _identities = new Map<string, Identity.Me<Profile>>()
+  private _sessions = new Map<string, Session.Me>()
+  private _credentials = new Map<string, Credential.Me>()
+  private _orgs = new Map<string, Org.Me<OrgMeta>>()
+  private _memberships = new Map<string, Org.Membership>()
 
   constructor() {
     this.identities = this._buildIdentityStore()
@@ -32,11 +33,11 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
     this.orgs = this._buildOrgStore()
   }
 
-  // --- AuthIdentity ---------------------------------------------------------
+  // --- Identity ---------------------------------------------------------
 
-  private _buildIdentityStore(): AuthIdentity.IStore<Profile> {
+  private _buildIdentityStore(): Identity.Store<Profile> {
     const store = this._identities
-    const filter = (id: AuthIdentity.IIdentity<Profile>, ctx: AuthTenantContext) =>
+    const filter = (id: Identity.Me<Profile>, ctx: TenantContext) =>
       ctx.tenantId === undefined || id.tenantId === ctx.tenantId
 
     return {
@@ -63,48 +64,51 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
       },
       create: async (input, ctx) => {
         // Atomic provider-sub uniqueness scan to close the race between
-        // two concurrent first-OAuth-callbacks on the same (providerId, sub).
+        // two concurrent first-oauth-callbacks on the same (providerId, sub).
         const providers = input.providers ?? []
         for (const link of providers) {
-          if (link.providerSub === undefined) continue
+          if (link.providerSub === null) continue
           for (const other of store.values()) {
             if (filter(other, ctx) === false || isSoftDeleted(other)) continue
             if (other.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
-              throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+              throw new AuthError('AUTH_PROVIDER_FAILED', {
                 providerId: link.providerId,
                 detail: 'provider sub already linked to a different identity',
               })
             }
           }
         }
-        const now = Date.now()
+        const nowDate = new Date()
         // SQL adapter parity: prefer explicit input.tenantId, fall back to ctx.
-        const id: AuthIdentity.IIdentity<Profile> = {
+        const id: Identity.Me<Profile> = {
           ...input,
-          id: authRandomToken(16),
-          tenantId: input.tenantId ?? ctx.tenantId,
+          id: RandomToken(16),
+          tenantId: input.tenantId ?? ctx.tenantId ?? null,
           providers,
+          // New identities are unverified unless the caller states otherwise.
+          emailVerified: input.emailVerified ?? false,
           version: 1,
-          createdAt: now,
-          updatedAt: now,
+          createdAt: nowDate,
+          updatedAt: nowDate,
+          deletedAt: null,
         }
         store.set(id.id, id)
         return id
       },
       update: async (id, patch, expectedVersion, _ctx) => {
         const cur = store.get(id)
-        if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+        if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
         if (cur.version !== expectedVersion) {
-          throw new AuthErrorObject('AUTH/STALE_WRITE', {
+          throw new AuthError('AUTH_STALE_WRITE', {
             expected: expectedVersion,
             actual: cur.version,
           })
         }
-        const next: AuthIdentity.IIdentity<Profile> = {
+        const next: Identity.Me<Profile> = {
           ...cur,
           ...patch,
           version: cur.version + 1,
-          updatedAt: Date.now(),
+          updatedAt: new Date(),
         }
         store.set(id, next)
         return next
@@ -112,18 +116,18 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
       softDelete: async (id, gracePeriodMs, _ctx) => {
         const cur = store.get(id)
         if (!cur) return
-        store.set(id, { ...cur, deletedAt: Date.now() + gracePeriodMs })
+        store.set(id, { ...cur, deletedAt: new Date(Date.now() + gracePeriodMs) })
       },
       restore: async (id, _ctx) => {
         const cur = store.get(id)
-        if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
-        if (!cur.deletedAt || cur.deletedAt < Date.now()) {
-          throw new AuthErrorObject('AUTH/GRACE_EXPIRED')
+        if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
+        const deletedAtMs = cur.deletedAt?.getTime()
+        if (!deletedAtMs || deletedAtMs < Date.now()) {
+          throw new AuthError('AUTH_GRACE_EXPIRED')
         }
-        // Destructure-and-omit drops the `deletedAt` key entirely
-        // (better than `deletedAt: undefined`, which is rejected by
-        // `exactOptionalPropertyTypes` and forced the legacy cast).
-        const { deletedAt: _deletedAt, ...next } = cur
+        // Clear the soft-delete marker back to the `null` sentinel; `Me.deletedAt`
+        // is non-optional (`Date | null`), so we reset rather than omit the key.
+        const next: Identity.Me<Profile> = { ...cur, deletedAt: null }
         store.set(id, next)
         return next
       },
@@ -136,12 +140,12 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
         // Atomic uniqueness check under JS single-threading; closes the
         // TOCTOU window in `findByProviderSub` -> `link`. SQL adapters
         // enforce the equivalent via UNIQUE(providerId, providerSub).
-        if (link.providerSub !== undefined) {
+        if (link.providerSub !== null) {
           for (const [otherId, other] of store) {
             if (otherId === identityId) continue
             if (filter(other, _ctx) === false || isSoftDeleted(other)) continue
             if (other.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
-              throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+              throw new AuthError('AUTH_PROVIDER_FAILED', {
                 providerId: link.providerId,
                 detail: 'provider sub already linked to a different identity',
               })
@@ -183,19 +187,39 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
     }
   }
 
-  // --- AuthSession ----------------------------------------------------------
+  // --- Session ----------------------------------------------------------
 
-  private _buildSessionStore(): AuthSession.IStore {
+  private _buildSessionStore(): Session.Store {
     const store = this._sessions
     return {
       create: async (s) => {
-        store.set(s.id, s)
+        // Fill the nullable columns the caller may have omitted, so the store
+        // always holds a complete `Session.Me` row (SQL adapter parity).
+        const row: Session.Me = {
+          id: s.id,
+          identityId: s.identityId,
+          tenantId: s.tenantId ?? null,
+          kind: s.kind,
+          aal: s.aal,
+          factors: s.factors,
+          csrfHash: s.csrfHash ?? null,
+          ip: s.ip ?? null,
+          userAgent: s.userAgent ?? null,
+          fingerprint: s.fingerprint ?? null,
+          createdAt: s.createdAt,
+          rotatedAt: s.rotatedAt,
+          expiresAt: s.expiresAt,
+          absoluteExpiresAt: s.absoluteExpiresAt,
+          fresh: s.fresh,
+          actingAs: s.actingAs ?? null,
+        }
+        store.set(row.id, row)
       },
       getByHash: async (sidHash) => store.get(sidHash) ?? null,
       update: async (id, patch) => {
         const cur = store.get(id)
-        if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
-        const next = { ...cur, ...patch, rotatedAt: Date.now() }
+        if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
+        const next = { ...cur, ...patch, rotatedAt: new Date() }
         store.set(id, next)
         return next
       },
@@ -211,7 +235,9 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
       gc: async (now) => {
         let deleted = 0
         for (const s of store.values()) {
-          if (s.expiresAt < now || s.absoluteExpiresAt < now) {
+          const expiresAtMs = s.expiresAt.getTime()
+          const absExpiresAtMs = s.absoluteExpiresAt.getTime()
+          if (expiresAtMs < now || absExpiresAtMs < now) {
             store.delete(s.id)
             deleted++
           }
@@ -221,10 +247,10 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
     }
   }
 
-  // --- AuthCredential -------------------------------------------------------
+  // --- Credential -------------------------------------------------------
 
-  private _buildCredentialStore(): AuthCredential.IStore & {
-    __familyRevoke: (familyId: string, ctx: AuthTenantContext) => Promise<void>
+  private _buildCredentialStore(): Credential.Store & {
+    __familyRevoke: (familyId: string, ctx: TenantContext) => Promise<void>
   } {
     const store = this._credentials
     return {
@@ -235,8 +261,7 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
       findByProviderSub: async (provider, sub) => {
         for (const c of store.values()) {
           if (c.kind !== 'oauth') continue
-          const m = c.metadata as { provider?: string; sub?: string } | undefined
-          if (m?.provider === provider && m.sub === sub) return c
+          if (c.metadata?.provider === provider && c.metadata?.sub === sub) return c
         }
         return null
       },
@@ -245,44 +270,51 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
         // timingSafeEqual defeats byte-by-byte hash oracles. Tenant filter
         // matches SQL adapter semantics: undefined ctx tenant = global match;
         // set ctx tenant = exact match (or global rows when row.tenantId is unset).
-        let live: AuthCredential.ICredential | null = null
-        let revokedRow: AuthCredential.ICredential | null = null
+        let live: Credential.Me | null = null
+        let revokedRow: Credential.Me | null = null
         for (const c of store.values()) {
           if (c.kind !== kind) continue
-          if (!authTimingSafeEqual(c.secret, secretHash)) continue
-          if (ctx?.tenantId !== undefined && c.tenantId !== undefined && c.tenantId !== ctx.tenantId) continue
+          if (!timingSafeEqual(c.secret, secretHash)) continue
+          if (ctx?.tenantId !== undefined && c.tenantId !== null && c.tenantId !== ctx.tenantId) continue
+          const cCreatedMs = c.createdAt.getTime()
           if (isRevoked(c)) {
-            if (!revokedRow || c.createdAt > revokedRow.createdAt) revokedRow = c
+            if (!revokedRow || cCreatedMs > revokedRow.createdAt.getTime()) revokedRow = c
           } else {
-            if (!live || c.createdAt > live.createdAt) live = c
+            if (!live || cCreatedMs > live.createdAt.getTime()) live = c
           }
         }
         return live ?? revokedRow
       },
       upsert: async (input, ctx) => {
-        const id = authRandomToken(16)
-        const now = Date.now()
-        // SQL adapter parity: inherit tenantId from ctx when input doesn't set it.
-        const c: AuthCredential.ICredential = {
+        const id = RandomToken(16)
+        // SQL adapter parity: inherit tenantId from ctx when input doesn't set it,
+        // and default every nullable column to `null` when omitted.
+        const c: Credential.Me = {
           id,
+          identityId: input.identityId,
+          tenantId: input.tenantId ?? ctx?.tenantId ?? null,
+          kind: input.kind,
+          secret: input.secret,
+          metadata: input.metadata ?? null,
           version: 1,
-          createdAt: now,
-          ...input,
-          ...(input.tenantId === undefined && ctx?.tenantId !== undefined && { tenantId: ctx.tenantId }),
+          createdAt: new Date(),
+          lastUsedAt: input.lastUsedAt ?? null,
+          expiresAt: input.expiresAt ?? null,
+          revokedAt: input.revokedAt ?? null,
         }
         store.set(id, c)
         return c
       },
       rotate: async (id, newSecret, expectedVersion) => {
         const cur = store.get(id)
-        if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+        if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
         if (cur.version !== expectedVersion) {
-          throw new AuthErrorObject('AUTH/STALE_WRITE', {
+          throw new AuthError('AUTH_STALE_WRITE', {
             expected: expectedVersion,
             actual: cur.version,
           })
         }
-        const next: AuthCredential.ICredential = {
+        const next: Credential.Me = {
           ...cur,
           secret: newSecret,
           version: cur.version + 1,
@@ -292,8 +324,8 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
       },
       patchMetadata: async (id, patch) => {
         const cur = store.get(id)
-        if (!cur) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
-        const next: AuthCredential.ICredential = {
+        if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
+        const next: Credential.Me = {
           ...cur,
           metadata: { ...(cur.metadata ?? {}), ...patch },
           version: cur.version + 1,
@@ -304,7 +336,7 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
       revoke: async (id) => {
         const cur = store.get(id)
         if (!cur) return
-        store.set(id, { ...cur, revokedAt: Date.now() })
+        store.set(id, { ...cur, revokedAt: new Date() })
       },
       delete: async (id) => {
         store.delete(id)
@@ -314,22 +346,21 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
           if (c.identityId === identityId && c.kind === kind) store.delete(c.id)
         }
       },
-      // OAuth refresh-reuse hook; memory walks every row (prod indexes by familyId).
+      // oauth refresh-reuse hook; memory walks every row (prod indexes by familyId).
       __familyRevoke: async (familyId: string) => {
-        const now = Date.now()
+        const nowDate = new Date()
         for (const c of store.values()) {
           if (c.kind !== 'oauth') continue
-          const meta = c.metadata as { familyId?: string } | undefined
-          if (meta?.familyId !== familyId) continue
-          store.set(c.id, { ...c, revokedAt: c.revokedAt ?? now })
+          if (c.metadata?.familyId !== familyId) continue
+          store.set(c.id, { ...c, revokedAt: c.revokedAt ?? nowDate })
         }
       },
     }
   }
 
-  // --- AuthOrg --------------------------------------------------------------
+  // --- Org --------------------------------------------------------------
 
-  private _buildOrgStore(): AuthOrg.IStore<OrgMeta> {
+  private _buildOrgStore(): Org.Store<OrgMeta> {
     return {
       getOrg: async (id) => this._orgs.get(id) ?? null,
       listOrgsForIdentity: async (identityId) => {
@@ -337,7 +368,7 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
         for (const m of this._memberships.values()) {
           if (m.identityId === identityId && !m.leftAt) orgIds.add(m.orgId)
         }
-        return [...orgIds].map((id) => this._orgs.get(id)).filter((o): o is AuthOrg.IOrg<OrgMeta> => Boolean(o))
+        return [...orgIds].map((id) => this._orgs.get(id)).filter((o): o is Org.Me<OrgMeta> => Boolean(o))
       },
       listMembers: async (orgId) => {
         return [...this._memberships.values()].filter((m) => m.orgId === orgId && !m.leftAt)
@@ -346,20 +377,20 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
         // CAS under JS single-threading; SQL uses partial UNIQUE on (orgId, identityId).
         const key = `${m.orgId}:${m.identityId}`
         const cur = this._memberships.get(key)
-        if (cur && cur.leftAt === undefined) {
-          throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+        if (cur && cur.leftAt === null) {
+          throw new AuthError('AUTH_PROVIDER_FAILED', {
             providerId: 'orgs',
             detail: 'identity already a member of this org',
           })
         }
-        const full: AuthOrg.IMembership = { ...m, joinedAt: Date.now() }
+        const full: Org.Membership = { ...m, invitedAt: m.invitedAt ?? null, joinedAt: new Date(), leftAt: null }
         this._memberships.set(key, full)
         return full
       },
       removeMember: async (orgId, identityId) => {
         const key = `${orgId}:${identityId}`
         const cur = this._memberships.get(key)
-        if (cur) this._memberships.set(key, { ...cur, leftAt: Date.now() })
+        if (cur) this._memberships.set(key, { ...cur, leftAt: new Date() })
       },
       setRoles: async (orgId, identityId, roles) => {
         const key = `${orgId}:${identityId}`
@@ -374,14 +405,14 @@ export class AuthMemoryAdapter<Profile = unknown, OrgMeta = unknown> {
 /**
  * Storage helper returning the in-memory `{ identities, sessions, credentials }` triple. Dev / test only.
  *
- * @template Profile - AuthIdentity profile shape.
+ * @template Profile - Identity profile shape.
  */
-export const authMemoryStorage = <Profile = unknown>(): {
-  identities: AuthMemoryAdapter<Profile>['identities']
-  sessions: AuthMemoryAdapter<Profile>['sessions']
-  credentials: AuthMemoryAdapter<Profile>['credentials']
+export const memoryStorage = <Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(): {
+  identities: MemoryAdapter<Profile>['identities']
+  sessions: MemoryAdapter<Profile>['sessions']
+  credentials: MemoryAdapter<Profile>['credentials']
 } => {
-  const adapter = new AuthMemoryAdapter<Profile>()
+  const adapter = new MemoryAdapter<Profile>()
   return {
     credentials: adapter.credentials,
     identities: adapter.identities,

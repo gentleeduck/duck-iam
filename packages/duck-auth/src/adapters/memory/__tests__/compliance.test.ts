@@ -1,13 +1,13 @@
 import { describe } from 'vitest'
 import {
-  authRunCredentialStoreCompliance,
-  authRunIdentityStoreCompliance,
-  authRunSessionStoreCompliance,
+  runCredentialStoreCompliance,
+  runIdentityStoreCompliance,
+  runSessionStoreCompliance,
 } from '../../__compliance__'
-import { AuthMemoryAdapter } from '../index'
+import { MemoryAdapter } from '../index'
 
-describe('AuthMemoryAdapter compliance matrix', () => {
-  authRunIdentityStoreCompliance(() => new AuthMemoryAdapter<{ email: string }>().identities)
-  authRunSessionStoreCompliance(() => new AuthMemoryAdapter().sessions)
-  authRunCredentialStoreCompliance(() => new AuthMemoryAdapter().credentials)
+describe('MemoryAdapter compliance matrix', () => {
+  runIdentityStoreCompliance(() => new MemoryAdapter<{ username: string; email: string }>().identities)
+  runSessionStoreCompliance(() => new MemoryAdapter().sessions)
+  runCredentialStoreCompliance(() => new MemoryAdapter().credentials)
 })

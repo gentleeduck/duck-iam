@@ -1,14 +1,14 @@
-import type { AuthEvents } from '../../core/types/events'
-import type { AuthRedisLike } from './redis-like'
+import type { Events } from '../../core/types/provider'
+import type { RedisLike } from './redis-like'
 
-export namespace AuthRedisEvents {
+export namespace RedisEvents {
   /**
    * Redis-like client extended with pub/sub. Both `ioredis` and
    * `@upstash/redis` ship the methods - declared optional so tests +
    * apps that only use the K/V surface can still satisfy the
-   * `AuthRedisLike.IClient` contract.
+   * `RedisLike.Client` contract.
    */
-  export interface IClient extends AuthRedisLike.IClient {
+  export type Client = RedisLike.Client & {
     publish(channel: string, message: string): Promise<number>
     /**
      * Subscribe to a channel. Implementations call `onMessage` for
@@ -20,11 +20,11 @@ export namespace AuthRedisEvents {
     ): Promise<() => Promise<void>>
   }
 
-  /** Config knobs for {@link AuthRedisEvents}. */
-  export interface IConfig {
+  /** Config knobs for {@link RedisEvents}. */
+  export type Config = {
     /** Pub/sub-capable Redis client. */
-    redis: IClient
-    /** AuthChannel prefix. Final channel is `${prefix}:${eventName}`. Default `auth:events`. */
+    redis: Client
+    /** Channel prefix. Final channel is `${prefix}:${eventName}`. Default `auth:events`. */
     prefix?: string
   }
 }
@@ -39,24 +39,24 @@ export namespace AuthRedisEvents {
  * so call sites do not need a round-trip latency through Redis just to
  * observe their own emit.
  */
-export class AuthRedisEvents implements AuthEvents.IBus {
-  private readonly _redis: AuthRedisEvents.IClient
+export class RedisEvents implements Events.IBus {
+  private readonly _redis: RedisEvents.Client
   private readonly _prefix: string
   private readonly _instanceId: string
-  private readonly _localHandlers = new Map<AuthEvents.EventName, Set<(payload: unknown) => void | Promise<void>>>()
-  private readonly _subscriptions = new Map<AuthEvents.EventName, () => Promise<void>>()
+  private readonly _localHandlers = new Map<Events.EventName, Set<(payload: unknown) => void | Promise<void>>>()
+  private readonly _subscriptions = new Map<Events.EventName, () => Promise<void>>()
 
-  constructor(cfg: AuthRedisEvents.IConfig) {
+  constructor(cfg: RedisEvents.Config) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:events'
     this._instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   }
 
-  private _ch(event: AuthEvents.EventName): string {
+  private _ch(event: Events.EventName): string {
     return `${this._prefix}:${event}`
   }
 
-  on<K extends AuthEvents.EventName>(event: K, handler: AuthEvents.Handler<K>): AuthEvents.Unsubscribe {
+  on<K extends Events.EventName>(event: K, handler: Events.Handler<K>): Events.Unsubscribe {
     let set = this._localHandlers.get(event)
     if (!set) {
       set = new Set()
@@ -93,7 +93,7 @@ export class AuthRedisEvents implements AuthEvents.IBus {
     }
   }
 
-  async emit<K extends AuthEvents.EventName>(event: K, payload: AuthEvents.EventMap[K]): Promise<void> {
+  async emit<K extends Events.EventName>(event: K, payload: Events.EventMap[K]): Promise<void> {
     const envelope = JSON.stringify({ from: this._instanceId, payload })
     await Promise.all([
       this._redis.publish(this._ch(event), envelope).catch(() => 0),
@@ -101,20 +101,20 @@ export class AuthRedisEvents implements AuthEvents.IBus {
     ])
   }
 
-  private async _dispatchLocal<K extends AuthEvents.EventName>(event: K, payload: unknown): Promise<void> {
+  private async _dispatchLocal<K extends Events.EventName>(event: K, payload: unknown): Promise<void> {
     const set = this._localHandlers.get(event)
     if (!set || set.size === 0) return
     for (const handler of set) {
       try {
         await handler(payload)
       } catch (err) {
-        console.error(`[@gentleduck/auth] AuthRedisEvents listener for "${event}" threw:`, err)
+        console.error(`[@gentleduck/auth] RedisEvents listener for "${event}" threw:`, err)
       }
     }
   }
 
-  /** Introspection helper. Used by AuthEngine.strict() boot-time gates. */
-  listenerCount<K extends AuthEvents.EventName>(event: K): number {
+  /** Introspection helper. Used by Engine.strict() boot-time gates. */
+  listenerCount<K extends Events.EventName>(event: K): number {
     return this._localHandlers.get(event)?.size ?? 0
   }
 }

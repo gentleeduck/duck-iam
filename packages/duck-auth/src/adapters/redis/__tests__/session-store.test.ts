@@ -1,34 +1,41 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { authSha256 } from '../../../core/crypto'
-import type { AuthSession } from '../../../core/types/session'
-import { AuthFakeRedis } from '../redis-like'
-import { AuthRedisSessionStore } from '../session-store'
+import { sha256 } from '../../../core/crypto'
+import type { Session } from '../../../core/types/session'
+import { FakeRedis } from '../redis-like'
+import { RedisSessionStore } from '../session-store'
 
-function buildSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession.ISession {
+function buildSession(overrides: Partial<Session.Me> = {}): Session.Me {
   const sid = 'sid-' + Math.random().toString(36).slice(2)
-  const now = Date.now()
+  const now = new Date()
+  const exp = new Date(now.getTime() + 60_000)
   return {
-    id: authSha256(sid),
+    id: sha256(sid),
     identityId: 'ident-1',
+    tenantId: null,
     kind: 'user',
     aal: 2,
     factors: [{ method: 'password', completedAt: now }],
+    csrfHash: null,
+    ip: null,
+    userAgent: null,
+    fingerprint: null,
     createdAt: now,
     rotatedAt: now,
-    expiresAt: now + 60_000,
-    absoluteExpiresAt: now + 60_000,
+    expiresAt: exp,
+    absoluteExpiresAt: exp,
     fresh: true,
+    actingAs: null,
     ...overrides,
   }
 }
 
-describe('AuthRedisSessionStore', () => {
-  let redis: AuthFakeRedis
-  let store: AuthRedisSessionStore
+describe('RedisSessionStore', () => {
+  let redis: FakeRedis
+  let store: RedisSessionStore
 
   beforeEach(() => {
-    redis = new AuthFakeRedis()
-    store = new AuthRedisSessionStore({ redis, prefix: 'test' })
+    redis = new FakeRedis()
+    store = new RedisSessionStore({ redis, prefix: 'test' })
   })
 
   it('create + getByHash round-trips the session', async () => {
@@ -45,14 +52,15 @@ describe('AuthRedisSessionStore', () => {
   it('update merges patch + bumps absoluteExpiresAt to recompute TTL', async () => {
     const s = buildSession()
     await store.create(s)
-    const patched = await store.update(s.id, { aal: 3, absoluteExpiresAt: Date.now() + 120_000 })
+    const newExp = new Date(Date.now() + 120_000)
+    const patched = await store.update(s.id, { aal: 3, absoluteExpiresAt: newExp })
     expect(patched.aal).toBe(3)
-    expect(patched.absoluteExpiresAt).toBeGreaterThan(s.absoluteExpiresAt)
+    expect(patched.absoluteExpiresAt.getTime()).toBeGreaterThan(s.absoluteExpiresAt.getTime())
   })
 
   it('update rejects unknown session id', async () => {
     await expect(store.update('not-real', { aal: 3 })).rejects.toMatchObject({
-      code: 'AUTH/SESSION_REVOKED',
+      code: 'AUTH_SESSION_REVOKED',
     })
   })
 
@@ -105,7 +113,7 @@ describe('AuthRedisSessionStore', () => {
   it('rejects sessions with missing id', async () => {
     const broken = buildSession({ id: '' })
     await expect(store.create(broken)).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 

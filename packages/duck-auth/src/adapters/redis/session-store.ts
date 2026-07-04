@@ -1,11 +1,12 @@
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthSession } from '../../core/types/session'
-import type { AuthRedisLike } from './redis-like'
+import { AuthError } from '../../core/errors'
+import type { Session } from '../../core/types/session'
+import { AUTH_SESSION_FACTOR_METHODS, AUTH_SESSION_KINDS } from '../../core/types/session'
+import type { RedisLike } from './redis-like'
 
-export namespace AuthRedisSessionStore {
-  /** Config knobs for {@link AuthRedisSessionStore}. */
-  export interface IConfig<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient> {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+export namespace RedisSessionStore {
+  /** Config knobs for {@link RedisSessionStore}. */
+  export type Config<TRedis extends RedisLike.Client = RedisLike.Client> = {
+    /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: TRedis
     /**
      * Key namespace prefix. Default: `auth`. Final keys:
@@ -23,18 +24,16 @@ export namespace AuthRedisSessionStore {
 }
 
 /**
- * Redis-backed `AuthSession.IStore`. AuthSession.id is already the sha-256 of
+ * Redis-backed `Session.Store`. Session.id is already the sha-256 of
  * the plaintext sid (see SessionsFacet) so the primary key + lookup
  * key are the same value.
  */
-export class AuthRedisSessionStore<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient>
-  implements AuthSession.IStore
-{
+export class RedisSessionStore<TRedis extends RedisLike.Client = RedisLike.Client> implements Session.Store {
   private readonly _redis: TRedis
   private readonly _prefix: string
   private readonly _maxTtlSec: number
 
-  constructor(cfg: AuthRedisSessionStore.IConfig<TRedis>) {
+  constructor(cfg: RedisSessionStore.Config<TRedis>) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth'
     this._maxTtlSec = cfg.maxTtlSec ?? 30 * 24 * 60 * 60
@@ -48,16 +47,18 @@ export class AuthRedisSessionStore<TRedis extends AuthRedisLike.IClient = AuthRe
     return `${this._prefix}:idx:identity:${identityId}`
   }
 
-  private _ttlFor(session: AuthSession.ISession): number {
-    const remainingMs = Math.max(0, session.absoluteExpiresAt - Date.now())
+  private _ttlFor(session: Session.Me): number {
+    const absMs =
+      session.absoluteExpiresAt instanceof Date ? session.absoluteExpiresAt.getTime() : session.absoluteExpiresAt
+    const remainingMs = Math.max(0, absMs - Date.now())
     const remainingSec = Math.ceil(remainingMs / 1000)
     return Math.max(1, Math.min(this._maxTtlSec, remainingSec))
   }
 
-  async create(s: AuthSession.ISession): Promise<void> {
+  async create(s: Session.Me): Promise<void> {
     if (!s.id) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
-        detail: 'AuthRedisSessionStore.create requires session.id to be set (sha-256 of sid)',
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'RedisSessionStore.create requires session.id to be set (sha-256 of sid)',
       })
     }
     const ttl = this._ttlFor(s)
@@ -68,22 +69,22 @@ export class AuthRedisSessionStore<TRedis extends AuthRedisLike.IClient = AuthRe
     }
   }
 
-  async getByHash(sidHash: string): Promise<AuthSession.ISession | null> {
+  async getByHash(sidHash: string): Promise<Session.Me | null> {
     const raw = await this._redis.get(this._sessKey(sidHash))
     if (!raw) return null
     return parseStoredSession(raw)
   }
 
-  async update(id: string, patch: Partial<AuthSession.ISession>): Promise<AuthSession.ISession> {
+  async update(id: string, patch: Partial<Session.Me>): Promise<Session.Me> {
     const raw = await this._redis.get(this._sessKey(id))
     if (!raw) {
-      throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: `session ${id} not found` })
+      throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
     }
     const current = parseStoredSession(raw)
     if (!current) {
-      throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: `session ${id} corrupted` })
+      throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} corrupted` })
     }
-    const next: AuthSession.ISession = { ...current, ...patch }
+    const next: Session.Me = { ...current, ...patch }
     const ttl = this._ttlFor(next)
     await this._redis.set(this._sessKey(id), JSON.stringify(next), { ex: ttl })
     if (next.identityId) {
@@ -103,10 +104,10 @@ export class AuthRedisSessionStore<TRedis extends AuthRedisLike.IClient = AuthRe
     }
   }
 
-  async listByIdentity(identityId: string): Promise<AuthSession.ISession[]> {
+  async listByIdentity(identityId: string): Promise<Session.Me[]> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length === 0) return []
-    const out: AuthSession.ISession[] = []
+    const out: Session.Me[] = []
     const stale: string[] = []
     for (const id of ids) {
       const raw = await this._redis.get(this._sessKey(id))
@@ -160,20 +161,81 @@ export class AuthRedisSessionStore<TRedis extends AuthRedisLike.IClient = AuthRe
   }
 }
 
+/** Parse a Date value stored as ISO string or number in JSON. Returns null if unparseable. */
+function parseStoredDate(v: unknown): Date | null {
+  if (v instanceof Date) return v
+  if (typeof v === 'string') {
+    const d = new Date(v)
+    return Number.isFinite(d.getTime()) ? d : null
+  }
+  if (typeof v === 'number' && Number.isFinite(v)) return new Date(v)
+  return null
+}
+
 /** Structural validator for a stored Redis session; SEC-critical fields enforced, rest is trusted. */
-function parseStoredSession(raw: string): AuthSession.ISession | null {
-  let obj: unknown
+function parseStoredSession(raw: string): Session.Me | null {
+  let obj: Record<string, unknown>
   try {
-    obj = JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+    obj = parsed
   } catch {
     return null
   }
-  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) return null
-  const id: unknown = Reflect.get(obj, 'id')
+  const id = obj.id
   if (typeof id !== 'string' || id.length === 0) return null
-  const expiresAt: unknown = Reflect.get(obj, 'expiresAt')
-  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null
-  const absoluteExpiresAt: unknown = Reflect.get(obj, 'absoluteExpiresAt')
-  if (typeof absoluteExpiresAt !== 'number' || !Number.isFinite(absoluteExpiresAt)) return null
-  return obj as AuthSession.ISession
+
+  const kind = AUTH_SESSION_KINDS.includes(obj.kind as Session.Kind) ? (obj.kind as Session.Kind) : null
+  if (!kind) return null
+
+  const rawAal = obj.aal
+  const aal: Session.AAL | null = rawAal === 1 || rawAal === 2 || rawAal === 3 ? rawAal : null
+  if (!aal) return null
+
+  const expiresAtDate = parseStoredDate(obj.expiresAt)
+  if (!expiresAtDate) return null
+  const absoluteExpiresAtDate = parseStoredDate(obj.absoluteExpiresAt)
+  if (!absoluteExpiresAtDate) return null
+  const createdAtDate = parseStoredDate(obj.createdAt) ?? expiresAtDate
+  const rotatedAtDate = parseStoredDate(obj.rotatedAt) ?? expiresAtDate
+
+  // Reconstitute factors — completedAt may be an ISO string (JSON-serialized Date)
+  const rawFactors = Array.isArray(obj.factors) ? obj.factors : []
+  const factors: Session.Factor[] = rawFactors
+    .filter((f) => AUTH_SESSION_FACTOR_METHODS.includes(f.method))
+    .map((f) => ({
+      method: f.method,
+      completedAt: parseStoredDate(f.completedAt) ?? createdAtDate,
+    }))
+
+  // Reconstitute actingAs if present
+  let actingAs: Session.ActingAs | undefined
+  if (typeof obj.actingAs === 'object' && obj.actingAs !== null && !Array.isArray(obj.actingAs)) {
+    const raw = obj.actingAs as Record<string, unknown>
+    const startedAt = parseStoredDate(raw.startedAt)
+    const actingExpiresAt = parseStoredDate(raw.expiresAt)
+    if (typeof raw.realIdentityId === 'string' && typeof raw.reason === 'string' && startedAt && actingExpiresAt) {
+      actingAs = { realIdentityId: raw.realIdentityId, reason: raw.reason, startedAt, expiresAt: actingExpiresAt }
+    }
+  }
+
+  const session: Session.Me = {
+    id,
+    identityId: typeof obj.identityId === 'string' ? obj.identityId : null,
+    tenantId: typeof obj.tenantId === 'string' ? obj.tenantId : null,
+    kind,
+    aal,
+    factors,
+    csrfHash: typeof obj.csrfHash === 'string' ? obj.csrfHash : null,
+    ip: typeof obj.ip === 'string' ? obj.ip : null,
+    userAgent: typeof obj.userAgent === 'string' ? obj.userAgent : null,
+    fingerprint: typeof obj.fingerprint === 'string' ? obj.fingerprint : null,
+    fresh: typeof obj.fresh === 'boolean' ? obj.fresh : false,
+    createdAt: createdAtDate,
+    rotatedAt: rotatedAtDate,
+    expiresAt: expiresAtDate,
+    absoluteExpiresAt: absoluteExpiresAtDate,
+    actingAs: actingAs ?? null,
+  }
+  return session
 }

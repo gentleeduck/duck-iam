@@ -1,12 +1,11 @@
 import { isFiniteNumber } from '../../core/credential-utils'
-import type { AuthTenantContext } from '../../core/types/context'
-import type { AuthIdempotency } from '../../core/types/idempotency'
-import type { AuthRedisLike } from './redis-like'
+import type { Idempotency, TenantContext } from '../../core/types/infra'
+import type { RedisLike } from './redis-like'
 
-export namespace AuthRedisIdempotencyStore {
-  /** Config knobs for {@link AuthRedisIdempotencyStore}. */
-  export interface IConfig<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient> {
-    /** AuthRedisLike client (ioredis, @upstash/redis, or AuthFakeRedis). */
+export namespace RedisIdempotencyStore {
+  /** Config knobs for {@link RedisIdempotencyStore}. */
+  export type Config<TRedis extends RedisLike.Client = RedisLike.Client> = {
+    /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: TRedis
     /**
      * Key namespace prefix. Default: `auth:idem`. Composed key:
@@ -17,32 +16,22 @@ export namespace AuthRedisIdempotencyStore {
 }
 
 /**
- * Tombstone written by `claim()` before the route executor runs. The
- * `status: 0` and `body: null` shape is treated as "claim pending" by
- * `IdempotencyFacet.handle()` -- a second caller racing the first reads
- * this stub and falls through to its own `get()` retry.
- */
-const CLAIM_TOMBSTONE = Object.freeze({ status: 0, body: null }) as AuthIdempotency.ICachedResponse
-
-/**
- * Redis-backed `AuthIdempotency.IStore`. Uses `SET NX EX` for atomic
+ * Redis-backed `Idempotency.IStore`. Uses `SET NX EX` for atomic
  * cross-process claim semantics. Tenant isolation comes from the
- * per-tenant key prefix; two tenants supplying the same AuthIdempotency-Key
+ * per-tenant key prefix; two tenants supplying the same Idempotency-Key
  * cannot collide.
  */
-export class AuthRedisIdempotencyStore<TRedis extends AuthRedisLike.IClient = AuthRedisLike.IClient>
-  implements AuthIdempotency.IStore
-{
+export class RedisIdempotencyStore<TRedis extends RedisLike.Client = RedisLike.Client> implements Idempotency.IStore {
   private readonly _redis: TRedis
   private readonly _prefix: string
 
-  constructor(cfg: AuthRedisIdempotencyStore.IConfig<TRedis>) {
+  constructor(cfg: RedisIdempotencyStore.Config<TRedis>) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:idem'
   }
 
   /** Compose tenant-scoped storage key. */
-  private _k(key: string, ctx: AuthTenantContext): string {
+  private _k(key: string, ctx: TenantContext): string {
     return `${this._prefix}:${ctx.tenantId ?? '_default'}:${key}`
   }
 
@@ -50,7 +39,7 @@ export class AuthRedisIdempotencyStore<TRedis extends AuthRedisLike.IClient = Au
    * Read the cached response for an idempotency key. Returns null on
    * miss, on TTL expiry, or while the claim tombstone is still present.
    */
-  async get(key: string, ctx: AuthTenantContext): Promise<AuthIdempotency.ICachedResponse | null> {
+  async get(key: string, ctx: TenantContext): Promise<Idempotency.ICachedResponse | null> {
     const raw = await this._redis.get(this._k(key, ctx))
     if (!raw) return null
     const parsed = parseStoredIdempotencyEntry(raw)
@@ -67,19 +56,16 @@ export class AuthRedisIdempotencyStore<TRedis extends AuthRedisLike.IClient = Au
    * later overwrite with `put()`. Returns true when this caller won the
    * race; false when a prior claim is still alive.
    */
-  async claim(key: string, ttlMs: number, ctx: AuthTenantContext): Promise<boolean> {
+  async claim(key: string, ttlMs: number, ctx: TenantContext): Promise<boolean> {
     // NaN/Infinity/huge ttl would make Math.ceil(NaN/1000)=NaN -> Math.max(1,NaN)=NaN
     // -> Redis would reject. Clamp to a sane window.
     const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     const ex = Math.max(1, Math.ceil(safeMs / 1000))
-    const tombstone: AuthIdempotency.ICachedResponse = {
-      ...CLAIM_TOMBSTONE,
-      createdAt: Date.now(),
-    }
-    const result = await this._redis.set(this._k(key, ctx), JSON.stringify(tombstone), {
-      nx: true,
-      ex,
-    })
+    const result = await this._redis.set(
+      this._k(key, ctx),
+      JSON.stringify({ status: 0, body: null, createdAt: Date.now() }),
+      { nx: true, ex },
+    )
     return result === 'OK'
   }
 
@@ -88,29 +74,22 @@ export class AuthRedisIdempotencyStore<TRedis extends AuthRedisLike.IClient = Au
    * `claim()`. TTL is reset to `ttlMs` so the cached entry survives a
    * slow executor.
    */
-  async put(
-    key: string,
-    response: AuthIdempotency.ICachedResponse,
-    ttlMs: number,
-    ctx: AuthTenantContext,
-  ): Promise<void> {
+  async put(key: string, response: Idempotency.ICachedResponse, ttlMs: number, ctx: TenantContext): Promise<void> {
     const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     const ex = Math.max(1, Math.ceil(safeMs / 1000))
-    await this._redis.set(
-      this._k(key, ctx),
-      JSON.stringify({ ...response, createdAt: response.createdAt ?? Date.now() }),
-      { ex },
-    )
+    await this._redis.set(this._k(key, ctx), JSON.stringify({ ...response, createdAt: response.createdAt.getTime() }), {
+      ex,
+    })
   }
 
   /** Drop a key. Used by tests + flush operations. */
-  async delete(key: string, ctx: AuthTenantContext): Promise<void> {
+  async delete(key: string, ctx: TenantContext): Promise<void> {
     await this._redis.del(this._k(key, ctx))
   }
 }
 
 /** Structural parser for Redis idempotency entries; `null` on any malformed shape. */
-function parseStoredIdempotencyEntry(raw: string): AuthIdempotency.ICachedResponse | null {
+function parseStoredIdempotencyEntry(raw: string): Idempotency.ICachedResponse | null {
   let obj: unknown
   try {
     obj = JSON.parse(raw)
@@ -125,7 +104,7 @@ function parseStoredIdempotencyEntry(raw: string): AuthIdempotency.ICachedRespon
   const body: unknown = Reflect.get(obj, 'body')
   const headers: unknown = Reflect.get(obj, 'headers')
   // Build the result explicitly - no `as` cast, every field is narrowed.
-  const out: AuthIdempotency.ICachedResponse = { status, body, createdAt }
+  const out: Idempotency.ICachedResponse = { status, body, createdAt: new Date(createdAt) }
   if (typeof headers === 'object' && headers !== null && !Array.isArray(headers)) {
     // Headers must be a Record<string, string>. Validate the value side
     // so a malformed inner shape can't propagate into res.setHeader().

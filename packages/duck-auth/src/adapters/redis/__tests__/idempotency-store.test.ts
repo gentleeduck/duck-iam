@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthRedisIdempotencyStore } from '../idempotency-store'
-import { AuthFakeRedis } from '../redis-like'
+import { RedisIdempotencyStore } from '../idempotency-store'
+import { FakeRedis } from '../redis-like'
 
 const ctx = { tenantId: 'acme' }
 
-describe('AuthRedisIdempotencyStore', () => {
-  let redis: AuthFakeRedis
-  let store: AuthRedisIdempotencyStore
+describe('RedisIdempotencyStore', () => {
+  let redis: FakeRedis
+  let store: RedisIdempotencyStore
 
   beforeEach(() => {
-    redis = new AuthFakeRedis()
-    store = new AuthRedisIdempotencyStore({ redis, prefix: 'test:idem' })
+    redis = new FakeRedis()
+    store = new RedisIdempotencyStore({ redis, prefix: 'test:idem' })
   })
 
   it('claim() returns true on first call, false on second', async () => {
@@ -25,7 +25,7 @@ describe('AuthRedisIdempotencyStore', () => {
 
   it('put() overwrites the tombstone with the executor response; get() reads it back', async () => {
     await store.claim('k1', 60_000, ctx)
-    await store.put('k1', { status: 200, body: { ok: true }, createdAt: Date.now() }, 60_000, ctx)
+    await store.put('k1', { status: 200, body: { ok: true }, createdAt: new Date() }, 60_000, ctx)
     const cached = await store.get('k1', ctx)
     expect(cached?.status).toBe(200)
     expect(cached?.body).toEqual({ ok: true })
@@ -43,7 +43,7 @@ describe('AuthRedisIdempotencyStore', () => {
   })
 
   it('TTL is honored; expired claim is reclaimable', async () => {
-    // Real Redis TTL granularity is seconds; AuthFakeRedis honors EX seconds too.
+    // Real Redis TTL granularity is seconds; FakeRedis honors EX seconds too.
     await store.claim('k1', 1000, ctx)
     await new Promise((r) => setTimeout(r, 1100))
     expect(await store.claim('k1', 60_000, ctx)).toBe(true)

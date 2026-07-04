@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import type { AuthCredential } from '../../core/types/credential'
-import type { AuthIdentity } from '../../core/types/identity'
-import type { AuthSession } from '../../core/types/session'
+import type { Credential, Identity } from '../../core/types/identity'
+import type { Session } from '../../core/types/session'
+import type { SqlBridge } from '../sql/sql.types'
 
 /**
- * AuthCompliance test matrix for AuthIdentity stores. Every shipped adapter (memory,
+ * Compliance test matrix for Identity stores. Every shipped adapter (memory,
  * redis, drizzle, prisma) imports this and runs it against a fresh instance;
  * the same assertions guarantee behaviour parity across adapters.
  *
- * @param factory - factory returning a fresh `AuthIdentity.IStore` per test
+ * @param factory - factory returning a fresh `Identity.IStore` per test
  */
-export function authRunIdentityStoreCompliance<P = { email: string }>(factory: () => AuthIdentity.IStore<P>): void {
-  describe('AuthIdentity.IStore compliance', () => {
+export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBase = SqlBridge.ProfileMetadataBase>(
+  factory: () => Identity.Store<P>,
+): void {
+  describe('Identity.IStore compliance', () => {
     it('create stamps id, version=1, createdAt, updatedAt; respects providers + tenantId', async () => {
       const store = factory()
       const i = await store.create(
         {
           profile: { email: 'a@x.com' } as unknown as P,
-          providers: [{ providerId: 'password', addedAt: Date.now() }],
+          providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
         },
         { tenantId: 'T' },
       )
@@ -25,7 +27,7 @@ export function authRunIdentityStoreCompliance<P = { email: string }>(factory: (
       expect(i.version).toBe(1)
       expect(i.tenantId).toBe('T')
       expect(i.providers).toHaveLength(1)
-      expect(i.createdAt).toBeGreaterThan(0)
+      expect(i.createdAt).toBeInstanceOf(Date)
     })
 
     it('findByEmail honours tenant scoping', async () => {
@@ -40,7 +42,7 @@ export function authRunIdentityStoreCompliance<P = { email: string }>(factory: (
       const i = await store.create({ profile: { email: 'a@x' } as unknown as P, providers: [] }, {})
       await store.update(i.id, { profile: { email: 'b@x' } as unknown as P }, i.version, {})
       await expect(store.update(i.id, { profile: { email: 'c@x' } as unknown as P }, 1, {})).rejects.toMatchObject({
-        code: 'AUTH/STALE_WRITE',
+        code: 'AUTH_STALE_WRITE',
       })
     })
 
@@ -58,7 +60,7 @@ export function authRunIdentityStoreCompliance<P = { email: string }>(factory: (
     it('link / unlink mutate providers; findByProviderSub locates linked identities', async () => {
       const store = factory()
       const i = await store.create({ profile: { email: 'a@x' } as unknown as P, providers: [] }, {})
-      await store.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'sub-1', addedAt: Date.now() }, {})
+      await store.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'sub-1', addedAt: new Date() }, {})
       const found = await store.findByProviderSub('oauth:authGoogle', 'sub-1', {})
       expect(found?.id).toBe(i.id)
       await store.unlink(i.id, 'oauth:authGoogle', {})
@@ -70,14 +72,14 @@ export function authRunIdentityStoreCompliance<P = { email: string }>(factory: (
       const survivor = await store.create(
         {
           profile: { email: 's@x' } as unknown as P,
-          providers: [{ providerId: 'password', addedAt: Date.now() }],
+          providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
         },
         {},
       )
       const dup = await store.create(
         {
           profile: { email: 'd@x' } as unknown as P,
-          providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: Date.now() }],
+          providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: new Date() }],
         },
         {},
       )
@@ -90,40 +92,45 @@ export function authRunIdentityStoreCompliance<P = { email: string }>(factory: (
 }
 
 /**
- * AuthCompliance matrix for AuthSession stores. Verifies hashed-key storage,
+ * Compliance matrix for Session stores. Verifies hashed-key storage,
  * listing, GC purge of expired rows, and per-identity bulk delete.
  */
-export function authRunSessionStoreCompliance(factory: () => AuthSession.IStore): void {
-  describe('AuthSession.IStore compliance', () => {
+export function runSessionStoreCompliance(factory: () => Session.Store): void {
+  describe('Session.IStore compliance', () => {
     it('create + getByHash roundtrip uses the row id directly', async () => {
       const store = factory()
-      const session: AuthSession.ISession = {
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      const session: Session.CreateInput = {
         id: 'hash-1',
         identityId: 'u',
         kind: 'user',
         aal: 1,
         factors: [],
-        createdAt: Date.now(),
-        rotatedAt: Date.now(),
-        expiresAt: Date.now() + 60_000,
-        absoluteExpiresAt: Date.now() + 60_000,
+        createdAt: now,
+        rotatedAt: now,
+        expiresAt: exp,
+        absoluteExpiresAt: exp,
         fresh: true,
       }
       await store.create(session)
-      expect(await store.getByHash('hash-1')).toEqual(session)
+      // Nullable columns the store fills with `null` are extra keys on the
+      // returned row, so assert the caller-provided fields are a subset.
+      expect(await store.getByHash('hash-1')).toMatchObject(session)
     })
 
     it('listByIdentity returns only sessions of the requested identity', async () => {
       const store = factory()
-      const now = Date.now()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
       const base = {
         kind: 'user' as const,
         aal: 1 as const,
         factors: [],
         createdAt: now,
         rotatedAt: now,
-        expiresAt: now + 60_000,
-        absoluteExpiresAt: now + 60_000,
+        expiresAt: exp,
+        absoluteExpiresAt: exp,
         fresh: true,
       }
       await store.create({ id: 'u-1', identityId: 'u', ...base })
@@ -135,15 +142,16 @@ export function authRunSessionStoreCompliance(factory: () => AuthSession.IStore)
 
     it('deleteAllForIdentity wipes every session for the identity', async () => {
       const store = factory()
-      const now = Date.now()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
       const base = {
         kind: 'user' as const,
         aal: 1 as const,
         factors: [],
         createdAt: now,
         rotatedAt: now,
-        expiresAt: now + 60_000,
-        absoluteExpiresAt: now + 60_000,
+        expiresAt: exp,
+        absoluteExpiresAt: exp,
         fresh: true,
       }
       await store.create({ id: 'a', identityId: 'u', ...base })
@@ -154,17 +162,17 @@ export function authRunSessionStoreCompliance(factory: () => AuthSession.IStore)
 
     it('gc purges sessions with expiresAt or absoluteExpiresAt past now', async () => {
       const store = factory()
-      const now = Date.now()
+      const nowMs = Date.now()
       await store.create({
         id: 'expired',
         identityId: 'u',
         kind: 'user',
         aal: 1,
         factors: [],
-        createdAt: now - 100_000,
-        rotatedAt: now - 100_000,
-        expiresAt: now - 1,
-        absoluteExpiresAt: now - 1,
+        createdAt: new Date(nowMs - 100_000),
+        rotatedAt: new Date(nowMs - 100_000),
+        expiresAt: new Date(nowMs - 1),
+        absoluteExpiresAt: new Date(nowMs - 1),
         fresh: false,
       })
       await store.create({
@@ -173,13 +181,13 @@ export function authRunSessionStoreCompliance(factory: () => AuthSession.IStore)
         kind: 'user',
         aal: 1,
         factors: [],
-        createdAt: now,
-        rotatedAt: now,
-        expiresAt: now + 60_000,
-        absoluteExpiresAt: now + 60_000,
+        createdAt: new Date(nowMs),
+        rotatedAt: new Date(nowMs),
+        expiresAt: new Date(nowMs + 60_000),
+        absoluteExpiresAt: new Date(nowMs + 60_000),
         fresh: true,
       })
-      const r = await store.gc(now)
+      const r = await store.gc(nowMs)
       expect(r.deleted).toBe(1)
       expect(await store.getByHash('expired')).toBeNull()
       expect(await store.getByHash('live')).not.toBeNull()
@@ -188,12 +196,12 @@ export function authRunSessionStoreCompliance(factory: () => AuthSession.IStore)
 }
 
 /**
- * AuthCompliance matrix for AuthCredential stores. Covers upsert + findById +
+ * Compliance matrix for Credential stores. Covers upsert + findById +
  * findByHashedSecret semantics (revoked rows distinguished from missing),
  * rotate optimistic-lock, deleteByKind cleanup.
  */
-export function authRunCredentialStoreCompliance(factory: () => AuthCredential.IStore): void {
-  describe('AuthCredential.IStore compliance', () => {
+export function runCredentialStoreCompliance(factory: () => Credential.Store): void {
+  describe('Credential.IStore compliance', () => {
     it('upsert stamps id + version=1; findById retrieves it', async () => {
       const store = factory()
       const c = await store.upsert({ identityId: 'u', kind: 'password', secret: 'hashed-pw', metadata: {} }, {})
@@ -206,13 +214,13 @@ export function authRunCredentialStoreCompliance(factory: () => AuthCredential.I
     it('findByHashedSecret returns the freshest live row before falling back to revoked', async () => {
       const store = factory()
       const c1 = await store.upsert(
-        { identityId: 'u', kind: 'magic-link', secret: 'hash', metadata: {}, expiresAt: Date.now() + 60_000 },
+        { identityId: 'u', kind: 'magic-link', secret: 'hash', metadata: {}, expiresAt: new Date(Date.now() + 60_000) },
         {},
       )
       await store.revoke(c1.id, {})
       // Same secret hash, but fresh row.
       const c2 = await store.upsert(
-        { identityId: 'u', kind: 'magic-link', secret: 'hash', metadata: {}, expiresAt: Date.now() + 60_000 },
+        { identityId: 'u', kind: 'magic-link', secret: 'hash', metadata: {}, expiresAt: new Date(Date.now() + 60_000) },
         {},
       )
       const got = await store.findByHashedSecret('hash', 'magic-link', {})
@@ -231,7 +239,7 @@ export function authRunCredentialStoreCompliance(factory: () => AuthCredential.I
       const store = factory()
       const c = await store.upsert({ identityId: 'u', kind: 'password', secret: 'h1', metadata: {} }, {})
       await store.rotate(c.id, 'h2', c.version, {})
-      await expect(store.rotate(c.id, 'h3', 1, {})).rejects.toMatchObject({ code: 'AUTH/STALE_WRITE' })
+      await expect(store.rotate(c.id, 'h3', 1, {})).rejects.toMatchObject({ code: 'AUTH_STALE_WRITE' })
     })
 
     it('deleteByKind removes only credentials of that kind for an identity', async () => {
@@ -258,7 +266,7 @@ export function authRunCredentialStoreCompliance(factory: () => AuthCredential.I
     it('patchMetadata throws AUTH/UNAUTHENTICATED for an unknown id', async () => {
       const store = factory()
       await expect(store.patchMetadata('does-not-exist', { x: 1 }, {})).rejects.toMatchObject({
-        code: 'AUTH/UNAUTHENTICATED',
+        code: 'AUTH_UNAUTHENTICATED',
       })
     })
   })

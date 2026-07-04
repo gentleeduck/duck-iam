@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthRedisIdempotencyStore } from '../idempotency-store'
-import { AuthFakeRedis } from '../redis-like'
+import { RedisIdempotencyStore } from '../idempotency-store'
+import { FakeRedis } from '../redis-like'
 
 const ctx = { tenantId: 'acme' }
 const PREFIX = 'test:idem'
 const STORAGE_KEY = `${PREFIX}:acme:k1`
 
-describe('AuthRedisIdempotencyStore.get - parser hardening', () => {
-  let redis: AuthFakeRedis
-  let store: AuthRedisIdempotencyStore
+describe('RedisIdempotencyStore.get - parser hardening', () => {
+  let redis: FakeRedis
+  let store: RedisIdempotencyStore
 
   beforeEach(() => {
-    redis = new AuthFakeRedis()
-    store = new AuthRedisIdempotencyStore({ redis, prefix: PREFIX })
+    redis = new FakeRedis()
+    store = new RedisIdempotencyStore({ redis, prefix: PREFIX })
   })
 
   describe('malformed JSON', () => {
@@ -123,15 +123,20 @@ describe('AuthRedisIdempotencyStore.get - parser hardening', () => {
 
   describe('happy paths still work', () => {
     it('round-trips a well-formed entry', async () => {
-      await store.put('k1', { status: 200, body: { ok: true }, createdAt: 42 }, 60_000, ctx)
+      await store.put('k1', { status: 200, body: { ok: true }, createdAt: new Date(42) }, 60_000, ctx)
       const got = await store.get('k1', ctx)
       expect(got?.status).toBe(200)
       expect(got?.body).toEqual({ ok: true })
-      expect(got?.createdAt).toBe(42)
+      expect(got?.createdAt).toEqual(new Date(42))
     })
 
     it('round-trips well-formed entry with valid headers', async () => {
-      await store.put('k1', { status: 200, body: null, createdAt: 42, headers: { 'X-Trace-Id': 'abc' } }, 60_000, ctx)
+      await store.put(
+        'k1',
+        { status: 200, body: null, createdAt: new Date(42), headers: { 'X-Trace-Id': 'abc' } },
+        60_000,
+        ctx,
+      )
       const got = await store.get('k1', ctx)
       expect(got?.headers).toEqual({ 'X-Trace-Id': 'abc' })
     })
