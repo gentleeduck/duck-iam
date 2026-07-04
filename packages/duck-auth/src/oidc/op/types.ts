@@ -9,7 +9,7 @@
  * claim mapping, distributed claims, RP-initiated logout (separate).
  */
 
-import type { AuthIdentity } from '../../core/types/identity'
+import type { Identity } from '../../core/types/identity'
 
 export namespace AuthOidcOP {
   export type IGrantType = 'authorization_code' | 'refresh_token'
@@ -50,7 +50,7 @@ export namespace AuthOidcOP {
     code_challenge_method: ICodeChallengeMethod | null
     /** Tenant binding for cross-tenant guard. */
     tenant_id: string | null
-    /** AuthSession id used to mint this code; surfaced into id_token sid claim. */
+    /** Session id used to mint this code; surfaced into id_token sid claim. */
     sid: string
     /** Expiry, ms epoch. */
     exp: number
@@ -137,7 +137,7 @@ export namespace AuthOidcOP {
     allowHttp?: boolean
   }
 
-  /** OAuth2-style standard error codes per RFC 6749 section 5.2 / OIDC core section 3.1.2.6. */
+  /** oauth2-style standard error codes per RFC 6749 section 5.2 / OIDC core section 3.1.2.6. */
   export type IErrorCode =
     | 'invalid_request'
     | 'invalid_client'
@@ -154,10 +154,10 @@ export namespace AuthOidcOP {
     | 'invalid_token'
     | 'insufficient_scope'
 
-  export interface IOAuthError {
+  export interface IoauthError {
     error: IErrorCode
     error_description?: string
-    /** OAuth state echo for redirect-bearing errors. */
+    /** oauth state echo for redirect-bearing errors. */
     state?: string
   }
 
@@ -178,8 +178,8 @@ export namespace AuthOidcOP {
   export type IAuthorizeResult =
     | { kind: 'redirect'; url: string }
     | { kind: 'login_required'; reason: 'no_session' | 'prompt_login' | 'max_age_exceeded' }
-    | { kind: 'consent_required'; client: IClient; scope: string[]; identity: AuthIdentity.IIdentity<unknown> }
-    | { kind: 'error'; status: number; body: IOAuthError; redirectUri?: string }
+    | { kind: 'consent_required'; client: IClient; scope: string[]; identity: Identity.Me<unknown> }
+    | { kind: 'error'; status: number; body: IoauthError; redirectUri?: string }
 
   /** /token request shape, post body parse. */
   export interface ITokenRequest {

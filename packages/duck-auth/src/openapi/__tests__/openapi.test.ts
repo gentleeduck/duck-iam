@@ -42,12 +42,12 @@ describe('authBuildOpenApiSpec', () => {
     expect(Object.keys(spec.paths)).toContain('/.well-known/jwks.json')
   })
 
-  it('idempotent POST routes declare an AuthIdempotency-Key parameter', () => {
+  it('idempotent POST routes declare an Idempotency-Key parameter', () => {
     const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test' })
     const passwordRoute = spec.paths['/auth/password/sign-in']!.post as {
       parameters?: Array<{ name: string }>
     }
-    expect(passwordRoute.parameters?.some((p) => p.name === 'AuthIdempotency-Key')).toBe(true)
+    expect(passwordRoute.parameters?.some((p) => p.name === 'Idempotency-Key')).toBe(true)
   })
 
   it('security schemes include cookieAuth + bearerAuth + dpop', () => {
@@ -55,9 +55,9 @@ describe('authBuildOpenApiSpec', () => {
     expect(Object.keys(spec.components.securitySchemes).sort()).toEqual(['bearerAuth', 'cookieAuth', 'dpop'])
   })
 
-  it('components.schemas covers AuthError + AuthSession + SignInResult', () => {
+  it('components.schemas covers AuthError + Session + SignInResult', () => {
     const spec = authBuildOpenApiSpec({ baseUrl: 'https://app.test' })
-    expect(Object.keys(spec.components.schemas).sort()).toEqual(['AuthError', 'AuthSession', 'SignInResult'])
+    expect(Object.keys(spec.components.schemas).sort()).toEqual(['AuthError', 'Session', 'SignInResult'])
   })
 
   it('respects a custom prefix', () => {

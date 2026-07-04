@@ -23,7 +23,7 @@ describe('duck-auth CLI - scaffold templates', () => {
 
   it('production scaffold names Redis + Argon2id + AuthJwtTransport', () => {
     const text = __scaffoldTemplate('production')
-    expect(text).toContain('AuthRedisSessionStore')
+    expect(text).toContain('RedisSessionStore')
     expect(text).toContain('AuthArgon2idHasher')
     expect(text).toContain('AuthJwtTransport')
     expect(text).toContain("env: 'production'")
@@ -31,8 +31,8 @@ describe('duck-auth CLI - scaffold templates', () => {
 
   it('env template includes the required vars + warning comment', () => {
     const env = __envTemplate()
-    expect(env).toContain('DUCK_AUTH_BASE_URL')
-    expect(env).toContain('DUCK_AUTH_HS256_SECRET')
+    expect(env).toContain('DUCK_AUTH/BASE_URL')
+    expect(env).toContain('DUCK_AUTH/HS256_SECRET')
     expect(env).toContain('REDIS_URL')
   })
 })
@@ -58,14 +58,14 @@ describe('duck-auth CLI - init subcommand', () => {
     const authText = readFileSync(join(workDir, 'my-auth', 'auth.ts'), 'utf8')
     expect(authText).toContain('AuthEngine')
     const envText = readFileSync(join(workDir, 'my-auth', '.env.duck-auth'), 'utf8')
-    expect(envText).toContain('DUCK_AUTH_BASE_URL')
+    expect(envText).toContain('DUCK_AUTH/BASE_URL')
   })
 
   it('--production flag emits the production scaffold', async () => {
     const code = await __init(['prod-auth', '--production'])
     expect(code).toBe(0)
     const authText = readFileSync(join(workDir, 'prod-auth', 'auth.ts'), 'utf8')
-    expect(authText).toContain('AuthRedisSessionStore')
+    expect(authText).toContain('RedisSessionStore')
   })
 
   it('refuses to overwrite an existing auth.ts', async () => {
@@ -88,7 +88,7 @@ describe('duck-auth CLI - keys subcommand', () => {
     const code = await __keys(['generate', 'hs256'])
     expect(code).toBe(0)
     const combined = writes.join('')
-    expect(combined).toContain('DUCK_AUTH_HS256_SECRET')
+    expect(combined).toContain('DUCK_AUTH/HS256_SECRET')
     expect(combined).toMatch(/[A-Za-z0-9_-]{40,}/)
     spy.mockRestore()
   })
@@ -145,11 +145,11 @@ describe('duck-auth CLI - help / dispatch', () => {
 
 describe('duck-auth CLI - migrate', () => {
   it.each(['pg', 'mysql', 'sqlite'] as const)('renders DDL for %s with default prefix', (dialect) => {
-    const ddl = __renderMigration(dialect, 'auth_')
+    const ddl = __renderMigration(dialect, 'AUTH/')
     expect(ddl).toContain(`AuthSqlBridge schema (${dialect})`)
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS auth_identities')
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS auth_credentials')
-    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS auth_sessions')
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/identities')
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/credentials')
+    expect(ddl).toContain('CREATE TABLE IF NOT EXISTS AUTH/sessions')
     expect(ddl).toContain('CREATE INDEX')
   })
 
@@ -158,7 +158,7 @@ describe('duck-auth CLI - migrate', () => {
     expect(ddl).toContain('tenant_identities')
     expect(ddl).toContain('tenant_credentials')
     expect(ddl).toContain('tenant_sessions')
-    expect(ddl).not.toContain('auth_identities')
+    expect(ddl).not.toContain('AUTH_identities')
   })
 
   it('pg uses bigint, sqlite uses INTEGER, mysql uses BIGINT', () => {

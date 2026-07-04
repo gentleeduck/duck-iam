@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
 import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
@@ -12,7 +12,7 @@ interface ProfileShape {
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   return new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },

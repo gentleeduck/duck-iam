@@ -1,14 +1,14 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authSha256 } from '../../../core/crypto'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { sha256 } from '../../../core/crypto'
 import { AuthEngine } from '../../../core/engine'
 import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
 import { type AuthOidcOpRoot, authCreateOidcOP } from '../index'
 import type { AuthOidcOP } from '../types'
 
-function isOAuthError(v: AuthOidcOP.IOAuthError | object): v is AuthOidcOP.IOAuthError {
+function isoauthError(v: AuthOidcOP.IoauthError | object): v is AuthOidcOP.IoauthError {
   return 'error' in v && typeof v.error === 'string' && !('sub' in v)
 }
 
@@ -19,7 +19,7 @@ interface ProfileShape {
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   return new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
@@ -59,7 +59,7 @@ function decodeJwt(token: string): Record<string, unknown> {
 
 function pkceVerifierAndChallenge(): { verifier: string; challenge: string } {
   const verifier = 'a'.repeat(64)
-  const hex = authSha256(verifier)
+  const hex = sha256(verifier)
   const challenge = Buffer.from(hex, 'hex').toString('base64url')
   return { verifier, challenge }
 }
@@ -396,7 +396,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
     expect(idPayload.iss).toBe('http://localhost:8787/auth')
 
     const ui = await op.userinfo(new Headers({ authorization: `Bearer ${tok.access_token}` }))
-    if (isOAuthError(ui)) throw new Error(ui.error)
+    if (isoauthError(ui)) throw new Error(ui.error)
     expect(ui.sub).toBe(identity.id)
     expect(ui.name).toBe('Ursula')
     expect(ui.email).toBe('u@x.com')

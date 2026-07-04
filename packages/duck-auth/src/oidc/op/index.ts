@@ -12,9 +12,9 @@
  */
 
 import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '../../core/credential-utils'
-import { authRandomToken, authSha256, authTimingSafeEqual } from '../../core/crypto'
+import { RandomToken, sha256, timingSafeEqual } from '../../core/crypto'
 import type { AuthEngine } from '../../core/engine'
-import type { AuthIdentity } from '../../core/types/identity'
+import type { Identity } from '../../core/types/identity'
 import {
   AuthMemoryAccessTokenStore,
   AuthMemoryClientStore,
@@ -112,10 +112,10 @@ export class AuthOidcOpRoot<Profile = unknown> {
     }
     for (const uri of input.redirect_uris) assertValidRedirect(uri)
     const method = input.token_endpoint_auth_method ?? (input.client_secret ? 'client_secret_basic' : 'none')
-    const secret = method === 'none' ? null : (input.client_secret ?? authRandomToken(32))
+    const secret = method === 'none' ? null : (input.client_secret ?? RandomToken(32))
     const row: AuthOidcOP.IClient = {
       client_id: input.client_id,
-      client_secret_hash: secret === null ? null : authSha256(secret),
+      client_secret_hash: secret === null ? null : sha256(secret),
       redirect_uris: [...input.redirect_uris],
       grant_types: input.grant_types ?? ['authorization_code', 'refresh_token'],
       response_types: input.response_types ?? ['code'],
@@ -156,7 +156,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
         return { status: 401, body: { error: 'unauthorized', error_description: 'initial access token required' } }
       }
       const presented = auth.slice(7).trim()
-      if (!authTimingSafeEqual(presented, this.dcrConfig.initialAccessToken)) {
+      if (!timingSafeEqual(presented, this.dcrConfig.initialAccessToken)) {
         return { status: 401, body: { error: 'unauthorized', error_description: 'invalid initial access token' } }
       }
     }
@@ -222,7 +222,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
     if (req.client_name !== undefined && (typeof req.client_name !== 'string' || req.client_name.length > 200)) {
       return { status: 400, body: { error: 'invalid_client_metadata', error_description: 'client_name too long' } }
     }
-    const clientId = `dcr-${authRandomToken(16)}`
+    const clientId = `dcr-${RandomToken(16)}`
     const { client_secret } = await this.registerClient({
       client_id: clientId,
       redirect_uris: req.redirect_uris,
@@ -387,7 +387,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
    */
   async completeConsent(input: {
     client_id: string
-    identity: AuthIdentity.IIdentity<Profile>
+    identity: Identity.Me<Profile>
     redirect_uri: string
     scope: string[]
     state?: string
@@ -423,7 +423,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
 
   private async mintCodeAndRedirect(input: {
     client: AuthOidcOP.IClient
-    identity: AuthIdentity.IIdentity<Profile>
+    identity: Identity.Me<Profile>
     redirect_uri: string
     scope: string[]
     state?: string
@@ -433,7 +433,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
     sid: string
     tenant_id: string | null
   }): Promise<AuthOidcOP.IAuthorizeResult> {
-    const code = authRandomToken(32)
+    const code = RandomToken(32)
     const now = Date.now()
     const challengeMethod: AuthOidcOP.ICodeChallengeMethod | null =
       input.code_challenge_method === 'S256' ? 'S256' : input.code_challenge ? 'S256' : null
@@ -460,7 +460,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
   async token(
     req: AuthOidcOP.ITokenRequest,
     headers: Headers,
-  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IOAuthError> {
+  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IoauthError> {
     const clientAuth = await this.authenticateClient(req, headers)
     if ('error' in clientAuth) return clientAuth
     const { client } = clientAuth
@@ -477,7 +477,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
   private async grantAuthorizationCode(
     req: AuthOidcOP.ITokenRequest,
     client: AuthOidcOP.IClient,
-  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IOAuthError> {
+  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IoauthError> {
     if (!client.grant_types.includes('authorization_code')) {
       return { error: 'unauthorized_client' }
     }
@@ -513,7 +513,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
   private async grantRefreshToken(
     req: AuthOidcOP.ITokenRequest,
     client: AuthOidcOP.IClient,
-  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IOAuthError> {
+  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IoauthError> {
     if (!client.grant_types.includes('refresh_token')) {
       return { error: 'unauthorized_client' }
     }
@@ -521,7 +521,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
       return { error: 'invalid_request', error_description: 'refresh_token required' }
     }
     const now = Date.now()
-    const hash = authSha256(req.refresh_token)
+    const hash = sha256(req.refresh_token)
     const existing = await this.deps.refreshTokens.findByHash(hash, now)
     if (existing && existing.consumedAt !== null) {
       // Reuse detected: nuke the whole family.
@@ -561,10 +561,10 @@ export class AuthOidcOpRoot<Profile = unknown> {
     family_id?: string
   }): Promise<AuthOidcOP.ITokenResponse> {
     const now = Math.floor(Date.now() / 1000)
-    const accessTokenPlain = authRandomToken(48)
-    const refreshTokenPlain = input.scope.includes('offline_access') ? authRandomToken(48) : null
+    const accessTokenPlain = RandomToken(48)
+    const refreshTokenPlain = input.scope.includes('offline_access') ? RandomToken(48) : null
     await this.deps.accessTokens.insert({
-      token_hash: authSha256(accessTokenPlain),
+      token_hash: sha256(accessTokenPlain),
       client_id: input.client.client_id,
       identity_id: input.identity_id,
       scope: input.scope,
@@ -573,9 +573,9 @@ export class AuthOidcOpRoot<Profile = unknown> {
     })
     let refreshOut: string | undefined
     if (refreshTokenPlain) {
-      const family = input.family_id ?? authRandomToken(16)
+      const family = input.family_id ?? RandomToken(16)
       await this.deps.refreshTokens.insert({
-        token_hash: authSha256(refreshTokenPlain),
+        token_hash: sha256(refreshTokenPlain),
         family_id: family,
         client_id: input.client.client_id,
         identity_id: input.identity_id,
@@ -611,14 +611,14 @@ export class AuthOidcOpRoot<Profile = unknown> {
   async userinfo(
     headers: Headers,
     ctx: { tenantId?: string } = {},
-  ): Promise<AuthOidcOP.IUserinfoClaims | AuthOidcOP.IOAuthError> {
+  ): Promise<AuthOidcOP.IUserinfoClaims | AuthOidcOP.IoauthError> {
     const auth = headers.get('authorization')
     if (!auth?.toLowerCase().startsWith('bearer ')) {
       return { error: 'invalid_token', error_description: 'Bearer token required' }
     }
     const token = auth.slice(7).trim()
     if (!token) return { error: 'invalid_token' }
-    const row = await this.deps.accessTokens.findByHash(authSha256(token), Date.now())
+    const row = await this.deps.accessTokens.findByHash(sha256(token), Date.now())
     if (!row) return { error: 'invalid_token', error_description: 'token unknown / expired' }
     if (ctx.tenantId !== undefined && row.tenant_id !== ctx.tenantId) {
       return { error: 'invalid_token', error_description: 'cross-tenant token' }
@@ -655,7 +655,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
     if (clientAuth.client.token_endpoint_auth_method === 'none') return { active: false }
     const now = Date.now()
     if (req.token_type_hint !== 'refresh_token') {
-      const at = await this.deps.accessTokens.findByHash(authSha256(req.token), now)
+      const at = await this.deps.accessTokens.findByHash(sha256(req.token), now)
       if (at) {
         return {
           active: true,
@@ -668,7 +668,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
       }
     }
     if (req.token_type_hint !== 'access_token') {
-      const rt = await this.deps.refreshTokens.findByHash(authSha256(req.token), now)
+      const rt = await this.deps.refreshTokens.findByHash(sha256(req.token), now)
       if (rt && rt.consumedAt === null) {
         return {
           active: true,
@@ -690,7 +690,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
   ): Promise<void> {
     const clientAuth = await this.authenticateClient({ grant_type: '' }, headers)
     if ('error' in clientAuth) return
-    const hash = authSha256(req.token)
+    const hash = sha256(req.token)
     if (req.token_type_hint !== 'refresh_token') {
       await this.deps.accessTokens.revokeByHash(hash)
     }
@@ -703,7 +703,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
   private async authenticateClient(
     req: AuthOidcOP.ITokenRequest,
     headers: Headers,
-  ): Promise<{ client: AuthOidcOP.IClient } | AuthOidcOP.IOAuthError> {
+  ): Promise<{ client: AuthOidcOP.IClient } | AuthOidcOP.IoauthError> {
     const basic = parseBasicAuth(headers.get('authorization'))
     const clientIdFromBasic = basic?.user
     const clientSecretFromBasic = basic?.pass
@@ -717,19 +717,13 @@ export class AuthOidcOpRoot<Profile = unknown> {
         return { client }
       case 'client_secret_basic':
         if (!clientSecretFromBasic) return { error: 'invalid_client', error_description: 'Basic auth required' }
-        if (
-          !client.client_secret_hash ||
-          !authTimingSafeEqual(authSha256(clientSecretFromBasic), client.client_secret_hash)
-        ) {
+        if (!client.client_secret_hash || !timingSafeEqual(sha256(clientSecretFromBasic), client.client_secret_hash)) {
           return { error: 'invalid_client' }
         }
         return { client }
       case 'client_secret_post':
         if (!req.client_secret) return { error: 'invalid_client', error_description: 'client_secret required in body' }
-        if (
-          !client.client_secret_hash ||
-          !authTimingSafeEqual(authSha256(req.client_secret), client.client_secret_hash)
-        ) {
+        if (!client.client_secret_hash || !timingSafeEqual(sha256(req.client_secret), client.client_secret_hash)) {
           return { error: 'invalid_client' }
         }
         return { client }
@@ -802,13 +796,13 @@ function verifyPkceS256(verifier: string, expectedChallenge: string): boolean {
   if (verifier.length < 43 || verifier.length > 128) return false
   // RFC 7636: base64url(SHA256(verifier))
   const computed = base64urlSha256(verifier)
-  return authTimingSafeEqual(computed, expectedChallenge)
+  return timingSafeEqual(computed, expectedChallenge)
 }
 
 function base64urlSha256(input: string): string {
   // node:crypto via the same path the rest of the package uses.
   // sha256() returns hex; convert to base64url.
-  const hex = authSha256(input)
+  const hex = sha256(input)
   const bytes = Buffer.from(hex, 'hex')
   return bytes.toString('base64url')
 }

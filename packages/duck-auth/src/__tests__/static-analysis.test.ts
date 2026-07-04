@@ -135,7 +135,7 @@ describe('Recovery / signup / reset tokens are authSha256-hashed at rest', () =>
   })
 })
 
-describe('OAuth / OIDC state nonces are crypto-random', () => {
+describe('oauth / OIDC state nonces are crypto-random', () => {
   it('OIDC OP issues codes via authRandomToken (not Math.random / Date.now)', () => {
     const opFile = ALL_FILES.find((f) => f.path === 'oidc/op/index.ts')
     expect(opFile).toBeDefined()
@@ -145,7 +145,7 @@ describe('OAuth / OIDC state nonces are crypto-random', () => {
     expect(opFile.contents).not.toMatch(/code\s*=\s*Math\.random/)
   })
 
-  it('OAuth state / nonce generation routes through authRandomToken', () => {
+  it('oauth state / nonce generation routes through authRandomToken', () => {
     const oauthFiles = filesMatching((f) => /providers\/oauth\/.*\.ts$/.test(f.path))
     for (const f of oauthFiles) {
       if (!/state|nonce/i.test(f.contents)) continue
@@ -157,12 +157,12 @@ describe('OAuth / OIDC state nonces are crypto-random', () => {
   })
 })
 
-describe('Flow handlers throw AuthErrorObject for request-time errors', () => {
-  it('flows/* files import AuthErrorObject (request-time errors must carry an error code)', () => {
+describe('Flow handlers throw AuthError for request-time errors', () => {
+  it('flows/* files import AuthError (request-time errors must carry an error code)', () => {
     const flowFiles = filesMatching((f) => /core\/facets\/flows\/.+\.ts$/.test(f.path))
     expect(flowFiles.length).toBeGreaterThan(0)
     for (const f of flowFiles) {
-      expect(f.contents, `${f.path} doesn't import AuthErrorObject`).toContain('AuthErrorObject')
+      expect(f.contents, `${f.path} doesn't import AuthError`).toContain('AuthError')
     }
   })
 })

@@ -1,6 +1,6 @@
 /**
  * OpenTelemetry instrumentation for `@gentleduck/auth`. Wires the
- * AuthEvents bus into OTel metrics (counters + gauges + histograms) so
+ * Events bus into OTel metrics (counters + gauges + histograms) so
  * sign-in / session / lockout traffic surfaces in any
  * OpenTelemetry-compatible backend (Datadog, Grafana, Honeycomb, etc.).
  *
@@ -10,11 +10,11 @@
  * cannot derive on their own.
  */
 
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthEvents } from '../../core/types/events'
+import { AuthError } from '../../core/errors'
+import type { Events } from '../../core/types/provider'
 
 /**
- * Records auth-domain metrics off an AuthEvents.IBus. The recorded
+ * Records auth-domain metrics off an Events.IBus. The recorded
  * surface:
  *
  *   - {prefix}.signin.total (counter): tag provider + result (success / failed)
@@ -43,7 +43,7 @@ export class AuthOtelInstrumentation {
 
   constructor(cfg: AuthOtelInstrumentation.IConfig) {
     if (!cfg.meter) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthOtelInstrumentation requires a meter from @opentelemetry/api',
       })
     }
@@ -59,10 +59,10 @@ export class AuthOtelInstrumentation {
       description: 'Currently active sessions (best-effort: incremented on create, decremented on revoke)',
     })
     this._sessionRotated = cfg.meter.createCounter(`${p}.session.rotated.total`, {
-      description: 'AuthSession rotations',
+      description: 'Session rotations',
     })
     this._lockoutTotal = cfg.meter.createCounter(`${p}.lockout.total`, {
-      description: 'AuthIdentity lockouts',
+      description: 'Identity lockouts',
     })
     this._mfaEnrolled = cfg.meter.createCounter(`${p}.mfa.enrolled.total`, {
       description: 'MFA methods enrolled',
@@ -74,7 +74,7 @@ export class AuthOtelInstrumentation {
       description: 'Impersonation sessions started',
     })
     this._suspicious = cfg.meter.createCounter(`${p}.suspicious.total`, {
-      description: 'AuthAnomaly signals fired',
+      description: 'Anomaly signals fired',
     })
   }
 
@@ -82,8 +82,8 @@ export class AuthOtelInstrumentation {
    * Subscribe to every event the lib emits that maps to a metric.
    * Returns a cleanup function that detaches every listener.
    */
-  attach(bus: AuthEvents.IBus): () => void {
-    const subs: AuthEvents.Unsubscribe[] = []
+  attach(bus: Events.IBus): () => void {
+    const subs: Events.Unsubscribe[] = []
 
     subs.push(
       bus.on('signin.success', (payload) => {
@@ -178,7 +178,7 @@ export async function authGetOtelMeter(name = '@gentleduck/auth'): Promise<AuthO
     }
     return otel.metrics.getMeter(name)
   } catch {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail:
         'authGetOtelMeter requires the `@opentelemetry/api` peerDep. ' + 'Install via `bun add @opentelemetry/api`.',
     })

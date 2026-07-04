@@ -1,6 +1,6 @@
 /** i18n catalogue: zero-dep `AuthI18nMessageCatalog` and Lingui adapter. */
 
-import { AuthErrorObject } from '../core/errors'
+import { AuthError } from '../core/errors'
 
 /** Zero-dep i18n catalogue. `{{var}}` placeholders only; no escaping / plural rules. */
 export class AuthI18nMessageCatalog implements AuthI18n.IResolver {
@@ -9,7 +9,7 @@ export class AuthI18nMessageCatalog implements AuthI18n.IResolver {
 
   constructor(cfg: AuthI18n.IConfig) {
     if (!cfg.messages || Object.keys(cfg.messages).length === 0) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthI18nMessageCatalog requires a non-empty `messages` object',
       })
     }
@@ -42,7 +42,7 @@ export class AuthI18nMessageCatalog implements AuthI18n.IResolver {
 export class AuthLinguiResolver implements AuthI18n.IResolver {
   constructor(private readonly _i18n: AuthI18n.ILingui) {
     if (!_i18n || typeof _i18n._ !== 'function') {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthLinguiResolver requires a Lingui i18n instance with a `_` method',
       })
     }
@@ -81,7 +81,7 @@ export const AUTH_DEFAULT_EN_MESSAGES: Record<string, string> = {
   'AUTH/UNAUTHENTICATED': 'Sign in to continue.',
   'AUTH/SESSION_EXPIRED': 'Your session expired. Sign in again.',
   'AUTH/SESSION_REVOKED': 'Your session was revoked. Sign in again.',
-  'AUTH/INVALID_CREDENTIALS': 'Invalid email or password.',
+  AUTH_INVALID_CREDENTIALS: 'Invalid email or password.',
   'AUTH/EMAIL_NOT_VERIFIED': 'Please verify your email before continuing.',
   'AUTH/RATE_LIMITED': 'Too many attempts. Try again later.',
   'AUTH/LOCKED': 'Your account is temporarily locked.',

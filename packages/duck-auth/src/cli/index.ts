@@ -65,15 +65,15 @@ function printHelp(): void {
  */
 function scaffoldTemplate(flavor: 'quickstart' | 'production'): string {
   if (flavor === 'quickstart') {
-    return `import { AuthEngine, AuthInMemoryEvents, AuthScryptHasher } from '@gentleduck/auth/core'
-import { AuthMemoryAdapter } from '@gentleduck/auth/adapters/memory'
-import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
-import { AuthCookieTransport } from '@gentleduck/auth/core/transport'
+    return `import { AuthEngine, AuthInMemoryEvents, AuthScryptHasher } from '@gentleduck/AUTH/core'
+import { AuthMemoryAdapter } from '@gentleduck/AUTH/adapters/memory'
+import { AuthMemoryLimiter } from '@gentleduck/AUTH/limiters/memory'
+import { AuthCookieTransport } from '@gentleduck/AUTH/core/transport'
 
 const adapter = new AuthMemoryAdapter()
 
 export const auth = new AuthEngine({
-  baseUrl: process.env.DUCK_AUTH_BASE_URL ?? 'http://localhost:3000',
+  baseUrl: process.env.DUCK_AUTH/BASE_URL ?? 'http://localhost:3000',
   transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
   stores: {
     identities: adapter.identities,
@@ -86,9 +86,9 @@ export const auth = new AuthEngine({
 })
 `
   }
-  return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/auth/core'
-import { AuthJwtTransport } from '@gentleduck/auth/core/transport'
-import { AuthRedisIdempotencyStore, AuthRedisLimiter, AuthRedisSessionStore } from '@gentleduck/auth/adapters/redis'
+  return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/AUTH/core'
+import { AuthJwtTransport } from '@gentleduck/AUTH/core/transport'
+import { RedisIdempotencyStore, RedisLimiter, RedisSessionStore } from '@gentleduck/AUTH/adapters/redis'
 import { Redis } from 'ioredis'
 
 const redis = new Redis(process.env.REDIS_URL!)
@@ -99,21 +99,21 @@ declare const identities: never
 declare const credentials: never
 
 export const auth = new AuthEngine({
-  baseUrl: process.env.DUCK_AUTH_BASE_URL!,
+  baseUrl: process.env.DUCK_AUTH/BASE_URL!,
   transport: new AuthJwtTransport({
-    issuer: process.env.DUCK_AUTH_ISSUER!,
-    signKey: { kid: 'k1', key: process.env.DUCK_AUTH_HS256_SECRET! },
-    verifyKeys: [{ kid: 'k1', key: process.env.DUCK_AUTH_HS256_SECRET! }],
+    issuer: process.env.DUCK_AUTH/ISSUER!,
+    signKey: { kid: 'k1', key: process.env.DUCK_AUTH/HS256_SECRET! },
+    verifyKeys: [{ kid: 'k1', key: process.env.DUCK_AUTH/HS256_SECRET! }],
     refresh: { ttlMs: 7 * 24 * 60 * 60 * 1000 },
   }),
   stores: {
     identities,
-    sessions: new AuthRedisSessionStore({ redis }),
+    sessions: new RedisSessionStore({ redis }),
     credentials,
   },
-  limiter: new AuthRedisLimiter({ redis, max: 5, windowMs: 60_000 }),
+  limiter: new RedisLimiter({ redis, max: 5, windowMs: 60_000 }),
   passwords: { hasher: new AuthArgon2idHasher() },
-  idempotency: { store: new AuthRedisIdempotencyStore({ redis }), ttlMs: 24 * 60 * 60 * 1000 },
+  idempotency: { store: new RedisIdempotencyStore({ redis }), ttlMs: 24 * 60 * 60 * 1000 },
   env: 'production',
 })
 `
@@ -121,9 +121,9 @@ export const auth = new AuthEngine({
 
 function envTemplate(): string {
   return `# @gentleduck/auth environment variables
-DUCK_AUTH_BASE_URL=http://localhost:3000
-DUCK_AUTH_ISSUER=https://your-issuer.example
-DUCK_AUTH_HS256_SECRET=replace-me-with-32-bytes-of-entropy
+DUCK_AUTH/BASE_URL=http://localhost:3000
+DUCK_AUTH/ISSUER=https://your-issuer.example
+DUCK_AUTH/HS256_SECRET=replace-me-with-32-bytes-of-entropy
 REDIS_URL=redis://127.0.0.1:6379
 `
 }
@@ -180,7 +180,7 @@ async function cmdDoctor(args: string[]): Promise<number> {
     return 1
   }
   try {
-    const mod = (await import(absolute)) as { auth?: { strict?: () => void } }
+    const mod = await import(absolute)
     if (!mod.auth || typeof mod.auth.strict !== 'function') {
       process.stderr.write(`module at ${absolute} does not export a named \`auth\` with a strict() method\n`)
       return 1
@@ -196,7 +196,7 @@ async function cmdDoctor(args: string[]): Promise<number> {
 }
 
 function findAuthFile(): string | undefined {
-  const candidates = ['src/auth/auth.ts', 'src/auth.ts', 'auth.ts']
+  const candidates = ['src/AUTH/auth.ts', 'src/auth.ts', 'auth.ts']
   for (const c of candidates) {
     if (existsSync(resolve(process.cwd(), c))) return c
   }
@@ -218,7 +218,7 @@ async function cmdKeys(args: string[]): Promise<number> {
     switch (args[1]) {
       case 'hs256': {
         const secret = randomBytes(32).toString('base64url')
-        process.stdout.write(`# HS256 secret (paste into DUCK_AUTH_HS256_SECRET, never commit):\n${secret}\n`)
+        process.stdout.write(`# HS256 secret (paste into DUCK_AUTH/HS256_SECRET, never commit):\n${secret}\n`)
         return 0
       }
       case 'ec256': {
@@ -253,19 +253,19 @@ async function cmdKeys(args: string[]): Promise<number> {
   process.stdout.write(
     `# HS256 rotation. New signing kid: ${newKid}. Keep previous kid (${prevKid}) on verifyKeys for the rollover window.\n`,
   )
-  process.stdout.write(`# 1. Store the new secret as DUCK_AUTH_HS256_SECRET_${newKid.toUpperCase()}:\n`)
+  process.stdout.write(`# 1. Store the new secret as DUCK_AUTH/HS256_SECRET_${newKid.toUpperCase()}:\n`)
   process.stdout.write(`${newSecret}\n\n`)
   process.stdout.write('# 2. Update your AuthJwtTransport config:\n')
   process.stdout.write('# new AuthJwtTransport({\n')
   process.stdout.write(
-    `#   signKey: { kid: '${newKid}', key: process.env.DUCK_AUTH_HS256_SECRET_${newKid.toUpperCase()}! },\n`,
+    `#   signKey: { kid: '${newKid}', key: process.env.DUCK_AUTH/HS256_SECRET_${newKid.toUpperCase()}! },\n`,
   )
   process.stdout.write('#   verifyKeys: [\n')
   process.stdout.write(
-    `#     { kid: '${newKid}', key: process.env.DUCK_AUTH_HS256_SECRET_${newKid.toUpperCase()}! },\n`,
+    `#     { kid: '${newKid}', key: process.env.DUCK_AUTH/HS256_SECRET_${newKid.toUpperCase()}! },\n`,
   )
   process.stdout.write(
-    `#     { kid: '${prevKid}', key: process.env.DUCK_AUTH_HS256_SECRET_${prevKid.toUpperCase()}! },\n`,
+    `#     { kid: '${prevKid}', key: process.env.DUCK_AUTH/HS256_SECRET_${prevKid.toUpperCase()}! },\n`,
   )
   process.stdout.write('#   ],\n')
   process.stdout.write('# })\n')
@@ -273,14 +273,14 @@ async function cmdKeys(args: string[]): Promise<number> {
   return 0
 }
 
-/** `duck-auth migrate <pg|mysql|sqlite> [--prefix=auth_] [--out=path]` emits AuthSqlBridge CREATE TABLE DDL. */
+/** `duck-auth migrate <pg|mysql|sqlite> [--prefix=AUTH/] [--out=path]` emits AuthSqlBridge CREATE TABLE DDL. */
 async function cmdMigrate(args: string[]): Promise<number> {
   const dialect = args.find((a) => !a.startsWith('--')) as 'pg' | 'mysql' | 'sqlite' | undefined
   if (!dialect || !['pg', 'mysql', 'sqlite'].includes(dialect)) {
-    process.stderr.write('usage: duck-auth migrate <pg|mysql|sqlite> [--prefix=auth_] [--out=path]\n')
+    process.stderr.write('usage: duck-auth migrate <pg|mysql|sqlite> [--prefix=AUTH/] [--out=path]\n')
     return 1
   }
-  const prefix = (args.find((a) => a.startsWith('--prefix=')) ?? '--prefix=auth_').slice('--prefix='.length)
+  const prefix = (args.find((a) => a.startsWith('--prefix=')) ?? '--prefix=AUTH/').slice('--prefix='.length)
   const outPath = args.find((a) => a.startsWith('--out='))?.slice('--out='.length)
   const ddl = renderMigration(dialect, prefix)
   if (outPath) {
@@ -326,10 +326,7 @@ async function cmdEmitOpenapi(args: string[]): Promise<number> {
     return 1
   }
   try {
-    const mod = (await import(absolute)) as {
-      auth?: unknown
-      openapi?: unknown
-    }
+    const mod = await import(absolute)
     // Prefer an explicit `openapi` export if the project pre-built it.
     let spec: unknown = mod.openapi
     if (!spec) {

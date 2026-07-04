@@ -10,7 +10,7 @@ import {
 describe('authBuildOidcDiscovery', () => {
   it('refuses missing issuer', () => {
     expect(() => authBuildOidcDiscovery({ issuer: '' })).toThrowError(
-      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })
 
@@ -85,7 +85,7 @@ describe('authBuildOidcDiscovery', () => {
       authBuildOidcDiscovery({ issuer: 'http://app.test' })
       throw new Error('expected throw')
     } catch (err) {
-      expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
+      expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
       expect((err as { meta: { detail: string } }).meta.detail).toMatch(/HTTPS/)
     }
     const d = authBuildOidcDiscovery({ issuer: 'http://localhost:3000', allowHttp: true })
@@ -110,7 +110,7 @@ describe('authBuildOidcDiscovery', () => {
       authBuildOidcDiscovery({ issuer: 'not a url' })
       throw new Error('expected throw')
     } catch (err) {
-      expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
+      expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
       expect((err as { meta: { detail: string } }).meta.detail).toMatch(/not a valid URL/)
     }
   })
@@ -193,13 +193,13 @@ describe('authFetchOidcDiscovery - RP-side cache', () => {
         ),
     ) as unknown as typeof globalThis.fetch
     await expect(authFetchOidcDiscovery('https://legit.test', { fetch: fakeFetch })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 
   it('refuses non-HTTPS issuer unless allowHttp is set', async () => {
     await expect(authFetchOidcDiscovery('http://idp.test', { fetch: vi.fn() as never })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 
@@ -242,7 +242,7 @@ describe('authFetchOidcDiscovery - RP-side cache', () => {
         }),
     ) as unknown as typeof globalThis.fetch
     await expect(authFetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 
@@ -269,7 +269,7 @@ describe('authFetchOidcDiscovery - RP-side cache', () => {
         ),
     ) as unknown as typeof globalThis.fetch
     await expect(authFetchOidcDiscovery('https://idp.test', { fetch: fakeFetch })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 })

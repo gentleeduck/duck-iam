@@ -1,11 +1,11 @@
-/** OIDC discovery-doc + JWKS helper. For the full OP, see `@gentleduck/auth/oidc/op`. */
+/** OIDC discovery-doc + JWKS helper. For the full OP, see `@gentleduck/AUTH/oidc/op`. */
 
-import { AuthErrorObject } from '../core/errors'
+import { AuthError } from '../core/errors'
 
 /** Build the discovery document; `extraClaims` is appended verbatim. */
 export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.IConfig): AuthOidcDiscovery.IDocument {
   if (!cfg.issuer) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'authBuildOidcDiscovery requires a non-empty issuer',
     })
   }
@@ -15,12 +15,12 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.IConfig): AuthOidc
   try {
     parsed = new URL(cfg.issuer)
   } catch {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `authBuildOidcDiscovery: issuer '${cfg.issuer}' is not a valid URL`,
     })
   }
   if (parsed.protocol !== 'https:' && !cfg.allowHttp) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `authBuildOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
     })
   }
@@ -87,13 +87,13 @@ export async function authFetchOidcDiscovery(
   try {
     parsed = new URL(issuer)
   } catch {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
       detail: `authFetchOidcDiscovery: issuer ${issuer} is not a valid URL`,
     })
   }
   if (parsed.protocol !== 'https:' && !opts.allowHttp) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
       detail: `authFetchOidcDiscovery: issuer must use HTTPS (${parsed.protocol}). Pass allowHttp: true for dev only.`,
     })
@@ -108,7 +108,7 @@ export async function authFetchOidcDiscovery(
   const url = `${canonical}/.well-known/openid-configuration`
   const res = await fetchImpl(url, { redirect: 'error' })
   if (!res.ok) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
       detail: `authFetchOidcDiscovery ${url} returned ${res.status}`,
     })
@@ -116,7 +116,7 @@ export async function authFetchOidcDiscovery(
   const raw: unknown = await res.json()
   const doc = parseDiscoveryDoc(raw)
   if (!doc) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
       detail: `authFetchOidcDiscovery ${url}: malformed discovery document`,
     })
@@ -125,7 +125,7 @@ export async function authFetchOidcDiscovery(
   // (RFC 8414 section 3.3). Defeats an attacker who can hijack the well-known
   // endpoint from redirecting RPs to an attacker-controlled JWKS.
   if (doc.issuer.replace(/\/+$/, '') !== canonical) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'oidc',
       detail: `authFetchOidcDiscovery: issuer mismatch (requested ${canonical}, got ${doc.issuer})`,
     })
@@ -252,7 +252,7 @@ export namespace AuthOidcDiscovery {
     jwksPath?: string
     /** Algorithms advertised. Should match the JwtTransport keys. */
     signingAlgs?: Array<'HS256' | 'ES256' | 'RS256'>
-    /** OAuth2 scopes the server is willing to honor. */
+    /** oauth2 scopes the server is willing to honor. */
     scopesSupported?: string[]
     /** Default `['code']`; add `'token'`/`'id_token'` to enable hybrid flows. */
     responseTypesSupported?: string[]

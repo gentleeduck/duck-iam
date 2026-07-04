@@ -20,7 +20,7 @@ export function authBuildOpenApiSpec(config: AuthOpenApi.IConfig): AuthOpenApi.I
     components: {
       schemas: {
         AuthError: schemaAuthError(),
-        AuthSession: schemaSession(),
+        Session: schemaSession(),
         SignInResult: schemaSignInResult(),
       },
       securitySchemes: {
@@ -65,14 +65,14 @@ export function authBuildOpenApiSpec(config: AuthOpenApi.IConfig): AuthOpenApi.I
   if (providers.has('oauth')) {
     spec.paths[`${prefix}/oauth/{provider}/start`] = {
       get: {
-        summary: 'Begin an OAuth authorization-code flow',
+        summary: 'Begin an oauth authorization-code flow',
         parameters: [pathProvider()],
         responses: { '302': { description: 'Redirect to the provider authorization endpoint' } },
       },
     }
     spec.paths[`${prefix}/oauth/{provider}/callback`] = {
       get: {
-        summary: 'Complete an OAuth authorization-code flow + issue a session',
+        summary: 'Complete an oauth authorization-code flow + issue a session',
         parameters: [
           pathProvider(),
           { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
@@ -127,7 +127,7 @@ export function authBuildOpenApiSpec(config: AuthOpenApi.IConfig): AuthOpenApi.I
       summary: 'Return the current session and identity',
       security: [{ cookieAuth: [] }, { bearerAuth: [] }],
       responses: {
-        '200': okJson({ $ref: '#/components/schemas/AuthSession' }),
+        '200': okJson({ $ref: '#/components/schemas/Session' }),
         '401': errResponse(),
       },
     },
@@ -256,7 +256,7 @@ function schemaSignInResult(): Record<string, unknown> {
       {
         type: 'object',
         required: ['session'],
-        properties: { session: { $ref: '#/components/schemas/AuthSession' } },
+        properties: { session: { $ref: '#/components/schemas/Session' } },
       },
       {
         type: 'object',
@@ -330,7 +330,7 @@ function routePost(opts: {
   if (opts.idempotent) {
     route.parameters = [
       {
-        name: 'AuthIdempotency-Key',
+        name: 'Idempotency-Key',
         in: 'header',
         required: false,
         schema: { type: 'string', maxLength: 200 },

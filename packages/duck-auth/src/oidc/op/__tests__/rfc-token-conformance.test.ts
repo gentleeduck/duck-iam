@@ -9,8 +9,8 @@
 
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authSha256 } from '../../../core/crypto'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { sha256 } from '../../../core/crypto'
 import { AuthEngine } from '../../../core/engine'
 import { AuthScryptHasher } from '../../../core/password/scrypt'
 import { AuthCookieTransport } from '../../../core/transport/cookie'
@@ -21,7 +21,7 @@ interface ProfileShape {
 }
 
 function buildOp(): { op: AuthOidcOpRoot<ProfileShape>; auth: AuthEngine<ProfileShape> } {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
@@ -48,7 +48,7 @@ function buildOp(): { op: AuthOidcOpRoot<ProfileShape>; auth: AuthEngine<Profile
 
 function pkce(): { verifier: string; challenge: string } {
   const verifier = 'a'.repeat(64)
-  const hex = authSha256(verifier)
+  const hex = sha256(verifier)
   const challenge = Buffer.from(hex, 'hex').toString('base64url')
   return { verifier, challenge }
 }

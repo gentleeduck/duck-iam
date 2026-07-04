@@ -4,18 +4,18 @@ import { AUTH_DEFAULT_EN_MESSAGES, type AuthI18n, AuthI18nMessageCatalog, AuthLi
 describe('AuthI18nMessageCatalog', () => {
   it('refuses empty messages object', () => {
     expect(() => new AuthI18nMessageCatalog({ messages: {} })).toThrowError(
-      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })
 
   it('returns translation for configured locale', () => {
     const cat = new AuthI18nMessageCatalog({
       messages: {
-        en: { 'AUTH/INVALID_CREDENTIALS': 'Bad password.' },
-        fr: { 'AUTH/INVALID_CREDENTIALS': 'Identifiants invalides.' },
+        en: { AUTH_INVALID_CREDENTIALS: 'Bad password.' },
+        fr: { AUTH_INVALID_CREDENTIALS: 'Identifiants invalides.' },
       },
     })
-    expect(cat.t('AUTH/INVALID_CREDENTIALS', { locale: 'fr' })).toBe('Identifiants invalides.')
+    expect(cat.t('AUTH_INVALID_CREDENTIALS', { locale: 'fr' })).toBe('Identifiants invalides.')
   })
 
   it('falls back to defaultLocale when target locale missing', () => {
@@ -28,7 +28,7 @@ describe('AuthI18nMessageCatalog', () => {
 
   it('falls back to messageId when neither locale has it', () => {
     const cat = new AuthI18nMessageCatalog({ messages: { en: {} } })
-    expect(cat.t('AUTH/UNKNOWN')).toBe('AUTH/UNKNOWN')
+    expect(cat.t('AUTH_UNKNOWN')).toBe('AUTH_UNKNOWN')
   })
 
   it('substitutes {{var}} placeholders from vars', () => {
@@ -55,7 +55,7 @@ describe('AuthI18nMessageCatalog', () => {
   it('AUTH_DEFAULT_EN_MESSAGES covers every shipped flow + the common error codes', () => {
     const required = [
       'AUTH/UNAUTHENTICATED',
-      'AUTH/INVALID_CREDENTIALS',
+      'AUTH_INVALID_CREDENTIALS',
       'AUTH/RATE_LIMITED',
       'magic-link.subject',
       'magic-link.body',
@@ -89,13 +89,13 @@ describe('AuthLinguiResolver', () => {
 
   it('refuses construction without a valid i18n', () => {
     expect(() => new AuthLinguiResolver({} as never)).toThrowError(
-      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })
 
   it('t forwards to i18n._ at the current locale', () => {
     const r = new AuthLinguiResolver(makeLingui())
-    expect(r.t('AUTH/INVALID_CREDENTIALS')).toBe('AUTH/INVALID_CREDENTIALS@en')
+    expect(r.t('AUTH_INVALID_CREDENTIALS')).toBe('AUTH_INVALID_CREDENTIALS@en')
   })
 
   it('opts.locale temporarily activates then restores the prior locale', () => {

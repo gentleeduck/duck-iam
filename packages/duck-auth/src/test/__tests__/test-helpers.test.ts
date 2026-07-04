@@ -38,7 +38,7 @@ describe('authCreateTest()', () => {
     // Use the default adapter for everything; swap only the limiter to a
     // tighter one to prove overrides flow through.
     const tight: AuthTest.IOverrides = {
-      limiter: { consume: async () => ({ ok: true, remaining: 0, resetAt: Date.now() }), reset: async () => {} },
+      limiter: { consume: async () => ({ ok: true, remaining: 0, resetAt: new Date() }), reset: async () => {} },
     }
     const auth = authCreateTest(tight)
     const r = await auth.limiter.consume('k', 1)
