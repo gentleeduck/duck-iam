@@ -573,9 +573,14 @@
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules"
   },
+  "dependencies": {
+    "@types/node": "^26.1.0",
+    "uuid": "^11.0.0"
+  },
   "peerDependencies": {
     "@aws-sdk/client-kms": ">=3 <4",
     "@gentleduck/iam": "workspace:*",
+    "@nestjs/common": ">=10 <12",
     "@node-rs/argon2": ">=2 <3",
     "@simplewebauthn/server": "^13.3.1",
     "drizzle-orm": "^0.45.2",
@@ -589,6 +594,9 @@
       "optional": true
     },
     "@gentleduck/iam": {
+      "optional": true
+    },
+    "@nestjs/common": {
       "optional": true
     },
     "@node-rs/argon2": {
@@ -614,7 +622,6 @@
     }
   },
   "devDependencies": {
-    "@gentleduck/iam": "workspace:*",
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",

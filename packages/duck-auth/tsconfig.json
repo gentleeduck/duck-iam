@@ -6,7 +6,9 @@
     "exactOptionalPropertyTypes": false,
     "noPropertyAccessFromIndexSignature": false,
     "noImplicitOverride": false,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
   "exclude": ["node_modules", "dist"],
   "extends": "@gentleduck/typescript-config/internal-package.json",
