@@ -18,7 +18,7 @@ declare namespace Reflect {
 // NestJS is a peer dep; these are the minimum shapes the guard touches.
 
 /** Minimal NestJS request shape. */
-interface NestRequest {
+export interface NestRequest {
   user?: { id?: string; sub?: string; [key: string]: unknown }
   params?: Record<string, string>
   method: string
@@ -26,6 +26,10 @@ interface NestRequest {
   route?: { path?: string }
   headers?: Record<string, string | string[] | undefined>
   ip?: string
+  /** Populated by auth middleware (e.g. duck-auth). */
+  session?: { identityId?: string; id?: string; [key: string]: unknown }
+  /** Populated by auth middleware (e.g. duck-auth). */
+  identity?: { id?: string; [key: string]: unknown } | null
   [key: string]: unknown
 }
 
@@ -225,25 +229,6 @@ function inferResource(request: NestRequest): string {
   const path: string = request.route?.path ?? request.path ?? '/'
   const segments = path.split('/').filter((s: string) => s && !s.startsWith(':'))
   return segments[segments.length - 1] ?? 'root'
-}
-
-/**
- * Builds a pre-typed `IamAuthorize` decorator constrained to your app's
- * action/resource/scope unions.
- *
- * Typos like `@IamAuthorize({ action: 'craete' })` become compile errors.
- *
- * @template TAction - Constrains valid action strings.
- * @template TResource - Constrains valid resource strings.
- * @template TScope - Constrains valid scope strings.
- * @returns A typed wrapper around {@link IamAuthorize}.
- */
-export function createIamTypedAuthorize<
-  TAction extends string,
-  TResource extends string,
-  TScope extends string = string,
->() {
-  return IamAuthorize as (meta?: IamNest.IAuthorizeMeta<TAction, TResource, TScope>) => MethodDecorator
 }
 
 /** DI token for the access Engine in NestJS. */

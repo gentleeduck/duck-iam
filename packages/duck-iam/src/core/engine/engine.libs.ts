@@ -3,6 +3,20 @@ import type { IamValidate } from '../validate/validate.types'
 import type { IamEngineTypes } from './engine.types'
 
 /**
+ * Default `environment.now` to the current epoch ms when the caller did not
+ * supply one, so temporal operators (`before` / `after`) and `$environment.now`
+ * references resolve to a real clock. Returns the request unchanged when `now`
+ * is already set (tests / `beforeEvaluate` can pin a deterministic clock), so
+ * an explicit `now` is never overwritten. Only allocates on the inject path.
+ */
+export function ensureEnvNow<TAction extends string, TResource extends string, TScope extends string>(
+  req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+): IamRequest.IAccessRequest<TAction, TResource, TScope> {
+  if (req.environment?.now !== undefined) return req
+  return { ...req, environment: { ...req.environment, now: Date.now() } }
+}
+
+/**
  * Lazy validator binding. The `../validate` module is ~12 KB gzipped; users who
  * never call `engine.admin.savePolicy/saveRole/import` shouldn't pay for it at
  * import time. Loaded on first admin write and memoised.

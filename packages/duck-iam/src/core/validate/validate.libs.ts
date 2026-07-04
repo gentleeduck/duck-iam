@@ -238,6 +238,8 @@ export const VALID_OPERATORS = new Set([
   'not_exists',
   'subset_of',
   'superset_of',
+  'before',
+  'after',
 ])
 
 /**

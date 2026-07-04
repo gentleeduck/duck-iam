@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { v7 as uuidv7 } from 'uuid'
 import {
   check,
   foreignKey,
@@ -130,7 +131,7 @@ export const iamRoles = pgTable(
 export const iamAssignments = pgTable(
   'access_assignments',
   {
-    id: text('id').$defaultFn(() => crypto.randomUUID()),
+    id: text('id').$defaultFn(() => uuidv7()),
     subjectId: text('subject_id').notNull(),
     roleId: text('role_id').notNull(),
     scope: text('scope'),

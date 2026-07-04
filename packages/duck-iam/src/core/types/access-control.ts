@@ -26,6 +26,7 @@ export namespace AccessControl {
    * | `matches` | String matches a regex pattern |
    * | `exists` / `not_exists` | Field is / is not defined |
    * | `subset_of` / `superset_of` | Array subset / superset check |
+   * | `before` / `after` | Temporal compare; operands coerced to epoch ms (number or ISO-8601 string) |
    */
   export type Operator =
     | 'eq'
@@ -45,6 +46,8 @@ export namespace AccessControl {
     | 'not_exists'
     | 'subset_of'
     | 'superset_of'
+    | 'before'
+    | 'after'
 
   /**
    * Leaf condition: compares a dot-path field against a value via an

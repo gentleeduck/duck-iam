@@ -58,6 +58,13 @@ export namespace IamRequest {
     readonly userAgent?: string
     /** IamRequest timestamp in milliseconds since epoch. */
     readonly timestamp?: number
+    /**
+     * Evaluation clock in epoch milliseconds. Auto-injected by the engine as
+     * `Date.now()` when absent, so temporal rules can reference
+     * `$environment.now` (e.g. `after` a `timedOutUntil` attribute). Override
+     * in tests or a `beforeEvaluate` hook to pin a deterministic clock.
+     */
+    readonly now?: number
     readonly [key: string]: IamPrimitives.AttributeValue | undefined
   }
 

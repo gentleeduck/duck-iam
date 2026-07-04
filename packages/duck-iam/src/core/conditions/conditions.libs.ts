@@ -115,6 +115,18 @@ function isScalar(v: IamPrimitives.AttributeValue | undefined): v is IamPrimitiv
   return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
 }
 
+/**
+ * Coerce a value to epoch milliseconds for the temporal operators
+ * (`before` / `after`). Numbers pass through as-is (already epoch ms).
+ * `Date.parse`-able strings (ISO-8601 etc.) convert. Anything else -> `NaN`,
+ * which makes the comparison fail closed rather than silently allow.
+ */
+function toEpoch(v: IamPrimitives.AttributeValue): number {
+  if (typeof v === 'number') return v
+  if (typeof v === 'string') return Date.parse(v)
+  return NaN
+}
+
 /** Record mapping every supported operator to its implementation function. */
 export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
   eq: (f, v) => f === v,
@@ -173,6 +185,21 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
   superset_of: (f, v) => {
     if (!Array.isArray(f) || !Array.isArray(v)) return false
     return v.every((i) => f.includes(i))
+  },
+
+  // Temporal operators. Both operands are coerced to epoch ms via `toEpoch`
+  // (number passthrough, ISO-8601 string parse). Non-temporal operands yield
+  // `NaN`, so the comparison fails closed. Pair with the engine-injected
+  // `$environment.now` for "is X still in the future / already in the past".
+  after: (f, v) => {
+    const a = toEpoch(f)
+    const b = toEpoch(v)
+    return Number.isFinite(a) && Number.isFinite(b) && a > b
+  },
+  before: (f, v) => {
+    const a = toEpoch(f)
+    const b = toEpoch(v)
+    return Number.isFinite(a) && Number.isFinite(b) && a < b
   },
 }
 

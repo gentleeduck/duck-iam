@@ -14,7 +14,7 @@ import {
   invalidateRoles,
   invalidateSubject,
 } from './engine.invalidation'
-import { createAdmin, enrichSubjectWithScopedRoles } from './engine.libs'
+import { createAdmin, enrichSubjectWithScopedRoles, ensureEnvNow } from './engine.libs'
 import { disposeInvalidator, preloadEngine, runHealthCheck } from './engine.lifecycle'
 import { type IIamLoaderDeps, loadAllPolicies, resolveSubject } from './engine.loaders'
 import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
@@ -313,6 +313,10 @@ export class IamEngine<
         req = await this._hooks.beforeEvaluate(req)
       }
 
+      // Default the evaluation clock after the hook so a hook-pinned `now`
+      // (tests, replay) is preserved and a normal request still gets one.
+      req = ensureEnvNow(req)
+
       const allPolicies = await this._loadAllPolicies()
 
       const onPolicyErrorHook = this._hooks.onPolicyError
@@ -548,6 +552,9 @@ export class IamEngine<
       req = await this._hooks.beforeEvaluate(req)
     }
 
+    // Default the evaluation clock (after the hook, so a pinned `now` wins).
+    req = ensureEnvNow(req)
+
     const allPolicies = await this._loadAllPolicies()
 
     // Lazy import: production mode users (which throw before this point)
@@ -663,6 +670,9 @@ export class IamEngine<
         if (this._hooks.beforeEvaluate) {
           req = await this._hooks.beforeEvaluate(req)
         }
+
+        // Default the evaluation clock per check (after the hook).
+        req = ensureEnvNow(req)
 
         const signals: { failOpen?: boolean } = {}
 
