@@ -20,7 +20,7 @@ export function createAuth<const Profile = unknown, const Tenant = string, const
 ): AuthEngine<Profile, Tenant, OrgMeta> {
   const transport = config.transport ?? new AuthCookieTransport({ name: 'duck-sid' })
 
-  const rootConfig: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta> = {
+  const rootConfig: AuthEngineTypes.Config<Profile, Tenant, OrgMeta> = {
     baseUrl: config.baseUrl,
     stores: {
       credentials: config.stores.credentials,

@@ -1,14 +1,16 @@
+import { and, eq, inArray } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { integer, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
-import { and, eq, inArray } from 'drizzle-orm'
-import { authDrizzlePgStorage } from '../../adapters/drizzle/pg'
+import { Pool } from 'pg'
+import { drizzlePgStorage } from '../../adapters/drizzle/pg'
 import { AuthMemoryLimiter } from '../../limiters/memory'
-import { AuthInMemoryEvents } from '../events'
+import { AuthEngine } from '../engine'
+import { InMemoryEvents } from '../events'
+import { AuthArgon2idHasher } from '../password/argon2'
 import { AuthScryptHasher } from '../password/scrypt'
 import { AuthCookieTransport } from '../transport'
-import type { AuthOrg } from '../types/org'
-import { createAuth } from './create-auth'
-import { Pool } from 'pg'
+import type { Org } from '../types/identity'
+import { createAuth } from './config'
 
 // ---------------------------------------------------------------------------
 // 1. Define org tables (add to your drizzle schema file)
@@ -20,27 +22,29 @@ interface OrgMeta {
 }
 
 const orgsTable = pgTable('orgs', {
-  id:        text('id').primaryKey(),
-  name:      text('name').notNull(),
-  domain:    text('domain'),
-  metadata:  jsonb('metadata').$type<OrgMeta>(),
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  domain: text('domain'),
+  metadata: jsonb('metadata').$type<OrgMeta>(),
   createdAt: integer('created_at').notNull(),
 })
 
 const orgMembersTable = pgTable('org_members', {
-  orgId:       text('org_id').notNull().references(() => orgsTable.id, { onDelete: 'cascade' }),
-  identityId:  text('identity_id').notNull(),
-  roles:       text('roles').array().notNull().default([]),
-  invitedAt:   integer('invited_at'),
-  joinedAt:    integer('joined_at').notNull(),
-  leftAt:      integer('left_at'),
+  orgId: text('org_id')
+    .notNull()
+    .references(() => orgsTable.id, { onDelete: 'cascade' }),
+  identityId: text('identity_id').notNull(),
+  roles: text('roles').array().notNull().default([]),
+  invitedAt: integer('invited_at'),
+  joinedAt: integer('joined_at').notNull(),
+  leftAt: integer('left_at'),
 })
 
 // ---------------------------------------------------------------------------
-// 2. Implement AuthOrg.IStore<OrgMeta> against those tables
+// 2. Implement Org.Store<OrgMeta> against those tables
 // ---------------------------------------------------------------------------
 
-function buildOrgStore(db: ReturnType<typeof drizzle>): AuthOrg.IStore<OrgMeta> {
+function buildOrgStore(db: ReturnType<typeof drizzle>): Org.Store<OrgMeta> {
   return {
     async getOrg(id, _ctx) {
       const rows = await db.select().from(orgsTable).where(eq(orgsTable.id, id)).limit(1)
@@ -49,9 +53,9 @@ function buildOrgStore(db: ReturnType<typeof drizzle>): AuthOrg.IStore<OrgMeta> 
       return {
         id: row.id,
         name: row.name,
-        domain: row.domain ?? undefined,
-        metadata: row.metadata ?? undefined,
-        createdAt: row.createdAt,
+        domain: row.domain ?? null,
+        metadata: row.metadata ?? null,
+        createdAt: new Date(row.createdAt),
       }
     },
 
@@ -62,69 +66,53 @@ function buildOrgStore(db: ReturnType<typeof drizzle>): AuthOrg.IStore<OrgMeta> 
         .where(and(eq(orgMembersTable.identityId, identityId)))
       if (!members.length) return []
       const orgIds = members.map((m) => m.orgId)
-      const orgs = await db
-        .select()
-        .from(orgsTable)
-        .where(inArray(orgsTable.id, orgIds))
+      const orgs = await db.select().from(orgsTable).where(inArray(orgsTable.id, orgIds))
       return orgs.map((o) => ({
         id: o.id,
         name: o.name,
-        domain: o.domain ?? undefined,
-        metadata: o.metadata ?? undefined,
-        createdAt: o.createdAt,
+        domain: o.domain ?? null,
+        metadata: o.metadata ?? null,
+        createdAt: new Date(o.createdAt),
       }))
     },
 
     async listMembers(orgId, _ctx) {
-      const rows = await db
-        .select()
-        .from(orgMembersTable)
-        .where(eq(orgMembersTable.orgId, orgId))
+      const rows = await db.select().from(orgMembersTable).where(eq(orgMembersTable.orgId, orgId))
       return rows.map((r) => ({
         orgId: r.orgId,
         identityId: r.identityId,
         roles: r.roles,
-        invitedAt: r.invitedAt ?? undefined,
-        joinedAt: r.joinedAt,
-        leftAt: r.leftAt ?? undefined,
+        invitedAt: r.invitedAt != null ? new Date(r.invitedAt) : null,
+        joinedAt: new Date(r.joinedAt),
+        leftAt: r.leftAt != null ? new Date(r.leftAt) : null,
       }))
     },
 
     async addMember(m, _ctx) {
       const now = Date.now()
-      const row = { ...m, joinedAt: now }
+      const joinedAt = new Date(now)
       await db.insert(orgMembersTable).values({
-        orgId: row.orgId,
-        identityId: row.identityId,
-        roles: row.roles ?? [],
-        invitedAt: row.invitedAt ?? null,
-        joinedAt: row.joinedAt,
+        orgId: m.orgId,
+        identityId: m.identityId,
+        roles: m.roles ?? [],
+        invitedAt: m.invitedAt != null ? m.invitedAt.getTime() : null,
+        joinedAt: now,
         leftAt: null,
       })
-      return row
+      return { ...m, invitedAt: m.invitedAt ?? null, joinedAt, leftAt: null }
     },
 
     async removeMember(orgId, identityId, _ctx) {
       await db
         .delete(orgMembersTable)
-        .where(
-          and(
-            eq(orgMembersTable.orgId, orgId),
-            eq(orgMembersTable.identityId, identityId),
-          ),
-        )
+        .where(and(eq(orgMembersTable.orgId, orgId), eq(orgMembersTable.identityId, identityId)))
     },
 
     async setRoles(orgId, identityId, roles, _ctx) {
       await db
         .update(orgMembersTable)
         .set({ roles })
-        .where(
-          and(
-            eq(orgMembersTable.orgId, orgId),
-            eq(orgMembersTable.identityId, identityId),
-          ),
-        )
+        .where(and(eq(orgMembersTable.orgId, orgId), eq(orgMembersTable.identityId, identityId)))
     },
   }
 }
@@ -136,15 +124,55 @@ function buildOrgStore(db: ReturnType<typeof drizzle>): AuthOrg.IStore<OrgMeta> 
 const pool = new Pool()
 const db = drizzle(pool)
 
-export const auth = createAuth<{ email: string }, string, OrgMeta>({
+const adapter = drizzlePgStorage(pool)
+
+export const auth = createAuth({
   baseUrl: 'http://localhost:3000',
   transport: new AuthCookieTransport({ secure: false }),
-  storage: {
-    ...authDrizzlePgStorage<{ email: string }>(db),
+  stores: {
+    identities: adapter.identities,
+    sessions: adapter.sessions,
+    credentials: adapter.credentials,
+    orgs: buildOrgStore(db),
     // orgs wired — duck-iam org scopes and auth org membership share the same org ID string
+  },
+  events: new InMemoryEvents(),
+  limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
+  passwords: {
+    hasher: new AuthScryptHasher(),
+  },
+  // oauth: {},
+  channels: {},
+  mfa: {},
+  identities: {},
+  hijack: {},
+  providers: [],
+  plugins: [],
+  strict: 'development',
+  session: {},
+  apiKeys: {},
+  __tenantBrand: 'test',
+})
+
+const authAlt = new AuthEngine({
+  baseUrl: 'http://localhost:3000',
+  transport: new AuthCookieTransport({ secure: false }),
+  stores: {
+    identities: adapter.identities,
+    sessions: adapter.sessions,
+    credentials: adapter.credentials,
     orgs: buildOrgStore(db),
   },
-  events: new AuthInMemoryEvents(),
+  events: new InMemoryEvents(),
   limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-  passwords: { hasher: new AuthScryptHasher() },
+  passwords: {
+    hasher: new AuthArgon2idHasher(),
+  },
+  mfa: {},
+  identities: {},
+  hijack: {},
+  providers: [],
+  session: {},
+  apiKeys: {},
+  __tenantBrand: 'test',
 })

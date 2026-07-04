@@ -1,12 +1,9 @@
 import type { AuthEngine, AuthEngineTypes } from '../engine'
 import type { AuthPluginRegistry } from '../plugin'
+import type { Credential, Identity, Org } from '../types/identity'
 import type { Channel } from '../types/infra'
-import type { Credential } from '../types/identity'
-import type { Identity } from '../types/identity'
-import type { Org } from '../types/identity'
 import type { AuthProvider } from '../types/provider'
-import type { Session } from '../types/session'
-import type { Transport } from '../types/session'
+import type { Session, Transport } from '../types/session'
 
 export namespace AuthDefine {
   /**
@@ -62,7 +59,7 @@ export namespace AuthDefine {
    * @template OrgMeta  - Shape of organization metadata.
    */
   export interface IConfig<Profile = unknown, Tenant = string, OrgMeta = unknown>
-    extends Omit<AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>, 'providers' | 'transport'> {
+    extends Omit<AuthEngineTypes.Config<Profile, Tenant, OrgMeta>, 'providers' | 'transport'> {
     transport?: Transport.ITransport
     /** Channel bundle forwarded to provider thunks as second argument. */
     channels?: IChannels
