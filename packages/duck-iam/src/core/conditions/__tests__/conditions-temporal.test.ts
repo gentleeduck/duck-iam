@@ -22,7 +22,9 @@ function makeReq(timedOutUntil: unknown): IamRequest.IAccessRequest {
   }
 }
 
-const after = { all: [{ field: 'subject.attributes.timedOutUntil', operator: 'after' as const, value: '$environment.now' }] }
+const after = {
+  all: [{ field: 'subject.attributes.timedOutUntil', operator: 'after' as const, value: '$environment.now' }],
+}
 const before = {
   all: [{ field: 'subject.attributes.timedOutUntil', operator: 'before' as const, value: '$environment.now' }],
 }

@@ -1,5 +1,4 @@
 import { sql } from 'drizzle-orm'
-import { v7 as uuidv7 } from 'uuid'
 import {
   check,
   foreignKey,
@@ -13,6 +12,7 @@ import {
   timestamp,
   unique,
 } from 'drizzle-orm/pg-core'
+import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
