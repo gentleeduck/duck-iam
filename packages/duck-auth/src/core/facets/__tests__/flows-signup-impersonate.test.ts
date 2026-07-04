@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { AuthScryptHasher } from '../../password/scrypt'
@@ -14,9 +14,9 @@ interface MyProfile {
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
-  adapter: AuthMemoryAdapter<MyProfile>
+  adapter: MemoryAdapter<MyProfile>
 } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -33,7 +33,7 @@ function buildAuth(): {
 
 describe('FlowsFacet - signup state machine', () => {
   let auth: AuthEngine<MyProfile>
-  let adapter: AuthMemoryAdapter<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
 
   beforeEach(() => {
     ;({ auth, adapter } = buildAuth())
@@ -94,7 +94,7 @@ describe('FlowsFacet - signup state machine', () => {
       required: ['email-verified', 'terms-accepted'],
     })
     await expect(auth.flows.completeSignUp({ flowToken })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_INCOMPLETE',
+      code: 'AUTH_SIGNUP_INCOMPLETE',
       meta: { missing: ['email-verified', 'terms-accepted'] },
     })
   })
@@ -123,7 +123,7 @@ describe('FlowsFacet - signup state machine', () => {
 
     // Replay refused.
     await expect(auth.flows.completeSignUp({ flowToken })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+      code: 'AUTH_SIGNUP_TOKEN_INVALID',
     })
   })
 })
@@ -144,7 +144,7 @@ describe('FlowsFacet - impersonation', () => {
       identityId: admin.id,
       kind: 'user',
       aal: 2,
-      factors: [{ method: 'password', completedAt: Date.now() }],
+      factors: [{ method: 'password', completedAt: new Date() }],
     })
     adminSid = created.sid
   })
@@ -171,7 +171,7 @@ describe('FlowsFacet - impersonation', () => {
         reason: 'x',
         authorize: async () => false,
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
+    ).rejects.toMatchObject({ code: 'AUTH_IMPERSONATE_FORBIDDEN' })
   })
 
   it('refuses self-impersonation regardless of authorize result', async () => {
@@ -182,7 +182,7 @@ describe('FlowsFacet - impersonation', () => {
         reason: 'x',
         authorize: async () => true,
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
+    ).rejects.toMatchObject({ code: 'AUTH_IMPERSONATE_FORBIDDEN' })
   })
 
   it('rejects oversize reason (>256 chars) with IMPERSONATE_FORBIDDEN', async () => {
@@ -194,7 +194,7 @@ describe('FlowsFacet - impersonation', () => {
         reason: big,
         authorize: async () => true,
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
+    ).rejects.toMatchObject({ code: 'AUTH_IMPERSONATE_FORBIDDEN' })
   })
 
   it('rejects empty reason', async () => {
@@ -205,7 +205,7 @@ describe('FlowsFacet - impersonation', () => {
         reason: '',
         authorize: async () => true,
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
+    ).rejects.toMatchObject({ code: 'AUTH_IMPERSONATE_FORBIDDEN' })
   })
 
   it('rejects non-string reason without crashing', async () => {
@@ -216,7 +216,7 @@ describe('FlowsFacet - impersonation', () => {
         reason: 42 as unknown as string,
         authorize: async () => true,
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/IMPERSONATE_FORBIDDEN' })
+    ).rejects.toMatchObject({ code: 'AUTH_IMPERSONATE_FORBIDDEN' })
   })
 
   it('accepts reason at the 256-char cap (boundary)', async () => {
@@ -239,7 +239,9 @@ describe('FlowsFacet - impersonation', () => {
       authorize: async () => true,
     })
     const cap = 60 * 60_000
-    expect((out.session!.actingAs?.expiresAt ?? 0) - (out.session!.actingAs?.startedAt ?? 0)).toBeLessThanOrEqual(cap)
+    expect(
+      (out.session!.actingAs?.expiresAt?.getTime() ?? 0) - (out.session!.actingAs?.startedAt?.getTime() ?? 0),
+    ).toBeLessThanOrEqual(cap)
   })
 
   it('releaseImpersonation revokes the actingAs session', async () => {
@@ -255,7 +257,7 @@ describe('FlowsFacet - impersonation', () => {
 
   it('releaseImpersonation with non-impersonation SID surfaces AUTH/IMPERSONATE_EXPIRED', async () => {
     await expect(auth.flows.releaseImpersonation(adminSid)).rejects.toMatchObject({
-      code: 'AUTH/IMPERSONATE_EXPIRED',
+      code: 'AUTH_IMPERSONATE_EXPIRED',
     })
   })
 
@@ -270,7 +272,7 @@ describe('FlowsFacet - impersonation', () => {
     // TTL elapse without waiting an hour.
     const row = await auth.sessions.getBySid(out.sid)
     if (!row?.actingAs) throw new Error('expected actingAs')
-    ;(row.actingAs as { expiresAt: number }).expiresAt = Date.now() - 1
+    ;(row.actingAs as unknown as { expiresAt: Date }).expiresAt = new Date(Date.now() - 1)
     // Re-fetch via resolveSession: should delete + return null.
     const resolved = await auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${out.sid}` }) })
     expect(resolved).toBeNull()

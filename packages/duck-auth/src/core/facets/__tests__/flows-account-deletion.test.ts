@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
@@ -11,7 +11,7 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -28,7 +28,7 @@ function build() {
 
 describe('FlowsFacet - account deletion', () => {
   let auth: AuthEngine<MyProfile>
-  let adapter: AuthMemoryAdapter<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
   let identityId: string
   let channel: AuthTestChannel
 
@@ -45,7 +45,7 @@ describe('FlowsFacet - account deletion', () => {
       identityId,
       kind: 'user',
       aal: 1,
-      factors: [{ method: 'password', completedAt: Date.now() }],
+      factors: [{ method: 'password', completedAt: new Date() }],
     })
     expect(await auth.sessions.getBySid(sid)).not.toBeNull()
 
@@ -62,7 +62,7 @@ describe('FlowsFacet - account deletion', () => {
     expect(result.identityId).toBe(identityId)
     expect(result.restorableUntil).toBeGreaterThan(Date.now())
 
-    // AuthIdentity hidden from finds + sessions revoked.
+    // Identity hidden from finds + sessions revoked.
     expect(await adapter.identities.findById(identityId, {})).toBeNull()
     expect(await auth.sessions.getBySid(sid)).toBeNull()
   })
@@ -82,7 +82,7 @@ describe('FlowsFacet - account deletion', () => {
 
   it('complete with bogus token throws RECOVERY_TOKEN_INVALID', async () => {
     await expect(auth.flows.completeAccountDeletion({ token: 'not-a-real-token' })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
   })
 
@@ -91,7 +91,7 @@ describe('FlowsFacet - account deletion', () => {
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
     await expect(auth.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
   })
 
@@ -102,7 +102,7 @@ describe('FlowsFacet - account deletion', () => {
     const t2 = new URL((channel.outbox[1]!.vars as { url: string }).url).searchParams.get('token')!
     expect(t1).not.toBe(t2)
     await expect(auth.flows.completeAccountDeletion({ token: t1 })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
     await auth.flows.completeAccountDeletion({ token: t2 })
   })
@@ -113,7 +113,7 @@ describe('FlowsFacet - account deletion', () => {
         identityId: 'does-not-exist',
         channels: { email: channel },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/UNAUTHENTICATED' })
+    ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
   })
 
   it('rejects request when configured channel is missing', async () => {
@@ -123,7 +123,7 @@ describe('FlowsFacet - account deletion', () => {
         channel: 'sms',
         channels: { email: channel },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('rate-limit enforced (max 5 within window)', async () => {
@@ -131,7 +131,7 @@ describe('FlowsFacet - account deletion', () => {
       await auth.flows.requestAccountDeletion({ identityId, channels: { email: channel } })
     }
     await expect(auth.flows.requestAccountDeletion({ identityId, channels: { email: channel } })).rejects.toMatchObject(
-      { code: 'AUTH/RATE_LIMITED' },
+      { code: 'AUTH_RATE_LIMITED' },
     )
   })
 
@@ -143,7 +143,7 @@ describe('FlowsFacet - account deletion', () => {
         channels: { email: channel },
         reason: big,
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('accepts reason at 1024 chars (boundary)', async () => {
@@ -163,6 +163,6 @@ describe('FlowsFacet - account deletion', () => {
         channels: { email: channel },
         reason: 42 as unknown as string,
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 })

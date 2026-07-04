@@ -1,6 +1,6 @@
-import { AuthErrorObject } from '../errors'
-import type { AuthEvents } from '../types/events'
-import type { AuthSession } from '../types/session'
+import { AuthError } from '../errors'
+import type { Events } from '../types/provider'
+import type { Session } from '../types/session'
 
 const DEFAULT_HIJACK_POLICY: Required<HijackFacet.IPolicyConfig> = {
   onIpChange: 'rotate',
@@ -19,7 +19,7 @@ export class HijackFacet {
   private readonly _policy: Required<HijackFacet.IPolicyConfig>
 
   constructor(
-    private readonly _events: AuthEvents.IBus,
+    private readonly _events: Events.IBus,
     cfg: HijackFacet.IPolicyConfig = {},
   ) {
     this._policy = {
@@ -36,10 +36,7 @@ export class HijackFacet {
    * Always emits `suspicious` on drift, even when the configured reaction
    * is 'ignore', so the audit pipeline sees every change.
    */
-  async evaluate(
-    session: AuthSession.ISession,
-    request: { ip?: string; userAgent?: string },
-  ): Promise<HijackFacet.IEvaluation> {
+  async evaluate(session: Session.Me, request: { ip?: string; userAgent?: string }): Promise<HijackFacet.IEvaluation> {
     // Evaluate IP + UA drift independently and return the strongest
     // reaction. One-sided absence (missing baseline or stripped header)
     // is downgraded to `'rotate'` so audit fires without forcing step-up.
@@ -114,12 +111,12 @@ export class HijackFacet {
    */
   applyReaction(reaction: HijackFacet.IReaction): void {
     if (reaction === 'mfa') {
-      throw new AuthErrorObject('AUTH/STEP_UP_REQUIRED', {
+      throw new AuthError('AUTH_STEP_UP_REQUIRED', {
         challenge: { reason: 'hijack-policy' },
       })
     }
     if (reaction === 'revoke') {
-      throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: 'hijack-policy' })
+      throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'hijack-policy' })
     }
   }
 }

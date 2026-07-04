@@ -86,14 +86,14 @@ describe('AuthDPoPVerifier', () => {
   it('rejects when htm differs from request method', async () => {
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x' })
     await expect(verifier.verify(proof, { method: 'POST', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
     })
   })
 
   it('rejects when htu differs from request url', async () => {
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/wrong' })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/right' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
     })
   })
 
@@ -102,7 +102,7 @@ describe('AuthDPoPVerifier', () => {
     const parts = proof.split('.')
     const tampered = `${parts[0]}.${parts[1]}.${'A'.repeat(parts[2]!.length)}`
     await expect(verifier.verify(tampered, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
     })
   })
 
@@ -113,7 +113,7 @@ describe('AuthDPoPVerifier', () => {
       iat: Math.floor(Date.now() / 1000) - 600,
     })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
     })
   })
 
@@ -121,7 +121,7 @@ describe('AuthDPoPVerifier', () => {
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x' })
     await verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
     })
   })
 
@@ -140,7 +140,7 @@ describe('AuthDPoPVerifier', () => {
     const sig = authDerToJoseEs256(signer.sign(kp.privateKey))
     const proof = `${signingInput}.${base64url(sig)}`
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
     })
   })
 
@@ -160,7 +160,7 @@ describe('AuthDPoPVerifier', () => {
     const sig = authDerToJoseEs256(signer.sign(kp.privateKey))
     const proof = `${signingInput}.${base64url(sig)}`
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
     })
   })
 
@@ -176,7 +176,7 @@ describe('AuthDPoPVerifier', () => {
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', ath: 'wrong' })
     await expect(
       verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' }, 'access-token-xyz'),
-    ).rejects.toMatchObject({ code: 'AUTH/DPOP_INVALID' })
+    ).rejects.toMatchObject({ code: 'AUTH_DPOP_INVALID' })
   })
 
   it('rejects authed-request proof that omits ath (RFC 9449 §4.3)', async () => {
@@ -184,13 +184,13 @@ describe('AuthDPoPVerifier', () => {
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x' })
     await expect(
       verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' }, 'access-token-xyz'),
-    ).rejects.toMatchObject({ code: 'AUTH/DPOP_INVALID', meta: { reason: 'ath required when access token present' } })
+    ).rejects.toMatchObject({ code: 'AUTH_DPOP_INVALID', meta: { reason: 'ath required when access token present' } })
   })
 
   it('rejects a proof carrying ath when no access token is supplied (replay defense)', async () => {
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', ath: 'whatever' })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'ath unexpected (no access token in request)' },
     })
   })
@@ -199,7 +199,7 @@ describe('AuthDPoPVerifier', () => {
     const v = new AuthDPoPVerifier({ expectedNonce: 'srv-nonce-1' })
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'wrong-nonce' })
     await expect(v.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'nonce mismatch' },
     })
   })
@@ -220,7 +220,7 @@ describe('AuthDPoPVerifier', () => {
     nonce = 'srv-nonce-new'
     const proof2 = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/y', nonce: 'srv-nonce-old' })
     await expect(v.verify(proof2, { method: 'GET', url: 'https://api.test/y' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'nonce mismatch' },
     })
   })
@@ -254,7 +254,7 @@ describe('AuthDPoPVerifier', () => {
       // iat intentionally omitted
     })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'iat missing or not a finite number' },
     })
   })
@@ -267,7 +267,7 @@ describe('AuthDPoPVerifier', () => {
       iat: String(Math.floor(Date.now() / 1000)),
     })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'iat missing or not a finite number' },
     })
   })
@@ -280,7 +280,7 @@ describe('AuthDPoPVerifier', () => {
       iat: Math.floor(Date.now() / 1000),
     })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'htm missing or not a string' },
     })
   })
@@ -293,7 +293,7 @@ describe('AuthDPoPVerifier', () => {
       iat: Math.floor(Date.now() / 1000),
     })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'htu missing or not a string' },
     })
   })
@@ -307,7 +307,7 @@ describe('AuthDPoPVerifier', () => {
       ath: { evil: 'object' },
     })
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'ath not a string' },
     })
   })
@@ -322,7 +322,7 @@ describe('AuthDPoPVerifier', () => {
       nonce: { evil: 'object' },
     })
     await expect(v.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'nonce not a string' },
     })
   })
@@ -339,7 +339,7 @@ describe('AuthDPoPVerifier', () => {
     const sig = authDerToJoseEs256(signer.sign(kp.privateKey))
     const proof = `${signingInput}.${base64url(sig)}`
     await expect(verifier.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
-      code: 'AUTH/DPOP_INVALID',
+      code: 'AUTH_DPOP_INVALID',
       meta: { reason: 'malformed payload' },
     })
   })

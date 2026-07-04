@@ -53,7 +53,7 @@ describe('AuthArgon2idHasher (contract)', () => {
     const has = await hasArgon2()
     if (has) return // Skip - peer is installed, error path not reachable.
     await expect(hasher.hash('pw')).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 })

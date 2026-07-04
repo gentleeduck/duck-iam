@@ -1,6 +1,6 @@
-import { authRandomToken, authSha256, authTimingSafeEqual } from '../crypto'
-import { AuthErrorObject } from '../errors'
-import { AuthInMemoryEvents } from '../events'
+import { RandomToken, sha256, timingSafeEqual } from '../crypto'
+import { AuthError } from '../errors'
+import { InMemoryEvents } from '../events'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../facets/anomaly'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../facets/flows'
@@ -15,22 +15,21 @@ import { ProvidersFacet } from '../facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../facets/sessions'
 import { AuthScryptHasher } from '../password/scrypt'
 import { AuthPluginRegistry } from '../plugin'
-import type { AuthEvents } from '../types/events'
-import type { AuthIdentity } from '../types/identity'
-import type { AuthLimiter as LimiterNs } from '../types/limiter'
-import type { AuthSession } from '../types/session'
-import type { AuthTransport } from '../types/transport'
-import type { AuthEngineTypes } from './engine.types'
+import type { Identity } from '../types/identity'
+import type { Limiter as LimiterNs } from '../types/infra'
+import type { Events } from '../types/provider'
+import type { Session, Transport } from '../types/session'
+import type { Engine } from './engine.types'
 
 /**
  * Faceted authentication root. Composition surface only - every operation
  * lives on a facet (sessions, identities, providers, mfa, flows, ...).
  * Facets are added one at a time as features land.
  */
-export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  readonly config: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>
-  readonly events: AuthEvents.IBus
-  readonly transport: AuthTransport.ITransport
+export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
+  readonly config: Engine.Config<Profile, Tenant, OrgMeta>
+  readonly events: Events.IBus
+  readonly transport: Transport.ITransport
   readonly sessions: SessionsFacet
   readonly identities: IdentitiesFacet<Profile>
   readonly passwords: PasswordsFacet
@@ -46,9 +45,9 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
   readonly hijack: HijackFacet
   readonly anomaly: AnomalyFacet
 
-  constructor(config: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>) {
+  constructor(config: Engine.Config<Profile, Tenant, OrgMeta>) {
     this.config = config
-    this.events = config.events ?? new AuthInMemoryEvents()
+    this.events = config.events ?? new InMemoryEvents()
     this.transport = config.transport
     this.limiter = config.limiter ?? new AuthNoopLimiter()
     this.sessions = new SessionsFacet(config.stores.sessions, this.events, {
@@ -75,7 +74,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     this.apiKeys = new ApiKeysFacet(
       config.stores.credentials,
       this.events,
-      { authRandomToken, authSha256 },
+      { authRandomToken: RandomToken, authSha256: sha256 },
       {
         prefix: config.apiKeys?.prefix ?? DEFAULT_APIKEYS_CONFIG.prefix,
         randomBytes: config.apiKeys?.randomBytes ?? DEFAULT_APIKEYS_CONFIG.randomBytes,
@@ -100,9 +99,9 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
         limiter: this.limiter,
         events: this.events,
         crypto: {
-          authRandomToken: (bytes) => authRandomToken(bytes),
-          authSha256: (s) => authSha256(s),
-          authTimingSafeEqual,
+          authRandomToken: (bytes) => RandomToken(bytes),
+          authSha256: (s) => sha256(s),
+          authTimingSafeEqual: timingSafeEqual,
         },
       }),
       this.passwords,
@@ -115,15 +114,15 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
    * Resolve the current session from the request. Returns `null` when no
    * transport token is present or the token doesn't match a live session.
    *
-   * Delegates to {@link AuthTransport.verify} when the transport can verify
-   * stateless tokens (JWT); otherwise looks up via {@link AuthSession.IStore}.
+   * Delegates to {@link Transport.verify} when the transport can verify
+   * stateless tokens (JWT); otherwise looks up via {@link Session.Store}.
    */
   async resolveSession(
     req: { headers: Headers },
-    opts: { expectedTenantId?: string; requestSnapshot?: import('../types/anomaly').AuthAnomaly.RequestSnapshot } = {},
+    opts: { expectedTenantId?: string; requestSnapshot?: import('../types/provider').Anomaly.RequestSnapshot } = {},
   ): Promise<{
-    session: AuthSession.ISession
-    identity: AuthIdentity.IIdentity<Profile> | null
+    session: Session.Me
+    identity: Identity.Me<Profile> | null
     /**
      * Aggregate anomaly decision when at least one detector is
      * registered AND `opts.requestSnapshot` was supplied. Operators
@@ -136,11 +135,11 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
     if (!token) return null
 
     const finalize = async (
-      session: AuthSession.ISession,
-      identity: AuthIdentity.IIdentity<Profile> | null,
+      session: Session.Me,
+      identity: Identity.Me<Profile> | null,
     ): Promise<{
-      session: AuthSession.ISession
-      identity: AuthIdentity.IIdentity<Profile> | null
+      session: Session.Me
+      identity: Identity.Me<Profile> | null
       anomaly?: import('../facets/anomaly').AnomalyFacet.IResult
     }> => {
       // Auto-evaluate anomaly detectors so routes branch on a single field.
@@ -196,7 +195,7 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
 
     // Reject AuthNoopLimiter via class brand (bundlers rename constructors).
     if (!this.config.limiter || (this.limiter as { __isNoopLimiter?: boolean }).__isNoopLimiter === true) {
-      errors.push('AuthLimiter adapter required (brute-force protection); AuthNoopLimiter rejected in production')
+      errors.push('Limiter adapter required (brute-force protection); AuthNoopLimiter rejected in production')
     }
 
     // Memory adapter detection over every store; mixed deployments would otherwise
@@ -213,14 +212,14 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
       }
     }
 
-    // AuthTransport secure-cookie check via the public `secure` getter so
+    // Transport secure-cookie check via the public `secure` getter so
     // we never reach into private state.
     const maybeSecureGetter = (this.config.transport as { secure?: boolean }).secure
     if (typeof maybeSecureGetter === 'boolean' && maybeSecureGetter === false) {
       errors.push('AuthCookieTransport secure=false rejected in production')
     }
 
-    // baseUrl must use HTTPS in production so OAuth callback URLs, magic-link
+    // baseUrl must use HTTPS in production so oauth callback URLs, magic-link
     // URLs, and webhooks aren't issued over plaintext.
     if (typeof this.config.baseUrl === 'string') {
       try {
@@ -239,14 +238,14 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
 
     // `lockout` listener via the public `listenerCount` introspection
     // helper. Bus implementations without the helper skip this check
-    // (we cannot enforce against a foreign AuthEvents.IBus impl).
+    // (we cannot enforce against a foreign Events.IBus impl).
     const listenerCount = (this.events as { listenerCount?: (event: string) => number }).listenerCount
     if (typeof listenerCount === 'function' && listenerCount.call(this.events, 'lockout') === 0) {
       errors.push('no `lockout` event handler subscribed; operators must wire one (paging, audit, etc.)')
     }
 
     if (errors.length > 0) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `production strict() checks failed:\n  - ${errors.join('\n  - ')}`,
       })
     }
@@ -257,12 +256,12 @@ export class AuthEngine<Profile = unknown, Tenant = string, OrgMeta = unknown> {
 export { SessionsFacet } from '../facets/sessions'
 
 // Used by other facets that need the hashing scheme. Kept private to the package.
-export const __hashSid = authSha256
+export const __hashSid = sha256
 
 /**
- * No-op limiter used when no AuthLimiter adapter is configured. Always allows.
+ * No-op limiter used when no Limiter adapter is configured. Always allows.
  * `strict({ env: 'production' })` rejects this - production must supply a real
- * AuthLimiter (redis/upstash) for brute-force protection.
+ * Limiter (redis/upstash) for brute-force protection.
  */
 export class AuthNoopLimiter implements LimiterNs.ILimiter {
   /** Brand consumed by `AuthEngine.strict({ env: 'production' })` to
@@ -271,7 +270,7 @@ export class AuthNoopLimiter implements LimiterNs.ILimiter {
    * so we tag every instance and check the tag instead. */
   readonly __isNoopLimiter = true as const
   async consume(_key: string, _weight = 1): Promise<LimiterNs.IResult> {
-    return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: Date.now() + 60_000 }
+    return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: new Date(Date.now() + 60_000) }
   }
   async reset(_key: string): Promise<void> {}
 }

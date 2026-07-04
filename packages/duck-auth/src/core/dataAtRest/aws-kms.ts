@@ -1,8 +1,8 @@
-import { AuthErrorObject } from '../errors'
-import type { AuthKms } from '../types/kms'
+import { AuthError } from '../errors'
+import type { Kms } from '../types/infra'
 
-/** Reference `AuthKms.IProvider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
-export class AuthAwsKmsProvider implements AuthKms.IProvider {
+/** Reference `Kms.IProvider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
+export class AuthAwsKmsProvider implements Kms.IProvider {
   readonly id = 'aws-kms'
   private readonly _keyId: string
   private readonly _client: AuthAwsKmsProvider.IKmsLike
@@ -12,14 +12,15 @@ export class AuthAwsKmsProvider implements AuthKms.IProvider {
     this._client = cfg.client
   }
 
-  async generateDataKey(ctx?: AuthKms.IEncryptionContext): Promise<AuthKms.IDataKey> {
+  async generateDataKey(ctx?: Kms.IEncryptionContext): Promise<Kms.IDataKey> {
     const cmd = await loadCommand('GenerateDataKeyCommand')
     const out = (await this._client.send(
       new cmd({ KeyId: this._keyId, KeySpec: 'AES_256', EncryptionContext: ctx }),
     )) as AuthAwsKmsProvider.IGenerateDataKeyOutput
     if (!out.Plaintext || !out.CiphertextBlob) {
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
-        detail: 'aws-kms: GenerateDataKey returned no key material',
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
+        providerId: 'aws-kms',
+        detail: 'GenerateDataKey returned no key material',
       })
     }
     return {
@@ -29,14 +30,15 @@ export class AuthAwsKmsProvider implements AuthKms.IProvider {
     }
   }
 
-  async decryptDataKey(wrapped: Uint8Array, ctx?: AuthKms.IEncryptionContext): Promise<Uint8Array> {
+  async decryptDataKey(wrapped: Uint8Array, ctx?: Kms.IEncryptionContext): Promise<Uint8Array> {
     const cmd = await loadCommand('DecryptCommand')
     const out = (await this._client.send(
       new cmd({ CiphertextBlob: wrapped, EncryptionContext: ctx, KeyId: this._keyId }),
     )) as AuthAwsKmsProvider.IDecryptOutput
     if (!out.Plaintext) {
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
-        detail: 'aws-kms: Decrypt returned no plaintext',
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
+        providerId: 'aws-kms',
+        detail: 'Decrypt returned no plaintext',
       })
     }
     return toUint8(out.Plaintext)
@@ -58,7 +60,7 @@ async function loadCommand<K extends 'GenerateDataKeyCommand' | 'DecryptCommand'
         DecryptCommand: unknown
       }
     } catch {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'aws-kms: @aws-sdk/client-kms not installed. `bun add @aws-sdk/client-kms` to enable.',
       })
     }

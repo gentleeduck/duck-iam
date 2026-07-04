@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
@@ -12,7 +12,7 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -29,7 +29,7 @@ function build() {
 
 describe('FlowsFacet - email verification', () => {
   let auth: AuthEngine<MyProfile>
-  let adapter: AuthMemoryAdapter<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
   let identityId: string
   let channel: AuthTestChannel
 
@@ -69,13 +69,13 @@ describe('FlowsFacet - email verification', () => {
 
   it('complete with bogus token throws RECOVERY_TOKEN_INVALID', async () => {
     await expect(auth.flows.completeEmailVerification({ token: 'not-a-real-token' })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
   })
 
   it('complete with empty token throws RECOVERY_TOKEN_INVALID', async () => {
     await expect(auth.flows.completeEmailVerification({ token: '' })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
   })
 
@@ -85,7 +85,7 @@ describe('FlowsFacet - email verification', () => {
     const token = new URL(url).searchParams.get('token')!
     await auth.flows.completeEmailVerification({ token })
     await expect(auth.flows.completeEmailVerification({ token })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
   })
 
@@ -95,7 +95,7 @@ describe('FlowsFacet - email verification', () => {
     }
     await expect(
       auth.flows.requestEmailVerification({ identityId, channels: { email: channel } }),
-    ).rejects.toMatchObject({ code: 'AUTH/RATE_LIMITED' })
+    ).rejects.toMatchObject({ code: 'AUTH_RATE_LIMITED' })
   })
 
   it('rejects request for unknown identity', async () => {
@@ -104,7 +104,7 @@ describe('FlowsFacet - email verification', () => {
         identityId: 'does-not-exist',
         channels: { email: channel },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/UNAUTHENTICATED' })
+    ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
   })
 
   it('rejects request when configured channel is not supplied', async () => {
@@ -114,7 +114,7 @@ describe('FlowsFacet - email verification', () => {
         channel: 'sms',
         channels: { email: channel },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('resend replaces the prior token (only the latest verifies)', async () => {
@@ -124,7 +124,7 @@ describe('FlowsFacet - email verification', () => {
     const secondToken = new URL((channel.outbox[1]!.vars as { url: string }).url).searchParams.get('token')!
     expect(firstToken).not.toBe(secondToken)
     await expect(auth.flows.completeEmailVerification({ token: firstToken })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
     await auth.flows.completeEmailVerification({ token: secondToken })
   })

@@ -11,7 +11,7 @@ function makeFetch(response: Record<string, unknown>, ok = true): typeof globalT
 describe('AuthTurnstileVerifier', () => {
   it('refuses construction without secret', () => {
     expect(() => new AuthTurnstileVerifier({ secret: '' })).toThrowError(
-      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })
 

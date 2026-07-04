@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authRandomToken, authSha256 } from '../../crypto'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { RandomToken, sha256 } from '../../crypto'
+import { InMemoryEvents } from '../../events'
 import { ApiKeysFacet } from '../apikeys'
 
 function build() {
-  const adapter = new AuthMemoryAdapter()
-  const events = new AuthInMemoryEvents()
-  const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 })
+  const adapter = new MemoryAdapter()
+  const events = new InMemoryEvents()
+  const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken: RandomToken, authSha256: sha256 })
   return { adapter, facet }
 }
 
-async function plantMalformedMetadata(adapter: AuthMemoryAdapter, identityId: string, metadata: unknown) {
+async function plantMalformedMetadata(adapter: MemoryAdapter, identityId: string, metadata: unknown) {
   // Direct adapter write to seed a row with a metadata shape that the
   // facet's create() method would never produce. Mirrors what a buggy
   // store / schema drift / pre-migration value looks like.
@@ -30,7 +30,7 @@ async function plantMalformedMetadata(adapter: AuthMemoryAdapter, identityId: st
 }
 
 describe('ApiKeysFacet - metadata parser', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let facet: ApiKeysFacet
   const identityId = 'identity-1'
 
@@ -105,8 +105,8 @@ describe('ApiKeysFacet - metadata parser', () => {
       // condition where the credential's metadata was written by a
       // legacy / buggy code path). The plaintext token mapping
       // `${prefix}${random}` -> `sha256` lets us round-trip verify().
-      const plaintext = `ak_live_${authRandomToken(32)}`
-      const hash = authSha256(plaintext)
+      const plaintext = `ak_live_${RandomToken(32)}`
+      const hash = sha256(plaintext)
       await adapter.credentials.upsert(
         {
           identityId,

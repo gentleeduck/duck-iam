@@ -1,5 +1,5 @@
-import { AuthErrorObject } from '../errors'
-import type { AuthEvents } from '../types/events'
+import { AuthError } from '../errors'
+import type { Events } from '../types/provider'
 
 /**
  * Operations facet. Drives the two ambient deploy switches every
@@ -22,7 +22,7 @@ export class OperationsFacet {
     readOnly: { on: false },
   }
 
-  constructor(private readonly _events: AuthEvents.IBus) {}
+  constructor(private readonly _events: Events.IBus) {}
 
   /** Read the current state snapshot. */
   snapshot(): OperationsFacet.IState {
@@ -61,7 +61,7 @@ export class OperationsFacet {
 
   /**
    * Predicate run by every server adapter before dispatch. Throws the
-   * appropriate AuthErrorObject so the adapter's handleError path
+   * appropriate AuthError so the adapter's handleError path
    * surfaces the right status + retry hint.
    *
    * @param method HTTP method (POST/GET/...)
@@ -74,10 +74,10 @@ export class OperationsFacet {
         retryAfter: this._state.maintenance.retryAfterSec ?? 60,
       }
       if (this._state.maintenance.message !== undefined) meta.message = this._state.maintenance.message
-      throw new AuthErrorObject('AUTH/MAINTENANCE', meta)
+      throw new AuthError('AUTH_MAINTENANCE', meta)
     }
     if (this._state.readOnly.on && isMutatingMethod(method)) {
-      throw new AuthErrorObject('AUTH/READONLY_MODE')
+      throw new AuthError('AUTH_READONLY_MODE')
     }
   }
 }

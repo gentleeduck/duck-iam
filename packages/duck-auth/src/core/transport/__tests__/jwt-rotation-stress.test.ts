@@ -10,22 +10,22 @@
 
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { AuthSession } from '../../types/session'
+import type { Session } from '../../types/session'
 import { AuthJwtTransport } from '../jwt'
 
-function fakeSession(): AuthSession.ISession {
+function fakeSession(): Session.Me {
   const now = Date.now()
   return {
     aal: 2,
-    absoluteExpiresAt: now + 60_000,
-    createdAt: now,
-    expiresAt: now + 60_000,
-    factors: [{ completedAt: now, method: 'password' }],
+    absoluteExpiresAt: new Date(now + 60_000),
+    createdAt: new Date(now),
+    expiresAt: new Date(now + 60_000),
+    factors: [{ completedAt: new Date(now), method: 'password' }],
     fresh: true,
     id: 'row',
     identityId: 'user-1',
     kind: 'user',
-    rotatedAt: now,
+    rotatedAt: new Date(now),
   }
 }
 
@@ -102,7 +102,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
         signKey: { kid: 'b', key: 'secret' },
         verifyKey: { key: 'secret', kid: 'b' /* HS256 default */ },
       }),
-    ).toThrow('AUTH/MISCONFIGURED')
+    ).toThrow('AUTH_MISCONFIGURED')
   })
 
   it('after rotation, retireVerifyKey(old) makes old tokens fail', async () => {

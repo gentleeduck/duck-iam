@@ -1,20 +1,20 @@
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { AuthSession } from '../../types/session'
+import type { Session } from '../../types/session'
 import { AuthJwtTransport } from '../jwt'
 
-function fakeSession(): AuthSession.ISession {
+function fakeSession(): Session.Me {
   const now = Date.now()
   return {
     id: 'row-hash',
     identityId: 'user-1',
     kind: 'user',
     aal: 2,
-    factors: [{ method: 'password', completedAt: now }],
-    createdAt: now,
-    rotatedAt: now,
-    expiresAt: now + 60_000,
-    absoluteExpiresAt: now + 60_000,
+    factors: [{ method: 'password', completedAt: new Date(now) }],
+    createdAt: new Date(now),
+    rotatedAt: new Date(now),
+    expiresAt: new Date(now + 60_000),
+    absoluteExpiresAt: new Date(now + 60_000),
     fresh: true,
   }
 }
@@ -259,7 +259,7 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
       verifyKeys: [{ kid: 'a', alg: 'EdDSA', key: aPub }],
       issuer: 'https://app.example.com',
     })
-    expect(() => t.retireVerifyKey('a')).toThrow('AUTH/MISCONFIGURED')
+    expect(() => t.retireVerifyKey('a')).toThrow('AUTH_MISCONFIGURED')
   })
 
   it('HS256 rotation auto-syncs the verify entry from the signKey', async () => {

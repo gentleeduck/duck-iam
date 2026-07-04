@@ -1,25 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import type { AuthIdentity } from '../../types/identity'
-import type { AuthSession } from '../../types/session'
+import type { Identity } from '../../types/identity'
+import type { Session } from '../../types/session'
 import { authImpossibleTravelDetector } from '../impossible-travel'
 
-const identity: AuthIdentity.IIdentity = {
+const identity: Identity.Me = {
   id: 'u',
   providers: [],
+  emailVerified: false,
   version: 1,
-  createdAt: 0,
-  updatedAt: 0,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
 }
-const session: AuthSession.ISession = {
+const session: Session.Me = {
   id: 'sid',
   identityId: 'u',
   kind: 'user',
   aal: 1,
   factors: [],
-  createdAt: 0,
-  rotatedAt: 0,
-  expiresAt: Date.now() + 60_000,
-  absoluteExpiresAt: Date.now() + 60_000,
+  createdAt: new Date(0),
+  rotatedAt: new Date(0),
+  expiresAt: new Date(Date.now() + 60_000),
+  absoluteExpiresAt: new Date(Date.now() + 60_000),
   fresh: true,
 }
 

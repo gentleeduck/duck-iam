@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { authSha256 } from '../crypto'
+import { sha256 } from '../crypto'
 import { authCsrfGuard, authIssueCsrfToken, authVerifyCsrf } from '../csrf'
 
 describe('CSRF - header-token length cap', () => {
@@ -13,14 +13,14 @@ describe('CSRF - header-token length cap', () => {
         headers: new Headers({ 'x-csrf-token': oversize }),
         sessionCsrfHash: storedHash,
       }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/CSRF' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_CSRF' }))
   })
 
   it('accepts a 256-char token at the cap (boundary)', () => {
     // Construct a 256-char token, store its hash as the session's
     // canonical, then resubmit it - the request should succeed.
     const sized = 'A'.repeat(256)
-    const storedHash = authSha256(sized)
+    const storedHash = sha256(sized)
     expect(() =>
       authVerifyCsrf({
         method: 'POST',
@@ -42,7 +42,7 @@ describe('CSRF - header-token length cap', () => {
         headers: new Headers({ 'x-csrf-token': bigToken }),
         sessionCsrfHash: 'whatever',
       }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/CSRF' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_CSRF' }))
     const elapsed = performance.now() - start
     // sha256 of 10 MB on a modern laptop is 30-60 ms (slower on shared CI
     // runners, ~100-150 ms). The cap should be effectively instant - the
@@ -119,7 +119,7 @@ describe('CSRF - authCsrfGuard bearer-scheme detection', () => {
         method: 'POST',
         headers: new Headers({ authorization: 'Bearer X, Bearer Y' }),
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/CSRF' })
+    ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
     // Bearer was refused -> guard fell through to CSRF check, which has
     // no token in the header -> AUTH/CSRF.
     expect(auth.resolveSession).toHaveBeenCalled()
@@ -132,7 +132,7 @@ describe('CSRF - authCsrfGuard bearer-scheme detection', () => {
         method: 'POST',
         headers: new Headers({ authorization: 'Basic dXNlcjpwYXNz' }),
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/CSRF' })
+    ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
     expect(auth.resolveSession).toHaveBeenCalled()
   })
 
@@ -143,10 +143,10 @@ describe('CSRF - authCsrfGuard bearer-scheme detection', () => {
         method: 'POST',
         headers: new Headers({ authorization: 'BearerHack abc' }),
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/CSRF' })
+    ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
   })
 
-  it('safe methods still bypass everything (no auth/header check at all)', async () => {
+  it('safe methods still bypass everything (no AUTH/header check at all)', async () => {
     const auth = authStub('some-hash')
     await expect(authCsrfGuard(auth, { method: 'GET', headers: new Headers() })).resolves.toBeUndefined()
     expect(auth.resolveSession).not.toHaveBeenCalled()

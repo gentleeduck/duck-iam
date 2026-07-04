@@ -1,29 +1,29 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthScryptHasher } from '../../password/scrypt'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from '../passwords'
 
 describe('PasswordsFacet', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let facet: PasswordsFacet
   const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
+    adapter = new MemoryAdapter()
     facet = new PasswordsFacet(adapter.credentials, fastHasher, DEFAULT_PASSWORDS_CONFIG)
   })
 
   describe('strength validation', () => {
     it('rejects passwords shorter than minLength as AUTH/INVALID_CREDENTIALS', async () => {
-      await expect(facet.set('u', 'short')).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
+      await expect(facet.set('u', 'short')).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
     })
 
     it('rejects common passwords as AUTH/INVALID_CREDENTIALS', async () => {
-      await expect(facet.set('u', 'password1')).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
+      await expect(facet.set('u', 'password1')).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
     })
 
     it('common-list check is case-insensitive', async () => {
-      await expect(facet.set('u', 'PASSWORD1')).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
+      await expect(facet.set('u', 'PASSWORD1')).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
     })
 
     it('rejects passwords longer than maxLength to prevent argon2/scrypt DoS', async () => {
@@ -31,7 +31,7 @@ describe('PasswordsFacet', () => {
       // whole blob (several seconds of CPU per attempt). The cap stops
       // it at the strength gate, never reaching the hasher.
       const huge = 'x'.repeat(2048)
-      await expect(facet.set('u', huge)).rejects.toMatchObject({ code: 'AUTH/INVALID_CREDENTIALS' })
+      await expect(facet.set('u', huge)).rejects.toMatchObject({ code: 'AUTH_INVALID_CREDENTIALS' })
     })
 
     it('verify also rejects over-long plaintext (returns ok:false without hashing)', async () => {

@@ -1,32 +1,32 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthInMemoryEvents } from '../../events'
-import type { AuthSession } from '../../types/session'
+import { InMemoryEvents } from '../../events'
+import type { Session } from '../../types/session'
 import { HijackFacet } from '../hijack'
 
-function fakeSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession.ISession {
+function fakeSession(overrides: Partial<Session.Me> = {}): Session.Me {
   const now = Date.now()
   return {
     id: 'sess-1',
     identityId: 'user-1',
     kind: 'user',
     aal: 1,
-    factors: [{ method: 'password', completedAt: now }],
-    createdAt: now,
-    rotatedAt: now,
-    expiresAt: now + 60_000,
-    absoluteExpiresAt: now + 60_000,
+    factors: [{ method: 'password', completedAt: new Date(now) }],
+    createdAt: new Date(now),
+    rotatedAt: new Date(now),
+    expiresAt: new Date(now + 60_000),
+    absoluteExpiresAt: new Date(now + 60_000),
     fresh: true,
     ...overrides,
   }
 }
 
 describe('HijackFacet - diagnostic-string clip', () => {
-  let events: AuthInMemoryEvents
+  let events: InMemoryEvents
   let facet: HijackFacet
   let seen: Array<{ from: string; to: string }>
 
   beforeEach(() => {
-    events = new AuthInMemoryEvents()
+    events = new InMemoryEvents()
     facet = new HijackFacet(events, { onIpChange: 'mfa', onUserAgentChange: 'mfa' })
     seen = []
     events.on('suspicious', (payload) => {

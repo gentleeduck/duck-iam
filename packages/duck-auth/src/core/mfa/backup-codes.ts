@@ -2,16 +2,16 @@
  * Backup-codes facet. Issues a set of single-use recovery codes that
  * substitute for the user's MFA factor when their TOTP / passkey
  * device is unavailable. Codes are stored hashed (sha-256) against
- * `AuthCredential.kind = 'recovery'`; plaintext is returned to the caller
+ * `Credential.kind = 'recovery'`; plaintext is returned to the caller
  * exactly once at generation time.
  */
 
 import { randomBytes } from 'node:crypto'
 import { isRevoked } from '../credential-utils'
-import { authTimingSafeEqual } from '../crypto'
-import { AuthErrorObject } from '../errors'
-import type { AuthTenantContext } from '../types/context'
-import type { AuthCredential } from '../types/credential'
+import { timingSafeEqual } from '../crypto'
+import { AuthError } from '../errors'
+import type { Credential } from '../types/identity'
+import type { TenantContext } from '../types/infra'
 
 /**
  * Crockford-style 32-char alphabet - skips 0/O/I/1 + ambiguous chars.
@@ -42,14 +42,14 @@ export const DEFAULT_BACKUP_CODES_CONFIG: AuthBackupCodesFacet.IConfig = {
 }
 
 /**
- * Backup-codes facet. Talks to `AuthCredential.IStore` for persistence and
+ * Backup-codes facet. Talks to `Credential.IStore` for persistence and
  * the supplied crypto helpers for token gen + hashing. Caller wires it
  * directly; not auto-mounted on `AuthEngine` because the lib does not
  * assume the application surfaces this MFA fallback.
  */
 export class AuthBackupCodesFacet {
   constructor(
-    private readonly _credentials: AuthCredential.IStore,
+    private readonly _credentials: Credential.Store,
     private readonly _crypto: {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
@@ -63,7 +63,7 @@ export class AuthBackupCodesFacet {
    * REPLACES any prior set - the existing codes are wiped via
    * `deleteByKind`.
    */
-  async generate(identityId: string, ctx: AuthTenantContext = {}): Promise<{ codes: string[] }> {
+  async generate(identityId: string, ctx: TenantContext = {}): Promise<{ codes: string[] }> {
     await this._credentials.deleteByKind(identityId, 'recovery', ctx)
     const codes: string[] = []
     for (let i = 0; i < this._cfg.count; i++) {
@@ -87,7 +87,7 @@ export class AuthBackupCodesFacet {
    * Count of unused codes remaining for `identityId`. Useful for UI
    * "you have N backup codes left" prompts.
    */
-  async remaining(identityId: string, ctx: AuthTenantContext = {}): Promise<number> {
+  async remaining(identityId: string, ctx: TenantContext = {}): Promise<number> {
     const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
     return rows.filter((r) => !isRevoked(r)).length
   }
@@ -102,9 +102,9 @@ export class AuthBackupCodesFacet {
    * the storage path stored hyphenated) before hashing so the user's
    * input format is forgiving.
    */
-  async verify(identityId: string, code: string, ctx: AuthTenantContext = {}): Promise<boolean> {
+  async verify(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
     if (!code || code.length < 4) {
-      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+      throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
     }
     const normalized = this._normalize(code)
     const hash = this._crypto.authSha256(normalized)
@@ -113,7 +113,7 @@ export class AuthBackupCodesFacet {
     // would leak which row matched (and if any did) via timing.
     let matchedId: string | null = null
     for (const cred of matches) {
-      const hit = !isRevoked(cred) && authTimingSafeEqual(cred.secret, hash)
+      const hit = !isRevoked(cred) && timingSafeEqual(cred.secret, hash)
       if (hit && matchedId === null) matchedId = cred.id
     }
     if (matchedId === null) return false
@@ -126,7 +126,7 @@ export class AuthBackupCodesFacet {
    * Wipe every backup code for an identity. Caller invokes during MFA
    * reset / account wipe.
    */
-  async revokeAll(identityId: string, ctx: AuthTenantContext = {}): Promise<void> {
+  async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<void> {
     await this._credentials.deleteByKind(identityId, 'recovery', ctx)
   }
 

@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authSha256 } from '../../crypto'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { sha256 } from '../../crypto'
+import { InMemoryEvents } from '../../events'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions'
 
 describe('SessionsFacet', () => {
-  let adapter: AuthMemoryAdapter
-  let events: AuthInMemoryEvents
+  let adapter: MemoryAdapter
+  let events: InMemoryEvents
   let facet: SessionsFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
-    events = new AuthInMemoryEvents()
+    adapter = new MemoryAdapter()
+    events = new InMemoryEvents()
     facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
   })
 
@@ -21,10 +21,10 @@ describe('SessionsFacet', () => {
         identityId: 'user-1',
         kind: 'user',
         aal: 2,
-        factors: [{ method: 'password', completedAt: Date.now() }],
+        factors: [{ method: 'password', completedAt: new Date() }],
       })
       expect(sid).toMatch(/^[A-Za-z0-9_-]+$/)
-      expect(session.id).toBe(authSha256(sid))
+      expect(session.id).toBe(sha256(sid))
       // Lookup uses the hashed row key (session.id), not the plaintext sid.
       expect(await adapter.sessions.getByHash(session.id)).not.toBeNull()
       expect(await adapter.sessions.getByHash(sid)).toBeNull()
@@ -42,8 +42,8 @@ describe('SessionsFacet', () => {
       const { session } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
       expect(session.fresh).toBe(true)
       const now = Date.now()
-      expect(session.expiresAt - now).toBeLessThanOrEqual(DEFAULT_SESSION_CONFIG.ttlMs)
-      expect(session.absoluteExpiresAt - now).toBeLessThanOrEqual(DEFAULT_SESSION_CONFIG.absoluteTtlMs)
+      expect(session.expiresAt.getTime() - now).toBeLessThanOrEqual(DEFAULT_SESSION_CONFIG.ttlMs)
+      expect(session.absoluteExpiresAt.getTime() - now).toBeLessThanOrEqual(DEFAULT_SESSION_CONFIG.absoluteTtlMs)
     })
 
     it('createGuest sets identityId=null, kind="guest", aal=1, factors=[]', async () => {
@@ -66,10 +66,10 @@ describe('SessionsFacet', () => {
         identityId: 'user-1',
         kind: 'user',
         aal: 1,
-        factors: [{ method: 'password', completedAt: Date.now() }],
+        factors: [{ method: 'password', completedAt: new Date() }],
       })
       expect(nextSid).not.toBe(guestSid)
-      expect(await adapter.sessions.getByHash(authSha256(guestSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(guestSid))).toBeNull()
       expect(handler).toHaveBeenCalledOnce()
     })
 
@@ -78,7 +78,7 @@ describe('SessionsFacet', () => {
         identityId: 'user-1',
         kind: 'user',
         aal: 1,
-        factors: [{ method: 'password', completedAt: Date.now() }],
+        factors: [{ method: 'password', completedAt: new Date() }],
       })
       await facet.rotateOrCreate({
         purpose: 'step-up',
@@ -87,11 +87,11 @@ describe('SessionsFacet', () => {
         kind: 'user',
         aal: 2,
         factors: [
-          { method: 'password', completedAt: Date.now() },
-          { method: 'totp', completedAt: Date.now() },
+          { method: 'password', completedAt: new Date() },
+          { method: 'totp', completedAt: new Date() },
         ],
       })
-      const old = await adapter.sessions.getByHash(authSha256(prevSid))
+      const old = await adapter.sessions.getByHash(sha256(prevSid))
       expect(old).not.toBeNull()
       expect(old?.fresh).toBe(false)
     })
@@ -108,9 +108,9 @@ describe('SessionsFacet', () => {
         aal: 1,
         factors: [],
       })
-      expect(await adapter.sessions.getByHash(authSha256(aSid))).toBeNull()
-      expect(await adapter.sessions.getByHash(authSha256(bSid))).toBeNull()
-      expect(await adapter.sessions.getByHash(authSha256(cSid))).not.toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(aSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(bSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(cSid))).not.toBeNull()
     })
 
     it('impersonate-start preserves the real session alongside the actingAs session', async () => {
@@ -118,7 +118,7 @@ describe('SessionsFacet', () => {
         identityId: 'admin',
         kind: 'user',
         aal: 2,
-        factors: [{ method: 'password', completedAt: Date.now() }],
+        factors: [{ method: 'password', completedAt: new Date() }],
       })
       const { session: impersonation, sid: impersonationSid } = await facet.rotateOrCreate({
         purpose: 'impersonate-start',
@@ -126,17 +126,17 @@ describe('SessionsFacet', () => {
         identityId: 'target-user',
         kind: 'user',
         aal: 2,
-        factors: [{ method: 'password', completedAt: Date.now() }],
+        factors: [{ method: 'password', completedAt: new Date() }],
         actingAs: {
           realIdentityId: 'admin',
-          startedAt: Date.now(),
+          startedAt: new Date(),
           reason: 'support-ticket-1234',
-          expiresAt: Date.now() + 60 * 60 * 1000,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
         },
       })
       expect(impersonation.actingAs?.realIdentityId).toBe('admin')
-      expect(await adapter.sessions.getByHash(authSha256(realSid))).not.toBeNull()
-      expect(await adapter.sessions.getByHash(authSha256(impersonationSid))).not.toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(realSid))).not.toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(impersonationSid))).not.toBeNull()
     })
 
     it('promoteGuest swaps a guest session for a user session under signin-class rotation', async () => {
@@ -145,12 +145,12 @@ describe('SessionsFacet', () => {
         guestSid,
         identityId: 'new-user',
         aal: 1,
-        factors: [{ method: 'magic-link', completedAt: Date.now() }],
+        factors: [{ method: 'magic-link', completedAt: new Date() }],
       })
       expect(user.identityId).toBe('new-user')
       expect(user.kind).toBe('user')
       expect(userSid).not.toBe(guestSid)
-      expect(await adapter.sessions.getByHash(authSha256(guestSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(guestSid))).toBeNull()
     })
   })
 
@@ -160,7 +160,7 @@ describe('SessionsFacet', () => {
       const handler = vi.fn()
       events.on('session.revoked', handler)
       await facet.revoke(sid)
-      expect(await adapter.sessions.getByHash(authSha256(sid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
       expect(handler).toHaveBeenCalledOnce()
     })
 
@@ -171,9 +171,9 @@ describe('SessionsFacet', () => {
       const handler = vi.fn()
       events.on('session.revoked', handler)
       await facet.revokeAllForIdentity('u1')
-      expect(await adapter.sessions.getByHash(authSha256(aSid))).toBeNull()
-      expect(await adapter.sessions.getByHash(authSha256(bSid))).toBeNull()
-      expect(await adapter.sessions.getByHash(authSha256(cSid))).not.toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(aSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(bSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(cSid))).not.toBeNull()
       expect(handler.mock.calls.length).toBe(2)
     })
   })
@@ -183,7 +183,7 @@ describe('SessionsFacet', () => {
       const { session, sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
       const refreshed = await facet.touch(sid)
       expect(refreshed).not.toBeNull()
-      expect(refreshed?.expiresAt).toBeGreaterThanOrEqual(session.expiresAt - 100)
+      expect(refreshed?.expiresAt.getTime()).toBeGreaterThanOrEqual(session.expiresAt.getTime() - 100)
     })
 
     it('returns null for unknown SID', async () => {
@@ -192,9 +192,9 @@ describe('SessionsFacet', () => {
 
     it('hard-deletes a session past its absoluteExpiresAt and returns null', async () => {
       const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
-      await adapter.sessions.update(authSha256(sid), { absoluteExpiresAt: Date.now() - 1 })
+      await adapter.sessions.update(sha256(sid), { absoluteExpiresAt: new Date(Date.now() - 1) })
       expect(await facet.touch(sid)).toBeNull()
-      expect(await adapter.sessions.getByHash(authSha256(sid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
     })
   })
 
@@ -202,24 +202,24 @@ describe('SessionsFacet', () => {
     it('purges expired sessions', async () => {
       const { sid: aSid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
       const { sid: bSid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
-      await adapter.sessions.update(authSha256(aSid), { expiresAt: Date.now() - 1 })
+      await adapter.sessions.update(sha256(aSid), { expiresAt: new Date(Date.now() - 1) })
       const result = await facet.gc()
       expect(result.deleted).toBe(1)
-      expect(await adapter.sessions.getByHash(authSha256(aSid))).toBeNull()
-      expect(await adapter.sessions.getByHash(authSha256(bSid))).not.toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(aSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(bSid))).not.toBeNull()
     })
   })
 })
 
 describe('resolveBySid()', () => {
   it('returns null for unknown SID', async () => {
-    const adapter = new AuthMemoryAdapter()
+    const adapter = new MemoryAdapter()
     expect(await resolveBySid('nope', adapter.sessions, adapter.identities, {})).toBeNull()
   })
 
   it('returns (session, identity) for a live SID with linked identity', async () => {
-    const adapter = new AuthMemoryAdapter<{ email: string }>()
-    const events = new AuthInMemoryEvents()
+    const adapter = new MemoryAdapter<{ email: string }>()
+    const events = new InMemoryEvents()
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const identity = await adapter.identities.create({ profile: { email: 'x@y.com' }, providers: [] }, {})
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
@@ -229,44 +229,44 @@ describe('resolveBySid()', () => {
   })
 
   it('returns null and deletes an expired session', async () => {
-    const adapter = new AuthMemoryAdapter()
-    const events = new AuthInMemoryEvents()
+    const adapter = new MemoryAdapter()
+    const events = new InMemoryEvents()
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
-    await adapter.sessions.update(authSha256(sid), { expiresAt: Date.now() - 1 })
+    await adapter.sessions.update(sha256(sid), { expiresAt: new Date(Date.now() - 1) })
     expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
-    expect(await adapter.sessions.getByHash(authSha256(sid))).toBeNull()
+    expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
   })
 
   it('throws AUTH/SESSION_REVOKED for a session whose identity was erased mid-life', async () => {
-    const adapter = new AuthMemoryAdapter()
-    const events = new AuthInMemoryEvents()
+    const adapter = new MemoryAdapter()
+    const events = new InMemoryEvents()
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const identity = await adapter.identities.create({ providers: [] }, {})
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
     await adapter.identities.erase(identity.id, {})
     await expect(resolveBySid(sid, adapter.sessions, adapter.identities, {})).rejects.toMatchObject({
-      code: 'AUTH/SESSION_REVOKED',
+      code: 'AUTH_SESSION_REVOKED',
     })
   })
 
   describe('NaN-bypass defenses against malformed adapter rows', () => {
     async function setupLiveSession(): Promise<{
-      adapter: AuthMemoryAdapter
+      adapter: MemoryAdapter
       facet: SessionsFacet
       sid: string
       hash: string
     }> {
-      const adapter = new AuthMemoryAdapter()
-      const events = new AuthInMemoryEvents()
+      const adapter = new MemoryAdapter()
+      const events = new InMemoryEvents()
       const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
       const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
-      return { adapter, facet, sid, hash: authSha256(sid) }
+      return { adapter, facet, sid, hash: sha256(sid) }
     }
 
     it('resolveBySid treats NaN expiresAt as expired (central gate fail-closed)', async () => {
       const { adapter, hash, sid } = await setupLiveSession()
-      await adapter.sessions.update(hash, { expiresAt: Number.NaN })
+      await adapter.sessions.update(hash, { expiresAt: new Date(Number.NaN) })
       expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
       expect(await adapter.sessions.getByHash(hash)).toBeNull()
     })
@@ -281,7 +281,7 @@ describe('resolveBySid()', () => {
 
     it('resolveBySid treats NaN absoluteExpiresAt as expired', async () => {
       const { adapter, hash, sid } = await setupLiveSession()
-      await adapter.sessions.update(hash, { absoluteExpiresAt: Number.NaN })
+      await adapter.sessions.update(hash, { absoluteExpiresAt: new Date(Number.NaN) })
       expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
       expect(await adapter.sessions.getByHash(hash)).toBeNull()
     })
@@ -291,7 +291,7 @@ describe('resolveBySid()', () => {
       await adapter.sessions.update(hash, {
         actingAs: {
           realIdentityId: 'admin',
-          startedAt: Date.now(),
+          startedAt: new Date(),
           reason: 'support',
           // @ts-expect-error: SEC test intentionally violates the typed shape
           expiresAt: 'unbounded',
@@ -303,7 +303,7 @@ describe('resolveBySid()', () => {
 
     it('touch() treats NaN absoluteExpiresAt as expired and hard-deletes', async () => {
       const { adapter, facet, hash, sid } = await setupLiveSession()
-      await adapter.sessions.update(hash, { absoluteExpiresAt: Number.NaN })
+      await adapter.sessions.update(hash, { absoluteExpiresAt: new Date(Number.NaN) })
       expect(await facet.touch(sid)).toBeNull()
       expect(await adapter.sessions.getByHash(hash)).toBeNull()
     })

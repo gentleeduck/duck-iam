@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { AuthScryptHasher } from '../../password/scrypt'
@@ -10,7 +10,7 @@ interface ProfileShape {
 }
 
 function build() {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'https://app.test',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -27,7 +27,7 @@ function build() {
 
 describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
   let auth: AuthEngine<ProfileShape>
-  let adapter: AuthMemoryAdapter<ProfileShape>
+  let adapter: MemoryAdapter<ProfileShape>
   let identityA: string
   let identityB: string
 
@@ -51,7 +51,7 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
     const firstRejected = rejected[0]
     if (firstRejected && firstRejected.status === 'rejected') {
       expect(firstRejected.reason).toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'provider sub already linked to a different identity' },
       })
     } else {
@@ -105,17 +105,17 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
     // catch the duplicate even without the facet's pre-check.
     await adapter.identities.link(
       identityA,
-      { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: Date.now() },
+      { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: new Date() },
       {},
     )
     await expect(
       adapter.identities.link(
         identityB,
-        { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: Date.now() },
+        { providerId: 'authGithub', providerSub: 'direct-sub', addedAt: new Date() },
         {},
       ),
     ).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
       meta: { detail: 'provider sub already linked to a different identity' },
     })
   })
@@ -124,8 +124,8 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
     // The magic-link provider creates links with `providerSub:
     // undefined`. The uniqueness invariant only applies when both
     // sides have a sub.
-    await adapter.identities.link(identityA, { providerId: 'magic-link', addedAt: Date.now() }, {})
-    await adapter.identities.link(identityB, { providerId: 'magic-link', addedAt: Date.now() }, {})
+    await adapter.identities.link(identityA, { providerId: 'magic-link', providerSub: null, addedAt: new Date() }, {})
+    await adapter.identities.link(identityB, { providerId: 'magic-link', providerSub: null, addedAt: new Date() }, {})
     // Both succeeded - no error.
     expect(true).toBe(true)
   })

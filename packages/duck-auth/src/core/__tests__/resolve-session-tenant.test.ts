@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../adapters/memory'
+import { MemoryAdapter } from '../../adapters/memory'
 import { AuthMemoryLimiter } from '../../limiters/memory'
-import { authSha256 } from '../crypto'
+import { sha256 } from '../crypto'
 import { AuthEngine } from '../engine'
 import { AuthCookieTransport } from '../transport/cookie'
 
@@ -9,8 +9,8 @@ interface Profile {
   email: string
 }
 
-function buildAuth(): { auth: AuthEngine<Profile>; adapter: AuthMemoryAdapter<Profile> } {
-  const adapter = new AuthMemoryAdapter<Profile>()
+function buildAuth(): { auth: AuthEngine<Profile>; adapter: MemoryAdapter<Profile> } {
+  const adapter = new MemoryAdapter<Profile>()
   const auth = new AuthEngine<Profile>({
     baseUrl: 'https://app.example.com',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -87,6 +87,6 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
       factors: [],
       tenantId: 't1',
     })
-    expect(await adapter.sessions.getByHash(authSha256(sid))).not.toBeNull()
+    expect(await adapter.sessions.getByHash(sha256(sid))).not.toBeNull()
   })
 })

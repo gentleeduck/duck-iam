@@ -1,7 +1,6 @@
-import type { AuthAnomaly } from '../types/anomaly'
-import type { AuthEvents } from '../types/events'
-import type { AuthIdentity } from '../types/identity'
-import type { AuthSession } from '../types/session'
+import type { Identity } from '../types/identity'
+import type { Anomaly, Events } from '../types/provider'
+import type { Session } from '../types/session'
 
 /** Conservative defaults. Step-up at 0.7; deny at 0.95. */
 export const DEFAULT_ANOMALY_CONFIG: AnomalyFacet.IConfig = {
@@ -11,7 +10,7 @@ export const DEFAULT_ANOMALY_CONFIG: AnomalyFacet.IConfig = {
 }
 
 /** Sum signal scores, treating non-finite values as 0. */
-function sumScores(signals: AuthAnomaly.Signal[]): number {
+function sumScores(signals: Anomaly.Signal[]): number {
   let acc = 0
   for (const s of signals) {
     if (Number.isFinite(s.score)) acc += s.score
@@ -20,14 +19,14 @@ function sumScores(signals: AuthAnomaly.Signal[]): number {
 }
 
 /**
- * structural type-guard for AuthAnomaly.Signal. A signal from a
+ * structural type-guard for Anomaly.Signal. A signal from a
  * misbehaving detector that lacks the right shape (e.g. `null`,
  * `{}`, `{ kind: 42 }`) would otherwise reach `decide()` and crash
  * its `Number.isFinite(s.score)` access - see {@link AnomalyFacet.evaluate}
  * for the fail-open chain. This guard skips them before they hit
  * `signals.push`.
  */
-function isValidSignal(raw: unknown): raw is AuthAnomaly.Signal {
+function isValidSignal(raw: unknown): raw is Anomaly.Signal {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return false
   // typeof 'string' for kind is the contract; we intentionally do
   // NOT restrict to the union (plugins may define new kinds).
@@ -39,7 +38,7 @@ function isValidSignal(raw: unknown): raw is AuthAnomaly.Signal {
 }
 
 /**
- * AuthAnomaly facet. Apps register one or more detectors; the facet evaluates
+ * Anomaly facet. Apps register one or more detectors; the facet evaluates
  * them on a per-request basis (typically after `resolveSession`).
  *
  * The aggregator runs every registered detector, sums signal scores, and
@@ -49,18 +48,18 @@ function isValidSignal(raw: unknown): raw is AuthAnomaly.Signal {
  * tests / custom pipelines.
  */
 export class AnomalyFacet {
-  private readonly _detectors: AuthAnomaly.IDetector[] = []
+  private readonly _detectors: Anomaly.IDetector[] = []
   private readonly _cfg: AnomalyFacet.IConfig
 
   constructor(
-    private readonly _events: AuthEvents.IBus,
+    private readonly _events: Events.IBus,
     cfg: Partial<AnomalyFacet.IConfig> = {},
   ) {
     this._cfg = { ...DEFAULT_ANOMALY_CONFIG, ...cfg }
   }
 
   /** Register a detector. Order does not affect aggregate score. */
-  register(detector: AuthAnomaly.IDetector): void {
+  register(detector: Anomaly.IDetector): void {
     this._detectors.push(detector)
   }
 
@@ -84,11 +83,11 @@ export class AnomalyFacet {
    * misbehaving plugin can never lock users out of authn.
    */
   async evaluate(input: {
-    session: AuthSession.ISession
-    identity: AuthIdentity.IIdentity
-    req: AuthAnomaly.RequestSnapshot
+    session: Session.Me
+    identity: Identity.Me
+    req: Anomaly.RequestSnapshot
   }): Promise<AnomalyFacet.IResult> {
-    const signals: AuthAnomaly.Signal[] = []
+    const signals: Anomaly.Signal[] = []
     for (const d of this._detectors) {
       try {
         const out = await d.evaluate(input)
@@ -131,7 +130,7 @@ export class AnomalyFacet {
    *   3. `stepUpAt` crossed -> 'step-up'
    *   4. Otherwise -> 'allow'
    */
-  decide(signals: AuthAnomaly.Signal[]): AnomalyFacet.IDecision {
+  decide(signals: Anomaly.Signal[]): AnomalyFacet.IDecision {
     // Non-finite score collapses every comparison and falls through to allow.
     if (signals.some((s) => !Number.isFinite(s.score))) return 'deny'
     const score = sumScores(signals)
@@ -168,14 +167,14 @@ export namespace AnomalyFacet {
      * regardless of the aggregate score. Highest-severity reaction
      * across present signals wins.
      */
-    reactions?: Partial<Record<AuthAnomaly.Kind, IDecision>>
+    reactions?: Partial<Record<Anomaly.Kind, IDecision>>
   }
 
   export interface IResult {
     /** Sum of all signal scores. */
     score: number
     /** Individual detector outputs that contributed to the score. */
-    signals: AuthAnomaly.Signal[]
+    signals: Anomaly.Signal[]
     /** Recommended response. Callers may override but should log when they do. */
     decision: IDecision
   }

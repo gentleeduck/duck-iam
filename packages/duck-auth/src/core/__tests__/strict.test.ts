@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../adapters/memory'
+import { MemoryAdapter } from '../../adapters/memory'
 import { AuthMemoryLimiter } from '../../limiters/memory'
 import { AuthEngine } from '../engine'
 import { AuthCookieTransport } from '../transport/cookie'
@@ -16,7 +16,7 @@ function makeAuth(
     lockoutHandler: boolean
   }> = {},
 ) {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const o = {
     limiter: true,
     secureCookie: true,
@@ -60,12 +60,12 @@ describe('AuthEngine.strict()', () => {
   })
 
   describe('production rejections', () => {
-    it('rejects missing AuthLimiter', () => {
+    it('rejects missing Limiter', () => {
       const auth = makeAuth({ limiter: false })
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
-          code: 'AUTH/MISCONFIGURED',
-          meta: expect.objectContaining({ detail: expect.stringMatching(/AuthLimiter adapter required/) }),
+          code: 'AUTH_MISCONFIGURED',
+          meta: expect.objectContaining({ detail: expect.stringMatching(/Limiter adapter required/) }),
         }),
       )
     })
@@ -74,7 +74,7 @@ describe('AuthEngine.strict()', () => {
       const auth = makeAuth()
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
-          code: 'AUTH/MISCONFIGURED',
+          code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/Memory adapter .*rejected/) }),
         }),
       )
@@ -84,7 +84,7 @@ describe('AuthEngine.strict()', () => {
       const auth = makeAuth({ secureCookie: false })
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
-          code: 'AUTH/MISCONFIGURED',
+          code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/secure=false/) }),
         }),
       )
@@ -94,7 +94,7 @@ describe('AuthEngine.strict()', () => {
       const auth = makeAuth({ providers: false })
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
-          code: 'AUTH/MISCONFIGURED',
+          code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/no provider registered/) }),
         }),
       )
@@ -104,14 +104,14 @@ describe('AuthEngine.strict()', () => {
       const auth = makeAuth({ lockoutHandler: false })
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
-          code: 'AUTH/MISCONFIGURED',
+          code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/lockout.*event handler/) }),
         }),
       )
     })
 
     it('rejects an explicitly-passed AuthNoopLimiter (not just missing limiter)', async () => {
-      const adapter = new AuthMemoryAdapter<MyProfile>()
+      const adapter = new MemoryAdapter<MyProfile>()
       const { AuthNoopLimiter } = await import('../engine')
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'https://app.example.com',
@@ -134,7 +134,7 @@ describe('AuthEngine.strict()', () => {
       auth.events.on('lockout', () => {})
       expect(() => auth.strict({ env: 'production' })).toThrow(
         expect.objectContaining({
-          code: 'AUTH/MISCONFIGURED',
+          code: 'AUTH_MISCONFIGURED',
           meta: expect.objectContaining({ detail: expect.stringMatching(/AuthNoopLimiter rejected/) }),
         }),
       )
@@ -151,12 +151,12 @@ describe('AuthEngine.strict()', () => {
         // (cookie still flagged because the test helper uses memory adapter
         // matching the constructor name heuristic too, so it surfaces in
         // the error list).
-        expect(msg).toContain('AUTH/MISCONFIGURED')
+        expect(msg).toContain('AUTH_MISCONFIGURED')
       }
     })
 
     it('refuses http:// baseUrl in production', () => {
-      const adapter = new AuthMemoryAdapter<MyProfile>()
+      const adapter = new MemoryAdapter<MyProfile>()
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'http://app.example.com',
         transport: new AuthCookieTransport({ secure: true, name: 'duck-sid' }),

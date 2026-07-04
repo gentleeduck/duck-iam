@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { AuthCookieTransport } from '../../transport/cookie'
@@ -9,7 +9,7 @@ interface MyProfile {
 }
 
 function buildAuth(): AuthEngine<MyProfile> {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   return new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -31,7 +31,7 @@ describe('FlowsFacet provider id reflection-DoS defense', () => {
       throw new Error('expected AUTH/PROVIDER_FAILED')
     } catch (err) {
       const e = err as { code?: string; meta?: { providerId?: string } }
-      expect(e.code).toBe('AUTH/PROVIDER_FAILED')
+      expect(e.code).toBe('AUTH_PROVIDER_FAILED')
       expect(e.meta?.providerId).toBe('invalid')
     }
   })
@@ -43,7 +43,7 @@ describe('FlowsFacet provider id reflection-DoS defense', () => {
       throw new Error('expected AUTH/PROVIDER_FAILED')
     } catch (err) {
       const e = err as { code?: string; meta?: { providerId?: string } }
-      expect(e.code).toBe('AUTH/PROVIDER_FAILED')
+      expect(e.code).toBe('AUTH_PROVIDER_FAILED')
       expect(e.meta?.providerId).toBe('nope')
     }
   })
@@ -56,7 +56,7 @@ describe('FlowsFacet provider id reflection-DoS defense', () => {
       throw new Error('expected AUTH/PROVIDER_FAILED')
     } catch (err) {
       const e = err as { code?: string; meta?: { providerId?: string } }
-      expect(e.code).toBe('AUTH/PROVIDER_FAILED')
+      expect(e.code).toBe('AUTH_PROVIDER_FAILED')
       expect(e.meta?.providerId).toBe('invalid')
     }
   })
@@ -68,7 +68,7 @@ describe('FlowsFacet provider id reflection-DoS defense', () => {
       throw new Error('expected AUTH/PROVIDER_FAILED')
     } catch (err) {
       const e = err as { code?: string; meta?: { providerId?: string } }
-      expect(e.code).toBe('AUTH/PROVIDER_FAILED')
+      expect(e.code).toBe('AUTH_PROVIDER_FAILED')
       expect(e.meta?.providerId).toBe('invalid')
     }
   })

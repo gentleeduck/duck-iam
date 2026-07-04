@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { AuthScryptHasher } from '../../password/scrypt'
@@ -11,9 +11,9 @@ interface MyProfile {
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
-  adapter: AuthMemoryAdapter<MyProfile>
+  adapter: MemoryAdapter<MyProfile>
 } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -30,7 +30,7 @@ function buildAuth(): {
 
 describe('FlowsFacet - account linking', () => {
   let auth: AuthEngine<MyProfile>
-  let adapter: AuthMemoryAdapter<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
   let identityA: string
   let identityB: string
 
@@ -85,7 +85,7 @@ describe('FlowsFacet - account linking', () => {
         providerId: 'authGoogle',
         providerSub: 'authGoogle|111',
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('linkProvider rejects unknown identity', async () => {
@@ -95,7 +95,7 @@ describe('FlowsFacet - account linking', () => {
         providerId: 'authGoogle',
         providerSub: 'authGoogle|111',
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/UNAUTHENTICATED' })
+    ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
   })
 
   it('unlinkProvider removes the link', async () => {
@@ -118,7 +118,7 @@ describe('FlowsFacet - account linking', () => {
       providerSub: 'authGoogle|111',
     })
     await expect(auth.flows.unlinkProvider({ identityId: identityA, providerId: 'authGoogle' })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 

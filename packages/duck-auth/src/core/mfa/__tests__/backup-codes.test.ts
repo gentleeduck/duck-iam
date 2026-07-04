@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authRandomToken, authSha256 } from '../../crypto'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { RandomToken, sha256 } from '../../crypto'
 import { AuthBackupCodesFacet } from '../backup-codes'
 
 describe('AuthBackupCodesFacet', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let facet: AuthBackupCodesFacet
   let identityId: string
 
   beforeEach(async () => {
-    adapter = new AuthMemoryAdapter()
-    facet = new AuthBackupCodesFacet(adapter.credentials, { authRandomToken, authSha256 })
+    adapter = new MemoryAdapter()
+    facet = new AuthBackupCodesFacet(adapter.credentials, { authRandomToken: RandomToken, authSha256: sha256 })
     const ident = await adapter.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
     identityId = ident.id
   })
@@ -41,10 +41,10 @@ describe('AuthBackupCodesFacet', () => {
   it('verify throws AUTH/RECOVERY_TOKEN_INVALID on obviously bogus input', async () => {
     await facet.generate(identityId)
     await expect(facet.verify(identityId, '')).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
     await expect(facet.verify(identityId, 'AB')).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
   })
 
@@ -79,7 +79,7 @@ describe('AuthBackupCodesFacet', () => {
   it('respects custom count config', async () => {
     const small = new AuthBackupCodesFacet(
       adapter.credentials,
-      { authRandomToken, authSha256 },
+      { authRandomToken: RandomToken, authSha256: sha256 },
       { count: 3, byteLength: 5, groupFour: true },
     )
     const { codes } = await small.generate(identityId)

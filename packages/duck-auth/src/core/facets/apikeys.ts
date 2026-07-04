@@ -1,8 +1,8 @@
 import { isCredentialExpired } from '../credential-utils'
-import { AuthErrorObject } from '../errors'
-import type { AuthTenantContext } from '../types/context'
-import type { AuthCredential } from '../types/credential'
-import type { AuthEvents } from '../types/events'
+import { AuthError } from '../errors'
+import type { Credential } from '../types/identity'
+import type { TenantContext } from '../types/infra'
+import type { Events } from '../types/provider'
 
 export const DEFAULT_APIKEYS_CONFIG: ApiKeysFacet.IConfig = {
   prefix: 'ak_live_',
@@ -20,8 +20,8 @@ export const DEFAULT_APIKEYS_CONFIG: ApiKeysFacet.IConfig = {
  */
 export class ApiKeysFacet {
   constructor(
-    private readonly _credentials: AuthCredential.IStore,
-    readonly _events: AuthEvents.IBus,
+    private readonly _credentials: Credential.Store,
+    readonly _events: Events.IBus,
     private readonly _crypto: {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
@@ -33,17 +33,17 @@ export class ApiKeysFacet {
   async create(
     identityId: string,
     opts: { name: string; scopes: string[]; expiresAt?: number; tenantId?: string },
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<ApiKeysFacet.ICreatedApiKey> {
     if (typeof opts.name !== 'string' || opts.name.length > 128) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'apikeys.create: name must be a string <=128 chars' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'apikeys.create: name must be a string <=128 chars' })
     }
     if (!Array.isArray(opts.scopes) || opts.scopes.length > 64) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'apikeys.create: scopes must be array <=64' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'apikeys.create: scopes must be array <=64' })
     }
     for (const s of opts.scopes) {
       if (typeof s !== 'string' || s.length === 0 || s.length > 128) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'apikeys.create: each scope must be a non-empty string <=128 chars',
         })
       }
@@ -57,7 +57,7 @@ export class ApiKeysFacet {
         kind: 'api-key',
         secret: hash,
         metadata: { name: opts.name, scopes: opts.scopes },
-        ...(opts.expiresAt !== undefined && { expiresAt: opts.expiresAt }),
+        ...(opts.expiresAt !== undefined && { expiresAt: new Date(opts.expiresAt) }),
         ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
       },
       ctx,
@@ -68,16 +68,16 @@ export class ApiKeysFacet {
       name: opts.name,
       scopes: opts.scopes,
       createdAt: cred.createdAt,
-      ...(opts.expiresAt !== undefined && { expiresAt: opts.expiresAt }),
+      ...(opts.expiresAt !== undefined && { expiresAt: new Date(opts.expiresAt) }),
     }
     return { key, plaintext }
   }
 
   /** List the api keys belonging to an identity. No plaintext returned. */
-  async list(identityId: string, ctx: AuthTenantContext = {}): Promise<ApiKeysFacet.IApiKey[]> {
+  async list(identityId: string, ctx: TenantContext = {}): Promise<ApiKeysFacet.IApiKey[]> {
     const rows = await this._credentials.listByIdentity(identityId, 'api-key', ctx)
     return rows
-      .filter((r) => r.revokedAt === undefined)
+      .filter((r) => r.revokedAt == null)
       .map((r) => {
         const meta = parseApiKeyMetadata(r.metadata)
         const k: ApiKeysFacet.IApiKey = {
@@ -87,14 +87,14 @@ export class ApiKeysFacet {
           scopes: meta.scopes,
           createdAt: r.createdAt,
         }
-        if (r.lastUsedAt !== undefined) k.lastUsedAt = r.lastUsedAt
-        if (r.expiresAt !== undefined) k.expiresAt = r.expiresAt
+        if (r.lastUsedAt != null) k.lastUsedAt = r.lastUsedAt
+        if (r.expiresAt != null) k.expiresAt = r.expiresAt
         return k
       })
   }
 
   /** Revoke an api key by row id. Used by UI "delete key" flow. */
-  async revoke(keyId: string, ctx: AuthTenantContext = {}): Promise<void> {
+  async revoke(keyId: string, ctx: TenantContext = {}): Promise<void> {
     await this._credentials.revoke(keyId, ctx)
   }
 
@@ -102,10 +102,10 @@ export class ApiKeysFacet {
    * Rotate: issues a new plaintext, marks the old row revoked. Caller
    * tells consumers to swap. Returns the new plaintext exactly once.
    */
-  async rotate(keyId: string, ctx: AuthTenantContext = {}): Promise<ApiKeysFacet.ICreatedApiKey> {
+  async rotate(keyId: string, ctx: TenantContext = {}): Promise<ApiKeysFacet.ICreatedApiKey> {
     const existing = await this._credentials.findById(keyId, ctx)
     if (existing?.kind !== 'api-key') {
-      throw new AuthErrorObject('AUTH/APIKEY_INVALID')
+      throw new AuthError('AUTH_APIKEY_INVALID')
     }
     const meta = parseApiKeyMetadata(existing.metadata)
     await this._credentials.revoke(keyId, ctx)
@@ -114,7 +114,7 @@ export class ApiKeysFacet {
       {
         name: meta.name,
         scopes: meta.scopes,
-        ...(existing.expiresAt !== undefined && { expiresAt: existing.expiresAt }),
+        ...(existing.expiresAt != null && { expiresAt: existing.expiresAt.getTime() }),
       },
       ctx,
     )
@@ -126,30 +126,30 @@ export class ApiKeysFacet {
    */
   async verify(
     plaintext: string,
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<{ identityId: string; keyId: string; scopes: string[]; tenantId?: string }> {
     // 512-char cap before sha256 prevents multi-MB DoS via hashing.
     if (typeof plaintext !== 'string' || plaintext.length > 512) {
-      throw new AuthErrorObject('AUTH/APIKEY_INVALID')
+      throw new AuthError('AUTH_APIKEY_INVALID')
     }
     if (!plaintext.startsWith(this._cfg.prefix)) {
       // Synthetic sha256+lookup so prefix mismatch timing matches success path.
       this._crypto.authSha256(plaintext)
       await this._credentials.findByHashedSecret('___invalid_prefix___', 'api-key', ctx).catch(() => null)
-      throw new AuthErrorObject('AUTH/APIKEY_INVALID')
+      throw new AuthError('AUTH_APIKEY_INVALID')
     }
     const hash = this._crypto.authSha256(plaintext)
     const row = await this._credentials.findByHashedSecret(hash, 'api-key', ctx)
-    if (!row) throw new AuthErrorObject('AUTH/APIKEY_INVALID')
-    if (row.revokedAt !== undefined) throw new AuthErrorObject('AUTH/APIKEY_REVOKED')
-    if (isCredentialExpired(row)) throw new AuthErrorObject('AUTH/APIKEY_REVOKED')
+    if (!row) throw new AuthError('AUTH_APIKEY_INVALID')
+    if (row.revokedAt != null) throw new AuthError('AUTH_APIKEY_REVOKED')
+    if (isCredentialExpired(row)) throw new AuthError('AUTH_APIKEY_REVOKED')
     void this._credentials.rotate(row.id, row.secret, row.version, ctx).catch(() => {})
     const meta = parseApiKeyMetadata(row.metadata)
     return {
       identityId: row.identityId,
       keyId: row.id,
       scopes: meta.scopes,
-      ...(row.tenantId !== undefined && { tenantId: row.tenantId }),
+      ...(row.tenantId != null && { tenantId: row.tenantId }),
     }
   }
 
@@ -159,11 +159,11 @@ export class ApiKeysFacet {
    */
   requireScopes(have: string[], required: string[]): void {
     if (!Array.isArray(have) || !Array.isArray(required)) {
-      throw new AuthErrorObject('AUTH/APIKEY_SCOPE_INSUFFICIENT', { required: [], have: [] })
+      throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', { required: [], have: [] })
     }
     const missing = required.filter((s) => !have.includes(s))
     if (missing.length > 0) {
-      throw new AuthErrorObject('AUTH/APIKEY_SCOPE_INSUFFICIENT', {
+      throw new AuthError('AUTH_APIKEY_SCOPE_INSUFFICIENT', {
         required,
         have,
       })
@@ -184,10 +184,10 @@ export namespace ApiKeysFacet {
     identityId: string
     name: string
     scopes: string[]
-    createdAt: number
-    lastUsedAt?: number
-    expiresAt?: number
-    revokedAt?: number
+    createdAt: Date
+    lastUsedAt?: Date
+    expiresAt?: Date
+    revokedAt?: Date
   }
 
   export interface ICreatedApiKey {

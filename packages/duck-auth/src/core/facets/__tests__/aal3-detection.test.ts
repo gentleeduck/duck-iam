@@ -5,17 +5,17 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { InMemoryEvents } from '../../events'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
 
 describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let facet: MfaFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
-    facet = new MfaFacet(adapter.credentials, new AuthInMemoryEvents(), DEFAULT_MFA_CONFIG)
+    adapter = new MemoryAdapter()
+    facet = new MfaFacet(adapter.credentials, new InMemoryEvents(), DEFAULT_MFA_CONFIG)
   })
 
   it('returns 3 when the user has a hardware-bound passkey + signed in with passkey', async () => {

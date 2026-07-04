@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../adapters/memory'
+import { MemoryAdapter } from '../../adapters/memory'
 import { AuthMemoryLimiter } from '../../limiters/memory'
 import { AuthEngine } from '../engine'
 import { AuthCookieTransport } from '../transport/cookie'
 
 describe('Plugin system', () => {
   function buildAuth() {
-    const adapter = new AuthMemoryAdapter()
+    const adapter = new MemoryAdapter()
     return new AuthEngine({
       baseUrl: 'https://x',
       transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -74,7 +74,7 @@ describe('Plugin system', () => {
     await auth.use({ id: 'demo', providers: [p] })
     // Re-using provider id from a different plugin id surfaces via providers facet.
     await expect(auth.use({ id: 'demo2', providers: [p] })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 

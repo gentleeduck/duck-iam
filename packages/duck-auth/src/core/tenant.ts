@@ -1,9 +1,9 @@
 /** Per-request tenant scope via AsyncLocalStorage. */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import type { AuthTenantContext } from './types/context'
+import type { TenantContext } from './types/infra'
 
-const _als = new AsyncLocalStorage<AuthTenantContext>()
+const _als = new AsyncLocalStorage<TenantContext>()
 
 /** Run `fn` with `tenantId` bound; `authCurrentTenant()` resolves to the value across awaits. */
 export function authWithTenant<T>(tenantId: string | undefined, fn: () => T | Promise<T>): T | Promise<T> {
@@ -11,17 +11,17 @@ export function authWithTenant<T>(tenantId: string | undefined, fn: () => T | Pr
 }
 
 /** Read the current tenant scope; prefer {@link authResolveTenant} for caller-supplied overrides. */
-export function authCurrentTenant(): AuthTenantContext | undefined {
+export function authCurrentTenant(): TenantContext | undefined {
   return _als.getStore()
 }
 
 /**
- * Pick the effective `AuthTenantContext` for a call. Explicit
+ * Pick the effective `TenantContext` for a call. Explicit
  * caller-supplied context wins over the ALS ambient (so callers can
  * still scope a single call across a different tenant - `authWithTenant`
  * is a default, not a fence).
  */
-export function authResolveTenant(explicit?: AuthTenantContext): AuthTenantContext {
+export function authResolveTenant(explicit?: TenantContext): TenantContext {
   if (explicit !== undefined && explicit.tenantId !== undefined) return explicit
   return _als.getStore() ?? {}
 }

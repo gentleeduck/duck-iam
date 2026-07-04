@@ -1,34 +1,33 @@
 import type { HijackFacet } from '../facets/hijack'
-import type { AuthCredential } from '../types/credential'
-import type { AuthEvents } from '../types/events'
-import type { AuthHasher } from '../types/hasher'
-import type { AuthIdentity } from '../types/identity'
-import type { AuthLimiter } from '../types/limiter'
-import type { AuthOrg } from '../types/org'
-import type { AuthProvider } from '../types/provider'
-import type { AuthSession } from '../types/session'
-import type { AuthTransport } from '../types/transport'
+import type { Credential, Identity, Org } from '../types/identity'
+import type { Hasher, Limiter } from '../types/infra'
+import type { AuthProvider, Events } from '../types/provider'
+import type { Session, Transport } from '../types/session'
 
-export namespace AuthEngineTypes {
+export namespace Engine {
   /**
-   * Configuration for creating an {@link AuthEngine} instance.
+   * Configuration for creating an {@link Engine} instance.
    *
    * @template Profile  - Shape of the user profile stored on identities.
    * @template Tenant   - Tenant discriminator type.
    * @template OrgMeta  - Shape of organization metadata.
    */
-  export interface IConfig<Profile = unknown, Tenant = string, OrgMeta = unknown> {
+  export type Config<
+    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Tenant = string,
+    OrgMeta = unknown,
+  > = {
     baseUrl: string
-    transport: AuthTransport.ITransport
+    transport: Transport.ITransport
     stores: {
-      identities: AuthIdentity.IStore<Profile>
-      sessions: AuthSession.IStore
-      credentials: AuthCredential.IStore
-      orgs?: AuthOrg.IStore<OrgMeta>
+      identities: Identity.Store<Profile>
+      sessions: Session.Store
+      credentials: Credential.Store
+      orgs?: Org.Store<OrgMeta>
     }
-    limiter?: AuthLimiter.ILimiter
+    limiter?: Limiter.ILimiter
     providers?: AuthProvider.IProvider<unknown, unknown, Profile>[]
-    events?: AuthEvents.IBus
+    events?: Events.IBus
     session?: {
       ttlMs?: number
       absoluteTtlMs?: number
@@ -46,7 +45,7 @@ export namespace AuthEngineTypes {
       maxLength?: number
       rejectCommon?: boolean
       /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
-      hasher?: AuthHasher.IHasher
+      hasher?: Hasher.IHasher
     }
     mfa?: {
       /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */

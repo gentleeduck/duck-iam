@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { totpAt } from '../../mfa/totp'
 import { AuthScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
-import type { AuthChannel } from '../../types/channel'
+import type { Channel } from '../../types/infra'
 
 interface MyProfile {
   email: string
 }
 
-function fakeChannel(): AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
   return {
     kind: 'email',
@@ -28,10 +28,10 @@ function fakeChannel(): AuthChannel.IChannel & { sent: Array<{ to: string; url: 
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
-  adapter: AuthMemoryAdapter<MyProfile>
-  channel: AuthChannel.IChannel & { sent: Array<{ to: string; url: string }> }
+  adapter: MemoryAdapter<MyProfile>
+  channel: Channel.IChannel & { sent: Array<{ to: string; url: string }> }
 } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const channel = fakeChannel()
   const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
@@ -60,8 +60,8 @@ describe('FlowsFacet - step-up', () => {
       kind: 'user',
       aal: 2,
       factors: [
-        { method: 'password', completedAt: Date.now() },
-        { method: 'totp', completedAt: Date.now() },
+        { method: 'password', completedAt: new Date() },
+        { method: 'totp', completedAt: new Date() },
       ],
     })
     const r = await auth.flows.checkStepUp(session, { aal: 2 })
@@ -74,7 +74,7 @@ describe('FlowsFacet - step-up', () => {
       identityId: 'u',
       kind: 'user',
       aal: 1,
-      factors: [{ method: 'password', completedAt: Date.now() }],
+      factors: [{ method: 'password', completedAt: new Date() }],
     })
     const r = await auth.flows.checkStepUp(session, { aal: 2 })
     expect(r.satisfied).toBe(false)
@@ -94,7 +94,7 @@ describe('FlowsFacet - step-up', () => {
       identityId: identity.id,
       kind: 'user',
       aal: 1,
-      factors: [{ method: 'password', completedAt: Date.now() }],
+      factors: [{ method: 'password', completedAt: new Date() }],
     })
     expect(aal1.aal).toBe(1)
 
@@ -118,10 +118,10 @@ describe('FlowsFacet - step-up', () => {
       identityId: identity.id,
       kind: 'user',
       aal: 1,
-      factors: [{ method: 'password', completedAt: Date.now() }],
+      factors: [{ method: 'password', completedAt: new Date() }],
     })
     await expect(auth.flows.completeStepUp({ currentSid: sid, method: 'totp', code: '000000' })).rejects.toMatchObject({
-      code: 'AUTH/INVALID_CREDENTIALS',
+      code: 'AUTH_INVALID_CREDENTIALS',
     })
   })
 })
@@ -196,7 +196,7 @@ describe('FlowsFacet - password reset', () => {
     const token = tokenFrom(channel.sent[0]?.url ?? '')
     await auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })
     await expect(auth.flows.completePasswordReset({ token, newPassword: 'second-new-password' })).rejects.toMatchObject(
-      { code: 'AUTH/RECOVERY_TOKEN_INVALID' },
+      { code: 'AUTH_RECOVERY_TOKEN_INVALID' },
     )
   })
 
@@ -216,7 +216,7 @@ describe('FlowsFacet - password reset', () => {
 
     // No currentSid -> reset refused.
     await expect(auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_REQUIRES_MFA',
+      code: 'AUTH_RECOVERY_REQUIRES_MFA',
     })
 
     // AAL=1 session -> still refused.
@@ -224,11 +224,11 @@ describe('FlowsFacet - password reset', () => {
       identityId: identity.id,
       kind: 'user',
       aal: 1,
-      factors: [{ method: 'password', completedAt: Date.now() }],
+      factors: [{ method: 'password', completedAt: new Date() }],
     })
     await expect(
       auth.flows.completePasswordReset({ token, newPassword: 'new-password-9', currentSid: aal1Sid }),
-    ).rejects.toMatchObject({ code: 'AUTH/RECOVERY_REQUIRES_MFA' })
+    ).rejects.toMatchObject({ code: 'AUTH_RECOVERY_REQUIRES_MFA' })
 
     // Fresh AAL=2 session -> reset allowed.
     const { sid: aal2Sid } = await auth.sessions.create({
@@ -236,8 +236,8 @@ describe('FlowsFacet - password reset', () => {
       kind: 'user',
       aal: 2,
       factors: [
-        { method: 'password', completedAt: Date.now() },
-        { method: 'totp', completedAt: Date.now() },
+        { method: 'password', completedAt: new Date() },
+        { method: 'totp', completedAt: new Date() },
       ],
     })
     await expect(
@@ -260,7 +260,7 @@ describe('FlowsFacet - password reset', () => {
     if (!cred) throw new Error('missing credential')
     ;(cred as { expiresAt?: number }).expiresAt = Date.now() - 1
     await expect(auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_EXPIRED',
+      code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
     })
   })
 
@@ -280,7 +280,7 @@ describe('FlowsFacet - password reset', () => {
     await expect(
       auth.flows.completePasswordReset({ token: verifyToken, newPassword: 'evil-password' }),
     ).rejects.toMatchObject({
-      code: 'AUTH/RECOVERY_TOKEN_INVALID',
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
     })
 
     // Original password still works.
@@ -303,7 +303,7 @@ describe('FlowsFacet - password reset', () => {
 
     await expect(
       auth.flows.completePasswordReset({ token: deleteToken, newPassword: 'evil-password' }),
-    ).rejects.toMatchObject({ code: 'AUTH/RECOVERY_TOKEN_INVALID' })
+    ).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
 
     void adapter
   })
@@ -316,6 +316,6 @@ describe('FlowsFacet - password reset', () => {
 
     await expect(
       auth.flows.completePasswordReset({ token: begin.flowToken, newPassword: 'evil-password' }),
-    ).rejects.toMatchObject({ code: 'AUTH/RECOVERY_TOKEN_INVALID' })
+    ).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
   })
 })

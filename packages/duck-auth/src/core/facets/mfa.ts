@@ -1,11 +1,22 @@
+import type { AuthPasskeyTypes } from '../../providers/passkey/types'
 import { isProfileBooleanTrue } from '../credential-utils'
-import { authSha256, authTimingSafeEqual } from '../crypto'
-import { AuthErrorObject } from '../errors'
+import { sha256, timingSafeEqual } from '../crypto'
+import { AuthError } from '../errors'
 import { authGenerateSecret, authVerifyTotp, buildOtpAuthUri } from '../mfa/totp'
-import type { AuthTenantContext } from '../types/context'
-import type { AuthCredential } from '../types/credential'
-import type { AuthEvents } from '../types/events'
-import type { AuthSession } from '../types/session'
+import type { Credential } from '../types/identity'
+import type { TenantContext } from '../types/infra'
+import type { Events } from '../types/provider'
+import type { Session } from '../types/session'
+
+// Minimal metadata shapes read by MfaFacet — defined locally to avoid
+// core → provider dependency direction.
+interface ITotpMetadata {
+  confirmed?: boolean
+}
+interface IPasskeyMetadata {
+  deviceType?: string
+  backedUp?: boolean
+}
 
 export const DEFAULT_MFA_CONFIG: MfaFacet.IConfig = {
   issuer: 'duck-auth',
@@ -25,8 +36,8 @@ export const DEFAULT_MFA_CONFIG: MfaFacet.IConfig = {
  */
 export class MfaFacet {
   constructor(
-    private readonly _credentials: AuthCredential.IStore,
-    private readonly _events: AuthEvents.IBus,
+    private readonly _credentials: Credential.Store,
+    private readonly _events: Events.IBus,
     private readonly _cfg: MfaFacet.IConfig = DEFAULT_MFA_CONFIG,
   ) {}
 
@@ -40,12 +51,12 @@ export class MfaFacet {
   async beginTotpEnrollment(
     identityId: string,
     accountName: string,
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<MfaFacet.ITotpEnrollChallenge> {
     // Cap accountName so a multi-MB string cannot bloat the otpauth URI
     // (and therefore the QR-code SVG payload returned to the client).
     if (typeof accountName !== 'string' || accountName.length === 0 || accountName.length > 256) {
-      throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
+      throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
     const secret = authGenerateSecret()
     await this._credentials.deleteByKind(identityId, 'totp', ctx)
@@ -72,11 +83,11 @@ export class MfaFacet {
   async confirmTotpEnrollment(
     identityId: string,
     code: string,
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<{ ok: true; backupCodes: string[] } | { ok: false }> {
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
-    const row = rows.find((r) => (r.metadata as { confirmed?: boolean } | undefined)?.confirmed === false)
-    if (!row) throw new AuthErrorObject('AUTH/MFA_REQUIRED', { methods: ['totp'] })
+    const row = rows.find((r) => (r.metadata as ITotpMetadata | undefined)?.confirmed === false)
+    if (!row) throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['totp'] })
     if (!authVerifyTotp(row.secret, code)) return { ok: false }
 
     await this._credentials.patchMetadata(row.id, { confirmed: true }, ctx)
@@ -88,24 +99,24 @@ export class MfaFacet {
   }
 
   /** Verify a TOTP code against the confirmed enrollment. Used by step-up. */
-  async verifyTotp(identityId: string, code: string, ctx: AuthTenantContext = {}): Promise<boolean> {
+  async verifyTotp(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
     if (typeof code !== 'string' || code.length === 0 || code.length > 64) return false
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
-    const row = rows.find((r) => r.revokedAt === undefined && isProfileBooleanTrue(r.metadata, 'confirmed'))
+    const row = rows.find((r) => r.revokedAt == null && isProfileBooleanTrue(r.metadata, 'confirmed'))
     if (!row) return false
     if (typeof row.secret !== 'string') return false
     return authVerifyTotp(row.secret, code)
   }
 
   /** True if the identity has a confirmed TOTP enrollment. */
-  async hasTotp(identityId: string, ctx: AuthTenantContext = {}): Promise<boolean> {
+  async hasTotp(identityId: string, ctx: TenantContext = {}): Promise<boolean> {
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
     // see authVerifyTotp - strict-boolean read.
-    return rows.some((r) => r.revokedAt === undefined && isProfileBooleanTrue(r.metadata, 'confirmed'))
+    return rows.some((r) => r.revokedAt == null && isProfileBooleanTrue(r.metadata, 'confirmed'))
   }
 
   /** Remove all TOTP credentials for the identity. Emits `mfa.removed`. */
-  async removeTotp(identityId: string, ctx: AuthTenantContext = {}): Promise<void> {
+  async removeTotp(identityId: string, ctx: TenantContext = {}): Promise<void> {
     if (typeof identityId !== 'string' || identityId.length === 0 || identityId.length > 256) return
     await this._credentials.deleteByKind(identityId, 'totp', ctx)
     await this._events.emit('mfa.removed', { identityId, method: 'totp' })
@@ -118,16 +129,16 @@ export class MfaFacet {
    * Generic ok:boolean - callers map false to AUTH/INVALID_CREDENTIALS so
    * an attacker cannot infer "code exists but wrong" vs "code unknown".
    */
-  async verifyBackupCode(identityId: string, code: string, ctx: AuthTenantContext = {}): Promise<boolean> {
+  async verifyBackupCode(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
     // 64-char cap before sha256 to refuse multi-MB DoS.
     if (typeof code !== 'string' || code.length === 0 || code.length > 64) return false
-    const codeHash = authSha256(code.trim().toLowerCase())
+    const codeHash = sha256(code.trim().toLowerCase())
     const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
     // Iterate all rows with timingSafeEqual to flatten the per-byte
     // timing signal an attacker could use to recover the short code.
-    let matched: AuthCredential.ICredential | undefined
+    let matched: Credential.Me | undefined
     for (const r of rows) {
-      if (r.revokedAt === undefined && authTimingSafeEqual(r.secret, codeHash) && matched === undefined) {
+      if (r.revokedAt == null && timingSafeEqual(r.secret, codeHash) && matched === undefined) {
         matched = r
       }
     }
@@ -137,11 +148,11 @@ export class MfaFacet {
   }
 
   /** Regenerate backup codes; returns plaintext once. Previous codes revoked. */
-  async regenerateBackupCodes(identityId: string, ctx: AuthTenantContext = {}): Promise<string[]> {
+  async regenerateBackupCodes(identityId: string, ctx: TenantContext = {}): Promise<string[]> {
     return this._regenerateBackupCodes(identityId, ctx)
   }
 
-  private async _regenerateBackupCodes(identityId: string, ctx: AuthTenantContext): Promise<string[]> {
+  private async _regenerateBackupCodes(identityId: string, ctx: TenantContext): Promise<string[]> {
     await this._credentials.deleteByKind(identityId, 'recovery', ctx)
     const codes: string[] = []
     for (let i = 0; i < this._cfg.backupCodeCount; i++) {
@@ -151,7 +162,7 @@ export class MfaFacet {
         {
           identityId,
           kind: 'recovery',
-          secret: authSha256(code.toLowerCase()),
+          secret: sha256(code.toLowerCase()),
         },
         ctx,
       )
@@ -186,8 +197,8 @@ export class MfaFacet {
   async beginWebauthnMfaEnrollment(
     identityId: string,
     opts: MfaFacet.IWebauthnMfaEnrollOpts,
-    ctx: AuthTenantContext = {},
-  ): Promise<Record<string, unknown>> {
+    ctx: TenantContext = {},
+  ): Promise<AuthPasskeyTypes.IRegistrationOptions> {
     void ctx
     const webauthn = await loadWebAuthnMfa(opts.webauthnModule)
     const options = await webauthn.generateRegistrationOptions({
@@ -203,17 +214,17 @@ export class MfaFacet {
       supportedAlgorithmIDs: opts.supportedAlgorithmIDs ?? [-8, -7, -257],
     })
     await opts.challengeStore.put(`mfa-reg:${opts.challengeKey}`, options.challenge, opts.challengeTtlMs ?? 5 * 60_000)
-    return options as unknown as Record<string, unknown>
+    return options
   }
 
   /** Confirm WebAuthn-MFA enrollment + persist the credential row. */
   async confirmWebauthnMfaEnrollment(
     identityId: string,
     opts: MfaFacet.IWebauthnMfaConfirmOpts,
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<{ credentialId: string }> {
     const challenge = await opts.challengeStore.take(`mfa-reg:${opts.challengeKey}`)
-    if (!challenge) throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+    if (!challenge) throw new AuthError('AUTH_PASSKEY_MISMATCH')
     const webauthn = await loadWebAuthnMfa(opts.webauthnModule)
     const v = await webauthn.verifyRegistrationResponse({
       response: opts.response,
@@ -222,7 +233,7 @@ export class MfaFacet {
       expectedRPID: opts.rpID,
       requireUserVerification: (opts.userVerification ?? 'preferred') === 'required',
     })
-    if (!v.verified || !v.registrationInfo) throw new AuthErrorObject('AUTH/PASSKEY_MISMATCH')
+    if (!v.verified || !v.registrationInfo) throw new AuthError('AUTH_PASSKEY_MISMATCH')
     const cred = v.registrationInfo.credential
     const row = await this._credentials.upsert(
       {
@@ -247,15 +258,15 @@ export class MfaFacet {
   async beginWebauthnMfaVerify(
     identityId: string,
     opts: MfaFacet.IWebauthnMfaVerifyBeginOpts,
-    ctx: AuthTenantContext = {},
-  ): Promise<Record<string, unknown>> {
+    ctx: TenantContext = {},
+  ): Promise<AuthPasskeyTypes.IAuthenticationOptions> {
     const webauthn = await loadWebAuthnMfa(opts.webauthnModule)
     const creds = await this._credentials.listByIdentity(identityId, 'webauthn-mfa', ctx)
     const allowCredentials = creds
       // see authVerifyTotp; `!c.revokedAt` let `revokedAt: 0` through
       // as live. Defense ensures revoked WebAuthn-MFA credentials are
       // not offered as allowCredentials in the next assertion challenge.
-      .filter((c) => c.revokedAt === undefined)
+      .filter((c) => c.revokedAt == null)
       .map((c) => ({ id: c.secret, type: 'public-key' as const }))
     const options = await webauthn.generateAuthenticationOptions({
       rpID: opts.rpID,
@@ -263,7 +274,7 @@ export class MfaFacet {
       userVerification: opts.userVerification ?? 'preferred',
     })
     await opts.challengeStore.put(`mfa-auth:${opts.challengeKey}`, options.challenge, opts.challengeTtlMs ?? 5 * 60_000)
-    return options as unknown as Record<string, unknown>
+    return options
   }
 
   /** Verify a WebAuthn-MFA assertion. Rejects on signature mismatch,
@@ -271,7 +282,7 @@ export class MfaFacet {
   async verifyWebauthnMfa(
     identityId: string,
     opts: MfaFacet.IWebauthnMfaVerifyOpts,
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<boolean> {
     const challenge = await opts.challengeStore.take(`mfa-auth:${opts.challengeKey}`)
     if (!challenge) return false
@@ -283,7 +294,7 @@ export class MfaFacet {
     const credId = idRaw
     const cred = await this._credentials.findByHashedSecret(credId, 'webauthn-mfa', ctx)
     // Explicit `!== undefined`: falsy check would let `revokedAt: 0` pass as not-revoked.
-    if (!cred || cred.identityId !== identityId || cred.revokedAt !== undefined) return false
+    if (!cred || cred.identityId !== identityId || cred.revokedAt != null) return false
     // Fail-closed shape validation; out-of-sync metadata must not reach Buffer.from.
     const meta = parseWebauthnMfaMetadata(cred.metadata)
     if (!meta) return false
@@ -323,13 +334,13 @@ export class MfaFacet {
   }
 
   /** True if the identity has at least one active WebAuthn-MFA credential. */
-  async hasWebauthnMfa(identityId: string, ctx: AuthTenantContext = {}): Promise<boolean> {
+  async hasWebauthnMfa(identityId: string, ctx: TenantContext = {}): Promise<boolean> {
     const rows = await this._credentials.listByIdentity(identityId, 'webauthn-mfa', ctx)
-    return rows.some((r) => r.revokedAt === undefined)
+    return rows.some((r) => r.revokedAt == null)
   }
 
   /** Remove every WebAuthn-MFA credential for the identity. */
-  async removeWebauthnMfa(identityId: string, ctx: AuthTenantContext = {}): Promise<void> {
+  async removeWebauthnMfa(identityId: string, ctx: TenantContext = {}): Promise<void> {
     await this._credentials.deleteByKind(identityId, 'webauthn-mfa', ctx)
     await this._events.emit('mfa.removed', { identityId, method: 'webauthn' })
   }
@@ -342,9 +353,9 @@ export class MfaFacet {
    */
   async eligibleAal(
     identityId: string,
-    currentFactors: AuthSession.FactorMethod[],
-    ctx: AuthTenantContext = {},
-  ): Promise<AuthSession.AAL> {
+    currentFactors: Session.FactorMethod[],
+    ctx: TenantContext = {},
+  ): Promise<Session.AAL> {
     const distinct = new Set(currentFactors)
     if (distinct.size === 0) return 1
     if (distinct.size === 1) return 1
@@ -353,7 +364,7 @@ export class MfaFacet {
     if (distinct.has('passkey')) {
       const passkeys = await this._credentials.listByIdentity(identityId, 'passkey', ctx)
       const hardwareBound = passkeys.some((c) => {
-        const m = c.metadata as { deviceType?: string; backedUp?: boolean } | undefined
+        const m = c.metadata as IPasskeyMetadata | undefined
         return m?.deviceType === 'singleDevice' && m.backedUp === false
       })
       if (hardwareBound) return 3
@@ -404,7 +415,7 @@ async function loadWebAuthnMfa(override?: MfaFacet.IWebauthnLibrary): Promise<Mf
     const mod = (await import(moduleName)) as MfaFacet.IWebauthnLibrary
     return mod
   } catch {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail:
         'WebAuthn-MFA requires the @simplewebauthn/server peerDep. ' +
         'Install via `bun add @simplewebauthn/server` (or `npm install @simplewebauthn/server`).',
@@ -436,14 +447,14 @@ export namespace MfaFacet {
 
   /** Structural shape of the `@simplewebauthn/server` module we use. */
   export interface IWebauthnLibrary {
-    generateRegistrationOptions(input: unknown): Promise<{ challenge: string; [k: string]: unknown }>
+    generateRegistrationOptions(input: unknown): Promise<AuthPasskeyTypes.IRegistrationOptions>
     verifyRegistrationResponse(input: unknown): Promise<{
       verified: boolean
       registrationInfo?: {
         credential: { id: string; publicKey: Uint8Array; counter?: number; transports?: string[] }
       }
     }>
-    generateAuthenticationOptions(input: unknown): Promise<{ challenge: string; [k: string]: unknown }>
+    generateAuthenticationOptions(input: unknown): Promise<AuthPasskeyTypes.IAuthenticationOptions>
     verifyAuthenticationResponse(input: unknown): Promise<{
       verified: boolean
       authenticationInfo: { newCounter: number; credentialID: string; userVerified: boolean }

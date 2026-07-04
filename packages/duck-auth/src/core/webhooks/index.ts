@@ -1,5 +1,5 @@
 /**
- * Webhook delivery for the AuthEvents bus. Subscribes to selected events,
+ * Webhook delivery for the Events bus. Subscribes to selected events,
  * forwards each emission to N consumer URLs over HTTPS with an HMAC
  * signature, exponential-backoff retry, and a dead-letter sink.
  *
@@ -10,8 +10,8 @@
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { AuthErrorObject } from '../errors'
-import type { AuthEvents } from '../types/events'
+import { AuthError } from '../errors'
+import type { Events } from '../types/provider'
 
 /**
  * Subscribe the bus, sign + POST each emit to the configured endpoints,
@@ -20,7 +20,7 @@ import type { AuthEvents } from '../types/events'
 export class AuthWebhookDeliverer {
   private readonly _endpoints: Array<
     Required<Omit<AuthWebhookDeliverer.IEndpoint, 'events' | 'signatureHeader' | 'id'>> & {
-      events: AuthEvents.EventName[] | '*'
+      events: Events.EventName[] | '*'
       signatureHeader: string
       id: string
     }
@@ -33,13 +33,13 @@ export class AuthWebhookDeliverer {
 
   constructor(cfg: AuthWebhookDeliverer.IConfig) {
     if (!cfg.endpoints?.length) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthWebhookDeliverer requires at least one endpoint',
       })
     }
     for (const e of cfg.endpoints) {
       if (!e.url || !e.secret) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'AuthWebhookDeliverer endpoint requires both url + secret',
         })
       }
@@ -67,9 +67,9 @@ export class AuthWebhookDeliverer {
    * Attach to every relevant event on the bus. Returns a cleanup that
    * detaches every listener.
    */
-  attach(bus: AuthEvents.IBus): () => void {
+  attach(bus: Events.IBus): () => void {
     // Collect the union of subscribed event names across all endpoints.
-    const allNames = new Set<AuthEvents.EventName>()
+    const allNames = new Set<Events.EventName>()
     for (const e of this._endpoints) {
       if (e.events === '*') {
         for (const n of EVERY_EVENT) allNames.add(n)
@@ -77,7 +77,7 @@ export class AuthWebhookDeliverer {
         for (const n of e.events) allNames.add(n)
       }
     }
-    const subs: AuthEvents.Unsubscribe[] = []
+    const subs: Events.Unsubscribe[] = []
     for (const name of allNames) {
       subs.push(
         bus.on(name, async (payload) => {
@@ -94,13 +94,13 @@ export class AuthWebhookDeliverer {
    * Public for tests + manual re-deliveries. Drives the per-endpoint
    * fanout + retry loop for a single (name, payload) pair.
    */
-  async deliverOne(name: AuthEvents.EventName, payload: unknown): Promise<void> {
+  async deliverOne(name: Events.EventName, payload: unknown): Promise<void> {
     const eligible = this._endpoints.filter((e) => e.events === '*' || e.events.includes(name))
     await Promise.all(eligible.map((e) => this._deliverWithRetry(name, payload, e)))
   }
 
   private async _deliverWithRetry(
-    name: AuthEvents.EventName,
+    name: Events.EventName,
     payload: unknown,
     endpoint: {
       url: string
@@ -145,7 +145,7 @@ export class AuthWebhookDeliverer {
   }
 
   private async _dispatch(
-    name: AuthEvents.EventName,
+    name: Events.EventName,
     payload: unknown,
     endpoint: { url: string; secret: string; signatureHeader: string },
   ): Promise<boolean> {
@@ -190,10 +190,10 @@ function assertSafeWebhookUrl(rawUrl: string, allowInsecure: boolean): void {
   try {
     parsed = new URL(rawUrl)
   } catch {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: `webhook url is not a valid URL: ${rawUrl}` })
+    throw new AuthError('AUTH_MISCONFIGURED', { detail: `webhook url is not a valid URL: ${rawUrl}` })
   }
   if (parsed.protocol !== 'https:' && !(allowInsecure && parsed.protocol === 'http:')) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `webhook url must use HTTPS (${parsed.protocol}). Pass allowInsecure: true for dev only.`,
     })
   }
@@ -235,7 +235,7 @@ function assertSafeWebhookUrl(rawUrl: string, allowInsecure: boolean): void {
   ]
   for (const pat of danger) {
     if (pat.test(host)) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `webhook url host ${host} is private / loopback / link-local - refused (SSRF guard)`,
       })
     }
@@ -282,8 +282,8 @@ export function authVerifyWebhookSignature(
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-/** Every event name in the AuthEvents.EventMap; used to materialize `'*'` subscriptions. */
-const EVERY_EVENT: AuthEvents.EventName[] = [
+/** Every event name in the Events.EventMap; used to materialize `'*'` subscriptions. */
+const EVERY_EVENT: Events.EventName[] = [
   'session.created',
   'session.rotated',
   'session.revoked',
@@ -332,7 +332,7 @@ export namespace AuthWebhookDeliverer {
     /** Shared secret; signs the HMAC header. Treat as confidential. */
     secret: string
     /** Event names this endpoint receives. Default `'*'` -> every event. */
-    events?: AuthEvents.EventName[] | '*'
+    events?: Events.EventName[] | '*'
     /** Header name carrying the HMAC. Default `'X-Duck-Signature'`. */
     signatureHeader?: string
     /**
@@ -349,7 +349,7 @@ export namespace AuthWebhookDeliverer {
   export interface IDeadLetterEntry {
     endpointId: string
     endpointUrl: string
-    eventName: AuthEvents.EventName
+    eventName: Events.EventName
     payload: unknown
     attempts: number
     lastError: string

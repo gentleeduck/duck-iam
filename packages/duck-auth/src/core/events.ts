@@ -1,14 +1,14 @@
-import type { AuthEvents } from './types/events'
+import type { Events } from './types/provider'
 
 /**
  * In-memory event bus. Single-process; production swaps in Redis pub/sub
- * (`AuthRedisEvents`) or Kafka (`KafkaEvents`). Handlers run sequentially per
+ * (`RedisEvents`) or Kafka (`KafkaEvents`). Handlers run sequentially per
  * event; a throwing handler is caught + logged so siblings still fire.
  */
-export class AuthInMemoryEvents implements AuthEvents.IBus {
-  private _handlers = new Map<AuthEvents.EventName, Set<(p: unknown) => void | Promise<void>>>()
+export class InMemoryEvents implements Events.IBus {
+  private _handlers = new Map<Events.EventName, Set<(p: unknown) => void | Promise<void>>>()
 
-  on<K extends AuthEvents.EventName>(event: K, handler: AuthEvents.Handler<K>): AuthEvents.Unsubscribe {
+  on<K extends Events.EventName>(event: K, handler: Events.Handler<K>): Events.Unsubscribe {
     let set = this._handlers.get(event)
     if (!set) {
       set = new Set()
@@ -19,7 +19,7 @@ export class AuthInMemoryEvents implements AuthEvents.IBus {
     return () => set?.delete(wrapped)
   }
 
-  async emit<K extends AuthEvents.EventName>(event: K, payload: AuthEvents.EventMap[K]): Promise<void> {
+  async emit<K extends Events.EventName>(event: K, payload: Events.EventMap[K]): Promise<void> {
     const set = this._handlers.get(event)
     if (!set || set.size === 0) return
     // Snapshot the listener set so a handler that subscribes / unsubscribes
@@ -41,7 +41,7 @@ export class AuthInMemoryEvents implements AuthEvents.IBus {
    * wired the required event listeners (e.g. `lockout`) without reaching
    * into private state.
    */
-  listenerCount<K extends AuthEvents.EventName>(event: K): number {
+  listenerCount<K extends Events.EventName>(event: K): number {
     return this._handlers.get(event)?.size ?? 0
   }
 }

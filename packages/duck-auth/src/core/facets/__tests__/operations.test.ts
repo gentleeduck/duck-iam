@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthInMemoryEvents } from '../../events'
+import { InMemoryEvents } from '../../events'
 import { OperationsFacet } from '../operations'
 
 describe('OperationsFacet', () => {
-  let events: AuthInMemoryEvents
+  let events: InMemoryEvents
   let ops: OperationsFacet
 
   beforeEach(() => {
-    events = new AuthInMemoryEvents()
+    events = new InMemoryEvents()
     ops = new OperationsFacet(events)
   })
 
@@ -43,7 +43,7 @@ describe('OperationsFacet', () => {
         ops.assertOperationsForRoute('POST')
         expect.fail('expected throw')
       } catch (err) {
-        expect((err as { code: string }).code).toBe('AUTH/MAINTENANCE')
+        expect((err as { code: string }).code).toBe('AUTH_MAINTENANCE')
         expect((err as { meta: { retryAfter: number; message: string } }).meta).toEqual({
           retryAfter: 60,
           message: 'm',
@@ -76,7 +76,7 @@ describe('OperationsFacet', () => {
         ops.assertOperationsForRoute(method)
         expect.fail('expected throw')
       } catch (err) {
-        expect((err as { code: string }).code).toBe('AUTH/READONLY_MODE')
+        expect((err as { code: string }).code).toBe('AUTH_READONLY_MODE')
       }
     })
 
@@ -94,7 +94,7 @@ describe('OperationsFacet', () => {
       ops.assertOperationsForRoute('POST')
       expect.fail('expected throw')
     } catch (err) {
-      expect((err as { code: string }).code).toBe('AUTH/MAINTENANCE')
+      expect((err as { code: string }).code).toBe('AUTH_MAINTENANCE')
     }
   })
 })

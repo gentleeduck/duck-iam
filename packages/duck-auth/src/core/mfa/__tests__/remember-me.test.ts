@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authRandomToken, authSha256 } from '../../crypto'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { RandomToken, sha256 } from '../../crypto'
 import { AuthRememberMeFacet } from '../remember-me'
 
 describe('AuthRememberMeFacet', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let facet: AuthRememberMeFacet
   let identityId: string
 
   beforeEach(async () => {
-    adapter = new AuthMemoryAdapter()
-    facet = new AuthRememberMeFacet(adapter.credentials, { authRandomToken, authSha256 })
+    adapter = new MemoryAdapter()
+    facet = new AuthRememberMeFacet(adapter.credentials, { authRandomToken: RandomToken, authSha256: sha256 })
     const ident = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
     identityId = ident.id
   })
@@ -28,7 +28,7 @@ describe('AuthRememberMeFacet', () => {
   })
 
   it('verify rejects empty / non-string input', async () => {
-    await expect(facet.verify('')).rejects.toMatchObject({ code: 'AUTH/RECOVERY_TOKEN_INVALID' })
+    await expect(facet.verify('')).rejects.toMatchObject({ code: 'AUTH_RECOVERY_TOKEN_INVALID' })
   })
 
   it('verify does NOT consume the token (reusable across requests)', async () => {
@@ -70,12 +70,12 @@ describe('AuthRememberMeFacet', () => {
   it('does not match recovery rows of a different purpose', async () => {
     // Manually insert a non-trusted-device recovery row + ensure verify
     // does not accept it as a trusted device.
-    const token = authRandomToken(32)
+    const token = RandomToken(32)
     await adapter.credentials.upsert(
       {
         identityId,
         kind: 'recovery',
-        secret: authSha256(token),
+        secret: sha256(token),
         metadata: { purpose: 'email-verification' },
       },
       {},
@@ -86,7 +86,7 @@ describe('AuthRememberMeFacet', () => {
   it('respects ttl: expired token returns null + is auto-deleted', async () => {
     const tiny = new AuthRememberMeFacet(
       adapter.credentials,
-      { authRandomToken, authSha256 },
+      { authRandomToken: RandomToken, authSha256: sha256 },
       { ttlMs: 5, byteLength: 32 },
     )
     const { token, credentialId } = await tiny.issue(identityId)

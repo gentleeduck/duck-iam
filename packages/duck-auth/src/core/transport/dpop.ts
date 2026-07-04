@@ -12,8 +12,8 @@
  */
 
 import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type KeyObject } from 'node:crypto'
-import { authTimingSafeEqual } from '../crypto'
-import { AuthErrorObject } from '../errors'
+import { timingSafeEqual } from '../crypto'
+import { AuthError } from '../errors'
 
 export namespace AuthDPoPVerifier {
   /**
@@ -153,19 +153,19 @@ export class AuthDPoPVerifier {
     accessToken?: string,
   ): Promise<AuthDPoPVerifier.IVerified> {
     if (typeof dpopHeader !== 'string' || dpopHeader.length === 0) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'missing DPoP header' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'missing DPoP header' })
     }
     if (dpopHeader.length > 8192) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'DPoP header too large' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'DPoP header too large' })
     }
     const [headerB64, payloadB64, sig, ...rest] = dpopHeader.split('.')
     if (rest.length > 0 || headerB64 === undefined || payloadB64 === undefined || sig === undefined) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'malformed JWS' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'malformed JWS' })
     }
 
     const parsedHeader = parseDpopHeader(decodeJson(headerB64), this._acceptedAlgs)
     if (!parsedHeader.ok) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: parsedHeader.reason })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: parsedHeader.reason })
     }
     const header = parsedHeader.value
 
@@ -173,48 +173,48 @@ export class AuthDPoPVerifier {
     try {
       publicKey = createPublicKey({ key: header.jwk, format: 'jwk' })
     } catch {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'jwk is not a valid public key' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'jwk is not a valid public key' })
     }
 
     if (!verifyJws(header.alg, publicKey, `${headerB64}.${payloadB64}`, sig)) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'signature verification failed' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'signature verification failed' })
     }
 
     const parsedClaims = parseDpopClaims(decodeJson(payloadB64))
     if (!parsedClaims.ok) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: parsedClaims.reason })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: parsedClaims.reason })
     }
     const claims = parsedClaims.value
 
     if (claims.htm.toUpperCase() !== request.method.toUpperCase()) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'htm mismatch' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'htm mismatch' })
     }
     if (normalizeUrl(claims.htu) !== normalizeUrl(request.url)) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'htu mismatch' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'htu mismatch' })
     }
     // RFC 9449 4.2 freshness window; parser already rejects non-finite iat.
     const nowMs = Date.now()
     const iatMs = claims.iat * 1000
     if (Math.abs(nowMs - iatMs) > this._clockSkewMs + this._freshnessMs) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'proof outside freshness window' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'proof outside freshness window' })
     }
 
     // RFC 9449 section 4.3: bind the proof to the access token via `ath` when
     // one is present; refuse a stray `ath` when it is not.
     if (accessToken !== undefined) {
       if (typeof accessToken !== 'string' || accessToken.length === 0 || accessToken.length > 4096) {
-        throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'access token too large or invalid' })
+        throw new AuthError('AUTH_DPOP_INVALID', { reason: 'access token too large or invalid' })
       }
       if (!claims.ath) {
-        throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'ath required when access token present' })
+        throw new AuthError('AUTH_DPOP_INVALID', { reason: 'ath required when access token present' })
       }
       const expected = sha256base64url(accessToken)
       // timingSafeEqual defense-in-depth (signature still gates).
-      if (!authTimingSafeEqual(claims.ath, expected)) {
-        throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'ath mismatch' })
+      if (!timingSafeEqual(claims.ath, expected)) {
+        throw new AuthError('AUTH_DPOP_INVALID', { reason: 'ath mismatch' })
       }
     } else if (claims.ath !== undefined) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'ath unexpected (no access token in request)' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'ath unexpected (no access token in request)' })
     }
 
     // Server nonce challenge (RFC 9449 8/9); tightens replay across partitioned deploys.
@@ -222,17 +222,14 @@ export class AuthDPoPVerifier {
       const expectedNonce =
         typeof this._expectedNonce === 'function' ? await this._expectedNonce() : this._expectedNonce
       // timingSafeEqual so `!==` does not leak the nonce byte-by-byte.
-      if (claims.nonce === undefined || !authTimingSafeEqual(claims.nonce, expectedNonce)) {
-        throw new AuthErrorObject('AUTH/DPOP_INVALID', {
-          reason: 'nonce mismatch',
-          expectedNonce,
-        })
+      if (claims.nonce === undefined || !timingSafeEqual(claims.nonce, expectedNonce)) {
+        throw new AuthError('AUTH_DPOP_INVALID', { reason: 'nonce mismatch' })
       }
     }
 
     const fresh = await this._nonceStore.recordSeen(claims.jti, this._freshnessMs + this._clockSkewMs)
     if (!fresh) {
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'jti replay detected' })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: 'jti replay detected' })
     }
 
     return { jkt: authComputeJwkThumbprint(header.jwk), claims }
@@ -256,14 +253,14 @@ export function authComputeJwkThumbprint(jwk: AuthDPoPVerifier.IJsonWebKey): str
       canonical = JSON.stringify({ e: jwk.e, kty: 'RSA', n: jwk.n })
       break
     default:
-      throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: `unsupported kty ${String(jwk.kty)}` })
+      throw new AuthError('AUTH_DPOP_INVALID', { reason: `unsupported kty ${String(jwk.kty)}` })
   }
   return createHash('sha256').update(canonical).digest('base64url')
 }
 
 /**
  * Internal parser result. Discriminated so callers narrow without casts.
- * `reason` is surfaced as the `AuthErrorObject` meta on failure.
+ * `reason` is surfaced as the `AuthError` meta on failure.
  */
 type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 
@@ -411,7 +408,7 @@ function verifyJws(alg: string, key: KeyObject, signingInput: string, signatureB
 
 function joseToDer(raw: Buffer, halfLen: number): Buffer {
   if (raw.length !== halfLen * 2) {
-    throw new AuthErrorObject('AUTH/DPOP_INVALID', { reason: 'malformed ES256 signature length' })
+    throw new AuthError('AUTH_DPOP_INVALID', { reason: 'malformed ES256 signature length' })
   }
   const r = trimLeadingZeros(raw.subarray(0, halfLen))
   const s = trimLeadingZeros(raw.subarray(halfLen))

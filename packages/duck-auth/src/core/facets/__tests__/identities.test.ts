@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { InMemoryEvents } from '../../events'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../identities'
 
 interface MyProfile {
@@ -10,13 +10,13 @@ interface MyProfile {
 }
 
 describe('IdentitiesFacet', () => {
-  let adapter: AuthMemoryAdapter<MyProfile>
-  let events: AuthInMemoryEvents
+  let adapter: MemoryAdapter<MyProfile>
+  let events: InMemoryEvents
   let facet: IdentitiesFacet<MyProfile>
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter<MyProfile>()
-    events = new AuthInMemoryEvents()
+    adapter = new MemoryAdapter<MyProfile>()
+    events = new InMemoryEvents()
     facet = new IdentitiesFacet<MyProfile>(adapter.identities, events, DEFAULT_IDENTITIES_CONFIG)
   })
 
@@ -43,7 +43,7 @@ describe('IdentitiesFacet', () => {
       await expect(
         // @ts-expect-error: extra field beyond MyProfile to exercise the byte-size cap.
         facet.create({ profile: { email: 'a@x.com', big: huge } }),
-      ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
     })
 
     it('rejects a circular profile (JSON.stringify throws - fail-closed)', async () => {
@@ -52,7 +52,7 @@ describe('IdentitiesFacet', () => {
       await expect(
         // @ts-expect-error: deliberately wrong shape to test the JSON-serializable guard.
         facet.create({ profile: circular }),
-      ).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
     })
 
     it('honors an operator-supplied profileMaxBytes cap', async () => {
@@ -61,7 +61,7 @@ describe('IdentitiesFacet', () => {
         profileMaxBytes: 32,
       })
       await expect(tight.create({ profile: { email: 'long-name-over-32-bytes@example.com' } })).rejects.toMatchObject({
-        code: 'AUTH/MISCONFIGURED',
+        code: 'AUTH_MISCONFIGURED',
       })
     })
 
@@ -92,7 +92,7 @@ describe('IdentitiesFacet', () => {
       const i = await facet.create({ profile: { email: 'a@x.com' } })
       const huge = 'x'.repeat(32 * 1024)
       await expect(facet.updateProfile(i.id, { name: huge }, i.version)).rejects.toMatchObject({
-        code: 'AUTH/MISCONFIGURED',
+        code: 'AUTH_MISCONFIGURED',
       })
     })
 
@@ -109,7 +109,7 @@ describe('IdentitiesFacet', () => {
       await facet.updateProfile(i.id, { name: 'Alice' }, 1)
       // Second update with expectedVersion=1 collides.
       await expect(facet.updateProfile(i.id, { name: 'Eve' }, 1)).rejects.toMatchObject({
-        code: 'AUTH/STALE_WRITE',
+        code: 'AUTH_STALE_WRITE',
         meta: { expected: 1, actual: 2 },
       })
     })
@@ -119,7 +119,7 @@ describe('IdentitiesFacet', () => {
     it('link emits identity.linked + persists the provider entry', async () => {
       const i = await facet.create({
         profile: { email: 'a@x.com' },
-        providers: [{ providerId: 'password', addedAt: Date.now() }],
+        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
       })
       const handler = vi.fn()
       events.on('identity.linked', handler)
@@ -132,20 +132,20 @@ describe('IdentitiesFacet', () => {
     it('link rejects duplicate providerId for same identity', async () => {
       const i = await facet.create({
         profile: { email: 'a@x.com' },
-        providers: [{ providerId: 'oauth:authGoogle', addedAt: Date.now() }],
+        providers: [{ providerId: 'oauth:authGoogle', providerSub: null, addedAt: new Date() }],
       })
-      await expect(facet.link(i.id, { providerId: 'oauth:authGoogle' })).rejects.toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+      await expect(facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: null })).rejects.toMatchObject({
+        code: 'AUTH_PROVIDER_FAILED',
       })
     })
 
     it('unlink refuses the last provider (leaves account inaccessible)', async () => {
       const i = await facet.create({
         profile: { email: 'a@x.com' },
-        providers: [{ providerId: 'password', addedAt: Date.now() }],
+        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
       })
       await expect(facet.unlink(i.id, 'password')).rejects.toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
       })
     })
 
@@ -153,8 +153,8 @@ describe('IdentitiesFacet', () => {
       const i = await facet.create({
         profile: { email: 'a@x.com' },
         providers: [
-          { providerId: 'password', addedAt: Date.now() },
-          { providerId: 'oauth:authGoogle', addedAt: Date.now() },
+          { providerId: 'password', providerSub: null, addedAt: new Date() },
+          { providerId: 'oauth:authGoogle', providerSub: null, addedAt: new Date() },
         ],
       })
       await facet.unlink(i.id, 'oauth:authGoogle')
@@ -166,17 +166,17 @@ describe('IdentitiesFacet', () => {
   describe('merge', () => {
     it('refuses to merge identity into itself', async () => {
       const i = await facet.create({ profile: { email: 'a@x.com' } })
-      await expect(facet.merge(i.id, i.id)).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+      await expect(facet.merge(i.id, i.id)).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
     })
 
     it('merges dup into survivor and emits identity.merged', async () => {
       const survivor = await facet.create({
         profile: { email: 's@x.com' },
-        providers: [{ providerId: 'password', addedAt: Date.now() }],
+        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
       })
       const dup = await facet.create({
         profile: { email: 'd@x.com' },
-        providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g-1', addedAt: Date.now() }],
+        providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g-1', addedAt: new Date() }],
       })
       const handler = vi.fn()
       events.on('identity.merged', handler)
@@ -198,21 +198,21 @@ describe('IdentitiesFacet', () => {
       expect(await facet.getById(i.id)).not.toBeNull()
     })
 
-    it('restore after grace expired surfaces AUTH/GRACE_EXPIRED', async () => {
+    it('restore after grace expired surfaces AUTH_GRACE_EXPIRED', async () => {
       const tightFacet = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
         softDeleteGracePeriodMs: 1, // 1ms grace = always expired by the time we check
       })
       const i = await tightFacet.create({ profile: { email: 'a@x.com' } })
       await tightFacet.softDelete(i.id)
       await new Promise((r) => setTimeout(r, 5))
-      await expect(tightFacet.restore(i.id)).rejects.toMatchObject({ code: 'AUTH/GRACE_EXPIRED' })
+      await expect(tightFacet.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
     })
 
     it('erase hard-removes the identity', async () => {
       const i = await facet.create({ profile: { email: 'a@x.com' } })
       await facet.erase(i.id, { reason: 'gdpr-2026-05-25' })
       expect(await facet.getById(i.id)).toBeNull()
-      await expect(facet.restore(i.id)).rejects.toMatchObject({ code: 'AUTH/UNAUTHENTICATED' })
+      await expect(facet.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
     })
   })
 
@@ -226,13 +226,13 @@ describe('IdentitiesFacet', () => {
     it('merge appends new providers to existing identity', async () => {
       const i = await facet.create({
         profile: { email: 'a@x.com' },
-        providers: [{ providerId: 'password', addedAt: Date.now() }],
+        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
       })
       await facet.bulkCreate(
         [
           {
             profile: { email: 'a@x.com' },
-            providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: Date.now() }],
+            providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: new Date() }],
           },
         ],
         { mode: 'merge' },
@@ -263,7 +263,7 @@ describe('IdentitiesFacet', () => {
 
     it('throws AUTH/UNAUTHENTICATED for unknown identity', async () => {
       await expect(facet.exportAll('nope', adapter.credentials)).rejects.toMatchObject({
-        code: 'AUTH/UNAUTHENTICATED',
+        code: 'AUTH_UNAUTHENTICATED',
       })
     })
 
@@ -282,12 +282,12 @@ describe('IdentitiesFacet', () => {
         identityId: i.id,
         kind: 'user',
         aal: 2,
-        factors: [{ method: 'password', completedAt: now }],
+        factors: [{ method: 'password', completedAt: new Date(now) }],
         csrfHash: 'redact-me',
-        createdAt: now,
-        rotatedAt: now,
-        expiresAt: now + 60_000,
-        absoluteExpiresAt: now + 60_000,
+        createdAt: new Date(now),
+        rotatedAt: new Date(now),
+        expiresAt: new Date(now + 60_000),
+        absoluteExpiresAt: new Date(now + 60_000),
         fresh: true,
       })
       const blob = await facet.exportAll(i.id, adapter.credentials, {}, { sessions: adapter.sessions })

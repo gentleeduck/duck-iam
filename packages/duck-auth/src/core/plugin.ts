@@ -1,6 +1,5 @@
 import type { AuthEngine } from './engine'
-import type { AuthEvents } from './types/events'
-import type { AuthProvider } from './types/provider'
+import type { AuthProvider, Events } from './types/provider'
 
 /**
  * Plugin registry. Generic over the AuthEngine generics so `install` does not
@@ -39,10 +38,7 @@ export class AuthPluginRegistry<Profile = unknown, Tenant = string, OrgMeta = un
     if (plugin.events) {
       for (const [event, handler] of Object.entries(plugin.events)) {
         if (handler === undefined) continue
-        const unsub = auth.events.on(
-          event as keyof AuthEvents.EventMap,
-          handler as (p: unknown) => void | Promise<void>,
-        )
+        const unsub = auth.events.on(event as keyof Events.EventMap, handler as (p: unknown) => void | Promise<void>)
         this._eventUnsubs.push(unsub)
       }
     }
@@ -70,7 +66,7 @@ export namespace AuthPluginRegistry {
     /** Optional providers to register at install time. */
     providers?: AuthProvider.IProvider<unknown, unknown, Profile>[]
     /** Optional event subscriptions; library auto-attaches on install. */
-    events?: Partial<{ [K in keyof AuthEvents.EventMap]: (p: AuthEvents.EventMap[K]) => void | Promise<void> }>
+    events?: Partial<{ [K in keyof Events.EventMap]: (p: Events.EventMap[K]) => void | Promise<void> }>
     /**
      * Optional install hook. Runs once at `auth.use()` time. Receives the
      * AuthEngine so the plugin can read config or wire additional facets.

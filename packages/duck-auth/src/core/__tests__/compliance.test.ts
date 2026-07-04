@@ -91,7 +91,7 @@ describe('authAssertComplianceStrict', () => {
       expect.fail('expected throw')
     } catch (err) {
       const meta = err as { code: string; meta: { detail: string } }
-      expect(meta.code).toBe('AUTH/MISCONFIGURED')
+      expect(meta.code).toBe('AUTH_MISCONFIGURED')
       expect(meta.meta.detail).toContain('dataAtRest')
       expect(meta.meta.detail).toContain('mailer/channel')
       expect(meta.meta.detail).toContain('audit-log listener')

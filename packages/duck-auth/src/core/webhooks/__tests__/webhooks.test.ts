@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AuthInMemoryEvents } from '../../events'
+import { InMemoryEvents } from '../../events'
 import { AuthWebhookDeliverer, authSignWebhookBody, authVerifyWebhookSignature } from '../index'
 
 function makeFetch(
@@ -24,19 +24,19 @@ function makeFetch(
 describe('AuthWebhookDeliverer', () => {
   it('refuses construction without endpoints', () => {
     expect(() => new AuthWebhookDeliverer({ endpoints: [] })).toThrowError(
-      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })
 
   it('refuses construction when an endpoint is missing url or secret', () => {
     expect(() => new AuthWebhookDeliverer({ endpoints: [{ url: '', secret: 'x' }] })).toThrowError(
-      expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }),
+      expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }),
     )
   })
 
   it('attach + emit delivers a signed POST to the endpoint', async () => {
     const fetchStub = makeFetch([{ ok: true }])
-    const bus = new AuthInMemoryEvents()
+    const bus = new InMemoryEvents()
     const d = new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://hook.test/duck', secret: 'super-secret' }],
       backoffMs: 1,
@@ -45,7 +45,7 @@ describe('AuthWebhookDeliverer', () => {
     d.attach(bus)
     await bus.emit('signin.success', {
       identity: { id: 'u1' } as never,
-      factors: [{ method: 'password', completedAt: 0 }],
+      factors: [{ method: 'password', completedAt: new Date(0) }],
     })
     const calls = (
       fetchStub as unknown as { calls: Array<{ url: string; body: string; headers: Record<string, string> }> }
@@ -61,7 +61,7 @@ describe('AuthWebhookDeliverer', () => {
   it('filters by per-endpoint events list', async () => {
     const fetchA = makeFetch([{ ok: true }])
     const fetchB = makeFetch([{ ok: true }])
-    const bus = new AuthInMemoryEvents()
+    const bus = new InMemoryEvents()
     new AuthWebhookDeliverer({
       endpoints: [{ url: 'https://a.test', secret: 's', events: ['lockout'] }],
       fetch: fetchA,
@@ -137,7 +137,7 @@ describe('AuthWebhookDeliverer', () => {
         new AuthWebhookDeliverer({
           endpoints: [{ url: 'http://hook.test', secret: 's' }],
         }),
-    ).toThrowError(/AUTH\/MISCONFIGURED/)
+    ).toThrowError(/AUTH_MISCONFIGURED/)
   })
 
   it.each([
@@ -154,7 +154,7 @@ describe('AuthWebhookDeliverer', () => {
           endpoints: [{ url, secret: 's' }],
           allowInsecure: true,
         }),
-    ).toThrowError(/AUTH\/MISCONFIGURED/)
+    ).toThrowError(/AUTH_MISCONFIGURED/)
   })
 
   it.each([
@@ -178,7 +178,7 @@ describe('AuthWebhookDeliverer', () => {
           endpoints: [{ url, secret: 's' }],
           allowInsecure: true,
         }),
-    ).toThrowError(/AUTH\/MISCONFIGURED/)
+    ).toThrowError(/AUTH_MISCONFIGURED/)
   })
 
   it('timestamp-bound signature round-trips + rejects replays outside window', async () => {

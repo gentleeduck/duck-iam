@@ -1,4 +1,4 @@
-import type { AuthAnomaly } from '../types/anomaly'
+import type { Anomaly } from '../types/provider'
 
 const DEFAULT_CONFIG: AuthImpossibleTravel.IConfig = {
   maxKmPerHour: 900,
@@ -18,12 +18,12 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
 /**
  * Build an impossible-travel detector. Pass `getLastSeen(identityId)`
  * so the detector can read the prior coords from wherever the app
- * persists them (often `AuthIdentity.attributes.lastSeen`).
+ * persists them (often `Identity.attributes.lastSeen`).
  */
 export function authImpossibleTravelDetector(opts: {
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>
   config?: Partial<AuthImpossibleTravel.IConfig>
-}): AuthAnomaly.IDetector {
+}): Anomaly.IDetector {
   const cfg: AuthImpossibleTravel.IConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
     throw new Error(

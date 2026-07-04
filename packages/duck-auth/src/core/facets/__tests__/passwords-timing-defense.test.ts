@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthScryptHasher } from '../../password/scrypt'
-import type { AuthHasher } from '../../types/hasher'
+import type { Hasher } from '../../types/infra'
 import { PasswordsFacet } from '../passwords'
 
 interface VerifyCall {
@@ -9,7 +9,7 @@ interface VerifyCall {
   encoded: string
 }
 
-class SpyHasher implements AuthHasher.IHasher {
+class SpyHasher implements Hasher.IHasher {
   readonly id = 'spy-scrypt'
   private readonly _inner: AuthScryptHasher
   readonly verifyCalls: VerifyCall[] = []
@@ -38,12 +38,12 @@ class SpyHasher implements AuthHasher.IHasher {
 }
 
 describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let hasher: SpyHasher
   let facet: PasswordsFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
+    adapter = new MemoryAdapter()
     hasher = new SpyHasher()
     facet = new PasswordsFacet(adapter.credentials, hasher)
   })

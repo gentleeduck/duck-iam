@@ -1,10 +1,10 @@
 import { isExpiredAt, isFiniteNumber } from '../credential-utils'
-import { authRandomToken, authSha256 } from '../crypto'
-import { AuthErrorObject } from '../errors'
-import type { AuthTenantContext } from '../types/context'
-import type { AuthEvents } from '../types/events'
-import type { AuthIdentity } from '../types/identity'
-import type { AuthSession } from '../types/session'
+import { RandomToken, sha256 } from '../crypto'
+import { AuthError } from '../errors'
+import type { Identity } from '../types/identity'
+import type { TenantContext } from '../types/infra'
+import type { Events } from '../types/provider'
+import type { Session } from '../types/session'
 
 export const DEFAULT_SESSION_CONFIG: SessionsFacet.IConfig = {
   ttlMs: 7 * 24 * 60 * 60 * 1000,
@@ -18,12 +18,12 @@ export const DEFAULT_SESSION_CONFIG: SessionsFacet.IConfig = {
  * so the session-fixation discipline lives in exactly one place.
  *
  * Resolution is on `AuthEngine.resolveSession()` rather than here because the
- * AuthTransport contract drives extraction; this facet owns lifecycle only.
+ * Transport contract drives extraction; this facet owns lifecycle only.
  */
 export class SessionsFacet {
   constructor(
-    private readonly _store: AuthSession.IStore,
-    private readonly _events: AuthEvents.IBus,
+    private readonly _store: Session.Store,
+    private readonly _events: Events.IBus,
     private readonly _cfg: SessionsFacet.IConfig = DEFAULT_SESSION_CONFIG,
   ) {}
 
@@ -33,34 +33,33 @@ export class SessionsFacet {
    * Returns `{ session, sid }` where `session.id` is the **hashed** row key
    * (used internally + as the audit-log identifier) and `sid` is the
    * **plaintext** session identifier - the value the caller passes to
-   * `AuthTransport.issue()` to put on the wire. The plaintext sid never appears
+   * `Transport.issue()` to put on the wire. The plaintext sid never appears
    * on the persisted row; only its sha-256 hash does.
    */
-  async create(
-    input: SessionsFacet.ICreateInput,
-  ): Promise<{ session: AuthSession.ISession; sid: string; csrfToken: string }> {
+  async create(input: SessionsFacet.ICreateInput): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
     // Cap factors length so a buggy caller can't bloat the session row's
     // JSON column. Real flows mint sessions with 1-3 factors.
     if (!Array.isArray(input.factors) || input.factors.length > 16) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'sessions.create: factors must be an array <=16',
       })
     }
-    const sid = authRandomToken(32)
+    const sid = RandomToken(32)
     // Mint plaintext for the cookie, store only the hash on the row.
-    const csrfToken = authRandomToken(32)
+    const csrfToken = RandomToken(32)
     const now = Date.now()
-    const session: AuthSession.ISession = {
-      id: authSha256(sid),
+    const nowDate = new Date(now)
+    const session: Session.Me = {
+      id: sha256(sid),
       identityId: input.identityId,
       kind: input.kind,
       aal: input.aal,
       factors: input.factors,
-      csrfHash: authSha256(csrfToken),
-      createdAt: now,
-      rotatedAt: now,
-      expiresAt: now + this._cfg.ttlMs,
-      absoluteExpiresAt: now + this._cfg.absoluteTtlMs,
+      csrfHash: sha256(csrfToken),
+      createdAt: nowDate,
+      rotatedAt: nowDate,
+      expiresAt: new Date(now + this._cfg.ttlMs),
+      absoluteExpiresAt: new Date(now + this._cfg.absoluteTtlMs),
       fresh: true,
     }
     if (input.tenantId !== undefined) session.tenantId = input.tenantId
@@ -85,7 +84,7 @@ export class SessionsFacet {
    */
   async rotateOrCreate(
     input: SessionsFacet.IRotateInput,
-  ): Promise<{ session: AuthSession.ISession; sid: string; csrfToken: string }> {
+  ): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
     const fresh = await this.create(input)
     if (
       input.previousSid !== undefined &&
@@ -93,7 +92,7 @@ export class SessionsFacet {
       input.previousSid.length > 0 &&
       input.previousSid.length <= 4096
     ) {
-      const prevHash = authSha256(input.previousSid)
+      const prevHash = sha256(input.previousSid)
       switch (input.purpose) {
         case 'signin':
         case 're-auth':
@@ -142,7 +141,7 @@ export class SessionsFacet {
   /** Revoke a single session by plaintext SID. */
   async revoke(sid: string): Promise<void> {
     if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return
-    const hash = authSha256(sid)
+    const hash = sha256(sid)
     const s = await this._store.getByHash(hash)
     if (!s) return
     await this._store.delete(s.id)
@@ -150,6 +149,14 @@ export class SessionsFacet {
       sessionId: s.id,
       identityId: s.identityId,
     })
+  }
+
+  /** Revoke by session id (the stored hash). Use when you have ISession.id but not the plaintext SID. */
+  async revokeByHash(sessionId: string): Promise<void> {
+    const s = await this._store.getByHash(sessionId)
+    if (!s) return
+    await this._store.delete(s.id)
+    await this._events.emit('session.revoked', { sessionId: s.id, identityId: s.identityId })
   }
 
   /** Revoke every session belonging to an identity (used by credential-change paths). */
@@ -165,34 +172,41 @@ export class SessionsFacet {
   }
 
   /** Resolve a plaintext SID to its session row (no identity join). */
-  async getBySid(sid: string): Promise<AuthSession.ISession | null> {
+  async getBySid(sid: string): Promise<Session.Me | null> {
     // Defensive typeof + length cap; authSha256(non-string) throws + multi-MB
     // input bloats hashing.
     if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return null
-    return this._store.getByHash(authSha256(sid))
+    return this._store.getByHash(sha256(sid))
   }
 
   /** Refresh expiresAt by ttlMs without rotating the SID. Stops fresh-window slip. */
-  async touch(sid: string): Promise<AuthSession.ISession | null> {
+  async touch(sid: string): Promise<Session.Me | null> {
     if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return null
-    const hash = authSha256(sid)
+    const hash = sha256(sid)
     const s = await this._store.getByHash(hash)
     if (!s) return null
     const now = Date.now()
+    const absoluteExpiresAtMs =
+      s.absoluteExpiresAt instanceof Date
+        ? s.absoluteExpiresAt.getTime()
+        : isFiniteNumber(s.absoluteExpiresAt)
+          ? (s.absoluteExpiresAt as number)
+          : Number.NaN
     // fail closed if absoluteExpiresAt is non-finite (adapter bug).
     // `NaN < now === false` would otherwise extend a should-be-dead
     // session past its absolute cap.
-    if (!isFiniteNumber(s.absoluteExpiresAt) || s.absoluteExpiresAt < now) {
+    if (!Number.isFinite(absoluteExpiresAtMs) || absoluteExpiresAtMs < now) {
       await this._store.delete(s.id)
       return null
     }
-    const newExpiresAt = Math.min(s.absoluteExpiresAt, now + this._cfg.ttlMs)
-    const fresh = now - s.rotatedAt < this._cfg.freshnessMs
+    const rotatedAtMs = s.rotatedAt instanceof Date ? s.rotatedAt.getTime() : (s.rotatedAt as number)
+    const newExpiresAt = new Date(Math.min(absoluteExpiresAtMs, now + this._cfg.ttlMs))
+    const fresh = now - rotatedAtMs < this._cfg.freshnessMs
     return this._store.update(s.id, { expiresAt: newExpiresAt, fresh })
   }
 
   /** List all live sessions for an identity. Used by UI's "active devices view. */
-  async listForIdentity(identityId: string): Promise<AuthSession.ISession[]> {
+  async listForIdentity(identityId: string): Promise<Session.Me[]> {
     return this._store.listByIdentity(identityId)
   }
 
@@ -204,7 +218,7 @@ export class SessionsFacet {
   /** Create a guest session - no identity, AAL=1, kind='guest'. Promotable on signin. */
   async createGuest(
     opts: { tenantId?: string; ip?: string; userAgent?: string } = {},
-  ): Promise<{ session: AuthSession.ISession; sid: string }> {
+  ): Promise<{ session: Session.Me; sid: string }> {
     return this.create({
       identityId: null,
       kind: 'guest',
@@ -220,12 +234,12 @@ export class SessionsFacet {
   async promoteGuest(input: {
     guestSid: string
     identityId: string
-    factors: AuthSession.Factor[]
-    aal: AuthSession.AAL
+    factors: Session.Factor[]
+    aal: Session.AAL
     tenantId?: string
     ip?: string
     userAgent?: string
-  }): Promise<{ session: AuthSession.ISession; sid: string }> {
+  }): Promise<{ session: Session.Me; sid: string }> {
     return this.rotateOrCreate({
       purpose: 'guest-promotion',
       previousSid: input.guestSid,
@@ -243,21 +257,28 @@ export class SessionsFacet {
 /** Resolve a plaintext SID to (session, identity) - used by AuthEngine.resolveSession. */
 export async function resolveBySid<Profile = unknown>(
   sid: string,
-  sessions: AuthSession.IStore,
-  identities: AuthIdentity.IStore<Profile>,
-  ctx: AuthTenantContext,
-): Promise<{ session: AuthSession.ISession; identity: AuthIdentity.IIdentity<Profile> | null } | null> {
-  const hash = authSha256(sid)
+  sessions: Session.Store,
+  identities: Identity.Store<Profile>,
+  ctx: TenantContext,
+): Promise<{ session: Session.Me; identity: Identity.Me<Profile> | null } | null> {
+  const hash = sha256(sid)
   const session = await sessions.getByHash(hash)
   if (!session) return null
   const now = Date.now()
+  const expiresAtMs =
+    session.expiresAt instanceof Date
+      ? session.expiresAt.getTime()
+      : isFiniteNumber(session.expiresAt)
+        ? (session.expiresAt as number)
+        : Number.NaN
+  const absExpiresAtMs =
+    session.absoluteExpiresAt instanceof Date
+      ? session.absoluteExpiresAt.getTime()
+      : isFiniteNumber(session.absoluteExpiresAt)
+        ? (session.absoluteExpiresAt as number)
+        : Number.NaN
   // Fail closed on non-finite expiry (adapter bug) since `NaN < now` is false.
-  if (
-    !isFiniteNumber(session.expiresAt) ||
-    session.expiresAt < now ||
-    !isFiniteNumber(session.absoluteExpiresAt) ||
-    session.absoluteExpiresAt < now
-  ) {
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs < now || !Number.isFinite(absExpiresAtMs) || absExpiresAtMs < now) {
     await sessions.delete(session.id)
     return null
   }
@@ -268,8 +289,8 @@ export async function resolveBySid<Profile = unknown>(
   }
   const identity = session.identityId ? await identities.findById(session.identityId, ctx) : null
   if (session.identityId && !identity) {
-    // AuthIdentity erased while session was live; surface as missing" rather than misleading "expired".
-    throw new AuthErrorObject('AUTH/SESSION_REVOKED', { reason: 'identity-erased' })
+    // Identity erased while session was live; surface as missing" rather than misleading "expired".
+    throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'identity-erased' })
   }
   return { session, identity }
 }
@@ -290,14 +311,14 @@ export namespace SessionsFacet {
 
   export interface ICreateInput {
     identityId: string | null
-    kind: AuthSession.Kind
-    aal: AuthSession.AAL
-    factors: AuthSession.Factor[]
+    kind: Session.Kind
+    aal: Session.AAL
+    factors: Session.Factor[]
     tenantId?: string
     ip?: string
     userAgent?: string
     fingerprint?: string
-    actingAs?: AuthSession.ActingAs
+    actingAs?: Session.ActingAs
   }
 
   export interface IRotateInput extends ICreateInput {

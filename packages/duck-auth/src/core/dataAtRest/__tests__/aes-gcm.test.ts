@@ -72,7 +72,7 @@ describe('AuthAesGcmDataAtRest', () => {
     const ct = await v1.encrypt('payload', { field: 'f', identityId: 'u' })
     const v2 = new AuthAesGcmDataAtRest({ kid: 'k2', masterKey: Buffer.alloc(32, 2) })
     await expect(v2.decrypt(ct, { field: 'f', identityId: 'u' })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 
@@ -85,7 +85,7 @@ describe('AuthAesGcmDataAtRest', () => {
       })
       throw new Error('expected throw')
     } catch (err) {
-      expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
+      expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
       expect((err as { meta: { detail: string } }).meta.detail).toMatch(/duplicate kid/)
     }
   })

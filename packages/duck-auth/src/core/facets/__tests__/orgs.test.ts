@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { InMemoryEvents } from '../../events'
 import { OrgsFacet } from '../orgs'
 
 describe('OrgsFacet', () => {
-  let adapter: AuthMemoryAdapter
-  let events: AuthInMemoryEvents
+  let adapter: MemoryAdapter
+  let events: InMemoryEvents
   let facet: OrgsFacet
 
   beforeEach(async () => {
-    adapter = new AuthMemoryAdapter()
-    events = new AuthInMemoryEvents()
+    adapter = new MemoryAdapter()
+    events = new InMemoryEvents()
     facet = new OrgsFacet(adapter.orgs, events)
     // Seed two orgs via the underlying adapter (no orgs.create() in the facet
     // since orgs are typically pre-provisioned via the app's own admin flow).
@@ -30,13 +30,13 @@ describe('OrgsFacet', () => {
     it('adds a live membership with starting roles', async () => {
       const m = await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] })
       expect(m.roles).toEqual(['admin'])
-      expect(m.joinedAt).toBeGreaterThan(0)
+      expect(m.joinedAt).toBeInstanceOf(Date)
     })
 
     it('rejects adding the same identity twice while membership is live', async () => {
       await facet.addMember({ orgId: 'org-1', identityId: 'u', roles: ['admin'] })
       await expect(facet.addMember({ orgId: 'org-1', identityId: 'u' })).rejects.toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
       })
     })
 

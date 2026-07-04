@@ -5,14 +5,14 @@
  * skip MFA (and grant aal=2 implicitly) for the device the cookie was
  * minted on.
  *
- * Storage shape: hashed token under `AuthCredential.kind='recovery'` with
+ * Storage shape: hashed token under `Credential.kind='recovery'` with
  * `metadata.purpose='trusted-device'` + caller-supplied metadata.
  */
 
 import { getCredentialPurpose, isCredentialExpired, isRevoked } from '../credential-utils'
-import { AuthErrorObject } from '../errors'
-import type { AuthTenantContext } from '../types/context'
-import type { AuthCredential } from '../types/credential'
+import { AuthError } from '../errors'
+import type { Credential } from '../types/identity'
+import type { TenantContext } from '../types/infra'
 
 export const DEFAULT_REMEMBER_ME_CONFIG: AuthRememberMeFacet.IConfig = {
   ttlMs: 90 * 24 * 60 * 60 * 1000,
@@ -26,7 +26,7 @@ export const DEFAULT_REMEMBER_ME_CONFIG: AuthRememberMeFacet.IConfig = {
  */
 export class AuthRememberMeFacet {
   constructor(
-    private readonly _credentials: AuthCredential.IStore,
+    private readonly _credentials: Credential.Store,
     private readonly _crypto: {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
@@ -43,7 +43,7 @@ export class AuthRememberMeFacet {
   async issue(
     identityId: string,
     opts: { metadata?: Record<string, unknown> } = {},
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<AuthRememberMeFacet.IIssued> {
     const token = this._crypto.authRandomToken(this._cfg.byteLength)
     const hash = this._crypto.authSha256(token)
@@ -55,7 +55,7 @@ export class AuthRememberMeFacet {
         kind: 'recovery',
         secret: hash,
         metadata: { purpose: 'trusted-device', ...(opts.metadata ?? {}) },
-        expiresAt,
+        expiresAt: new Date(expiresAt),
       },
       ctx,
     )
@@ -71,11 +71,11 @@ export class AuthRememberMeFacet {
    * + magic links) - remember-me cookies are reused across many
    * sign-ins inside the TTL window.
    */
-  async verify(token: string, ctx: AuthTenantContext = {}): Promise<AuthRememberMeFacet.IVerified | null> {
+  async verify(token: string, ctx: TenantContext = {}): Promise<AuthRememberMeFacet.IVerified | null> {
     // cap token length at 256 chars to bound the sha256 cost.
     // Trusted-device tokens are 32 random bytes (~43 base64url chars).
     if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
-      throw new AuthErrorObject('AUTH/RECOVERY_TOKEN_INVALID')
+      throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
     }
     const hash = this._crypto.authSha256(token)
     const row = await this._credentials.findByHashedSecret(hash, 'recovery', ctx)
@@ -101,12 +101,12 @@ export class AuthRememberMeFacet {
    */
   async list(
     identityId: string,
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<
     Array<{
       credentialId: string
-      createdAt: number
-      expiresAt: number | undefined
+      createdAt: Date
+      expiresAt: Date | undefined
       metadata: Record<string, unknown> | undefined
     }>
   > {
@@ -122,14 +122,14 @@ export class AuthRememberMeFacet {
   }
 
   /** Revoke a specific trusted-device row. */
-  async revoke(identityId: string, credentialId: string, ctx: AuthTenantContext = {}): Promise<void> {
+  async revoke(identityId: string, credentialId: string, ctx: TenantContext = {}): Promise<void> {
     const row = await this._credentials.findById(credentialId, ctx)
     if (!row || row.identityId !== identityId) return
     await this._credentials.delete(credentialId, ctx)
   }
 
   /** Wipe every trusted device for an identity. */
-  async revokeAll(identityId: string, ctx: AuthTenantContext = {}): Promise<void> {
+  async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<void> {
     const live = await this.list(identityId, ctx)
     for (const dev of live) {
       await this._credentials.delete(dev.credentialId, ctx)
@@ -148,7 +148,7 @@ export namespace AuthRememberMeFacet {
   export interface IIssued {
     /** Plaintext token to drop into `__Host-duck-device` cookie. */
     token: string
-    /** AuthCredential row id; useful for client-side device listings. */
+    /** Credential row id; useful for client-side device listings. */
     credentialId: string
     /** Absolute expiry, ms since epoch. */
     expiresAt: number

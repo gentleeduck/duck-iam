@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authSha256 } from '../../crypto'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { sha256 } from '../../crypto'
+import { InMemoryEvents } from '../../events'
 import { totpAt } from '../../mfa/totp'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
 
 describe('MfaFacet - TOTP', () => {
-  let adapter: AuthMemoryAdapter
-  let events: AuthInMemoryEvents
+  let adapter: MemoryAdapter
+  let events: InMemoryEvents
   let facet: MfaFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
-    events = new AuthInMemoryEvents()
+    adapter = new MemoryAdapter()
+    events = new InMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
   })
 
@@ -56,7 +56,7 @@ describe('MfaFacet - TOTP', () => {
 
     it('confirmTotpEnrollment without prior begin throws AUTH/MFA_REQUIRED', async () => {
       await expect(facet.confirmTotpEnrollment('user-1', '123456')).rejects.toMatchObject({
-        code: 'AUTH/MFA_REQUIRED',
+        code: 'AUTH_MFA_REQUIRED',
       })
     })
   })
@@ -92,7 +92,7 @@ describe('MfaFacet - TOTP', () => {
         const rows = await adapter.credentials.listByIdentity('user-1', 'totp', {})
         const row = rows[0]
         if (!row) throw new Error('row missing')
-        row.revokedAt = 0
+        row.revokedAt = new Date(0)
         const verify = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
         expect(await facet.verifyTotp('user-1', verify)).toBe(false)
         expect(await facet.hasTotp('user-1')).toBe(false)
@@ -128,13 +128,13 @@ describe('MfaFacet - TOTP', () => {
 })
 
 describe('MfaFacet - backup codes', () => {
-  let adapter: AuthMemoryAdapter
-  let events: AuthInMemoryEvents
+  let adapter: MemoryAdapter
+  let events: InMemoryEvents
   let facet: MfaFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
-    events = new AuthInMemoryEvents()
+    adapter = new MemoryAdapter()
+    events = new InMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
   })
 
@@ -156,11 +156,11 @@ describe('MfaFacet - backup codes', () => {
     const codes = await facet.regenerateBackupCodes('user-1')
     const code = codes[0]
     if (!code) throw new Error('no codes')
-    const codeHash = authSha256(code.trim().toLowerCase())
+    const codeHash = sha256(code.trim().toLowerCase())
     const rows = await adapter.credentials.listByIdentity('user-1', 'recovery', {})
     const matching = rows.find((r) => r.secret === codeHash)
     if (!matching) throw new Error('matching row missing')
-    matching.revokedAt = 0
+    matching.revokedAt = new Date(0)
     expect(await facet.verifyBackupCode('user-1', code)).toBe(false)
   })
 
@@ -174,8 +174,8 @@ describe('MfaFacet - backup codes', () => {
 })
 
 describe('MfaFacet - WebAuthn-MFA', () => {
-  let adapter: AuthMemoryAdapter
-  let events: AuthInMemoryEvents
+  let adapter: MemoryAdapter
+  let events: InMemoryEvents
   let facet: MfaFacet
   let identityId: string
 
@@ -185,6 +185,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
         challenge: 'reg-challenge',
         rp: { id: 'app.test', name: 'app' },
         user: { id: 'aaa', name: 'a@x.com' },
+        pubKeyCredParams: [{ alg: -7, type: 'public-key' as const }],
       })),
       verifyRegistrationResponse: vi.fn(async () => ({
         verified: true,
@@ -219,8 +220,8 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   }
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
-    events = new AuthInMemoryEvents()
+    adapter = new MemoryAdapter()
+    events = new InMemoryEvents()
     facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
     identityId = 'user-wa-mfa-1'
   })

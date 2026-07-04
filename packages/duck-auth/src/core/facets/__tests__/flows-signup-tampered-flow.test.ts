@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { authSha256 } from '../../crypto'
+import { sha256 } from '../../crypto'
 import { AuthEngine } from '../../engine'
 import { AuthScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
@@ -12,7 +12,7 @@ interface ProfileShape {
 }
 
 function build() {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'https://app.test',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -28,7 +28,7 @@ function build() {
 }
 
 async function plantFlowRow(
-  adapter: AuthMemoryAdapter<ProfileShape>,
+  adapter: MemoryAdapter<ProfileShape>,
   identityId: string,
   metadata: unknown,
 ): Promise<string> {
@@ -37,9 +37,9 @@ async function plantFlowRow(
     {
       identityId,
       kind: 'recovery',
-      secret: authSha256(token),
+      secret: sha256(token),
       metadata: metadata as Record<string, unknown>,
-      expiresAt: Date.now() + 60 * 60 * 1000,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     },
     {},
   )
@@ -48,7 +48,7 @@ async function plantFlowRow(
 
 describe('flows signup - tampered flow metadata', () => {
   let auth: AuthEngine<ProfileShape>
-  let adapter: AuthMemoryAdapter<ProfileShape>
+  let adapter: MemoryAdapter<ProfileShape>
   let identityId: string
 
   beforeEach(async () => {
@@ -78,7 +78,7 @@ describe('flows signup - tampered flow metadata', () => {
       },
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+      code: 'AUTH_SIGNUP_TOKEN_INVALID',
     })
   })
 
@@ -97,7 +97,7 @@ describe('flows signup - tampered flow metadata', () => {
       },
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+      code: 'AUTH_SIGNUP_TOKEN_INVALID',
     })
   })
 
@@ -116,7 +116,7 @@ describe('flows signup - tampered flow metadata', () => {
       },
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+      code: 'AUTH_SIGNUP_TOKEN_INVALID',
     })
   })
 
@@ -140,7 +140,7 @@ describe('flows signup - tampered flow metadata', () => {
     // The 'email-verified' required stage is NOT in the parsed completed
     // (unknown values dropped) -> SIGNUP_INCOMPLETE, not invalid token.
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_INCOMPLETE',
+      code: 'AUTH_SIGNUP_INCOMPLETE',
     })
   })
 
@@ -159,7 +159,7 @@ describe('flows signup - tampered flow metadata', () => {
       },
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+      code: 'AUTH_SIGNUP_TOKEN_INVALID',
     })
   })
 
@@ -178,7 +178,7 @@ describe('flows signup - tampered flow metadata', () => {
       },
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+      code: 'AUTH_SIGNUP_TOKEN_INVALID',
     })
   })
 
@@ -199,7 +199,7 @@ describe('flows signup - tampered flow metadata', () => {
       },
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+      code: 'AUTH_SIGNUP_TOKEN_INVALID',
     })
   })
 
@@ -209,7 +209,7 @@ describe('flows signup - tampered flow metadata', () => {
       flow: 'not-an-object',
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({
-      code: 'AUTH/SIGNUP_TOKEN_INVALID',
+      code: 'AUTH_SIGNUP_TOKEN_INVALID',
     })
   })
 

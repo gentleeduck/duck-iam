@@ -1,8 +1,7 @@
 import { isRevoked } from '../credential-utils'
-import { AuthErrorObject } from '../errors'
-import type { AuthTenantContext } from '../types/context'
-import type { AuthCredential } from '../types/credential'
-import type { AuthHasher } from '../types/hasher'
+import { AuthError } from '../errors'
+import type { Credential } from '../types/identity'
+import type { Hasher, TenantContext } from '../types/infra'
 
 export const DEFAULT_PASSWORDS_CONFIG: PasswordsFacet.IConfig = {
   minLength: 8,
@@ -24,7 +23,7 @@ const COMMON_PASSWORDS = new Set([
 
 /**
  * Passwords facet - credential CRUD + verify, with constant-time discipline.
- * Plaintext never leaves a method call; storage always goes through {@link AuthHasher.IHasher}.
+ * Plaintext never leaves a method call; storage always goes through {@link Hasher.IHasher}.
  */
 export class PasswordsFacet {
   // Lazy reference hash used by verify() in the no-credential branch
@@ -33,8 +32,8 @@ export class PasswordsFacet {
   private _referenceHash: string | null = null
 
   constructor(
-    private readonly _credentials: AuthCredential.IStore,
-    private readonly _hasher: AuthHasher.IHasher,
+    private readonly _credentials: Credential.Store,
+    private readonly _hasher: Hasher.IHasher,
     private readonly _cfg: PasswordsFacet.IConfig = DEFAULT_PASSWORDS_CONFIG,
   ) {}
 
@@ -53,23 +52,34 @@ export class PasswordsFacet {
   /** Throws AUTH/INVALID_CREDENTIALS for weak passwords; never reveals the rule. */
   private _validateStrength(plaintext: string): void {
     if (plaintext.length < this._cfg.minLength) {
-      throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
+      throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
     // cap upper bound to prevent CPU/memory DoS via huge passwords
     // sent to argon2/scrypt. 1024 chars is well above any realistic
     // human-typed password while staying far below memory-cost amplifiers.
     if (plaintext.length > this._cfg.maxLength) {
-      throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
+      throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
     if (this._cfg.rejectCommon && COMMON_PASSWORDS.has(plaintext.toLowerCase())) {
-      throw new AuthErrorObject('AUTH/INVALID_CREDENTIALS')
+      throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
   }
 
+  /** Hash plaintext with the configured hasher. Useful for transaction-scoped credential writes. */
+  async hash(plaintext: string): Promise<string> {
+    this._validateStrength(plaintext)
+    return this._hasher.hash(plaintext)
+  }
+
+  /** Hasher algorithm id — needed when writing credentials outside of `set()`. */
+  get hasherId(): string {
+    return this._hasher.id
+  }
+
   /** Set/replace the password credential for an identity. Used by signUp + reset flows. */
-  async set(identityId: string, plaintext: string, ctx: AuthTenantContext = {}): Promise<void> {
+  async set(identityId: string, plaintext: string, ctx: TenantContext = {}): Promise<void> {
     if (typeof identityId !== 'string' || identityId.length === 0 || identityId.length > 256) {
-      throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+      throw new AuthError('AUTH_UNAUTHENTICATED')
     }
     this._validateStrength(plaintext)
     const secret = await this._hasher.hash(plaintext)
@@ -99,7 +109,7 @@ export class PasswordsFacet {
   async verify(
     identityId: string,
     plaintext: string,
-    ctx: AuthTenantContext = {},
+    ctx: TenantContext = {},
   ): Promise<{ ok: true; needsRehash: boolean } | { ok: false }> {
     // Cap plaintext before hashing so a multi-MB input cannot DoS
     // the argon2/scrypt verify path.
@@ -123,7 +133,7 @@ export class PasswordsFacet {
    * verify when {@link verify} returns `needsRehash: true`, so a slow
    * parameter upgrade rolls out as users sign in.
    */
-  async rehash(identityId: string, plaintext: string, ctx: AuthTenantContext = {}): Promise<void> {
+  async rehash(identityId: string, plaintext: string, ctx: TenantContext = {}): Promise<void> {
     if (plaintext.length > this._cfg.maxLength) return
     const rows = await this._credentials.listByIdentity(identityId, 'password', ctx)
     const row = rows.find((c) => !isRevoked(c))

@@ -10,24 +10,25 @@ import {
 } from '../credential-utils'
 
 describe('isRevoked', () => {
-  it('false when revokedAt is undefined', () => {
+  it('false when revokedAt is the null/undefined live sentinel', () => {
+    // `null` is the canonical "not revoked" value: upsert/create default
+    // `revokedAt` to `null`, so a null here means a live credential.
     expect(isRevoked({})).toBe(false)
     expect(isRevoked({ revokedAt: undefined })).toBe(false)
+    expect(isRevoked({ revokedAt: null })).toBe(false)
   })
 
-  it('true when revokedAt is a positive number (normal case)', () => {
-    expect(isRevoked({ revokedAt: Date.now() })).toBe(true)
+  it('true when revokedAt is a Date (normal case)', () => {
+    expect(isRevoked({ revokedAt: new Date() })).toBe(true)
   })
 
-  it('true when revokedAt === 0 (legitimate epoch number - the bug `!revokedAt` missed)', () => {
-    expect(isRevoked({ revokedAt: 0 })).toBe(true)
+  it('true when revokedAt is epoch zero Date (the bug `!revokedAt` would have missed)', () => {
+    expect(isRevoked({ revokedAt: new Date(0) })).toBe(true)
   })
 
-  it('true when revokedAt is a non-numeric value from a buggy adapter (fail-closed)', () => {
+  it('true when revokedAt is a non-null value from a buggy adapter (fail-closed)', () => {
     // @ts-expect-error: SEC test intentionally violates the typed shape
     expect(isRevoked({ revokedAt: 'compromised-marker' })).toBe(true)
-    // @ts-expect-error: SEC test intentionally violates the typed shape
-    expect(isRevoked({ revokedAt: null })).toBe(true)
     // @ts-expect-error: SEC test intentionally violates the typed shape
     expect(isRevoked({ revokedAt: { evil: 'object' } })).toBe(true)
   })
@@ -84,17 +85,18 @@ describe('isSoftDeleted', () => {
 describe('isCredentialExpired', () => {
   const now = 1_700_000_000_000
 
-  it('false when expiresAt is undefined (no expiry)', () => {
+  it('false when expiresAt is the null/undefined no-expiry sentinel', () => {
     expect(isCredentialExpired({}, now)).toBe(false)
     expect(isCredentialExpired({ expiresAt: undefined }, now)).toBe(false)
+    expect(isCredentialExpired({ expiresAt: null }, now)).toBe(false)
   })
 
   it('false when expiresAt is in the future', () => {
-    expect(isCredentialExpired({ expiresAt: now + 1 }, now)).toBe(false)
+    expect(isCredentialExpired({ expiresAt: new Date(now + 1) }, now)).toBe(false)
   })
 
   it('true when expiresAt is in the past', () => {
-    expect(isCredentialExpired({ expiresAt: now - 1 }, now)).toBe(true)
+    expect(isCredentialExpired({ expiresAt: new Date(now - 1) }, now)).toBe(true)
   })
 
   it('true on non-numeric expiresAt (would otherwise bypass via `NaN < N === false`)', () => {
@@ -102,27 +104,26 @@ describe('isCredentialExpired', () => {
     expect(isCredentialExpired({ expiresAt: 'soon' }, now)).toBe(true)
     // @ts-expect-error: SEC test intentionally violates the typed shape
     expect(isCredentialExpired({ expiresAt: { future: true } }, now)).toBe(true)
-    // @ts-expect-error: SEC test intentionally violates the typed shape
-    expect(isCredentialExpired({ expiresAt: null }, now)).toBe(true)
   })
 
-  it('true on NaN / Infinity (would bypass numeric comparison)', () => {
-    expect(isCredentialExpired({ expiresAt: Number.NaN }, now)).toBe(true)
-    expect(isCredentialExpired({ expiresAt: Number.POSITIVE_INFINITY }, now)).toBe(true)
-    expect(isCredentialExpired({ expiresAt: Number.NEGATIVE_INFINITY }, now)).toBe(true)
+  it('true on NaN / Infinity expiresAt dates (would bypass numeric comparison)', () => {
+    expect(isCredentialExpired({ expiresAt: new Date(Number.NaN) }, now)).toBe(true)
+    expect(isCredentialExpired({ expiresAt: new Date(Number.POSITIVE_INFINITY) }, now)).toBe(true)
+    expect(isCredentialExpired({ expiresAt: new Date(Number.NEGATIVE_INFINITY) }, now)).toBe(true)
   })
 
   it('uses Date.now() when no `now` supplied', () => {
-    expect(isCredentialExpired({ expiresAt: Date.now() + 60_000 })).toBe(false)
-    expect(isCredentialExpired({ expiresAt: Date.now() - 60_000 })).toBe(true)
+    expect(isCredentialExpired({ expiresAt: new Date(Date.now() + 60_000) })).toBe(false)
+    expect(isCredentialExpired({ expiresAt: new Date(Date.now() - 60_000) })).toBe(true)
   })
 })
 
 describe('isExpiredAt (low-level primitive)', () => {
   const now = 1_700_000_000_000
 
-  it('false when timestamp is undefined (no expiry configured)', () => {
+  it('false when timestamp is null/undefined (no expiry configured)', () => {
     expect(isExpiredAt(undefined, now)).toBe(false)
+    expect(isExpiredAt(null, now)).toBe(false)
   })
 
   it('false when timestamp is in the future', () => {
@@ -138,10 +139,9 @@ describe('isExpiredAt (low-level primitive)', () => {
     expect(isExpiredAt(Number.POSITIVE_INFINITY, now)).toBe(true)
   })
 
-  it('true for non-numeric timestamps (string, object, null) - fail closed', () => {
+  it('true for non-numeric timestamps (string, object) - fail closed', () => {
     expect(isExpiredAt('soon', now)).toBe(true)
     expect(isExpiredAt({ ts: 1 }, now)).toBe(true)
-    expect(isExpiredAt(null, now)).toBe(true)
   })
 })
 

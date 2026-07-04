@@ -8,11 +8,11 @@
 
 import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthKms } from '../../types/kms'
+import type { Kms } from '../../types/infra'
 import { AuthKmsEnvelopeDataAtRest } from '../kms-envelope'
 
-function makeFakeKms(): AuthKms.IProvider {
-  const wraps = new Map<string, { plaintext: Uint8Array; ctx: AuthKms.IEncryptionContext | undefined }>()
+function makeFakeKms(): Kms.IProvider {
+  const wraps = new Map<string, { plaintext: Uint8Array; ctx: Kms.IEncryptionContext | undefined }>()
   return {
     decryptDataKey: async (wrapped, ctx) => {
       const handle = Buffer.from(wrapped).toString('utf8')
@@ -64,14 +64,14 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
   it('rejects ciphertext with wrong version header', async () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     await expect(a.decrypt('kms-env$v9$k$a$b$c$d', { field: 'x', identityId: 'u' })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 
   it('rejects ciphertext with truncated parts', async () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     await expect(a.decrypt('kms-env$v1$k$a$b', { field: 'x', identityId: 'u' })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 
@@ -89,7 +89,7 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
 
   it('zeroes the plaintext DEK after encrypt (memory-disclosure hygiene)', async () => {
     let captured: Uint8Array | null = null
-    const observerKms: AuthKms.IProvider = {
+    const observerKms: Kms.IProvider = {
       decryptDataKey: async () => new Uint8Array(32),
       generateDataKey: async () => {
         const plaintext = new Uint8Array(randomBytes(32))
@@ -108,7 +108,7 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
     const a = new AuthKmsEnvelopeDataAtRest({ kms: makeFakeKms() })
     const ct = await a.encrypt('hi', { field: 'x', identityId: 'u' })
     let leakedAfter: Uint8Array | null = null
-    const watchKms: AuthKms.IProvider = {
+    const watchKms: Kms.IProvider = {
       decryptDataKey: async () => {
         // Return a wrong-size DEK so AES-GCM throws AFTER we get a chance
         // to observe whether plaintext-zero hygiene applies. We give the
@@ -132,7 +132,7 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
   })
 
   it('KMS generateDataKey throwing surfaces directly (no swallowing)', async () => {
-    const broken: AuthKms.IProvider = {
+    const broken: Kms.IProvider = {
       decryptDataKey: async () => new Uint8Array(32),
       generateDataKey: vi.fn(async () => {
         throw new Error('kms-down')
@@ -147,7 +147,7 @@ describe('AuthKmsEnvelopeDataAtRest - edge cases', () => {
     const kms = makeFakeKms()
     const a = new AuthKmsEnvelopeDataAtRest({ kms })
     const ct = await a.encrypt('x', { field: 'f', identityId: 'i' })
-    const broken: AuthKms.IProvider = {
+    const broken: Kms.IProvider = {
       decryptDataKey: async () => {
         throw new Error('kms-decrypt-down')
       },

@@ -5,7 +5,7 @@
  * proceed without a fresh client-side challenge solution.
  */
 
-import { AuthErrorObject } from '../errors'
+import { AuthError } from '../errors'
 
 /**
  * Cloudflare Turnstile verifier. Hits
@@ -19,7 +19,7 @@ export class AuthTurnstileVerifier implements AuthCaptcha.IVerifier {
 
   constructor(cfg: { secret: string; fetch?: typeof globalThis.fetch; endpoint?: string }) {
     if (!cfg.secret) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthTurnstileVerifier requires a `secret`',
       })
     }
@@ -71,7 +71,7 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
 
   constructor(cfg: { secret: string; fetch?: typeof globalThis.fetch; endpoint?: string }) {
     if (!cfg.secret) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthHCaptchaVerifier requires a `secret`',
       })
     }
@@ -129,7 +129,7 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
     minScore?: number
   }) {
     if (!cfg.secret) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthRecaptchaV3Verifier requires a `secret`',
       })
     }

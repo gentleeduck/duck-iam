@@ -1,31 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { authImpossibleTravelDetector } from '../../anomaly/impossible-travel'
-import { AuthInMemoryEvents } from '../../events'
-import type { AuthAnomaly } from '../../types/anomaly'
-import type { AuthIdentity } from '../../types/identity'
-import type { AuthSession } from '../../types/session'
+import { InMemoryEvents } from '../../events'
+import type { Identity } from '../../types/identity'
+import type { Anomaly } from '../../types/provider'
+import type { Session } from '../../types/session'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
 
-const identity: AuthIdentity.IIdentity = { id: 'u', providers: [], version: 1, createdAt: 0, updatedAt: 0 }
-const session: AuthSession.ISession = {
+const identity: Identity.Me = {
+  id: 'u',
+  providers: [],
+  emailVerified: false,
+  version: 1,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+}
+const session: Session.Me = {
   id: 'sid',
   identityId: 'u',
   kind: 'user',
   aal: 1,
   factors: [],
-  createdAt: 0,
-  rotatedAt: 0,
-  expiresAt: Date.now() + 60_000,
-  absoluteExpiresAt: Date.now() + 60_000,
+  createdAt: new Date(0),
+  rotatedAt: new Date(0),
+  expiresAt: new Date(Date.now() + 60_000),
+  absoluteExpiresAt: new Date(Date.now() + 60_000),
   fresh: true,
 }
 
 describe('AnomalyFacet', () => {
-  let events: AuthInMemoryEvents
+  let events: InMemoryEvents
   let facet: AnomalyFacet
 
   beforeEach(() => {
-    events = new AuthInMemoryEvents()
+    events = new InMemoryEvents()
     facet = new AnomalyFacet(events, DEFAULT_ANOMALY_CONFIG)
   })
 
@@ -46,7 +53,7 @@ describe('AnomalyFacet', () => {
   })
 
   it('aggregate score = sum of signal scores; emits suspicious above threshold', async () => {
-    const fakeSignal: AuthAnomaly.Signal = { kind: 'new-device', score: 0.5, evidence: {} }
+    const fakeSignal: Anomaly.Signal = { kind: 'new-device', score: 0.5, evidence: {} }
     facet.register({
       id: 'a',
       async evaluate() {
@@ -75,7 +82,7 @@ describe('AnomalyFacet', () => {
     facet.register({
       id: 'low',
       async evaluate() {
-        return [{ kind: 'off-hours' as AuthAnomaly.Kind, score: 0.2, evidence: {} }]
+        return [{ kind: 'off-hours' as Anomaly.Kind, score: 0.2, evidence: {} }]
       },
     })
     const handler = vi.fn()
@@ -95,7 +102,7 @@ describe('AnomalyFacet', () => {
     facet.register({
       id: 'ok',
       async evaluate() {
-        return [{ kind: 'new-device' as AuthAnomaly.Kind, score: 0.3, evidence: {} }]
+        return [{ kind: 'new-device' as Anomaly.Kind, score: 0.3, evidence: {} }]
       },
     })
     const r = await facet.evaluate({ session, identity, req: { now: Date.now() } })
@@ -115,7 +122,7 @@ describe('AnomalyFacet', () => {
       facet.register({
         id: 'real',
         async evaluate() {
-          return [{ kind: 'new-device' as AuthAnomaly.Kind, score: 0.3, evidence: {} }]
+          return [{ kind: 'new-device' as Anomaly.Kind, score: 0.3, evidence: {} }]
         },
       })
       // Without isValidSignal filtering, decide() reads `null.score` and
@@ -139,7 +146,7 @@ describe('AnomalyFacet', () => {
       facet.register({
         id: 'real',
         async evaluate() {
-          return [{ kind: 'high-velocity' as AuthAnomaly.Kind, score: 0.4, evidence: {} }]
+          return [{ kind: 'high-velocity' as Anomaly.Kind, score: 0.4, evidence: {} }]
         },
       })
       const r = await facet.evaluate({ session, identity, req: { now: Date.now() } })
@@ -158,7 +165,7 @@ describe('AnomalyFacet', () => {
             { kind: 42, score: 0.5, evidence: {} },
             { kind: '', score: 0.5, evidence: {} },
             { kind: 'new-device', score: 'bad-string', evidence: {} },
-            { kind: 'new-device' as AuthAnomaly.Kind, score: 0.6, evidence: {} },
+            { kind: 'new-device' as Anomaly.Kind, score: 0.6, evidence: {} },
           ]
         },
       })
@@ -172,7 +179,7 @@ describe('AnomalyFacet', () => {
       facet.register({
         id: 'NaN-score',
         async evaluate() {
-          return [{ kind: 'new-device' as AuthAnomaly.Kind, score: Number.NaN, evidence: {} }]
+          return [{ kind: 'new-device' as Anomaly.Kind, score: Number.NaN, evidence: {} }]
         },
       })
       const r = await facet.evaluate({ session, identity, req: { now: Date.now() } })
@@ -236,7 +243,7 @@ describe('AnomalyFacet', () => {
       facet.register({
         id: 'high',
         async evaluate() {
-          return [{ kind: 'impossible-travel' as AuthAnomaly.Kind, score: 1.0, evidence: {} }]
+          return [{ kind: 'impossible-travel' as Anomaly.Kind, score: 1.0, evidence: {} }]
         },
       })
       const r = await facet.evaluate({ session, identity, req: { now: Date.now() } })
@@ -298,13 +305,13 @@ describe('AnomalyFacet', () => {
       facet.register({
         id: 'bad',
         async evaluate() {
-          return [{ kind: 'new-device' as AuthAnomaly.Kind, score: Number.NaN, evidence: {} }]
+          return [{ kind: 'new-device' as Anomaly.Kind, score: Number.NaN, evidence: {} }]
         },
       })
       facet.register({
         id: 'good',
         async evaluate() {
-          return [{ kind: 'off-hours' as AuthAnomaly.Kind, score: 0.3, evidence: {} }]
+          return [{ kind: 'off-hours' as Anomaly.Kind, score: 0.3, evidence: {} }]
         },
       })
       const r = await facet.evaluate({ session, identity, req: { now: Date.now() } })

@@ -1,5 +1,5 @@
 import type { AuthEngineTypes } from './engine'
-import { AuthErrorObject } from './errors'
+import { AuthError } from './errors'
 
 const DEFAULT_OVERRIDES: AuthCompliance.IOverrides = {
   passwords: { minLength: 8 },
@@ -86,9 +86,9 @@ function mergeStricter(a: AuthCompliance.IOverrides, b: AuthCompliance.IOverride
 
 /** Apply preset overrides to an AuthEngine config; never mutates input, stricter rule wins per field. */
 export function authApplyCompliancePreset<Profile = unknown, Tenant = string, OrgMeta = unknown>(
-  base: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta>,
+  base: AuthEngineTypes.Config<Profile, Tenant, OrgMeta>,
   preset: AuthCompliance.IPreset | AuthCompliance.IPreset[],
-): AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta> {
+): AuthEngineTypes.Config<Profile, Tenant, OrgMeta> {
   const overrides = authResolveCompliance(preset)
   // Attach the resolved overrides via `__compliancePreset` so
   // `AuthEngine.strict` can apply `authAssertComplianceStrict` automatically.
@@ -190,7 +190,7 @@ export function authAssertComplianceStrict(opts: {
     errors.push('compliance: FIPS-validated hasher required (Argon2id with FIPS params)')
   }
   if (errors.length > 0) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `compliance strict checks failed:\n  - ${errors.join('\n  - ')}`,
     })
   }

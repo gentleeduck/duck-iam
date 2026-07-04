@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { InMemoryEvents } from '../../events'
 import { OrgsFacet } from '../orgs'
 
 describe('OrgsFacet.addMember - TOCTOU defense', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let facet: OrgsFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
-    facet = new OrgsFacet(adapter.orgs, new AuthInMemoryEvents())
+    adapter = new MemoryAdapter()
+    facet = new OrgsFacet(adapter.orgs, new InMemoryEvents())
     // Seed an org via the underlying adapter (no orgs.create() in facet).
     const orgsMap = (adapter as unknown as { _orgs: Map<string, unknown> })._orgs
     orgsMap.set('org-1', { id: 'org-1', name: 'Acme', createdAt: Date.now() })
@@ -27,7 +27,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     const firstRejected = rejected[0]
     if (firstRejected && firstRejected.status === 'rejected') {
       expect(firstRejected.reason).toMatchObject({
-        code: 'AUTH/PROVIDER_FAILED',
+        code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'identity already a member of this org' },
       })
     } else {
@@ -75,7 +75,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     // surprise type / DB constraint blow-up.
     for (const r of rejected) {
       if (r.status === 'rejected') {
-        expect(r.reason).toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+        expect(r.reason).toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
       }
     }
   })
@@ -88,7 +88,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     // leftAt cleared on the new joinedAt row.
     const resolved = await facet.resolveMembership('org-1', 'u')
     expect(resolved?.roles).toEqual(['returned'])
-    expect(resolved?.leftAt).toBeUndefined()
+    expect(resolved?.leftAt).toBeNull()
   })
 
   it('store-level guard fires even when called directly (bypassing the facet)', async () => {
@@ -96,7 +96,7 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
     // admin operations). The store must guard atomically too.
     await adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [] }, {})
     await expect(adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [] }, {})).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
       meta: { detail: 'identity already a member of this org' },
     })
   })

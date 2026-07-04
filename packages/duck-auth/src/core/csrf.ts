@@ -1,7 +1,7 @@
-import { authRandomToken, authSha256, authTimingSafeEqual } from './crypto'
-import { AuthErrorObject } from './errors'
+import { RandomToken, sha256, timingSafeEqual } from './crypto'
+import { AuthError } from './errors'
 
-export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<AuthCsrf.IConfig, 'allowedOrigins'>> & {
+export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.IConfig, 'allowedOrigins'>> & {
   allowedOrigins: string[]
 } = {
   cookieName: '__Host-duck-csrf',
@@ -15,14 +15,14 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
 /** Generate a CSRF token + its hash (for session storage). */
 export function authIssueCsrfToken(): { token: string; hash: string } {
-  const token = authRandomToken(32)
-  return { token, hash: authSha256(token) }
+  const token = RandomToken(32)
+  return { token, hash: sha256(token) }
 }
 
 /** Build a Set-Cookie intent body for the CSRF cookie. */
 export function authBuildCsrfCookieOptions(
   token: string,
-  cfg: AuthCsrf.IConfig = {},
+  cfg: Csrf.IConfig = {},
 ): {
   name: string
   value: string
@@ -55,7 +55,7 @@ export function authVerifyCsrf(opts: {
   method: string
   headers: Headers
   sessionCsrfHash?: string
-  cfg?: AuthCsrf.IConfig
+  cfg?: Csrf.IConfig
   /** True when the request authenticated via a non-ambient bearer (header, JWT, DPoP). */
   isBearer?: boolean
 }): void {
@@ -68,17 +68,17 @@ export function authVerifyCsrf(opts: {
   // Layer 1: Origin / Sec-Fetch-Site.
   const sfs = opts.headers.get('sec-fetch-site')
   if (sfs && sfs !== 'same-origin' && sfs !== 'same-site' && sfs !== 'none') {
-    throw new AuthErrorObject('AUTH/CSRF')
+    throw new AuthError('AUTH_CSRF')
   }
   if (cfg.allowedOrigins.length > 0) {
     const origin = opts.headers.get('origin')
     if (!origin || !cfg.allowedOrigins.includes(origin)) {
-      throw new AuthErrorObject('AUTH/CSRF')
+      throw new AuthError('AUTH_CSRF')
     }
   } else if (cfg.mode === 'origin-only' && (sfs === 'none' || sfs === null)) {
     // origin-only mode without an Origin allowlist has no defense for
     // direct navigations or stripped headers; refuse rather than fail-open.
-    throw new AuthErrorObject('AUTH/CSRF')
+    throw new AuthError('AUTH_CSRF')
   }
 
   if (cfg.mode === 'origin-only') return
@@ -88,16 +88,16 @@ export function authVerifyCsrf(opts: {
   if (opts.sessionCsrfHash === undefined) return
   const headerToken = opts.headers.get(cfg.headerName)
   if (!headerToken) {
-    throw new AuthErrorObject('AUTH/CSRF')
+    throw new AuthError('AUTH_CSRF')
   }
   // Cap supplied token length before hashing so a multi-MB header
   // cannot DoS via sha256 amplification.
   if (headerToken.length > CSRF_TOKEN_MAX) {
-    throw new AuthErrorObject('AUTH/CSRF')
+    throw new AuthError('AUTH_CSRF')
   }
-  const headerHash = authSha256(headerToken)
-  if (!authTimingSafeEqual(headerHash, opts.sessionCsrfHash)) {
-    throw new AuthErrorObject('AUTH/CSRF')
+  const headerHash = sha256(headerToken)
+  if (!timingSafeEqual(headerHash, opts.sessionCsrfHash)) {
+    throw new AuthError('AUTH_CSRF')
   }
 }
 
@@ -120,12 +120,12 @@ export async function authCsrfGuard(
       req: { headers: Headers },
       opts?: { expectedTenantId?: string },
     ): Promise<{
-      session: { csrfHash?: string }
+      session: { csrfHash?: string | null }
       identity: unknown
     } | null>
   },
   req: { method: string; headers: Headers },
-  opts: { isBearer?: boolean; cfg?: AuthCsrf.IConfig; expectedTenantId?: string } = {},
+  opts: { isBearer?: boolean; cfg?: Csrf.IConfig; expectedTenantId?: string } = {},
 ): Promise<void> {
   if (SAFE_METHODS.has(req.method.toUpperCase())) return
   // Bearer / JWT transports carry auth in the Authorization header,
@@ -138,12 +138,12 @@ export async function authCsrfGuard(
   authVerifyCsrf({
     method: req.method,
     headers: req.headers,
-    ...(resolved?.session.csrfHash !== undefined && { sessionCsrfHash: resolved.session.csrfHash }),
+    ...(resolved?.session.csrfHash != null && { sessionCsrfHash: resolved.session.csrfHash }),
     ...(opts.cfg !== undefined && { cfg: opts.cfg }),
   })
 }
 
-export namespace AuthCsrf {
+export namespace Csrf {
   export interface IConfig {
     /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`. */
     cookieName?: string

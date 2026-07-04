@@ -1,19 +1,19 @@
-/** Runtime helpers for {@link AuthCredential.ICredential} shared by multiple facets. */
+/** Runtime helpers for {@link Credential.Me} shared by multiple facets. */
 
-import type { AuthCredential } from './types/credential'
+import type { Credential } from './types/identity'
 
 /** True when the credential row carries any `revokedAt` marker. */
-export function isRevoked(row: Pick<AuthCredential.ICredential, 'revokedAt'>): boolean {
-  return row.revokedAt !== undefined
+export function isRevoked(row: Pick<Credential.Me, 'revokedAt'>): boolean {
+  return row.revokedAt != null
 }
 
 /** True when an identity row carries any `deletedAt` marker (soft delete). */
-export function isSoftDeleted(row: { deletedAt?: number }): boolean {
-  return row.deletedAt !== undefined
+export function isSoftDeleted(row: { deletedAt?: Date | number | null }): boolean {
+  return row.deletedAt != null
 }
 
 /** Read the `purpose` field off a credential row's `metadata` object. */
-export function getCredentialPurpose(row: Pick<AuthCredential.ICredential, 'metadata'>): string | undefined {
+export function getCredentialPurpose(row: Pick<Credential.Me, 'metadata'>): string | undefined {
   const meta = row.metadata
   if (meta === undefined) return undefined
   const purpose = meta.purpose
@@ -21,20 +21,22 @@ export function getCredentialPurpose(row: Pick<AuthCredential.ICredential, 'meta
 }
 
 /** True when the row has an `expiresAt` that is malformed or in the past. */
-export function isCredentialExpired(
-  row: Pick<AuthCredential.ICredential, 'expiresAt'>,
-  now: number = Date.now(),
-): boolean {
+export function isCredentialExpired(row: Pick<Credential.Me, 'expiresAt'>, now: number = Date.now()): boolean {
   return isExpiredAt(row.expiresAt, now)
 }
 
 /**
- * `undefined` -> false (no expiry configured).
+ * `null` / `undefined` -> false (no expiry configured — the live sentinel).
+ * Date instance -> compare `.getTime()` against now (fail closed on invalid Date).
  * Non-numeric / NaN / Infinity -> true (fail closed).
  * Past -> true (expired). Future -> false (still valid).
  */
 export function isExpiredAt(timestampMs: unknown, now: number = Date.now()): boolean {
-  if (timestampMs === undefined) return false
+  if (timestampMs == null) return false
+  if (timestampMs instanceof Date) {
+    const t = timestampMs.getTime()
+    return !Number.isFinite(t) || t < now
+  }
   if (!isFiniteNumber(timestampMs)) return true
   return timestampMs < now
 }

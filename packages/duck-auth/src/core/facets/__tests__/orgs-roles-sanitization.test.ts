@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { InMemoryEvents } from '../../events'
 import { OrgsFacet } from '../orgs'
 
 describe('OrgsFacet roles sanitization', () => {
-  let adapter: AuthMemoryAdapter
+  let adapter: MemoryAdapter
   let facet: OrgsFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
-    facet = new OrgsFacet(adapter.orgs, new AuthInMemoryEvents())
+    adapter = new MemoryAdapter()
+    facet = new OrgsFacet(adapter.orgs, new InMemoryEvents())
     const orgsMap = (adapter as unknown as { _orgs: Map<string, unknown> })._orgs
     orgsMap.set('org-1', { id: 'org-1', name: 'Acme', createdAt: Date.now() })
   })

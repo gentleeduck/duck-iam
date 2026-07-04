@@ -1,4 +1,4 @@
-import { AuthErrorObject } from '../errors'
+import { AuthError } from '../errors'
 import type { AuthProvider } from '../types/provider'
 
 /**
@@ -15,7 +15,7 @@ export class ProvidersFacet<Profile = unknown> {
 
   private _add(p: AuthProvider.IProvider<unknown, unknown, Profile>): void {
     if (this._byId.has(p.id)) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `provider id "${p.id}" registered twice`,
       })
     }
@@ -34,7 +34,7 @@ export class ProvidersFacet<Profile = unknown> {
   get(id: string): AuthProvider.IProvider<unknown, unknown, Profile> {
     const p = this._byId.get(id)
     if (!p) {
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: id,
         detail: 'unknown provider id',
       })
@@ -51,7 +51,11 @@ export class ProvidersFacet<Profile = unknown> {
     return this.get(id).begin(ctx, input)
   }
 
-  async complete(id: string, ctx: AuthProvider.IContext<Profile>, input: unknown): Promise<AuthProvider.Intent[]> {
+  async complete(
+    id: string,
+    ctx: AuthProvider.IContext<Profile>,
+    input: unknown,
+  ): Promise<AuthProvider.IInternalIntent[]> {
     return this.get(id).complete(ctx, input)
   }
 }

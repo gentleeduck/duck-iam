@@ -1,7 +1,7 @@
 /** Argon2id-backed password hasher (compliance presets); needs `@node-rs/argon2` peerDep. */
 
-import { AuthErrorObject } from '../errors'
-import type { AuthHasher } from '../types/hasher'
+import { AuthError } from '../errors'
+import type { Hasher } from '../types/infra'
 
 /** Conservative OWASP defaults. */
 export const ARGON2ID_DEFAULTS: AuthArgon2idHasher.IParams = {
@@ -45,7 +45,7 @@ async function loadArgon2(): Promise<NodeRsArgon2Module> {
     _argon2Module = mod
     return mod
   } catch {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail:
         'AuthArgon2idHasher requires the @node-rs/argon2 peerDep. ' +
         'Install via `bun add @node-rs/argon2` (or `npm install @node-rs/argon2`).',
@@ -54,7 +54,7 @@ async function loadArgon2(): Promise<NodeRsArgon2Module> {
 }
 
 /** Argon2id hasher; lazy-imports `@node-rs/argon2` and encodes the PHC string `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`. */
-export class AuthArgon2idHasher implements AuthHasher.IHasher {
+export class AuthArgon2idHasher implements Hasher.IHasher {
   readonly id = 'argon2id'
   private readonly _params: AuthArgon2idHasher.IParams
 

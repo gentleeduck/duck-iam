@@ -1,18 +1,23 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authRandomToken, authSha256 } from '../../crypto'
-import { AuthInMemoryEvents } from '../../events'
+import { MemoryAdapter } from '../../../adapters/memory'
+import { RandomToken, sha256 } from '../../crypto'
+import { InMemoryEvents } from '../../events'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../apikeys'
 
 describe('ApiKeysFacet', () => {
-  let adapter: AuthMemoryAdapter
-  let events: AuthInMemoryEvents
+  let adapter: MemoryAdapter
+  let events: InMemoryEvents
   let facet: ApiKeysFacet
 
   beforeEach(() => {
-    adapter = new AuthMemoryAdapter()
-    events = new AuthInMemoryEvents()
-    facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken, authSha256 }, DEFAULT_APIKEYS_CONFIG)
+    adapter = new MemoryAdapter()
+    events = new InMemoryEvents()
+    facet = new ApiKeysFacet(
+      adapter.credentials,
+      events,
+      { authRandomToken: RandomToken, authSha256: sha256 },
+      DEFAULT_APIKEYS_CONFIG,
+    )
   })
 
   describe('create', () => {
@@ -25,7 +30,7 @@ describe('ApiKeysFacet', () => {
       expect(plaintext.length).toBeGreaterThan('ak_live_'.length + 30)
       const rows = await adapter.credentials.listByIdentity('user-1', 'api-key', {})
       expect(rows).toHaveLength(1)
-      expect(rows[0]?.secret).toBe(authSha256(plaintext))
+      expect(rows[0]?.secret).toBe(sha256(plaintext))
       expect((rows[0]?.metadata as { scopes: string[] }).scopes).toEqual(['deploy.write'])
       expect(key.name).toBe('CI deploy')
     })
@@ -46,22 +51,22 @@ describe('ApiKeysFacet', () => {
     })
 
     it('wrong prefix surfaces AUTH/APIKEY_INVALID without lookup', async () => {
-      await expect(facet.verify('not-our-prefix-token')).rejects.toMatchObject({ code: 'AUTH/APIKEY_INVALID' })
+      await expect(facet.verify('not-our-prefix-token')).rejects.toMatchObject({ code: 'AUTH_APIKEY_INVALID' })
     })
 
     it('unknown token surfaces AUTH/APIKEY_INVALID', async () => {
-      await expect(facet.verify('ak_live_aaaaaaaa')).rejects.toMatchObject({ code: 'AUTH/APIKEY_INVALID' })
+      await expect(facet.verify('ak_live_aaaaaaaa')).rejects.toMatchObject({ code: 'AUTH_APIKEY_INVALID' })
     })
 
     it('revoked token surfaces AUTH/APIKEY_REVOKED', async () => {
       const { key, plaintext } = await facet.create('user-1', { name: 'k', scopes: [] })
       await facet.revoke(key.id)
-      await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+      await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
     })
 
     it('expired token surfaces AUTH/APIKEY_REVOKED', async () => {
       const { plaintext } = await facet.create('user-1', { name: 'k', scopes: [], expiresAt: Date.now() - 1 })
-      await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+      await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
     })
 
     describe('defensive guards against malformed adapter rows', () => {
@@ -70,38 +75,38 @@ describe('ApiKeysFacet', () => {
         row: NonNullable<Awaited<ReturnType<typeof adapter.credentials.findByHashedSecret>>>
       }> {
         const { plaintext } = await facet.create('user-1', { name: 'k', scopes: ['read'] })
-        const row = await adapter.credentials.findByHashedSecret(authSha256(plaintext), 'api-key', {})
+        const row = await adapter.credentials.findByHashedSecret(sha256(plaintext), 'api-key', {})
         if (!row) throw new Error('row missing')
         return { plaintext, row }
       }
 
       it('revokedAt === 0 (legitimate epoch number) surfaces as revoked (previously slipped past `if (row.revokedAt)`)', async () => {
         const { plaintext, row } = await createAndGrabRow()
-        row.revokedAt = 0
-        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+        row.revokedAt = new Date(0)
+        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
       })
 
       it('revokedAt as a non-numeric value surfaces as revoked', async () => {
         const { plaintext, row } = await createAndGrabRow()
         // @ts-expect-error: SEC test intentionally violates the typed shape
         row.revokedAt = 'compromised-marker'
-        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
       })
 
       it('non-numeric expiresAt is treated as expired (NaN-bypass defense - would have accepted expired key)', async () => {
         const { plaintext, row } = await createAndGrabRow()
         // @ts-expect-error: SEC test intentionally violates the typed shape
         row.expiresAt = 'not-a-number'
-        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
       })
 
       it('list() filters out keys with revokedAt === 0 (previously visible via `!r.revokedAt`)', async () => {
         const { plaintext, row } = await createAndGrabRow()
-        row.revokedAt = 0
+        row.revokedAt = new Date(0)
         const visible = await facet.list('user-1')
         expect(visible.find((k) => k.id === row.id)).toBeUndefined()
         // Sanity: verify is also fail-closed.
-        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+        await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
       })
     })
   })
@@ -114,13 +119,13 @@ describe('ApiKeysFacet', () => {
       })
       const { plaintext: newPlain } = await facet.rotate(key.id)
       expect(newPlain).not.toBe(oldPlain)
-      await expect(facet.verify(oldPlain)).rejects.toMatchObject({ code: 'AUTH/APIKEY_REVOKED' })
+      await expect(facet.verify(oldPlain)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
       const v = await facet.verify(newPlain)
       expect(v.scopes).toEqual(['read'])
     })
 
     it('rotate on missing key surfaces AUTH/APIKEY_INVALID', async () => {
-      await expect(facet.rotate('does-not-exist')).rejects.toMatchObject({ code: 'AUTH/APIKEY_INVALID' })
+      await expect(facet.rotate('does-not-exist')).rejects.toMatchObject({ code: 'AUTH_APIKEY_INVALID' })
     })
   })
 

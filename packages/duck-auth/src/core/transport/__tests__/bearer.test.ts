@@ -94,7 +94,7 @@ describe('AuthBearerTransport.issue', () => {
 
   it('emits a json intent with token + expiresAt', () => {
     const expiresAt = Date.now() + 60_000
-    // @ts-expect-error: this test only exercises the expiresAt projection - the rest of AuthSession.ISession is irrelevant for AuthBearerTransport.issue.
+    // @ts-expect-error: this test only exercises the expiresAt projection - the rest of Session.ISession is irrelevant for AuthBearerTransport.issue.
     const intents = t.issue('sid-1', { expiresAt })
     expect(intents).toHaveLength(1)
     const intent = intents[0]

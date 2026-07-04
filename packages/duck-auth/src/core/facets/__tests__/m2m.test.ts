@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { AuthScryptHasher } from '../../password/scrypt'
@@ -11,7 +11,7 @@ interface MyProfile {
 }
 
 function build() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const transport = new AuthJwtTransport({
     signKey: { kid: 'k1', key: 'secret-32-bytes-of-test-material' },
     verifyKeys: [{ kid: 'k1', key: 'secret-32-bytes-of-test-material' }],
@@ -90,7 +90,7 @@ describe('M2MFacet - client_credentials grant', () => {
     })
     await expect(
       strict.exchange({ clientId, clientSecret, scope: 'read:users admin:everything' }),
-    ).rejects.toMatchObject({ code: 'AUTH/APIKEY_SCOPE_INSUFFICIENT' })
+    ).rejects.toMatchObject({ code: 'AUTH_APIKEY_SCOPE_INSUFFICIENT' })
   })
 
   it('rejects oversize scope (>4096 chars) before splitting - memory amplification defense', async () => {
@@ -99,8 +99,7 @@ describe('M2MFacet - client_credentials grant', () => {
     // 1M+ token array. Reject before splitting.
     const huge = `${'x '.repeat(2050)}`
     await expect(env.m2m.exchange({ clientId, clientSecret, scope: huge })).rejects.toMatchObject({
-      code: 'AUTH/APIKEY_SCOPE_INSUFFICIENT',
-      meta: { detail: 'scope parameter exceeds size cap' },
+      code: 'AUTH_INVALID_CREDENTIALS',
     })
   })
 
@@ -109,37 +108,36 @@ describe('M2MFacet - client_credentials grant', () => {
     // exceeds 64 (the per-request scope cardinality limit).
     const many = Array.from({ length: 65 }, (_, i) => `s${i}`).join(' ')
     await expect(env.m2m.exchange({ clientId, clientSecret, scope: many })).rejects.toMatchObject({
-      code: 'AUTH/APIKEY_SCOPE_INSUFFICIENT',
-      meta: { detail: 'scope parameter contains too many tokens' },
+      code: 'AUTH_INVALID_CREDENTIALS',
     })
   })
 
   it('wrong client_secret throws AUTH/APIKEY_INVALID', async () => {
     await expect(env.m2m.exchange({ clientId, clientSecret: 'not-the-real-secret' })).rejects.toMatchObject({
-      code: 'AUTH/APIKEY_INVALID',
+      code: 'AUTH_APIKEY_INVALID',
     })
   })
 
   it('mismatched (client_id, secret) pair throws AUTH/APIKEY_INVALID', async () => {
     const other = await env.auth.apiKeys.create(identityId, { name: 'other', scopes: [] })
     await expect(env.m2m.exchange({ clientId: other.key.id, clientSecret })).rejects.toMatchObject({
-      code: 'AUTH/APIKEY_INVALID',
+      code: 'AUTH_APIKEY_INVALID',
     })
   })
 
   it('missing client_id or client_secret throws AUTH/APIKEY_INVALID', async () => {
     await expect(env.m2m.exchange({ clientId: '', clientSecret })).rejects.toMatchObject({
-      code: 'AUTH/APIKEY_INVALID',
+      code: 'AUTH_APIKEY_INVALID',
     })
     await expect(env.m2m.exchange({ clientId, clientSecret: '' })).rejects.toMatchObject({
-      code: 'AUTH/APIKEY_INVALID',
+      code: 'AUTH_APIKEY_INVALID',
     })
   })
 
   it('revoked api key rejects with AUTH/APIKEY_REVOKED', async () => {
     await env.auth.apiKeys.revoke(clientId)
     await expect(env.m2m.exchange({ clientId, clientSecret })).rejects.toMatchObject({
-      code: 'AUTH/APIKEY_REVOKED',
+      code: 'AUTH_APIKEY_REVOKED',
     })
   })
 

@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthInMemoryEvents } from '../../events'
-import type { AuthSession } from '../../types/session'
+import { InMemoryEvents } from '../../events'
+import type { Session } from '../../types/session'
 import { HijackFacet } from '../hijack'
 
-function makeSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession.ISession {
+function makeSession(overrides: Partial<Session.Me> = {}): Session.Me {
   const now = Date.now()
   return {
     id: 'sid',
@@ -11,10 +11,10 @@ function makeSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession
     kind: 'user',
     aal: 1,
     factors: [],
-    createdAt: now,
-    rotatedAt: now,
-    expiresAt: now + 60_000,
-    absoluteExpiresAt: now + 60_000,
+    createdAt: new Date(now),
+    rotatedAt: new Date(now),
+    expiresAt: new Date(now + 60_000),
+    absoluteExpiresAt: new Date(now + 60_000),
     fresh: true,
     ip: '203.0.113.1',
     userAgent: 'Mozilla/5.0',
@@ -23,10 +23,10 @@ function makeSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession
 }
 
 describe('HijackFacet', () => {
-  let events: AuthInMemoryEvents
+  let events: InMemoryEvents
 
   beforeEach(() => {
-    events = new AuthInMemoryEvents()
+    events = new InMemoryEvents()
   })
 
   it('returns ok:true when fingerprint matches', async () => {
@@ -69,7 +69,7 @@ describe('HijackFacet', () => {
     try {
       facet.applyReaction('mfa')
     } catch (err) {
-      expect((err as { code: string }).code).toBe('AUTH/STEP_UP_REQUIRED')
+      expect((err as { code: string }).code).toBe('AUTH_STEP_UP_REQUIRED')
     }
   })
 
@@ -79,7 +79,7 @@ describe('HijackFacet', () => {
       facet.applyReaction('revoke')
       expect.fail('expected throw')
     } catch (err) {
-      expect((err as { code: string }).code).toBe('AUTH/SESSION_REVOKED')
+      expect((err as { code: string }).code).toBe('AUTH_SESSION_REVOKED')
     }
   })
 
@@ -93,7 +93,7 @@ describe('HijackFacet', () => {
     const handler = vi.fn()
     events.on('suspicious', handler)
     const facet = new HijackFacet(events, { onIpChange: 'mfa' })
-    // AuthSession has IP but request does not - asymmetric drift. The
+    // Session has IP but request does not - asymmetric drift. The
     // configured `'mfa'` reaction is downgraded to `'rotate'` so a
     // request behind a UA-stripping proxy doesn't force MFA, but the
     // audit pipeline still sees the drift.

@@ -1,15 +1,15 @@
 import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthKms } from '../../types/kms'
+import type { Kms } from '../../types/infra'
 import { AuthKmsEnvelopeDataAtRest } from '../kms-envelope'
 
 /** In-memory KMS that mimics AWS encryption-context semantics. */
-function makeFakeKms(): AuthKms.IProvider & {
+function makeFakeKms(): Kms.IProvider & {
   generateDataKey: ReturnType<typeof vi.fn>
   decryptDataKey: ReturnType<typeof vi.fn>
 } {
-  const wraps = new Map<string, { plaintext: Uint8Array; ctx: AuthKms.IEncryptionContext | undefined }>()
-  const generateDataKey = vi.fn(async (ctx?: AuthKms.IEncryptionContext): Promise<AuthKms.IDataKey> => {
+  const wraps = new Map<string, { plaintext: Uint8Array; ctx: Kms.IEncryptionContext | undefined }>()
+  const generateDataKey = vi.fn(async (ctx?: Kms.IEncryptionContext): Promise<Kms.IDataKey> => {
     const plaintext = new Uint8Array(randomBytes(32))
     const handle = randomBytes(16).toString('hex')
     wraps.set(handle, { plaintext: new Uint8Array(plaintext), ctx })
@@ -19,7 +19,7 @@ function makeFakeKms(): AuthKms.IProvider & {
       plaintext,
     }
   })
-  const decryptDataKey = vi.fn(async (wrapped: Uint8Array, ctx?: AuthKms.IEncryptionContext): Promise<Uint8Array> => {
+  const decryptDataKey = vi.fn(async (wrapped: Uint8Array, ctx?: Kms.IEncryptionContext): Promise<Uint8Array> => {
     const handle = Buffer.from(wrapped).toString('utf8')
     const entry = wraps.get(handle)
     if (!entry) throw new Error('fake-kms: unknown ciphertext blob')
@@ -54,12 +54,12 @@ describe('AuthKmsEnvelopeDataAtRest', () => {
     const kms = makeFakeKms()
     const a = new AuthKmsEnvelopeDataAtRest({ kms })
     await expect(a.decrypt('not-a-ciphertext', { field: 'f', identityId: 'i' })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 
   it('rejects wrong DEK size from KMS', async () => {
-    const badKms: AuthKms.IProvider = {
+    const badKms: Kms.IProvider = {
       decryptDataKey: async () => new Uint8Array(16),
       generateDataKey: async () => ({
         ciphertext: new Uint8Array([1]),
@@ -70,7 +70,7 @@ describe('AuthKmsEnvelopeDataAtRest', () => {
     }
     const a = new AuthKmsEnvelopeDataAtRest({ kms: badKms })
     await expect(a.encrypt('x', { field: 'f', identityId: 'i' })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 

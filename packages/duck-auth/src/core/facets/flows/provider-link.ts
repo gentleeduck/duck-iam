@@ -1,6 +1,6 @@
 import { isRevoked } from '../../credential-utils'
-import { AuthErrorObject } from '../../errors'
-import type { AuthTenantContext } from '../../types/context'
+import { AuthError } from '../../errors'
+import type { TenantContext } from '../../types/infra'
 import type { FlowsFacet } from '../flows'
 
 function isProviderIdSafe(providerId: unknown): providerId is string {
@@ -8,30 +8,30 @@ function isProviderIdSafe(providerId: unknown): providerId is string {
 }
 
 export async function linkProvider<Profile>(
-  flows: FlowsFacet<Profile>,
+  deps: FlowsFacet.IDeps<Profile>,
   opts: FlowsFacet.ILinkProviderInput,
 ): Promise<{ identityId: string; providerId: string }> {
   if (!isProviderIdSafe(opts.providerId)) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'invalid',
       detail: 'invalid providerId',
     })
   }
   if (typeof opts.providerSub !== 'string' || opts.providerSub.length === 0 || opts.providerSub.length > 512) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: opts.providerId,
       detail: 'invalid providerSub',
     })
   }
-  const tenant: AuthTenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
-  const identity = await flows._identities.getById(opts.identityId, tenant)
-  if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+  const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+  const identity = await deps.identities.getById(opts.identityId, tenant)
+  if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
-  const existing = await flows
-    ._ctxFactory(opts.tenantId)
+  const existing = await deps
+    .ctxFactory(opts.tenantId)
     .stores.identities.findByProviderSub(opts.providerId, opts.providerSub, tenant)
   if (existing && existing.id !== opts.identityId) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: opts.providerId,
       detail: 'provider sub already linked to a different identity',
     })
@@ -44,14 +44,14 @@ export async function linkProvider<Profile>(
     return { identityId: opts.identityId, providerId: opts.providerId }
   }
 
-  await flows
-    ._ctxFactory(opts.tenantId)
+  await deps
+    .ctxFactory(opts.tenantId)
     .stores.identities.link(
       opts.identityId,
-      { providerId: opts.providerId, providerSub: opts.providerSub, addedAt: Date.now() },
+      { providerId: opts.providerId, providerSub: opts.providerSub, addedAt: new Date() },
       tenant,
     )
-  await flows._events.emit('identity.linked', {
+  await deps.events.emit('identity.linked', {
     identityId: opts.identityId,
     providerId: opts.providerId,
   })
@@ -59,18 +59,18 @@ export async function linkProvider<Profile>(
 }
 
 export async function unlinkProvider<Profile>(
-  flows: FlowsFacet<Profile>,
+  deps: FlowsFacet.IDeps<Profile>,
   opts: FlowsFacet.IUnlinkProviderInput,
 ): Promise<{ identityId: string; providerId: string }> {
   if (!isProviderIdSafe(opts.providerId)) {
-    throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+    throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'invalid',
       detail: 'invalid providerId',
     })
   }
-  const tenant: AuthTenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
-  const identity = await flows._identities.getById(opts.identityId, tenant)
-  if (!identity) throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+  const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
+  const identity = await deps.identities.getById(opts.identityId, tenant)
+  if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   const linked = identity.providers.filter((p) => p.providerId === opts.providerId)
   if (linked.length === 0) {
@@ -79,17 +79,17 @@ export async function unlinkProvider<Profile>(
 
   if (!opts.allowLockout) {
     const otherLinks = identity.providers.filter((p) => p.providerId !== opts.providerId)
-    const ctx = flows._ctxFactory(opts.tenantId)
+    const ctx = deps.ctxFactory(opts.tenantId)
     const credentials = await ctx.stores.credentials.listByIdentity(opts.identityId, undefined, tenant)
     const liveCredentials = credentials.filter((c) => !isRevoked(c) && (c.kind === 'password' || c.kind === 'passkey'))
     if (otherLinks.length === 0 && liveCredentials.length === 0) {
-      throw new AuthErrorObject('AUTH/PROVIDER_FAILED', {
+      throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: opts.providerId,
         detail: 'refusing to unlink the only authentication factor; pass allowLockout:true to override',
       })
     }
   }
 
-  await flows._ctxFactory(opts.tenantId).stores.identities.unlink(opts.identityId, opts.providerId, tenant)
+  await deps.ctxFactory(opts.tenantId).stores.identities.unlink(opts.identityId, opts.providerId, tenant)
   return { identityId: opts.identityId, providerId: opts.providerId }
 }

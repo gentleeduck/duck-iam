@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { AuthScryptHasher } from '../../password/scrypt'
 import { AuthCookieTransport } from '../../transport/cookie'
-import type { AuthChannel } from '../../types/channel'
+import type { Channel } from '../../types/infra'
 
 interface MyProfile {
   email: string
 }
 
-function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: AuthMemoryAdapter<MyProfile> } {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyProfile> } {
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
     transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
@@ -26,7 +26,7 @@ function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: AuthMemoryAdapter<
   return { auth, adapter }
 }
 
-function makeSlowChannel(delayMs: number): AuthChannel.IChannel & { sendStarted: number } {
+function makeSlowChannel(delayMs: number): Channel.IChannel & { sendStarted: number } {
   const ch = {
     kind: 'email' as const,
     id: 'slow',
@@ -88,7 +88,7 @@ describe('flows.requestPasswordReset - timing-defense', () => {
   })
 
   it('channel.send throw -> signin.failed event with reason; no caller-side error', async () => {
-    const failingChannel: AuthChannel.IChannel = {
+    const failingChannel: Channel.IChannel = {
       kind: 'email',
       id: 'failing',
       async send() {
@@ -117,7 +117,7 @@ describe('flows.requestPasswordReset - timing-defense', () => {
   })
 
   it('channel.send returning ok:false -> signin.failed event; no caller-side error', async () => {
-    const rejecting: AuthChannel.IChannel = {
+    const rejecting: Channel.IChannel = {
       kind: 'email',
       id: 'reject',
       async send() {

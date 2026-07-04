@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { AuthSession } from '../../types/session'
+import type { Session } from '../../types/session'
 import { AuthJwtTransport } from '../jwt'
 
 /**
@@ -17,7 +17,7 @@ function mintHs256(headerObj: unknown, payloadObj: unknown, secret: string): str
   return `${signingInput}.${sig}`
 }
 
-function fakeSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession.ISession {
+function fakeSession(overrides: Partial<Session.Me> = {}): Session.Me {
   const now = Date.now()
   return {
     id: 'row-hash',
@@ -25,13 +25,13 @@ function fakeSession(overrides: Partial<AuthSession.ISession> = {}): AuthSession
     kind: 'user',
     aal: 2,
     factors: [
-      { method: 'password', completedAt: now },
-      { method: 'totp', completedAt: now },
+      { method: 'password', completedAt: new Date(now) },
+      { method: 'totp', completedAt: new Date(now) },
     ],
-    createdAt: now,
-    rotatedAt: now,
-    expiresAt: now + 60_000,
-    absoluteExpiresAt: now + 60_000,
+    createdAt: new Date(now),
+    rotatedAt: new Date(now),
+    expiresAt: new Date(now + 60_000),
+    absoluteExpiresAt: new Date(now + 60_000),
     fresh: true,
     ...overrides,
   }
@@ -138,7 +138,7 @@ describe('AuthJwtTransport', () => {
 
     it('returns null for an expired JWT', async () => {
       const t = new AuthJwtTransport({ ...baseCfg, ttlMs: -1 })
-      const intents = t.issue('sid', fakeSession({ expiresAt: Date.now() + 60_000 }), {
+      const intents = t.issue('sid', fakeSession({ expiresAt: new Date(Date.now() + 60_000) }), {
         fresh: true,
         absolute: false,
       })
@@ -292,7 +292,7 @@ describe('AuthJwtTransport', () => {
         })
         throw new Error('expected throw')
       } catch (err) {
-        expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
+        expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
         expect((err as { meta: { detail: string } }).meta.detail).toMatch(/duplicate kid/)
       }
     })
@@ -306,7 +306,7 @@ describe('AuthJwtTransport', () => {
         })
         throw new Error('expected throw')
       } catch (err) {
-        expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
+        expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
         expect((err as { meta: { detail: string } }).meta.detail).toMatch(/does not match/)
       }
     })
@@ -320,7 +320,7 @@ describe('AuthJwtTransport', () => {
         })
         throw new Error('expected throw')
       } catch (err) {
-        expect((err as { code: string }).code).toBe('AUTH/MISCONFIGURED')
+        expect((err as { code: string }).code).toBe('AUTH_MISCONFIGURED')
         expect((err as { meta: { detail: string } }).meta.detail).toMatch(/alg/)
       }
     })
@@ -329,7 +329,7 @@ describe('AuthJwtTransport', () => {
   describe('fresh-flag from frsh claim (not hard-coded)', () => {
     it('verify reconstructs fresh=true when rotatedAt is within freshnessMs', async () => {
       const t = new AuthJwtTransport({ ...baseCfg, freshnessMs: 5 * 60_000 })
-      const session = fakeSession({ rotatedAt: Date.now() })
+      const session = fakeSession({ rotatedAt: new Date(Date.now()) })
       const token = (
         t.issue('sid', session, { fresh: true, absolute: false }).find((i) => i.type === 'json') as {
           body: { access_token: string }
@@ -342,7 +342,7 @@ describe('AuthJwtTransport', () => {
     it('verify reconstructs fresh=false when rotatedAt is older than freshnessMs', async () => {
       const t = new AuthJwtTransport({ ...baseCfg, freshnessMs: 1_000 })
       // Mint a JWT with a rotatedAt 10s in the past.
-      const session = fakeSession({ rotatedAt: Date.now() - 10_000 })
+      const session = fakeSession({ rotatedAt: new Date(Date.now() - 10_000) })
       const token = (
         t.issue('sid', session, { fresh: true, absolute: false }).find((i) => i.type === 'json') as {
           body: { access_token: string }
@@ -354,8 +354,8 @@ describe('AuthJwtTransport', () => {
 
     it('rotatedAt round-trips via the `frsh` claim, not iat', async () => {
       const t = new AuthJwtTransport(baseCfg)
-      const rotatedAt = Date.now() - 2_000
-      const session = fakeSession({ rotatedAt })
+      const rotatedAtMs = Date.now() - 2_000
+      const session = fakeSession({ rotatedAt: new Date(rotatedAtMs) })
       const token = (
         t.issue('sid', session, { fresh: true, absolute: false }).find((i) => i.type === 'json') as {
           body: { access_token: string }
@@ -363,7 +363,7 @@ describe('AuthJwtTransport', () => {
       ).body.access_token
       const back = await t.verify(token)
       // Within 1s of the original rotatedAt (we floor to seconds on the wire).
-      expect(Math.abs((back?.rotatedAt ?? 0) - rotatedAt)).toBeLessThan(1_000)
+      expect(Math.abs((back?.rotatedAt?.getTime() ?? 0) - rotatedAtMs)).toBeLessThan(1_000)
     })
   })
 })

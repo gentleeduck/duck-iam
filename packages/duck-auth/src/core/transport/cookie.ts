@@ -1,14 +1,13 @@
 import type { AuthProvider } from '../types/provider'
-import type { AuthSession } from '../types/session'
-import type { AuthTransport } from '../types/transport'
+import type { Session, Transport } from '../types/session'
 
 /**
  * Cookie transport - opaque session ID in an HttpOnly cookie. Default for web apps.
- * Verify is unset -> caller must call AuthSession.IStore.getByHash() to resolve.
+ * Verify is unset -> caller must call Session.IStore.getByHash() to resolve.
  */
-export class AuthCookieTransport implements AuthTransport.ITransport {
+export class AuthCookieTransport implements Transport.ITransport {
   private readonly _name: string
-  private readonly _options: AuthTransport.CookieOptions
+  private readonly _options: Transport.CookieOptions
 
   constructor(cfg: AuthCookieTransport.IConfig = {}) {
     // Reject invalid cookie names early: RFC 6265 forbids CTL chars and the
@@ -80,8 +79,8 @@ export class AuthCookieTransport implements AuthTransport.ITransport {
     return parseCookie(header, this._name)
   }
 
-  issue(sid: string, session: AuthSession.ISession, opts: AuthTransport.IssueOpts): AuthProvider.Intent[] {
-    const expiresInMs = Math.max(0, session.expiresAt - Date.now())
+  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): AuthProvider.Intent[] {
+    const expiresInMs = Math.max(0, session.expiresAt.getTime() - Date.now())
     const maxAge = Math.min(this._options.maxAge ?? 0, Math.floor(expiresInMs / 1000))
     const intents: AuthProvider.Intent[] = [
       {
@@ -178,7 +177,7 @@ export namespace AuthCookieTransport {
     /** Must be true in production; strict() rejects false. */
     secure?: boolean
     sameSite?: 'strict' | 'lax' | 'none'
-    /** Default 7d. Overridden by AuthSession.absoluteExpiresAt at issue time. */
+    /** Default 7d. Overridden by Session.absoluteExpiresAt at issue time. */
     maxAgeSec?: number
   }
 }
