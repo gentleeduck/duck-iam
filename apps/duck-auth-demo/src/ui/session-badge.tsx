@@ -3,7 +3,7 @@
  * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 
-import { authUseSession } from '@gentleduck/auth/client/react'
+import { useSession } from '@gentleduck/auth/client/react'
 import { Badge } from '@gentleduck/registry-ui/badge'
 
 /**
@@ -15,7 +15,7 @@ import { Badge } from '@gentleduck/registry-ui/badge'
  * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 export function SessionBadge<Profile = unknown>(props: SessionBadge.IProps<Profile>): React.JSX.Element {
-  const session = authUseSession<Profile>()
+  const session = useSession<Profile>()
   if (session.status === 'loading') {
     return <Badge variant="secondary">Loading</Badge>
   }

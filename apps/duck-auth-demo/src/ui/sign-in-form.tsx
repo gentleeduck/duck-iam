@@ -3,8 +3,9 @@
  * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 
-import { authUseSignIn } from '@gentleduck/auth/client/react'
-import type { AuthVanillaClient } from '@gentleduck/auth/client/vanilla'
+import { useSignIn } from '@gentleduck/auth/client/react'
+import type { VanillaClient } from '@gentleduck/auth/client/vanilla'
+import type { Envelope } from '@gentleduck/auth/core'
 import { cn } from '@gentleduck/libs/cn'
 import { Alert, AlertDescription, AlertTitle } from '@gentleduck/registry-ui/alert'
 import { Button } from '@gentleduck/registry-ui/button'
@@ -14,7 +15,7 @@ import { Label } from '@gentleduck/registry-ui/label'
 import { type FormEvent, useState } from 'react'
 
 /**
- * `<SignInForm />` — email + password form wired to `authUseSignIn`.
+ * `<SignInForm />` — email + password form wired to `useSignIn`.
  * Renders a registry-ui Card with Field-pattern Inputs and a primary
  * Button. Surfaces inline error state via `<Alert />`. Composable —
  * drop into a route as-is, or pass `onSuccess` to redirect.
@@ -23,7 +24,7 @@ import { type FormEvent, useState } from 'react'
  */
 export function SignInForm<Profile = unknown>(props: SignInForm.IProps<Profile>): React.JSX.Element {
   const { className, onSuccess, providerId = 'password', title = 'Sign in', description } = props
-  const signIn = authUseSignIn<Profile>()
+  const signIn = useSignIn<Profile>()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
@@ -108,6 +109,6 @@ export namespace SignInForm {
     description?: string
     /** Default `'password'`. Use a different id when wiring this form to a non-password provider. */
     providerId?: string
-    onSuccess?(result: AuthVanillaClient.ISignInResult<Profile>): void
+    onSuccess?(result: Envelope<VanillaClient.SessionResult<Profile>, string>): void
   }
 }

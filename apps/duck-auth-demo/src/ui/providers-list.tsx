@@ -3,13 +3,13 @@
  * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 
-import { authUseBeginProvider } from '@gentleduck/auth/client/react'
+import { useBeginProvider } from '@gentleduck/auth/client/react'
 import { cn } from '@gentleduck/libs/cn'
 import { Button } from '@gentleduck/registry-ui/button'
 
 /**
  * `<ProvidersList />` — vertical stack of OAuth/SSO provider Buttons,
- * each wired to `authUseBeginProvider`. The provider list is config-only
+ * each wired to `useBeginProvider`. The provider list is config-only
  * (label + id + optional icon), so consumers can plug Google +
  * GitHub + Microsoft + Apple without writing duplicate handlers.
  *
@@ -17,7 +17,7 @@ import { Button } from '@gentleduck/registry-ui/button'
  */
 export function ProvidersList(props: ProvidersList.IProps): React.JSX.Element {
   const { className, providers } = props
-  const begin = authUseBeginProvider()
+  const begin = useBeginProvider()
   return (
     <div className={cn('flex w-full max-w-sm flex-col gap-2', className)}>
       {providers.map((p) => (
@@ -25,8 +25,8 @@ export function ProvidersList(props: ProvidersList.IProps): React.JSX.Element {
           disabled={begin.loading}
           key={p.id}
           onClick={async () => {
-            const { body } = await begin.mutate({ id: p.id, input: p.input })
-            const url = (body as { authorizationUrl?: string } | null)?.authorizationUrl
+            const res = await begin.mutate({ id: p.id, input: p.input })
+            const url = res.ok ? (res.data as { authorizationUrl?: string } | null)?.authorizationUrl : undefined
             if (url) globalThis.location?.assign(url)
           }}
           variant="outline">

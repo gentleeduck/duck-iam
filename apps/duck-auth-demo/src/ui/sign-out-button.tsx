@@ -3,12 +3,12 @@
  * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
  */
 
-import { authUseSignOut } from '@gentleduck/auth/client/react'
+import { useSignOut } from '@gentleduck/auth/client/react'
 import { Button } from '@gentleduck/registry-ui/button'
 import type { ComponentProps } from 'react'
 
 /**
- * `<SignOutButton />` — Button that calls `authUseSignOut`. Inherits the
+ * `<SignOutButton />` — Button that calls `useSignOut`. Inherits the
  * registry-ui Button variant API (`variant`, `size`, etc.) by
  * forwarding any ComponentProps<Button>.
  *
@@ -16,7 +16,7 @@ import type { ComponentProps } from 'react'
  */
 export function SignOutButton(props: SignOutButton.IProps): React.JSX.Element {
   const { onSignedOut, ...buttonProps } = props
-  const signOut = authUseSignOut()
+  const signOut = useSignOut()
   return (
     <Button
       disabled={signOut.loading}
