@@ -4,6 +4,29 @@ import type { Session } from '../../core/types/session'
 import type { SqlBridge } from '../sql/sql.types'
 
 /**
+ * Total-input factory helpers. Store contracts are total (every nullable field
+ * explicit) so these fill the `null` defaults, letting each test pass only the
+ * fields it cares about.
+ */
+function idInput<P>(over: Partial<Identity.CreateInput<P>> & { profile: P }): Identity.CreateInput<P> {
+  return { providers: [], tenantId: null, emailVerified: false, ...over }
+}
+function sessInput(
+  over: Partial<Session.CreateInput> &
+    Pick<
+      Session.CreateInput,
+      'id' | 'identityId' | 'kind' | 'aal' | 'factors' | 'createdAt' | 'rotatedAt' | 'expiresAt' | 'absoluteExpiresAt' | 'fresh'
+    >,
+): Session.CreateInput {
+  return { tenantId: null, csrfHash: null, ip: null, userAgent: null, fingerprint: null, actingAs: null, ...over }
+}
+function credInput(
+  over: Partial<Credential.UpsertInput> & Pick<Credential.UpsertInput, 'identityId' | 'kind' | 'secret'>,
+): Credential.UpsertInput {
+  return { tenantId: null, metadata: null, lastUsedAt: null, expiresAt: null, revokedAt: null, ...over }
+}
+
+/**
  * Compliance test matrix for Identity stores. Every shipped adapter (memory,
  * redis, drizzle, prisma) imports this and runs it against a fresh instance;
  * the same assertions guarantee behaviour parity across adapters.
@@ -17,10 +40,10 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('create stamps id, version=1, createdAt, updatedAt; respects providers + tenantId', async () => {
       const store = factory()
       const i = await store.create(
-        {
+        idInput({
           profile: { email: 'a@x.com' } as unknown as P,
           providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
-        },
+        }),
         { tenantId: 'T' },
       )
       expect(i.id).toBeTruthy()
@@ -32,14 +55,14 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('findByEmail honours tenant scoping', async () => {
       const store = factory()
-      await store.create({ profile: { email: 'shared@x' } as unknown as P, providers: [] }, { tenantId: 'A' })
+      await store.create(idInput({ profile: { email: 'shared@x' } as unknown as P }), { tenantId: 'A' })
       expect(await store.findByEmail('shared@x', { tenantId: 'B' })).toBeNull()
       expect(await store.findByEmail('shared@x', { tenantId: 'A' })).not.toBeNull()
     })
 
     it('update with expectedVersion mismatch surfaces AUTH/STALE_WRITE', async () => {
       const store = factory()
-      const i = await store.create({ profile: { email: 'a@x' } as unknown as P, providers: [] }, {})
+      const i = await store.create(idInput({ profile: { email: 'a@x' } as unknown as P }), {})
       await store.update(i.id, { profile: { email: 'b@x' } as unknown as P }, i.version, {})
       await expect(store.update(i.id, { profile: { email: 'c@x' } as unknown as P }, 1, {})).rejects.toMatchObject({
         code: 'AUTH_STALE_WRITE',
@@ -48,7 +71,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('softDelete hides; restore brings back within grace; erase is permanent', async () => {
       const store = factory()
-      const i = await store.create({ profile: { email: 'a@x' } as unknown as P, providers: [] }, {})
+      const i = await store.create(idInput({ profile: { email: 'a@x' } as unknown as P }), {})
       await store.softDelete(i.id, 60_000, {})
       expect(await store.findById(i.id, {})).toBeNull()
       const restored = await store.restore(i.id, {})
@@ -59,7 +82,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
 
     it('link / unlink mutate providers; findByProviderSub locates linked identities', async () => {
       const store = factory()
-      const i = await store.create({ profile: { email: 'a@x' } as unknown as P, providers: [] }, {})
+      const i = await store.create(idInput({ profile: { email: 'a@x' } as unknown as P }), {})
       await store.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'sub-1', addedAt: new Date() }, {})
       const found = await store.findByProviderSub('oauth:authGoogle', 'sub-1', {})
       expect(found?.id).toBe(i.id)
@@ -70,17 +93,17 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
     it('merge moves providers from dup into survivor + deletes dup', async () => {
       const store = factory()
       const survivor = await store.create(
-        {
+        idInput({
           profile: { email: 's@x' } as unknown as P,
           providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
-        },
+        }),
         {},
       )
       const dup = await store.create(
-        {
+        idInput({
           profile: { email: 'd@x' } as unknown as P,
           providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: new Date() }],
-        },
+        }),
         {},
       )
       await store.merge(survivor.id, dup.id, {})
@@ -101,7 +124,7 @@ export function runSessionStoreCompliance(factory: () => Session.Store): void {
       const store = factory()
       const now = new Date()
       const exp = new Date(now.getTime() + 60_000)
-      const session: Session.CreateInput = {
+      const session = sessInput({
         id: 'hash-1',
         identityId: 'u',
         kind: 'user',
@@ -112,7 +135,7 @@ export function runSessionStoreCompliance(factory: () => Session.Store): void {
         expiresAt: exp,
         absoluteExpiresAt: exp,
         fresh: true,
-      }
+      })
       await store.create(session)
       // Nullable columns the store fills with `null` are extra keys on the
       // returned row, so assert the caller-provided fields are a subset.
@@ -133,9 +156,9 @@ export function runSessionStoreCompliance(factory: () => Session.Store): void {
         absoluteExpiresAt: exp,
         fresh: true,
       }
-      await store.create({ id: 'u-1', identityId: 'u', ...base })
-      await store.create({ id: 'u-2', identityId: 'u', ...base })
-      await store.create({ id: 'v-1', identityId: 'v', ...base })
+      await store.create(sessInput({ id: 'u-1', identityId: 'u', ...base }))
+      await store.create(sessInput({ id: 'u-2', identityId: 'u', ...base }))
+      await store.create(sessInput({ id: 'v-1', identityId: 'v', ...base }))
       const us = await store.listByIdentity('u')
       expect(us).toHaveLength(2)
     })
@@ -154,8 +177,8 @@ export function runSessionStoreCompliance(factory: () => Session.Store): void {
         absoluteExpiresAt: exp,
         fresh: true,
       }
-      await store.create({ id: 'a', identityId: 'u', ...base })
-      await store.create({ id: 'b', identityId: 'u', ...base })
+      await store.create(sessInput({ id: 'a', identityId: 'u', ...base }))
+      await store.create(sessInput({ id: 'b', identityId: 'u', ...base }))
       await store.deleteAllForIdentity('u')
       expect(await store.listByIdentity('u')).toHaveLength(0)
     })
@@ -163,30 +186,34 @@ export function runSessionStoreCompliance(factory: () => Session.Store): void {
     it('gc purges sessions with expiresAt or absoluteExpiresAt past now', async () => {
       const store = factory()
       const nowMs = Date.now()
-      await store.create({
-        id: 'expired',
-        identityId: 'u',
-        kind: 'user',
-        aal: 1,
-        factors: [],
-        createdAt: new Date(nowMs - 100_000),
-        rotatedAt: new Date(nowMs - 100_000),
-        expiresAt: new Date(nowMs - 1),
-        absoluteExpiresAt: new Date(nowMs - 1),
-        fresh: false,
-      })
-      await store.create({
-        id: 'live',
-        identityId: 'u',
-        kind: 'user',
-        aal: 1,
-        factors: [],
-        createdAt: new Date(nowMs),
-        rotatedAt: new Date(nowMs),
-        expiresAt: new Date(nowMs + 60_000),
-        absoluteExpiresAt: new Date(nowMs + 60_000),
-        fresh: true,
-      })
+      await store.create(
+        sessInput({
+          id: 'expired',
+          identityId: 'u',
+          kind: 'user',
+          aal: 1,
+          factors: [],
+          createdAt: new Date(nowMs - 100_000),
+          rotatedAt: new Date(nowMs - 100_000),
+          expiresAt: new Date(nowMs - 1),
+          absoluteExpiresAt: new Date(nowMs - 1),
+          fresh: false,
+        }),
+      )
+      await store.create(
+        sessInput({
+          id: 'live',
+          identityId: 'u',
+          kind: 'user',
+          aal: 1,
+          factors: [],
+          createdAt: new Date(nowMs),
+          rotatedAt: new Date(nowMs),
+          expiresAt: new Date(nowMs + 60_000),
+          absoluteExpiresAt: new Date(nowMs + 60_000),
+          fresh: true,
+        }),
+      )
       const r = await store.gc(nowMs)
       expect(r.deleted).toBe(1)
       expect(await store.getByHash('expired')).toBeNull()
@@ -204,7 +231,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store): v
   describe('Credential.IStore compliance', () => {
     it('upsert stamps id + version=1; findById retrieves it', async () => {
       const store = factory()
-      const c = await store.upsert({ identityId: 'u', kind: 'password', secret: 'hashed-pw', metadata: {} }, {})
+      const c = await store.upsert(credInput({ identityId: 'u', kind: 'password', secret: 'hashed-pw', metadata: {} }), {})
       expect(c.id).toBeTruthy()
       expect(c.version).toBe(1)
       const got = await store.findById(c.id, {})
@@ -214,13 +241,13 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store): v
     it('findByHashedSecret returns the freshest live row before falling back to revoked', async () => {
       const store = factory()
       const c1 = await store.upsert(
-        { identityId: 'u', kind: 'magic-link', secret: 'hash', metadata: {}, expiresAt: new Date(Date.now() + 60_000) },
+        credInput({ identityId: 'u', kind: 'magic-link', secret: 'hash', metadata: {}, expiresAt: new Date(Date.now() + 60_000) }),
         {},
       )
       await store.revoke(c1.id, {})
       // Same secret hash, but fresh row.
       const c2 = await store.upsert(
-        { identityId: 'u', kind: 'magic-link', secret: 'hash', metadata: {}, expiresAt: new Date(Date.now() + 60_000) },
+        credInput({ identityId: 'u', kind: 'magic-link', secret: 'hash', metadata: {}, expiresAt: new Date(Date.now() + 60_000) }),
         {},
       )
       const got = await store.findByHashedSecret('hash', 'magic-link', {})
@@ -229,7 +256,7 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store): v
 
     it('findByHashedSecret falls back to the revoked row when no live rows exist', async () => {
       const store = factory()
-      const c = await store.upsert({ identityId: 'u', kind: 'api-key', secret: 'hash-x', metadata: {} }, {})
+      const c = await store.upsert(credInput({ identityId: 'u', kind: 'api-key', secret: 'hash-x', metadata: {} }), {})
       await store.revoke(c.id, {})
       const got = await store.findByHashedSecret('hash-x', 'api-key', {})
       expect(got?.revokedAt).toBeTruthy()
@@ -237,24 +264,24 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store): v
 
     it('rotate with mismatched version surfaces AUTH/STALE_WRITE', async () => {
       const store = factory()
-      const c = await store.upsert({ identityId: 'u', kind: 'password', secret: 'h1', metadata: {} }, {})
+      const c = await store.upsert(credInput({ identityId: 'u', kind: 'password', secret: 'h1', metadata: {} }), {})
       await store.rotate(c.id, 'h2', c.version, {})
       await expect(store.rotate(c.id, 'h3', 1, {})).rejects.toMatchObject({ code: 'AUTH_STALE_WRITE' })
     })
 
     it('deleteByKind removes only credentials of that kind for an identity', async () => {
       const store = factory()
-      await store.upsert({ identityId: 'u', kind: 'password', secret: 'p', metadata: {} }, {})
-      await store.upsert({ identityId: 'u', kind: 'totp', secret: 't', metadata: {} }, {})
+      await store.upsert(credInput({ identityId: 'u', kind: 'password', secret: 'p', metadata: {} }), {})
+      await store.upsert(credInput({ identityId: 'u', kind: 'totp', secret: 't', metadata: {} }), {})
       await store.deleteByKind('u', 'password', {})
-      const rest = await store.listByIdentity('u', undefined, {})
+      const rest = await store.listByIdentity('u', null, {})
       expect(rest.every((c) => c.kind !== 'password')).toBe(true)
     })
 
     it('patchMetadata shallow-merges + bumps version atomically', async () => {
       const store = factory()
       const c = await store.upsert(
-        { identityId: 'u', kind: 'totp', secret: 's', metadata: { confirmed: false, counter: 0 } },
+        credInput({ identityId: 'u', kind: 'totp', secret: 's', metadata: { confirmed: false, counter: 0 } }),
         {},
       )
       const next = await store.patchMetadata(c.id, { confirmed: true }, {})

@@ -21,7 +21,7 @@ export namespace RedisIdempotencyStore {
  * per-tenant key prefix; two tenants supplying the same Idempotency-Key
  * cannot collide.
  */
-export class RedisIdempotencyStore<TRedis extends RedisLike.Client = RedisLike.Client> implements Idempotency.IStore {
+export class RedisIdempotencyStore<TRedis extends RedisLike.Client = RedisLike.Client> implements Idempotency.Store {
   private readonly _redis: TRedis
   private readonly _prefix: string
 
@@ -39,7 +39,7 @@ export class RedisIdempotencyStore<TRedis extends RedisLike.Client = RedisLike.C
    * Read the cached response for an idempotency key. Returns null on
    * miss, on TTL expiry, or while the claim tombstone is still present.
    */
-  async get(key: string, ctx: TenantContext): Promise<Idempotency.ICachedResponse | null> {
+  async get(key: string, ctx: TenantContext): Promise<Idempotency.CachedResponse | null> {
     const raw = await this._redis.get(this._k(key, ctx))
     if (!raw) return null
     const parsed = parseStoredIdempotencyEntry(raw)
@@ -74,7 +74,7 @@ export class RedisIdempotencyStore<TRedis extends RedisLike.Client = RedisLike.C
    * `claim()`. TTL is reset to `ttlMs` so the cached entry survives a
    * slow executor.
    */
-  async put(key: string, response: Idempotency.ICachedResponse, ttlMs: number, ctx: TenantContext): Promise<void> {
+  async put(key: string, response: Idempotency.CachedResponse, ttlMs: number, ctx: TenantContext): Promise<void> {
     const safeMs = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     const ex = Math.max(1, Math.ceil(safeMs / 1000))
     await this._redis.set(this._k(key, ctx), JSON.stringify({ ...response, createdAt: response.createdAt.getTime() }), {
@@ -89,7 +89,7 @@ export class RedisIdempotencyStore<TRedis extends RedisLike.Client = RedisLike.C
 }
 
 /** Structural parser for Redis idempotency entries; `null` on any malformed shape. */
-function parseStoredIdempotencyEntry(raw: string): Idempotency.ICachedResponse | null {
+function parseStoredIdempotencyEntry(raw: string): Idempotency.CachedResponse | null {
   let obj: unknown
   try {
     obj = JSON.parse(raw)
@@ -104,7 +104,7 @@ function parseStoredIdempotencyEntry(raw: string): Idempotency.ICachedResponse |
   const body: unknown = Reflect.get(obj, 'body')
   const headers: unknown = Reflect.get(obj, 'headers')
   // Build the result explicitly - no `as` cast, every field is narrowed.
-  const out: Idempotency.ICachedResponse = { status, body, createdAt: new Date(createdAt) }
+  const out: Idempotency.CachedResponse = { status, body, createdAt: new Date(createdAt) }
   if (typeof headers === 'object' && headers !== null && !Array.isArray(headers)) {
     // Headers must be a Record<string, string>. Validate the value side
     // so a malformed inner shape can't propagate into res.setHeader().

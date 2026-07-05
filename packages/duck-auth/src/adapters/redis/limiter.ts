@@ -21,7 +21,7 @@ export namespace RedisLimiter {
  * Redis primary; for clustered Redis with cross-shard accuracy use a
  * Lua script (see `evalScript` below).
  */
-export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> implements Limiter.ILimiter {
+export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> implements Limiter.Limiter {
   private readonly _redis: TRedis
   private readonly _max: number
   private readonly _windowMs: number
@@ -44,7 +44,7 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
    * the new count, then EXPIRE sets the TTL on the first hit of the
    * window. Returns the standard `Limiter.IResult` shape.
    */
-  async consume(key: string, weight = 1): Promise<Limiter.IResult> {
+  async consume(key: string, weight = 1): Promise<Limiter.Result> {
     const now0 = Date.now()
     if (typeof key !== 'string' || key.length === 0 || key.length > 1024) {
       return { ok: false, remaining: 0, resetAt: new Date(now0 + this._windowMs) }

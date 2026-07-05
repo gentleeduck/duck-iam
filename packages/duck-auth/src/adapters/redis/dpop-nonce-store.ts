@@ -1,4 +1,4 @@
-import type { AuthDPoPVerifier as DPoPVerifier } from '../../core/transport/dpop'
+import type { DPoPVerifier } from '../../core/transport/dpop'
 import type { RedisLike } from './redis-like'
 
 export namespace RedisDPoPNonceStore {
@@ -19,7 +19,7 @@ export namespace RedisDPoPNonceStore {
  * Storage shape: `${prefix}:{jti}` = '1' with TTL = `ttlMs / 1000`.
  */
 export class RedisDPoPNonceStore<TRedis extends RedisLike.Client = RedisLike.Client>
-  implements DPoPVerifier.INonceStore
+  implements DPoPVerifier.NonceStore
 {
   private readonly _redis: TRedis
   private readonly _prefix: string

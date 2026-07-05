@@ -53,7 +53,7 @@ export namespace SqlBridge {
    */
   export type Credential<Row> = {
     findById(id: string, tenantId: string | undefined): Promise<Row | null>
-    listByIdentity(identityId: string, kind: Credential.Kind | undefined, tenantId: string | undefined): Promise<Row[]>
+    listByIdentity(identityId: string, kind: Credential.Kind | null, tenantId: string | undefined): Promise<Row[]>
     findByProviderSub(provider: string, sub: string, tenantId: string | undefined): Promise<Row | null>
     findByHashedSecret(secretHash: string, kind: Credential.Kind, tenantId: string | undefined): Promise<Row | null>
     insert(row: Row): Promise<void>

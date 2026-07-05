@@ -1,5 +1,5 @@
 import { getProfileString, isRevoked, isSoftDeleted } from '../../core/credential-utils'
-import { RandomToken, timingSafeEqual } from '../../core/crypto'
+import { randomToken, timingSafeEqual } from '../../core/crypto'
 import { AuthError } from '../../core/errors'
 import type { Credential, Identity, Org } from '../../core/types/identity'
 import type { TenantContext } from '../../core/types/infra'
@@ -82,7 +82,7 @@ export class MemoryAdapter<
         // SQL adapter parity: prefer explicit input.tenantId, fall back to ctx.
         const id: Identity.Me<Profile> = {
           ...input,
-          id: RandomToken(16),
+          id: randomToken(16),
           tenantId: input.tenantId ?? ctx.tenantId ?? null,
           providers,
           // New identities are unverified unless the caller states otherwise.
@@ -256,7 +256,7 @@ export class MemoryAdapter<
     return {
       findById: async (id) => store.get(id) ?? null,
       listByIdentity: async (identityId, kind) => {
-        return [...store.values()].filter((c) => c.identityId === identityId && (kind === undefined || c.kind === kind))
+        return [...store.values()].filter((c) => c.identityId === identityId && (kind == null || c.kind === kind))
       },
       findByProviderSub: async (provider, sub) => {
         for (const c of store.values()) {
@@ -286,7 +286,7 @@ export class MemoryAdapter<
         return live ?? revokedRow
       },
       upsert: async (input, ctx) => {
-        const id = RandomToken(16)
+        const id = randomToken(16)
         // SQL adapter parity: inherit tenantId from ctx when input doesn't set it,
         // and default every nullable column to `null` when omitted.
         const c: Credential.Me = {
