@@ -8,6 +8,7 @@ import type { Identity } from './identity'
 export interface TenantContext {
   tenantId?: string
 }
+
 /** Password hasher contract. Must be salt-deterministic, constant-time verify, and expose `needsRehash`. */
 export namespace Hasher {
   export interface IHasher {
@@ -19,12 +20,13 @@ export namespace Hasher {
     needsRehash(encoded: string): boolean
   }
 }
+
 /** Envelope-encryption KMS provider contract: vendor-neutral 2-method shape (`generateDataKey` / `decryptDataKey`). */
 export namespace Kms {
   /** Encryption context (AAD) - binds the wrapped DEK to `{identityId, field}` server-side. */
-  export type IEncryptionContext = Record<string, string>
+  export type EncryptionContext = Record<string, string>
 
-  export interface IDataKey {
+  export type DataKey = {
     /** 32-byte plaintext DEK. Callers MUST zero it after use. */
     plaintext: Uint8Array
     /** KMS-wrapped DEK. Opaque blob - pass back to `decryptDataKey`. */
@@ -33,7 +35,7 @@ export namespace Kms {
     keyId: string
   }
 
-  export interface IProvider {
+  export type Provider = {
     /** Stable adapter id for audit logs / strict() reporting (e.g., 'aws-kms', 'gcp-kms'). */
     readonly id: string
     /**
@@ -41,18 +43,19 @@ export namespace Kms {
      * (plaintext, wrapped) atomically in a single call to avoid
      * exposing two independent failure modes.
      */
-    generateDataKey(ctx?: IEncryptionContext): Promise<IDataKey>
+    generateDataKey(ctx?: EncryptionContext): Promise<DataKey>
     /**
      * Unwrap a previously-generated DEK. Must be called with the same
      * encryption context the DEK was generated with, or the KMS will
      * reject the request (AWS/GCP both enforce this strictly).
      */
-    decryptDataKey(wrapped: Uint8Array, ctx?: IEncryptionContext): Promise<Uint8Array>
+    decryptDataKey(wrapped: Uint8Array, ctx?: EncryptionContext): Promise<Uint8Array>
   }
 }
+
 /** Data-at-rest encryption adapter; field-level encrypt/decrypt with `(field, identityId)` AAD context. */
 export namespace DataAtRest {
-  export interface IContext {
+  export type Context = {
     /** Field name in Identity.profile that's being encrypted. */
     field: string
     /** Identity row id; lets adapters tie keys to subjects + meet
@@ -63,31 +66,32 @@ export namespace DataAtRest {
     tag?: string
   }
 
-  export interface IAdapter {
+  export type Adapter = {
     /** Stable adapter id (audit-log / strict() reporting). */
     readonly id: string
     /** Encrypt plaintext. Returns opaque ciphertext (caller-side base64 if needed). */
-    encrypt(plain: string, ctx: IContext): Promise<string>
+    encrypt(plain: string, ctx: Context): Promise<string>
     /** Decrypt opaque ciphertext. Returns plaintext. */
-    decrypt(cipher: string, ctx: IContext): Promise<string>
+    decrypt(cipher: string, ctx: Context): Promise<string>
     /** Whether the key version of `cipher` is older than the current; rotation trigger. */
     needsReEncrypt(cipher: string): boolean
   }
 }
+
 /**
  * Rate-limit + lockout adapter. Brute-force protection is non-optional; strict()
  * refuses production boot without one wired. Dimensions configurable per app
  * (identity, ip, composite). Reference impls: memory (token bucket), redis (Lua).
  */
 export namespace Limiter {
-  export interface IResult {
+  export type Result = {
     ok: boolean
     remaining: number
     resetAt: Date
   }
 
-  export interface ILimiter {
-    consume(key: string, weight?: number): Promise<IResult>
+  export type Limiter = {
+    consume(key: string, weight?: number): Promise<Result>
     reset(key: string): Promise<void>
   }
 }
@@ -95,7 +99,7 @@ export namespace Limiter {
 /** Idempotency-key store contract; Redis adapter uses `SET NX EX` for atomic put-if-absent. */
 export namespace Idempotency {
   /** Snapshot persisted under an idempotency key. */
-  export interface ICachedResponse {
+  export type CachedResponse = {
     /** HTTP status the original call returned. */
     status: number
     /** Response body (serialised JSON). Channels never see PII. */
@@ -106,12 +110,12 @@ export namespace Idempotency {
     createdAt: Date
   }
 
-  export interface IStore {
+  export type Store = {
     /**
      * Get the cached response for an idempotency key. Returns null when
      * the key has never been seen OR when the TTL has elapsed.
      */
-    get(key: string, ctx: TenantContext): Promise<ICachedResponse | null>
+    get(key: string, ctx: TenantContext): Promise<CachedResponse | null>
     /**
      * Atomically claim a key. Returns true if the caller is the first
      * to claim; false when a previous claim exists (caller should call
@@ -119,7 +123,7 @@ export namespace Idempotency {
      */
     claim(key: string, ttlMs: number, ctx: TenantContext): Promise<boolean>
     /** Store the response snapshot under the previously-claimed key. */
-    put(key: string, response: ICachedResponse, ttlMs: number, ctx: TenantContext): Promise<void>
+    put(key: string, response: CachedResponse, ttlMs: number, ctx: TenantContext): Promise<void>
     /** Drop a key; used by tests + flush operations. */
     delete(key: string, ctx: TenantContext): Promise<void>
   }
@@ -129,9 +133,12 @@ export namespace Idempotency {
 export namespace Channel {
   export type Kind = 'email' | 'sms' | 'webpush'
 
-  export interface SendInput<Vars = Record<string, unknown>> {
+  export type SendInput<
+    Vars = Record<string, unknown>,
+    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  > = {
     /** Resolved recipient - the channel decides which `identity.profile` field to use. */
-    identity: Identity.Me<unknown>
+    identity: Identity.Me<Profile>
     /** Library-chosen template id; channel impl maps to its own template store. */
     templateId: string
     /** Pre-rendered vars (URLs already signed, strings already i18n-resolved). */
@@ -139,14 +146,14 @@ export namespace Channel {
     tenant: TenantContext
   }
 
-  export interface SendResult {
+  export type SendResult = {
     ok: boolean
-    /** AuthProvider-side id (for support diagnostics). Channels may omit. */
+    /** Provider-side id (for support diagnostics). Channels may omit. */
     providerMessageId?: string
     error?: string
   }
 
-  export interface IChannel<Vars = Record<string, unknown>> {
+  export type Channel<Vars = Record<string, unknown>> = {
     readonly kind: Kind
     readonly id: string
     send(input: SendInput<Vars>): Promise<SendResult>

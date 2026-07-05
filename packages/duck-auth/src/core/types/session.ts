@@ -1,5 +1,5 @@
 /** Session domain — sessions, transport, errors, and the response envelope. */
-import type { AuthProvider } from './provider'
+import type { Provider } from './provider'
 
 /**
  * Authenticated (or guest, or API-key) bearer of access. Issued by the configured
@@ -63,11 +63,17 @@ export namespace Session {
 
   /**
    * Input to `Store.create`. Callers provide the identifying + lifecycle
-   * fields; the nullable columns (`tenantId`, `csrfHash`, `ip`, `userAgent`,
-   * `fingerprint`, `actingAs`) default to `null` when omitted.
+   * fields; every nullable column is explicit `T | null` — the facet
+   * coalesces optional public inputs before passing this type.
    */
-  export type CreateInput = Omit<Me, 'tenantId' | 'csrfHash' | 'ip' | 'userAgent' | 'fingerprint' | 'actingAs'> &
-    Partial<Pick<Me, 'tenantId' | 'csrfHash' | 'ip' | 'userAgent' | 'fingerprint' | 'actingAs'>>
+  export type CreateInput = Omit<Me, 'tenantId' | 'csrfHash' | 'ip' | 'userAgent' | 'fingerprint' | 'actingAs'> & {
+    tenantId: string | null
+    csrfHash: string | null
+    ip: string | null
+    userAgent: string | null
+    fingerprint: string | null
+    actingAs: ActingAs | null
+  }
 
   export type Store = {
     create(s: CreateInput): Promise<void>
@@ -124,9 +130,9 @@ export namespace Transport {
      * Cookie transport -> setCookie intent. JWT transport -> setCookie (refresh)
      * + json (access token); the access token is derived from `session`.
      */
-    issue(sid: string, session: Session.Me, opts: IssueOpts): AuthProvider.Intent[]
+    issue(sid: string, session: Session.Me, opts: IssueOpts): Provider.Intent[]
     /** Build a response Intent that revokes any persisted bearer. */
-    revoke(): AuthProvider.Intent[]
+    revoke(): Provider.Intent[]
     /**
      * Optional verify step - JWT transports verify locally and reconstruct Session
      * without a store hit; opaque transports return null and rely on Session.IStore lookup.

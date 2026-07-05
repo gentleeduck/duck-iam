@@ -33,17 +33,15 @@ export namespace Identity {
   }
 
   /**
-   * Input to `Store.create`. The entity requires every field, but on create
-   * the store owns the machine fields: `id`/`version`/`createdAt`/`updatedAt`
-   * are stamped, `deletedAt` starts `null`, `tenantId` falls back to the
-   * request context, `providers` defaults to `[]`, and `emailVerified`
-   * defaults to `false`. Only `profile` is mandatory.
+   * Input to `Store.create`. The store stamps `id`/`version`/`createdAt`/`updatedAt`;
+   * `deletedAt` starts `null`. Every field is explicit — the facet coalesces
+   * optional public inputs to `null` / defaults before passing this type.
    */
   export type CreateInput<Profile> = {
     profile: Profile
-    providers?: ProviderLink[]
-    tenantId?: string | null
-    emailVerified?: boolean
+    providers: ProviderLink[]
+    tenantId: string | null
+    emailVerified: boolean
   }
 
   export type Store<Profile extends ProfileMetadataBase> = {
@@ -98,25 +96,24 @@ export namespace Credential {
   }
 
   /**
-   * Input to `Store.upsert`. The store stamps `id`/`version`/`createdAt`; the
-   * nullable columns (`tenantId`, `metadata`, `lastUsedAt`, `expiresAt`,
-   * `revokedAt`) default to `null` when omitted. Only `identityId`, `kind`,
-   * and `secret` are mandatory.
+   * Input to `Store.upsert`. The store stamps `id`/`version`/`createdAt`;
+   * every field is explicit — the facet coalesces optional public inputs to
+   * `null` before passing this type. Nullable columns carry `T | null`.
    */
   export type UpsertInput = {
     identityId: string
     kind: Kind
     secret: string
-    tenantId?: string | null
-    metadata?: Record<string, unknown> | null
-    lastUsedAt?: Date | null
-    expiresAt?: Date | null
-    revokedAt?: Date | null
+    tenantId: string | null
+    metadata: Record<string, unknown> | null
+    lastUsedAt: Date | null
+    expiresAt: Date | null
+    revokedAt: Date | null
   }
 
   export type Store = {
     findById(id: string, ctx: TenantContext): Promise<Me | null>
-    listByIdentity(identityId: string, kind: Kind | undefined, ctx: TenantContext): Promise<Me[]>
+    listByIdentity(identityId: string, kind: Kind | null, ctx: TenantContext): Promise<Me[]>
     findByProviderSub(provider: string, sub: string, ctx: TenantContext): Promise<Me | null>
     /**
      * Lookup by the **hashed** secret + kind. Used by magic-link / recovery
