@@ -1,6 +1,7 @@
+import type { Identity } from '../../core'
 import { AuthError } from '../../core/errors'
 import type { PasswordsFacet } from '../../core/facets/passwords'
-import type { AuthProvider } from '../../core/types/provider'
+import type { Provider } from '../../core/types/provider'
 
 /**
  * Sentinel identity id fed to `verify` on the no-such-user branch to keep
@@ -12,9 +13,9 @@ import type { AuthProvider } from '../../core/types/provider'
  */
 const NO_IDENTITY_SENTINEL = '00000000-0000-0000-0000-000000000000'
 
-export namespace AuthPasswordProvider {
-  /** Config knobs for {@link authPassword}. */
-  export interface IOptions {
+export namespace PasswordProvider {
+  /** Config knobs for {@link password}. */
+  export type Options = {
     /** Function to find an identity given an email. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
     /** Bound PasswordsFacet - verify + needsRehash + slow rehash. */
@@ -26,12 +27,12 @@ export namespace AuthPasswordProvider {
   }
 
   /** Input to begin (unused for authPassword but kept for parity). */
-  export interface IBeginInput {
+  export type BeginInput = {
     email: string
   }
 
   /** Input to complete. */
-  export interface ICompleteInput {
+  export type CompleteInput = {
     email: string
     password: string
   }
@@ -46,9 +47,9 @@ export namespace AuthPasswordProvider {
  * `complete` validates input + rate-limits per email + verifies + emits
  * a `startSession` Intent.
  */
-export function authPassword<Profile = unknown>(
-  opts: AuthPasswordProvider.IOptions,
-): AuthProvider.IProvider<AuthPasswordProvider.IBeginInput, AuthPasswordProvider.ICompleteInput, Profile> {
+export function password<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+  opts: PasswordProvider.Options,
+): Provider.Me<PasswordProvider.BeginInput, PasswordProvider.CompleteInput, Profile> {
   const prefix = opts.limiterKeyPrefix ?? 'signin:password:'
   const autoRehash = opts.autoRehash ?? true
   return {

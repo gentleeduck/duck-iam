@@ -11,16 +11,17 @@
  * in the `user` form param on the AUTHORIZATION call (Apple only
  * shares it on the very first consent), so capturing it requires app
  * cooperation; for now we surface sub + email which is sufficient for
- * the AuthoauthProvider profileToIdentityProfile hook.
+ * the AuthoProvider profileToIdentityProfile hook.
  */
 
 import { createSign } from 'node:crypto'
-import type { AuthProvider } from '../../../core/types/provider'
-import { AuthoauthClient } from '../core/client'
-import { type AuthoauthProvider, oauthProvider } from '../core/provider'
+import type { Identity } from '../../../core'
+import type { Provider } from '../../../core/types/provider'
+import { OauthClient } from '../core/client'
+import { type AuthoProvider, oProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const APPLE_ENDPOINTS: AuthoauthClient.IEndpoints = {
+const APPLE_ENDPOINTS: OauthClient.Endpoints = {
   authorizationEndpoint: 'https://appleid.authApple.com/AUTH/authorize',
   tokenEndpoint: 'https://appleid.authApple.com/AUTH/token',
   userinfoEndpoint: '',
@@ -30,10 +31,10 @@ const APPLE_ENDPOINTS: AuthoauthClient.IEndpoints = {
 export namespace AuthAppleoauth {
   /**
    * Apple-specific options. `clientSecret` from
-   * `AuthoauthProvider.IOptionsBase` is ignored; the secret is generated
+   * `AuthoProvider.IOptionsBase` is ignored; the secret is generated
    * per request from the team / key / private-key triple.
    */
-  export interface IOptions<Profile = unknown> extends Omit<AuthoauthProvider.IOptionsBase<Profile>, 'clientSecret'> {
+  export interface IOptions<Profile = unknown> extends Omit<AuthoProvider.IOptionsBase<Profile>, 'clientSecret'> {
     /** Apple Developer Team ID (10-char alphanumeric). */
     teamId: string
     /** Key ID associated with the AuthKey_*.p8 file. */
@@ -125,10 +126,10 @@ export function authDecodeIdToken(idToken: string): { sub: string; email?: strin
 }
 
 /** Sign in with Apple provider factory. */
-export function authApple<Profile = unknown>(
+export function authApple<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: AuthAppleoauth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
-  const client = new AuthoauthClient({
+): Provider.Me<AuthoProvider.IBeginInput, AuthoProvider.ICompleteInput, Profile> {
+  const client = new OauthClient({
     clientId: opts.clientId,
     clientSecret: '', // ignored - the AuthoauthClient uses the dynamic secret hook
     endpoints: APPLE_ENDPOINTS,
@@ -144,7 +145,7 @@ export function authApple<Profile = unknown>(
         clientId: opts.clientId,
       }),
   })
-  return oauthProvider<Profile>({
+  return oProvider<Profile>({
     providerId: 'authApple',
     client,
     endpoints: APPLE_ENDPOINTS,

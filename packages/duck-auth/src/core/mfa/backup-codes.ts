@@ -7,11 +7,26 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { isRevoked } from '../credential-utils'
+import { isRevoked, toCredentialUpsert } from '../credential-utils'
 import { timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import type { Credential } from '../types/identity'
 import type { TenantContext } from '../types/infra'
+
+export namespace BackupCodesFacet {
+  export type Config = {
+    /** Number of codes minted per call to `generate`. Default 10. */
+    count: number
+    /** Code length in bytes (4 -> 8 hex chars; 5 -> 10; etc). Default 5. */
+    byteLength: number
+    /**
+     * Format applied to the plaintext (groups of 4 separated by `-`).
+     * Default true; UI-friendly. The stored hash is computed AFTER
+     * formatting so verify must apply the same normalization.
+     */
+    groupFour: boolean
+  }
+}
 
 /**
  * Crockford-style 32-char alphabet - skips 0/O/I/1 + ambiguous chars.
@@ -35,7 +50,7 @@ function generateBackupCode(_crypto: { authRandomToken(b: number): string }, len
   return out
 }
 
-export const DEFAULT_BACKUP_CODES_CONFIG: AuthBackupCodesFacet.IConfig = {
+export const DEFAULT_BACKUP_CODES_CONFIG: BackupCodesFacet.Config = {
   count: 10,
   byteLength: 5,
   groupFour: true,
@@ -47,14 +62,14 @@ export const DEFAULT_BACKUP_CODES_CONFIG: AuthBackupCodesFacet.IConfig = {
  * directly; not auto-mounted on `AuthEngine` because the lib does not
  * assume the application surfaces this MFA fallback.
  */
-export class AuthBackupCodesFacet {
+export class BackupCodesFacet {
   constructor(
     private readonly _credentials: Credential.Store,
     private readonly _crypto: {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
     },
-    private readonly _cfg: AuthBackupCodesFacet.IConfig = DEFAULT_BACKUP_CODES_CONFIG,
+    private readonly _cfg: BackupCodesFacet.Config = DEFAULT_BACKUP_CODES_CONFIG,
   ) {}
 
   /**
@@ -71,12 +86,12 @@ export class AuthBackupCodesFacet {
       const formatted = this._cfg.groupFour ? `${mapped.slice(0, 4)}-${mapped.slice(4)}` : mapped
       codes.push(formatted)
       await this._credentials.upsert(
-        {
+        toCredentialUpsert({
           identityId,
           kind: 'recovery',
           secret: this._crypto.authSha256(formatted),
           metadata: { issuedAt: Date.now() },
-        },
+        }),
         ctx,
       )
     }
@@ -137,20 +152,5 @@ export class AuthBackupCodesFacet {
       return `${upper.slice(0, 4)}-${upper.slice(4)}`
     }
     return upper
-  }
-}
-
-export namespace AuthBackupCodesFacet {
-  export interface IConfig {
-    /** Number of codes minted per call to `generate`. Default 10. */
-    count: number
-    /** Code length in bytes (4 -> 8 hex chars; 5 -> 10; etc). Default 5. */
-    byteLength: number
-    /**
-     * Format applied to the plaintext (groups of 4 separated by `-`).
-     * Default true; UI-friendly. The stored hash is computed AFTER
-     * formatting so verify must apply the same normalization.
-     */
-    groupFour: boolean
   }
 }

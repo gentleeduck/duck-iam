@@ -1,14 +1,15 @@
-import { isCredentialExpired } from '../../core/credential-utils'
+import type { Identity } from '../../core'
+import { isCredentialExpired, toCredentialUpsert } from '../../core/credential-utils'
 import { AuthError } from '../../core/errors'
 import type { Channel } from '../../core/types/infra'
-import type { AuthProvider } from '../../core/types/provider'
+import type { Provider } from '../../core/types/provider'
 import { isSafeCallbackPath } from '../../core/url-validators'
 
 export namespace AuthMagicLinkProvider {
   /** Config knobs for {@link authMagicLink}. */
   export interface IOptions<Profile = unknown> {
     /** Channel implementations keyed by their `kind`. */
-    channels: { email?: Channel.IChannel; sms?: Channel.IChannel; webpush?: Channel.IChannel }
+    channels: { email?: Channel.Channel; sms?: Channel.Channel; webpush?: Channel.Channel }
     /** Library uses this to find the identity given an email. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
     /**
@@ -55,9 +56,9 @@ export namespace AuthMagicLinkProvider {
  *                      validate expiry + non-revoked, REVOKE on use,
  *                      return startSession intent.
  */
-export function authMagicLink<Profile = unknown>(
+export function authMagicLink<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: AuthMagicLinkProvider.IOptions<Profile>,
-): AuthProvider.IProvider<AuthMagicLinkProvider.IBeginInput, AuthMagicLinkProvider.ICompleteInput, Profile> {
+): Provider.Me<AuthMagicLinkProvider.IBeginInput, AuthMagicLinkProvider.ICompleteInput, Profile> {
   const ttlMs = opts.ttlMs ?? 10 * 60 * 1000
   const prefix = opts.limiterKeyPrefix ?? 'magic-link:request:'
   // Refuse a misconfigured callbackPath at construction so a typo like
@@ -110,8 +111,16 @@ export function authMagicLink<Profile = unknown>(
           return [{ type: 'json', status: 200, body: { ok: true } }]
         }
         const profile = opts.autoCreateProfile?.(emailCanonical)
+        if (!profile) {
+          return [{ type: 'json', status: 200, body: { ok: true } }]
+        }
         const created = await ctx.stores.identities.create(
-          { profile, providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }] },
+          {
+            profile,
+            providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
+            tenantId: null,
+            emailVerified: false,
+          },
           ctx.tenant,
         )
         identityId = created.id
@@ -120,13 +129,13 @@ export function authMagicLink<Profile = unknown>(
       const token = ctx.crypto.authRandomToken(32)
       const tokenHash = ctx.crypto.authSha256(token)
       await ctx.stores.credentials.upsert(
-        {
+        toCredentialUpsert({
           identityId,
           kind: 'magic-link',
           secret: tokenHash,
           metadata: { email: emailCanonical, channel: channelKind } satisfies AuthMagicLinkProvider.ICredentialMetadata,
           expiresAt: new Date(Date.now() + ttlMs),
-        },
+        }),
         ctx.tenant,
       )
 

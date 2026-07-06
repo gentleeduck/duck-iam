@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual as nodeTimingSafeEqual, randomBytes } from 'node:crypto'
 
 /** 32-byte random token, base64url. Used for session IDs, CSRF, magic links. */
-export function RandomToken(bytes = 32): string {
+export function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString('base64url')
 }
 

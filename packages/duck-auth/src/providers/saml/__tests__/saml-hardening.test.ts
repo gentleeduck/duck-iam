@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
-import { RandomToken, sha256, timingSafeEqual } from '../../../core/crypto'
+import { Identity } from '../../../core'
+import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
 import { InMemoryEvents } from '../../../core/events'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthSamlProvider, authSamlProvider } from '../index'
 
-interface MyProfile {
-  email: string
-}
+interface MyProfile extends Identity.ProfileMetadataBase {}
 
 function ctxFor(adapter: MemoryAdapter<MyProfile>, events?: InMemoryEvents) {
   return {
@@ -20,7 +19,7 @@ function ctxFor(adapter: MemoryAdapter<MyProfile>, events?: InMemoryEvents) {
     baseUrl: 'https://app.test',
     limiter: new AuthMemoryLimiter(),
     events: events ?? new InMemoryEvents(),
-    crypto: { authRandomToken: RandomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
+    crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
   }
 }
 
@@ -136,7 +135,10 @@ describe('samlProvider - input caps', () => {
 
     it('accepts SAMLResponse exactly at 1 MiB', async () => {
       const adapterInner = new MemoryAdapter<MyProfile>()
-      const ident = await adapterInner.identities.create({ profile: { email: 'u@x.com' }, providers: [] }, {})
+      const ident = await adapterInner.identities.create(
+        { profile: { email: 'u@x.com', username: 'u' }, providers: [] },
+        {},
+      )
       const client = makeClient()
       const provider = authSamlProvider({
         client,
@@ -320,7 +322,10 @@ describe('samlProvider - input caps', () => {
 
     it('valid nameID flows through to onSignIn unchanged', async () => {
       const adapterInner = new MemoryAdapter<MyProfile>()
-      const ident = await adapterInner.identities.create({ profile: { email: 'u@x.com' }, providers: [] }, {})
+      const ident = await adapterInner.identities.create(
+        { profile: { email: 'u@x.com', username: 'u' }, providers: [] },
+        {},
+      )
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
           profile: { nameID: 'legit-sso-id-123', email: 'u@x.com' } as AuthSamlProvider.IProfile,

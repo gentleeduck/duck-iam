@@ -9,12 +9,37 @@
  * `metadata.purpose='trusted-device'` + caller-supplied metadata.
  */
 
-import { getCredentialPurpose, isCredentialExpired, isRevoked } from '../credential-utils'
+import { getCredentialPurpose, isCredentialExpired, isRevoked, toCredentialUpsert } from '../credential-utils'
 import { AuthError } from '../errors'
 import type { Credential } from '../types/identity'
 import type { TenantContext } from '../types/infra'
 
-export const DEFAULT_REMEMBER_ME_CONFIG: AuthRememberMeFacet.IConfig = {
+export namespace RememberMeFacet {
+  export type Config = {
+    /** Cookie / token TTL in ms. Default 90 days. */
+    ttlMs: number
+    /** Random-byte length minted per token. Default 32 (256 bits). */
+    byteLength: number
+  }
+
+  export type Issued = {
+    /** Plaintext token to drop into `__Host-duck-device` cookie. */
+    token: string
+    /** Credential row id; useful for client-side device listings. */
+    credentialId: string
+    /** Absolute expiry, ms since epoch. */
+    expiresAt: number
+  }
+
+  export type Verified = {
+    identityId: string
+    credentialId: string
+    /** Caller-supplied metadata attached at issue (label, userAgent, etc.). */
+    metadata: Record<string, unknown> | null
+  }
+}
+
+export const DEFAULT_REMEMBER_ME_CONFIG: RememberMeFacet.Config = {
   ttlMs: 90 * 24 * 60 * 60 * 1000,
   byteLength: 32,
 }
@@ -24,14 +49,14 @@ export const DEFAULT_REMEMBER_ME_CONFIG: AuthRememberMeFacet.IConfig = {
  * facets; the facet does not auto-mount because not every app wants a
  * remember-me path.
  */
-export class AuthRememberMeFacet {
+export class RememberMeFacet {
   constructor(
     private readonly _credentials: Credential.Store,
     private readonly _crypto: {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
     },
-    private readonly _cfg: AuthRememberMeFacet.IConfig = DEFAULT_REMEMBER_ME_CONFIG,
+    private readonly _cfg: RememberMeFacet.Config = DEFAULT_REMEMBER_ME_CONFIG,
   ) {}
 
   /**
@@ -44,19 +69,19 @@ export class AuthRememberMeFacet {
     identityId: string,
     opts: { metadata?: Record<string, unknown> } = {},
     ctx: TenantContext = {},
-  ): Promise<AuthRememberMeFacet.IIssued> {
+  ): Promise<RememberMeFacet.Issued> {
     const token = this._crypto.authRandomToken(this._cfg.byteLength)
     const hash = this._crypto.authSha256(token)
     const now = Date.now()
     const expiresAt = now + this._cfg.ttlMs
     const cred = await this._credentials.upsert(
-      {
+      toCredentialUpsert({
         identityId,
         kind: 'recovery',
         secret: hash,
         metadata: { purpose: 'trusted-device', ...(opts.metadata ?? {}) },
         expiresAt: new Date(expiresAt),
-      },
+      }),
       ctx,
     )
     return { token, credentialId: cred.id, expiresAt }
@@ -71,7 +96,7 @@ export class AuthRememberMeFacet {
    * + magic links) - remember-me cookies are reused across many
    * sign-ins inside the TTL window.
    */
-  async verify(token: string, ctx: TenantContext = {}): Promise<AuthRememberMeFacet.IVerified | null> {
+  async verify(token: string, ctx: TenantContext = {}): Promise<RememberMeFacet.Verified | null> {
     // cap token length at 256 chars to bound the sha256 cost.
     // Trusted-device tokens are 32 random bytes (~43 base64url chars).
     if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
@@ -106,8 +131,8 @@ export class AuthRememberMeFacet {
     Array<{
       credentialId: string
       createdAt: Date
-      expiresAt: Date | undefined
-      metadata: Record<string, unknown> | undefined
+      expiresAt: Date | null
+      metadata: Record<string, unknown> | null
     }>
   > {
     const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
@@ -134,30 +159,5 @@ export class AuthRememberMeFacet {
     for (const dev of live) {
       await this._credentials.delete(dev.credentialId, ctx)
     }
-  }
-}
-
-export namespace AuthRememberMeFacet {
-  export interface IConfig {
-    /** Cookie / token TTL in ms. Default 90 days. */
-    ttlMs: number
-    /** Random-byte length minted per token. Default 32 (256 bits). */
-    byteLength: number
-  }
-
-  export interface IIssued {
-    /** Plaintext token to drop into `__Host-duck-device` cookie. */
-    token: string
-    /** Credential row id; useful for client-side device listings. */
-    credentialId: string
-    /** Absolute expiry, ms since epoch. */
-    expiresAt: number
-  }
-
-  export interface IVerified {
-    identityId: string
-    credentialId: string
-    /** Caller-supplied metadata attached at issue (label, userAgent, etc.). */
-    metadata: Record<string, unknown> | undefined
   }
 }

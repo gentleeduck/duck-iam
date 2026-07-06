@@ -1,13 +1,14 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { Identity } from '../../../core'
 import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { ScryptHasher } from '../../../core/password/scrypt'
+import { CookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { AuthoauthClient } from '../core/client'
-import { authGeneratePkce } from '../core/pkce'
-import { oauthProvider } from '../core/provider'
+import { OauthClient } from '../core/client'
+import { generatePkce } from '../core/pkce'
+import { oProvider } from '../core/provider'
 import { authBuildState, authVerifyState, signState } from '../core/state'
 
 /**
@@ -22,14 +23,11 @@ function mintRawState(payload: unknown, secret: string): string {
   return `${body}.${sig}`
 }
 
-interface MyProfile {
-  email: string
-  name?: string
-}
+interface MyProfile extends Identity.ProfileMetadataBase {}
 
 describe('oauth core - PKCE + state', () => {
   it('authGeneratePkce produces an S256 challenge derived from the verifier', () => {
-    const { verifier, challenge, method } = authGeneratePkce()
+    const { verifier, challenge, method } = generatePkce()
     expect(method).toBe('S256')
     expect(verifier).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(challenge).toMatch(/^[A-Za-z0-9_-]+$/)
@@ -145,8 +143,8 @@ describe('oauth core - PKCE + state', () => {
 })
 
 describe('AuthoauthClient - SEC: token response validation', () => {
-  function clientWithResponse(body: unknown, status = 200): AuthoauthClient {
-    return new AuthoauthClient({
+  function clientWithResponse(body: unknown, status = 200): OauthClient {
+    return new OauthClient({
       clientId: 'cid',
       endpoints: {
         authorizationEndpoint: 'https://idp/authorize',
@@ -200,7 +198,7 @@ describe('AuthoauthClient - SEC: token response validation', () => {
   })
 
   it('exchangeCode rejects invalid JSON body', async () => {
-    const client = new AuthoauthClient({
+    const client = new OauthClient({
       clientId: 'cid',
       endpoints: { authorizationEndpoint: 'https://idp/a', tokenEndpoint: 'https://idp/t' },
       scopes: ['openid'],
@@ -219,7 +217,7 @@ describe('AuthoauthClient - SEC: token response validation', () => {
 
 describe('AuthoauthClient.buildAuthorizeUrl', () => {
   it('emits the RFC 6749 authorization URL with PKCE + state', async () => {
-    const client = new AuthoauthClient({
+    const client = new OauthClient({
       clientId: 'cid',
       endpoints: {
         authorizationEndpoint: 'https://idp.example.com/authorize',
@@ -244,22 +242,22 @@ describe('AuthoauthClient.buildAuthorizeUrl', () => {
   })
 })
 
-describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
+describe('oProvider - generic end-to-end (mocked IdP)', () => {
   function buildAuth(fakeIdp: typeof globalThis.fetch) {
     const adapter = new MemoryAdapter<MyProfile>()
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
-      transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+      transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
       stores: {
         identities: adapter.identities,
         sessions: adapter.sessions,
         credentials: adapter.credentials,
       },
       limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
-      passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+      passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
     })
 
-    const client = new AuthoauthClient({
+    const client = new OauthClient({
       clientId: 'cid',
       clientSecret: 'csec',
       endpoints: {
@@ -272,7 +270,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     })
 
     auth.providers.register(
-      oauthProvider<MyProfile>({
+      oProvider<MyProfile>({
         providerId: 'fakeoidc',
         client,
         endpoints: {
@@ -435,10 +433,10 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
   })
 })
 
-describe('oauthProvider - redirectUri construction guard', () => {
+describe('oProvider - redirectUri construction guard', () => {
   const baseOpts = {
     providerId: 'fakeoidc',
-    client: new AuthoauthClient({
+    client: new OauthClient({
       clientId: 'cid',
       clientSecret: 'csec',
       endpoints: {
@@ -461,30 +459,28 @@ describe('oauthProvider - redirectUri construction guard', () => {
   }
 
   it('throws AUTH/MISCONFIGURED on a `javascript:` redirectUri', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'javascript:alert(1)' })).toThrow(/MISCONFIGURED/)
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'javascript:alert(1)' })).toThrow(/MISCONFIGURED/)
   })
 
   it('throws on a redirectUri containing CR/LF (header injection)', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb\r\nX-Inject: 1' })).toThrow(
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb\r\nX-Inject: 1' })).toThrow(
       /MISCONFIGURED/,
     )
   })
 
   it('throws on a non-string redirectUri', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 42 as unknown as string })).toThrow(
-      /MISCONFIGURED/,
-    )
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 42 as unknown as string })).toThrow(/MISCONFIGURED/)
   })
 
   it('throws on an unparseable redirectUri', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'not a url' })).toThrow(/MISCONFIGURED/)
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'not a url' })).toThrow(/MISCONFIGURED/)
   })
 
   it('accepts a normal https redirectUri', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb' })).not.toThrow()
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb' })).not.toThrow()
   })
 
   it('accepts a http redirectUri (some self-hosted setups still use it)', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'http://localhost:3000/cb' })).not.toThrow()
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'http://localhost:3000/cb' })).not.toThrow()
   })
 })

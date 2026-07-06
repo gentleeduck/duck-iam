@@ -1,11 +1,12 @@
 /** Microsoft Entra ID (formerly Azure AD) oauth 2.0 / OIDC provider. */
+import type { Identity } from '../../../core'
 import { AuthError } from '../../../core/errors'
-import type { AuthProvider } from '../../../core/types/provider'
-import { AuthoauthClient } from '../core/client'
-import { type AuthoauthProvider, oauthProvider } from '../core/provider'
+import type { Provider } from '../../../core/types/provider'
+import { OauthClient } from '../core/client'
+import { type AuthoProvider, oProvider } from '../core/provider'
 import { getUserinfoString } from '../core/userinfo'
 
-function endpointsFor(tenant: string): AuthoauthClient.IEndpoints {
+function endpointsFor(tenant: string): OauthClient.Endpoints {
   return {
     authorizationEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`,
     tokenEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
@@ -15,7 +16,7 @@ function endpointsFor(tenant: string): AuthoauthClient.IEndpoints {
 
 export namespace AuthMicrosoftoauth {
   /** Microsoft Entra ID-specific options. */
-  export interface IOptions<Profile = unknown> extends AuthoauthProvider.IOptionsBase<Profile> {
+  export interface IOptions<Profile = unknown> extends AuthoProvider.IOptionsBase<Profile> {
     /**
      * Tenant: `common` (any AAD tenant + personal accounts),
      * `organizations` (any AAD tenant), `consumers` (personal only),
@@ -28,19 +29,19 @@ export namespace AuthMicrosoftoauth {
 }
 
 /** Microsoft Entra ID OIDC provider factory. */
-export function authMicrosoft<Profile = unknown>(
+export function authMicrosoft<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: AuthMicrosoftoauth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
+): Provider.Me<AuthoProvider.IBeginInput, AuthoProvider.ICompleteInput, Profile> {
   const tenant = opts.tenant ?? 'common'
   const endpoints = endpointsFor(tenant)
-  const client = new AuthoauthClient({
+  const client = new OauthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints,
     scopes: opts.scopes ?? ['openid', 'profile', 'email', 'User.Read'],
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
-  return oauthProvider<Profile>({
+  return oProvider<Profile>({
     providerId: 'authMicrosoft',
     client,
     endpoints,

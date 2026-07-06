@@ -1,17 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
-import { RandomToken, sha256 } from '../../crypto'
-import { AuthRememberMeFacet } from '../remember-me'
+import { randomToken, sha256 } from '../../crypto'
+import { RememberMeFacet } from '../remember-me'
 
 describe('AuthRememberMeFacet', () => {
   let adapter: MemoryAdapter
-  let facet: AuthRememberMeFacet
+  let facet: RememberMeFacet
   let identityId: string
 
   beforeEach(async () => {
     adapter = new MemoryAdapter()
-    facet = new AuthRememberMeFacet(adapter.credentials, { authRandomToken: RandomToken, authSha256: sha256 })
-    const ident = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
+    facet = new RememberMeFacet(adapter.credentials, { authRandomToken: randomToken, authSha256: sha256 })
+    const ident = await adapter.identities.create({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }, {})
     identityId = ident.id
   })
 
@@ -45,7 +45,10 @@ describe('AuthRememberMeFacet', () => {
   })
 
   it('revoke is a no-op when (identityId, credentialId) ownership does not match', async () => {
-    const otherIdentity = await adapter.identities.create({ profile: { email: 'other@x.com' }, providers: [] }, {})
+    const otherIdentity = await adapter.identities.create(
+      { profile: { email: 'other@x.com', username: 'other' }, providers: [] },
+      {},
+    )
     const { token, credentialId } = await facet.issue(identityId)
     await facet.revoke(otherIdentity.id, credentialId)
     // Token still verifies - the cross-identity revoke was refused.
@@ -70,7 +73,7 @@ describe('AuthRememberMeFacet', () => {
   it('does not match recovery rows of a different purpose', async () => {
     // Manually insert a non-trusted-device recovery row + ensure verify
     // does not accept it as a trusted device.
-    const token = RandomToken(32)
+    const token = randomToken(32)
     await adapter.credentials.upsert(
       {
         identityId,
@@ -84,9 +87,9 @@ describe('AuthRememberMeFacet', () => {
   })
 
   it('respects ttl: expired token returns null + is auto-deleted', async () => {
-    const tiny = new AuthRememberMeFacet(
+    const tiny = new RememberMeFacet(
       adapter.credentials,
-      { authRandomToken: RandomToken, authSha256: sha256 },
+      { authRandomToken: randomToken, authSha256: sha256 },
       { ttlMs: 5, byteLength: 32 },
     )
     const { token, credentialId } = await tiny.issue(identityId)

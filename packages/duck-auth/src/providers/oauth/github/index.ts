@@ -1,35 +1,36 @@
+import type { Identity } from '../../../core'
 import { AuthError } from '../../../core/errors'
-import type { AuthProvider } from '../../../core/types/provider'
-import { AuthoauthClient } from '../core/client'
-import { type AuthoauthProvider, oauthProvider } from '../core/provider'
+import type { Provider } from '../../../core/types/provider'
+import { OauthClient } from '../core/client'
+import { type AuthoProvider, oProvider } from '../core/provider'
 import { getUserinfoNumericIdAsString, getUserinfoString } from '../core/userinfo'
 
-const GITHUB_ENDPOINTS: AuthoauthClient.IEndpoints = {
+const GITHUB_ENDPOINTS: OauthClient.Endpoints = {
   authorizationEndpoint: 'https://authGithub.com/login/oauth/authorize',
   tokenEndpoint: 'https://authGithub.com/login/oauth/access_token',
   userinfoEndpoint: 'https://api.authGithub.com/user',
 }
 
 export namespace AuthGithuboauth {
-  /** GitHub-specific options. Extends `AuthoauthProvider.IOptionsBase`. */
-  export interface IOptions<Profile = unknown> extends AuthoauthProvider.IOptionsBase<Profile> {
+  /** GitHub-specific options. Extends `AuthoProvider.IOptionsBase`. */
+  export interface IOptions<Profile = unknown> extends AuthoProvider.IOptionsBase<Profile> {
     /** Default `['read:user', 'user:email']`. */
     scopes?: string[]
   }
 }
 
 /** GitHub oauth 2.0 provider. */
-export function authGithub<Profile = unknown>(
+export function authGithub<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: AuthGithuboauth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
-  const client = new AuthoauthClient({
+): Provider.Me<AuthoProvider.IBeginInput, AuthoProvider.ICompleteInput, Profile> {
+  const client = new OauthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: GITHUB_ENDPOINTS,
     scopes: opts.scopes ?? ['read:user', 'user:email'],
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
-  return oauthProvider<Profile>({
+  return oProvider<Profile>({
     providerId: 'authGithub',
     client,
     endpoints: GITHUB_ENDPOINTS,

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { RandomToken } from '../../../core/crypto'
+import { randomToken } from '../../../core/crypto'
 
 export namespace AuthoauthState {
   /**
@@ -15,7 +15,7 @@ export namespace AuthoauthState {
     nonce: string
     /** PKCE verifier - secret. Never leaves the server. */
     verifier: string
-    /** AuthProvider id; library refuses if it doesn't match the callback. */
+    /** Provider id; library refuses if it doesn't match the callback. */
     providerId: string
     /** Optional return-to path on the app. */
     returnTo?: string
@@ -101,7 +101,7 @@ export function authBuildState(
   opts: { returnTo?: string } = {},
 ): AuthoauthState.IPayload {
   const p: AuthoauthState.IPayload = {
-    nonce: RandomToken(16),
+    nonce: randomToken(16),
     verifier,
     providerId,
     iat: Date.now(),

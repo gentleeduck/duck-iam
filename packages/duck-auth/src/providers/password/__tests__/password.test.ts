@@ -1,24 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { Identity } from '../../../core'
 import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { ScryptHasher } from '../../../core/password/scrypt'
+import { CookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { authPassword } from '../index'
+import { password } from '../index'
 
-interface MyProfile {
-  email: string
-}
+interface MyProfile extends Identity.ProfileMetadataBase {}
 
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
 } {
   const adapter = new MemoryAdapter<MyProfile>()
-  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -28,7 +27,7 @@ function buildAuth(): {
     passwords: { hasher: fastHasher },
   })
   auth.providers.register(
-    authPassword<MyProfile>({
+    password<MyProfile>({
       findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
       passwords: auth.passwords,
     }),
@@ -45,7 +44,7 @@ describe('password provider - end-to-end sign-in', () => {
   })
 
   it('full happy path: create identity -> set password -> sign in -> cookie issued', async () => {
-    const identity = await auth.identities.create({ profile: { email: 'alice@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'alice@x.com', username: 'alice' } })
     await auth.passwords.set(identity.id, 'correct-horse-battery')
 
     const signinHandler = vi.fn()
@@ -71,7 +70,7 @@ describe('password provider - end-to-end sign-in', () => {
   })
 
   it('wrong password surfaces AUTH/INVALID_CREDENTIALS without revealing which side failed', async () => {
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
     await auth.passwords.set(identity.id, 'correct-pw')
 
     const failedHandler = vi.fn()
@@ -113,7 +112,7 @@ describe('password provider - end-to-end sign-in', () => {
   })
 
   it('rate limit trips after configured attempts', async () => {
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
     await auth.passwords.set(identity.id, 'correct-pw')
 
     for (let i = 0; i < 5; i++) {
@@ -142,7 +141,7 @@ describe('password provider - end-to-end sign-in', () => {
   })
 
   it('signOut revokes the session and emits clearCookie intent', async () => {
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
     await auth.passwords.set(identity.id, 'correct-pw')
     const signin = await auth.flows.signIn({
       providerId: 'password',
@@ -159,7 +158,7 @@ describe('password provider - end-to-end sign-in', () => {
   })
 
   it('AuthEngine.resolveSession() returns the (session, identity) pair after sign-in', async () => {
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
     await auth.passwords.set(identity.id, 'correct-pw')
     const signin = await auth.flows.signIn({
       providerId: 'password',
@@ -173,7 +172,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   describe('email case-folding parity', () => {
     it('signs in with mixed-case email when identity is stored lowercase', async () => {
-      const identity = await auth.identities.create({ profile: { email: 'alice@x.com' } })
+      const identity = await auth.identities.create({ profile: { email: 'alice@x.com', username: 'alice' } })
       await auth.passwords.set(identity.id, 'correct-pw')
       const result = await auth.flows.signIn({
         providerId: 'password',

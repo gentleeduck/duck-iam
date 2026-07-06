@@ -1,12 +1,12 @@
 import { isCredentialExpired } from '../../core/credential-utils'
-import type { AuthPasskeyTypes } from './types'
+import type { PasskeyTypes } from './types'
 
 /**
  * Reference in-memory `AuthPasskeyTypes.IChallengeStore`. Suitable for
  * tests + single-process deploys; production wires a Redis-backed
  * implementation.
  */
-export class AuthMemoryPasskeyChallengeStore implements AuthPasskeyTypes.IChallengeStore {
+export class MemoryPasskeyChallengeStore implements PasskeyTypes.ChallengeStore {
   private readonly _entries = new Map<string, { challenge: string; expiresAt: Date }>()
 
   /**

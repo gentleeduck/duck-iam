@@ -1,11 +1,13 @@
+import type { Identity } from '../../../core'
+import { toCredentialUpsert } from '../../../core/credential-utils'
 import { sha256 } from '../../../core/crypto'
 import { AuthError } from '../../../core/errors'
-import type { AuthProvider } from '../../../core/types/provider'
-import type { AuthoauthClient } from './client'
-import { authGeneratePkce } from './pkce'
+import type { Provider } from '../../../core/types/provider'
+import type { OauthClient } from './client'
+import { generatePkce } from './pkce'
 import { authBuildState, authVerifyState, signState } from './state'
 
-export namespace AuthoauthProvider {
+export namespace AuthoProvider {
   /**
    * Canonical profile shape after a provider extracts it from
    * userinfo / id_token / provider-specific endpoint. Providers
@@ -44,18 +46,18 @@ export namespace AuthoauthProvider {
     profileToIdentityProfile?: IOptions<Profile>['profileToIdentityProfile']
   }
 
-  /** Full options surface consumed by `oauthProvider`. */
+  /** Full options surface consumed by `oProvider`. */
   export interface IOptions<Profile = unknown> {
     /** Stable id; library prefixes with `oauth:` for consistency. */
     providerId: string
-    client: AuthoauthClient
-    endpoints: AuthoauthClient.IEndpoints | (() => Promise<AuthoauthClient.IEndpoints>)
+    client: OauthClient
+    endpoints: OauthClient.Endpoints | (() => Promise<OauthClient.Endpoints>)
     /** Redirect URI registered with the provider. */
     redirectUri: string
     /** Secret used to sign the oauth `state` parameter. */
     stateSigningSecret: string
     /** Extract a canonical profile from the token response + userinfo. */
-    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: AuthoauthClient) => Promise<IProfile>
+    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OauthClient) => Promise<IProfile>
     /** Map IProfile -> consumer Profile shape on first sign-in. */
     profileToIdentityProfile?: (p: IProfile) => Profile
     /** Identity-resolution override; null return refuses sign-in. */
@@ -82,7 +84,7 @@ export namespace AuthoauthProvider {
      *   hook for "merge-after-confirmation" - the app prompts the
      *   user out-of-band and resolves with the verdict.
      */
-    onFederationConflict?: AuthoauthProvider.IFederationPolicy
+    onFederationConflict?: AuthoProvider.IFederationPolicy
   }
 
   /** Policy + hook shape for the federation conflict workflow. */
@@ -91,13 +93,13 @@ export namespace AuthoauthProvider {
     | 'link-if-verified'
     | ((ctx: { existingIdentityId: string; profile: IProfile; providerId: string }) => Promise<'link' | 'reject'>)
 
-  /** Input to {@link oauthProvider}.begin. */
+  /** Input to {@link oProvider}.begin. */
   export interface IBeginInput {
     /** Optional return-to path; library appends to the front-end after callback. */
     returnTo?: string
   }
 
-  /** Input to {@link oauthProvider}.complete. */
+  /** Input to {@link oProvider}.complete. */
   export interface ICompleteInput {
     /** Authorisation code returned by the provider. */
     code: string
@@ -121,9 +123,9 @@ export namespace AuthoauthProvider {
  * Generic oauth provider. Specific provider modules (authGoogle, authGithub,
  * ...) pre-fill endpoints + scopes + fetchProfile and re-export.
  */
-export function oauthProvider<Profile = unknown>(
-  opts: AuthoauthProvider.IOptions<Profile>,
-): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
+export function oProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+  opts: AuthoProvider.IOptions<Profile>,
+): Provider.Me<AuthoProvider.IBeginInput, AuthoProvider.ICompleteInput, Profile> {
   const fullProviderId = `oauth:${opts.providerId}`
   // Refuse a malformed `redirectUri` at construction so a misconfigured
   // value (e.g. `javascript:alert(1)`, an unparseable string, or one carrying
@@ -138,7 +140,7 @@ export function oauthProvider<Profile = unknown>(
     id: fullProviderId,
     kind: 'oauth',
     async begin(_ctx, input) {
-      const pkce = authGeneratePkce()
+      const pkce = generatePkce()
       const statePayload = authBuildState(fullProviderId, pkce.verifier, {
         ...(input?.returnTo !== undefined && { returnTo: input.returnTo }),
       })
@@ -190,6 +192,8 @@ export function oauthProvider<Profile = unknown>(
               {
                 profile: p,
                 providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() }],
+                tenantId: null,
+                emailVerified: false,
               },
               ctx.tenant,
             )
@@ -241,10 +245,18 @@ export function oauthProvider<Profile = unknown>(
         }
         if (!identityId) {
           const projected = opts.profileToIdentityProfile?.(profile)
+          if (!projected) {
+            throw new AuthError('AUTH_PROVIDER_FAILED', {
+              providerId: fullProviderId,
+              detail: 'profileToIdentityProfile rejected the profile',
+            })
+          }
           const created = await ctx.stores.identities.create(
             {
               profile: projected,
               providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() }],
+              tenantId: null,
+              emailVerified: false,
             },
             ctx.tenant,
           )
@@ -255,7 +267,7 @@ export function oauthProvider<Profile = unknown>(
       if (tokens.refresh_token) {
         const familyId = `${fullProviderId}:${profile.sub}:${sha256(input.code).slice(0, 16)}`
         await ctx.stores.credentials.upsert(
-          {
+          toCredentialUpsert({
             identityId,
             kind: 'oauth',
             secret: sha256(tokens.refresh_token),
@@ -266,8 +278,8 @@ export function oauthProvider<Profile = unknown>(
               generation: 1,
               accessToken: tokens.access_token,
               accessTokenExpiresAt: tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined,
-            } satisfies AuthoauthProvider.ICredentialMetadata,
-          },
+            } satisfies AuthoProvider.ICredentialMetadata,
+          }),
           ctx.tenant,
         )
       }
@@ -291,8 +303,8 @@ export function oauthProvider<Profile = unknown>(
  * `profile.emailVerified === true` AND an unambiguous email match).
  */
 async function resolveFederationConflict(
-  policy: AuthoauthProvider.IFederationPolicy,
-  ctx: { existingIdentityId: string; profile: AuthoauthProvider.IProfile; providerId: string },
+  policy: AuthoProvider.IFederationPolicy,
+  ctx: { existingIdentityId: string; profile: AuthoProvider.IProfile; providerId: string },
 ): Promise<'link' | 'reject'> {
   if (policy === 'reject') return 'reject'
   if (policy === 'link-if-verified') {

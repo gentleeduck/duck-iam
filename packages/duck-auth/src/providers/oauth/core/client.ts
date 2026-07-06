@@ -1,12 +1,12 @@
 import { AuthError } from '../../../core/errors'
 
-export namespace AuthoauthClient {
+export namespace OauthClient {
   /**
    * OIDC / oauth2 endpoints. Supplied directly (Google, GitHub,
    * static well-known providers) or resolved at runtime via discovery
    * for generic OIDC issuers.
    */
-  export interface IEndpoints {
+  export type Endpoints = {
     authorizationEndpoint: string
     tokenEndpoint: string
     /** OIDC userinfo (optional - providers often expose a profile endpoint instead). */
@@ -16,7 +16,7 @@ export namespace AuthoauthClient {
   }
 
   /** Config knobs for the oauth client. */
-  export interface IOptions {
+  export type Options = {
     clientId: string
     clientSecret?: string
     /**
@@ -27,7 +27,7 @@ export namespace AuthoauthClient {
      */
     dynamicClientSecret?: () => string | Promise<string>
     /** Endpoints; can be promised when discovering at boot. */
-    endpoints: IEndpoints | (() => Promise<IEndpoints>)
+    endpoints: Endpoints | (() => Promise<Endpoints>)
     /** oauth2 scopes the provider should request. */
     scopes: string[]
     /** Override the fetch impl (test stubs). */
@@ -35,7 +35,7 @@ export namespace AuthoauthClient {
   }
 
   /** Standard oauth2 token-endpoint response. */
-  export interface ITokenResponse {
+  export type TokenResponse = {
     access_token: string
     token_type: string
     expires_in?: number
@@ -45,10 +45,10 @@ export namespace AuthoauthClient {
   }
 }
 
-export class AuthoauthClient {
-  private _endpoints: AuthoauthClient.IEndpoints | null = null
+export class OauthClient {
+  private _endpoints: OauthClient.Endpoints | null = null
 
-  constructor(private readonly _opts: AuthoauthClient.IOptions) {}
+  constructor(private readonly _opts: OauthClient.Options) {}
 
   /**
    * Resolve the per-call client_secret. Dynamic generator wins when
@@ -67,7 +67,7 @@ export class AuthoauthClient {
     return this._opts.clientSecret || undefined
   }
 
-  private async _resolveEndpoints(): Promise<AuthoauthClient.IEndpoints> {
+  private async _resolveEndpoints(): Promise<OauthClient.Endpoints> {
     if (this._endpoints) return this._endpoints
     const e = typeof this._opts.endpoints === 'function' ? await this._opts.endpoints() : this._opts.endpoints
     // Validate endpoint URLs at resolution time. A buggy/typo'd dynamic
@@ -124,7 +124,7 @@ export class AuthoauthClient {
     code: string
     redirectUri: string
     codeVerifier: string
-  }): Promise<AuthoauthClient.ITokenResponse> {
+  }): Promise<OauthClient.TokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
@@ -160,7 +160,7 @@ export class AuthoauthClient {
   }
 
   /** Refresh-token rotation; throws on any non-2xx. */
-  async refresh(refreshToken: string): Promise<AuthoauthClient.ITokenResponse> {
+  async refresh(refreshToken: string): Promise<OauthClient.TokenResponse> {
     const e = await this._resolveEndpoints()
     const fetchImpl = this._opts.fetch ?? globalThis.fetch
     const secret = await this._resolveSecret()
@@ -274,7 +274,7 @@ async function readJsonSafe(res: Response): Promise<unknown> {
 }
 
 /** Validator for oauth2 token-endpoint responses (RFC 6749 section 5.1). */
-function parseTokenResponse(raw: unknown): AuthoauthClient.ITokenResponse | null {
+function parseTokenResponse(raw: unknown): OauthClient.TokenResponse | null {
   if (!isPlainObject(raw)) return null
   const { access_token, token_type, expires_in, refresh_token, id_token, scope } = raw
   if (typeof access_token !== 'string' || access_token.length === 0) return null
@@ -283,7 +283,7 @@ function parseTokenResponse(raw: unknown): AuthoauthClient.ITokenResponse | null
   if (refresh_token !== undefined && typeof refresh_token !== 'string') return null
   if (id_token !== undefined && typeof id_token !== 'string') return null
   if (scope !== undefined && typeof scope !== 'string') return null
-  const r: AuthoauthClient.ITokenResponse = { access_token, token_type }
+  const r: OauthClient.TokenResponse = { access_token, token_type }
   if (expires_in !== undefined) r.expires_in = expires_in
   if (refresh_token !== undefined) r.refresh_token = refresh_token
   if (id_token !== undefined) r.id_token = id_token

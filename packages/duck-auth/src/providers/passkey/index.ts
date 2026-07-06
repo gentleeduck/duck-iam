@@ -1,74 +1,22 @@
 import { createHash } from 'node:crypto'
-import { isFiniteNumber, isRevoked } from '../../core/credential-utils'
+import { isFiniteNumber, isRevoked, toCredentialUpsert } from '../../core/credential-utils'
 import { AuthError } from '../../core/errors'
-import type { Credential } from '../../core/types/identity'
-import type { AuthProvider } from '../../core/types/provider'
-import { AuthMemoryPasskeyChallengeStore } from './challenge-store'
-import type { AuthPasskeyTypes } from './types'
+import type { Credential, Identity } from '../../core/types/identity'
+import type { Provider } from '../../core/types/provider'
+import { MemoryPasskeyChallengeStore } from './challenge-store'
+import type { PasskeyProvider, PasskeyTypes } from './types'
 
-export { AuthMemoryPasskeyChallengeStore } from './challenge-store'
-export type { AuthPasskeyTypes } from './types'
+export { MemoryPasskeyChallengeStore as AuthMemoryPasskeyChallengeStore } from './challenge-store'
+export type { PasskeyTypes as AuthPasskeyTypes } from './types'
 
-export namespace AuthPasskeyProvider {
-  /** Config knobs for {@link authPasskey}. */
-  export interface IOptions {
-    /** Relying-party display name (shown in the OS picker). */
-    rpName: string
-    /** Relying-party id - the eTLD+1 the credential will be bound to. */
-    rpID: string
-    /** Allowed origins for verification. */
-    expectedOrigins: string | string[]
-    /** Locate identity given an email. */
-    findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    /** Optional override of the challenge store. Default in-memory. */
-    challengeStore?: AuthPasskeyTypes.IChallengeStore
-    /** TTL applied to issued challenges, ms. Default 5 minutes. */
-    challengeTtlMs?: number
-    /** Required user verification level. Default `'preferred'`. */
-    userVerification?: 'discouraged' | 'preferred' | 'required'
-    /** Lazy override of the WebAuthn module (tests inject a mock). */
-    webauthnModule?: AuthPasskeyTypes.ISimpleWebAuthnServerModule
-  }
-
-  /** Input to begin. */
-  export interface IBeginInput {
-    /** Optional email hint - narrows allowCredentials to that user. */
-    email?: string
-    /** Caller-supplied stable session id; the challenge is keyed by it. */
-    sessionId: string
-  }
-
-  /** Input to complete. */
-  export interface ICompleteInput {
-    /** The WebAuthn AuthenticatorAssertionResponse, JSON-encoded. */
-    response: unknown
-    /** Same sessionId the begin call returned. */
-    sessionId: string
-    /** Email used in begin (so verify can re-resolve the identity). */
-    email?: string
-  }
-
-  /** Shape stored in `Credential.ICredential.metadata` for passkey credentials. */
-  export interface ICredentialMetadata {
-    publicKey: string
-    counter: number
-    transports?: string[]
-    aaguid?: string
-    deviceType?: string
-    backedUp?: boolean
-  }
-}
-
-let _webauthnModule: AuthPasskeyTypes.ISimpleWebAuthnServerModule | null = null
+let _webauthnModule: PasskeyTypes.SimpleWebAuthnServerModule | null = null
 async function loadWebAuthn(
-  override?: AuthPasskeyTypes.ISimpleWebAuthnServerModule,
-): Promise<AuthPasskeyTypes.ISimpleWebAuthnServerModule> {
+  override?: PasskeyTypes.SimpleWebAuthnServerModule,
+): Promise<PasskeyTypes.SimpleWebAuthnServerModule> {
   if (override) return override
   if (_webauthnModule) return _webauthnModule
   try {
-    const mod = (await import(
-      '@simplewebauthn/server' as string
-    )) as unknown as AuthPasskeyTypes.ISimpleWebAuthnServerModule
+    const mod = (await import('@simplewebauthn/server' as string)) as unknown as PasskeyTypes.SimpleWebAuthnServerModule
     _webauthnModule = mod
     return mod
   } catch {
@@ -108,16 +56,16 @@ function decodeUserHandle(wireValue: string): string | null {
  * `authBeginPasskeyRegistration` + `authCompletePasskeyRegistration` (separate
  * exports).
  */
-export function authPasskey<Profile = unknown>(
-  opts: AuthPasskeyProvider.IOptions,
-): AuthProvider.IProvider<AuthPasskeyProvider.IBeginInput, AuthPasskeyProvider.ICompleteInput, Profile> {
-  const challengeStore = opts.challengeStore ?? new AuthMemoryPasskeyChallengeStore()
+export function passkey<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+  opts: PasskeyProvider.Options,
+): Provider.Me<PasskeyProvider.BeginInput, PasskeyProvider.CompleteInput, Profile> {
+  const challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
   const challengeTtlMs = opts.challengeTtlMs ?? 5 * 60 * 1000
   const uv = opts.userVerification ?? 'preferred'
 
   async function resolveAllowList(
     email: string | undefined,
-    ctx: AuthProvider.IContext<Profile>,
+    ctx: Provider.Context<Profile>,
   ): Promise<Array<{ id: string; type: 'public-key' }>> {
     if (!email) return []
     const identity = await opts.findIdentityByEmail(email, ctx.tenant.tenantId)
@@ -131,7 +79,7 @@ export function authPasskey<Profile = unknown>(
     id: 'passkey',
     kind: 'passkey',
 
-    async begin(ctx, input): Promise<AuthProvider.Intent[]> {
+    async begin(ctx, input): Promise<Provider.Intent[]> {
       if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'passkey.begin requires sessionId (string, 1-256 chars)',
@@ -144,7 +92,7 @@ export function authPasskey<Profile = unknown>(
       }
       const webauthn = await loadWebAuthn(opts.webauthnModule)
       const allowCredentials = await resolveAllowList(input.email, ctx)
-      const options: AuthPasskeyTypes.IAuthenticationOptions = await webauthn.generateAuthenticationOptions({
+      const options: PasskeyTypes.AuthenticationOptions = await webauthn.generateAuthenticationOptions({
         rpID: opts.rpID,
         allowCredentials,
         userVerification: uv,
@@ -153,7 +101,7 @@ export function authPasskey<Profile = unknown>(
       return [{ type: 'json', status: 200, body: options }]
     },
 
-    async complete(ctx, input): Promise<AuthProvider.IInternalIntent[]> {
+    async complete(ctx, input): Promise<Provider.InternalIntent[]> {
       if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
         throw new AuthError('AUTH_MISCONFIGURED', {
           detail: 'passkey.complete requires sessionId (string, 1-256 chars)',
@@ -253,11 +201,11 @@ export function authPasskey<Profile = unknown>(
 }
 
 /** Issue a registration ceremony. */
-export async function authBeginPasskeyRegistration(
-  opts: AuthPasskeyProvider.IOptions,
+export async function beginPasskeyRegistration(
+  opts: PasskeyProvider.Options,
   input: { identityId: string; userName: string; userDisplayName?: string; sessionId: string },
-): Promise<AuthPasskeyTypes.IRegistrationOptions> {
-  const challengeStore = opts.challengeStore ?? new AuthMemoryPasskeyChallengeStore()
+): Promise<PasskeyTypes.RegistrationOptions> {
+  const challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
   const challengeTtlMs = opts.challengeTtlMs ?? 5 * 60 * 1000
   const webauthn = await loadWebAuthn(opts.webauthnModule)
   const options = await webauthn.generateRegistrationOptions({
@@ -280,8 +228,8 @@ export async function authBeginPasskeyRegistration(
  * Verify the browser response from `navigator.credentials.create()`
  * and persist the new public key as a `authPasskey` credential.
  */
-export async function authCompletePasskeyRegistration(
-  opts: AuthPasskeyProvider.IOptions,
+export async function completePasskeyRegistration(
+  opts: PasskeyProvider.Options,
   input: {
     identityId: string
     sessionId: string
@@ -290,7 +238,7 @@ export async function authCompletePasskeyRegistration(
     tenant: { tenantId?: string }
   },
 ): Promise<string> {
-  const challengeStore = opts.challengeStore ?? new AuthMemoryPasskeyChallengeStore()
+  const challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
   const expectedChallenge = await challengeStore.take(`reg:${input.sessionId}`)
   if (!expectedChallenge) {
     throw new AuthError('AUTH_PASSKEY_MISMATCH')
@@ -306,9 +254,9 @@ export async function authCompletePasskeyRegistration(
   if (!verification.verified || !verification.registrationInfo) {
     throw new AuthError('AUTH_PASSKEY_MISMATCH')
   }
-  const info: AuthPasskeyTypes.IRegistrationInfo = verification.registrationInfo
+  const info: PasskeyTypes.RegistrationInfo = verification.registrationInfo
   const persisted = await input.credentialStore.upsert(
-    {
+    toCredentialUpsert({
       identityId: input.identityId,
       kind: 'passkey',
       secret: info.credential.id,
@@ -319,8 +267,8 @@ export async function authCompletePasskeyRegistration(
         aaguid: info.aaguid,
         deviceType: info.credentialDeviceType,
         backedUp: info.credentialBackedUp,
-      } satisfies AuthPasskeyProvider.ICredentialMetadata,
-    },
+      } satisfies PasskeyProvider.CredentialMetadata,
+    }),
     input.tenant,
   )
   return persisted.id
@@ -335,7 +283,7 @@ function base64UrlDecode(s: string): Uint8Array {
 }
 
 /** Parser for a authPasskey credential's `metadata`; `null` on missing publicKey or unparseable counter. */
-function parsePasskeyMetadata(meta: Credential.Me['metadata']): AuthPasskeyProvider.ICredentialMetadata | null {
+function parsePasskeyMetadata(meta: Credential.Me['metadata']): PasskeyProvider.CredentialMetadata | null {
   if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) return null
   const publicKey = Reflect.get(meta, 'publicKey')
   if (typeof publicKey !== 'string' || publicKey.length === 0) return null
@@ -350,7 +298,7 @@ function parsePasskeyMetadata(meta: Credential.Me['metadata']): AuthPasskeyProvi
       if (typeof t === 'string') transports.push(t)
     }
   }
-  const out: AuthPasskeyProvider.ICredentialMetadata = { publicKey, counter }
+  const out: PasskeyProvider.CredentialMetadata = { publicKey, counter }
   if (transports !== undefined) out.transports = transports
   return out
 }

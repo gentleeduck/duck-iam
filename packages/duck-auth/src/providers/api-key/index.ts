@@ -1,11 +1,12 @@
+import type { Identity } from '../../core'
 import { AuthError } from '../../core/errors'
 import type { ApiKeysFacet } from '../../core/facets/apikeys'
-import type { AuthProvider } from '../../core/types/provider'
+import type { Provider } from '../../core/types/provider'
 
 export namespace AuthApiKeyProvider {
   /** Config knobs for {@link authApiKey}. */
   export interface IOptions {
-    /** Bound `ApiKeysFacet`. AuthProvider delegates verify + scope checks. */
+    /** Bound `ApiKeysFacet`. Provider delegates verify + scope checks. */
     apiKeys: ApiKeysFacet
     /** Per-key rate-limit key prefix. Default `signin:api-key:`. */
     limiterKeyPrefix?: string
@@ -34,19 +35,19 @@ export namespace AuthApiKeyProvider {
  * applies the configured per-key rate-limit, and emits a `startSession`
  * Intent with `kind: 'apikey'` + `aal: 1`.
  */
-export function authApiKey<Profile = unknown>(
+export function authApiKey<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: AuthApiKeyProvider.IOptions,
-): AuthProvider.IProvider<AuthApiKeyProvider.IBeginInput, AuthApiKeyProvider.ICompleteInput, Profile> {
+): Provider.Me<AuthApiKeyProvider.IBeginInput, AuthApiKeyProvider.ICompleteInput, Profile> {
   const prefix = opts.limiterKeyPrefix ?? 'signin:api-key:'
   return {
     id: 'api-key',
     kind: 'api-key',
 
-    async begin(): Promise<AuthProvider.Intent[]> {
+    async begin(): Promise<Provider.Intent[]> {
       return []
     },
 
-    async complete(ctx, input): Promise<AuthProvider.IInternalIntent[]> {
+    async complete(ctx, input): Promise<Provider.InternalIntent[]> {
       // typeof-guard prevents sha256(non-string) throwing TypeError before the
       // rate limiter can fire (caller would see 500 instead of 401, plus the
       // call would bypass the per-token brute-force quota).

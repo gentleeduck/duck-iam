@@ -4,13 +4,14 @@
  * profile + email API calls.
  */
 
+import type { Identity } from '../../../core'
 import { AuthError } from '../../../core/errors'
-import type { AuthProvider } from '../../../core/types/provider'
-import { AuthoauthClient } from '../core/client'
-import { type AuthoauthProvider, oauthProvider } from '../core/provider'
+import type { Provider } from '../../../core/types/provider'
+import { OauthClient } from '../core/client'
+import { type AuthoProvider, oProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const LINKEDIN_ENDPOINTS: AuthoauthClient.IEndpoints = {
+const LINKEDIN_ENDPOINTS: OauthClient.Endpoints = {
   authorizationEndpoint: 'https://www.authLinkedin.com/oauth/v2/authorization',
   tokenEndpoint: 'https://www.authLinkedin.com/oauth/v2/accessToken',
   userinfoEndpoint: 'https://api.authLinkedin.com/v2/userinfo',
@@ -18,24 +19,24 @@ const LINKEDIN_ENDPOINTS: AuthoauthClient.IEndpoints = {
 
 export namespace AuthLinkedInoauth {
   /** LinkedIn-specific options. */
-  export interface IOptions<Profile = unknown> extends AuthoauthProvider.IOptionsBase<Profile> {
+  export interface IOptions<Profile = unknown> extends AuthoProvider.IOptionsBase<Profile> {
     /** Default `['openid', 'profile', 'email']`. */
     scopes?: string[]
   }
 }
 
 /** LinkedIn OIDC provider factory. */
-export function authLinkedin<Profile = unknown>(
+export function authLinkedin<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: AuthLinkedInoauth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
-  const client = new AuthoauthClient({
+): Provider.Me<AuthoProvider.IBeginInput, AuthoProvider.ICompleteInput, Profile> {
+  const client = new OauthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: LINKEDIN_ENDPOINTS,
     scopes: opts.scopes ?? ['openid', 'profile', 'email'],
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
-  return oauthProvider<Profile>({
+  return oProvider<Profile>({
     providerId: 'authLinkedin',
     client,
     endpoints: LINKEDIN_ENDPOINTS,

@@ -1,19 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
-import { RandomToken, sha256, timingSafeEqual } from '../../../core/crypto'
+import { Identity } from '../../../core'
+import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
 import { InMemoryEvents } from '../../../core/events'
 import { ApiKeysFacet } from '../../../core/facets/apikeys'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authApiKey } from '../index'
 
-interface ProfileShape {
-  email: string
-}
+interface ProfileShape extends Identity.ProfileMetadataBase {}
 
 function buildContext() {
   const adapter = new MemoryAdapter<ProfileShape>()
   const events = new InMemoryEvents()
-  const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken: RandomToken, authSha256: sha256 })
+  const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
   return {
     adapter,
     facet,
@@ -28,7 +27,7 @@ function buildContext() {
       baseUrl: 'https://app.test',
       limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
       events,
-      crypto: { authRandomToken: RandomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
+      crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
     },
   }
 }
@@ -40,7 +39,10 @@ describe('api-key provider', () => {
 
   beforeEach(async () => {
     env = buildContext()
-    const ident = await env.adapter.identities.create({ profile: { email: 'svc@x.com' }, providers: [] }, {})
+    const ident = await env.adapter.identities.create(
+      { profile: { email: 'svc@x.com', username: 'svc' }, providers: [] },
+      {},
+    )
     identityId = ident.id
     const created = await env.facet.create(ident.id, { name: 'CI runner', scopes: ['read:users'] })
     plaintext = created.plaintext
@@ -128,9 +130,9 @@ describe('api-key provider', () => {
     it('refuses to identify-confirm a tenant-bound key on a no-tenant request', async () => {
       const adapter = new MemoryAdapter<ProfileShape>()
       const events = new InMemoryEvents()
-      const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken: RandomToken, authSha256: sha256 })
+      const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
-        { profile: { email: 't1@x.com' }, providers: [] },
+        { profile: { email: 't1@x.com', username: 't1' }, providers: [] },
         { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {
@@ -149,7 +151,7 @@ describe('api-key provider', () => {
         baseUrl: 'https://app.test',
         limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
         events,
-        crypto: { authRandomToken: RandomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
+        crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
       }
       await expect(provider.complete(ctx, { token: created.plaintext })).rejects.toMatchObject({
         code: 'AUTH_APIKEY_INVALID',
@@ -159,9 +161,9 @@ describe('api-key provider', () => {
     it('refuses to identify-confirm a tenant-A key on a tenant-B request', async () => {
       const adapter = new MemoryAdapter<ProfileShape>()
       const events = new InMemoryEvents()
-      const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken: RandomToken, authSha256: sha256 })
+      const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
-        { profile: { email: 't2@x.com' }, providers: [] },
+        { profile: { email: 't2@x.com', username: 't2' }, providers: [] },
         { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {
@@ -180,7 +182,7 @@ describe('api-key provider', () => {
         baseUrl: 'https://app.test',
         limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
         events,
-        crypto: { authRandomToken: RandomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
+        crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
       }
       await expect(provider.complete(ctx, { token: created.plaintext })).rejects.toMatchObject({
         code: 'AUTH_APIKEY_INVALID',
@@ -190,9 +192,9 @@ describe('api-key provider', () => {
     it('still identifies-confirms a tenant-A key on a tenant-A request (happy path)', async () => {
       const adapter = new MemoryAdapter<ProfileShape>()
       const events = new InMemoryEvents()
-      const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken: RandomToken, authSha256: sha256 })
+      const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
-        { profile: { email: 't3@x.com' }, providers: [] },
+        { profile: { email: 't3@x.com', username: 't3' }, providers: [] },
         { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {
@@ -211,7 +213,7 @@ describe('api-key provider', () => {
         baseUrl: 'https://app.test',
         limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
         events,
-        crypto: { authRandomToken: RandomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
+        crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
       }
       const intents = await provider.complete(ctx, { token: created.plaintext })
       expect(intents).toHaveLength(1)

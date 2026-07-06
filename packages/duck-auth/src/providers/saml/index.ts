@@ -9,8 +9,9 @@
  * a federal/military-grade artifact resolution profile.
  */
 
+import type { Identity } from '../../core'
 import { AuthError } from '../../core/errors'
-import type { AuthProvider } from '../../core/types/provider'
+import type { Provider } from '../../core/types/provider'
 
 // 1 MiB cap on SAML response; larger XML inputs are adversarial.
 const SAML_RESPONSE_MAX = 1_048_576
@@ -74,7 +75,7 @@ export namespace AuthSamlProvider {
   /** Config knobs for {@link authSamlProvider}. */
   export interface IOptions<Profile = unknown> {
     /**
-     * AuthProvider id reported back to consumers (e.g. `'okta'`,
+     * Provider id reported back to consumers (e.g. `'okta'`,
      * `'azure-saml'`). Default `'saml'`.
      */
     providerId?: string
@@ -178,13 +179,13 @@ export namespace AuthSamlProvider {
 }
 
 /**
- * Build a SAML provider. Returns the standard `AuthProvider.IProvider`
+ * Build a SAML provider. Returns the standard `Provider.IProvider`
  * shape so it slots into AuthEngine.providers.register alongside the
  * authPassword / oauth providers.
  */
-export function authSamlProvider<Profile = unknown>(
+export function authSamlProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: AuthSamlProvider.IOptions<Profile>,
-): AuthProvider.IProvider<AuthSamlProvider.IBeginInput, AuthSamlProvider.ICompleteInput, Profile> {
+): Provider.Me<AuthSamlProvider.IBeginInput, AuthSamlProvider.ICompleteInput, Profile> {
   if (!opts.client) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'samlProvider requires a pre-built `client` (@node-saml/node-saml SAML instance)',
@@ -205,7 +206,7 @@ export function authSamlProvider<Profile = unknown>(
     id: providerId,
     kind: 'oauth',
 
-    async begin(_ctx, input): Promise<AuthProvider.Intent[]> {
+    async begin(_ctx, input): Promise<Provider.Intent[]> {
       // Cap caller-supplied strings before they flow into IdP URL/headers.
       if (
         typeof input.relayState !== 'string' ||
@@ -233,7 +234,7 @@ export function authSamlProvider<Profile = unknown>(
       return [{ type: 'redirect', url, status: 302 }]
     },
 
-    async complete(ctx, input): Promise<AuthProvider.IInternalIntent[]> {
+    async complete(ctx, input): Promise<Provider.InternalIntent[]> {
       // cap SAMLResponse BEFORE handing it to
       // `validatePostResponseAsync` so adversarial multi-MB XML cannot
       // reach the parser. Real responses are 5-30 KiB; 1 MiB is generous.

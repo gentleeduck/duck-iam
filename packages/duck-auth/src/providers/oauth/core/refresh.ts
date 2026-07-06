@@ -1,10 +1,10 @@
-import { isRevoked } from '../../../core/credential-utils'
+import { isRevoked, toCredentialUpsert } from '../../../core/credential-utils'
 import { sha256 } from '../../../core/crypto'
 import { AuthError } from '../../../core/errors'
 import type { Credential } from '../../../core/types/identity'
 import type { TenantContext } from '../../../core/types/infra'
 import type { Events } from '../../../core/types/provider'
-import type { AuthoauthClient } from './client'
+import type { OauthClient } from './client'
 
 export namespace AuthoauthRefresh {
   /**
@@ -37,8 +37,8 @@ export async function authRefreshoauthToken(opts: {
   tenant: TenantContext
   credentials: Credential.Store
   events: Events.IBus
-  exchange: () => Promise<AuthoauthClient.ITokenResponse>
-}): Promise<{ tokens: AuthoauthClient.ITokenResponse; identityId: string; familyId: string }> {
+  exchange: () => Promise<OauthClient.TokenResponse>
+}): Promise<{ tokens: OauthClient.TokenResponse; identityId: string; familyId: string }> {
   const presentedHash = sha256(opts.presentedRefreshToken)
   const row = await opts.credentials.findByHashedSecret(presentedHash, 'oauth', opts.tenant)
   if (!row) {
@@ -98,12 +98,12 @@ export async function authRefreshoauthToken(opts: {
     }
     await opts.credentials.revoke(row.id, opts.tenant)
     await opts.credentials.upsert(
-      {
+      toCredentialUpsert({
         identityId: row.identityId,
         kind: 'oauth',
         secret: row.secret,
         metadata: updated,
-      },
+      }),
       opts.tenant,
     )
     return { tokens: fresh, identityId: row.identityId, familyId: meta.familyId }
@@ -116,12 +116,12 @@ export async function authRefreshoauthToken(opts: {
     accessTokenExpiresAt: fresh.expires_in !== undefined ? Date.now() + fresh.expires_in * 1000 : undefined,
   }
   await opts.credentials.upsert(
-    {
+    toCredentialUpsert({
       identityId: row.identityId,
       kind: 'oauth',
       secret: sha256(fresh.refresh_token),
       metadata: newMeta,
-    },
+    }),
     opts.tenant,
   )
   await opts.credentials.revoke(row.id, opts.tenant)

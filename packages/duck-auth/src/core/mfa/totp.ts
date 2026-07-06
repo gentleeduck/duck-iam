@@ -1,6 +1,16 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
-export const TOTP_DEFAULTS: Totp.IParams = {
+export namespace Totp {
+  export type Params = {
+    digits: 6
+    periodSec: 30
+    algorithm: 'sha1'
+    /** Acceptable drift windows on either side of the current step. */
+    driftSteps: number
+  }
+}
+
+export const TOTP_DEFAULTS: Totp.Params = {
   digits: 6,
   periodSec: 30,
   algorithm: 'sha1',
@@ -10,7 +20,7 @@ export const TOTP_DEFAULTS: Totp.IParams = {
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 
 /** Encode bytes as RFC 4648 base32 (no padding). */
-export function authBase32Encode(buf: Buffer): string {
+export function base32Encode(buf: Buffer): string {
   let bits = 0
   let value = 0
   let out = ''
@@ -29,7 +39,7 @@ export function authBase32Encode(buf: Buffer): string {
 }
 
 /** Decode RFC 4648 base32 (case-insensitive, ignores padding + spaces). */
-export function authBase32Decode(s: string): Buffer {
+export function base32Decode(s: string): Buffer {
   const cleaned = s.toUpperCase().replace(/[\s=]/g, '')
   let bits = 0
   let value = 0
@@ -49,8 +59,8 @@ export function authBase32Decode(s: string): Buffer {
 }
 
 /** Generate a fresh 20-byte secret base32-encoded for storage + QR. */
-export function authGenerateSecret(): string {
-  return authBase32Encode(randomBytes(20))
+export function generateSecret(): string {
+  return base32Encode(randomBytes(20))
 }
 
 /** Build an otpauth:// URI suitable for QR generation by the consumer. */
@@ -58,7 +68,7 @@ export function buildOtpAuthUri(opts: {
   secret: string
   issuer: string
   accountName: string
-  params?: Partial<Totp.IParams>
+  params?: Partial<Totp.Params>
 }): string {
   const p = { ...TOTP_DEFAULTS, ...opts.params }
   const label = encodeURIComponent(`${opts.issuer}:${opts.accountName}`)
@@ -75,10 +85,10 @@ export function buildOtpAuthUri(opts: {
 
 /**
  * Compute the TOTP code at the given step. Hot path; constant-time-safe
- * comparison happens in {@link authVerifyTotp}.
+ * comparison happens in {@link verifyTotp}.
  */
-export function totpAt(secretB32: string, stepIndex: number, params: Totp.IParams = TOTP_DEFAULTS): string {
-  const secret = authBase32Decode(secretB32)
+export function totpAt(secretB32: string, stepIndex: number, params: Totp.Params = TOTP_DEFAULTS): string {
+  const secret = base32Decode(secretB32)
   const buf = Buffer.alloc(8)
   // RFC 4226 section 5.3 - 8-byte big-endian counter.
   buf.writeBigUInt64BE(BigInt(stepIndex))
@@ -99,10 +109,10 @@ export function totpAt(secretB32: string, stepIndex: number, params: Totp.IParam
  *
  * `nowMs` defaults to `Date.now()`; tests pass it explicitly for determinism.
  */
-export function authVerifyTotp(
+export function verifyTotp(
   secretB32: string,
   code: string,
-  opts: { params?: Totp.IParams; nowMs?: number } = {},
+  opts: { params?: Totp.Params; nowMs?: number } = {},
 ): boolean {
   const params = opts.params ?? TOTP_DEFAULTS
   const nowMs = opts.nowMs ?? Date.now()
@@ -122,14 +132,4 @@ export function authVerifyTotp(
     if (a.length === b.length && timingSafeEqual(a, b)) matched = true
   }
   return matched
-}
-
-export namespace Totp {
-  export interface IParams {
-    digits: 6
-    periodSec: 30
-    algorithm: 'sha1'
-    /** Acceptable drift windows on either side of the current step. */
-    driftSteps: number
-  }
 }

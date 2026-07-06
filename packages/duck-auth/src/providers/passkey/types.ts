@@ -1,20 +1,20 @@
-export namespace AuthPasskeyTypes {
+export namespace PasskeyTypes {
   /**
    * Subset of `@simplewebauthn/server` we depend on. Kept narrow so
    * the lazy import surface stays small.
    */
-  export interface ISimpleWebAuthnServerModule {
-    generateRegistrationOptions: (opts: IRegistrationOptionsInput) => Promise<IRegistrationOptions>
+  export type SimpleWebAuthnServerModule = {
+    generateRegistrationOptions: (opts: RegistrationOptionsInput) => Promise<RegistrationOptions>
     verifyRegistrationResponse: (
-      opts: IVerifyRegistrationInput,
-    ) => Promise<{ verified: boolean; registrationInfo?: IRegistrationInfo }>
-    generateAuthenticationOptions: (opts: IAuthenticationOptionsInput) => Promise<IAuthenticationOptions>
+      opts: VerifyRegistrationInput,
+    ) => Promise<{ verified: boolean; registrationInfo?: RegistrationInfo }>
+    generateAuthenticationOptions: (opts: AuthenticationOptionsInput) => Promise<AuthenticationOptions>
     verifyAuthenticationResponse: (
-      opts: IVerifyAuthenticationInput,
-    ) => Promise<{ verified: boolean; authenticationInfo: IAuthenticationInfo }>
+      opts: VerifyAuthenticationInput,
+    ) => Promise<{ verified: boolean; authenticationInfo: AuthenticationInfo }>
   }
 
-  export interface IRegistrationOptionsInput {
+  export type RegistrationOptionsInput = {
     rpName: string
     rpID: string
     userID: Uint8Array
@@ -30,18 +30,18 @@ export namespace AuthPasskeyTypes {
     timeout?: number
   }
 
-  export interface IRegistrationOptions {
+  export type RegistrationOptions = {
     challenge: string
     rp: { id: string; name: string }
     user: { id: string; name: string; displayName?: string }
     pubKeyCredParams: Array<{ alg: number; type: 'public-key' }>
     timeout?: number
     excludeCredentials?: Array<{ id: string; type: 'public-key'; transports?: string[] }>
-    authenticatorSelection?: IRegistrationOptionsInput['authenticatorSelection']
+    authenticatorSelection?: RegistrationOptionsInput['authenticatorSelection']
     attestation?: string
   }
 
-  export interface IVerifyRegistrationInput {
+  export type VerifyRegistrationInput = {
     response: unknown
     expectedChallenge: string | ((challenge: string) => boolean | Promise<boolean>)
     expectedOrigin: string | string[]
@@ -49,7 +49,7 @@ export namespace AuthPasskeyTypes {
     requireUserVerification?: boolean
   }
 
-  export interface IRegistrationInfo {
+  export type RegistrationInfo = {
     credential: {
       id: string
       publicKey: Uint8Array
@@ -62,14 +62,14 @@ export namespace AuthPasskeyTypes {
     credentialBackedUp?: boolean
   }
 
-  export interface IAuthenticationOptionsInput {
+  export type AuthenticationOptionsInput = {
     rpID: string
     allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: string[] }>
     userVerification?: 'discouraged' | 'preferred' | 'required'
     timeout?: number
   }
 
-  export interface IAuthenticationOptions {
+  export type AuthenticationOptions = {
     challenge: string
     rpId: string
     allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: string[] }>
@@ -77,7 +77,7 @@ export namespace AuthPasskeyTypes {
     timeout?: number
   }
 
-  export interface IVerifyAuthenticationInput {
+  export type VerifyAuthenticationInput = {
     response: unknown
     expectedChallenge: string | ((challenge: string) => boolean | Promise<boolean>)
     expectedOrigin: string | string[]
@@ -91,7 +91,7 @@ export namespace AuthPasskeyTypes {
     requireUserVerification?: boolean
   }
 
-  export interface IAuthenticationInfo {
+  export type AuthenticationInfo = {
     newCounter: number
     credentialID: string
     userVerified: boolean
@@ -102,8 +102,58 @@ export namespace AuthPasskeyTypes {
    * a fresh challenge keyed by `userId` (registration) or `sessionId`
    * (authentication); complete consumes it.
    */
-  export interface IChallengeStore {
+  export type ChallengeStore = {
     put(key: string, challenge: string, ttlMs: number): Promise<void>
     take(key: string): Promise<string | null>
+  }
+}
+
+export namespace PasskeyProvider {
+  /** Config knobs for {@link authPasskey}. */
+  export type Options = {
+    /** Relying-party display name (shown in the OS picker). */
+    rpName: string
+    /** Relying-party id - the eTLD+1 the credential will be bound to. */
+    rpID: string
+    /** Allowed origins for verification. */
+    expectedOrigins: string | string[]
+    /** Locate identity given an email. */
+    findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
+    /** Optional override of the challenge store. Default in-memory. */
+    challengeStore?: PasskeyTypes.ChallengeStore
+    /** TTL applied to issued challenges, ms. Default 5 minutes. */
+    challengeTtlMs?: number
+    /** Required user verification level. Default `'preferred'`. */
+    userVerification?: 'discouraged' | 'preferred' | 'required'
+    /** Lazy override of the WebAuthn module (tests inject a mock). */
+    webauthnModule?: PasskeyTypes.SimpleWebAuthnServerModule
+  }
+
+  /** Input to begin. */
+  export type BeginInput = {
+    /** Optional email hint - narrows allowCredentials to that user. */
+    email?: string
+    /** Caller-supplied stable session id; the challenge is keyed by it. */
+    sessionId: string
+  }
+
+  /** Input to complete. */
+  export type CompleteInput = {
+    /** The WebAuthn AuthenticatorAssertionResponse, JSON-encoded. */
+    response: unknown
+    /** Same sessionId the begin call returned. */
+    sessionId: string
+    /** Email used in begin (so verify can re-resolve the identity). */
+    email?: string
+  }
+
+  /** Shape stored in `Credential.ICredential.metadata` for passkey credentials. */
+  export type CredentialMetadata = {
+    publicKey: string
+    counter: number
+    transports?: string[]
+    aaguid?: string
+    deviceType?: string
+    backedUp?: boolean
   }
 }

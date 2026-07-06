@@ -1,16 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { Identity } from '../../../core'
 import { AuthEngine } from '../../../core/engine'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { CookieTransport } from '../../../core/transport/cookie'
 import type { Channel } from '../../../core/types/infra'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { authMagicLink } from '../index'
 
-interface MyProfile {
-  email: string
-}
+interface MyProfile extends Identity.ProfileMetadataBase {}
 
-function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): Channel.Channel & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
   return {
     kind: 'email',
@@ -25,16 +24,16 @@ function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: stri
   }
 }
 
-function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.IChannel } = {}): {
+function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.Channel } = {}): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
-  channel: Channel.IChannel & { sent: Array<{ to: string; url: string }> }
+  channel: Channel.Channel & { sent: Array<{ to: string; url: string }> }
 } {
   const adapter = new MemoryAdapter<MyProfile>()
-  const channel = (opts.channel as Channel.IChannel & { sent: Array<{ to: string; url: string }> }) ?? fakeChannel()
+  const channel = (opts.channel as Channel.Channel & { sent: Array<{ to: string; url: string }> }) ?? fakeChannel()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -62,7 +61,7 @@ describe('magic-link provider', () => {
   describe('begin', () => {
     it('happy path: rate-limit consumed, channel.send called, token persisted (hashed)', async () => {
       const { auth, channel, adapter } = buildAuth()
-      const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
+      const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
       await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
       expect(channel.sent).toHaveLength(1)
       expect(channel.sent[0]?.to).toBe('a@x.com')
@@ -101,7 +100,7 @@ describe('magic-link provider', () => {
     })
 
     it('channel send failure does NOT surface to the caller; emits signin.failed for operator visibility', async () => {
-      const broken: Channel.IChannel = {
+      const broken: Channel.Channel = {
         kind: 'email',
         id: 'broken',
         async send() {
@@ -113,7 +112,7 @@ describe('magic-link provider', () => {
       auth.events.on('signin.failed', (payload) => {
         seen.push(payload.reason)
       })
-      await auth.identities.create({ profile: { email: 'a@x.com' } })
+      await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
       // Request returns ok:true (matches the no-identity-exists branch
       // - no enumeration via response code).
       const intents = await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
@@ -128,7 +127,7 @@ describe('magic-link provider', () => {
 
     it('missing channel surfaces AUTH/MISCONFIGURED', async () => {
       const { auth } = buildAuth()
-      await auth.identities.create({ profile: { email: 'a@x.com' } })
+      await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
       await expect(auth.flows.beginProvider('magic-link', { email: 'a@x.com', channel: 'sms' })).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
@@ -224,7 +223,7 @@ describe('magic-link provider', () => {
       const creds = await adapter.credentials.listByIdentity(i.id, 'magic-link', {})
       const cred = creds[0]
       if (!cred) throw new Error('credential missing')
-      ;(cred as { expiresAt?: number }).expiresAt = Date.now() - 1
+      cred.expiresAt = new Date(Date.now() - 1)
       await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
       })

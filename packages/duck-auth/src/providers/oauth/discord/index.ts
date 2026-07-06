@@ -3,13 +3,14 @@
  * provider hits `/users/@me` directly to derive sub + email + avatar.
  */
 
+import type { Identity } from '../../../core'
 import { AuthError } from '../../../core/errors'
-import type { AuthProvider } from '../../../core/types/provider'
-import { AuthoauthClient } from '../core/client'
-import { type AuthoauthProvider, oauthProvider } from '../core/provider'
+import type { Provider } from '../../../core/types/provider'
+import { OauthClient } from '../core/client'
+import { type AuthoProvider, oProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
-const DISCORD_ENDPOINTS: AuthoauthClient.IEndpoints = {
+const DISCORD_ENDPOINTS: OauthClient.Endpoints = {
   authorizationEndpoint: 'https://authDiscord.com/oauth2/authorize',
   tokenEndpoint: 'https://authDiscord.com/api/oauth2/token',
   userinfoEndpoint: 'https://authDiscord.com/api/users/@me',
@@ -18,24 +19,24 @@ const DISCORD_ENDPOINTS: AuthoauthClient.IEndpoints = {
 
 export namespace AuthDiscordoauth {
   /** Discord-specific options. */
-  export interface IOptions<Profile = unknown> extends AuthoauthProvider.IOptionsBase<Profile> {
+  export interface IOptions<Profile = unknown> extends AuthoProvider.IOptionsBase<Profile> {
     /** Default `['identify', 'email']`. */
     scopes?: string[]
   }
 }
 
 /** Discord oauth 2.0 provider factory. */
-export function authDiscord<Profile = unknown>(
+export function authDiscord<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: AuthDiscordoauth.IOptions<Profile>,
-): AuthProvider.IProvider<AuthoauthProvider.IBeginInput, AuthoauthProvider.ICompleteInput, Profile> {
-  const client = new AuthoauthClient({
+): Provider.Me<AuthoProvider.IBeginInput, AuthoProvider.ICompleteInput, Profile> {
+  const client = new OauthClient({
     clientId: opts.clientId,
     clientSecret: opts.clientSecret,
     endpoints: DISCORD_ENDPOINTS,
     scopes: opts.scopes ?? ['identify', 'email'],
     ...(opts.fetch !== undefined && { fetch: opts.fetch }),
   })
-  return oauthProvider<Profile>({
+  return oProvider<Profile>({
     providerId: 'authDiscord',
     client,
     endpoints: DISCORD_ENDPOINTS,
