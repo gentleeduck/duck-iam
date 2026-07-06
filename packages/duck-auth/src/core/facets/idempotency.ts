@@ -1,6 +1,21 @@
 import { isExpiredAt } from '../credential-utils'
 import type { Idempotency, TenantContext } from '../types/infra'
 
+export namespace IdempotencyFacet {
+  export interface Config {
+    /** TTL for cached responses, ms. Default 24 hours per RFC draft. */
+    ttlMs: number
+    /** When provided, requests carry the header value as the idempotency key. */
+    headerName: string
+    /**
+     * Maximum time (ms) the loser of a `claim()` race will wait for the
+     * winner's response to land before giving up and returning a 409.
+     * Default 5s; tune up for executors that legitimately run longer.
+     */
+    pollTimeoutMs: number
+  }
+}
+
 /**
  * In-memory Idempotency store. Dev / test only; production swaps in a
  * Redis-backed implementation via `SET NX EX` for true atomic claim
@@ -9,10 +24,10 @@ import type { Idempotency, TenantContext } from '../types/infra'
  * Keys are scoped by tenantId so two tenants supplying the same
  * Idempotency-Key cannot collide.
  */
-export class MemoryIdempotencyStore implements Idempotency.IStore {
+export class MemoryIdempotencyStore implements Idempotency.Store {
   private readonly _entries = new Map<
     string,
-    { response: Idempotency.ICachedResponse; expiresAt: number; claimedAt: number }
+    { response: Idempotency.CachedResponse; expiresAt: number; claimedAt: number }
   >()
 
   /** Compose a tenant-scoped storage key. */
@@ -20,7 +35,7 @@ export class MemoryIdempotencyStore implements Idempotency.IStore {
     return `${ctx.tenantId ?? '_default'}::${key}`
   }
 
-  async get(key: string, ctx: TenantContext): Promise<Idempotency.ICachedResponse | null> {
+  async get(key: string, ctx: TenantContext): Promise<Idempotency.CachedResponse | null> {
     const entry = this._entries.get(this._k(key, ctx))
     if (!entry) return null
     // Non-finite expiresAt would slip `NaN < now == false` past TTL.
@@ -49,7 +64,7 @@ export class MemoryIdempotencyStore implements Idempotency.IStore {
     return true
   }
 
-  async put(key: string, response: Idempotency.ICachedResponse, ttlMs: number, ctx: TenantContext): Promise<void> {
+  async put(key: string, response: Idempotency.CachedResponse, ttlMs: number, ctx: TenantContext): Promise<void> {
     // Same NaN-bypass defense as claim(): clamp ttl to a sane window.
     const safeTtl = Number.isFinite(ttlMs) && ttlMs > 0 ? Math.min(ttlMs, 24 * 60 * 60 * 1000) : 60_000
     const now = Date.now()
@@ -65,7 +80,7 @@ export class MemoryIdempotencyStore implements Idempotency.IStore {
   }
 }
 
-export const DEFAULT_IDEMPOTENCY_CONFIG: IdempotencyFacet.IConfig = {
+export const DEFAULT_IDEMPOTENCY_CONFIG: IdempotencyFacet.Config = {
   ttlMs: 24 * 60 * 60 * 1000,
   headerName: 'idempotency-key',
   pollTimeoutMs: 5_000,
@@ -78,8 +93,8 @@ export const DEFAULT_IDEMPOTENCY_CONFIG: IdempotencyFacet.IConfig = {
  */
 export class IdempotencyFacet {
   constructor(
-    private readonly _store: Idempotency.IStore | null,
-    private readonly _cfg: IdempotencyFacet.IConfig = DEFAULT_IDEMPOTENCY_CONFIG,
+    private readonly _store: Idempotency.Store | null,
+    private readonly _cfg: IdempotencyFacet.Config = DEFAULT_IDEMPOTENCY_CONFIG,
   ) {}
 
   /** True when an Idempotency store is wired; framework adapters skip the dance otherwise. */
@@ -105,9 +120,9 @@ export class IdempotencyFacet {
   async handle(
     key: string,
     ctx: TenantContext,
-    executor: () => Promise<Idempotency.ICachedResponse>,
+    executor: () => Promise<Idempotency.CachedResponse>,
     opts: { identityId?: string } = {},
-  ): Promise<Idempotency.ICachedResponse> {
+  ): Promise<Idempotency.CachedResponse> {
     // Skip when no store configured, key is missing, or key is hostile-sized
     // (multi-MB Idempotency-Key headers would bloat the store + every read).
     if (!this._store || typeof key !== 'string' || key.length === 0 || key.length > 256) {
@@ -148,19 +163,4 @@ export class IdempotencyFacet {
  * runtime dependencies beyond the store contract. */
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
-}
-
-export namespace IdempotencyFacet {
-  export interface IConfig {
-    /** TTL for cached responses, ms. Default 24 hours per RFC draft. */
-    ttlMs: number
-    /** When provided, requests carry the header value as the idempotency key. */
-    headerName: string
-    /**
-     * Maximum time (ms) the loser of a `claim()` race will wait for the
-     * winner's response to land before giving up and returning a 409.
-     * Default 5s; tune up for executors that legitimately run longer.
-     */
-    pollTimeoutMs: number
-  }
 }

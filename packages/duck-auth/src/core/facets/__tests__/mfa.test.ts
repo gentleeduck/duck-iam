@@ -179,7 +179,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   let facet: MfaFacet
   let identityId: string
 
-  function makeMockWebauthn(): MfaFacet.IWebauthnLibrary {
+  function makeMockWebauthn(): MfaFacet.WebauthnLibrary {
     return {
       generateRegistrationOptions: vi.fn(async () => ({
         challenge: 'reg-challenge',
@@ -204,7 +204,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     }
   }
 
-  function makeStore(): MfaFacet.IWebauthnChallengeStore {
+  function makeStore(): MfaFacet.WebauthnChallengeStore {
     const store = new Map<string, { challenge: string; expiresAt: number }>()
     return {
       async put(key, challenge, ttlMs) {

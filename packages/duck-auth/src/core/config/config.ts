@@ -1,6 +1,7 @@
 import type { AuthEngineTypes } from '../engine'
 import { AuthEngine } from '../engine'
-import { AuthCookieTransport } from '../transport/cookie'
+import { CookieTransport } from '../transport/cookie'
+import type { Identity } from '../types/identity'
 import type { AuthDefine } from './config.types'
 
 /**
@@ -15,28 +16,33 @@ import type { AuthDefine } from './config.types'
  * NOTE:
  * ```
  */
-export function createAuth<const Profile = unknown, const Tenant = string, const OrgMeta = unknown>(
-  config: AuthDefine.IConfig<Profile, Tenant, OrgMeta>,
-): AuthEngine<Profile, Tenant, OrgMeta> {
-  const transport = config.transport ?? new AuthCookieTransport({ name: 'duck-sid' })
+export function createAuth<
+  const Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  const Tenant = string,
+  const OrgMeta = unknown,
+>(config: AuthDefine.IConfig<Profile, Tenant, OrgMeta>): AuthEngine<Profile, Tenant, OrgMeta> {
+  const transport = config.transport ?? new CookieTransport({ name: 'duck-sid' })
 
+  // Engine-config knobs are genuinely optional tuning (not stored data), so they
+  // stay optional and pass straight through — the `...(x !== undefined && {x})`
+  // spread guard was noise, not safety (`exactOptionalPropertyTypes: false`).
   const rootConfig: AuthEngineTypes.Config<Profile, Tenant, OrgMeta> = {
     baseUrl: config.baseUrl,
     stores: {
       credentials: config.stores.credentials,
       identities: config.stores.identities,
       sessions: config.stores.sessions,
-      ...(config.stores.orgs !== undefined && { orgs: config.stores.orgs }),
+      orgs: config.stores.orgs,
     },
     transport,
-    ...(config.passwords !== undefined && { passwords: config.passwords }),
-    ...(config.limiter !== undefined && { limiter: config.limiter }),
-    ...(config.events !== undefined && { events: config.events }),
-    ...(config.session !== undefined && { session: config.session }),
-    ...(config.identities !== undefined && { identities: config.identities }),
-    ...(config.mfa !== undefined && { mfa: config.mfa }),
-    ...(config.apiKeys !== undefined && { apiKeys: config.apiKeys }),
-    ...(config.hijack !== undefined && { hijack: config.hijack }),
+    passwords: config.passwords,
+    limiter: config.limiter,
+    events: config.events,
+    session: config.session,
+    identities: config.identities,
+    mfa: config.mfa,
+    apiKeys: config.apiKeys,
+    hijack: config.hijack,
   }
 
   const auth = new AuthEngine<Profile, Tenant, OrgMeta>(rootConfig)

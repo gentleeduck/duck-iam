@@ -2,7 +2,28 @@ import { AuthError } from '../errors'
 import type { Events } from '../types/provider'
 import type { Session } from '../types/session'
 
-const DEFAULT_HIJACK_POLICY: Required<HijackFacet.IPolicyConfig> = {
+export namespace HijackFacet {
+  export interface Config {
+    /** Reaction on IP change. Default 'rotate'. */
+    onIpChange?: HijackFacet.Reaction
+    /** Reaction on User-Agent change. Default 'mfa'. */
+    onUserAgentChange?: HijackFacet.Reaction
+  }
+
+  export type Reaction = 'ignore' | 'rotate' | 'mfa' | 'revoke'
+
+  export type Evaluation =
+    | { ok: true }
+    | {
+        ok: false
+        reaction: HijackFacet.Reaction
+        signal: 'ip-change' | 'user-agent-change'
+        from: string
+        to: string
+      }
+}
+
+const DEFAULT_HIJACK_POLICY: Required<HijackFacet.Config> = {
   onIpChange: 'rotate',
   onUserAgentChange: 'mfa',
 }
@@ -16,11 +37,11 @@ const DEFAULT_HIJACK_POLICY: Required<HijackFacet.IPolicyConfig> = {
  * of the reaction so audit pipelines see every drift.
  */
 export class HijackFacet {
-  private readonly _policy: Required<HijackFacet.IPolicyConfig>
+  private readonly _policy: Required<HijackFacet.Config>
 
   constructor(
     private readonly _events: Events.IBus,
-    cfg: HijackFacet.IPolicyConfig = {},
+    cfg: HijackFacet.Config = {},
   ) {
     this._policy = {
       onIpChange: cfg.onIpChange ?? DEFAULT_HIJACK_POLICY.onIpChange,
@@ -36,14 +57,14 @@ export class HijackFacet {
    * Always emits `suspicious` on drift, even when the configured reaction
    * is 'ignore', so the audit pipeline sees every change.
    */
-  async evaluate(session: Session.Me, request: { ip?: string; userAgent?: string }): Promise<HijackFacet.IEvaluation> {
+  async evaluate(session: Session.Me, request: { ip?: string; userAgent?: string }): Promise<HijackFacet.Evaluation> {
     // Evaluate IP + UA drift independently and return the strongest
     // reaction. One-sided absence (missing baseline or stripped header)
     // is downgraded to `'rotate'` so audit fires without forcing step-up.
     type DriftSignal = 'ip-change' | 'user-agent-change'
     const drifts: Array<{
       signal: DriftSignal
-      reaction: HijackFacet.IReaction
+      reaction: HijackFacet.Reaction
       from: string
       to: string
       score: number
@@ -90,7 +111,7 @@ export class HijackFacet {
     }
 
     // Pick the strongest reaction. Precedence: revoke > mfa > rotate > ignore.
-    const severity: Record<HijackFacet.IReaction, number> = { ignore: 0, rotate: 1, mfa: 2, revoke: 3 }
+    const severity: Record<HijackFacet.Reaction, number> = { ignore: 0, rotate: 1, mfa: 2, revoke: 3 }
     drifts.sort((a, b) => severity[b.reaction] - severity[a.reaction])
     const winner = drifts[0]
     // drifts.length === 0 already early-returned above; this narrows for TS.
@@ -109,7 +130,7 @@ export class HijackFacet {
    * `'rotate'` is non-throwing; caller schedules a rotation via
    * SessionsFacet.rotateOrCreate({ purpose: 're-auth' }).
    */
-  applyReaction(reaction: HijackFacet.IReaction): void {
+  applyReaction(reaction: HijackFacet.Reaction): void {
     if (reaction === 'mfa') {
       throw new AuthError('AUTH_STEP_UP_REQUIRED', {
         challenge: { reason: 'hijack-policy' },
@@ -123,19 +144,22 @@ export class HijackFacet {
 
 /** Compare a session baseline to a request value, three-state.
  *
- *   - `null`        - no drift (either both undefined or both equal)
- *   - `'mismatch'`  - both defined, different values
- *   - `'asymmetric'`- one defined, the other not (treated as a softer drift) */
-function isDrift(baseline: string | undefined, current: string | undefined): null | 'mismatch' | 'asymmetric' {
-  if (baseline === current) return null
-  if (baseline === undefined || current === undefined) return 'asymmetric'
+ *   - `null`        - no drift (either both null/undefined or both equal)
+ *   - `'mismatch'`  - both present, different values
+ *   - `'asymmetric'`- one present, the other not (treated as a softer drift) */
+function isDrift(baseline: string | null, current: string | null | undefined): null | 'mismatch' | 'asymmetric' {
+  // Treat null and undefined as equivalent absence.
+  const b = baseline ?? undefined
+  const c = current ?? undefined
+  if (b === c) return null
+  if (b === undefined || c === undefined) return 'asymmetric'
   return 'mismatch'
 }
 
 /** Asymmetric drift (one side missing) is downgraded one notch so a
  * UA-less guest session does not force MFA on every request. Caller can
  * still configure `'ignore'` explicitly to suppress entirely. */
-function downgradeForAsymmetric(reaction: HijackFacet.IReaction): HijackFacet.IReaction {
+function downgradeForAsymmetric(reaction: HijackFacet.Reaction): HijackFacet.Reaction {
   if (reaction === 'revoke' || reaction === 'mfa') return 'rotate'
   return reaction
 }
@@ -152,25 +176,4 @@ const DIAGNOSTIC_MAX_LEN = 256
 function clipForDiagnostic(s: string): string {
   if (s.length <= DIAGNOSTIC_MAX_LEN) return s
   return `${s.slice(0, DIAGNOSTIC_MAX_LEN)}...(truncated)`
-}
-
-export namespace HijackFacet {
-  export interface IPolicyConfig {
-    /** Reaction on IP change. Default 'rotate'. */
-    onIpChange?: HijackFacet.IReaction
-    /** Reaction on User-Agent change. Default 'mfa'. */
-    onUserAgentChange?: HijackFacet.IReaction
-  }
-
-  export type IReaction = 'ignore' | 'rotate' | 'mfa' | 'revoke'
-
-  export type IEvaluation =
-    | { ok: true }
-    | {
-        ok: false
-        reaction: HijackFacet.IReaction
-        signal: 'ip-change' | 'user-agent-change'
-        from: string
-        to: string
-      }
 }

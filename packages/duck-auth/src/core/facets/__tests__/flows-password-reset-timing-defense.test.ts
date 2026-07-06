@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
-import { AuthScryptHasher } from '../../password/scrypt'
-import { AuthCookieTransport } from '../../transport/cookie'
+import { ScryptHasher } from '../../password/scrypt'
+import { CookieTransport } from '../../transport/cookie'
 import type { Channel } from '../../types/infra'
 
 interface MyProfile {
@@ -14,19 +14,19 @@ function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyPr
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }
 
-function makeSlowChannel(delayMs: number): Channel.IChannel & { sendStarted: number } {
+function makeSlowChannel(delayMs: number): Channel.Channel & { sendStarted: number } {
   const ch = {
     kind: 'email' as const,
     id: 'slow',
@@ -88,7 +88,7 @@ describe('flows.requestPasswordReset - timing-defense', () => {
   })
 
   it('channel.send throw -> signin.failed event with reason; no caller-side error', async () => {
-    const failingChannel: Channel.IChannel = {
+    const failingChannel: Channel.Channel = {
       kind: 'email',
       id: 'failing',
       async send() {
@@ -117,7 +117,7 @@ describe('flows.requestPasswordReset - timing-defense', () => {
   })
 
   it('channel.send returning ok:false -> signin.failed event; no caller-side error', async () => {
-    const rejecting: Channel.IChannel = {
+    const rejecting: Channel.Channel = {
       kind: 'email',
       id: 'reject',
       async send() {

@@ -1,8 +1,8 @@
 import type { AuthEngine, AuthEngineTypes } from '../engine'
-import type { AuthPluginRegistry } from '../plugin'
+import type { PluginRegistry } from '../plugin'
 import type { Credential, Identity, Org } from '../types/identity'
 import type { Channel } from '../types/infra'
-import type { AuthProvider } from '../types/provider'
+import type { Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
 
 export namespace AuthDefine {
@@ -11,8 +11,12 @@ export namespace AuthDefine {
    * Thunks receive the constructed `AuthEngine` and the resolved channel bundle
    * so magic-link / OTP providers can bind both without repeating config.
    */
-  export type IProviderEntry<Profile, Tenant = string, OrgMeta = unknown> =
-    | AuthProvider.IProvider<unknown, unknown, Profile>
+  export type IProviderEntry<
+    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Tenant = string,
+    OrgMeta = unknown,
+  > =
+    | Provider.Me<unknown, unknown, Profile>
     | false
     | null
     | undefined
@@ -20,34 +24,36 @@ export namespace AuthDefine {
     | ((
         auth: AuthEngine<Profile, Tenant, OrgMeta>,
         channels: IChannels | undefined,
-      ) => AuthProvider.IProvider<unknown, unknown, Profile> | false | null | undefined | '')
+      ) => Provider.Me<unknown, unknown, Profile> | false | null | undefined | '')
 
   /** Skipped-or-included plugin entry — same falsy-drop rules as providers. */
-  export type IPluginEntry<Profile = unknown, Tenant = string, OrgMeta = unknown> =
-    | AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>
-    | false
-    | null
-    | undefined
-    | ''
+  export type IPluginEntry<
+    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Tenant = string,
+    OrgMeta = unknown,
+  > = PluginRegistry.Plugin<Profile, Tenant, OrgMeta> | false | null | undefined | ''
 
   /** Storage triple returned by `authMemoryStorage()` / `authDrizzlePgStorage()` / etc. */
-  export interface IStorage<Profile = unknown, OrgMeta = unknown> {
+  export interface IStorage<
+    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    OrgMeta = unknown,
+  > {
     identities: Identity.Store<Profile>
     sessions: Session.Store
     credentials: Credential.Store
     /**
      * Optional org store. Not provided by `authDrizzlePgStorage` — implement
-     * `Org.IStore<OrgMeta>` against your own org table and pass it here.
+     * `Org.Store<OrgMeta>` against your own org table and pass it here.
      * Omit if you are not using org-scoped sessions or duck-iam org scopes.
      */
-    orgs?: Org.IStore<OrgMeta>
+    orgs?: Org.Store<OrgMeta>
   }
 
   /** Channel bundle keyed by channel kind. Passed to provider thunks as second arg. */
   export interface IChannels {
-    email?: Channel.IChannel
-    sms?: Channel.IChannel
-    webpush?: Channel.IChannel
+    email?: Channel.Channel
+    sms?: Channel.Channel
+    webpush?: Channel.Channel
   }
 
   /**
@@ -58,8 +64,11 @@ export namespace AuthDefine {
    * @template Tenant   - Tenant discriminator type (phantom; drives type-safety only).
    * @template OrgMeta  - Shape of organization metadata.
    */
-  export interface IConfig<Profile = unknown, Tenant = string, OrgMeta = unknown>
-    extends Omit<AuthEngineTypes.Config<Profile, Tenant, OrgMeta>, 'providers' | 'transport'> {
+  export interface IConfig<
+    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Tenant = string,
+    OrgMeta = unknown,
+  > extends Omit<AuthEngineTypes.Config<Profile, Tenant, OrgMeta>, 'providers' | 'transport'> {
     transport?: Transport.ITransport
     /** Channel bundle forwarded to provider thunks as second argument. */
     channels?: IChannels

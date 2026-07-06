@@ -3,8 +3,8 @@ import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
-import { AuthScryptHasher } from '../../password/scrypt'
-import { AuthCookieTransport } from '../../transport/cookie'
+import { ScryptHasher } from '../../password/scrypt'
+import { CookieTransport } from '../../transport/cookie'
 
 interface MyProfile {
   email: string
@@ -14,14 +14,14 @@ function build() {
   const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter }
 }

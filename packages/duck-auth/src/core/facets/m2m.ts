@@ -12,12 +12,43 @@
  */
 
 import { AuthError } from '../errors'
-import type { AuthProvider } from '../types/provider'
+import type { Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
 import type { ApiKeysFacet } from './apikeys'
 import type { SessionsFacet } from './sessions'
 
-export const DEFAULT_M2M_CONFIG: M2MFacet.IConfig = {
+export namespace M2MFacet {
+  export type Config = {
+    /** Lifetime of the issued access token, ms. Default 1 hour. */
+    ttlMs: number
+    /**
+     * When true, restrict the requested scopes to the intersection of
+     * (requested, key.scopes); when false, refuse the grant when the key
+     * lacks any requested scope. Default `'intersect'`.
+     */
+    scopeMode: 'intersect' | 'strict'
+  }
+
+  export type ExchangeInput = {
+    /** Plaintext client id; for duck-auth this is the api-key id surfaced at creation. */
+    clientId: string
+    /** Plaintext client secret; sha-256 hashed for lookup. */
+    clientSecret: string
+    /** Optional space-separated oauth2 scope string. */
+    scope?: string
+    /** Tenant scope. */
+    tenantId?: string
+  }
+
+  export type TokenResponse = {
+    access_token: string
+    token_type: 'Bearer'
+    expires_in: number
+    scope: string
+  }
+}
+
+export const DEFAULT_M2M_CONFIG: M2MFacet.Config = {
   ttlMs: 60 * 60 * 1000,
   scopeMode: 'intersect',
 }
@@ -40,7 +71,7 @@ export class M2MFacet {
     private readonly _apiKeys: ApiKeysFacet,
     private readonly _sessions: SessionsFacet,
     private readonly _transport: Transport.ITransport,
-    private readonly _cfg: M2MFacet.IConfig = DEFAULT_M2M_CONFIG,
+    private readonly _cfg: M2MFacet.Config = DEFAULT_M2M_CONFIG,
   ) {}
 
   /**
@@ -48,7 +79,7 @@ export class M2MFacet {
    * token envelope on success; throws AUTH/APIKEY_INVALID /
    * AUTH/APIKEY_REVOKED / AUTH/APIKEY_SCOPE_INSUFFICIENT on failure.
    */
-  async exchange(input: M2MFacet.IExchangeInput): Promise<M2MFacet.ITokenResponse> {
+  async exchange(input: M2MFacet.ExchangeInput): Promise<M2MFacet.TokenResponse> {
     if (!input.clientId || !input.clientSecret) {
       throw new AuthError('AUTH_APIKEY_INVALID')
     }
@@ -102,7 +133,7 @@ export class M2MFacet {
       absolute: false,
       scope: granted.join(' '),
     })
-    const jsonIntent = intents.find((i): i is Extract<AuthProvider.Intent, { type: 'json' }> => i.type === 'json')
+    const jsonIntent = intents.find((i): i is Extract<Provider.Intent, { type: 'json' }> => i.type === 'json')
     if (!jsonIntent) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'M2MFacet requires JwtTransport (or equivalent) - cookie transports do not work here',
@@ -137,37 +168,6 @@ export class M2MFacet {
       })
     }
     return requested
-  }
-}
-
-export namespace M2MFacet {
-  export interface IConfig {
-    /** Lifetime of the issued access token, ms. Default 1 hour. */
-    ttlMs: number
-    /**
-     * When true, restrict the requested scopes to the intersection of
-     * (requested, key.scopes); when false, refuse the grant when the key
-     * lacks any requested scope. Default `'intersect'`.
-     */
-    scopeMode: 'intersect' | 'strict'
-  }
-
-  export interface IExchangeInput {
-    /** Plaintext client id; for duck-auth this is the api-key id surfaced at creation. */
-    clientId: string
-    /** Plaintext client secret; sha-256 hashed for lookup. */
-    clientSecret: string
-    /** Optional space-separated oauth2 scope string. */
-    scope?: string
-    /** Tenant scope. */
-    tenantId?: string
-  }
-
-  export interface ITokenResponse {
-    access_token: string
-    token_type: 'Bearer'
-    expires_in: number
-    scope: string
   }
 }
 

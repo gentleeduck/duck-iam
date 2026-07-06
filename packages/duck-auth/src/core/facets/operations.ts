@@ -1,6 +1,15 @@
 import { AuthError } from '../errors'
 import type { Events } from '../types/provider'
 
+export namespace OperationsFacet {
+  export interface IState {
+    /** When true, every mounted route returns 503 except session/healthz. */
+    maintenance: { on: boolean; message?: string; retryAfterSec?: number; since?: number }
+    /** When true, reads succeed but every mutating route returns 423. */
+    readOnly: { on: boolean; since?: number }
+  }
+}
+
 /**
  * Operations facet. Drives the two ambient deploy switches every
  * production deployment hits within the first month:
@@ -86,13 +95,4 @@ export class OperationsFacet {
 function isMutatingMethod(method: string): boolean {
   const m = method.toUpperCase()
   return m === 'POST' || m === 'PUT' || m === 'PATCH' || m === 'DELETE'
-}
-
-export namespace OperationsFacet {
-  export interface IState {
-    /** When true, every mounted route returns 503 except session/healthz. */
-    maintenance: { on: boolean; message?: string; retryAfterSec?: number; since?: number }
-    /** When true, reads succeed but every mutating route returns 423. */
-    readOnly: { on: boolean; since?: number }
-  }
 }

@@ -8,18 +8,19 @@
  *     identity has TOTP enrolled.
  */
 
-import { isCredentialExpired, isRevoked } from '../../credential-utils'
+import { isCredentialExpired, isRevoked, toCredentialUpsert } from '../../credential-utils'
 import { AuthError } from '../../errors'
+import type { Identity } from '../../types'
 import type { Channel } from '../../types/infra'
 import { isSafeCallbackPath } from '../../url-validators'
 import type { FlowsFacet } from '../flows'
 
-export async function requestPasswordReset<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
+export async function requestPasswordReset<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
   opts: {
-    input: FlowsFacet.IPasswordResetRequestInput
+    input: FlowsFacet.PasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    channels: Partial<Record<'email' | 'sms' | 'webpush', Channel.IChannel>>
+    channels: Partial<Record<'email' | 'sms' | 'webpush', Channel.Channel>>
     tenantId?: string
   },
 ): Promise<{ ok: true }> {
@@ -60,13 +61,13 @@ export async function requestPasswordReset<Profile>(
   const token = ctx.crypto.authRandomToken(32)
   const tokenHash = ctx.crypto.authSha256(token)
   await ctx.stores.credentials.upsert(
-    {
+    toCredentialUpsert({
       identityId: identity.id,
       kind: 'recovery',
       secret: tokenHash,
       metadata: { kind: 'password-reset', email },
       expiresAt: new Date(Date.now() + ttlMs),
-    },
+    }),
     ctx.tenant,
   )
 
@@ -101,9 +102,9 @@ export async function requestPasswordReset<Profile>(
   return { ok: true }
 }
 
-export async function completePasswordReset<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  input: FlowsFacet.IPasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
+export async function completePasswordReset<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  input: FlowsFacet.PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
 ): Promise<{ ok: true }> {
   const { token, newPassword } = input
   if (typeof token !== 'string' || token.length === 0 || token.length > 256) {

@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
-import { RandomToken, sha256 } from '../../crypto'
+import { randomToken, sha256 } from '../../crypto'
 import { InMemoryEvents } from '../../events'
 import { ApiKeysFacet } from '../apikeys'
 
 function build() {
   const adapter = new MemoryAdapter()
   const events = new InMemoryEvents()
-  const facet = new ApiKeysFacet(adapter.credentials, events, { authRandomToken: RandomToken, authSha256: sha256 })
+  const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
   return { adapter, facet }
 }
 
@@ -105,7 +105,7 @@ describe('ApiKeysFacet - metadata parser', () => {
       // condition where the credential's metadata was written by a
       // legacy / buggy code path). The plaintext token mapping
       // `${prefix}${random}` -> `sha256` lets us round-trip verify().
-      const plaintext = `ak_live_${RandomToken(32)}`
+      const plaintext = `ak_live_${randomToken(32)}`
       const hash = sha256(plaintext)
       await adapter.credentials.upsert(
         {

@@ -5,7 +5,30 @@ import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
 import type { Session } from '../types/session'
 
-export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacet.IConfig = {
+export namespace IdentitiesFacet {
+  export interface Config {
+    /** Grace before hard-purge after softDelete. Default 7 days. */
+    softDeleteGracePeriodMs: number
+    /**
+     * maximum serialized (JSON / UTF-8 bytes) size of a profile.
+     * Defaults to 16 KiB. Set to `0` to disable (not recommended -
+     * unbounded profiles are a storage / read-amplification DoS).
+     */
+    profileMaxBytes?: number
+  }
+
+  export interface ExportBlob<Profile extends Identity.ProfileMetadataBase> {
+    identity: Identity.Me<Profile>
+    credentials: Array<Omit<Credential.Me, 'secret'>>
+    /** Live + recently-revoked sessions. Empty when caller skips sessions store. */
+    sessions: Array<Omit<Session.Me, 'csrfHash'>>
+    /** GDPR Article 20 envelope: schema version + export timestamp. */
+    schemaVersion: '1'
+    exportedAt: number
+  }
+}
+
+export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacet.Config = {
   softDeleteGracePeriodMs: 7 * 24 * 60 * 60 * 1000,
   profileMaxBytes: 16 * 1024,
 }
@@ -16,11 +39,11 @@ export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacet.IConfig = {
  * through `update(expectedVersion)`; callers that pass a stale version see
  * `AUTH/STALE_WRITE` and decide retry/surface.
  */
-export class IdentitiesFacet<Profile = unknown> {
+export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
   constructor(
     private readonly _store: Identity.Store<Profile>,
     private readonly _events: Events.IBus,
-    private readonly _cfg: IdentitiesFacet.IConfig = DEFAULT_IDENTITIES_CONFIG,
+    private readonly _cfg: IdentitiesFacet.Config = DEFAULT_IDENTITIES_CONFIG,
   ) {}
 
   /**
@@ -62,15 +85,16 @@ export class IdentitiesFacet<Profile = unknown> {
   // --- create / update --------------------------------------------------
 
   async create(
-    input: { profile?: Profile; tenantId?: string; providers?: Identity.ProviderLink[] },
+    input: { profile: Profile; tenantId?: string; providers?: Identity.ProviderLink[]; emailVerified?: boolean },
     ctx: TenantContext = {},
   ): Promise<Identity.Me<Profile>> {
-    if (input.profile !== undefined) this._assertProfileWithinCap(input.profile)
+    this._assertProfileWithinCap(input.profile)
     const created = await this._store.create(
       {
+        profile: input.profile,
         providers: input.providers ?? [],
-        ...(input.profile !== undefined && { profile: input.profile }),
-        ...(input.tenantId !== undefined && { tenantId: input.tenantId }),
+        tenantId: input.tenantId ?? null,
+        emailVerified: input.emailVerified ?? false,
       },
       ctx,
     )
@@ -195,7 +219,7 @@ export class IdentitiesFacet<Profile = unknown> {
    */
   async bulkCreate(
     rows: Array<{
-      profile?: Profile
+      profile: Profile
       tenantId?: string
       providers?: Identity.ProviderLink[]
     }>,
@@ -249,10 +273,10 @@ export class IdentitiesFacet<Profile = unknown> {
     credentials: Credential.Store,
     ctx: TenantContext = {},
     opts: { sessions?: Session.Store } = {},
-  ): Promise<IdentitiesFacet.IExportBlob<Profile>> {
+  ): Promise<IdentitiesFacet.ExportBlob<Profile>> {
     const identity = await this._store.findById(id, ctx)
     if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
-    const creds = await credentials.listByIdentity(id, undefined, ctx)
+    const creds = await credentials.listByIdentity(id, null, ctx)
     const sessions = opts.sessions ? await opts.sessions.listByIdentity(id) : []
     return {
       identity,
@@ -268,7 +292,7 @@ export class IdentitiesFacet<Profile = unknown> {
    * delivery to the user (file download / portable archive). Stable
    * key ordering across runs so checksum comparisons work.
    */
-  static exportToJson<P>(blob: IdentitiesFacet.IExportBlob<P>): string {
+  static exportToJson<P extends Identity.ProfileMetadataBase>(blob: IdentitiesFacet.ExportBlob<P>): string {
     return JSON.stringify(blob, sortKeys, 2)
   }
 }
@@ -294,27 +318,4 @@ function sortKeys(_key: string, value: unknown): unknown {
     return sorted
   }
   return value
-}
-
-export namespace IdentitiesFacet {
-  export interface IConfig {
-    /** Grace before hard-purge after softDelete. Default 7 days. */
-    softDeleteGracePeriodMs: number
-    /**
-     * maximum serialized (JSON / UTF-8 bytes) size of a profile.
-     * Defaults to 16 KiB. Set to `0` to disable (not recommended -
-     * unbounded profiles are a storage / read-amplification DoS).
-     */
-    profileMaxBytes?: number
-  }
-
-  export interface IExportBlob<Profile> {
-    identity: Identity.Me<Profile>
-    credentials: Array<Omit<Credential.Me, 'secret'>>
-    /** Live + recently-revoked sessions. Empty when caller skips sessions store. */
-    sessions: Array<Omit<Session.Me, 'csrfHash'>>
-    /** GDPR Article 20 envelope: schema version + export timestamp. */
-    schemaVersion: '1'
-    exportedAt: number
-  }
 }

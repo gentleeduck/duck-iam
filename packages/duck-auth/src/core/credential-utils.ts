@@ -15,9 +15,27 @@ export function isSoftDeleted(row: { deletedAt?: Date | number | null }): boolea
 /** Read the `purpose` field off a credential row's `metadata` object. */
 export function getCredentialPurpose(row: Pick<Credential.Me, 'metadata'>): string | undefined {
   const meta = row.metadata
-  if (meta === undefined) return undefined
+  if (meta == null) return undefined
   const purpose = meta.purpose
   return typeof purpose === 'string' ? purpose : undefined
+}
+
+/**
+ * Coalesce a partial credential input into a total {@link Credential.UpsertInput}.
+ * The facet boundary: callers supply the fields they care about; the nullable
+ * columns default to `null` so `undefined` never reaches the store contract.
+ */
+export function toCredentialUpsert(
+  input: Pick<Credential.UpsertInput, 'identityId' | 'kind' | 'secret'> & Partial<Credential.UpsertInput>,
+): Credential.UpsertInput {
+  return {
+    tenantId: null,
+    metadata: null,
+    lastUsedAt: null,
+    expiresAt: null,
+    revokedAt: null,
+    ...input,
+  }
 }
 
 /** True when the row has an `expiresAt` that is malformed or in the past. */

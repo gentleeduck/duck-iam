@@ -6,8 +6,8 @@ import { drizzlePgStorage } from '../../adapters/drizzle/pg'
 import { AuthMemoryLimiter } from '../../limiters/memory'
 import { AuthEngine } from '../engine'
 import { InMemoryEvents } from '../events'
-import { AuthArgon2idHasher } from '../password/argon2'
-import { AuthScryptHasher } from '../password/scrypt'
+import { Argon2idHasher } from '../password/argon2'
+import { ScryptHasher } from '../password/scrypt'
 import { AuthCookieTransport } from '../transport'
 import type { Org } from '../types/identity'
 import { createAuth } from './config'
@@ -139,7 +139,7 @@ export const auth = createAuth({
   events: new InMemoryEvents(),
   limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
   passwords: {
-    hasher: new AuthScryptHasher(),
+    hasher: new ScryptHasher(),
   },
   // oauth: {},
   channels: {},
@@ -166,7 +166,7 @@ const authAlt = new AuthEngine({
   events: new InMemoryEvents(),
   limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
   passwords: {
-    hasher: new AuthArgon2idHasher(),
+    hasher: new Argon2idHasher(),
   },
   mfa: {},
   identities: {},

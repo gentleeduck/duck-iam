@@ -2,8 +2,38 @@ import type { Identity } from '../types/identity'
 import type { Anomaly, Events } from '../types/provider'
 import type { Session } from '../types/session'
 
+export namespace AnomalyFacet {
+  /** Recommended response for the caller after evaluating signals. */
+  export type Decision = 'allow' | 'step-up' | 'deny'
+
+  export type Config = {
+    /** Score threshold above which the `suspicious` event fires. Default 0.7. */
+    threshold: number
+    /** Aggregate score at or above which `decide()` returns `'step-up'`. Default 0.7. */
+    stepUpAt: number
+    /** Aggregate score at or above which `decide()` returns `'deny'`. Default 0.95. */
+    denyAt: number
+    /**
+     * Per-signal-kind reaction overrides. Useful when a single signal
+     * kind (e.g. `impossible-travel`) should always force step-up
+     * regardless of the aggregate score. Highest-severity reaction
+     * across present signals wins.
+     */
+    reactions?: Partial<Record<Anomaly.Kind, Decision>>
+  }
+
+  export type Result = {
+    /** Sum of all signal scores. */
+    score: number
+    /** Individual detector outputs that contributed to the score. */
+    signals: Anomaly.Signal[]
+    /** Recommended response. Callers may override but should log when they do. */
+    decision: Decision
+  }
+}
+
 /** Conservative defaults. Step-up at 0.7; deny at 0.95. */
-export const DEFAULT_ANOMALY_CONFIG: AnomalyFacet.IConfig = {
+export const DEFAULT_ANOMALY_CONFIG: AnomalyFacet.Config = {
   threshold: 0.7,
   stepUpAt: 0.7,
   denyAt: 0.95,
@@ -48,18 +78,18 @@ function isValidSignal(raw: unknown): raw is Anomaly.Signal {
  * tests / custom pipelines.
  */
 export class AnomalyFacet {
-  private readonly _detectors: Anomaly.IDetector[] = []
-  private readonly _cfg: AnomalyFacet.IConfig
+  private readonly _detectors: Anomaly.Detector[] = []
+  private readonly _cfg: AnomalyFacet.Config
 
   constructor(
     private readonly _events: Events.IBus,
-    cfg: Partial<AnomalyFacet.IConfig> = {},
+    cfg: Partial<AnomalyFacet.Config> = {},
   ) {
     this._cfg = { ...DEFAULT_ANOMALY_CONFIG, ...cfg }
   }
 
   /** Register a detector. Order does not affect aggregate score. */
-  register(detector: Anomaly.IDetector): void {
+  register(detector: Anomaly.Detector): void {
     this._detectors.push(detector)
   }
 
@@ -86,7 +116,7 @@ export class AnomalyFacet {
     session: Session.Me
     identity: Identity.Me
     req: Anomaly.RequestSnapshot
-  }): Promise<AnomalyFacet.IResult> {
+  }): Promise<AnomalyFacet.Result> {
     const signals: Anomaly.Signal[] = []
     for (const d of this._detectors) {
       try {
@@ -130,14 +160,14 @@ export class AnomalyFacet {
    *   3. `stepUpAt` crossed -> 'step-up'
    *   4. Otherwise -> 'allow'
    */
-  decide(signals: Anomaly.Signal[]): AnomalyFacet.IDecision {
+  decide(signals: Anomaly.Signal[]): AnomalyFacet.Decision {
     // Non-finite score collapses every comparison and falls through to allow.
     if (signals.some((s) => !Number.isFinite(s.score))) return 'deny'
     const score = sumScores(signals)
     if (score >= this._cfg.denyAt) return 'deny'
     if (this._cfg.reactions) {
-      let kindDecision: AnomalyFacet.IDecision = 'allow'
-      const severity: Record<AnomalyFacet.IDecision, number> = { allow: 0, 'step-up': 1, deny: 2 }
+      let kindDecision: AnomalyFacet.Decision = 'allow'
+      const severity: Record<AnomalyFacet.Decision, number> = { allow: 0, 'step-up': 1, deny: 2 }
       for (const s of signals) {
         const r = this._cfg.reactions[s.kind]
         if (!r) continue
@@ -147,35 +177,5 @@ export class AnomalyFacet {
     }
     if (score >= this._cfg.stepUpAt) return 'step-up'
     return 'allow'
-  }
-}
-
-export namespace AnomalyFacet {
-  /** Recommended response for the caller after evaluating signals. */
-  export type IDecision = 'allow' | 'step-up' | 'deny'
-
-  export interface IConfig {
-    /** Score threshold above which the `suspicious` event fires. Default 0.7. */
-    threshold: number
-    /** Aggregate score at or above which `decide()` returns `'step-up'`. Default 0.7. */
-    stepUpAt: number
-    /** Aggregate score at or above which `decide()` returns `'deny'`. Default 0.95. */
-    denyAt: number
-    /**
-     * Per-signal-kind reaction overrides. Useful when a single signal
-     * kind (e.g. `impossible-travel`) should always force step-up
-     * regardless of the aggregate score. Highest-severity reaction
-     * across present signals wins.
-     */
-    reactions?: Partial<Record<Anomaly.Kind, IDecision>>
-  }
-
-  export interface IResult {
-    /** Sum of all signal scores. */
-    score: number
-    /** Individual detector outputs that contributed to the score. */
-    signals: Anomaly.Signal[]
-    /** Recommended response. Callers may override but should log when they do. */
-    decision: IDecision
   }
 }

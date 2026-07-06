@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
-import { AuthCookieTransport } from '../../transport/cookie'
+import { CookieTransport } from '../../transport/cookie'
 
 interface MyProfile {
   email: string
@@ -12,7 +12,7 @@ function buildAuth(): AuthEngine<MyProfile> {
   const adapter = new MemoryAdapter<MyProfile>()
   return new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,

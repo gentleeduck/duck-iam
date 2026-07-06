@@ -1,17 +1,18 @@
-import { isCredentialExpired, isRevoked } from '../../credential-utils'
+import { isCredentialExpired, isRevoked, toCredentialUpsert } from '../../credential-utils'
 import { AuthError } from '../../errors'
+import type { Identity } from '../../types'
 import type { Session } from '../../types/session'
 import type { FlowsFacet } from '../flows'
 
-export async function beginSignUp<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
+export async function beginSignUp<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
   opts: {
     email: string
-    required?: FlowsFacet.ISignUpStage[]
+    required?: FlowsFacet.SignUpStage[]
     initialProfile?: Partial<Profile>
     tenantId?: string
   },
-): Promise<{ flow: FlowsFacet.ISignUpFlowState<Profile>; flowToken: string }> {
+): Promise<{ flow: FlowsFacet.SignUpFlowState<Profile>; flowToken: string }> {
   if (typeof opts.email !== 'string' || opts.email.length === 0 || opts.email.length > 254) {
     throw new AuthError('AUTH_INVALID_CREDENTIALS')
   }
@@ -23,13 +24,14 @@ export async function beginSignUp<Profile>(
   const required = opts.required ?? ['email-verified', 'terms-accepted']
 
   const initial = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
-  const profile: Profile = { ...initial, email: opts.email, emailVerified: false } as Profile
+  const profile: Profile = { ...initial, email: opts.email, emailVerified: false } as unknown as Profile
 
   const created = await ctx.stores.identities.create(
     {
       profile,
       providers: [],
-      ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
+      tenantId: opts.tenantId ?? null,
+      emailVerified: false,
     },
     ctx.tenant,
   )
@@ -37,7 +39,7 @@ export async function beginSignUp<Profile>(
   const flowToken = ctx.crypto.authRandomToken(32)
   const flowTokenHash = ctx.crypto.authSha256(flowToken)
   const dataInit = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
-  const flow: FlowsFacet.ISignUpFlowState<Profile> = {
+  const flow: FlowsFacet.SignUpFlowState<Profile> = {
     id: ctx.crypto.authRandomToken(8),
     identityId: created.id,
     required,
@@ -48,23 +50,23 @@ export async function beginSignUp<Profile>(
     createdAt: now,
   }
   await ctx.stores.credentials.upsert(
-    {
+    toCredentialUpsert({
       identityId: created.id,
       kind: 'recovery',
       secret: flowTokenHash,
       metadata: { kind: 'signup-flow', flow },
       expiresAt: new Date(flow.absoluteExpiresAt),
-    },
+    }),
     ctx.tenant,
   )
   return { flow, flowToken }
 }
 
-export async function getSignUpFlow<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
+export async function getSignUpFlow<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
   flowToken: string,
   tenantId?: string,
-): Promise<FlowsFacet.ISignUpFlowState<Profile> | null> {
+): Promise<FlowsFacet.SignUpFlowState<Profile> | null> {
   const ctx = deps.ctxFactory(tenantId)
   const hash = ctx.crypto.authSha256(flowToken)
   const row = await ctx.stores.credentials.findByHashedSecret(hash, 'recovery', ctx.tenant)
@@ -77,15 +79,15 @@ export async function getSignUpFlow<Profile>(
   return parseSignUpFlow<Profile>(row.metadata)
 }
 
-export async function advanceSignUp<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
+export async function advanceSignUp<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
   opts: {
     flowToken: string
-    stage: FlowsFacet.ISignUpStage
+    stage: FlowsFacet.SignUpStage
     profilePatch?: Partial<Profile>
     tenantId?: string
   },
-): Promise<FlowsFacet.ISignUpFlowState<Profile>> {
+): Promise<FlowsFacet.SignUpFlowState<Profile>> {
   if (typeof opts.flowToken !== 'string' || opts.flowToken.length === 0 || opts.flowToken.length > 256) {
     throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
   }
@@ -99,7 +101,7 @@ export async function advanceSignUp<Profile>(
   const flow = parseSignUpFlow<Profile>(row.metadata)
   if (flow === null) throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
 
-  const next: FlowsFacet.ISignUpFlowState<Profile> = {
+  const next: FlowsFacet.SignUpFlowState<Profile> = {
     ...flow,
     completed: flow.completed.includes(opts.stage) ? flow.completed : [...flow.completed, opts.stage],
     data: opts.profilePatch ? { ...flow.data, ...opts.profilePatch } : flow.data,
@@ -115,20 +117,20 @@ export async function advanceSignUp<Profile>(
   }
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
   await ctx.stores.credentials.upsert(
-    {
+    toCredentialUpsert({
       identityId: flow.identityId,
       kind: 'recovery',
       secret: hash,
       metadata: { kind: 'signup-flow', flow: next },
       expiresAt: new Date(flow.absoluteExpiresAt),
-    },
+    }),
     ctx.tenant,
   )
   return next
 }
 
-export async function completeSignUp<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
+export async function completeSignUp<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
   opts: {
     flowToken: string
     aal?: Session.AAL
@@ -138,7 +140,7 @@ export async function completeSignUp<Profile>(
     userAgent?: string
     previousSid?: string
   },
-): Promise<FlowsFacet.ISignInOutcome> {
+): Promise<FlowsFacet.SignInOutcome> {
   if (typeof opts.flowToken !== 'string' || opts.flowToken.length === 0 || opts.flowToken.length > 256) {
     throw new AuthError('AUTH_SIGNUP_TOKEN_INVALID')
   }
@@ -191,11 +193,13 @@ const SIGNUP_STAGE_VALUES: ReadonlySet<string> = new Set([
   'completed',
 ])
 
-function isSignUpStage(v: string): v is FlowsFacet.ISignUpStage {
+function isSignUpStage(v: string): v is FlowsFacet.SignUpStage {
   return SIGNUP_STAGE_VALUES.has(v)
 }
 
-function parseSignUpFlow<Profile>(meta: unknown): FlowsFacet.ISignUpFlowState<Profile> | null {
+function parseSignUpFlow<Profile extends Identity.ProfileMetadataBase>(
+  meta: unknown,
+): FlowsFacet.SignUpFlowState<Profile> | null {
   if (!isPlainObject(meta)) return null
   if (meta.kind !== 'signup-flow') return null
   const flow = meta.flow
@@ -207,12 +211,12 @@ function parseSignUpFlow<Profile>(meta: unknown): FlowsFacet.ISignUpFlowState<Pr
   if (typeof flow.expiresAt !== 'number' || !Number.isFinite(flow.expiresAt)) return null
   if (typeof flow.absoluteExpiresAt !== 'number' || !Number.isFinite(flow.absoluteExpiresAt)) return null
   if (typeof flow.createdAt !== 'number' || !Number.isFinite(flow.createdAt)) return null
-  const required: FlowsFacet.ISignUpStage[] = []
+  const required: FlowsFacet.SignUpStage[] = []
   for (const s of flow.required) {
     if (typeof s !== 'string' || !isSignUpStage(s)) return null
     required.push(s)
   }
-  const completed: FlowsFacet.ISignUpStage[] = []
+  const completed: FlowsFacet.SignUpStage[] = []
   for (const s of flow.completed) {
     if (typeof s === 'string' && isSignUpStage(s)) completed.push(s)
   }

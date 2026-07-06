@@ -1,12 +1,13 @@
-import { getCredentialPurpose, isCredentialExpired, isRevoked } from '../../credential-utils'
+import { getCredentialPurpose, isCredentialExpired, isRevoked, toCredentialUpsert } from '../../credential-utils'
 import { AuthError } from '../../errors'
+import type { Identity } from '../../types'
 import type { TenantContext } from '../../types/infra'
 import { isSafeCallbackPath } from '../../url-validators'
 import type { FlowsFacet } from '../flows'
 
-export async function requestAccountDeletion<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  opts: FlowsFacet.IAccountDeletionRequestInput,
+export async function requestAccountDeletion<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  opts: FlowsFacet.AccountDeletionRequestInput,
 ): Promise<{ ok: true }> {
   const ctx = deps.ctxFactory(opts.tenantId)
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
@@ -49,7 +50,7 @@ export async function requestAccountDeletion<Profile>(
   const token = ctx.crypto.authRandomToken(32)
   const tokenHash = ctx.crypto.authSha256(token)
   await ctx.stores.credentials.upsert(
-    {
+    toCredentialUpsert({
       identityId: opts.identityId,
       kind: 'recovery',
       secret: tokenHash,
@@ -58,7 +59,7 @@ export async function requestAccountDeletion<Profile>(
         ...(opts.reason !== undefined && { reason: opts.reason }),
       },
       expiresAt: new Date(Date.now() + ttlMs),
-    },
+    }),
     ctx.tenant,
   )
 
@@ -72,9 +73,9 @@ export async function requestAccountDeletion<Profile>(
   return { ok: true }
 }
 
-export async function completeAccountDeletion<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  input: FlowsFacet.IAccountDeletionCompleteInput,
+export async function completeAccountDeletion<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  input: FlowsFacet.AccountDeletionCompleteInput,
 ): Promise<{ identityId: string; restorableUntil: number }> {
   if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 256) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
@@ -106,9 +107,9 @@ export async function completeAccountDeletion<Profile>(
   return { identityId, restorableUntil }
 }
 
-export async function cancelAccountDeletion<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  input: FlowsFacet.IAccountDeletionCancelInput,
+export async function cancelAccountDeletion<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  input: FlowsFacet.AccountDeletionCancelInput,
 ): Promise<{ identityId: string }> {
   if (typeof input.identityId !== 'string' || input.identityId.length === 0 || input.identityId.length > 256) {
     throw new AuthError('AUTH_UNAUTHENTICATED')

@@ -3,15 +3,15 @@ import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { totpAt } from '../../mfa/totp'
-import { AuthScryptHasher } from '../../password/scrypt'
-import { AuthCookieTransport } from '../../transport/cookie'
+import { ScryptHasher } from '../../password/scrypt'
+import { CookieTransport } from '../../transport/cookie'
 import type { Channel } from '../../types/infra'
 
 interface MyProfile {
   email: string
 }
 
-function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: string }> } {
+function fakeChannel(): Channel.Channel & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
   return {
     kind: 'email',
@@ -29,14 +29,14 @@ function fakeChannel(): Channel.IChannel & { sent: Array<{ to: string; url: stri
 function buildAuth(): {
   auth: AuthEngine<MyProfile>
   adapter: MemoryAdapter<MyProfile>
-  channel: Channel.IChannel & { sent: Array<{ to: string; url: string }> }
+  channel: Channel.Channel & { sent: Array<{ to: string; url: string }> }
 } {
   const adapter = new MemoryAdapter<MyProfile>()
   const channel = fakeChannel()
-  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,

@@ -1,11 +1,18 @@
-import { getCredentialPurpose, isCredentialExpired, isProfileBooleanTrue, isRevoked } from '../../credential-utils'
+import {
+  getCredentialPurpose,
+  isCredentialExpired,
+  isProfileBooleanTrue,
+  isRevoked,
+  toCredentialUpsert,
+} from '../../credential-utils'
 import { AuthError } from '../../errors'
+import type { Identity } from '../../types'
 import { isSafeCallbackPath } from '../../url-validators'
 import type { FlowsFacet } from '../flows'
 
-export async function requestEmailVerification<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  opts: FlowsFacet.IEmailVerificationRequestInput,
+export async function requestEmailVerification<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  opts: FlowsFacet.EmailVerificationRequestInput,
 ): Promise<{ ok: true }> {
   const ctx = deps.ctxFactory(opts.tenantId)
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
@@ -42,13 +49,13 @@ export async function requestEmailVerification<Profile>(
   const token = ctx.crypto.authRandomToken(32)
   const tokenHash = ctx.crypto.authSha256(token)
   await ctx.stores.credentials.upsert(
-    {
+    toCredentialUpsert({
       identityId: opts.identityId,
       kind: 'recovery',
       secret: tokenHash,
       metadata: { purpose: 'email-verification' },
       expiresAt: new Date(Date.now() + ttlMs),
-    },
+    }),
     ctx.tenant,
   )
 
@@ -62,9 +69,9 @@ export async function requestEmailVerification<Profile>(
   return { ok: true }
 }
 
-export async function completeEmailVerification<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  input: FlowsFacet.IEmailVerificationCompleteInput,
+export async function completeEmailVerification<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  input: FlowsFacet.EmailVerificationCompleteInput,
 ): Promise<{ identityId: string }> {
   if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 256) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
@@ -93,7 +100,7 @@ export async function completeEmailVerification<Profile>(
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   const baseProfile = isPlainObject(identity.profile) ? identity.profile : {}
-  const mergedProfile: Profile = { ...baseProfile, emailVerified: true } as Profile
+  const mergedProfile: Profile = { ...baseProfile, emailVerified: true } as unknown as Profile
   await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version, ctx.tenant)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
   return { identityId: row.identityId }

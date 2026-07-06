@@ -1,14 +1,15 @@
 import { AuthError } from '../../errors'
-import type { AuthProvider } from '../../types/provider'
+import type { Identity } from '../../types'
+import type { Provider } from '../../types/provider'
 import type { Session } from '../../types/session'
 import type { FlowsFacet } from '../flows'
 
-export async function impersonate<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  opts: FlowsFacet.IImpersonateOptions & {
+export async function impersonate<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  opts: FlowsFacet.ImpersonateOptions & {
     authorize: (realSession: Session.Me, targetIdentityId: string) => Promise<boolean>
   },
-): Promise<FlowsFacet.IImpersonateOutcome> {
+): Promise<FlowsFacet.ImpersonateOutcome> {
   if (
     typeof opts.targetIdentityId !== 'string' ||
     opts.targetIdentityId.length === 0 ||
@@ -64,10 +65,10 @@ export async function impersonate<Profile>(
   return { session, sid, intents }
 }
 
-export async function releaseImpersonation<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
+export async function releaseImpersonation<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
   impersonationSid: string,
-): Promise<{ intents: AuthProvider.Intent[] }> {
+): Promise<{ intents: Provider.Intent[] }> {
   const session = await deps.sessions.getBySid(impersonationSid)
   if (!session?.actingAs) {
     throw new AuthError('AUTH_IMPERSONATE_EXPIRED')

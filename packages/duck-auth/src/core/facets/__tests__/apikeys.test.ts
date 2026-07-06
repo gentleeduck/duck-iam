@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
-import { RandomToken, sha256 } from '../../crypto'
+import { randomToken, sha256 } from '../../crypto'
 import { InMemoryEvents } from '../../events'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../apikeys'
 
@@ -15,7 +15,7 @@ describe('ApiKeysFacet', () => {
     facet = new ApiKeysFacet(
       adapter.credentials,
       events,
-      { authRandomToken: RandomToken, authSha256: sha256 },
+      { randomToken: randomToken, sha256: sha256 },
       DEFAULT_APIKEYS_CONFIG,
     )
   })

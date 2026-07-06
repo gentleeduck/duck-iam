@@ -1,5 +1,6 @@
 import { isRevoked } from '../../credential-utils'
 import { AuthError } from '../../errors'
+import type { Identity } from '../../types'
 import type { TenantContext } from '../../types/infra'
 import type { FlowsFacet } from '../flows'
 
@@ -7,9 +8,9 @@ function isProviderIdSafe(providerId: unknown): providerId is string {
   return typeof providerId === 'string' && providerId.length > 0 && providerId.length <= 128
 }
 
-export async function linkProvider<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  opts: FlowsFacet.ILinkProviderInput,
+export async function linkProvider<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  opts: FlowsFacet.LinkProviderInput,
 ): Promise<{ identityId: string; providerId: string }> {
   if (!isProviderIdSafe(opts.providerId)) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -58,9 +59,9 @@ export async function linkProvider<Profile>(
   return { identityId: opts.identityId, providerId: opts.providerId }
 }
 
-export async function unlinkProvider<Profile>(
-  deps: FlowsFacet.IDeps<Profile>,
-  opts: FlowsFacet.IUnlinkProviderInput,
+export async function unlinkProvider<Profile extends Identity.ProfileMetadataBase>(
+  deps: FlowsFacet.Deps<Profile>,
+  opts: FlowsFacet.UnlinkProviderInput,
 ): Promise<{ identityId: string; providerId: string }> {
   if (!isProviderIdSafe(opts.providerId)) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -80,7 +81,7 @@ export async function unlinkProvider<Profile>(
   if (!opts.allowLockout) {
     const otherLinks = identity.providers.filter((p) => p.providerId !== opts.providerId)
     const ctx = deps.ctxFactory(opts.tenantId)
-    const credentials = await ctx.stores.credentials.listByIdentity(opts.identityId, undefined, tenant)
+    const credentials = await ctx.stores.credentials.listByIdentity(opts.identityId, null, tenant)
     const liveCredentials = credentials.filter((c) => !isRevoked(c) && (c.kind === 'password' || c.kind === 'passkey'))
     if (otherLinks.length === 0 && liveCredentials.length === 0) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {

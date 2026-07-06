@@ -1,12 +1,57 @@
 import { isExpiredAt, isFiniteNumber } from '../credential-utils'
-import { RandomToken, sha256 } from '../crypto'
+import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identity } from '../types/identity'
 import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
 import type { Session } from '../types/session'
 
-export const DEFAULT_SESSION_CONFIG: SessionsFacet.IConfig = {
+/**
+ * Namespace merge - SessionsFacet.IConfig, SessionsFacet.ICreateInput,
+ * SessionsFacet.IRotateInput. Flat names kept for backwards compatibility.
+ */
+export namespace SessionsFacet {
+  export type Config = {
+    /** Sliding TTL in ms. Default 7 days. */
+    ttlMs: number
+    /** Hard absolute cap in ms. Default 30 days. */
+    absoluteTtlMs: number
+    /** Window in ms where a session counts as "fresh" since the last factor. Default 5 min. */
+    freshnessMs: number
+  }
+
+  export type CreateInput = {
+    identityId: string | null
+    kind: Session.Kind
+    aal: Session.AAL
+    factors: Session.Factor[]
+    tenantId?: string | null
+    ip?: string | null
+    userAgent?: string | null
+    fingerprint?: string | null
+    actingAs?: Session.ActingAs | null
+  }
+
+  export interface IRotateInput extends CreateInput {
+    /**
+     * DESIGN section 37 rotation matrix. Drives whether the previous SID is revoked
+     * outright, downgraded (step-up old-SID kept alive at lower AAL), or left
+     * alone (impersonation start runs alongside the original session).
+     */
+    purpose:
+      | 'signin'
+      | 're-auth'
+      | 'step-up'
+      | 'step-down'
+      | 'credential-change'
+      | 'impersonate-start'
+      | 'impersonate-release'
+      | 'guest-promotion'
+    previousSid?: string
+  }
+}
+
+export const DEFAULT_SESSION_CONFIG: SessionsFacet.Config = {
   ttlMs: 7 * 24 * 60 * 60 * 1000,
   absoluteTtlMs: 30 * 24 * 60 * 60 * 1000,
   freshnessMs: 5 * 60 * 1000,
@@ -24,7 +69,7 @@ export class SessionsFacet {
   constructor(
     private readonly _store: Session.Store,
     private readonly _events: Events.IBus,
-    private readonly _cfg: SessionsFacet.IConfig = DEFAULT_SESSION_CONFIG,
+    private readonly _cfg: SessionsFacet.Config = DEFAULT_SESSION_CONFIG,
   ) {}
 
   /**
@@ -36,7 +81,7 @@ export class SessionsFacet {
    * `Transport.issue()` to put on the wire. The plaintext sid never appears
    * on the persisted row; only its sha-256 hash does.
    */
-  async create(input: SessionsFacet.ICreateInput): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
+  async create(input: SessionsFacet.CreateInput): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
     // Cap factors length so a buggy caller can't bloat the session row's
     // JSON column. Real flows mint sessions with 1-3 factors.
     if (!Array.isArray(input.factors) || input.factors.length > 16) {
@@ -44,9 +89,9 @@ export class SessionsFacet {
         detail: 'sessions.create: factors must be an array <=16',
       })
     }
-    const sid = RandomToken(32)
+    const sid = randomToken(32)
     // Mint plaintext for the cookie, store only the hash on the row.
-    const csrfToken = RandomToken(32)
+    const csrfToken = randomToken(32)
     const now = Date.now()
     const nowDate = new Date(now)
     const session: Session.Me = {
@@ -55,6 +100,13 @@ export class SessionsFacet {
       kind: input.kind,
       aal: input.aal,
       factors: input.factors,
+      tenantId: input.tenantId ?? null,
+      // Persist truncated ip/UA so a hostile header cannot bloat the session row.
+      ip: typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, 64) : null,
+      userAgent:
+        typeof input.userAgent === 'string' && input.userAgent.length > 0 ? input.userAgent.slice(0, 512) : null,
+      fingerprint: input.fingerprint ?? null,
+      actingAs: input.actingAs ?? null,
       csrfHash: sha256(csrfToken),
       createdAt: nowDate,
       rotatedAt: nowDate,
@@ -62,14 +114,6 @@ export class SessionsFacet {
       absoluteExpiresAt: new Date(now + this._cfg.absoluteTtlMs),
       fresh: true,
     }
-    if (input.tenantId !== undefined) session.tenantId = input.tenantId
-    // Persist truncated ip/UA so a hostile header cannot bloat the session row.
-    if (typeof input.ip === 'string' && input.ip.length > 0) session.ip = input.ip.slice(0, 64)
-    if (typeof input.userAgent === 'string' && input.userAgent.length > 0) {
-      session.userAgent = input.userAgent.slice(0, 512)
-    }
-    if (input.fingerprint !== undefined) session.fingerprint = input.fingerprint
-    if (input.actingAs !== undefined) session.actingAs = input.actingAs
 
     await this._store.create(session)
     await this._events.emit('session.created', { session, identity: null })
@@ -224,9 +268,9 @@ export class SessionsFacet {
       kind: 'guest',
       aal: 1,
       factors: [],
-      ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
-      ...(opts.ip !== undefined && { ip: opts.ip }),
-      ...(opts.userAgent !== undefined && { userAgent: opts.userAgent }),
+      tenantId: opts.tenantId ?? null,
+      ip: opts.ip ?? null,
+      userAgent: opts.userAgent ?? null,
     })
   }
 
@@ -247,15 +291,15 @@ export class SessionsFacet {
       kind: 'user',
       aal: input.aal,
       factors: input.factors,
-      ...(input.tenantId !== undefined && { tenantId: input.tenantId }),
-      ...(input.ip !== undefined && { ip: input.ip }),
-      ...(input.userAgent !== undefined && { userAgent: input.userAgent }),
+      tenantId: input.tenantId ?? null,
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
     })
   }
 }
 
 /** Resolve a plaintext SID to (session, identity) - used by AuthEngine.resolveSession. */
-export async function resolveBySid<Profile = unknown>(
+export async function resolveBySid<Profile extends Identity.ProfileMetadataBase>(
   sid: string,
   sessions: Session.Store,
   identities: Identity.Store<Profile>,
@@ -293,49 +337,4 @@ export async function resolveBySid<Profile = unknown>(
     throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'identity-erased' })
   }
   return { session, identity }
-}
-
-/**
- * Namespace merge - SessionsFacet.IConfig, SessionsFacet.ICreateInput,
- * SessionsFacet.IRotateInput. Flat names kept for backwards compatibility.
- */
-export namespace SessionsFacet {
-  export interface IConfig {
-    /** Sliding TTL in ms. Default 7 days. */
-    ttlMs: number
-    /** Hard absolute cap in ms. Default 30 days. */
-    absoluteTtlMs: number
-    /** Window in ms where a session counts as "fresh" since the last factor. Default 5 min. */
-    freshnessMs: number
-  }
-
-  export interface ICreateInput {
-    identityId: string | null
-    kind: Session.Kind
-    aal: Session.AAL
-    factors: Session.Factor[]
-    tenantId?: string
-    ip?: string
-    userAgent?: string
-    fingerprint?: string
-    actingAs?: Session.ActingAs
-  }
-
-  export interface IRotateInput extends ICreateInput {
-    /**
-     * DESIGN section 37 rotation matrix. Drives whether the previous SID is revoked
-     * outright, downgraded (step-up old-SID kept alive at lower AAL), or left
-     * alone (impersonation start runs alongside the original session).
-     */
-    purpose:
-      | 'signin'
-      | 're-auth'
-      | 'step-up'
-      | 'step-down'
-      | 'credential-change'
-      | 'impersonate-start'
-      | 'impersonate-release'
-      | 'guest-promotion'
-    previousSid?: string
-  }
 }

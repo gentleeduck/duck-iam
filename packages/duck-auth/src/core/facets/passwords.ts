@@ -1,7 +1,26 @@
-import { isRevoked } from '../credential-utils'
+import { isRevoked, toCredentialUpsert } from '../credential-utils'
 import { AuthError } from '../errors'
 import type { Credential } from '../types/identity'
 import type { Hasher, TenantContext } from '../types/infra'
+
+export namespace PasswordsFacet {
+  export interface IConfig {
+    /**
+     * Minimum password length. Default 8. Apps should override to >=10 for
+     * any production deployment; compliance presets force >=12.
+     */
+    minLength: number
+    /**
+     * Maximum password length in characters. Default 1024. SEC: caps
+     * the input fed to argon2id / scrypt so an attacker cannot DoS the
+     * verify path with multi-megabyte plaintext. Set lower (e.g. 256)
+     * if you want to refuse pathological-but-plausible inputs.
+     */
+    maxLength: number
+    /** Reject obvious junk. Default true. */
+    rejectCommon: boolean
+  }
+}
 
 export const DEFAULT_PASSWORDS_CONFIG: PasswordsFacet.IConfig = {
   minLength: 8,
@@ -23,7 +42,7 @@ const COMMON_PASSWORDS = new Set([
 
 /**
  * Passwords facet - credential CRUD + verify, with constant-time discipline.
- * Plaintext never leaves a method call; storage always goes through {@link Hasher.IHasher}.
+ * Plaintext never leaves a method call; storage always goes through {@link Hasher.Hasher}.
  */
 export class PasswordsFacet {
   // Lazy reference hash used by verify() in the no-credential branch
@@ -88,12 +107,12 @@ export class PasswordsFacet {
     // window is short and protected by SessionsFacet.rotateOrCreate downstream.
     await this._credentials.deleteByKind(identityId, 'password', ctx)
     await this._credentials.upsert(
-      {
+      toCredentialUpsert({
         identityId,
         kind: 'password',
         secret,
         metadata: { algorithm: this._hasher.id },
-      },
+      }),
       ctx,
     )
   }
@@ -140,24 +159,5 @@ export class PasswordsFacet {
     if (!row) return
     const newSecret = await this._hasher.hash(plaintext)
     await this._credentials.rotate(row.id, newSecret, row.version, ctx)
-  }
-}
-
-export namespace PasswordsFacet {
-  export interface IConfig {
-    /**
-     * Minimum password length. Default 8. Apps should override to >=10 for
-     * any production deployment; compliance presets force >=12.
-     */
-    minLength: number
-    /**
-     * Maximum password length in characters. Default 1024. SEC: caps
-     * the input fed to argon2id / scrypt so an attacker cannot DoS the
-     * verify path with multi-megabyte plaintext. Set lower (e.g. 256)
-     * if you want to refuse pathological-but-plausible inputs.
-     */
-    maxLength: number
-    /** Reject obvious junk. Default true. */
-    rejectCommon: boolean
   }
 }

@@ -3,6 +3,10 @@ import type { Org } from '../types/identity'
 import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
 
+export namespace OrgsFacet {
+  // No flat type aliases for this facet (class-only public surface).
+}
+
 /**
  * Orgs + Membership facet. Locked to core in v4.2 (Q1 decision). Apps
  * without org concept leave the generic `OrgMeta = never` and the facet
@@ -15,7 +19,7 @@ import type { Events } from '../types/provider'
  */
 export class OrgsFacet<OrgMeta = unknown> {
   constructor(
-    private readonly _store: Org.IStore<OrgMeta>,
+    private readonly _store: Org.Store<OrgMeta>,
     readonly _events: Events.IBus,
   ) {}
 
@@ -52,7 +56,13 @@ export class OrgsFacet<OrgMeta = unknown> {
       })
     }
     const m = await this._store.addMember(
-      { orgId: input.orgId, identityId: input.identityId, roles: sanitizeRoles(input.roles) },
+      {
+        orgId: input.orgId,
+        identityId: input.identityId,
+        roles: sanitizeRoles(input.roles),
+        invitedAt: null,
+        leftAt: null,
+      },
       ctx,
     )
     return m
@@ -92,8 +102,4 @@ function sanitizeRoles(raw: unknown): string[] {
     if (out.length >= ROLES_MAX_COUNT) break
   }
   return out
-}
-
-export namespace OrgsFacet {
-  // No flat type aliases for this facet (class-only public surface).
 }
