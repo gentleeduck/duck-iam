@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { sha256 } from '../../crypto'
 import type { Identity } from '../../types/identity'
 import type { Session } from '../../types/session'
+import { makeIdentity, makeSession } from '../../../test/store-inputs'
 import { AuthMemoryDeviceFingerprintStore, deviceFingerprintDetector } from '../device-fingerprint'
 
 function ctx(overrides: Partial<{ ip: string; userAgent: string; identityId: string }> = {}) {
   return {
-    identity: { id: overrides.identityId ?? 'u1' } as Identity.Me<unknown>,
-    session: {} as Session.Me,
+    identity: makeIdentity({ id: overrides.identityId ?? 'u1' }),
+    session: makeSession(),
     req: {
       ip: overrides.ip ?? '203.0.113.4',
       userAgent: overrides.userAgent ?? 'Mozilla/5.0',
@@ -67,8 +68,8 @@ describe('deviceFingerprintDetector', () => {
       authSha256: sha256,
     })
     const result = await detector.evaluate({
-      identity: { id: 'u1' } as Identity.Me<unknown>,
-      session: {} as Session.Me,
+      identity: makeIdentity({ id: 'u1' }),
+      session: makeSession(),
       req: { now: Date.now() },
     })
     expect(result).toEqual([])

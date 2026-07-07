@@ -4,17 +4,16 @@ import { AuthConsoleChannel } from '../../channels/console'
 import { authMagicLink } from '../../providers/magic-link'
 import { authGithub } from '../../providers/oauth/github'
 import { authGoogle } from '../../providers/oauth/google'
-import { authPasskey } from '../../providers/passkey'
-import { authPassword } from '../../providers/password'
+import { passkey } from '../../providers/passkey'
+import { password } from '../../providers/password'
 import { createAuth } from '../config'
 import { AuthEngine } from '../engine'
-import { AuthArgon2idHasher } from '../password/argon2'
-import { AuthScryptHasher } from '../password/scrypt'
-import { AuthCookieTransport } from '../transport/cookie'
+import { Argon2idHasher } from '../password/argon2'
+import { ScryptHasher } from '../password/scrypt'
+import { CookieTransport } from '../transport/cookie'
+import type { Identity } from '../types/identity'
 
-interface Profile {
-  email: string
-}
+type Profile = Identity.ProfileMetadataBase
 
 describe('createAuth', () => {
   it('returns an AuthEngine instance with the supplied storage', () => {
@@ -34,7 +33,7 @@ describe('createAuth', () => {
   })
 
   it('respects explicit transport', () => {
-    const custom = new AuthCookieTransport({ name: 'custom-sid' })
+    const custom = new CookieTransport({ name: 'custom-sid' })
     const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>(), transport: custom })
     expect(auth.transport).toBe(custom)
   })
@@ -47,7 +46,7 @@ describe('createAuth', () => {
   it('respects explicit hasher', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
-      passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) },
+      passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) },
       stores: memoryStorage<Profile>(),
     })
     expect(auth.passwords).toBeDefined()
@@ -59,7 +58,7 @@ describe('createAuth', () => {
     expect(() =>
       createAuth({
         baseUrl: 'http://x',
-        passwords: { hasher: new AuthArgon2idHasher() },
+        passwords: { hasher: new Argon2idHasher() },
         stores: memoryStorage<Profile>(),
       }),
     ).not.toThrow()
@@ -70,9 +69,9 @@ describe('createAuth', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
       providers: [
-        authPassword({
+        password({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
         }),
       ],
       stores: storage,
@@ -88,9 +87,9 @@ describe('createAuth', () => {
         false,
         null,
         undefined,
-        authPassword({
+        password({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
         }),
       ],
       stores: storage,
@@ -103,13 +102,13 @@ describe('createAuth', () => {
     const auth = createAuth<Profile>({
       baseUrl: 'http://x',
       providers: [
-        authPassword({
+        password({
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new AuthScryptHasher({ N: 1 << 10 }) } as never,
+          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
         }),
         authMagicLink({
           autoCreateIdentity: true,
-          autoCreateProfile: (email) => ({ email }),
+          autoCreateProfile: (email) => ({ username: email, email }),
           callbackPath: '/AUTH/magic-link/callback',
           channels: { email: new AuthConsoleChannel() },
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
@@ -126,7 +125,7 @@ describe('createAuth', () => {
           redirectUri: 'http://x/AUTH/providers/authGithub/callback',
           stateSigningSecret: 'state-secret',
         }),
-        authPasskey({
+        passkey({
           expectedOrigins: 'http://x',
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
           rpID: 'localhost',

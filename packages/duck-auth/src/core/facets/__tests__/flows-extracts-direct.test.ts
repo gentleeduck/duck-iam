@@ -9,6 +9,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
@@ -22,8 +23,7 @@ import { completePasswordReset, requestPasswordReset } from '../flows/password-r
 import { linkProvider, unlinkProvider } from '../flows/provider-link'
 import { advanceSignUp, beginSignUp, completeSignUp, getSignUpFlow } from '../flows/signup'
 
-interface MyProfile {
-  email: string
+interface MyProfile extends Identity.ProfileMetadataBase {
   emailVerified?: boolean
 }
 
@@ -170,7 +170,7 @@ describe('flows/impersonate.ts - direct exports', () => {
   })
 
   it('impersonate rejects self-target (same identityId)', async () => {
-    const ident = await auth.identities.create({ profile: { email: 'op@x.com' } })
+    const ident = await auth.identities.create({ profile: { username: 'op@x.com', email: 'op@x.com' } })
     const created = await auth.sessions.create({
       identityId: ident.id,
       kind: 'user',
@@ -199,7 +199,7 @@ describe('flows/impersonate.ts - direct exports', () => {
   })
 
   it('releaseImpersonation rejects a non-impersonation sid', async () => {
-    const ident = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const ident = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     const created = await auth.sessions.create({
       identityId: ident.id,
       kind: 'user',
@@ -224,7 +224,7 @@ describe('flows/provider-link.ts - direct exports', () => {
   })
 
   it('linkProvider attaches a provider link to an existing identity', async () => {
-    const ident = await auth.identities.create({ profile: { email: 'b@x.com' } })
+    const ident = await auth.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
     const out = await linkProvider(auth.flows.deps, {
       identityId: ident.id,
       providerId: 'authGithub',
@@ -243,7 +243,7 @@ describe('flows/provider-link.ts - direct exports', () => {
   })
 
   it('unlinkProvider lockout guard refuses to leave identity with no factors', async () => {
-    const ident = await auth.identities.create({ profile: { email: 'c@x.com' } })
+    const ident = await auth.identities.create({ profile: { username: 'c@x.com', email: 'c@x.com' } })
     await linkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub', providerSub: 'gh-1' })
     await expect(
       unlinkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub' }),
@@ -253,7 +253,7 @@ describe('flows/provider-link.ts - direct exports', () => {
   })
 
   it('unlinkProvider allows lockout when allowLockout: true', async () => {
-    const ident = await auth.identities.create({ profile: { email: 'd@x.com' } })
+    const ident = await auth.identities.create({ profile: { username: 'd@x.com', email: 'd@x.com' } })
     await linkProvider(auth.flows.deps, { identityId: ident.id, providerId: 'authGithub', providerSub: 'gh-2' })
     const out = await unlinkProvider(auth.flows.deps, {
       identityId: ident.id,
