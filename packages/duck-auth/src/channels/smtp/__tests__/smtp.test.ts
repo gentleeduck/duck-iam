@@ -2,15 +2,19 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Identity } from '../../../core/types/identity'
 import { AuthSmtpChannel } from '../index'
 
-function makeIdentity(email: string | undefined): Identity.Me<unknown> {
+function makeIdentity(email: string | undefined): Identity.Me {
   return {
     id: 'ident-1',
-    profile: email ? { email } : undefined,
+    tenantId: null,
+    // Empty email string models the "no deliverable address" case; the channel
+    // reads it via getProfileString, which treats '' as absent (returns ok:false).
+    profile: { username: 'u', email: email ?? '' },
     providers: [],
     emailVerified: false,
     version: 1,
     createdAt: new Date(0),
     updatedAt: new Date(0),
+    deletedAt: null,
   }
 }
 

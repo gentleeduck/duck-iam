@@ -2,15 +2,19 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Identity } from '../../../core/types/identity'
 import { AuthTwilioChannel } from '../index'
 
-function makeIdentity(phone: string | undefined): Identity.Me<unknown> {
+function makeIdentity(phone: string | undefined): Identity.Me {
   return {
     id: 'ident-1',
-    profile: phone ? { phone } : undefined,
+    tenantId: null,
+    // Phone omitted models the "no SMS number" case; the channel reads it via
+    // getProfileString, which treats absent as undeliverable (returns ok:false).
+    profile: phone ? { username: 'u', email: 'u@x.com', phone } : { username: 'u', email: 'u@x.com' },
     providers: [],
     emailVerified: false,
     version: 1,
     createdAt: new Date(0),
     updatedAt: new Date(0),
+    deletedAt: null,
   }
 }
 

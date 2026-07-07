@@ -30,7 +30,7 @@ export namespace AuthConsoleChannel {
  * `providerMessageId` of the form `console:<nanos>:<random>` for
  * diagnostics-friendly correlation in tests.
  */
-export class AuthConsoleChannel implements Channel.IChannel {
+export class AuthConsoleChannel implements Channel.Channel {
   readonly kind: Channel.Kind
   readonly id: string
   private readonly _sink: AuthConsoleChannel.ISink
@@ -69,7 +69,7 @@ export class AuthConsoleChannel implements Channel.IChannel {
  * tenants on a free plan where the magic-link / verification email is
  * gated to the in-product inbox only.
  */
-export class AuthNoopChannel implements Channel.IChannel {
+export class AuthNoopChannel implements Channel.Channel {
   readonly kind: Channel.Kind
   readonly id: string
 
@@ -95,7 +95,7 @@ export namespace AuthNoopChannel {
  * Captures every send into an in-memory array. The intended consumer is
  * `vitest`; production code must not use this channel.
  */
-export class AuthTestChannel implements Channel.IChannel {
+export class AuthTestChannel implements Channel.Channel {
   readonly kind: Channel.Kind
   readonly id: string
   readonly outbox: AuthTestChannel.IOutboxEntry[] = []

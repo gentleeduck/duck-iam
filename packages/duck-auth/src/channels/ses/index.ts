@@ -53,7 +53,7 @@ async function loadSendEmailCommand(): Promise<new (input: unknown) => { input: 
  * `identity.profile.email`; returns ok:false on any SES error.
  */
 export class AuthSesChannel<TClient extends AuthSesChannel.IClient = AuthSesChannel.IClient>
-  implements Channel.IChannel
+  implements Channel.Channel
 {
   readonly kind: Channel.Kind = 'email'
   readonly id: string

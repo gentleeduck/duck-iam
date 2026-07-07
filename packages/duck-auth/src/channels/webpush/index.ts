@@ -72,7 +72,7 @@ async function loadWebPush(override?: AuthWebPushChannel.IModule): Promise<AuthW
  * Web Push channel. Reads `pushSubscription` from the identity
  * profile; returns ok:false on any error.
  */
-export class AuthWebPushChannel implements Channel.IChannel {
+export class AuthWebPushChannel implements Channel.Channel {
   readonly kind: Channel.Kind = 'webpush'
   readonly id: string
   private readonly _cfg: AuthWebPushChannel.IConfig

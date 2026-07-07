@@ -67,7 +67,7 @@ async function loadTwilio(): Promise<(sid: string, token: string) => AuthTwilioC
  * Twilio SMS channel. Reads recipient phone from
  * `identity.profile.phone`; returns ok:false on any Twilio error.
  */
-export class AuthTwilioChannel implements Channel.IChannel {
+export class AuthTwilioChannel implements Channel.Channel {
   readonly kind: Channel.Kind = 'sms'
   readonly id: string
   private readonly _from: string | undefined

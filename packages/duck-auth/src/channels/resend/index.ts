@@ -69,7 +69,7 @@ async function loadResend(): Promise<{ Resend: new (key: string) => AuthResendCh
  * recipient email from `input.identity.profile.email`; returns
  * ok:false (never throws) on any Resend error.
  */
-export class AuthResendChannel implements Channel.IChannel {
+export class AuthResendChannel implements Channel.Channel {
   readonly kind: Channel.Kind = 'email'
   readonly id: string
   private readonly _from: string

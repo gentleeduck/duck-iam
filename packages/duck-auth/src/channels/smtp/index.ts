@@ -57,7 +57,7 @@ export namespace AuthSmtpChannel {
  * AUTH/MISCONFIGURED when the identity has no email.
  */
 export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter = AuthSmtpChannel.ITransporter>
-  implements Channel.IChannel
+  implements Channel.Channel
 {
   readonly kind: Channel.Kind = 'email'
   readonly id: string
