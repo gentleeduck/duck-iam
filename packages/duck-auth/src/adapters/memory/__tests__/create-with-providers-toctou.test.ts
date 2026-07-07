@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '..'
+import { identityInput } from '../../../test/store-inputs'
 
 describe('MemoryAdapter.create - provider-sub uniqueness', () => {
   it('two concurrent creates with the same (providerId, sub): exactly one succeeds', async () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const link = { providerId: 'authGoogle', providerSub: 'sub-X', addedAt: new Date() }
     const results = await Promise.allSettled([
-      adapter.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [link] }, {}),
-      adapter.identities.create({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [link] }, {}),
+      adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [link] }), {}),
+      adapter.identities.create(identityInput({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [link] }), {}),
     ])
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
     const rejected = results.filter((r) => r.status === 'rejected')
@@ -28,7 +29,7 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const link = { providerId: 'authGithub', providerSub: 'race-sub', addedAt: new Date() }
     const calls = Array.from({ length: 15 }, (_, i) =>
-      adapter.identities.create({ profile: { email: `r-${i}@x.com`, username: `r-${i}` }, providers: [link] }, {}),
+      adapter.identities.create(identityInput({ profile: { email: `r-${i}@x.com`, username: `r-${i}` }, providers: [link] }), {}),
     )
     const results = await Promise.allSettled(calls)
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -38,28 +39,28 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
 
   it('create without providers (empty) is unaffected', async () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
-    const a = await adapter.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }, {})
-    const b = await adapter.identities.create({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [] }, {})
+    const a = await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }), {})
+    const b = await adapter.identities.create(identityInput({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [] }), {})
     expect(a.id).not.toBe(b.id)
   })
 
   it('create with provider link that has undefined sub (magic-link-style) is allowed', async () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const a = await adapter.identities.create(
-      {
+      identityInput({
         profile: { email: 'a@x.com', username: 'a@x.com' },
         providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
-      },
+      }),
       {},
     )
     // Second create with the same providerId (no sub) - should succeed
     // because the uniqueness invariant only applies when both sides
     // carry a sub.
     const b = await adapter.identities.create(
-      {
+      identityInput({
         profile: { email: 'b@x.com', username: 'b@x.com' },
         providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
-      },
+      }),
       {},
     )
     expect(a.id).not.toBe(b.id)
@@ -69,9 +70,9 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const link = { providerId: 'authGoogle', providerSub: 'race-X', addedAt: new Date() }
     await Promise.allSettled([
-      adapter.identities.create({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [link] }, {}),
-      adapter.identities.create({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [link] }, {}),
-      adapter.identities.create({ profile: { email: 'c@x.com', username: 'c@x.com' }, providers: [link] }, {}),
+      adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [link] }), {}),
+      adapter.identities.create(identityInput({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [link] }), {}),
+      adapter.identities.create(identityInput({ profile: { email: 'c@x.com', username: 'c@x.com' }, providers: [link] }), {}),
     ])
     const found = await adapter.identities.findByProviderSub('authGoogle', 'race-X', {})
     expect(found).not.toBeNull()

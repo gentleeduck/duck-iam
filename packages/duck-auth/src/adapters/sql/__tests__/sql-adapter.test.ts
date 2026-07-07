@@ -3,6 +3,7 @@ import type { Credential, Identity } from '../../../core/types/identity'
 import type { Session } from '../../../core/types/session'
 import { createSqlStores } from '../index'
 import type { SqlBridge } from '../sql.types'
+import { credentialInput, identityInput, sessionInput } from '../../../test/store-inputs'
 
 type ProfileShape = {
   username: string
@@ -179,7 +180,7 @@ describe('authCreateSqlStores', () => {
 
   it('identities.create -> findById round-trips the profile JSON encoded', async () => {
     const ident = await stores.identities.create(
-      { profile: { username: 'a@b.com', email: 'a@b.com', name: 'A' }, providers: [] },
+      identityInput({ profile: { username: 'a@b.com', email: 'a@b.com', name: 'A' }, providers: [] }),
       {},
     )
     expect(ident.id).toBeTruthy()
@@ -189,14 +190,14 @@ describe('authCreateSqlStores', () => {
   })
 
   it('identities.findByEmail decodes the JSON profile', async () => {
-    await stores.identities.create({ profile: { username: 'x@y.com', email: 'x@y.com' }, providers: [] }, {})
+    await stores.identities.create(identityInput({ profile: { username: 'x@y.com', email: 'x@y.com' }, providers: [] }), {})
     const found = await stores.identities.findByEmail('x@y.com', {})
     expect(found?.profile?.email).toBe('x@y.com')
   })
 
   it('identities.update bumps version + rejects stale writes', async () => {
     const ident = await stores.identities.create(
-      { profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] },
+      identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
       {},
     )
     const v2 = await stores.identities.update(ident.id, { profile: { username: 'b@b.com', email: 'b@b.com' } }, 1, {})
@@ -211,11 +212,11 @@ describe('authCreateSqlStores', () => {
 
   it('credentials.upsert + findByHashedSecret round-trips secret + metadata', async () => {
     const ident = await stores.identities.create(
-      { profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] },
+      identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
       {},
     )
     await stores.credentials.upsert(
-      { identityId: ident.id, kind: 'password', secret: 'hash:xyz', metadata: { strength: 0.9 } },
+      credentialInput({ identityId: ident.id, kind: 'password', secret: 'hash:xyz', metadata: { strength: 0.9 } }),
       {},
     )
     const found = await stores.credentials.findByHashedSecret('hash:xyz', 'password', {})
@@ -225,10 +226,10 @@ describe('authCreateSqlStores', () => {
 
   it('credentials.rotate bumps version', async () => {
     const ident = await stores.identities.create(
-      { profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] },
+      identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
       {},
     )
-    const cred = await stores.credentials.upsert({ identityId: ident.id, kind: 'password', secret: 's1' }, {})
+    const cred = await stores.credentials.upsert(credentialInput({ identityId: ident.id, kind: 'password', secret: 's1' }), {})
     const rotated = await stores.credentials.rotate(cred.id, 's2', cred.version, {})
     expect(rotated.secret).toBe('s2')
     expect(rotated.version).toBe(cred.version + 1)
@@ -236,7 +237,7 @@ describe('authCreateSqlStores', () => {
 
   it('sessions.create -> getByHash round-trips factors + actingAs JSON', async () => {
     const now = Date.now()
-    await stores.sessions.create({
+    await stores.sessions.create(sessionInput({
       id: 'h1',
       identityId: 'i1',
       kind: 'user',
@@ -253,7 +254,7 @@ describe('authCreateSqlStores', () => {
         reason: 'support',
         expiresAt: new Date(now + 3600_000),
       },
-    })
+    }))
     const fetched = await stores.sessions.getByHash('h1')
     expect(fetched?.aal).toBe(2)
     expect(fetched?.factors[0]!.method).toBe('password')
@@ -263,7 +264,7 @@ describe('authCreateSqlStores', () => {
 
   it('sessions.gc reports deleted count of expired rows', async () => {
     const now = Date.now()
-    await stores.sessions.create({
+    await stores.sessions.create(sessionInput({
       id: 'h1',
       identityId: 'i1',
       kind: 'user',
@@ -274,8 +275,8 @@ describe('authCreateSqlStores', () => {
       expiresAt: new Date(now - 5_000),
       absoluteExpiresAt: new Date(now - 5_000),
       fresh: false,
-    })
-    await stores.sessions.create({
+    }))
+    await stores.sessions.create(sessionInput({
       id: 'h2',
       identityId: 'i1',
       kind: 'user',
@@ -286,7 +287,7 @@ describe('authCreateSqlStores', () => {
       expiresAt: new Date(now + 60_000),
       absoluteExpiresAt: new Date(now + 60_000),
       fresh: true,
-    })
+    }))
     const result = await stores.sessions.gc(now)
     expect(result.deleted).toBe(1)
   })
