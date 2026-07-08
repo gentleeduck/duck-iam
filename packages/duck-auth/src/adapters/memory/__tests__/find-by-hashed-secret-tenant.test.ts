@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '..'
 import { credentialInput, identityInput } from '../../../test/store-inputs'
+import { MemoryAdapter } from '..'
 
 describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapter', () => {
   it('returns null when ctx.tenantId mismatches the row tenantId', async () => {
@@ -41,7 +41,10 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
       identityInput({ profile: { email: 'global@x.com', username: 'global@x.com' }, providers: [] }),
       {},
     )
-    await adapter.credentials.upsert(credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-3' }), {})
+    await adapter.credentials.upsert(
+      credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-3' }),
+      {},
+    )
     const fromTenantA = await adapter.credentials.findByHashedSecret('hash-secret-3', 'api-key', {
       tenantId: 'tenant-A',
     })
@@ -89,7 +92,10 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
       identityInput({ profile: { email: 'r@x.com', username: 'r@x.com' }, providers: [] }),
       {},
     )
-    await adapter.credentials.upsert(credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-5' }), {})
+    await adapter.credentials.upsert(
+      credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-5' }),
+      {},
+    )
     const all = await adapter.credentials.listByIdentity(ident.id, 'api-key', {})
     const row = all[0]!
     ;(row as unknown as { revokedAt?: number }).revokedAt = 0

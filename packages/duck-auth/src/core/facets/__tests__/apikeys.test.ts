@@ -38,7 +38,7 @@ describe('ApiKeysFacet', () => {
     it('respects expiresAt + tenantId', async () => {
       const expiresAt = Date.now() + 1000
       const { key } = await facet.create('u', { name: 'k', scopes: [], expiresAt, tenantId: 'T' })
-      expect(key.expiresAt).toBe(expiresAt)
+      expect(key.expiresAt).toEqual(new Date(expiresAt))
     })
   })
 

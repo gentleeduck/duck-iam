@@ -249,7 +249,10 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store): v
 
     it('findByHashedSecret falls back to the revoked row when no live rows exist', async () => {
       const store = factory()
-      const c = await store.upsert(credentialInput({ identityId: 'u', kind: 'api-key', secret: 'hash-x', metadata: {} }), {})
+      const c = await store.upsert(
+        credentialInput({ identityId: 'u', kind: 'api-key', secret: 'hash-x', metadata: {} }),
+        {},
+      )
       await store.revoke(c.id, {})
       const got = await store.findByHashedSecret('hash-x', 'api-key', {})
       expect(got?.revokedAt).toBeTruthy()
@@ -257,7 +260,10 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store): v
 
     it('rotate with mismatched version surfaces AUTH/STALE_WRITE', async () => {
       const store = factory()
-      const c = await store.upsert(credentialInput({ identityId: 'u', kind: 'password', secret: 'h1', metadata: {} }), {})
+      const c = await store.upsert(
+        credentialInput({ identityId: 'u', kind: 'password', secret: 'h1', metadata: {} }),
+        {},
+      )
       await store.rotate(c.id, 'h2', c.version, {})
       await expect(store.rotate(c.id, 'h3', 1, {})).rejects.toMatchObject({ code: 'AUTH_STALE_WRITE' })
     })

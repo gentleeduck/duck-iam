@@ -288,6 +288,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
           }
           return { sub: info.sub, email: info.email, name: info.name }
         },
+        profileToIdentityProfile: (p) => ({ username: p.email ?? '', email: p.email ?? '' }),
       }),
     )
     return { auth, adapter }

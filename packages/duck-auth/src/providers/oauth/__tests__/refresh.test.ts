@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { sha256 } from '../../../core/crypto'
 import { InMemoryEvents } from '../../../core/events'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import type { OauthClient } from '../core/client'
 import { AuthoauthRefresh, authRefreshoauthToken, projectAccessToken } from '../core/refresh'
 
@@ -35,7 +35,10 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
   beforeEach(async () => {
     adapter = new MemoryAdapter<Profile>()
     events = new InMemoryEvents()
-    const i = await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
+    const i = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }),
+      {},
+    )
     identityId = i.id
   })
 

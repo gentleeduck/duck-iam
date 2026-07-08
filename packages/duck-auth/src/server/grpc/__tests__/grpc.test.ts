@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
 import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthJwtTransport } from '../../../core/transport/jwt'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { identityInput } from '../../../test/store-inputs'
 import { GRPC_STATUS, type GrpcAdapter, httpStatusToGrpc, withGrpc } from '../index'
 
 function makeMetadata(initial: Record<string, string> = {}): GrpcAdapter.Metadata {

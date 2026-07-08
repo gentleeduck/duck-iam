@@ -75,9 +75,9 @@ describe('IdentitiesFacet', () => {
     it('an at-cap profile passes through', async () => {
       const tight = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
         softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
-        profileMaxBytes: 32,
+        profileMaxBytes: 48,
       })
-      // `{"email":"a@x.com"}` is 19 bytes - well within 32.
+      // `{"username":"a@x.com","email":"a@x.com"}` is 40 bytes - within 48.
       const i = await tight.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
       expect(i.profile?.email).toBe('a@x.com')
     })

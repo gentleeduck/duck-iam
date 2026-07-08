@@ -46,6 +46,7 @@ function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.Channel } = {
       channels: { email: channel },
       findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
       autoCreateIdentity: opts.autoCreate ?? false,
+      autoCreateProfile: (email) => ({ username: email, email }),
       ttlMs: 1_000,
     }),
   )

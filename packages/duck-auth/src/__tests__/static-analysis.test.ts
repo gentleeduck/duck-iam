@@ -140,7 +140,7 @@ describe('oauth / OIDC state nonces are crypto-random', () => {
     const opFile = ALL_FILES.find((f) => f.path === 'oidc/op/index.ts')
     expect(opFile).toBeDefined()
     if (!opFile) return
-    expect(opFile.contents).toContain('authRandomToken(')
+    expect(opFile.contents).toContain('randomToken(')
     expect(opFile.contents).not.toMatch(/code\s*=\s*Date\.now/)
     expect(opFile.contents).not.toMatch(/code\s*=\s*Math\.random/)
   })

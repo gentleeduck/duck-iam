@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { AuthEngine } from '../../../core/engine'
@@ -7,6 +6,7 @@ import { ScryptHasher } from '../../../core/password/scrypt'
 import { CookieTransport } from '../../../core/transport/cookie'
 import type { Channel } from '../../../core/types/infra'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { authMagicLink } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
@@ -73,7 +73,10 @@ describe('magic-link.begin - timing-defense', () => {
   it('no-identity branch also returns fast - both branches have similar wall-clock time', async () => {
     const channel = makeSlowChannel(200)
     const { auth, adapter } = buildAuth(channel)
-    await adapter.identities.create(identityInput({ profile: { email: 'existing@x.com', username: 'e' }, providers: [] }), {})
+    await adapter.identities.create(
+      identityInput({ profile: { email: 'existing@x.com', username: 'e' }, providers: [] }),
+      {},
+    )
 
     // Measure both branches.
     const existsStart = performance.now()

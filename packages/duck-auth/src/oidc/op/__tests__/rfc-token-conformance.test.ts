@@ -1,8 +1,8 @@
 /**
  * RFC 6749 §5.1 (Successful Response) + RFC 6749 §5.2 (Error Response)
  * + OIDC Core §3.1.3.3 (Token Endpoint Response) conformance for the
- * /token endpoint output.
  *
+ * /token endpoint output.
  * Mainstream OIDC client libs (openid-client, oidc-client-ts, MSAL) all
  * parse this shape. Drift = silent client-side rejection.
  */
@@ -10,26 +10,25 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { Identity } from '../../../core'
 import { sha256 } from '../../../core/crypto'
 import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { type AuthOidcOpRoot, authCreateOidcOP } from '../index'
+import { ScryptHasher } from '../../../core/password/scrypt'
+import { CookieTransport } from '../../../core/transport/cookie'
+import { createOidcOP, type OidcOpRoot } from '../index'
 
-interface ProfileShape {
-  email: string
-}
+interface ProfileShape extends Identity.ProfileMetadataBase {}
 
-function buildOp(): { op: AuthOidcOpRoot<ProfileShape>; auth: AuthEngine<ProfileShape> } {
+function buildOp(): { op: OidcOpRoot<ProfileShape>; auth: AuthEngine<ProfileShape> } {
   const adapter = new MemoryAdapter<ProfileShape>()
   const auth = new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
-    transport: new AuthCookieTransport({ name: 'duck-sid' }),
-    passwords: { hasher: new AuthScryptHasher() },
+    transport: new CookieTransport({ name: 'duck-sid' }),
+    passwords: { hasher: new ScryptHasher() },
   })
   const secret = 'dev-hmac-secret'
-  const op = authCreateOidcOP<ProfileShape>({
+  const op = createOidcOP<ProfileShape>({
     auth,
     config: {
       issuer: 'http://localhost:8787/auth',
@@ -54,7 +53,7 @@ function pkce(): { verifier: string; challenge: string } {
 }
 
 async function mintTokens(
-  op: AuthOidcOpRoot<ProfileShape>,
+  op: OidcOpRoot<ProfileShape>,
   auth: AuthEngine<ProfileShape>,
   scope = 'openid offline_access',
 ) {
@@ -64,7 +63,7 @@ async function mintTokens(
     token_endpoint_auth_method: 'none',
     scope: scope.split(' '),
   })
-  const ident = await auth.identities.create({ profile: { email: 'u@x.com' } })
+  const ident = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
   const { verifier, challenge } = pkce()
   const completed = await op.completeConsent({
     client_id: 'spa',
@@ -94,7 +93,7 @@ async function mintTokens(
 }
 
 describe('RFC 6749 §5.1 - successful token response shape', () => {
-  let op: AuthOidcOpRoot<ProfileShape>
+  let op: OidcOpRoot<ProfileShape>
   let auth: AuthEngine<ProfileShape>
   beforeEach(() => {
     ;({ op, auth } = buildOp())
@@ -184,7 +183,7 @@ describe('RFC 6749 §5.1 - successful token response shape', () => {
 })
 
 describe('RFC 6749 §5.2 - error response shape', () => {
-  let op: AuthOidcOpRoot<ProfileShape>
+  let op: OidcOpRoot<ProfileShape>
   beforeEach(() => {
     ;({ op } = buildOp())
   })
@@ -221,7 +220,7 @@ describe('RFC 6749 §5.2 - error response shape', () => {
 })
 
 describe('RFC 6749 §3.1.2 - authorize redirect format', () => {
-  let op: AuthOidcOpRoot<ProfileShape>
+  let op: OidcOpRoot<ProfileShape>
   let auth: AuthEngine<ProfileShape>
   beforeEach(() => {
     ;({ op, auth } = buildOp())
@@ -234,7 +233,7 @@ describe('RFC 6749 §3.1.2 - authorize redirect format', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const ident = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const ident = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { challenge } = pkce()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -259,7 +258,7 @@ describe('RFC 6749 §3.1.2 - authorize redirect format', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const ident = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const ident = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { challenge } = pkce()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -288,7 +287,7 @@ describe('RFC 6749 §3.1.2 - authorize redirect format', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const ident = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const ident = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkce()
     const completed = await op.completeConsent({
       client_id: 'spa-a',
@@ -320,7 +319,7 @@ describe('RFC 6749 §3.1.2 - authorize redirect format', () => {
 })
 
 describe('RFC 7662 §2 - introspection response shape', () => {
-  let op: AuthOidcOpRoot<ProfileShape>
+  let op: OidcOpRoot<ProfileShape>
   let auth: AuthEngine<ProfileShape>
   beforeEach(() => {
     ;({ op, auth } = buildOp())

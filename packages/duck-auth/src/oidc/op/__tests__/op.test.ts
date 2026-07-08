@@ -1,19 +1,19 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { Identity } from '../../../core'
 import { sha256 } from '../../../core/crypto'
 import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { type AuthOidcOpRoot, authCreateOidcOP } from '../index'
-import type { AuthOidcOP } from '../types'
+import { ScryptHasher } from '../../../core/password/scrypt'
+import { CookieTransport } from '../../../core/transport/cookie'
+import { createOidcOP, type OidcOpRoot } from '../index'
+import type { OidcOP } from '../types'
 
-function isoauthError(v: AuthOidcOP.IoauthError | object): v is AuthOidcOP.IoauthError {
+function isoauthError(v: OidcOP.OauthError | object): v is OidcOP.OauthError {
   return 'error' in v && typeof v.error === 'string' && !('sub' in v)
 }
 
-interface ProfileShape {
-  email: string
+interface ProfileShape extends Identity.ProfileMetadataBase {
   name?: string
   email_verified?: boolean
 }
@@ -23,14 +23,14 @@ function buildAuth() {
   return new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
-    transport: new AuthCookieTransport({ name: 'duck-sid' }),
-    passwords: { hasher: new AuthScryptHasher() },
+    transport: new CookieTransport({ name: 'duck-sid' }),
+    passwords: { hasher: new ScryptHasher() },
   })
 }
 
-function buildOp(auth: ReturnType<typeof buildAuth>): AuthOidcOpRoot<ProfileShape> {
+function buildOp(auth: ReturnType<typeof buildAuth>): OidcOpRoot<ProfileShape> {
   const secret = 'dev-hmac-secret'
-  return authCreateOidcOP<ProfileShape>({
+  return createOidcOP<ProfileShape>({
     auth,
     config: {
       issuer: 'http://localhost:8787/auth',
@@ -336,7 +336,7 @@ describe('AuthOidcOpRoot.authorize gate', () => {
 
 describe('AuthOidcOpRoot end-to-end code flow', () => {
   let auth: ReturnType<typeof buildAuth>
-  let op: AuthOidcOpRoot<ProfileShape>
+  let op: OidcOpRoot<ProfileShape>
 
   beforeEach(() => {
     auth = buildAuth()
@@ -351,7 +351,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       scope: ['openid', 'profile', 'email', 'offline_access'],
     })
     const identity = await auth.identities.create({
-      profile: { email: 'u@x.com', name: 'Ursula', email_verified: true },
+      profile: { email: 'u@x.com', name: 'Ursula', email_verified: true, username: 'u' },
     })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
@@ -410,7 +410,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -446,7 +446,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -492,7 +492,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid', 'offline_access'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -568,7 +568,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -618,7 +618,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',

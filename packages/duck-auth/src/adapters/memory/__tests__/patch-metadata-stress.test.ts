@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../index'
 import { credentialInput } from '../../../test/store-inputs'
+import { MemoryAdapter } from '../index'
 
 describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
   it('100 concurrent disjoint patches all land', async () => {

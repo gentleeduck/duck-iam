@@ -4,7 +4,7 @@ import type { Limiter } from '../../core/types/infra'
  * Token-bucket memory limiter. Dev/test only; production uses Redis.
  * Per-key independent bucket; reset() empties one bucket.
  */
-export class AuthMemoryLimiter implements Limiter.ILimiter {
+export class AuthMemoryLimiter implements Limiter.Limiter {
   private readonly _max: number
   private readonly _windowMs: number
   private _buckets = new Map<string, { count: number; resetAt: number }>()
@@ -14,7 +14,7 @@ export class AuthMemoryLimiter implements Limiter.ILimiter {
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000
   }
 
-  async consume(key: string, weight = 1): Promise<Limiter.IResult> {
+  async consume(key: string, weight = 1): Promise<Limiter.Result> {
     const now = Date.now()
     if (typeof key !== 'string' || key.length === 0 || key.length > 1024) {
       // Refuse the consume - fail-closed (treat as if rate-limited) so

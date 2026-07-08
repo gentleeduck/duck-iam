@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { Credential, Identity } from '../../../core'
-import { createSqlStores, SqlBridge } from '../index'
 import { credentialInput, identityInput } from '../../../test/store-inputs'
+import { createSqlStores, SqlBridge } from '../index'
 
 /**
  * Bridge-level tenant filter parity tests for authCreateSqlStores.
@@ -133,10 +133,9 @@ describe('authCreateSqlStores.findByHashedSecret tenant filter parity', () => {
       identityInput({ profile: { email: 'i@x.com', username: 'i@x.com' }, providers: [] }),
       { tenantId: 'tenant-A' },
     )
-    await stores.credentials.upsert(
-      credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-5' }),
-      { tenantId: 'tenant-A' },
-    )
+    await stores.credentials.upsert(credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-5' }), {
+      tenantId: 'tenant-A',
+    })
     const fromTenantA = await stores.credentials.findByHashedSecret('hash-5', 'api-key', {
       tenantId: 'tenant-A',
     })
