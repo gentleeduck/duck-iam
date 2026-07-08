@@ -1,3 +1,4 @@
+import type { MfaFacet } from '~/providers/mfa/mfa.facet'
 import type { PasswordsFacet } from '~/providers/password/password.facet'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
@@ -8,7 +9,6 @@ import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../facets/flows'
 import { HijackFacet } from '../facets/hijack'
 import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from '../facets/idempotency'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../facets/identities'
-import { DEFAULT_MFA_CONFIG, MfaFacet } from '../facets/mfa'
 import { OperationsFacet } from '../facets/operations'
 import { OrgsFacet } from '../facets/orgs'
 import { ProvidersFacet } from '../facets/providers'
@@ -109,11 +109,6 @@ export class AuthEngine<
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
     this.providers = new ProvidersFacet<Profile>([])
-    this._mfa = new MfaFacet(config.stores.credentials, this.events, {
-      issuer: config.mfa?.issuer ?? DEFAULT_MFA_CONFIG.issuer,
-      backupCodeCount: config.mfa?.backupCodeCount ?? DEFAULT_MFA_CONFIG.backupCodeCount,
-      backupCodeLen: config.mfa?.backupCodeLen ?? DEFAULT_MFA_CONFIG.backupCodeLen,
-    })
     this._apiKeys = new ApiKeysFacet(
       config.stores.credentials,
       this.events,

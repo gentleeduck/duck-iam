@@ -38,12 +38,6 @@ export namespace Engine {
       /** SEC: max serialized (JSON UTF-8) profile size, in bytes. Default 16 KiB. Set to `0` to disable. */
       profileMaxBytes?: number
     }
-    mfa?: {
-      /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */
-      issuer?: string
-      backupCodeCount?: number
-      backupCodeLen?: number
-    }
     apiKeys?: {
       prefix?: string
       randomBytes?: number

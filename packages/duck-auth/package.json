@@ -202,6 +202,16 @@
         "default": "./dist/providers/password/index.cjs"
       }
     },
+    "./providers/mfa": {
+      "import": {
+        "types": "./dist/providers/mfa/index.d.ts",
+        "default": "./dist/providers/mfa/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/mfa/index.d.cts",
+        "default": "./dist/providers/mfa/index.cjs"
+      }
+    },
     "./providers/magic-link": {
       "import": {
         "types": "./dist/providers/magic-link/index.d.ts",

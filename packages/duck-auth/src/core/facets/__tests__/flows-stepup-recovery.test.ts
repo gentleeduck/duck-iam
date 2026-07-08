@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import { totpAt } from '~/core/mfa/totp'
 import { CookieTransport } from '~/core/transport/cookie'
 import type { Identity } from '~/core/types/identity'
 import type { Channel } from '~/core/types/infra'
 import { AuthMemoryLimiter } from '~/limiters/memory'
+import { mfaProvider } from '~/providers/mfa'
+import { totpAt } from '~/providers/mfa/mfa.totp'
 import { passwordProvider } from '~/providers/password'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
 
@@ -45,7 +46,7 @@ function buildAuth(): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: fastHasher })],
+    providers: [passwordProvider({ hasher: fastHasher }), mfaProvider()],
   })
   return { auth, adapter, channel }
 }

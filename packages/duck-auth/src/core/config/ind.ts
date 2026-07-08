@@ -4,6 +4,7 @@ import { integer, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 import { Pool } from 'pg'
 import { drizzlePgStorage } from '~/adapters/drizzle/pg'
 import { AuthMemoryLimiter } from '~/limiters/memory'
+import { mfaProvider } from '~/providers/mfa'
 import { passwordProvider } from '~/providers/password'
 import { Argon2idHasher } from '~/providers/password/hashers/argon2.hasher'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
@@ -141,10 +142,9 @@ export const auth = createAuth({
   limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
   // oauth: {},
   channels: {},
-  mfa: {},
   identities: {},
   hijack: {},
-  providers: [passwordProvider({ hasher: new ScryptHasher() })],
+  providers: [passwordProvider({ hasher: new ScryptHasher() }), mfaProvider()],
   plugins: [],
   strict: 'development',
   session: {},
@@ -163,10 +163,9 @@ const authAlt = new AuthEngine({
   },
   events: new InMemoryEvents(),
   limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-  mfa: {},
   identities: {},
   hijack: {},
-  providers: [passwordProvider({ hasher: new Argon2idHasher() })],
+  providers: [passwordProvider({ hasher: new Argon2idHasher() }), mfaProvider()],
   session: {},
   apiKeys: {},
   __tenantBrand: 'test',

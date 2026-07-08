@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { base32Decode, base32Encode, buildOtpAuthUri, generateSecret, TOTP_DEFAULTS, totpAt, verifyTotp } from '../totp'
+import {
+  base32Decode,
+  base32Encode,
+  buildOtpAuthUri,
+  generateSecret,
+  TOTP_DEFAULTS,
+  totpAt,
+  verifyTotp,
+} from '../mfa.totp'
 
 describe('base32', () => {
   it('roundtrip arbitrary bytes', () => {

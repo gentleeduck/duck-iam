@@ -21,6 +21,7 @@ export default createTsdownConfig({
     'channels/ses/index': 'src/channels/ses/index.ts',
     'limiters/memory/index': 'src/limiters/memory/index.ts',
     'providers/password/index': 'src/providers/password/index.ts',
+    'providers/mfa/index': 'src/providers/mfa/index.ts',
     'providers/magic-link/index': 'src/providers/magic-link/index.ts',
     'providers/oauth/google/index': 'src/providers/oauth/google/index.ts',
     'providers/oauth/github/index': 'src/providers/oauth/github/index.ts',

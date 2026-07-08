@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { totpAt } from '~/core/mfa/totp'
-import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
+import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
+import { MfaFacet } from '../mfa.facet'
+import { totpAt } from '../mfa.totp'
+import type { Mfa } from '../mfa.types'
 
 describe('MfaFacet - TOTP', () => {
   let adapter: MemoryAdapter
@@ -179,7 +181,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   let facet: MfaFacet
   let identityId: string
 
-  function makeMockWebauthn(): MfaFacet.WebauthnLibrary {
+  function makeMockWebauthn(): Mfa.WebauthnLibrary {
     return {
       generateRegistrationOptions: vi.fn(async () => ({
         challenge: 'reg-challenge',
@@ -204,7 +206,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     }
   }
 
-  function makeStore(): MfaFacet.WebauthnChallengeStore {
+  function makeStore(): Mfa.WebauthnChallengeStore {
     const store = new Map<string, { challenge: string; expiresAt: number }>()
     return {
       async put(key, challenge, ttlMs) {

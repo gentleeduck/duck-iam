@@ -1,115 +1,14 @@
+import { isProfileBooleanTrue, toCredentialUpsert } from '~/core/credential-utils'
+import { sha256, timingSafeEqual } from '~/core/crypto'
+import { AuthError } from '~/core/errors'
+import type { Credential } from '~/core/types/identity'
+import type { TenantContext } from '~/core/types/infra'
+import type { Events } from '~/core/types/provider'
+import type { Session } from '~/core/types/session'
 import type { PasskeyTypes } from '~/providers/passkey/types'
-import { isProfileBooleanTrue, toCredentialUpsert } from '../credential-utils'
-import { sha256, timingSafeEqual } from '../crypto'
-import { AuthError } from '../errors'
-import { buildOtpAuthUri, generateSecret, verifyTotp } from '../mfa/totp'
-import type { Credential } from '../types/identity'
-import type { TenantContext } from '../types/infra'
-import type { Events } from '../types/provider'
-import type { Session } from '../types/session'
-
-export namespace MfaFacet {
-  export type Config = {
-    /** Brand shown in TOTP authenticator app entries. */
-    issuer: string
-    /** How many backup codes to generate per enrollment. Default 10. */
-    backupCodeCount: number
-    /** Backup code length in characters. Default 10. */
-    backupCodeLen: number
-  }
-
-  export type TotpEnrollChallenge = {
-    secret: string
-    uri: string
-  }
-
-  /** Structural shape of the `@simplewebauthn/server` module we use. */
-  export type WebauthnLibrary = {
-    generateRegistrationOptions(input: unknown): Promise<PasskeyTypes.RegistrationOptions>
-    verifyRegistrationResponse(input: unknown): Promise<{
-      verified: boolean
-      registrationInfo?: {
-        credential: { id: string; publicKey: Uint8Array; counter?: number; transports?: string[] }
-      }
-    }>
-    generateAuthenticationOptions(input: unknown): Promise<PasskeyTypes.AuthenticationOptions>
-    verifyAuthenticationResponse(input: unknown): Promise<{
-      verified: boolean
-      authenticationInfo: { newCounter: number; credentialID: string; userVerified: boolean }
-    }>
-  }
-
-  /** Caller-supplied per-session challenge store. The passkey
-   * provider's `MemoryPasskeyChallengeStore` is the canonical impl. */
-  export type WebauthnChallengeStore = {
-    put(key: string, challenge: string, ttlMs: number): Promise<void>
-    take(key: string): Promise<string | null>
-  }
-
-  export type WebauthnMfaEnrollOpts = {
-    rpID: string
-    rpName: string
-    userName: string
-    expectedOrigins: string | string[]
-    challengeStore: WebauthnChallengeStore
-    /** Stable opaque key (typically the session id) tying enrollment ceremony pieces. */
-    challengeKey: string
-    challengeTtlMs?: number
-    userVerification?: 'required' | 'preferred' | 'discouraged'
-    attestation?: 'none' | 'direct' | 'indirect' | 'enterprise'
-    /** Algorithm allowlist; default `[-8, -7, -257]` (Ed25519 + ES256 + RS256). */
-    supportedAlgorithmIDs?: number[]
-    /** Override the library instance (tests). */
-    webauthnModule?: WebauthnLibrary
-  }
-
-  export type WebauthnMfaConfirmOpts = {
-    rpID: string
-    expectedOrigins: string | string[]
-    challengeStore: WebauthnChallengeStore
-    challengeKey: string
-    /** The browser's `RegistrationResponseJSON` from `navigator.credentials.create`. */
-    response: unknown
-    userVerification?: 'required' | 'preferred' | 'discouraged'
-    webauthnModule?: WebauthnLibrary
-  }
-
-  export type WebauthnMfaVerifyBeginOpts = {
-    rpID: string
-    challengeStore: WebauthnChallengeStore
-    challengeKey: string
-    challengeTtlMs?: number
-    userVerification?: 'required' | 'preferred' | 'discouraged'
-    webauthnModule?: WebauthnLibrary
-  }
-
-  export type WebauthnMfaVerifyOpts = {
-    rpID: string
-    expectedOrigins: string | string[]
-    challengeStore: WebauthnChallengeStore
-    challengeKey: string
-    /** The browser's `AuthenticationResponseJSON` from `navigator.credentials.get`. */
-    response: unknown
-    userVerification?: 'required' | 'preferred' | 'discouraged'
-    webauthnModule?: WebauthnLibrary
-  }
-
-  // Minimal metadata shapes read by MfaFacet — defined locally to avoid
-  // core → provider dependency direction.
-  export type TotpMetadata = {
-    confirmed?: boolean
-  }
-  export type PasskeyMetadata = {
-    deviceType?: string
-    backedUp?: boolean
-  }
-}
-
-export const DEFAULT_MFA_CONFIG: MfaFacet.Config = {
-  issuer: 'duck-auth',
-  backupCodeCount: 10,
-  backupCodeLen: 10,
-}
+import { DEFAULT_MFA_CONFIG } from './mfa.constants'
+import { buildOtpAuthUri, generateSecret, verifyTotp } from './mfa.totp'
+import type { Mfa } from './mfa.types'
 
 /**
  * MFA facet. v0.1 ships TOTP + backup codes. WebAuthn-as-MFA + SMS land
@@ -125,7 +24,7 @@ export class MfaFacet {
   constructor(
     private readonly _credentials: Credential.Store,
     private readonly _events: Events.IBus,
-    private readonly _cfg: MfaFacet.Config = DEFAULT_MFA_CONFIG,
+    private readonly _cfg: Mfa.Config = DEFAULT_MFA_CONFIG,
   ) {}
 
   // --- TOTP ---------------------------------------------------------------
@@ -139,7 +38,7 @@ export class MfaFacet {
     identityId: string,
     accountName: string,
     ctx: TenantContext = {},
-  ): Promise<MfaFacet.TotpEnrollChallenge> {
+  ): Promise<Mfa.TotpEnrollChallenge> {
     // Cap accountName so a multi-MB string cannot bloat the otpauth URI
     // (and therefore the QR-code SVG payload returned to the client).
     if (typeof accountName !== 'string' || accountName.length === 0 || accountName.length > 256) {
@@ -173,7 +72,7 @@ export class MfaFacet {
     ctx: TenantContext = {},
   ): Promise<{ ok: true; backupCodes: string[] } | { ok: false }> {
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
-    const row = rows.find((r) => (r.metadata as MfaFacet.TotpMetadata | undefined)?.confirmed === false)
+    const row = rows.find((r) => (r.metadata as Mfa.TotpMetadata | undefined)?.confirmed === false)
     if (!row) throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['totp'] })
     if (!verifyTotp(row.secret, code)) return { ok: false }
 
@@ -283,7 +182,7 @@ export class MfaFacet {
    * can verify it. */
   async beginWebauthnMfaEnrollment(
     identityId: string,
-    opts: MfaFacet.WebauthnMfaEnrollOpts,
+    opts: Mfa.WebauthnMfaEnrollOpts,
     ctx: TenantContext = {},
   ): Promise<PasskeyTypes.RegistrationOptions> {
     void ctx
@@ -307,7 +206,7 @@ export class MfaFacet {
   /** Confirm WebAuthn-MFA enrollment + persist the credential row. */
   async confirmWebauthnMfaEnrollment(
     identityId: string,
-    opts: MfaFacet.WebauthnMfaConfirmOpts,
+    opts: Mfa.WebauthnMfaConfirmOpts,
     ctx: TenantContext = {},
   ): Promise<{ credentialId: string }> {
     const challenge = await opts.challengeStore.take(`mfa-reg:${opts.challengeKey}`)
@@ -344,7 +243,7 @@ export class MfaFacet {
    * `navigator.credentials.get`. */
   async beginWebauthnMfaVerify(
     identityId: string,
-    opts: MfaFacet.WebauthnMfaVerifyBeginOpts,
+    opts: Mfa.WebauthnMfaVerifyBeginOpts,
     ctx: TenantContext = {},
   ): Promise<PasskeyTypes.AuthenticationOptions> {
     const webauthn = await loadWebAuthnMfa(opts.webauthnModule)
@@ -368,7 +267,7 @@ export class MfaFacet {
    * counter rollback, or unknown credential. Returns true on success. */
   async verifyWebauthnMfa(
     identityId: string,
-    opts: MfaFacet.WebauthnMfaVerifyOpts,
+    opts: Mfa.WebauthnMfaVerifyOpts,
     ctx: TenantContext = {},
   ): Promise<boolean> {
     const challenge = await opts.challengeStore.take(`mfa-auth:${opts.challengeKey}`)
@@ -451,7 +350,7 @@ export class MfaFacet {
     if (distinct.has('passkey')) {
       const passkeys = await this._credentials.listByIdentity(identityId, 'passkey', ctx)
       const hardwareBound = passkeys.some((c) => {
-        const m = c.metadata as MfaFacet.PasskeyMetadata | undefined
+        const m = c.metadata as Mfa.PasskeyMetadata | undefined
         return m?.deviceType === 'singleDevice' && m.backedUp === false
       })
       if (hardwareBound) return 3
@@ -495,11 +394,11 @@ function parseWebauthnMfaMetadata(raw: unknown): { publicKey: string; counter: n
  * Lazy load of `@simplewebauthn/server` for the WebAuthn-MFA path.
  * Apps that don't enroll WebAuthn-MFA pay zero peerDep cost.
  */
-async function loadWebAuthnMfa(override?: MfaFacet.WebauthnLibrary): Promise<MfaFacet.WebauthnLibrary> {
+async function loadWebAuthnMfa(override?: Mfa.WebauthnLibrary): Promise<Mfa.WebauthnLibrary> {
   if (override) return override
   try {
     const moduleName = '@simplewebauthn/server' as string
-    const mod = (await import(moduleName)) as MfaFacet.WebauthnLibrary
+    const mod = (await import(moduleName)) as Mfa.WebauthnLibrary
     return mod
   } catch {
     throw new AuthError('AUTH_MISCONFIGURED', {

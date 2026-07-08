@@ -39,7 +39,6 @@ export function createAuth<
     events: config.events,
     session: config.session,
     identities: config.identities,
-    mfa: config.mfa,
     apiKeys: config.apiKeys,
     hijack: config.hijack,
   }

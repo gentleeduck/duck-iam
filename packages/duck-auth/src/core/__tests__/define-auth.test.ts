@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { memoryStorage } from '~/adapters/memory'
 import { AuthConsoleChannel } from '~/channels/console'
 import { authMagicLink } from '~/providers/magic-link'
+import { mfaProvider } from '~/providers/mfa'
 import { authGithub } from '~/providers/oauth/github'
 import { authGoogle } from '~/providers/oauth/google'
 import { passkey } from '~/providers/passkey'
@@ -174,16 +175,29 @@ describe('createAuth', () => {
     ).not.toThrow()
   })
 
-  it('passes through session / mfa / apiKeys / hijack knobs', () => {
+  it('passes through session / apiKeys / hijack knobs', () => {
     const auth = createAuth({
       apiKeys: { prefix: 'demo-' },
       baseUrl: 'http://x',
-      mfa: { issuer: 'duck-demo' },
       session: { ttlMs: 60_000 },
       stores: memoryStorage<Profile>(),
     })
     expect(auth.config.session?.ttlMs).toBe(60_000)
-    expect(auth.config.mfa?.issuer).toBe('duck-demo')
     expect(auth.config.apiKeys?.prefix).toBe('demo-')
+  })
+
+  it('mfaProvider mounts auth.mfa; issuer flows into TOTP enrollment', async () => {
+    const auth = createAuth({
+      baseUrl: 'http://x',
+      providers: [mfaProvider({ issuer: 'duck-demo' })],
+      stores: memoryStorage<Profile>(),
+    })
+    const challenge = await auth.mfa.beginTotpEnrollment('user-1', 'a@x.com')
+    expect(challenge.uri).toContain('issuer=duck-demo')
+  })
+
+  it('accessing auth.mfa without the mfa provider throws', () => {
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+    expect(() => auth.mfa).toThrow(/AUTH_PROVIDER_NOT_REGISTERED|mfa/)
   })
 })

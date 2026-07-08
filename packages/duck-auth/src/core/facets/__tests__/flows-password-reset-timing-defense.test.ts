@@ -5,6 +5,7 @@ import { CookieTransport } from '~/core/transport/cookie'
 import type { Identity } from '~/core/types/identity'
 import type { Channel } from '~/core/types/infra'
 import { AuthMemoryLimiter } from '~/limiters/memory'
+import { mfaProvider } from '~/providers/mfa'
 import { passwordProvider } from '~/providers/password'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
 import { credentialInput, identityInput } from '~/test/store-inputs'
@@ -24,7 +25,7 @@ function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyPr
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
   })
   return { auth, adapter }
 }
