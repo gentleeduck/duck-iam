@@ -50,7 +50,7 @@ const OWNER_OVERRIDES: Record<string, string> = {
   'src/providers/oauth/google/index.ts': 'Googleoauth',
   'src/providers/oauth/core/refresh.ts': 'oauthRefresh',
   'src/providers/oauth/core/state.ts': 'oauthState',
-  'src/providers/oauth/core/provider.ts': 'oauthProvider',
+  'src/providers/oauth/core/provider.ts': 'oProvider',
   'src/providers/oauth/core/client.ts': 'oauthClient',
   'src/core/types/context.ts': 'TenantContext',
 }
