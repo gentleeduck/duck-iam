@@ -16,6 +16,12 @@ function fakeSession(overrides: Partial<Session.Me> = {}): Session.Me {
     expiresAt: new Date(now + 60_000),
     absoluteExpiresAt: new Date(now + 60_000),
     fresh: true,
+    tenantId: null,
+    csrfHash: null,
+    ip: null,
+    userAgent: null,
+    fingerprint: null,
+    actingAs: null,
     ...overrides,
   }
 }

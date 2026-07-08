@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { randomToken, sha256 } from '../../crypto'
 import { InMemoryEvents } from '../../events'
 import { ApiKeysFacet } from '../apikeys'

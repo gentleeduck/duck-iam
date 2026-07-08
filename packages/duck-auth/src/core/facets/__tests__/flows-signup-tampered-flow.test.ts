@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
-import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { sha256 } from '../../crypto'
 import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
+import type { Identity } from '../../types/identity'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {
   email: string
@@ -57,7 +57,10 @@ describe('flows signup - tampered flow metadata', () => {
     const built = build()
     auth = built.auth
     adapter = built.adapter
-    const ident = await adapter.identities.create(identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }), {})
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
+      {},
+    )
     identityId = ident.id
   })
 

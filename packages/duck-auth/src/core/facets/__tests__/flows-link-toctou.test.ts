@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
-import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
+import type { Identity } from '../../types/identity'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {
   email: string
@@ -78,7 +78,7 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
     // Spawn 10 distinct identities, all racing to link the same sub.
     const identities: string[] = []
     for (let i = 0; i < 10; i++) {
-      const ident = await auth.identities.create({ profile: { email: `r-${i}@x.com` } })
+      const ident = await auth.identities.create({ profile: { username: `r-${i}@x.com`, email: `r-${i}@x.com` } })
       identities.push(ident.id)
     }
     const calls = identities.map((id) =>

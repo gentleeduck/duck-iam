@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { identityInput } from '../../../test/store-inputs'
 import { sha256 } from '../../crypto'
 import { InMemoryEvents } from '../../events'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions'
@@ -218,10 +219,13 @@ describe('resolveBySid()', () => {
   })
 
   it('returns (session, identity) for a live SID with linked identity', async () => {
-    const adapter = new MemoryAdapter<{ email: string }>()
+    const adapter = new MemoryAdapter()
     const events = new InMemoryEvents()
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
-    const identity = await adapter.identities.create({ profile: { email: 'x@y.com' }, providers: [] }, {})
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { username: 'x@y.com', email: 'x@y.com' }, providers: [] }),
+      {},
+    )
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
     const resolved = await resolveBySid(sid, adapter.sessions, adapter.identities, {})
     expect(resolved?.session.identityId).toBe(identity.id)
@@ -242,7 +246,10 @@ describe('resolveBySid()', () => {
     const adapter = new MemoryAdapter()
     const events = new InMemoryEvents()
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
-    const identity = await adapter.identities.create({ providers: [] }, {})
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { username: 'u', email: 'u@x.com' }, providers: [] }),
+      {},
+    )
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
     await adapter.identities.erase(identity.id, {})
     await expect(resolveBySid(sid, adapter.sessions, adapter.identities, {})).rejects.toMatchObject({

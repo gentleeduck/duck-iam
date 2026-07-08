@@ -25,7 +25,7 @@ export function makeIdentity(over: Partial<Identity.Me> = {}): Identity.Me {
 
 /** Build a full {@link Session.Me} fixture; every field present, nullables default to `null`. */
 export function makeSession(over: Partial<Session.Me> = {}): Session.Me {
-  const now = new Date(0)
+  const now = new Date()
   return {
     id: 'sid-1',
     identityId: 'id-1',

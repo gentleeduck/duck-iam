@@ -16,8 +16,12 @@ function makeSession(overrides: Partial<Session.Me> = {}): Session.Me {
     expiresAt: new Date(now + 60_000),
     absoluteExpiresAt: new Date(now + 60_000),
     fresh: true,
+    tenantId: null,
+    csrfHash: null,
     ip: '203.0.113.1',
     userAgent: 'Mozilla/5.0',
+    fingerprint: null,
+    actingAs: null,
     ...overrides,
   }
 }

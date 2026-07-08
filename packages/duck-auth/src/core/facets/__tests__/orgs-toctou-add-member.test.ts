@@ -94,8 +94,8 @@ describe('OrgsFacet.addMember - TOCTOU defense', () => {
   it('store-level guard fires even when called directly (bypassing the facet)', async () => {
     // Caller that uses the store directly (some apps do this for bulk
     // admin operations). The store must guard atomically too.
-    await adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [] }, {})
-    await expect(adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [] }, {})).rejects.toMatchObject({
+    await adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [], invitedAt: null, leftAt: null }, {})
+    await expect(adapter.orgs.addMember({ orgId: 'org-1', identityId: 'u', roles: [], invitedAt: null, leftAt: null }, {})).rejects.toMatchObject({
       code: 'AUTH_PROVIDER_FAILED',
       meta: { detail: 'identity already a member of this org' },
     })

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
-import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
+import type { Identity } from '../../types/identity'
 import type { Channel } from '../../types/infra'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
@@ -46,7 +46,10 @@ describe('flows.requestPasswordReset - timing-defense', () => {
   it('existing-email branch returns BEFORE channel.send resolves (fire-and-forget)', async () => {
     const channel = makeSlowChannel(200)
     const { auth, adapter } = buildAuth()
-    const ident = await adapter.identities.create(identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }), {})
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
+      {},
+    )
     const findIdentityByEmail = async (): Promise<{ id: string } | null> => ({ id: ident.id })
 
     const start = performance.now()
@@ -66,7 +69,10 @@ describe('flows.requestPasswordReset - timing-defense', () => {
   it('non-existing-email branch returns at the same wall-clock cost (within 50 ms)', async () => {
     const channel = makeSlowChannel(200)
     const { auth, adapter } = buildAuth()
-    const ident = await adapter.identities.create(identityInput({ profile: { username: 'existing@x.com', email: 'existing@x.com' }, providers: [] }), {})
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { username: 'existing@x.com', email: 'existing@x.com' }, providers: [] }),
+      {},
+    )
     const findIdentityByEmail = async (email: string): Promise<{ id: string } | null> =>
       email === 'existing@x.com' ? { id: ident.id } : null
 
@@ -98,7 +104,10 @@ describe('flows.requestPasswordReset - timing-defense', () => {
       },
     }
     const { auth, adapter } = buildAuth()
-    const ident = await adapter.identities.create(identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }), {})
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
+      {},
+    )
     const seen: string[] = []
     auth.events.on('signin.failed', (payload) => {
       seen.push(payload.reason)
@@ -127,7 +136,10 @@ describe('flows.requestPasswordReset - timing-defense', () => {
       },
     }
     const { auth, adapter } = buildAuth()
-    const ident = await adapter.identities.create(identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }), {})
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
+      {},
+    )
     const seen: string[] = []
     auth.events.on('signin.failed', (payload) => {
       seen.push(payload.reason)

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { totpAt } from '../../mfa/totp'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
+import type { Identity } from '../../types/identity'
 import type { Channel } from '../../types/infra'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
@@ -259,7 +259,7 @@ describe('FlowsFacet - password reset', () => {
     const creds = await adapter.credentials.listByIdentity(identity.id, 'recovery', {})
     const cred = creds[0]
     if (!cred) throw new Error('missing credential')
-    ;(cred as { expiresAt?: number }).expiresAt = Date.now() - 1
+    cred.expiresAt = new Date(Date.now() - 1)
     await expect(auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })).rejects.toMatchObject({
       code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
     })

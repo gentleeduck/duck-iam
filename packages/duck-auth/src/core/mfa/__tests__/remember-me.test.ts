@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { randomToken, sha256 } from '../../crypto'
 import { RememberMeFacet } from '../remember-me'
 
@@ -12,7 +12,10 @@ describe('AuthRememberMeFacet', () => {
   beforeEach(async () => {
     adapter = new MemoryAdapter()
     facet = new RememberMeFacet(adapter.credentials, { authRandomToken: randomToken, authSha256: sha256 })
-    const ident = await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }),
+      {},
+    )
     identityId = ident.id
   })
 

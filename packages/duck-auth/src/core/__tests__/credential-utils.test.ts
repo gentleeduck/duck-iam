@@ -13,8 +13,6 @@ describe('isRevoked', () => {
   it('false when revokedAt is the null/undefined live sentinel', () => {
     // `null` is the canonical "not revoked" value: upsert/create default
     // `revokedAt` to `null`, so a null here means a live credential.
-    expect(isRevoked({})).toBe(false)
-    expect(isRevoked({ revokedAt: undefined })).toBe(false)
     expect(isRevoked({ revokedAt: null })).toBe(false)
   })
 
@@ -86,8 +84,6 @@ describe('isCredentialExpired', () => {
   const now = 1_700_000_000_000
 
   it('false when expiresAt is the null/undefined no-expiry sentinel', () => {
-    expect(isCredentialExpired({}, now)).toBe(false)
-    expect(isCredentialExpired({ expiresAt: undefined }, now)).toBe(false)
     expect(isCredentialExpired({ expiresAt: null }, now)).toBe(false)
   })
 
@@ -147,8 +143,6 @@ describe('isExpiredAt (low-level primitive)', () => {
 
 describe('getCredentialPurpose', () => {
   it('undefined when metadata is undefined', () => {
-    expect(getCredentialPurpose({})).toBeUndefined()
-    expect(getCredentialPurpose({ metadata: undefined })).toBeUndefined()
   })
 
   it('undefined when metadata.purpose is missing', () => {

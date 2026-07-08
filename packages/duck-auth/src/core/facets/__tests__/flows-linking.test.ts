@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
-import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
+import type { Identity } from '../../types/identity'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
@@ -107,7 +107,10 @@ describe('FlowsFacet - account linking', () => {
       providerSub: 'authGoogle|111',
     })
     // Add a password credential so the lockout guard does not trip.
-    await adapter.credentials.upsert(credentialInput({ identityId: identityA, kind: 'password', secret: 'hashedXYZ' }), {})
+    await adapter.credentials.upsert(
+      credentialInput({ identityId: identityA, kind: 'password', secret: 'hashedXYZ' }),
+      {},
+    )
     await auth.flows.unlinkProvider({ identityId: identityA, providerId: 'authGoogle' })
     const ident = await adapter.identities.findById(identityA, {})
     expect(ident?.providers).toEqual([])

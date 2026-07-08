@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
+import type { Identity } from '../../types/identity'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
@@ -94,7 +94,9 @@ describe('FlowsFacet - callbackPath sanitization', () => {
     beforeEach(async () => {
       const built = build()
       auth = built.auth
-      const ident = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com', emailVerified: false } })
+      const ident = await auth.identities.create({
+        profile: { username: 'a@x.com', email: 'a@x.com', emailVerified: false },
+      })
       identityId = ident.id
       channel = new AuthTestChannel()
     })

@@ -26,6 +26,12 @@ function fakeSession(): Session.Me {
     identityId: 'user-1',
     kind: 'user',
     rotatedAt: new Date(now),
+    tenantId: null,
+    csrfHash: null,
+    ip: null,
+    userAgent: null,
+    fingerprint: null,
+    actingAs: null,
   }
 }
 

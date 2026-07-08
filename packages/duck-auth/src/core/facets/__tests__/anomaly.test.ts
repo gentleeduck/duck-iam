@@ -4,28 +4,11 @@ import { InMemoryEvents } from '../../events'
 import type { Identity } from '../../types/identity'
 import type { Anomaly } from '../../types/provider'
 import type { Session } from '../../types/session'
+import { makeIdentity, makeSession } from '../../../test/store-inputs'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
 
-const identity: Identity.Me = {
-  id: 'u',
-  providers: [],
-  emailVerified: false,
-  version: 1,
-  createdAt: new Date(0),
-  updatedAt: new Date(0),
-}
-const session: Session.Me = {
-  id: 'sid',
-  identityId: 'u',
-  kind: 'user',
-  aal: 1,
-  factors: [],
-  createdAt: new Date(0),
-  rotatedAt: new Date(0),
-  expiresAt: new Date(Date.now() + 60_000),
-  absoluteExpiresAt: new Date(Date.now() + 60_000),
-  fresh: true,
-}
+const identity = makeIdentity({ id: 'u' })
+const session = makeSession({ id: 'sid', identityId: 'u' })
 
 describe('AnomalyFacet', () => {
   let events: InMemoryEvents

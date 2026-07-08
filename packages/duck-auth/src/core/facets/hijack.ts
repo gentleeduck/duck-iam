@@ -57,7 +57,10 @@ export class HijackFacet {
    * Always emits `suspicious` on drift, even when the configured reaction
    * is 'ignore', so the audit pipeline sees every change.
    */
-  async evaluate(session: Session.Me, request: { ip?: string; userAgent?: string }): Promise<HijackFacet.Evaluation> {
+  async evaluate(
+    session: Session.Me,
+    request: { ip?: string | null; userAgent?: string | null },
+  ): Promise<HijackFacet.Evaluation> {
     // Evaluate IP + UA drift independently and return the strongest
     // reaction. One-sided absence (missing baseline or stripped header)
     // is downgraded to `'rotate'` so audit fires without forcing step-up.
