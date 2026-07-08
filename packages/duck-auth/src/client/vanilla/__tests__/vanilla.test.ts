@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { authCreateClient } from '../index'
+import { createAuthClient } from '../index'
 
 function mockFetch(handler: (path: string, init: RequestInit) => { status: number; body: unknown }) {
   return vi.fn(async (url: string, init: RequestInit = {}) => {
@@ -13,7 +13,7 @@ function mockFetch(handler: (path: string, init: RequestInit) => { status: numbe
   })
 }
 
-describe('authCreateClient', () => {
+describe('createAuthClient', () => {
   describe('signIn', () => {
     it('happy path: POSTs /signin then refreshes /session', async () => {
       const calls: string[] = []
@@ -27,7 +27,7 @@ describe('authCreateClient', () => {
           }
         return { status: 404, body: null }
       })
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
       const result = await client.signIn({ providerId: 'password', input: { email: 'a@x', password: 'x' } })
       expect(result.ok).toBe(true)
       if (!result.ok) throw new Error('expected ok')
@@ -41,7 +41,7 @@ describe('authCreateClient', () => {
           return { status: 401, body: { ok: false, error: { code: 'AUTH_INVALID_CREDENTIALS' } } }
         return { status: 200, body: { ok: true, code: 'AUTH_SESSION_OK', data: { session: null, identity: null } } }
       })
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
       const result = await client.signIn({ providerId: 'password', input: {} })
       expect(result.ok).toBe(false)
       if (result.ok) throw new Error('expected error')
@@ -52,7 +52,7 @@ describe('authCreateClient', () => {
   describe('signOut', () => {
     it('POSTs /signout and notifies observers with null state', async () => {
       const fetchImpl = mockFetch(() => ({ status: 200, body: { ok: true } }))
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never, notifyImmediately: false })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never, notifyImmediately: false })
       const onChange = vi.fn()
       client.onChange(onChange)
       await client.signOut()
@@ -66,7 +66,7 @@ describe('authCreateClient', () => {
         status: 200,
         body: { ok: true, code: 'AUTH_SESSION_OK', data: { session: { id: 's' }, identity: { id: 'i' } } },
       }))
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
       const r = await client.getSession()
       if (!r.ok) throw new Error('expected ok')
       expect(r.data.identity?.id).toBe('i')
@@ -81,7 +81,7 @@ describe('authCreateClient', () => {
         const body = init.body ? JSON.parse(init.body as string) : null
         return { status: 200, body: { ok: true, code: 'AUTH_BEGIN_OK', data: { echoed: body } } }
       })
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
       const r = await client.beginProvider('magic-link', { email: 'a@x.com' })
       expect(captured).toBe('/auth/providers/magic-link/begin')
       if (!r.ok) throw new Error('expected ok')
@@ -94,7 +94,7 @@ describe('authCreateClient', () => {
         captured = path
         return { status: 200, body: null }
       })
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
       await client.beginProvider('oauth:google')
       expect(captured).toBe('/auth/providers/oauth%3Agoogle/begin')
     })
@@ -103,7 +103,7 @@ describe('authCreateClient', () => {
   describe('onChange', () => {
     it('synchronously fires the handler on subscribe by default', () => {
       const fetchImpl = mockFetch(() => ({ status: 200, body: null }))
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
       const handler = vi.fn()
       client.onChange(handler)
       expect(handler).toHaveBeenCalledWith({ session: null, identity: null })
@@ -111,7 +111,7 @@ describe('authCreateClient', () => {
 
     it('handler errors are caught (do not break subsequent notifications)', async () => {
       const fetchImpl = mockFetch(() => ({ status: 200, body: { session: null, identity: null } }))
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never, notifyImmediately: false })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never, notifyImmediately: false })
       const goodHandler = vi.fn()
       client.onChange(() => {
         throw new Error('boom')
@@ -123,7 +123,7 @@ describe('authCreateClient', () => {
 
     it('unsubscribe stops further notifications', async () => {
       const fetchImpl = mockFetch(() => ({ status: 200, body: { session: null, identity: null } }))
-      const client = authCreateClient({ baseUrl: '/auth', fetch: fetchImpl as never, notifyImmediately: false })
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never, notifyImmediately: false })
       const handler = vi.fn()
       const unsubscribe = client.onChange(handler)
       unsubscribe()

@@ -42,7 +42,7 @@ describe('storybook authWithStorybook decorator', () => {
     expect(r.data.identity?.id).toBe('u3')
   })
 
-  it('authWithStorybook() returns a vnode wrapping AuthProvider', () => {
+  it('authWithStorybook() returns a vnode wrapping Provider', () => {
     const decorator = authWithStorybook({ status: 'guest' })
     const result = decorator(() => null) as { type: unknown; props: { client: unknown } }
     expect(result).toBeDefined()
@@ -51,14 +51,14 @@ describe('storybook authWithStorybook decorator', () => {
   })
 
   it('story-level parameters.auth merges over decorator defaults', async () => {
-    const decorator = authWithStorybook<{ email: string }>({ status: 'guest' })
+    const decorator = authWithStorybook<{ username: string; email: string }>({ status: 'guest' })
     const result = decorator(() => null, {
       parameters: {
         auth: {
           status: 'authed',
           identity: {
             id: 'override',
-            profile: { email: 'a@b.test' },
+            profile: { username: 'a@b.test', email: 'a@b.test' },
             providers: [],
             version: 1,
             createdAt: new Date(0),

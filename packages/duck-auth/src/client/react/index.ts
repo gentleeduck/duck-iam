@@ -5,11 +5,11 @@
  *
  * @example
  * ```tsx
- * import { AuthProvider, useSession, useSignIn } from '@gentleduck/AUTH/client/react'
+ * import { Provider, useSession, useSignIn } from '@gentleduck/AUTH/client/react'
  *
- * <AuthProvider baseUrl="/auth">
+ * <Provider baseUrl="/auth">
  *   <App />
- * </AuthProvider>
+ * </Provider>
  *
  * function SignIn() {
  *   const signIn = useSignIn()
@@ -29,8 +29,8 @@ export type { ReactClient } from './types'
 
 const AuthContext = createContext<ReactClient.ContextValue<Identity.ProfileMetadataBase> | null>(null)
 
-/** `AuthProvider`. */
-export function AuthProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+/** `Provider`. */
+export function Provider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   props: ReactClient.IProviderProps,
 ): ReturnType<typeof createElement> {
   const { children, client: externalClient, noInitialFetch, ...cfg } = props
@@ -74,7 +74,7 @@ function useAuthCtx<
 >(): ReactClient.ContextValue<Profile> {
   const ctx = useContext(AuthContext) as ReactClient.ContextValue<Profile> | null
   if (!ctx) {
-    throw new Error('[@gentleduck/AUTH/client/react] use* hooks must be used inside <AuthProvider>')
+    throw new Error('[@gentleduck/AUTH/client/react] use* hooks must be used inside <Provider>')
   }
   return ctx
 }

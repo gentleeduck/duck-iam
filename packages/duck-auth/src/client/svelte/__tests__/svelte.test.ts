@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { authCreateStore } from '../index'
+import { createAuthStore } from '../index'
 
 function mockFetch(handler: (path: string) => { status: number; body: unknown }) {
   return vi.fn(async (url: string) => {
@@ -13,14 +13,14 @@ function mockFetch(handler: (path: string) => { status: number; body: unknown })
   })
 }
 
-describe('authCreateStore (Svelte)', () => {
+describe('createAuthStore (Svelte)', () => {
   it('subscribes synchronously with the initial state, then updates on signIn', async () => {
     const fetchImpl = mockFetch((path) => {
       if (path === '/auth/signin') return { body: { ok: true }, status: 200 }
       if (path === '/auth/session') return { body: { identity: { id: 'i1' }, session: { id: 's1' } }, status: 200 }
       return { body: null, status: 404 }
     })
-    const store = authCreateStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
+    const store = createAuthStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
     const seen: string[] = []
     const unsub = store.state.subscribe((s) => seen.push(s.status))
     expect(seen[0]).toBe('guest')
@@ -35,7 +35,7 @@ describe('authCreateStore (Svelte)', () => {
         ? { body: { identity: { id: 'i2' }, session: { id: 's2' } }, status: 200 }
         : { body: null, status: 404 },
     )
-    const store = authCreateStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
+    const store = createAuthStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
     await store.refresh()
     let observed: string = ''
     store.state.subscribe((s) => {
@@ -46,7 +46,7 @@ describe('authCreateStore (Svelte)', () => {
 
   it('unsubscribe stops notifications', async () => {
     const fetchImpl = mockFetch(() => ({ body: { identity: null, session: null }, status: 200 }))
-    const store = authCreateStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
+    const store = createAuthStore({ baseUrl: '/auth', fetch: fetchImpl as never, noInitialFetch: true })
     let count = 0
     const off = store.state.subscribe(() => {
       count++

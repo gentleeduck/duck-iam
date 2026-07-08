@@ -1,6 +1,6 @@
 /**
  * Storybook decorator. Wraps each story in
- * `<AuthProvider>` with either a mock `VanillaClient.Client` or a
+ * `<Provider>` with either a mock `VanillaClient.Client` or a
  * real one pointed at a running backend. Mock is the default so
  * stories render without a server; opt in to live mode by passing
  * `live: true` (or a custom `baseUrl`).
@@ -26,8 +26,8 @@
 import { createElement, type JSX, type ReactNode } from 'react'
 import type { Identity } from '../../../core/types/identity'
 import type { Session } from '../../../core/types/session'
-import { authCreateClient, type VanillaClient } from '../../vanilla'
-import { AuthProvider } from '../index'
+import { createAuthClient, type VanillaClient } from '../../vanilla'
+import { Provider } from '../index'
 
 /** Default backend URL when a story opts into `live: true` without a custom `baseUrl`. */
 export const AUTH_DEFAULT_LIVE_BASE_URL = 'http://localhost:8787/auth'
@@ -71,7 +71,7 @@ export function authCreateMockClient<Profile extends Identity.ProfileMetadataBas
 }
 
 /**
- * Storybook decorator factory. Wraps the story in `<AuthProvider>`.
+ * Storybook decorator factory. Wraps the story in `<Provider>`.
  * By default builds a mock client from `defaults`; passing
  * `live: true` (top-level or via `parameters.auth.live`) swaps in
  * `authCreateClient({ baseUrl })` so the story hits a real backend
@@ -91,15 +91,15 @@ export function authWithStorybook<Profile extends Identity.ProfileMetadataBase =
     const live = state.live === true
     const baseUrl = state.baseUrl ?? AUTH_DEFAULT_LIVE_BASE_URL
     const client = live
-      ? authCreateClient<Profile>({
+      ? createAuthClient<Profile>({
           baseUrl,
           // Always include the session cookie + CSRF cookie on cross-origin
           // requests so Storybook at :6006 can speak to the backend at :8787.
-          fetch: (input, init) => fetch(input, { ...init, credentials: 'include' }),
+          fetch: (input: any, init: any) => fetch(input, { ...init, credentials: 'include' }),
         })
       : authCreateMockClient<Profile>(state)
     return createElement(
-      AuthProvider,
+      Provider,
       {
         baseUrl: live ? baseUrl : 'storybook://mock',
         client: client,

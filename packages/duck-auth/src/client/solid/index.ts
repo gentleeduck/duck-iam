@@ -9,8 +9,8 @@ export type { SolidClient } from './types'
 
 const AuthContext = createContext<SolidClient.Context<Identity.ProfileMetadataBase> | null>(null)
 
-/** `AuthProvider`. */
-export function AuthProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+/** `Provider`. */
+export function Provider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   props: SolidClient.IProviderProps<Profile>,
 ): JSX.Element {
   const client = props.client ?? createAuthClient(props)
@@ -46,7 +46,7 @@ function useAuthCtx<
 >(): SolidClient.Context<Profile> {
   const ctx = useContext(AuthContext) as SolidClient.Context<Profile> | null
   if (!ctx) {
-    throw new Error('[@gentleduck/AUTH/client/solid] use* hooks must be used inside <AuthProvider>')
+    throw new Error('[@gentleduck/AUTH/client/solid] use* hooks must be used inside <Provider>')
   }
   return ctx
 }

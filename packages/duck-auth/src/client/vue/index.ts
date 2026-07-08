@@ -1,7 +1,7 @@
 /** Vue 3 plugin + composables; `vue` is an OPTIONAL peerDep resolved lazily. Types live in `./types`. */
 import type { Identity } from '../../core'
 import type { Envelope } from '../../core/types/session'
-import { authCreateClient, type VanillaClient } from '../vanilla'
+import { createAuthClient, type VanillaClient } from '../vanilla'
 import type { VueClient } from './types'
 
 export type { VueClient } from './types'
@@ -14,7 +14,7 @@ export type { VueClient } from './types'
 export function createAuthVuePlugin<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   cfg: VueClient.IConfig<Profile> = {},
 ): VueClient.Plugin {
-  const client = cfg.client ?? authCreateClient<Profile>(cfg)
+  const client = cfg.client ?? createAuthClient<Profile>(cfg)
   return {
     install(app: VueClient.App): void {
       const vue = loadVueSync()
