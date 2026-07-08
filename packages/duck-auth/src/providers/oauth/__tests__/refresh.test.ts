@@ -4,8 +4,8 @@ import { Identity } from '~/core'
 import { sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { credentialInput, identityInput } from '~/test/store-inputs'
-import type { OauthClient } from '../core/client'
-import { AuthoauthRefresh, authRefreshoauthToken, projectAccessToken } from '../core/refresh'
+import type { OAuth } from '../core/oauth.types'
+import { authRefreshoauthToken, projectAccessToken } from '../core/refresh'
 
 interface Profile extends Identity.ProfileMetadataBase {}
 
@@ -26,7 +26,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
           familyId,
           generation: 1,
           accessToken: 'at-1',
-        } satisfies AuthoauthRefresh.IFamilyMetadata,
+        } satisfies OAuth.FamilyMetadata,
       }),
       {},
     )
@@ -45,7 +45,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
   it('happy path rotates the refresh token + bumps generation', async () => {
     await seedRefresh('rt-old')
     const exchange = vi.fn(
-      async (): Promise<OauthClient.TokenResponse> => ({
+      async (): Promise<OAuth.TokenResponse> => ({
         access_token: 'at-2',
         refresh_token: 'rt-new',
         token_type: 'Bearer',
@@ -66,7 +66,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
     // New row persists; old row is revoked.
     const newRow = await adapter.credentials.findByHashedSecret(sha256('rt-new'), 'oauth', {})
     expect(newRow).not.toBeNull()
-    expect((newRow?.metadata as AuthoauthRefresh.IFamilyMetadata).generation).toBe(2)
+    expect((newRow?.metadata as OAuth.FamilyMetadata).generation).toBe(2)
 
     const oldRow = await adapter.credentials.findByHashedSecret(sha256('rt-old'), 'oauth', {})
     expect(oldRow?.revokedAt).toBeTruthy()
@@ -75,7 +75,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
   it('replay of old refresh token surfaces AUTH/oauth/REUSE_DETECTED + emits suspicious + revokes family', async () => {
     await seedRefresh('rt-old')
     const exchange = vi.fn(
-      async (): Promise<OauthClient.TokenResponse> => ({
+      async (): Promise<OAuth.TokenResponse> => ({
         access_token: 'at-2',
         refresh_token: 'rt-new',
         token_type: 'Bearer',
@@ -144,7 +144,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
   it('IdP that does not rotate (no refresh_token in response) keeps the current row + updates access token', async () => {
     await seedRefresh('rt-stable')
     const exchange = vi.fn(
-      async (): Promise<OauthClient.TokenResponse> => ({
+      async (): Promise<OAuth.TokenResponse> => ({
         access_token: 'at-new',
         token_type: 'Bearer',
         expires_in: 60,
@@ -160,13 +160,13 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
     expect(r.tokens.access_token).toBe('at-new')
     // Old refresh token still resolves; access token updated.
     const row = await adapter.credentials.findByHashedSecret(sha256('rt-stable'), 'oauth', {})
-    expect((row?.metadata as AuthoauthRefresh.IFamilyMetadata).accessToken).toBe('at-new')
+    expect((row?.metadata as OAuth.FamilyMetadata).accessToken).toBe('at-new')
   })
 
   it('concurrent refreshes with the same token - only one wins, loser revokes family', async () => {
     await seedRefresh('rt-old')
     let exchangeCalls = 0
-    const slowExchange = async (): Promise<OauthClient.TokenResponse> => {
+    const slowExchange = async (): Promise<OAuth.TokenResponse> => {
       exchangeCalls++
       const which = exchangeCalls
       await new Promise((r) => setTimeout(r, 30))
@@ -224,7 +224,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
         generation: 1,
         accessToken: 'at',
         accessTokenExpiresAt: Date.now() - 1,
-      } satisfies AuthoauthRefresh.IFamilyMetadata,
+      } satisfies OAuth.FamilyMetadata,
       tenantId: null,
       expiresAt: null,
       revokedAt: null,
@@ -312,7 +312,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
         {},
       )
       const exchange = vi.fn(
-        async (): Promise<OauthClient.TokenResponse> => ({
+        async (): Promise<OAuth.TokenResponse> => ({
           access_token: 'at-x',
           token_type: 'Bearer',
         }),

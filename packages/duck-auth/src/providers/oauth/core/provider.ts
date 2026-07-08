@@ -3,129 +3,17 @@ import { toCredentialUpsert } from '~/core/credential-utils'
 import { sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Provider } from '~/core/types/provider'
-import type { OauthClient } from './client'
+import type { OAuth } from './oauth.types'
 import { generatePkce } from './pkce'
 import { authBuildState, authVerifyState, signState } from './state'
-
-export namespace AuthoProvider {
-  /**
-   * Canonical profile shape after a provider extracts it from
-   * userinfo / id_token / provider-specific endpoint. Providers
-   * (authGoogle, authGithub, ...) map their idiosyncratic field names to this
-   * shape.
-   */
-  export interface IProfile {
-    /** Stable subject identifier at the provider (OIDC `sub`). */
-    sub: string
-    email?: string
-    emailVerified?: boolean
-    name?: string
-    avatarUrl?: string
-  }
-
-  /**
-   * Shared option surface every provider-specific oauth options
-   * interface (Google / GitHub / Apple / Discord / ...) extends.
-   */
-  export interface IOptionsBase<Profile = unknown> {
-    /** oauth client id assigned by the IdP. */
-    clientId: string
-    /** Client secret. Confidential clients (server-side) only. */
-    clientSecret: string
-    /** Exact callback URL registered with the IdP. Must match. */
-    redirectUri: string
-    /** Per-AuthEngine signing secret for the oauth `state` parameter. */
-    stateSigningSecret: string
-    /** Override IdP scopes; falls back to provider default. */
-    scopes?: string[]
-    /** Override fetch impl (test stubs). */
-    fetch?: typeof globalThis.fetch
-    /** Customise identity resolution at signin time. */
-    onSignIn?: IOptions<Profile>['onSignIn']
-    /** Project canonical IProfile into the consumer's Profile shape. */
-    profileToIdentityProfile?: IOptions<Profile>['profileToIdentityProfile']
-  }
-
-  /** Full options surface consumed by `oProvider`. */
-  export interface IOptions<Profile = unknown> {
-    /** Stable id; library prefixes with `oauth:` for consistency. */
-    providerId: string
-    client: OauthClient
-    endpoints: OauthClient.Endpoints | (() => Promise<OauthClient.Endpoints>)
-    /** Redirect URI registered with the provider. */
-    redirectUri: string
-    /** Secret used to sign the oauth `state` parameter. */
-    stateSigningSecret: string
-    /** Extract a canonical profile from the token response + userinfo. */
-    fetchProfile: (tokens: { access_token: string; id_token?: string }, client: OauthClient) => Promise<IProfile>
-    /** Map IProfile -> consumer Profile shape on first sign-in. */
-    profileToIdentityProfile?: (p: IProfile) => Profile
-    /** Identity-resolution override; null return refuses sign-in. */
-    onSignIn?: (ctx: {
-      profile: IProfile
-      findByProviderSub: (providerSub: string) => Promise<{ id: string } | null>
-      findByEmail: (email: string) => Promise<{ id: string } | null>
-      createIdentity: (profile: Profile) => Promise<{ id: string }>
-      linkProvider: (identityId: string, providerSub: string) => Promise<void>
-    }) => Promise<{ identityId: string } | null>
-    /**
-     * Federation conflict policy. Fires when the
-     * oauth profile's email matches an existing identity but no
-     * matching provider-sub link exists yet. The default behaviour
-     * is `'reject'` - the safest pre-1.1 stance, because oauth
-     * providers that do NOT mark the email as verified would
-     * otherwise enable account-takeover via email squatting.
-     *
-     * - `'reject'`: throw `AUTH/PROVIDER_FAILED` with detail
-     *   `federation-conflict`.
-     * - `'link-if-verified'`: link the new provider IFF the oauth
-     *   profile's `email_verified` claim is true; otherwise reject.
-     * - `(ctx) => Promise<'link' | 'reject'>`: caller-supplied
-     *   hook for "merge-after-confirmation" - the app prompts the
-     *   user out-of-band and resolves with the verdict.
-     */
-    onFederationConflict?: AuthoProvider.IFederationPolicy
-  }
-
-  /** Policy + hook shape for the federation conflict workflow. */
-  export type IFederationPolicy =
-    | 'reject'
-    | 'link-if-verified'
-    | ((ctx: { existingIdentityId: string; profile: IProfile; providerId: string }) => Promise<'link' | 'reject'>)
-
-  /** Input to {@link oProvider}.begin. */
-  export interface IBeginInput {
-    /** Optional return-to path; library appends to the front-end after callback. */
-    returnTo?: string
-  }
-
-  /** Input to {@link oProvider}.complete. */
-  export interface ICompleteInput {
-    /** Authorisation code returned by the provider. */
-    code: string
-    /** Opaque state value the library issued at begin. */
-    state: string
-  }
-
-  /** Shape stored in `Credential.ICredential.metadata` for oauth credentials. */
-  export interface ICredentialMetadata {
-    provider: string
-    sub: string
-    familyId: string
-    generation: number
-    accessToken?: string
-    /** Epoch ms when the access token expires. */
-    accessTokenExpiresAt?: number
-  }
-}
 
 /**
  * Generic oauth provider. Specific provider modules (authGoogle, authGithub,
  * ...) pre-fill endpoints + scopes + fetchProfile and re-export.
  */
 export function oProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
-  opts: AuthoProvider.IOptions<Profile>,
-): Provider.Me<AuthoProvider.IBeginInput, AuthoProvider.ICompleteInput, Profile> {
+  opts: OAuth.Options<Profile>,
+): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   const fullProviderId = `oauth:${opts.providerId}`
   // Refuse a malformed `redirectUri` at construction so a misconfigured
   // value (e.g. `javascript:alert(1)`, an unparseable string, or one carrying
@@ -278,7 +166,7 @@ export function oProvider<Profile extends Identity.ProfileMetadataBase = Identit
               generation: 1,
               accessToken: tokens.access_token,
               accessTokenExpiresAt: tokens.expires_in !== undefined ? Date.now() + tokens.expires_in * 1000 : undefined,
-            } satisfies AuthoProvider.ICredentialMetadata,
+            } satisfies OAuth.CredentialMetadata,
           }),
           ctx.tenant,
         )
@@ -303,8 +191,8 @@ export function oProvider<Profile extends Identity.ProfileMetadataBase = Identit
  * `profile.emailVerified === true` AND an unambiguous email match).
  */
 async function resolveFederationConflict(
-  policy: AuthoProvider.IFederationPolicy,
-  ctx: { existingIdentityId: string; profile: AuthoProvider.IProfile; providerId: string },
+  policy: OAuth.FederationPolicy,
+  ctx: { existingIdentityId: string; profile: OAuth.Profile; providerId: string },
 ): Promise<'link' | 'reject'> {
   if (policy === 'reject') return 'reject'
   if (policy === 'link-if-verified') {

@@ -4,8 +4,8 @@ import { AuthConsoleChannel } from '~/channels/console'
 import { apiKeyProvider } from '~/providers/api-key'
 import { magicLink } from '~/providers/magic-link'
 import { mfaProvider } from '~/providers/mfa'
-import { authGithub } from '~/providers/oauth/github'
-import { authGoogle } from '~/providers/oauth/google'
+import { github } from '~/providers/oauth/github'
+import { google } from '~/providers/oauth/google'
 import { passkey } from '~/providers/passkey'
 import { password, passwordProvider } from '~/providers/password'
 import { Argon2idHasher } from '~/providers/password/hashers/argon2.hasher'
@@ -120,13 +120,13 @@ describe('createAuth', () => {
           channels: { email: new AuthConsoleChannel() },
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
         }),
-        authGoogle({
+        google({
           clientId: 'authGoogle-client',
           clientSecret: 'authGoogle-secret',
           redirectUri: 'http://x/AUTH/providers/authGoogle/callback',
           stateSigningSecret: 'state-secret',
         }),
-        authGithub({
+        github({
           clientId: 'authGithub-client',
           clientSecret: 'authGithub-secret',
           redirectUri: 'http://x/AUTH/providers/authGithub/callback',

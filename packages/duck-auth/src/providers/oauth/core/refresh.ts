@@ -4,29 +4,7 @@ import { AuthError } from '~/core/errors'
 import type { Credential } from '~/core/types/identity'
 import type { TenantContext } from '~/core/types/infra'
 import type { Events } from '~/core/types/provider'
-import type { OauthClient } from './client'
-
-export namespace AuthoauthRefresh {
-  /**
-   * Refresh-token family metadata. Persisted under `kind: 'oauth'`
-   * credentials by the oauth provider at signin; rotated atomically by
-   * {@link authRefreshoauthToken}. Reuse of an old refresh token causes a
-   * `AUTH/oauth/REUSE_DETECTED` throw + revocation of the whole token
-   * family.
-   */
-  export interface IFamilyMetadata {
-    provider: string
-    sub: string
-    familyId: string
-    generation: number
-    accessToken: string
-    accessTokenExpiresAt?: number
-    /** When set, family revoked; every member rejects on lookup. */
-    revokedAt?: number
-    /** Index signature for Credential.metadata assignment. */
-    [k: string]: unknown
-  }
-}
+import type { OAuth } from './oauth.types'
 
 /**
  * Stores the new refresh token + revokes the predecessor inside the
@@ -37,8 +15,8 @@ export async function authRefreshoauthToken(opts: {
   tenant: TenantContext
   credentials: Credential.Store
   events: Events.IBus
-  exchange: () => Promise<OauthClient.TokenResponse>
-}): Promise<{ tokens: OauthClient.TokenResponse; identityId: string; familyId: string }> {
+  exchange: () => Promise<OAuth.TokenResponse>
+}): Promise<{ tokens: OAuth.TokenResponse; identityId: string; familyId: string }> {
   const presentedHash = sha256(opts.presentedRefreshToken)
   const row = await opts.credentials.findByHashedSecret(presentedHash, 'oauth', opts.tenant)
   if (!row) {
@@ -91,7 +69,7 @@ export async function authRefreshoauthToken(opts: {
 
   const fresh = await opts.exchange()
   if (!fresh.refresh_token) {
-    const updated: AuthoauthRefresh.IFamilyMetadata = {
+    const updated: OAuth.FamilyMetadata = {
       ...meta,
       accessToken: fresh.access_token,
       accessTokenExpiresAt: fresh.expires_in !== undefined ? Date.now() + fresh.expires_in * 1000 : undefined,
@@ -109,7 +87,7 @@ export async function authRefreshoauthToken(opts: {
     return { tokens: fresh, identityId: row.identityId, familyId: meta.familyId }
   }
 
-  const newMeta: AuthoauthRefresh.IFamilyMetadata = {
+  const newMeta: OAuth.FamilyMetadata = {
     ...meta,
     generation: meta.generation + 1,
     accessToken: fresh.access_token,
@@ -159,7 +137,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Runtime validator for oauth refresh-token family metadata. */
-function parseFamilyMetadata(meta: unknown): AuthoauthRefresh.IFamilyMetadata | null {
+function parseFamilyMetadata(meta: unknown): OAuth.FamilyMetadata | null {
   if (!isPlainObject(meta)) return null
   const { provider, sub, familyId, generation, accessToken, accessTokenExpiresAt, revokedAt } = meta
   if (typeof provider !== 'string' || provider.length === 0) return null
@@ -176,7 +154,7 @@ function parseFamilyMetadata(meta: unknown): AuthoauthRefresh.IFamilyMetadata | 
   if (revokedAt !== undefined && (typeof revokedAt !== 'number' || !Number.isFinite(revokedAt))) {
     return null
   }
-  const parsed: AuthoauthRefresh.IFamilyMetadata = { provider, sub, familyId, generation, accessToken }
+  const parsed: OAuth.FamilyMetadata = { provider, sub, familyId, generation, accessToken }
   if (accessTokenExpiresAt !== undefined) parsed.accessTokenExpiresAt = accessTokenExpiresAt
   if (revokedAt !== undefined) parsed.revokedAt = revokedAt
   // Preserve any extra index-signature fields the operator wrote.

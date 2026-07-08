@@ -7,7 +7,7 @@ import { CookieTransport } from '~/core/transport/cookie'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { passwordProvider } from '~/providers/password'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
-import { OauthClient } from '../core/client'
+import { OAuthClient } from '../core/client'
 import { generatePkce } from '../core/pkce'
 import { oProvider } from '../core/provider'
 import { authBuildState, authVerifyState, signState } from '../core/state'
@@ -144,8 +144,8 @@ describe('oauth core - PKCE + state', () => {
 })
 
 describe('AuthoauthClient - SEC: token response validation', () => {
-  function clientWithResponse(body: unknown, status = 200): OauthClient {
-    return new OauthClient({
+  function clientWithResponse(body: unknown, status = 200): OAuthClient {
+    return new OAuthClient({
       clientId: 'cid',
       endpoints: {
         authorizationEndpoint: 'https://idp/authorize',
@@ -199,7 +199,7 @@ describe('AuthoauthClient - SEC: token response validation', () => {
   })
 
   it('exchangeCode rejects invalid JSON body', async () => {
-    const client = new OauthClient({
+    const client = new OAuthClient({
       clientId: 'cid',
       endpoints: { authorizationEndpoint: 'https://idp/a', tokenEndpoint: 'https://idp/t' },
       scopes: ['openid'],
@@ -218,7 +218,7 @@ describe('AuthoauthClient - SEC: token response validation', () => {
 
 describe('AuthoauthClient.buildAuthorizeUrl', () => {
   it('emits the RFC 6749 authorization URL with PKCE + state', async () => {
-    const client = new OauthClient({
+    const client = new OAuthClient({
       clientId: 'cid',
       endpoints: {
         authorizationEndpoint: 'https://idp.example.com/authorize',
@@ -258,7 +258,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
       providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
     })
 
-    const client = new OauthClient({
+    const client = new OAuthClient({
       clientId: 'cid',
       clientSecret: 'csec',
       endpoints: {
@@ -438,7 +438,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
 describe('oProvider - redirectUri construction guard', () => {
   const baseOpts = {
     providerId: 'fakeoidc',
-    client: new OauthClient({
+    client: new OAuthClient({
       clientId: 'cid',
       clientSecret: 'csec',
       endpoints: {
