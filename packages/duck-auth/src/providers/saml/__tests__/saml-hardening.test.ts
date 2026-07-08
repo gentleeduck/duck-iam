@@ -5,7 +5,7 @@ import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { identityInput } from '~/test/store-inputs'
-import { AuthSamlProvider, authSamlProvider } from '../index'
+import { Saml, saml } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
 
@@ -24,11 +24,11 @@ function ctxFor(adapter: MemoryAdapter<MyProfile>, events?: InMemoryEvents) {
   }
 }
 
-function makeClient(overrides: Partial<AuthSamlProvider.IClient> = {}): AuthSamlProvider.IClient {
+function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
   return {
     getAuthorizeUrlAsync: vi.fn(async () => 'https://idp.example/sso?SAMLRequest=AAA'),
     validatePostResponseAsync: vi.fn(async () => ({
-      profile: { nameID: 'sso-user-1', email: 'user@x.com' } as AuthSamlProvider.IProfile,
+      profile: { nameID: 'sso-user-1', email: 'user@x.com' } as Saml.Profile,
       loggedOut: false,
     })),
     ...overrides,
@@ -45,7 +45,7 @@ describe('samlProvider - input caps', () => {
   describe('begin', () => {
     it('rejects oversize relayState (>256 chars)', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -58,7 +58,7 @@ describe('samlProvider - input caps', () => {
 
     it('accepts relayState at the cap (256 chars)', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -69,7 +69,7 @@ describe('samlProvider - input caps', () => {
 
     it('rejects empty relayState', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -81,7 +81,7 @@ describe('samlProvider - input caps', () => {
 
     it('rejects oversize host (>253 chars)', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -94,7 +94,7 @@ describe('samlProvider - input caps', () => {
 
     it('rejects empty host', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -106,7 +106,7 @@ describe('samlProvider - input caps', () => {
 
     it('rejects non-string relayState without crashing', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -121,7 +121,7 @@ describe('samlProvider - input caps', () => {
   describe('complete - SAMLResponse cap', () => {
     it('rejects oversize SAMLResponse (>1 MiB) BEFORE calling validatePostResponseAsync', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -141,7 +141,7 @@ describe('samlProvider - input caps', () => {
         {},
       )
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: ident.id }),
@@ -154,7 +154,7 @@ describe('samlProvider - input caps', () => {
 
     it('rejects empty SAMLResponse', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -168,7 +168,7 @@ describe('samlProvider - input caps', () => {
 
     it('rejects non-string SAMLResponse without crashing', async () => {
       const client = makeClient()
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -189,7 +189,7 @@ describe('samlProvider - input caps', () => {
           throw new Error('<saml:Assertion>secret-attribute</saml:Assertion> signature invalid at xpath /foo/bar')
         }),
       })
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -219,7 +219,7 @@ describe('samlProvider - input caps', () => {
           throw new Error('signature mismatch - Audience http://wrong')
         }),
       })
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -245,7 +245,7 @@ describe('samlProvider - input caps', () => {
           throw 'internal-saml-state-blob'
         }),
       })
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -266,12 +266,12 @@ describe('samlProvider - input caps', () => {
     it('rejects profile with empty nameID (JIT-collapse defense)', async () => {
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: '', email: 'u@x.com' } as AuthSamlProvider.IProfile,
+          profile: { nameID: '', email: 'u@x.com' } as Saml.Profile,
           loggedOut: false,
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: 'x' }))
-      const provider = authSamlProvider({ client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({ client, callbackUrl: 'https://app/acs', onSignIn })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '<SAMLResponse/>' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'invalid SAML profile' },
@@ -285,12 +285,12 @@ describe('samlProvider - input caps', () => {
     it('rejects profile with non-string nameID', async () => {
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: 42 as unknown as string } as AuthSamlProvider.IProfile,
+          profile: { nameID: 42 as unknown as string } as Saml.Profile,
           loggedOut: false,
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: 'x' }))
-      const provider = authSamlProvider({ client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({ client, callbackUrl: 'https://app/acs', onSignIn })
       await expect(provider.complete(ctxFor(adapter), { SAMLResponse: '<SAMLResponse/>' })).rejects.toMatchObject({
         code: 'AUTH_PROVIDER_FAILED',
         meta: { detail: 'invalid SAML profile' },
@@ -306,11 +306,11 @@ describe('samlProvider - input caps', () => {
       })
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: '' } as AuthSamlProvider.IProfile,
+          profile: { nameID: '' } as Saml.Profile,
           loggedOut: false,
         })),
       })
-      const provider = authSamlProvider({
+      const provider = saml({
         client,
         callbackUrl: 'https://app/acs',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -329,12 +329,12 @@ describe('samlProvider - input caps', () => {
       )
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({
-          profile: { nameID: 'legit-sso-id-123', email: 'u@x.com' } as AuthSamlProvider.IProfile,
+          profile: { nameID: 'legit-sso-id-123', email: 'u@x.com' } as Saml.Profile,
           loggedOut: false,
         })),
       })
       const onSignIn = vi.fn(async () => ({ identityId: ident.id }))
-      const provider = authSamlProvider({ client, callbackUrl: 'https://app/acs', onSignIn })
+      const provider = saml({ client, callbackUrl: 'https://app/acs', onSignIn })
       const intents = await provider.complete(ctxFor(adapterInner), { SAMLResponse: '<SAMLResponse/>' })
       expect(intents[0]!.type).toBe('startSession')
       expect(onSignIn).toHaveBeenCalledOnce()

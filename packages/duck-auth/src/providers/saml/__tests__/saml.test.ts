@@ -4,7 +4,7 @@ import { Identity } from '~/core'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { AuthSamlProvider, authSamlProvider } from '../index'
+import { Saml, saml } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
 
@@ -23,11 +23,11 @@ function ctxFor(adapter: MemoryAdapter<MyProfile>) {
   }
 }
 
-function makeClient(overrides: Partial<AuthSamlProvider.IClient> = {}): AuthSamlProvider.IClient {
+function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
   return {
     getAuthorizeUrlAsync: vi.fn(async () => 'https://idp.example/sso?SAMLRequest=AAA'),
     validatePostResponseAsync: vi.fn(async () => ({
-      profile: { nameID: 'sso-user-1', email: 'user@x.com' } as AuthSamlProvider.IProfile,
+      profile: { nameID: 'sso-user-1', email: 'user@x.com' } as Saml.Profile,
       loggedOut: false,
     })),
     ...overrides,
@@ -37,13 +37,13 @@ function makeClient(overrides: Partial<AuthSamlProvider.IClient> = {}): AuthSaml
 describe('samlProvider - construction guards', () => {
   it('refuses without client', () => {
     expect(() =>
-      authSamlProvider({ callbackUrl: 'https://app/acs', onSignIn: async () => ({ identityId: 'x' }) } as never),
+      saml({ callbackUrl: 'https://app/acs', onSignIn: async () => ({ identityId: 'x' }) } as never),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('refuses without callbackUrl', () => {
     expect(() =>
-      authSamlProvider({
+      saml({
         client: makeClient(),
         callbackUrl: '',
         onSignIn: async () => ({ identityId: 'x' }),
@@ -53,7 +53,7 @@ describe('samlProvider - construction guards', () => {
 
   it('refuses without onSignIn', () => {
     expect(() =>
-      authSamlProvider({
+      saml({
         client: makeClient(),
         callbackUrl: 'https://app/acs',
       } as never),
@@ -64,7 +64,7 @@ describe('samlProvider - construction guards', () => {
 describe('samlProvider - begin', () => {
   it('returns redirect intent with IdP URL', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
-    const provider = authSamlProvider<MyProfile>({
+    const provider = saml<MyProfile>({
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn: async () => ({ identityId: 'x' }),
@@ -81,7 +81,7 @@ describe('samlProvider - begin', () => {
 
   it('begin missing relayState rejects MISCONFIGURED', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
-    const provider = authSamlProvider<MyProfile>({
+    const provider = saml<MyProfile>({
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn: async () => ({ identityId: 'x' }),
@@ -96,7 +96,7 @@ describe('samlProvider - complete', () => {
   it('validates SAMLResponse + invokes onSignIn + emits startSession (aal:2)', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
     const onSignIn = vi.fn(async () => ({ identityId: 'ident-7' }))
-    const provider = authSamlProvider<MyProfile>({
+    const provider = saml<MyProfile>({
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn,
@@ -115,7 +115,7 @@ describe('samlProvider - complete', () => {
 
   it('rejects empty SAMLResponse with PROVIDER_FAILED', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
-    const provider = authSamlProvider<MyProfile>({
+    const provider = saml<MyProfile>({
       client: makeClient(),
       callbackUrl: 'https://app/acs',
       onSignIn: async () => ({ identityId: 'x' }),
@@ -127,7 +127,7 @@ describe('samlProvider - complete', () => {
 
   it('rejects when IdP returns loggedOut response', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
-    const provider = authSamlProvider<MyProfile>({
+    const provider = saml<MyProfile>({
       client: makeClient({
         validatePostResponseAsync: async () => ({ profile: null, loggedOut: true }),
       }),
@@ -141,7 +141,7 @@ describe('samlProvider - complete', () => {
 
   it('client throw surfaces as PROVIDER_FAILED + detail', async () => {
     const adapter = new MemoryAdapter<MyProfile>()
-    const provider = authSamlProvider<MyProfile>({
+    const provider = saml<MyProfile>({
       client: makeClient({
         validatePostResponseAsync: async () => {
           throw new Error('signature-invalid')
