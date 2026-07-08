@@ -26,7 +26,7 @@ export namespace Engine {
       orgs?: Org.Store<OrgMeta>
     }
     limiter?: Limiter.Limiter
-    providers?: Provider.Me<unknown, unknown, Profile>[]
+    providers?: (Provider.Me<unknown, unknown, Profile> | Provider.ProviderModule<Profile, Tenant, OrgMeta>)[]
     events?: Events.IBus
     session?: {
       ttlMs?: number

@@ -17,7 +17,7 @@ import { ScryptHasher } from '../password/scrypt'
 import { PluginRegistry } from '../plugin'
 import type { Identity } from '../types/identity'
 import type { Limiter as LimiterNs } from '../types/infra'
-import type { Events } from '../types/provider'
+import type { Events, Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
 import type { Engine } from './engine.types'
 
@@ -36,11 +36,56 @@ export class AuthEngine<
   readonly transport: Transport.ITransport
   readonly sessions: SessionsFacet
   readonly identities: IdentitiesFacet<Profile>
-  readonly passwords: PasswordsFacet
   readonly providers: ProvidersFacet<Profile>
-  readonly mfa: MfaFacet
-  readonly apiKeys: ApiKeysFacet
   readonly orgs: OrgsFacet<OrgMeta> | null
+  // Provider-owned facets. Mounted by their provider module's `attach` (mechanism A);
+  // accessed through the throwing getters below, which fail loud when the owning
+  // provider was never registered. Private + `T | null` keeps null explicit and cast-free.
+  private _passwords: PasswordsFacet | null = null
+  private _mfa: MfaFacet | null = null
+  private _apiKeys: ApiKeysFacet | null = null
+
+  /** Password facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when the password provider is absent. */
+  get passwords(): PasswordsFacet {
+    if (!this._passwords) throw this._providerMissing('password')
+    return this._passwords
+  }
+  /** MFA facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when the mfa provider is absent. */
+  get mfa(): MfaFacet {
+    if (!this._mfa) throw this._providerMissing('mfa')
+    return this._mfa
+  }
+  /** API-key facet. Throws `AUTH_PROVIDER_NOT_REGISTERED` when the api-key provider is absent. */
+  get apiKeys(): ApiKeysFacet {
+    if (!this._apiKeys) throw this._providerMissing('api-key')
+    return this._apiKeys
+  }
+  /** Presence probe for strict()/introspection that must not throw. */
+  get passwordsOrNull(): PasswordsFacet | null {
+    return this._passwords
+  }
+
+  private _providerMissing(name: string): AuthError {
+    return new AuthError('AUTH_PROVIDER_NOT_REGISTERED', {
+      detail: `this operation needs the '${name}' provider; add ${name}Provider() to providers[]`,
+    })
+  }
+
+  /** @internal — mounts the password facet; called by `passwordProvider().attach`. */
+  setPasswords(facet: PasswordsFacet): void {
+    if (this._passwords) throw new AuthError('AUTH_MISCONFIGURED', { detail: "provider 'password' registered twice" })
+    this._passwords = facet
+  }
+  /** @internal — mounts the mfa facet; called by `mfaProvider().attach`. */
+  setMfa(facet: MfaFacet): void {
+    if (this._mfa) throw new AuthError('AUTH_MISCONFIGURED', { detail: "provider 'mfa' registered twice" })
+    this._mfa = facet
+  }
+  /** @internal — mounts the api-key facet; called by `apiKeyProvider().attach`. */
+  setApiKeys(facet: ApiKeysFacet): void {
+    if (this._apiKeys) throw new AuthError('AUTH_MISCONFIGURED', { detail: "provider 'api-key' registered twice" })
+    this._apiKeys = facet
+  }
   readonly flows: FlowsFacet<Profile>
   readonly limiter: LimiterNs.Limiter
   readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
@@ -64,18 +109,18 @@ export class AuthEngine<
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
-    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
+    this._passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
       minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
       maxLength: config.passwords?.maxLength ?? DEFAULT_PASSWORDS_CONFIG.maxLength,
       rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
     })
-    this.providers = new ProvidersFacet<Profile>(config.providers ?? [])
-    this.mfa = new MfaFacet(config.stores.credentials, this.events, {
+    this.providers = new ProvidersFacet<Profile>([])
+    this._mfa = new MfaFacet(config.stores.credentials, this.events, {
       issuer: config.mfa?.issuer ?? DEFAULT_MFA_CONFIG.issuer,
       backupCodeCount: config.mfa?.backupCodeCount ?? DEFAULT_MFA_CONFIG.backupCodeCount,
       backupCodeLen: config.mfa?.backupCodeLen ?? DEFAULT_MFA_CONFIG.backupCodeLen,
     })
-    this.apiKeys = new ApiKeysFacet(
+    this._apiKeys = new ApiKeysFacet(
       config.stores.credentials,
       this.events,
       { randomToken, sha256 },
@@ -84,6 +129,21 @@ export class AuthEngine<
         randomBytes: config.apiKeys?.randomBytes ?? DEFAULT_APIKEYS_CONFIG.randomBytes,
       },
     )
+    // Mechanism-A registration: normalize bare providers to modules, register any
+    // sign-in provider, run any attach hook. Runs after core facets so `attach`
+    // can read stores/events off the engine.
+    const seen = new Set<string>()
+    for (const entry of config.providers ?? []) {
+      const mod: Provider.ProviderModule<Profile, Tenant, OrgMeta> = isProviderModule(entry)
+        ? entry
+        : { name: entry.id, provider: entry }
+      if (seen.has(mod.name)) {
+        throw new AuthError('AUTH_MISCONFIGURED', { detail: `provider '${mod.name}' registered twice` })
+      }
+      seen.add(mod.name)
+      if (mod.provider) this.providers.register(mod.provider)
+      mod.attach?.(this)
+    }
     this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
     this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
     this.operations = new OperationsFacet(this.events)
@@ -108,8 +168,8 @@ export class AuthEngine<
           authTimingSafeEqual: timingSafeEqual,
         },
       }),
-      this.passwords,
-      this.mfa,
+      () => this.passwords,
+      () => this.mfa,
       DEFAULT_FLOWS_CONFIG,
     )
   }
@@ -254,6 +314,16 @@ export class AuthEngine<
       })
     }
   }
+}
+
+/**
+ * Distinguishes a capability module from a bare sign-in provider in `config.providers`.
+ * A module carries a `name`; a `Provider.Me` carries `id`/`kind` and never `name`.
+ */
+function isProviderModule<Profile extends Identity.ProfileMetadataBase, Tenant, OrgMeta>(
+  entry: Provider.Me<unknown, unknown, Profile> | Provider.ProviderModule<Profile, Tenant, OrgMeta>,
+): entry is Provider.ProviderModule<Profile, Tenant, OrgMeta> {
+  return 'name' in entry
 }
 
 // Re-export SessionsFacet for consumers that want to type the facet directly.

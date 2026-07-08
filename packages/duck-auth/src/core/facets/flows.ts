@@ -38,8 +38,10 @@ export namespace FlowsFacet {
     transport: Transport.ITransport
     events: Events.IBus
     ctxFactory: (tenantId?: string) => Provider.Context<Profile>
-    passwords: PasswordsFacet
-    mfa: MfaFacet
+    /** Lazy accessor — resolves the password facet at call-time; throws if the provider is absent. */
+    requirePasswords: () => PasswordsFacet
+    /** Lazy accessor — resolves the mfa facet at call-time; throws if the provider is absent. */
+    requireMfa: () => MfaFacet
     cfg: FlowsFacet.Config
   }
 
@@ -229,11 +231,11 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
     transport: Transport.ITransport,
     events: Events.IBus,
     ctxFactory: (tenantId?: string) => Provider.Context<Profile>,
-    passwords: PasswordsFacet,
-    mfa: MfaFacet,
+    requirePasswords: () => PasswordsFacet,
+    requireMfa: () => MfaFacet,
     cfg: FlowsFacet.Config = DEFAULT_FLOWS_CONFIG,
   ) {
-    this._deps = { sessions, identities, providers, transport, events, ctxFactory, passwords, mfa, cfg }
+    this._deps = { sessions, identities, providers, transport, events, ctxFactory, requirePasswords, requireMfa, cfg }
   }
 
   /** Expose deps for testing extracted flow functions directly. */
@@ -376,7 +378,8 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
     if (typeof opts.code !== 'string' || opts.code.length === 0 || opts.code.length > 64) {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
-    const { sessions, mfa, transport } = this._deps
+    const { sessions, requireMfa, transport } = this._deps
+    const mfa = requireMfa()
     const resolved = await sessions.getBySid(opts.currentSid)
     if (!resolved?.identityId) {
       throw new AuthError('AUTH_UNAUTHENTICATED')

@@ -14,6 +14,7 @@ const STATUS_FOR: Record<AuthError.Code, number> = {
   AUTH_LOCKED: 423,
   AUTH_QUOTA_EXCEEDED: 429,
   AUTH_PROVIDER_FAILED: 400,
+  AUTH_PROVIDER_NOT_REGISTERED: 500,
   AUTH_OAUTH_REUSE_DETECTED: 401,
   AUTH_OAUTH_STATE_MISMATCH: 400,
   AUTH_OAUTH_NONCE_REPLAY: 400,
@@ -162,6 +163,7 @@ export namespace AuthError {
       }
     | { code: 'AUTH_MAINTENANCE'; status: 503; retryAfter: number; message?: string }
     | { code: 'AUTH_READONLY_MODE'; status: 423 }
+    | { code: 'AUTH_PROVIDER_NOT_REGISTERED'; status: 500; detail: string }
     | { code: 'AUTH_MISCONFIGURED'; status: 500; detail: string }
 
   export type Code = AuthError.Error['code']

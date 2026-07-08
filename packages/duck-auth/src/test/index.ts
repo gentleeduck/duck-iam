@@ -9,7 +9,7 @@ import type { Identity } from '../core/types/identity'
 import { AuthMemoryLimiter } from '../limiters/memory'
 
 export namespace Test {
-  export interface Overrides<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase, _Tenant = string, OrgMeta = unknown> {
+  export interface Overrides<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
     /** Drop-in replacement for the bundled AuthMemoryAdapter. */
     adapter?: MemoryAdapter<Profile, OrgMeta>
     /** Override the identities store individually (adapter still backs the rest). */
@@ -20,7 +20,7 @@ export namespace Test {
     transport?: AuthEngineTypes.Config<Profile>['transport']
     limiter?: AuthEngineTypes.Config<Profile>['limiter']
     events?: AuthEngineTypes.Config<Profile>['events']
-    providers?: AuthEngineTypes.Config<Profile>['providers']
+    providers?: AuthEngineTypes.Config<Profile, Tenant, OrgMeta>['providers']
     passwords?: Omit<NonNullable<AuthEngineTypes.Config<Profile>['passwords']>, 'hasher'>
     hasher?: NonNullable<AuthEngineTypes.Config<Profile>['passwords']>['hasher']
     baseUrl?: string

@@ -76,7 +76,7 @@ export async function requestPasswordReset<Profile extends Identity.ProfileMetad
   if (!identityRow) {
     return { ok: true }
   }
-  const requiresMfa = await deps.mfa.hasTotp(identity.id, ctx.tenant)
+  const requiresMfa = await deps.requireMfa().hasTotp(identity.id, ctx.tenant)
   void channel
     .send({
       identity: identityRow,
@@ -124,7 +124,7 @@ export async function completePasswordReset<Profile extends Identity.ProfileMeta
     void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
     throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
   }
-  if (await deps.mfa.hasTotp(row.identityId, ctx.tenant)) {
+  if (await deps.requireMfa().hasTotp(row.identityId, ctx.tenant)) {
     if (!input.currentSid) {
       throw new AuthError('AUTH_RECOVERY_REQUIRES_MFA', { methods: ['totp'] })
     }
@@ -143,7 +143,7 @@ export async function completePasswordReset<Profile extends Identity.ProfileMeta
     throw err
   }
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
-  await deps.passwords.set(row.identityId, newPassword, ctx.tenant)
+  await deps.requirePasswords().set(row.identityId, newPassword, ctx.tenant)
   await deps.sessions.revokeAllForIdentity(row.identityId)
   await deps.events.emit('recovery.password.completed', { identityId: row.identityId })
   return { ok: true }
