@@ -1,27 +1,27 @@
-import type { AuthProvider } from '../types/provider'
+import type { Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
 
 /**
  * Cookie transport - opaque session ID in an HttpOnly cookie. Default for web apps.
  * Verify is unset -> caller must call Session.IStore.getByHash() to resolve.
  */
-export class AuthCookieTransport implements Transport.ITransport {
+export class CookieTransport implements Transport.ITransport {
   private readonly _name: string
   private readonly _options: Transport.CookieOptions
 
-  constructor(cfg: AuthCookieTransport.IConfig = {}) {
+  constructor(cfg: CookieTransport.IConfig = {}) {
     // Reject invalid cookie names early: RFC 6265 forbids CTL chars and the
-    // separators below. Otherwise authSerializeCookie would emit a malformed
+    // separators below. Otherwise serializeCookie would emit a malformed
     // Set-Cookie that browsers silently drop, producing "session never sticks"
     // outages with no error surface.
     if (cfg.name !== undefined) {
       if (typeof cfg.name !== 'string' || cfg.name.length === 0 || cfg.name.length > 256) {
-        throw new Error('@gentleduck/auth AuthCookieTransport: name must be a non-empty string <=256 chars')
+        throw new Error('@gentleduck/auth CookieTransport: name must be a non-empty string <=256 chars')
       }
       // RFC 6265 token: alphanumerics + small set of safe punctuation. `-` is
       // allowed (the default `duck-sid`).
       if (!/^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/.test(cfg.name)) {
-        throw new Error('@gentleduck/auth AuthCookieTransport: name contains an RFC 6265-forbidden character')
+        throw new Error('@gentleduck/auth CookieTransport: name contains an RFC 6265-forbidden character')
       }
     }
     const hasDomain = Boolean(cfg.domain)
@@ -38,18 +38,18 @@ export class AuthCookieTransport implements Transport.ITransport {
     if (this._name.startsWith('__Host-')) {
       if (cfg.domain) {
         throw new Error(
-          '@gentleduck/auth AuthCookieTransport: __Host- prefix forbids the Domain attribute. ' +
+          '@gentleduck/auth CookieTransport: __Host- prefix forbids the Domain attribute. ' +
             'Either drop `domain` or override `name` to a non-__Host- value.',
         )
       }
       if (this._options.path !== '/') {
         throw new Error(
-          `@gentleduck/auth AuthCookieTransport: __Host- prefix requires Path=/. Got Path=${this._options.path}.`,
+          `@gentleduck/auth CookieTransport: __Host- prefix requires Path=/. Got Path=${this._options.path}.`,
         )
       }
       if (this._options.secure !== true) {
         throw new Error(
-          '@gentleduck/auth AuthCookieTransport: __Host- prefix requires Secure=true. ' +
+          '@gentleduck/auth CookieTransport: __Host- prefix requires Secure=true. ' +
             'Either set { secure: true } (production) or override `name` to a non-__Host- value.',
         )
       }
@@ -79,10 +79,10 @@ export class AuthCookieTransport implements Transport.ITransport {
     return parseCookie(header, this._name)
   }
 
-  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): AuthProvider.Intent[] {
+  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): Provider.Intent[] {
     const expiresInMs = Math.max(0, session.expiresAt.getTime() - Date.now())
     const maxAge = Math.min(this._options.maxAge ?? 0, Math.floor(expiresInMs / 1000))
-    const intents: AuthProvider.Intent[] = [
+    const intents: Provider.Intent[] = [
       {
         type: 'setCookie',
         name: this._name,
@@ -109,7 +109,7 @@ export class AuthCookieTransport implements Transport.ITransport {
     return intents
   }
 
-  revoke(): AuthProvider.Intent[] {
+  revoke(): Provider.Intent[] {
     return [
       {
         type: 'clearCookie',
@@ -164,7 +164,7 @@ function parseCookie(header: string, name: string): string | null {
   return found
 }
 
-export namespace AuthCookieTransport {
+export namespace CookieTransport {
   export interface IConfig {
     /**
      * Cookie name. Defaults to `__Host-duck-sid` when no `domain` is set

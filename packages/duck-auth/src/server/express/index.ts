@@ -1,6 +1,6 @@
-import { authCsrfGuard } from '../../core/csrf'
+import { csrfGuard } from '../../core/csrf'
 import type { AuthEngine } from '../../core/engine'
-import type { AuthProvider } from '../../core/types/provider'
+import type { Provider } from '../../core/types/provider'
 import {
   errorToHttp,
   isSafeRedirectUrl,
@@ -20,7 +20,7 @@ export const toHeaders: (headers: ExpressAdapter.Request['headers']) => Headers 
  * Web-Fetch executor in `server/generic` but writes directly into
  * Express's mutable response object.
  */
-export function applyIntents(intents: AuthProvider.Intent[], res: ExpressAdapter.Response, baseStatus = 200): void {
+export function applyIntents(intents: Provider.Intent[], res: ExpressAdapter.Response, baseStatus = 200): void {
   let status = baseStatus
   let body: unknown = null
   let hasBody = false
@@ -71,7 +71,7 @@ export function mountSignIn(auth: AuthEngine): ExpressAdapter.Handler {
   return async (req, res) => {
     try {
       const headers = toHeaders(req.headers)
-      await authCsrfGuard(auth, { method: req.method ?? 'POST', headers })
+      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
       const parsed = parseSignInBody(req.body)
       if (!parsed) {
         applyIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }], res)
@@ -90,7 +90,7 @@ export function mountSignOut(auth: AuthEngine): ExpressAdapter.Handler {
   return async (req, res) => {
     try {
       const headers = toHeaders(req.headers)
-      await authCsrfGuard(auth, { method: req.method ?? 'POST', headers })
+      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
       const sid = auth.transport.extract({ headers })
       if (!sid) {
         applyIntents(auth.transport.revoke(), res, 200)
@@ -109,7 +109,7 @@ export function mountProviderBegin(auth: AuthEngine): ExpressAdapter.Handler {
   return async (req, res) => {
     try {
       const headers = toHeaders(req.headers)
-      await authCsrfGuard(auth, { method: req.method ?? 'POST', headers })
+      await csrfGuard(auth, { method: req.method ?? 'POST', headers })
       const id = providerIdFromUrl(req.url, 'begin')
       if (!isValidProviderId(id)) {
         applyIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }], res)

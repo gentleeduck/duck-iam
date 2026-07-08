@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AuthBearerTransport } from '../bearer'
+import { BearerTransport } from '../bearer'
 import { AuthCompositeTransport } from '../composite'
 import { AuthJwtTransport } from '../jwt'
 
@@ -54,7 +54,7 @@ describe('AuthCompositeTransport.verify - length cap', () => {
     signKey: { kid: 'k1', key: SECRET },
     verifyKeys: [{ kid: 'k1', key: SECRET }],
   })
-  const composite = new AuthCompositeTransport([new AuthBearerTransport(), jwt])
+  const composite = new AuthCompositeTransport([new BearerTransport(), jwt])
 
   it('returns null on a multi-MB token without walking any inner transport', async () => {
     const oversize = 'A'.repeat(10 * 1024 * 1024)

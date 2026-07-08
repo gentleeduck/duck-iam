@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
@@ -6,7 +7,7 @@ import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
 
-interface MyProfile {
+interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
 }
 
@@ -34,7 +35,7 @@ describe('FlowsFacet - account deletion', () => {
 
   beforeEach(async () => {
     ;({ auth, adapter } = build())
-    const ident = await auth.identities.create({ profile: { email: 'a@x.com' } })
+    const ident = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     identityId = ident.id
     channel = new AuthTestChannel()
   })

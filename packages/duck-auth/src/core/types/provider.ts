@@ -8,7 +8,7 @@ import type { Session, Transport } from './session'
  * and return Intents; the framework adapter executes the Intents against the
  * actual HTTP Request/Response. This keeps providers HTTP-free and unit-testable.
  */
-export namespace AuthProvider {
+export namespace Provider {
   /** Cookie options surface for setCookie intents - duplicated here to avoid Transport-side cycles. */
   export interface CookieOptions extends Transport.CookieOptions {}
 
@@ -29,7 +29,7 @@ export namespace AuthProvider {
    * `startSession` and `requireMfa` are consumed by FlowsFacet; they
    * must never be forwarded to a framework adapter.
    */
-  export type IInternalIntent =
+  export type InternalIntent =
     | Intent
     | {
         type: 'startSession'
@@ -40,18 +40,18 @@ export namespace AuthProvider {
     | { type: 'requireMfa'; identityId: string; methods: string[] }
 
   /** Crypto helpers exposed to providers (so they don't import node:crypto themselves). */
-  export interface ICrypto {
+  export type Crypto = {
     authRandomToken(bytes: number): string
     authSha256(s: string): string
     authTimingSafeEqual(a: string, b: string): boolean
   }
 
   /** Events surface - providers emit via the bus, never directly to console. */
-  export interface IEvents {
+  export type Events = {
     emit(event: string, payload: unknown): Promise<void>
   }
 
-  export interface IContext<Profile = unknown> {
+  export type Context<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> = {
     stores: {
       identities: Identity.Store<Profile>
       sessions: Session.Store
@@ -59,17 +59,21 @@ export namespace AuthProvider {
     }
     tenant: TenantContext
     baseUrl: string
-    limiter: Limiter.ILimiter
-    events: IEvents
-    crypto: ICrypto
+    limiter: Limiter.Limiter
+    events: Events
+    crypto: Crypto
   }
 
-  export interface IProvider<BeginIn = unknown, CompleteIn = unknown, Profile = unknown> {
+  export interface Me<
+    BeginIn = unknown,
+    CompleteIn = unknown,
+    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  > {
     id: string
     /** Open string so custom providers declare their own kind without patching the type. */
     kind: string
-    begin(ctx: IContext<Profile>, input: BeginIn): Promise<Intent[]>
-    complete(ctx: IContext<Profile>, input: CompleteIn): Promise<IInternalIntent[]>
+    begin(ctx: Context<Profile>, input: BeginIn): Promise<Intent[]>
+    complete(ctx: Context<Profile>, input: CompleteIn): Promise<InternalIntent[]>
   }
 }
 
@@ -79,7 +83,7 @@ export namespace AuthProvider {
  * Audit envelope (impersonation) flows on every event when present.
  */
 export namespace Events {
-  export interface AuditEnvelope {
+  export interface Envelope {
     /** When the session is impersonating, real subject is recorded on every event. */
     actingAs?: Session.ActingAs
     /** Optional iam decision id when an action was authorized via iam-auth-bridge. */
@@ -90,46 +94,46 @@ export namespace Events {
     'session.created': {
       session: Session.Me
       identity: Identity.Me | null
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
-    'session.rotated': { session: Session.Me; audit?: AuditEnvelope }
+    'session.rotated': { session: Session.Me; audit?: Envelope }
     'session.revoked': {
       sessionId: string
       identityId: string | null
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
     'signin.success': {
       identity: Identity.Me
       factors: Session.Factor[]
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
     'signin.failed': {
       providerId: string
       reason: string
       ip?: string
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
-    'signup.completed': { identity: Identity.Me; audit?: AuditEnvelope }
-    lockout: { identityId: string; until: number; audit?: AuditEnvelope }
+    'signup.completed': { identity: Identity.Me; audit?: Envelope }
+    lockout: { identityId: string; until: number; audit?: Envelope }
     'mfa.enrolled': {
       identityId: string
       method: Session.FactorMethod
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
     'mfa.removed': {
       identityId: string
       method: Session.FactorMethod
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
     'identity.linked': {
       identityId: string
       providerId: string
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
     'identity.merged': {
       survivorId: string
       mergedFromId: string
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
     'identity.impersonated': {
       realIdentityId: string
@@ -137,19 +141,19 @@ export namespace Events {
       reason: string
       iamDecisionId?: string
     }
-    'recovery.password.requested': { identityId: string; audit?: AuditEnvelope }
-    'recovery.password.completed': { identityId: string; audit?: AuditEnvelope }
+    'recovery.password.requested': { identityId: string; audit?: Envelope }
+    'recovery.password.completed': { identityId: string; audit?: Envelope }
     'recovery.mfa.escalated': {
       identityId: string
       ticketId: string
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
     suspicious: {
       identityId?: string
       signal: string
       score: number
       meta: Record<string, unknown>
-      audit?: AuditEnvelope
+      audit?: Envelope
     }
     'maintenance.on': { message?: string; retryAfter?: number }
     'maintenance.off': Record<string, never>
@@ -188,7 +192,7 @@ export namespace Anomaly {
     now: number
   }
 
-  export interface IDetector {
+  export type Detector = {
     readonly id: string
     evaluate(ctx: { session: Session.Me; identity: Identity.Me; req: RequestSnapshot }): Promise<Signal[]>
   }

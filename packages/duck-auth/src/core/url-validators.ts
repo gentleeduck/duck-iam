@@ -19,6 +19,7 @@ export function isSafeCallbackPath(value: unknown): value is string {
   if (value.startsWith('/\\')) return false
   return true
 }
+
 function hasControlChar(s: string): boolean {
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i)

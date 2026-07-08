@@ -15,12 +15,12 @@ import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type
 import { timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 
-export namespace AuthDPoPVerifier {
+export namespace DPoPVerifier {
   /**
    * RFC 7517 JSON Web Key shape. Re-declared because Node's
    * @types/node does not export `JsonWebKey` from `node:crypto`.
    */
-  export interface IJsonWebKey {
+  export type JsonWebKey = {
     kty: 'EC' | 'OKP' | 'RSA'
     crv?: string
     x?: string
@@ -37,7 +37,7 @@ export namespace AuthDPoPVerifier {
    * writes its `jti` for the freshness window so a captured proof
    * cannot be replayed.
    */
-  export interface INonceStore {
+  export interface NonceStore {
     /**
      * Mark `jti` as seen. Returns true on first sight, false when the
      * jti was already recorded within the freshness window. Must be
@@ -46,8 +46,8 @@ export namespace AuthDPoPVerifier {
     recordSeen(jti: string, ttlMs: number): Promise<boolean>
   }
 
-  /** Config knobs for {@link AuthDPoPVerifier}. */
-  export interface IConfig {
+  /** Config knobs for {@link DPoPVerifier}. */
+  export interface Config {
     /** Tolerated clock skew between client + server, ms. Default 30s. */
     clockSkewMs?: number
     /**
@@ -59,7 +59,7 @@ export namespace AuthDPoPVerifier {
      * Replay-protection store. Defaults to the in-memory implementation;
      * production wires a Redis-backed store.
      */
-    nonceStore?: INonceStore
+    nonceStore?: NonceStore
     /**
      * Allowed signing algorithms. Defaults to `['ES256', 'EdDSA']` -
      * symmetric algorithms are forbidden by RFC 9449 section 4.2.
@@ -76,7 +76,7 @@ export namespace AuthDPoPVerifier {
   }
 
   /** Decoded DPoP proof claims. */
-  export interface IClaims {
+  export interface Claims {
     /** Unique per-proof identifier; used for replay protection. */
     jti: string
     /** HTTP method, uppercased. */
@@ -92,11 +92,11 @@ export namespace AuthDPoPVerifier {
   }
 
   /** Result of a successful verify call. */
-  export interface IVerified {
+  export interface Verified {
     /** RFC 7638 JWK thumbprint of the client's public key. */
     jkt: string
     /** The verified claims. */
-    claims: IClaims
+    claims: Claims
   }
 }
 
@@ -104,7 +104,7 @@ export namespace AuthDPoPVerifier {
  * In-memory nonce store. Single-process only; multi-pod deploys must
  * wire a Redis-backed store using `SETNX` for true atomic claim.
  */
-export class AuthMemoryDPoPNonceStore implements AuthDPoPVerifier.INonceStore {
+export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
   private readonly _seen = new Map<string, number>()
 
   /** Mark `jti`. Lazy prune assumes uniform TTL; cross-TTL stragglers fail closed (false-positive). */
@@ -128,17 +128,17 @@ export class AuthMemoryDPoPNonceStore implements AuthDPoPVerifier.INonceStore {
  * store. Throws `AUTH/DPOP_INVALID` on any failure so the framework
  * adapter can wrap calls in a single try/catch.
  */
-export class AuthDPoPVerifier {
+export class DPoPVerifier {
   private readonly _clockSkewMs: number
   private readonly _freshnessMs: number
-  private readonly _nonceStore: AuthDPoPVerifier.INonceStore
-  private readonly _expectedNonce: AuthDPoPVerifier.IConfig['expectedNonce']
+  private readonly _nonceStore: DPoPVerifier.NonceStore
+  private readonly _expectedNonce: DPoPVerifier.Config['expectedNonce']
   private readonly _acceptedAlgs: Set<string>
 
-  constructor(cfg: AuthDPoPVerifier.IConfig = {}) {
+  constructor(cfg: DPoPVerifier.Config = {}) {
     this._clockSkewMs = cfg.clockSkewMs ?? 30_000
     this._freshnessMs = cfg.freshnessMs ?? 60_000
-    this._nonceStore = cfg.nonceStore ?? new AuthMemoryDPoPNonceStore()
+    this._nonceStore = cfg.nonceStore ?? new MemoryDPoPNonceStore()
     this._expectedNonce = cfg.expectedNonce
     this._acceptedAlgs = new Set(cfg.acceptedAlgs ?? ['ES256', 'EdDSA'])
   }
@@ -151,7 +151,7 @@ export class AuthDPoPVerifier {
     dpopHeader: string,
     request: { method: string; url: string },
     accessToken?: string,
-  ): Promise<AuthDPoPVerifier.IVerified> {
+  ): Promise<DPoPVerifier.Verified> {
     if (typeof dpopHeader !== 'string' || dpopHeader.length === 0) {
       throw new AuthError('AUTH_DPOP_INVALID', { reason: 'missing DPoP header' })
     }
@@ -232,7 +232,7 @@ export class AuthDPoPVerifier {
       throw new AuthError('AUTH_DPOP_INVALID', { reason: 'jti replay detected' })
     }
 
-    return { jkt: authComputeJwkThumbprint(header.jwk), claims }
+    return { jkt: computeJwkThumbprint(header.jwk), claims }
   }
 }
 
@@ -240,7 +240,7 @@ export class AuthDPoPVerifier {
  * Compute the RFC 7638 JWK thumbprint of a public key. Used to bind a
  * DPoP proof's JWK to the `cnf.jkt` claim on the access token.
  */
-export function authComputeJwkThumbprint(jwk: AuthDPoPVerifier.IJsonWebKey): string {
+export function computeJwkThumbprint(jwk: DPoPVerifier.JsonWebKey): string {
   let canonical: string
   switch (jwk.kty) {
     case 'EC':
@@ -267,14 +267,14 @@ type ParseResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 interface DpopHeaderShape {
   alg: string
   typ: 'dpop+jwt'
-  jwk: AuthDPoPVerifier.IJsonWebKey
+  jwk: DPoPVerifier.JsonWebKey
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-function isJsonWebKey(v: unknown): v is AuthDPoPVerifier.IJsonWebKey {
+function isJsonWebKey(v: unknown): v is DPoPVerifier.JsonWebKey {
   if (!isPlainObject(v)) return false
   return v.kty === 'EC' || v.kty === 'OKP' || v.kty === 'RSA'
 }
@@ -309,7 +309,7 @@ function parseDpopHeader(raw: unknown, acceptedAlgs: ReadonlySet<string>): Parse
  * (d) sneak through `ath`/`nonce` value-equality checks with object
  *     identity.
  */
-function parseDpopClaims(raw: unknown): ParseResult<AuthDPoPVerifier.IClaims> {
+function parseDpopClaims(raw: unknown): ParseResult<DPoPVerifier.Claims> {
   if (!isPlainObject(raw)) {
     return { ok: false, reason: 'malformed payload' }
   }
@@ -332,7 +332,7 @@ function parseDpopClaims(raw: unknown): ParseResult<AuthDPoPVerifier.IClaims> {
   if (nonce !== undefined && typeof nonce !== 'string') {
     return { ok: false, reason: 'nonce not a string' }
   }
-  const claims: AuthDPoPVerifier.IClaims = { jti, htm, htu, iat }
+  const claims: DPoPVerifier.Claims = { jti, htm, htu, iat }
   if (ath !== undefined) claims.ath = ath
   if (nonce !== undefined) claims.nonce = nonce
   return { ok: true, value: claims }
@@ -342,7 +342,7 @@ function parseDpopClaims(raw: unknown): ParseResult<AuthDPoPVerifier.IClaims> {
  * Inject a `cnf.jkt` confirmation claim into an existing access-token
  * payload object.
  */
-export function authBindPayloadToDPoP<P extends Record<string, unknown>>(
+export function bindPayloadToDPoP<P extends Record<string, unknown>>(
   payload: P,
   jkt: string,
 ): P & { cnf: { jkt: string } } {

@@ -1,5 +1,10 @@
-export { AuthBearerTransport } from './bearer'
+export { BearerTransport as AuthBearerTransport } from './bearer'
 export { AuthCompositeTransport } from './composite'
-export { AuthCookieTransport } from './cookie'
-export { AuthDPoPVerifier, AuthMemoryDPoPNonceStore, authBindPayloadToDPoP, authComputeJwkThumbprint } from './dpop'
+export { CookieTransport as AuthCookieTransport } from './cookie'
+export {
+  bindPayloadToDPoP,
+  computeJwkThumbprint,
+  DPoPVerifier,
+  MemoryDPoPNonceStore,
+} from './dpop'
 export { AuthJwtTransport } from './jwt'

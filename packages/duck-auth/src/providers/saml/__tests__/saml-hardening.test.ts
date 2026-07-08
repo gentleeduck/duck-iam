@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
@@ -136,7 +137,7 @@ describe('samlProvider - input caps', () => {
     it('accepts SAMLResponse exactly at 1 MiB', async () => {
       const adapterInner = new MemoryAdapter<MyProfile>()
       const ident = await adapterInner.identities.create(
-        { profile: { email: 'u@x.com', username: 'u' }, providers: [] },
+        identityInput({ profile: { email: 'u@x.com', username: 'u' }, providers: [] }),
         {},
       )
       const client = makeClient()
@@ -323,7 +324,7 @@ describe('samlProvider - input caps', () => {
     it('valid nameID flows through to onSignIn unchanged', async () => {
       const adapterInner = new MemoryAdapter<MyProfile>()
       const ident = await adapterInner.identities.create(
-        { profile: { email: 'u@x.com', username: 'u' }, providers: [] },
+        identityInput({ profile: { email: 'u@x.com', username: 'u' }, providers: [] }),
         {},
       )
       const client = makeClient({

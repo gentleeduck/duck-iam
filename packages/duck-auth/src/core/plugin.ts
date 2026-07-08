@@ -1,17 +1,18 @@
 import type { AuthEngine } from './engine'
-import type { AuthProvider, Events } from './types/provider'
+import type { Identity } from './types'
+import type { Events, Provider } from './types/provider'
 
 /**
  * Plugin registry. Generic over the AuthEngine generics so `install` does not
  * need a cast at the call site; `AuthEngine.use(plugin)` forwards its own
  * generics unchanged.
  */
-export class AuthPluginRegistry<Profile = unknown, Tenant = string, OrgMeta = unknown> {
-  private readonly _plugins = new Map<string, AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>>()
+export class PluginRegistry<Profile extends Identity.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
+  private readonly _plugins = new Map<string, PluginRegistry.Plugin<Profile, Tenant, OrgMeta>>()
   private readonly _eventUnsubs: Array<() => void> = []
 
   /** All installed plugins keyed by id. */
-  get installed(): ReadonlyMap<string, AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>> {
+  get installed(): ReadonlyMap<string, PluginRegistry.Plugin<Profile, Tenant, OrgMeta>> {
     return this._plugins
   }
 
@@ -21,7 +22,7 @@ export class AuthPluginRegistry<Profile = unknown, Tenant = string, OrgMeta = un
   /** Install a plugin atomically. */
   async install(
     auth: AuthEngine<Profile, Tenant, OrgMeta>,
-    plugin: AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>,
+    plugin: PluginRegistry.Plugin<Profile, Tenant, OrgMeta>,
   ): Promise<void> {
     if (typeof plugin?.id !== 'string' || plugin.id.length === 0 || plugin.id.length > 128) {
       throw new Error('@gentleduck/auth: plugin.id must be a non-empty string <=128 chars')
@@ -59,12 +60,12 @@ export class AuthPluginRegistry<Profile = unknown, Tenant = string, OrgMeta = un
   }
 }
 
-export namespace AuthPluginRegistry {
-  export interface IAuthPlugin<Profile = unknown, Tenant = string, OrgMeta = unknown> {
+export namespace PluginRegistry {
+  export interface Plugin<Profile extends Identity.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
     /** Stable id; library refuses duplicate ids. */
     id: string
     /** Optional providers to register at install time. */
-    providers?: AuthProvider.IProvider<unknown, unknown, Profile>[]
+    providers?: Provider.Me<unknown, unknown, Profile>[]
     /** Optional event subscriptions; library auto-attaches on install. */
     events?: Partial<{ [K in keyof Events.EventMap]: (p: Events.EventMap[K]) => void | Promise<void> }>
     /**

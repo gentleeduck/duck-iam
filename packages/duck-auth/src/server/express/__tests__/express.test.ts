@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
+import { ScryptHasher } from '../../../core/password/scrypt'
+import { CookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { authPassword } from '../../../providers/password'
+import { password } from '../../../providers/password'
 import { applyIntents, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
 
 type MyProfile = {
@@ -57,10 +57,10 @@ function mockRes() {
 
 function buildAuth() {
   const adapter = new MemoryAdapter<MyProfile>()
-  const fastHasher = new AuthScryptHasher({ N: 1 << 10, keylen: 32 })
+  const fastHasher = new ScryptHasher({ N: 1 << 10, keylen: 32 })
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -70,7 +70,7 @@ function buildAuth() {
     passwords: { hasher: fastHasher },
   })
   auth.providers.register(
-    authPassword<MyProfile>({
+    password<MyProfile>({
       findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
       passwords: auth.passwords,
     }),

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { CookieTransport } from '../../transport/cookie'
 
-interface MyProfile {
+interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
 }
 

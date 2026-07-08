@@ -1,7 +1,7 @@
-import { RandomToken, sha256, timingSafeEqual } from './crypto'
+import { randomToken, sha256, timingSafeEqual } from './crypto'
 import { AuthError } from './errors'
 
-export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.IConfig, 'allowedOrigins'>> & {
+export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.Config, 'allowedOrigins'>> & {
   allowedOrigins: string[]
 } = {
   cookieName: '__Host-duck-csrf',
@@ -14,15 +14,15 @@ export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.IConfig, 'allowedOrigi
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
 /** Generate a CSRF token + its hash (for session storage). */
-export function authIssueCsrfToken(): { token: string; hash: string } {
-  const token = RandomToken(32)
+export function issueCsrfToken(): { token: string; hash: string } {
+  const token = randomToken(32)
   return { token, hash: sha256(token) }
 }
 
 /** Build a Set-Cookie intent body for the CSRF cookie. */
-export function authBuildCsrfCookieOptions(
+export function buildCsrfCookieOptions(
   token: string,
-  cfg: Csrf.IConfig = {},
+  cfg: Csrf.Config = {},
 ): {
   name: string
   value: string
@@ -51,11 +51,11 @@ export function authBuildCsrfCookieOptions(
  * Pass `sessionCsrfHash` from the resolved session; safe-method requests
  * + Bearer/DPoP requests pass through without validation.
  */
-export function authVerifyCsrf(opts: {
+export function verifyCsrf(opts: {
   method: string
   headers: Headers
   sessionCsrfHash?: string
-  cfg?: Csrf.IConfig
+  cfg?: Csrf.Config
   /** True when the request authenticated via a non-ambient bearer (header, JWT, DPoP). */
   isBearer?: boolean
 }): void {
@@ -114,7 +114,7 @@ function hasBearerAuthorization(headers: Headers): boolean {
 }
 
 /** Framework-adapter guard: resolves session + verifies CSRF; throws `AUTH/CSRF` on miss. Safe methods + bearer pass through. */
-export async function authCsrfGuard(
+export async function csrfGuard(
   auth: {
     resolveSession(
       req: { headers: Headers },
@@ -125,7 +125,7 @@ export async function authCsrfGuard(
     } | null>
   },
   req: { method: string; headers: Headers },
-  opts: { isBearer?: boolean; cfg?: Csrf.IConfig; expectedTenantId?: string } = {},
+  opts: { isBearer?: boolean; cfg?: Csrf.Config; expectedTenantId?: string } = {},
 ): Promise<void> {
   if (SAFE_METHODS.has(req.method.toUpperCase())) return
   // Bearer / JWT transports carry auth in the Authorization header,
@@ -135,7 +135,7 @@ export async function authCsrfGuard(
     req,
     opts.expectedTenantId !== undefined ? { expectedTenantId: opts.expectedTenantId } : undefined,
   )
-  authVerifyCsrf({
+  verifyCsrf({
     method: req.method,
     headers: req.headers,
     ...(resolved?.session.csrfHash != null && { sessionCsrfHash: resolved.session.csrfHash }),
@@ -144,7 +144,7 @@ export async function authCsrfGuard(
 }
 
 export namespace Csrf {
-  export interface IConfig {
+  export type Config = {
     /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`. */
     cookieName?: string
     /** Header name the client puts the token on. Default `x-csrf-token`. */

@@ -1,4 +1,4 @@
-import { authCsrfGuard } from '../../core/csrf'
+import { csrfGuard } from '../../core/csrf'
 import type { AuthEngine } from '../../core/engine'
 import {
   errorToHttp,
@@ -23,7 +23,7 @@ function reqMethod(ctx: HonoAdapter.Context): string {
 export function honoSignIn(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
-      await authCsrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
+      await csrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
       const parsed = parseSignInBody(await ctx.req.json().catch(() => null))
       if (!parsed) {
         return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
@@ -40,7 +40,7 @@ export function honoSignIn(auth: AuthEngine): HonoAdapter.Handler {
 export function honoSignOut(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
-      await authCsrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
+      await csrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
       const sid = auth.transport.extract({ headers: reqHeaders(ctx) })
       if (!sid) return executeIntents(auth.transport.revoke())
       const { intents } = await auth.flows.signOut(sid)
@@ -73,7 +73,7 @@ export function honoSession(auth: AuthEngine): HonoAdapter.Handler {
 export function honoProviderBegin(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
-      await authCsrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
+      await csrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
       const id = ctx.req.param('id')
       if (!isValidProviderId(id)) {
         return executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }])
@@ -199,7 +199,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     // MFA mutators derive identityId from session (not body) and CSRF-guard.
     app.post(`${prefix}/mfa/totp/begin`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
@@ -216,7 +216,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     })
     app.post(`${prefix}/mfa/totp/confirm`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
@@ -234,7 +234,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     })
     app.post(`${prefix}/mfa/totp/verify`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
@@ -251,7 +251,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     })
     app.post(`${prefix}/mfa/totp/remove`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
@@ -264,7 +264,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     })
     app.post(`${prefix}/mfa/backup-codes/regenerate`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
           return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])

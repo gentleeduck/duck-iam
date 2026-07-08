@@ -23,7 +23,7 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
 export function authImpossibleTravelDetector(opts: {
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>
   config?: Partial<AuthImpossibleTravel.IConfig>
-}): Anomaly.IDetector {
+}): Anomaly.Detector {
   const cfg: AuthImpossibleTravel.IConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
     throw new Error(

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { randomToken, sha256 } from '../../crypto'
 import { InMemoryEvents } from '../../events'
@@ -16,14 +17,14 @@ async function plantMalformedMetadata(adapter: MemoryAdapter, identityId: string
   // facet's create() method would never produce. Mirrors what a buggy
   // store / schema drift / pre-migration value looks like.
   const cred = await adapter.credentials.upsert(
-    {
+    credentialInput({
       identityId,
       kind: 'api-key',
       secret: 'ignored-hash',
       // Metadata typed as `unknown` at the contract; the adapter
       // happily stores whatever we give it.
       metadata: metadata as Record<string, unknown>,
-    },
+    }),
     {},
   )
   return cred
@@ -108,12 +109,12 @@ describe('ApiKeysFacet - metadata parser', () => {
       const plaintext = `ak_live_${randomToken(32)}`
       const hash = sha256(plaintext)
       await adapter.credentials.upsert(
-        {
+        credentialInput({
           identityId,
           kind: 'api-key',
           secret: hash,
           metadata: { name: 42, scopes: ['deploy', 42, null, 'logs:read'] },
-        },
+        }),
         {},
       )
       const result = await facet.verify(plaintext)

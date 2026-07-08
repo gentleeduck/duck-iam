@@ -1,4 +1,4 @@
-import type { AuthProvider } from '../types/provider'
+import type { Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
 
 /**
@@ -20,11 +20,11 @@ export class AuthCompositeTransport implements Transport.ITransport {
     return null
   }
 
-  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): AuthProvider.Intent[] {
+  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): Provider.Intent[] {
     return this._transports.flatMap((t) => t.issue(sid, session, opts))
   }
 
-  revoke(): AuthProvider.Intent[] {
+  revoke(): Provider.Intent[] {
     return this._transports.flatMap((t) => t.revoke())
   }
 

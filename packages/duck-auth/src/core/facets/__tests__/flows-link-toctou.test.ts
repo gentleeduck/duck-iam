@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
+import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
 
-interface ProfileShape {
+interface ProfileShape extends Identity.ProfileMetadataBase {
   email: string
 }
 
@@ -33,8 +35,8 @@ describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
 
   beforeEach(async () => {
     ;({ auth, adapter } = build())
-    const a = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    const b = await auth.identities.create({ profile: { email: 'b@x.com' } })
+    const a = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+    const b = await auth.identities.create({ profile: { username: 'b@x.com', email: 'b@x.com' } })
     identityA = a.id
     identityB = b.id
   })

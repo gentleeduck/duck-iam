@@ -1,7 +1,7 @@
 import type { HijackFacet } from '../facets/hijack'
 import type { Credential, Identity, Org } from '../types/identity'
 import type { Hasher, Limiter } from '../types/infra'
-import type { AuthProvider, Events } from '../types/provider'
+import type { Events, Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
 
 export namespace Engine {
@@ -25,8 +25,8 @@ export namespace Engine {
       credentials: Credential.Store
       orgs?: Org.Store<OrgMeta>
     }
-    limiter?: Limiter.ILimiter
-    providers?: AuthProvider.IProvider<unknown, unknown, Profile>[]
+    limiter?: Limiter.Limiter
+    providers?: Provider.Me<unknown, unknown, Profile>[]
     events?: Events.IBus
     session?: {
       ttlMs?: number
@@ -57,7 +57,7 @@ export namespace Engine {
       prefix?: string
       randomBytes?: number
     }
-    hijack?: HijackFacet.IPolicyConfig
+    hijack?: HijackFacet.Config
     __tenantBrand?: Tenant
   }
 }

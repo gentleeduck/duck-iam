@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { InMemoryEvents } from '../../events'
 import { MfaFacet } from '../mfa'
@@ -15,12 +16,12 @@ describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
 
   async function plant(metadata: unknown, secret = 'JBSWY3DPEHPK3PXP'): Promise<void> {
     await adapter.credentials.upsert(
-      {
+      credentialInput({
         identityId,
         kind: 'totp',
         secret,
         metadata: metadata as Record<string, unknown>,
-      },
+      }),
       {},
     )
   }

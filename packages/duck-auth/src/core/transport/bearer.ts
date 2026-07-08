@@ -1,15 +1,15 @@
-import type { AuthProvider } from '../types/provider'
+import type { Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
 
 /**
  * Bearer transport - `Authorization: Bearer <opaque>` header. Native/mobile, API keys.
  * Issue returns a JSON intent carrying the token; client is responsible for persisting it.
  */
-export class AuthBearerTransport implements Transport.ITransport {
+export class BearerTransport implements Transport.ITransport {
   private readonly _header: string
   private readonly _scheme: string
 
-  constructor(cfg: AuthBearerTransport.IConfig = {}) {
+  constructor(cfg: BearerTransport.Config = {}) {
     this._header = cfg.header ?? 'authorization'
     this._scheme = cfg.scheme ?? 'Bearer'
   }
@@ -30,7 +30,7 @@ export class AuthBearerTransport implements Transport.ITransport {
     return token
   }
 
-  issue(sid: string, session: Session.Me): AuthProvider.Intent[] {
+  issue(sid: string, session: Session.Me): Provider.Intent[] {
     return [
       {
         type: 'json',
@@ -40,14 +40,14 @@ export class AuthBearerTransport implements Transport.ITransport {
     ]
   }
 
-  revoke(): AuthProvider.Intent[] {
+  revoke(): Provider.Intent[] {
     // Bearer revoke is server-side (Session.IStore.delete); the client just drops the token.
     return [{ type: 'json', status: 200, body: { revoked: true } }]
   }
 }
 
-export namespace AuthBearerTransport {
-  export interface IConfig {
+export namespace BearerTransport {
+  export type Config = {
     /** Header name. Default `Authorization`. */
     header?: string
     /** Scheme prefix; whitespace-separated from the token. Default `Bearer`. */

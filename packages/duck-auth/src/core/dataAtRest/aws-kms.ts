@@ -2,7 +2,7 @@ import { AuthError } from '../errors'
 import type { Kms } from '../types/infra'
 
 /** Reference `Kms.IProvider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
-export class AuthAwsKmsProvider implements Kms.IProvider {
+export class AuthAwsKmsProvider implements Kms.Provider {
   readonly id = 'aws-kms'
   private readonly _keyId: string
   private readonly _client: AuthAwsKmsProvider.IKmsLike
@@ -12,7 +12,7 @@ export class AuthAwsKmsProvider implements Kms.IProvider {
     this._client = cfg.client
   }
 
-  async generateDataKey(ctx?: Kms.IEncryptionContext): Promise<Kms.IDataKey> {
+  async generateDataKey(ctx?: Kms.EncryptionContext): Promise<Kms.DataKey> {
     const cmd = await loadCommand('GenerateDataKeyCommand')
     const out = (await this._client.send(
       new cmd({ KeyId: this._keyId, KeySpec: 'AES_256', EncryptionContext: ctx }),
@@ -30,7 +30,7 @@ export class AuthAwsKmsProvider implements Kms.IProvider {
     }
   }
 
-  async decryptDataKey(wrapped: Uint8Array, ctx?: Kms.IEncryptionContext): Promise<Uint8Array> {
+  async decryptDataKey(wrapped: Uint8Array, ctx?: Kms.EncryptionContext): Promise<Uint8Array> {
     const cmd = await loadCommand('DecryptCommand')
     const out = (await this._client.send(
       new cmd({ CiphertextBlob: wrapped, EncryptionContext: ctx, KeyId: this._keyId }),

@@ -7,25 +7,25 @@
 
 import { createSign, createVerify } from 'node:crypto'
 
-export function authSignEs256(key: string, signingInput: string): string {
+export function signEs256(key: string, signingInput: string): string {
   const signer = createSign('SHA256')
   signer.update(signingInput)
   signer.end()
-  return authDerToJoseEs256(signer.sign(key)).toString('base64url')
+  return derToJoseEs256(signer.sign(key)).toString('base64url')
 }
 
-export function authVerifyEs256(key: string, signingInput: string, sigB64: string): boolean {
+export function verifyEs256(key: string, signingInput: string, sigB64: string): boolean {
   const verifier = createVerify('SHA256')
   verifier.update(signingInput)
   verifier.end()
   try {
-    return verifier.verify(key, authJoseToDerEs256(Buffer.from(sigB64, 'base64url')))
+    return verifier.verify(key, joseToDerEs256(Buffer.from(sigB64, 'base64url')))
   } catch {
     return false
   }
 }
 
-export function authDerToJoseEs256(der: Buffer): Buffer {
+export function derToJoseEs256(der: Buffer): Buffer {
   const halfLen = 32
   if (der[0] !== 0x30) throw new Error('ES256 sig: not a DER sequence')
   let offset = 2
@@ -42,7 +42,7 @@ export function authDerToJoseEs256(der: Buffer): Buffer {
   return Buffer.concat([Buffer.alloc(halfLen - r.length), r, Buffer.alloc(halfLen - s.length), s])
 }
 
-export function authJoseToDerEs256(raw: Buffer): Buffer {
+export function joseToDerEs256(raw: Buffer): Buffer {
   const halfLen = 32
   if (raw.length !== halfLen * 2) throw new Error('ES256 sig: bad length')
   let r = raw.subarray(0, halfLen)

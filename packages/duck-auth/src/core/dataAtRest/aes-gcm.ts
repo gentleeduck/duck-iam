@@ -10,7 +10,7 @@ import type { DataAtRest } from '../types/infra'
  *
  * Ciphertext layout: `aes-256-gcm$<kid>$<ivB64u>$<tagB64u>$<ctB64u>`.
  */
-export class AuthAesGcmDataAtRest implements DataAtRest.IAdapter {
+export class AuthAesGcmDataAtRest implements DataAtRest.Adapter {
   readonly id = 'aes-256-gcm'
   private readonly _currentKid: string
   /** Map of kid -> 32-byte master key. Includes the current key + every
@@ -33,13 +33,13 @@ export class AuthAesGcmDataAtRest implements DataAtRest.IAdapter {
     }
   }
 
-  private _derive(masterKey: Buffer, ctx: DataAtRest.IContext): Buffer {
+  private _derive(masterKey: Buffer, ctx: DataAtRest.Context): Buffer {
     // DEK = sha256(masterKey || identityId || field); deterministic, so
     // each encrypt samples a fresh 12-byte IV (GCM birthday bound ~2^48).
     return createHash('sha256').update(masterKey).update(ctx.identityId).update(ctx.field).digest()
   }
 
-  async encrypt(plain: string, ctx: DataAtRest.IContext): Promise<string> {
+  async encrypt(plain: string, ctx: DataAtRest.Context): Promise<string> {
     const masterKey = this._keys.get(this._currentKid)
     if (!masterKey) {
       throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: current key missing from ring' })
@@ -58,7 +58,7 @@ export class AuthAesGcmDataAtRest implements DataAtRest.IAdapter {
     return `aes-256-gcm$${this._currentKid}$${iv.toString('base64url')}$${tag.toString('base64url')}$${ct.toString('base64url')}`
   }
 
-  async decrypt(cipherText: string, ctx: DataAtRest.IContext): Promise<string> {
+  async decrypt(cipherText: string, ctx: DataAtRest.Context): Promise<string> {
     if (typeof cipherText !== 'string' || cipherText.length === 0 || cipherText.length > 1_048_576) {
       throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: ciphertext must be a 1B-1MiB string' })
     }

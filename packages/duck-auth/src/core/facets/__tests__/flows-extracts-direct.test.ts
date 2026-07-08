@@ -9,13 +9,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
+import type { Identity } from '../../types/identity'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../flows/account-deletion'
 import { completeEmailVerification, requestEmailVerification } from '../flows/email-verification'
 import { impersonate, releaseImpersonation } from '../flows/impersonate'

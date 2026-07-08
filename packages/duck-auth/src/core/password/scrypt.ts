@@ -2,6 +2,21 @@ import { scrypt as nodeScrypt, randomBytes, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 import type { Hasher } from '../types/infra'
 
+export namespace ScryptHasher {
+  export type Params = {
+    /** CPU/memory cost (must be a power of two). Default 2^17 = 131072. */
+    N: number
+    /** Block size. Default 8. */
+    r: number
+    /** Parallelisation. Default 1. */
+    p: number
+    /** Derived-key length, bytes. Default 64. */
+    keylen: number
+    /** Salt length, bytes. Default 16. */
+    saltLen: number
+  }
+}
+
 const scryptAsync = promisify(nodeScrypt) as (
   password: string,
   salt: Buffer,
@@ -10,7 +25,7 @@ const scryptAsync = promisify(nodeScrypt) as (
 ) => Promise<Buffer>
 
 /** Default parameters tuned for ~150 ms on a 2022-class server CPU. */
-export const SCRYPT_DEFAULTS: AuthScryptHasher.IScryptParams = {
+export const SCRYPT_DEFAULTS: ScryptHasher.Params = {
   N: 1 << 17,
   r: 8,
   p: 1,
@@ -46,11 +61,11 @@ function parse(encoded: string): { N: number; r: number; p: number; salt: Buffer
 }
 
 /** AuthScryptHasher - built into Node, zero deps; v0.1 default. Swap for Argon2id for compliance presets. */
-export class AuthScryptHasher implements Hasher.IHasher {
+export class ScryptHasher implements Hasher.IHasher {
   readonly id = 'scrypt'
-  private readonly _params: AuthScryptHasher.IScryptParams
+  private readonly _params: ScryptHasher.Params
 
-  constructor(params: Partial<AuthScryptHasher.IScryptParams> = {}) {
+  constructor(params: Partial<ScryptHasher.Params> = {}) {
     this._params = { ...SCRYPT_DEFAULTS, ...params }
   }
 
@@ -91,20 +106,5 @@ export class AuthScryptHasher implements Hasher.IHasher {
       parsed.p < this._params.p ||
       parsed.key.length < this._params.keylen
     )
-  }
-}
-
-export namespace AuthScryptHasher {
-  export interface IScryptParams {
-    /** CPU/memory cost (must be a power of two). Default 2^17 = 131072. */
-    N: number
-    /** Block size. Default 8. */
-    r: number
-    /** Parallelisation. Default 1. */
-    p: number
-    /** Derived-key length, bytes. Default 64. */
-    keylen: number
-    /** Salt length, bytes. Default 16. */
-    saltLen: number
   }
 }

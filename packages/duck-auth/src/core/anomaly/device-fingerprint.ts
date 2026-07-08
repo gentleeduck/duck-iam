@@ -72,7 +72,7 @@ function expandIpv6(addr: string): string {
  * (identity, fingerprint) pair the detector emits a single signal
  * with the configured score; subsequent sightings emit nothing.
  */
-export function deviceFingerprintDetector(cfg: AuthDeviceFingerprint.IConfig): Anomaly.IDetector {
+export function deviceFingerprintDetector(cfg: AuthDeviceFingerprint.IConfig): Anomaly.Detector {
   const score = cfg.score ?? 0.7
   if (!Number.isFinite(score) || score < 0 || score > 1) {
     throw new Error(`deviceFingerprintDetector: score must be a finite number in [0, 1] (got ${score})`)

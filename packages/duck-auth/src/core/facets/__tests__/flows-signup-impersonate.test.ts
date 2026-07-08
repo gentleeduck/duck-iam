@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
 
-interface MyProfile {
+interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
   emailVerified?: boolean
   name?: string
@@ -136,9 +137,9 @@ describe('FlowsFacet - impersonation', () => {
 
   beforeEach(async () => {
     ;({ auth } = buildAuth())
-    const admin = await auth.identities.create({ profile: { email: 'admin@x.com' } })
+    const admin = await auth.identities.create({ profile: { username: 'admin@x.com', email: 'admin@x.com' } })
     adminId = admin.id
-    const target = await auth.identities.create({ profile: { email: 'target@x.com' } })
+    const target = await auth.identities.create({ profile: { username: 'target@x.com', email: 'target@x.com' } })
     targetId = target.id
     const created = await auth.sessions.create({
       identityId: admin.id,

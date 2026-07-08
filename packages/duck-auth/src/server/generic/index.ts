@@ -1,8 +1,8 @@
 import { AuthError } from '../../core/errors'
-import type { AuthProvider } from '../../core/types/provider'
+import type { Provider } from '../../core/types/provider'
 
-/** Web-Fetch executor: turn `AuthProvider.Intent[]` into a `Response`. */
-export function executeIntents(intents: AuthProvider.Intent[], baseStatus = 200): Response {
+/** Web-Fetch executor: turn `Provider.Intent[]` into a `Response`. */
+export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Response {
   let status = baseStatus
   let body: string | null = null
   const headers = new Headers()

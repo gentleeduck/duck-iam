@@ -4,12 +4,12 @@ import type { Kms } from '../../types/infra'
 import { AuthKmsEnvelopeDataAtRest } from '../kms-envelope'
 
 /** In-memory KMS that mimics AWS encryption-context semantics. */
-function makeFakeKms(): Kms.IProvider & {
+function makeFakeKms(): Kms.Provider & {
   generateDataKey: ReturnType<typeof vi.fn>
   decryptDataKey: ReturnType<typeof vi.fn>
 } {
-  const wraps = new Map<string, { plaintext: Uint8Array; ctx: Kms.IEncryptionContext | undefined }>()
-  const generateDataKey = vi.fn(async (ctx?: Kms.IEncryptionContext): Promise<Kms.IDataKey> => {
+  const wraps = new Map<string, { plaintext: Uint8Array; ctx: Kms.EncryptionContext | undefined }>()
+  const generateDataKey = vi.fn(async (ctx?: Kms.EncryptionContext): Promise<Kms.DataKey> => {
     const plaintext = new Uint8Array(randomBytes(32))
     const handle = randomBytes(16).toString('hex')
     wraps.set(handle, { plaintext: new Uint8Array(plaintext), ctx })
@@ -19,7 +19,7 @@ function makeFakeKms(): Kms.IProvider & {
       plaintext,
     }
   })
-  const decryptDataKey = vi.fn(async (wrapped: Uint8Array, ctx?: Kms.IEncryptionContext): Promise<Uint8Array> => {
+  const decryptDataKey = vi.fn(async (wrapped: Uint8Array, ctx?: Kms.EncryptionContext): Promise<Uint8Array> => {
     const handle = Buffer.from(wrapped).toString('utf8')
     const entry = wraps.get(handle)
     if (!entry) throw new Error('fake-kms: unknown ciphertext blob')
@@ -59,7 +59,7 @@ describe('AuthKmsEnvelopeDataAtRest', () => {
   })
 
   it('rejects wrong DEK size from KMS', async () => {
-    const badKms: Kms.IProvider = {
+    const badKms: Kms.Provider = {
       decryptDataKey: async () => new Uint8Array(16),
       generateDataKey: async () => ({
         ciphertext: new Uint8Array([1]),

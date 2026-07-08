@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { randomToken, sha256 } from '../../crypto'
 import { RememberMeFacet } from '../remember-me'
@@ -11,7 +12,7 @@ describe('AuthRememberMeFacet', () => {
   beforeEach(async () => {
     adapter = new MemoryAdapter()
     facet = new RememberMeFacet(adapter.credentials, { authRandomToken: randomToken, authSha256: sha256 })
-    const ident = await adapter.identities.create({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }, {})
+    const ident = await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
     identityId = ident.id
   })
 
@@ -46,7 +47,7 @@ describe('AuthRememberMeFacet', () => {
 
   it('revoke is a no-op when (identityId, credentialId) ownership does not match', async () => {
     const otherIdentity = await adapter.identities.create(
-      { profile: { email: 'other@x.com', username: 'other' }, providers: [] },
+      identityInput({ profile: { email: 'other@x.com', username: 'other' }, providers: [] }),
       {},
     )
     const { token, credentialId } = await facet.issue(identityId)
@@ -75,12 +76,12 @@ describe('AuthRememberMeFacet', () => {
     // does not accept it as a trusted device.
     const token = randomToken(32)
     await adapter.credentials.upsert(
-      {
+      credentialInput({
         identityId,
         kind: 'recovery',
         secret: sha256(token),
         metadata: { purpose: 'email-verification' },
-      },
+      }),
       {},
     )
     expect(await facet.verify(token)).toBeNull()

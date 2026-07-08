@@ -270,7 +270,7 @@ export namespace AuthCaptcha {
     success: boolean
     /** Score 0..1 (reCAPTCHA v3); undefined for boolean providers. */
     score?: number
-    /** AuthProvider-side error tokens (`'invalid-input-secret'`, etc.). */
+    /** Provider-side error tokens (`'invalid-input-secret'`, etc.). */
     errorCodes?: string[]
   }
 }

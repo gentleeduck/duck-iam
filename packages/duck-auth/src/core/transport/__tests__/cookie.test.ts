@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AuthCookieTransport } from '../cookie'
+import { CookieTransport } from '../cookie'
 
 function withCookie(value: string): { headers: Headers } {
   return { headers: new Headers({ cookie: value }) }
@@ -7,30 +7,30 @@ function withCookie(value: string): { headers: Headers } {
 
 describe('AuthCookieTransport - construction invariants', () => {
   it('defaults cookie name to `__Host-duck-sid` when no domain is set', () => {
-    const t = new AuthCookieTransport({})
+    const t = new CookieTransport({})
     expect(t.cookieName).toBe('__Host-duck-sid')
   })
 
   it('defaults to `duck-sid` when a domain is supplied', () => {
-    const t = new AuthCookieTransport({ domain: 'app.example.com' })
+    const t = new CookieTransport({ domain: 'app.example.com' })
     expect(t.cookieName).toBe('duck-sid')
   })
 
   it('rejects __Host- prefix with a Domain attribute', () => {
-    expect(() => new AuthCookieTransport({ name: '__Host-mine', domain: 'x.com' })).toThrow(/__Host-/)
+    expect(() => new CookieTransport({ name: '__Host-mine', domain: 'x.com' })).toThrow(/__Host-/)
   })
 
   it('rejects __Host- prefix with non-root Path', () => {
-    expect(() => new AuthCookieTransport({ name: '__Host-mine', path: '/api' })).toThrow(/Path=\//)
+    expect(() => new CookieTransport({ name: '__Host-mine', path: '/api' })).toThrow(/Path=\//)
   })
 
   it('rejects __Host- prefix with secure:false', () => {
-    expect(() => new AuthCookieTransport({ name: '__Host-mine', secure: false })).toThrow(/Secure=true/)
+    expect(() => new CookieTransport({ name: '__Host-mine', secure: false })).toThrow(/Secure=true/)
   })
 })
 
 describe('AuthCookieTransport.extract - happy path', () => {
-  const t = new AuthCookieTransport({ secure: false, name: 'duck-sid' })
+  const t = new CookieTransport({ secure: false, name: 'duck-sid' })
 
   it('returns the cookie value when present', () => {
     expect(t.extract(withCookie('duck-sid=abc123'))).toBe('abc123')
@@ -56,7 +56,7 @@ describe('AuthCookieTransport.extract - happy path', () => {
 })
 
 describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
-  const t = new AuthCookieTransport({ secure: false, name: 'duck-sid' })
+  const t = new CookieTransport({ secure: false, name: 'duck-sid' })
 
   it('returns null on malformed percent-encoding (would otherwise throw URIError -> DoS crash)', () => {
     // `decodeURIComponent('%g0')` throws URIError. Previously this
@@ -106,22 +106,22 @@ describe('AuthCookieTransport.extract - SEC: hardened parser', () => {
 
   describe('cookie name validation at construction', () => {
     it('rejects a cookie name with whitespace (RFC 6265 token)', () => {
-      expect(() => new AuthCookieTransport({ secure: false, name: 'duck sid' })).toThrow(/RFC 6265/)
+      expect(() => new CookieTransport({ secure: false, name: 'duck sid' })).toThrow(/RFC 6265/)
     })
     it('rejects a cookie name with semicolon', () => {
-      expect(() => new AuthCookieTransport({ secure: false, name: 'duck;sid' })).toThrow(/RFC 6265/)
+      expect(() => new CookieTransport({ secure: false, name: 'duck;sid' })).toThrow(/RFC 6265/)
     })
     it('rejects a cookie name with equals sign', () => {
-      expect(() => new AuthCookieTransport({ secure: false, name: 'duck=sid' })).toThrow(/RFC 6265/)
+      expect(() => new CookieTransport({ secure: false, name: 'duck=sid' })).toThrow(/RFC 6265/)
     })
     it('rejects an empty cookie name', () => {
-      expect(() => new AuthCookieTransport({ secure: false, name: '' })).toThrow(/non-empty string/)
+      expect(() => new CookieTransport({ secure: false, name: '' })).toThrow(/non-empty string/)
     })
     it('accepts the default duck-sid name', () => {
-      expect(() => new AuthCookieTransport({ secure: false, name: 'duck-sid' })).not.toThrow()
+      expect(() => new CookieTransport({ secure: false, name: 'duck-sid' })).not.toThrow()
     })
     it('accepts the __Host-duck-sid name', () => {
-      expect(() => new AuthCookieTransport({ secure: true, name: '__Host-duck-sid' })).not.toThrow()
+      expect(() => new CookieTransport({ secure: true, name: '__Host-duck-sid' })).not.toThrow()
     })
   })
 })

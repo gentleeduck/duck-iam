@@ -1,13 +1,13 @@
 import { createPublicKey } from 'node:crypto'
 import { isExpiredAt } from '../credential-utils'
-import { RandomToken, sha256 } from '../crypto'
+import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
-import type { AuthProvider } from '../types/provider'
+import type { Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
-import { authSignEddsa, authVerifyEddsa } from './jwt-algs/eddsa'
-import { authSignEs256, authVerifyEs256 } from './jwt-algs/es256'
-import { authSignHs256, authVerifyHs256 } from './jwt-algs/hs256'
-import { authSignRs256, authVerifyRs256 } from './jwt-algs/rs256'
+import { signEddsa, verifyEddsa } from './jwt-algs/eddsa'
+import { signEs256, verifyEs256 } from './jwt-algs/es256'
+import { signHs256, verifyHs256 } from './jwt-algs/hs256'
+import { signRs256, verifyRs256 } from './jwt-algs/rs256'
 
 /**
  * `AuthJwtTransport` - stateless transport (edge / serverless) backed by `node:crypto`.
@@ -63,26 +63,26 @@ function base64urlDecode(s: string): string {
 function jwsSign(alg: AuthJwtTransport.IJwtAlg, key: string, signingInput: string): string {
   switch (alg) {
     case 'HS256':
-      return authSignHs256(key, signingInput)
+      return signHs256(key, signingInput)
     case 'RS256':
-      return authSignRs256(key, signingInput)
+      return signRs256(key, signingInput)
     case 'EdDSA':
-      return authSignEddsa(key, signingInput)
+      return signEddsa(key, signingInput)
     case 'ES256':
-      return authSignEs256(key, signingInput)
+      return signEs256(key, signingInput)
   }
 }
 
 function jwsVerify(alg: AuthJwtTransport.IJwtAlg, key: string, signingInput: string, sigB64: string): boolean {
   switch (alg) {
     case 'HS256':
-      return authVerifyHs256(key, signingInput, sigB64)
+      return verifyHs256(key, signingInput, sigB64)
     case 'RS256':
-      return authVerifyRs256(key, signingInput, sigB64)
+      return verifyRs256(key, signingInput, sigB64)
     case 'EdDSA':
-      return authVerifyEddsa(key, signingInput, sigB64)
+      return verifyEddsa(key, signingInput, sigB64)
     case 'ES256':
-      return authVerifyEs256(key, signingInput, sigB64)
+      return verifyEs256(key, signingInput, sigB64)
   }
 }
 
@@ -270,7 +270,7 @@ export class AuthJwtTransport implements Transport.ITransport {
    * cookie. The plaintext SID is used as the refresh cookie value so
    * the framework adapter can read it back at refresh time.
    */
-  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): AuthProvider.Intent[] {
+  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): Provider.Intent[] {
     const now = Math.floor(Date.now() / 1000)
     const sessionExpiresMs =
       session.expiresAt instanceof Date ? session.expiresAt.getTime() : (session.expiresAt as number)
@@ -297,8 +297,8 @@ export class AuthJwtTransport implements Transport.ITransport {
         (session.rotatedAt instanceof Date ? session.rotatedAt.getTime() : (session.rotatedAt as number)) / 1000,
       ),
       ...(this._cfg.audience !== undefined && { aud: this._cfg.audience }),
-      ...(session.tenantId !== undefined && { tid: session.tenantId }),
-      ...(session.actingAs !== undefined && {
+      ...(session.tenantId != null && { tid: session.tenantId }),
+      ...(session.actingAs != null && {
         acting_as: {
           ...session.actingAs,
           startedAt: Math.floor(
@@ -321,7 +321,7 @@ export class AuthJwtTransport implements Transport.ITransport {
     const sig = jwsSign(signAlg, this._signKey.key, signingInput)
     const jwt = `${signingInput}.${sig}`
 
-    const intents: AuthProvider.Intent[] = [
+    const intents: Provider.Intent[] = [
       {
         type: 'json',
         status: 200,
@@ -347,7 +347,7 @@ export class AuthJwtTransport implements Transport.ITransport {
   }
 
   /** Revoke the refresh cookie (when in use); no-op for the stateless JWT. */
-  revoke(): AuthProvider.Intent[] {
+  revoke(): Provider.Intent[] {
     if (!this._refreshEnabled) {
       return [{ type: 'json', status: 200, body: { revoked: true } }]
     }
@@ -410,16 +410,21 @@ export class AuthJwtTransport implements Transport.ITransport {
     const session: Session.Me = {
       id: payload.sid,
       identityId: payload.sub,
+      tenantId: payload.tid ?? null,
       kind: payload.knd ?? (payload.sub ? 'user' : 'guest'),
       aal: payload.aal,
       factors: payload.factors.map((m) => ({ method: m, completedAt: completedAtDate })),
+      csrfHash: null,
+      ip: null,
+      userAgent: null,
+      fingerprint: null,
       createdAt: new Date(payload.iat * 1000),
       rotatedAt: new Date(rotatedAtMs),
       expiresAt: new Date(payload.exp * 1000),
       absoluteExpiresAt: new Date(payload.exp * 1000),
       fresh: Date.now() - rotatedAtMs < this._freshnessMs,
+      actingAs: null,
     }
-    if (payload.tid !== undefined) session.tenantId = payload.tid
     if (payload.acting_as !== undefined) {
       const aa = payload.acting_as
       session.actingAs = {
@@ -461,7 +466,7 @@ export class AuthJwtTransport implements Transport.ITransport {
    * Mint a fresh JWT from a session without rotating the SID. Used by
    * refresh endpoints after verifying the refresh cookie.
    */
-  static mintFresh(transport: AuthJwtTransport, sid: string, session: Session.Me): AuthProvider.Intent[] {
+  static mintFresh(transport: AuthJwtTransport, sid: string, session: Session.Me): Provider.Intent[] {
     return transport.issue(sid, session, { fresh: true, absolute: false })
   }
 
@@ -510,7 +515,7 @@ export class AuthJwtTransport implements Transport.ITransport {
 }
 
 // Re-export for parity with cookie/bearer transports.
-export { RandomToken as authRandomToken, sha256 as authSha256 }
+export { randomToken as authRandomToken, sha256 as authSha256 }
 
 export namespace AuthJwtTransport {
   export interface IConfig {

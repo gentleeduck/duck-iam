@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
+import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { AuthEngine } from '../../engine'
@@ -6,7 +8,7 @@ import { ScryptHasher } from '../../password/scrypt'
 import { AuthJwtTransport } from '../../transport/jwt'
 import { M2MFacet } from '../m2m'
 
-interface MyProfile {
+interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
 }
 
@@ -41,7 +43,7 @@ describe('M2MFacet - client_credentials grant', () => {
 
   beforeEach(async () => {
     env = build()
-    const ident = await env.adapter.identities.create({ profile: { email: 'svc@app.test' }, providers: [] }, {})
+    const ident = await env.adapter.identities.create(identityInput({ profile: { username: 'svc@app.test', email: 'svc@app.test' }, providers: [] }), {})
     identityId = ident.id
     const created = await env.auth.apiKeys.create(ident.id, {
       name: 'ci-runner',

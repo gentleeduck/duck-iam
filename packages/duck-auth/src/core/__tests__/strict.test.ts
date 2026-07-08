@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { Identity } from '../types/identity'
 import { MemoryAdapter } from '../../adapters/memory'
 import { AuthMemoryLimiter } from '../../limiters/memory'
 import { AuthEngine } from '../engine'
-import { AuthCookieTransport } from '../transport/cookie'
+import { CookieTransport } from '../transport/cookie'
 
-interface MyProfile {
+interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
 }
 
@@ -26,7 +27,7 @@ function makeAuth(
   }
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app.example.com',
-    transport: new AuthCookieTransport({ secure: o.secureCookie, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: o.secureCookie, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
@@ -112,10 +113,10 @@ describe('AuthEngine.strict()', () => {
 
     it('rejects an explicitly-passed AuthNoopLimiter (not just missing limiter)', async () => {
       const adapter = new MemoryAdapter<MyProfile>()
-      const { AuthNoopLimiter } = await import('../engine')
+      const { NoopLimiter: AuthNoopLimiter } = await import('../engine')
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'https://app.example.com',
-        transport: new AuthCookieTransport({ secure: true, name: 'duck-sid' }),
+        transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
         stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
         limiter: new AuthNoopLimiter(),
         providers: [
@@ -159,7 +160,7 @@ describe('AuthEngine.strict()', () => {
       const adapter = new MemoryAdapter<MyProfile>()
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'http://app.example.com',
-        transport: new AuthCookieTransport({ secure: true, name: 'duck-sid' }),
+        transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
         stores: {
           identities: adapter.identities,
           sessions: adapter.sessions,

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
+import type { Identity } from '../../types/identity'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { sha256 } from '../../crypto'
@@ -6,7 +8,7 @@ import { AuthEngine } from '../../engine'
 import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
 
-interface ProfileShape {
+interface ProfileShape extends Identity.ProfileMetadataBase {
   email: string
   emailVerified?: boolean
 }
@@ -34,13 +36,13 @@ async function plantFlowRow(
 ): Promise<string> {
   const token = 'tampered-token'
   await adapter.credentials.upsert(
-    {
+    credentialInput({
       identityId,
       kind: 'recovery',
       secret: sha256(token),
       metadata: metadata as Record<string, unknown>,
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-    },
+    }),
     {},
   )
   return token
@@ -55,7 +57,7 @@ describe('flows signup - tampered flow metadata', () => {
     const built = build()
     auth = built.auth
     adapter = built.adapter
-    const ident = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
+    const ident = await adapter.identities.create(identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }), {})
     identityId = ident.id
   })
 

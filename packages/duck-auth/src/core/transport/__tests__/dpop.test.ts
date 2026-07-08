@@ -1,16 +1,16 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthDPoPVerifier, AuthMemoryDPoPNonceStore, authBindPayloadToDPoP, authComputeJwkThumbprint } from '../dpop'
+import { bindPayloadToDPoP, computeJwkThumbprint, DPoPVerifier, MemoryDPoPNonceStore } from '../dpop'
 
 interface KeyPair {
-  publicJwk: AuthDPoPVerifier.IJsonWebKey
+  publicJwk: DPoPVerifier.JsonWebKey
   privateKey: KeyObject
 }
 
 function generateES256KeyPair(): KeyPair {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
   return {
-    publicJwk: publicKey.export({ format: 'jwk' }) as AuthDPoPVerifier.IJsonWebKey,
+    publicJwk: publicKey.export({ format: 'jwk' }) as DPoPVerifier.JsonWebKey,
     privateKey,
   }
 }
@@ -40,13 +40,13 @@ function authDerToJoseEs256(der: Buffer): Buffer {
   return Buffer.concat([rPad, sPad])
 }
 
-function mintDpopProof(kp: KeyPair, claims: Partial<AuthDPoPVerifier.IClaims> & { htm: string; htu: string }): string {
+function mintDpopProof(kp: KeyPair, claims: Partial<DPoPVerifier.Claims> & { htm: string; htu: string }): string {
   const header = {
     alg: 'ES256',
     typ: 'dpop+jwt',
     jwk: kp.publicJwk,
   }
-  const payload: AuthDPoPVerifier.IClaims = {
+  const payload: DPoPVerifier.Claims = {
     jti: 'jti-' + Math.random().toString(36).slice(2),
     htm: claims.htm,
     htu: claims.htu,
@@ -66,11 +66,11 @@ function mintDpopProof(kp: KeyPair, claims: Partial<AuthDPoPVerifier.IClaims> & 
 }
 
 describe('AuthDPoPVerifier', () => {
-  let verifier: AuthDPoPVerifier
+  let verifier: DPoPVerifier
   let kp: KeyPair
 
   beforeEach(() => {
-    verifier = new AuthDPoPVerifier()
+    verifier = new DPoPVerifier()
     kp = generateES256KeyPair()
   })
 
@@ -80,7 +80,7 @@ describe('AuthDPoPVerifier', () => {
       method: 'POST',
       url: 'https://api.test/resource',
     })
-    expect(result.jkt).toBe(authComputeJwkThumbprint(kp.publicJwk))
+    expect(result.jkt).toBe(computeJwkThumbprint(kp.publicJwk))
   })
 
   it('rejects when htm differs from request method', async () => {
@@ -196,7 +196,7 @@ describe('AuthDPoPVerifier', () => {
   })
 
   it('enforces expectedNonce when configured (RFC 9449 §8/9)', async () => {
-    const v = new AuthDPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'wrong-nonce' })
     await expect(v.verify(proof, { method: 'GET', url: 'https://api.test/x' })).rejects.toMatchObject({
       code: 'AUTH_DPOP_INVALID',
@@ -205,7 +205,7 @@ describe('AuthDPoPVerifier', () => {
   })
 
   it('passes when proof nonce matches expectedNonce', async () => {
-    const v = new AuthDPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
     const proof = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'srv-nonce-1' })
     const r = await v.verify(proof, { method: 'GET', url: 'https://api.test/x' })
     expect(r.jkt).toBeTruthy()
@@ -213,7 +213,7 @@ describe('AuthDPoPVerifier', () => {
 
   it('expectedNonce thunk lets ops rotate the challenge', async () => {
     let nonce = 'srv-nonce-old'
-    const v = new AuthDPoPVerifier({ expectedNonce: () => nonce })
+    const v = new DPoPVerifier({ expectedNonce: () => nonce })
     const proof1 = mintDpopProof(kp, { htm: 'GET', htu: 'https://api.test/x', nonce: 'srv-nonce-old' })
     await expect(v.verify(proof1, { method: 'GET', url: 'https://api.test/x' })).resolves.toBeDefined()
     // Rotate the nonce server-side; the old one no longer satisfies.
@@ -313,7 +313,7 @@ describe('AuthDPoPVerifier', () => {
   })
 
   it('rejects a proof whose nonce is a non-string', async () => {
-    const v = new AuthDPoPVerifier({ expectedNonce: 'srv-nonce-1' })
+    const v = new DPoPVerifier({ expectedNonce: 'srv-nonce-1' })
     const proof = mintWithRawClaims({
       jti: 'jti-obj-nonce',
       htm: 'GET',
@@ -347,26 +347,26 @@ describe('AuthDPoPVerifier', () => {
 
 describe('authComputeJwkThumbprint', () => {
   it('is deterministic across calls with the same JWK', () => {
-    const jwk: AuthDPoPVerifier.IJsonWebKey = {
+    const jwk: DPoPVerifier.JsonWebKey = {
       kty: 'EC',
       crv: 'P-256',
       x: 'f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU',
       y: 'x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0',
     }
-    const a = authComputeJwkThumbprint(jwk)
-    const b = authComputeJwkThumbprint(jwk)
+    const a = computeJwkThumbprint(jwk)
+    const b = computeJwkThumbprint(jwk)
     expect(a).toBe(b)
     expect(a).toMatch(/^[A-Za-z0-9_-]+$/)
   })
 
   it('ignores property order in the input JWK (canonical EC ordering)', () => {
-    const a = authComputeJwkThumbprint({
+    const a = computeJwkThumbprint({
       kty: 'EC',
       crv: 'P-256',
       x: 'X',
       y: 'Y',
     })
-    const b = authComputeJwkThumbprint({
+    const b = computeJwkThumbprint({
       y: 'Y',
       crv: 'P-256',
       x: 'X',
@@ -376,27 +376,27 @@ describe('authComputeJwkThumbprint', () => {
   })
 
   it('refuses unsupported kty', () => {
-    expect(() => authComputeJwkThumbprint({ kty: 'OCT' as unknown as 'EC' })).toThrow()
+    expect(() => computeJwkThumbprint({ kty: 'OCT' as unknown as 'EC' })).toThrow()
   })
 })
 
 describe('authBindPayloadToDPoP', () => {
   it('appends cnf.jkt to a payload object without mutating other claims', () => {
     const payload = { sub: 'user-1', aud: 'app' }
-    const bound = authBindPayloadToDPoP(payload, 'jkt-1')
+    const bound = bindPayloadToDPoP(payload, 'jkt-1')
     expect(bound).toEqual({ sub: 'user-1', aud: 'app', cnf: { jkt: 'jkt-1' } })
   })
 })
 
 describe('AuthMemoryDPoPNonceStore', () => {
   it('recordSeen returns true once, false on replay', async () => {
-    const store = new AuthMemoryDPoPNonceStore()
+    const store = new MemoryDPoPNonceStore()
     expect(await store.recordSeen('jti-1', 60_000)).toBe(true)
     expect(await store.recordSeen('jti-1', 60_000)).toBe(false)
   })
 
   it('expired entries free up the jti for reuse', async () => {
-    const store = new AuthMemoryDPoPNonceStore()
+    const store = new MemoryDPoPNonceStore()
     await store.recordSeen('jti-1', 10)
     await new Promise((r) => setTimeout(r, 15))
     expect(await store.recordSeen('jti-1', 60_000)).toBe(true)
@@ -407,7 +407,7 @@ describe('AuthMemoryDPoPNonceStore', () => {
     // turning each call under load into an O(N) sweep. With the
     // insertion-order break-on-non-expired loop, a typical call walks
     // only the freshly-expired prefix.
-    const store = new AuthMemoryDPoPNonceStore()
+    const store = new MemoryDPoPNonceStore()
     // Seed 10k entries with the SAME short TTL - uniform TTL is the
     // contract under which the early-break is correct.
     for (let i = 0; i < 10_000; i++) {
@@ -431,7 +431,7 @@ describe('AuthMemoryDPoPNonceStore', () => {
   it('stops pruning at the first non-expired entry (does not touch fresh entries)', async () => {
     // Construct: 3 fresh entries first, then attempt prune - the loop
     // must NOT delete them.
-    const store = new AuthMemoryDPoPNonceStore()
+    const store = new MemoryDPoPNonceStore()
     await store.recordSeen('fresh-1', 60_000)
     await store.recordSeen('fresh-2', 60_000)
     await store.recordSeen('fresh-3', 60_000)

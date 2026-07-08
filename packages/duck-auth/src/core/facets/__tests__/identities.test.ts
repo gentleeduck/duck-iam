@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
-import { InMemoryEvents } from '../../events'
 import { credentialInput, sessionInput } from '../../../test/store-inputs'
+import { InMemoryEvents } from '../../events'
 import type { Identity } from '../../types/identity'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../identities'
 
@@ -32,7 +32,10 @@ describe('IdentitiesFacet', () => {
     })
 
     it('respects tenantId scoping (findByEmail in tenant A misses tenant B)', async () => {
-      await facet.create({ profile: { username: 'shared@x.com', email: 'shared@x.com' }, tenantId: 'A' }, { tenantId: 'A' })
+      await facet.create(
+        { profile: { username: 'shared@x.com', email: 'shared@x.com' }, tenantId: 'A' },
+        { tenantId: 'A' },
+      )
       const inB = await facet.getByEmail('shared@x.com', { tenantId: 'B' })
       expect(inB).toBeNull()
     })
@@ -60,7 +63,11 @@ describe('IdentitiesFacet', () => {
         softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
         profileMaxBytes: 32,
       })
-      await expect(tight.create({ profile: { username: 'long-name-over-32-bytes@example.com', email: 'long-name-over-32-bytes@example.com' } })).rejects.toMatchObject({
+      await expect(
+        tight.create({
+          profile: { username: 'long-name-over-32-bytes@example.com', email: 'long-name-over-32-bytes@example.com' },
+        }),
+      ).rejects.toMatchObject({
         code: 'AUTH_MISCONFIGURED',
       })
     })
@@ -218,7 +225,10 @@ describe('IdentitiesFacet', () => {
   describe('bulkCreate', () => {
     it('skipExisting (default) leaves duplicates alone', async () => {
       await facet.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
-      const r = await facet.bulkCreate([{ profile: { username: 'a@x.com', email: 'a@x.com' } }, { profile: { username: 'b@x.com', email: 'b@x.com' } }])
+      const r = await facet.bulkCreate([
+        { profile: { username: 'a@x.com', email: 'a@x.com' } },
+        { profile: { username: 'b@x.com', email: 'b@x.com' } },
+      ])
       expect(r).toEqual({ created: 1, skipped: 1, failed: 0 })
     })
 
@@ -279,19 +289,21 @@ describe('IdentitiesFacet', () => {
     it('includes sessions when sessions store supplied; strips csrfHash', async () => {
       const i = await facet.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
       const now = Date.now()
-      await adapter.sessions.create(sessionInput({
-        id: 'sid-hash-1',
-        identityId: i.id,
-        kind: 'user',
-        aal: 2,
-        factors: [{ method: 'password', completedAt: new Date(now) }],
-        csrfHash: 'redact-me',
-        createdAt: new Date(now),
-        rotatedAt: new Date(now),
-        expiresAt: new Date(now + 60_000),
-        absoluteExpiresAt: new Date(now + 60_000),
-        fresh: true,
-      }))
+      await adapter.sessions.create(
+        sessionInput({
+          id: 'sid-hash-1',
+          identityId: i.id,
+          kind: 'user',
+          aal: 2,
+          factors: [{ method: 'password', completedAt: new Date(now) }],
+          csrfHash: 'redact-me',
+          createdAt: new Date(now),
+          rotatedAt: new Date(now),
+          expiresAt: new Date(now + 60_000),
+          absoluteExpiresAt: new Date(now + 60_000),
+          fresh: true,
+        }),
+      )
       const blob = await facet.exportAll(i.id, adapter.credentials, {}, { sessions: adapter.sessions })
       expect(blob.sessions).toHaveLength(1)
       expect(blob.sessions[0]).not.toHaveProperty('csrfHash')

@@ -6,5 +6,5 @@
  */
 export type { Credential, Identity, Org } from './identity'
 export type { Channel, DataAtRest, Hasher, Idempotency, Kms, Limiter, TenantContext } from './infra'
-export type { Anomaly, AuthProvider, Events } from './provider'
+export type { Anomaly, Events, Provider } from './provider'
 export type { AuthError, Envelope, Session, Transport } from './session'

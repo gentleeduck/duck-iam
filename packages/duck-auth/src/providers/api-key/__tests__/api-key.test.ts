@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
@@ -40,7 +41,7 @@ describe('api-key provider', () => {
   beforeEach(async () => {
     env = buildContext()
     const ident = await env.adapter.identities.create(
-      { profile: { email: 'svc@x.com', username: 'svc' }, providers: [] },
+      identityInput({ profile: { email: 'svc@x.com', username: 'svc' }, providers: [] }),
       {},
     )
     identityId = ident.id
@@ -132,7 +133,7 @@ describe('api-key provider', () => {
       const events = new InMemoryEvents()
       const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
-        { profile: { email: 't1@x.com', username: 't1' }, providers: [] },
+        identityInput({ profile: { email: 't1@x.com', username: 't1' }, providers: [] }),
         { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {
@@ -163,7 +164,7 @@ describe('api-key provider', () => {
       const events = new InMemoryEvents()
       const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
-        { profile: { email: 't2@x.com', username: 't2' }, providers: [] },
+        identityInput({ profile: { email: 't2@x.com', username: 't2' }, providers: [] }),
         { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {
@@ -194,7 +195,7 @@ describe('api-key provider', () => {
       const events = new InMemoryEvents()
       const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
-        { profile: { email: 't3@x.com', username: 't3' }, providers: [] },
+        identityInput({ profile: { email: 't3@x.com', username: 't3' }, providers: [] }),
         { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {

@@ -1,4 +1,4 @@
-import { RandomToken, sha256, timingSafeEqual } from '../crypto'
+import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { InMemoryEvents } from '../events'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../facets/anomaly'
@@ -13,8 +13,8 @@ import { OrgsFacet } from '../facets/orgs'
 import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from '../facets/passwords'
 import { ProvidersFacet } from '../facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../facets/sessions'
-import { AuthScryptHasher } from '../password/scrypt'
-import { AuthPluginRegistry } from '../plugin'
+import { ScryptHasher } from '../password/scrypt'
+import { PluginRegistry } from '../plugin'
 import type { Identity } from '../types/identity'
 import type { Limiter as LimiterNs } from '../types/infra'
 import type { Events } from '../types/provider'
@@ -26,7 +26,11 @@ import type { Engine } from './engine.types'
  * lives on a facet (sessions, identities, providers, mfa, flows, ...).
  * Facets are added one at a time as features land.
  */
-export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
+export class AuthEngine<
+  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Tenant = string,
+  OrgMeta = unknown,
+> {
   readonly config: Engine.Config<Profile, Tenant, OrgMeta>
   readonly events: Events.IBus
   readonly transport: Transport.ITransport
@@ -38,8 +42,8 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
   readonly apiKeys: ApiKeysFacet
   readonly orgs: OrgsFacet<OrgMeta> | null
   readonly flows: FlowsFacet<Profile>
-  readonly limiter: LimiterNs.ILimiter
-  readonly plugins: AuthPluginRegistry<Profile, Tenant, OrgMeta>
+  readonly limiter: LimiterNs.Limiter
+  readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
   readonly operations: OperationsFacet
   readonly idempotency: IdempotencyFacet
   readonly hijack: HijackFacet
@@ -49,7 +53,7 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
     this.config = config
     this.events = config.events ?? new InMemoryEvents()
     this.transport = config.transport
-    this.limiter = config.limiter ?? new AuthNoopLimiter()
+    this.limiter = config.limiter ?? new NoopLimiter()
     this.sessions = new SessionsFacet(config.stores.sessions, this.events, {
       ttlMs: config.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
       absoluteTtlMs: config.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
@@ -60,7 +64,7 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
-    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new AuthScryptHasher(), {
+    this.passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
       minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
       maxLength: config.passwords?.maxLength ?? DEFAULT_PASSWORDS_CONFIG.maxLength,
       rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
@@ -74,14 +78,14 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
     this.apiKeys = new ApiKeysFacet(
       config.stores.credentials,
       this.events,
-      { authRandomToken: RandomToken, authSha256: sha256 },
+      { randomToken, sha256 },
       {
         prefix: config.apiKeys?.prefix ?? DEFAULT_APIKEYS_CONFIG.prefix,
         randomBytes: config.apiKeys?.randomBytes ?? DEFAULT_APIKEYS_CONFIG.randomBytes,
       },
     )
     this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
-    this.plugins = new AuthPluginRegistry<Profile, Tenant, OrgMeta>()
+    this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
     this.operations = new OperationsFacet(this.events)
     this.idempotency = new IdempotencyFacet(new MemoryIdempotencyStore(), DEFAULT_IDEMPOTENCY_CONFIG)
     this.hijack = new HijackFacet(this.events, config.hijack ?? {})
@@ -99,7 +103,7 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
         limiter: this.limiter,
         events: this.events,
         crypto: {
-          authRandomToken: (bytes) => RandomToken(bytes),
+          authRandomToken: (bytes) => randomToken(bytes),
           authSha256: (s) => sha256(s),
           authTimingSafeEqual: timingSafeEqual,
         },
@@ -129,7 +133,7 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
      * branch on `anomaly.decision === 'deny'` / `'step-up'` /
      * `'allow'`; the field is absent when no detectors run.
      */
-    anomaly?: import('../facets/anomaly').AnomalyFacet.IResult
+    anomaly?: import('../facets/anomaly').AnomalyFacet.Result
   } | null> {
     const token = this.transport.extract(req)
     if (!token) return null
@@ -140,7 +144,7 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
     ): Promise<{
       session: Session.Me
       identity: Identity.Me<Profile> | null
-      anomaly?: import('../facets/anomaly').AnomalyFacet.IResult
+      anomaly?: import('../facets/anomaly').AnomalyFacet.Result
     }> => {
       // Auto-evaluate anomaly detectors so routes branch on a single field.
       if (opts.requestSnapshot && identity && this.anomaly.list().length > 0) {
@@ -164,7 +168,7 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
         if (opts.expectedTenantId !== undefined && verified.tenantId !== opts.expectedTenantId) {
           return null
         }
-        const ctx = { ...(verified.tenantId !== undefined && { tenantId: verified.tenantId }) }
+        const ctx = verified.tenantId ? { tenantId: verified.tenantId } : {}
         const identity = verified.identityId
           ? await this.config.stores.identities.findById(verified.identityId, ctx)
           : null
@@ -183,7 +187,7 @@ export class AuthEngine<Profile extends Identity.ProfileMetadataBase, Tenant = s
   }
 
   /** Install a plugin atomically (providers + events + facets) */
-  async use(plugin: AuthPluginRegistry.IAuthPlugin<Profile, Tenant, OrgMeta>): Promise<void> {
+  async use(plugin: PluginRegistry.Plugin<Profile, Tenant, OrgMeta>): Promise<void> {
     await this.plugins.install(this, plugin)
   }
 
@@ -263,13 +267,13 @@ export const __hashSid = sha256
  * `strict({ env: 'production' })` rejects this - production must supply a real
  * Limiter (redis/upstash) for brute-force protection.
  */
-export class AuthNoopLimiter implements LimiterNs.ILimiter {
+export class NoopLimiter implements LimiterNs.Limiter {
   /** Brand consumed by `AuthEngine.strict({ env: 'production' })` to
    * detect "explicit AuthNoopLimiter" - class-identity comparison breaks
    * across bundler rewrites (treeshaken duplicates / nested workspaces)
    * so we tag every instance and check the tag instead. */
   readonly __isNoopLimiter = true as const
-  async consume(_key: string, _weight = 1): Promise<LimiterNs.IResult> {
+  async consume(_key: string, _weight = 1): Promise<LimiterNs.Result> {
     return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: new Date(Date.now() + 60_000) }
   }
   async reset(_key: string): Promise<void> {}

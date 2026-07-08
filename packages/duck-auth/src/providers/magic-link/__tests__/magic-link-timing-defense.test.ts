@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { AuthEngine } from '../../../core/engine'
@@ -57,7 +58,7 @@ describe('magic-link.begin - timing-defense', () => {
   it('existing-identity branch returns BEFORE channel.send resolves (fire-and-forget)', async () => {
     const channel = makeSlowChannel(200) // 200 ms simulated SMTP
     const { auth, adapter } = buildAuth(channel)
-    await adapter.identities.create({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }, {})
+    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
 
     const start = performance.now()
     await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
@@ -72,7 +73,7 @@ describe('magic-link.begin - timing-defense', () => {
   it('no-identity branch also returns fast - both branches have similar wall-clock time', async () => {
     const channel = makeSlowChannel(200)
     const { auth, adapter } = buildAuth(channel)
-    await adapter.identities.create({ profile: { email: 'existing@x.com', username: 'e' }, providers: [] }, {})
+    await adapter.identities.create(identityInput({ profile: { email: 'existing@x.com', username: 'e' }, providers: [] }), {})
 
     // Measure both branches.
     const existsStart = performance.now()
@@ -97,7 +98,7 @@ describe('magic-link.begin - timing-defense', () => {
       },
     }
     const { auth, adapter } = buildAuth(failingChannel)
-    await adapter.identities.create({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }, {})
+    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
 
     const seen: string[] = []
     auth.events.on('signin.failed', (payload) => {
@@ -124,7 +125,7 @@ describe('magic-link.begin - timing-defense', () => {
       },
     }
     const { auth, adapter } = buildAuth(rejectingChannel)
-    await adapter.identities.create({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }, {})
+    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
 
     const seen: string[] = []
     auth.events.on('signin.failed', (payload) => {

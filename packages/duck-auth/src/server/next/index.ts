@@ -1,4 +1,4 @@
-import { authCsrfGuard } from '../../core/csrf'
+import { csrfGuard } from '../../core/csrf'
 import type { AuthEngine } from '../../core/engine'
 import { errorToHttp, executeIntents, isValidProviderId, parseProviderBeginBody, parseSignInBody } from '../generic'
 
@@ -6,7 +6,7 @@ import { errorToHttp, executeIntents, isValidProviderId, parseProviderBeginBody,
 export function nextSignIn(auth: AuthEngine): NextAdapter.Handler {
   return async (req) => {
     try {
-      await authCsrfGuard(auth, { method: req.method, headers: req.headers })
+      await csrfGuard(auth, { method: req.method, headers: req.headers })
       const parsed = parseSignInBody(await req.json().catch(() => null))
       if (!parsed) {
         return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
@@ -23,7 +23,7 @@ export function nextSignIn(auth: AuthEngine): NextAdapter.Handler {
 export function nextSignOut(auth: AuthEngine): NextAdapter.Handler {
   return async (req) => {
     try {
-      await authCsrfGuard(auth, { method: req.method, headers: req.headers })
+      await csrfGuard(auth, { method: req.method, headers: req.headers })
       const sid = auth.transport.extract({ headers: req.headers })
       if (!sid) return executeIntents(auth.transport.revoke())
       const { intents } = await auth.flows.signOut(sid)
@@ -50,7 +50,7 @@ export function nextSession(auth: AuthEngine): NextAdapter.Handler {
 }
 
 /**
- * AuthProvider begin handler. Extract the provider id from the URL path or pass
+ * Provider begin handler. Extract the provider id from the URL path or pass
  * via the second arg; both flows fit the App Router shape.
  */
 export function nextProviderBegin(auth: AuthEngine, providerId: string): NextAdapter.Handler {
@@ -59,7 +59,7 @@ export function nextProviderBegin(auth: AuthEngine, providerId: string): NextAda
       if (!isValidProviderId(providerId)) {
         return executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }])
       }
-      await authCsrfGuard(auth, { method: req.method, headers: req.headers })
+      await csrfGuard(auth, { method: req.method, headers: req.headers })
       const body = parseProviderBeginBody(await req.json().catch(() => null))
       if (body === null) {
         return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])

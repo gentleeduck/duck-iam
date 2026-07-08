@@ -6,9 +6,9 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
+import { credentialInput } from '../../../test/store-inputs'
 import { InMemoryEvents } from '../../events'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
-import { credentialInput } from '../../../test/store-inputs'
 
 describe('MfaFacet.eligibleAal - AAL=3 detection (NIST 800-63B hardware binding)', () => {
   let adapter: MemoryAdapter

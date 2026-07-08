@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
@@ -78,7 +79,7 @@ describe('passkey provider - registration', () => {
   beforeEach(async () => {
     adapter = new MemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create(
-      { profile: { email: 'a@b.com', username: 'a' }, providers: [] },
+      identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
       {},
     )
     identityId = identity.id
@@ -161,7 +162,7 @@ describe('passkey provider - sign-in', () => {
   beforeEach(async () => {
     adapter = new MemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create(
-      { profile: { email: 'a@b.com', username: 'a' }, providers: [] },
+      identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
       {},
     )
     identityId = identity.id
@@ -281,7 +282,7 @@ describe('passkey provider - sign-in', () => {
     // Register a second identity + credential, then attempt to sign in with
     // the second identity's email hint but the FIRST identity's credential.
     const otherIdentity = await adapter.identities.create(
-      { profile: { email: 'other@x.com', username: 'o' }, providers: [] },
+      identityInput({ profile: { email: 'other@x.com', username: 'o' }, providers: [] }),
       {},
     )
     opts.findIdentityByEmail = async (email) => {

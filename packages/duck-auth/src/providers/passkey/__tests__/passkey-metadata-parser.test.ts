@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
@@ -65,12 +66,12 @@ async function plantCredential(
   metadata: unknown,
 ): Promise<void> {
   await adapter.credentials.upsert(
-    {
+    credentialInput({
       identityId,
       kind: 'passkey',
       secret: 'webauthn-cred-1',
       metadata: metadata as Record<string, unknown>,
-    },
+    }),
     {},
   )
 }
@@ -83,7 +84,7 @@ describe('passkey complete() - metadata parser', () => {
 
   beforeEach(async () => {
     adapter = new MemoryAdapter<ProfileShape>()
-    const id = await adapter.identities.create({ profile: { email: 'a@b', username: 'a' }, providers: [] }, {})
+    const id = await adapter.identities.create(identityInput({ profile: { email: 'a@b', username: 'a' }, providers: [] }), {})
     identityId = id.id
     challengeStore = new AuthMemoryPasskeyChallengeStore()
   })

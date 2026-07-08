@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
+import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthJwtTransport } from '../../../core/transport/jwt'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { GRPC_STATUS, type GrpcAdapter, httpStatusToGrpc, withGrpc } from '../index'
@@ -43,7 +44,7 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
   })
   return { auth, adapter, transport }
 }
@@ -106,7 +107,7 @@ describe('withGrpc interceptor', () => {
 
   it('valid bearer token -> handler called with call.session populated', async () => {
     const ident = await env.adapter.identities.create(
-      { profile: { username: 'user', email: 'a@x.com' }, providers: [] },
+      identityInput({ profile: { username: 'user', email: 'a@x.com' }, providers: [] }),
       {},
     )
     const { sid, session } = await env.auth.sessions.create({

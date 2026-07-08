@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { sha256 } from '../../../core/crypto'
@@ -15,7 +16,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
 
   async function seedRefresh(refreshPlain: string, familyId = 'fam-1'): Promise<void> {
     await adapter.credentials.upsert(
-      {
+      credentialInput({
         identityId,
         kind: 'oauth',
         secret: sha256(refreshPlain),
@@ -26,7 +27,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
           generation: 1,
           accessToken: 'at-1',
         } satisfies AuthoauthRefresh.IFamilyMetadata,
-      },
+      }),
       {},
     )
   }
@@ -34,7 +35,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
   beforeEach(async () => {
     adapter = new MemoryAdapter<Profile>()
     events = new InMemoryEvents()
-    const i = await adapter.identities.create({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }, {})
+    const i = await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
     identityId = i.id
   })
 
@@ -293,7 +294,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
       // Seed a credential whose metadata is structurally broken (would
       // pass the `as` cast). Calling refresh should fail closed.
       await adapter.credentials.upsert(
-        {
+        credentialInput({
           identityId,
           kind: 'oauth',
           secret: sha256('rt-broken'),
@@ -304,7 +305,7 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
             generation: 'one', // wrong type -> string-concat bug downstream
             accessToken: 'at-broken',
           },
-        },
+        }),
         {},
       )
       const exchange = vi.fn(
