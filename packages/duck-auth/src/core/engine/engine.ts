@@ -1,10 +1,10 @@
+import type { ApiKeysFacet } from '~/providers/api-key/api-key.facet'
 import type { MfaFacet } from '~/providers/mfa/mfa.facet'
 import type { PasswordsFacet } from '~/providers/password/password.facet'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { InMemoryEvents } from '../events'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../facets/anomaly'
-import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../facets/apikeys'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../facets/flows'
 import { HijackFacet } from '../facets/hijack'
 import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from '../facets/idempotency'
@@ -109,15 +109,6 @@ export class AuthEngine<
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
     this.providers = new ProvidersFacet<Profile>([])
-    this._apiKeys = new ApiKeysFacet(
-      config.stores.credentials,
-      this.events,
-      { randomToken, sha256 },
-      {
-        prefix: config.apiKeys?.prefix ?? DEFAULT_APIKEYS_CONFIG.prefix,
-        randomBytes: config.apiKeys?.randomBytes ?? DEFAULT_APIKEYS_CONFIG.randomBytes,
-      },
-    )
     // Mechanism-A registration: normalize bare providers to modules, register any
     // sign-in provider, run any attach hook. Runs after core facets so `attach`
     // can read stores/events off the engine.

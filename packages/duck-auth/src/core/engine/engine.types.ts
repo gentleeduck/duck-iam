@@ -38,10 +38,6 @@ export namespace Engine {
       /** SEC: max serialized (JSON UTF-8) profile size, in bytes. Default 16 KiB. Set to `0` to disable. */
       profileMaxBytes?: number
     }
-    apiKeys?: {
-      prefix?: string
-      randomBytes?: number
-    }
     hijack?: HijackFacet.Config
     __tenantBrand?: Tenant
   }

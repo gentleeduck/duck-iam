@@ -6,6 +6,7 @@ import { AuthEngine } from '../core/engine'
 import { BearerTransport } from '../core/transport/bearer'
 import type { Identity } from '../core/types/identity'
 import { AuthMemoryLimiter } from '../limiters/memory'
+import { type ApiKeys, apiKeyProvider } from '../providers/api-key'
 import { type Mfa, mfaProvider } from '../providers/mfa'
 import { type Password, passwordProvider, ScryptHasher } from '../providers/password'
 
@@ -28,6 +29,8 @@ export namespace Test {
     hasher?: Password.ConfigInput['hasher']
     /** MFA provider tuning (issuer/backupCodeCount/backupCodeLen/compliance). */
     mfa?: Mfa.ConfigInput
+    /** API-key provider tuning (prefix/randomBytes/compliance). */
+    apiKeys?: ApiKeys.ConfigInput
     baseUrl?: string
   }
 }
@@ -54,6 +57,7 @@ export function createTest<Profile extends Identity.ProfileMetadataBase = Identi
     providers: [
       passwordProvider<Profile, Tenant, OrgMeta>({ hasher, ...(overrides.passwords ?? {}) }),
       mfaProvider<Profile, Tenant, OrgMeta>(overrides.mfa),
+      apiKeyProvider<Profile, Tenant, OrgMeta>(overrides.apiKeys),
       ...(overrides.providers ?? []),
     ],
     ...(overrides.events !== undefined && { events: overrides.events }),

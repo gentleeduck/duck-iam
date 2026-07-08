@@ -3,9 +3,9 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { Identity } from '~/core'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { ApiKeysFacet } from '~/core/facets/apikeys'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { credentialInput, identityInput } from '~/test/store-inputs'
+import { ApiKeysFacet } from '../api-key.facet'
 import { authApiKey } from '../index'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {}

@@ -95,10 +95,10 @@ export function applyCompliancePreset<
   const overrides = resolveCompliance(preset)
   // Attach the resolved overrides via `__compliancePreset` so
   // `AuthEngine.strict` can apply `authAssertComplianceStrict` automatically.
-  // NOTE: password + mfa compliance are provider-level now — pass a preset to
-  // `passwordProvider({ compliance })` / `mfaProvider({ compliance })` and each
-  // ratchets its own field. Only engine-core capabilities (session + the
-  // still-engine apiKeys) are ratcheted here.
+  // NOTE: password, mfa + api-key compliance are provider-level now — pass a
+  // preset to `passwordProvider({ compliance })` / `mfaProvider({ compliance })`
+  // / `apiKeyProvider({ compliance })` and each ratchets its own field. Only
+  // engine-core capabilities (session) are ratcheted here.
   const out = {
     ...base,
     session: {
@@ -106,10 +106,6 @@ export function applyCompliancePreset<
       ttlMs: Math.min(base.session?.ttlMs ?? Infinity, overrides.sessions.ttlMs),
       absoluteTtlMs: Math.min(base.session?.absoluteTtlMs ?? Infinity, overrides.sessions.absoluteTtlMs),
       freshnessMs: Math.min(base.session?.freshnessMs ?? Infinity, overrides.sessions.freshnessMs),
-    },
-    apiKeys: {
-      ...(base.apiKeys ?? {}),
-      randomBytes: Math.max(base.apiKeys?.randomBytes ?? 0, overrides.apiKeys.randomBytes),
     },
   }
   // Mark the config so downstream `AuthEngine.strict()` knows to assert

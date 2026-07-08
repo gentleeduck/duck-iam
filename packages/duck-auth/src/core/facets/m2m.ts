@@ -11,10 +11,10 @@
  * `{ access_token, token_type, expires_in, scope }` token envelope.
  */
 
+import type { ApiKeysFacet } from '~/providers/api-key/api-key.facet'
 import { AuthError } from '../errors'
 import type { Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
-import type { ApiKeysFacet } from './apikeys'
 import type { SessionsFacet } from './sessions'
 
 export namespace M2MFacet {

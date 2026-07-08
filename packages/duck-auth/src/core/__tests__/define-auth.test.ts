@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { memoryStorage } from '~/adapters/memory'
 import { AuthConsoleChannel } from '~/channels/console'
+import { apiKeyProvider } from '~/providers/api-key'
 import { authMagicLink } from '~/providers/magic-link'
 import { mfaProvider } from '~/providers/mfa'
 import { authGithub } from '~/providers/oauth/github'
@@ -175,15 +176,28 @@ describe('createAuth', () => {
     ).not.toThrow()
   })
 
-  it('passes through session / apiKeys / hijack knobs', () => {
+  it('passes through session / hijack knobs', () => {
     const auth = createAuth({
-      apiKeys: { prefix: 'demo-' },
       baseUrl: 'http://x',
       session: { ttlMs: 60_000 },
       stores: memoryStorage<Profile>(),
     })
     expect(auth.config.session?.ttlMs).toBe(60_000)
-    expect(auth.config.apiKeys?.prefix).toBe('demo-')
+  })
+
+  it('apiKeyProvider mounts auth.apiKeys; prefix flows into created tokens', async () => {
+    const auth = createAuth({
+      baseUrl: 'http://x',
+      providers: [apiKeyProvider({ prefix: 'demo_' })],
+      stores: memoryStorage<Profile>(),
+    })
+    const created = await auth.apiKeys.create('user-1', { name: 'ci', scopes: [] })
+    expect(created.plaintext.startsWith('demo_')).toBe(true)
+  })
+
+  it('accessing auth.apiKeys without the api-key provider throws', () => {
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+    expect(() => auth.apiKeys).toThrow(/AUTH_PROVIDER_NOT_REGISTERED|api-key/)
   })
 
   it('mfaProvider mounts auth.mfa; issuer flows into TOTP enrollment', async () => {

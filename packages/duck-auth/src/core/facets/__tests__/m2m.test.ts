@@ -4,6 +4,7 @@ import { AuthEngine } from '~/core/engine'
 import { AuthJwtTransport } from '~/core/transport/jwt'
 import type { Identity } from '~/core/types/identity'
 import { AuthMemoryLimiter } from '~/limiters/memory'
+import { apiKeyProvider } from '~/providers/api-key'
 import { passwordProvider } from '~/providers/password'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
 import { credentialInput, identityInput } from '~/test/store-inputs'
@@ -30,7 +31,7 @@ function build() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), apiKeyProvider()],
   })
   const m2m = new M2MFacet(auth.apiKeys, auth.sessions, auth.transport)
   return { auth, adapter, transport, m2m }

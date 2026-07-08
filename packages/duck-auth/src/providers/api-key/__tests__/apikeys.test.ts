@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../apikeys'
+import { DEFAULT_APIKEYS_CONFIG } from '../api-key.constants'
+import { ApiKeysFacet } from '../api-key.facet'
 
 describe('ApiKeysFacet', () => {
   let adapter: MemoryAdapter

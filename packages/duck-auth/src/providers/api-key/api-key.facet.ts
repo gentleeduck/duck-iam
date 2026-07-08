@@ -1,40 +1,10 @@
-import { isCredentialExpired } from '../credential-utils'
-import { AuthError } from '../errors'
-import type { Credential } from '../types/identity'
-import type { TenantContext } from '../types/infra'
-import type { Events } from '../types/provider'
-
-export namespace ApiKeysFacet {
-  export type Config = {
-    /** Token prefix; used to namespace by env. Default 'ak_live_'. */
-    prefix: string
-    /** Length of the random portion in bytes. Default 32 (43 base64url chars). */
-    randomBytes: number
-  }
-
-  export type ApiKey = {
-    id: string
-    identityId: string
-    name: string
-    scopes: string[]
-    createdAt: Date
-    lastUsedAt?: Date
-    expiresAt?: Date
-    revokedAt?: Date
-  }
-
-  export type CreatedApiKey = {
-    /** API key record (no plaintext). */
-    key: ApiKeysFacet.ApiKey
-    /** Plaintext token - returned ONCE; callers must surface to the user then drop. */
-    plaintext: string
-  }
-}
-
-export const DEFAULT_APIKEYS_CONFIG: ApiKeysFacet.Config = {
-  prefix: 'ak_live_',
-  randomBytes: 32,
-}
+import { isCredentialExpired } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Credential } from '~/core/types/identity'
+import type { TenantContext } from '~/core/types/infra'
+import type { Events } from '~/core/types/provider'
+import { DEFAULT_APIKEYS_CONFIG } from './api-key.constants'
+import type { ApiKeys } from './api-key.types'
 
 /**
  * API key facet - long-lived bearer tokens for service-to-service callers
@@ -53,7 +23,7 @@ export class ApiKeysFacet {
       randomToken(bytes: number): string
       sha256(s: string): string
     },
-    private readonly _cfg: ApiKeysFacet.Config = DEFAULT_APIKEYS_CONFIG,
+    private readonly _cfg: ApiKeys.Config = DEFAULT_APIKEYS_CONFIG,
   ) {}
 
   /** Create a new API key. Returns plaintext exactly once. */
@@ -61,7 +31,7 @@ export class ApiKeysFacet {
     identityId: string,
     opts: { name: string; scopes: string[]; expiresAt?: number; tenantId?: string },
     ctx: TenantContext = {},
-  ): Promise<ApiKeysFacet.CreatedApiKey> {
+  ): Promise<ApiKeys.CreatedApiKey> {
     if (typeof opts.name !== 'string' || opts.name.length > 128) {
       throw new AuthError('AUTH_MISCONFIGURED', { detail: 'apikeys.create: name must be a string <=128 chars' })
     }
@@ -91,7 +61,7 @@ export class ApiKeysFacet {
       },
       ctx,
     )
-    const key: ApiKeysFacet.ApiKey = {
+    const key: ApiKeys.ApiKey = {
       id: cred.id,
       identityId,
       name: opts.name,
@@ -103,13 +73,13 @@ export class ApiKeysFacet {
   }
 
   /** List the api keys belonging to an identity. No plaintext returned. */
-  async list(identityId: string, ctx: TenantContext = {}): Promise<ApiKeysFacet.ApiKey[]> {
+  async list(identityId: string, ctx: TenantContext = {}): Promise<ApiKeys.ApiKey[]> {
     const rows = await this._credentials.listByIdentity(identityId, 'api-key', ctx)
     return rows
       .filter((r) => r.revokedAt == null)
       .map((r) => {
         const meta = parseApiKeyMetadata(r.metadata)
-        const k: ApiKeysFacet.ApiKey = {
+        const k: ApiKeys.ApiKey = {
           id: r.id,
           identityId: r.identityId,
           name: meta.name,
@@ -131,7 +101,7 @@ export class ApiKeysFacet {
    * Rotate: issues a new plaintext, marks the old row revoked. Caller
    * tells consumers to swap. Returns the new plaintext exactly once.
    */
-  async rotate(keyId: string, ctx: TenantContext = {}): Promise<ApiKeysFacet.CreatedApiKey> {
+  async rotate(keyId: string, ctx: TenantContext = {}): Promise<ApiKeys.CreatedApiKey> {
     const existing = await this._credentials.findById(keyId, ctx)
     if (existing?.kind !== 'api-key') {
       throw new AuthError('AUTH_APIKEY_INVALID')
