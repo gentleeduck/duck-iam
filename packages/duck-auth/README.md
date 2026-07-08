@@ -207,7 +207,7 @@ import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic
 ## Client libraries
 
 ```typescript
-// React - <AuthProvider> + useSession / useSignIn / useSignOut
+// React - <Provider> + useSession / useSignIn / useSignOut
 import { createAuthClient } from '@gentleduck/auth/client/react'
 
 // Vue, Solid, Svelte - parallel APIs

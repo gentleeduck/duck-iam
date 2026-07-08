@@ -15,7 +15,7 @@ const AuthCtx = React.createContext<IAuthState | null>(null);
 const STORAGE_KEY = "iam-demo:current-user";
 const DEFAULT_USER_ID = "u-alice";
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function Provider({ children }: { children: React.ReactNode }) {
 	const queryClient = useQueryClient();
 	const { data: users = [] } = useQuery({
 		queryKey: ["users"],
@@ -55,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth(): IAuthState {
 	const ctx = React.useContext(AuthCtx);
-	if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
+	if (!ctx) throw new Error("useAuth must be used inside <Provider>");
 	return ctx;
 }
 

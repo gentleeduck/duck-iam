@@ -4,7 +4,7 @@
  *
  * Ready-to-render auth UI built on `@gentleduck/registry-ui`. Drop
  * any of these components into a route, wrap the tree in
- * `<AuthProvider>`, and you have a working sign-in surface — no
+ * `<Provider>`, and you have a working sign-in surface — no
  * design work required.
  */
 
