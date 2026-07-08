@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
-import { ScryptHasher } from '../../../core/password/scrypt'
 import { CookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { password } from '../../../providers/password'
+import { password, passwordProvider } from '../../../providers/password'
+import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
 import { applyIntents, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
 
 type MyProfile = {
@@ -67,7 +67,7 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    passwords: { hasher: fastHasher },
+    providers: [passwordProvider({ hasher: fastHasher })],
   })
   auth.providers.register(
     password<MyProfile>({

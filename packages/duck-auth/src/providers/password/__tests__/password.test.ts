@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { AuthEngine } from '../../../core/engine'
-import { ScryptHasher } from '../../../core/password/scrypt'
 import { CookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { passwordProvider } from '..'
+import { ScryptHasher } from '../hashers/scrypt.hasher'
 import { password } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
@@ -24,7 +25,7 @@ function buildAuth(): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    passwords: { hasher: fastHasher },
+    providers: [passwordProvider({ hasher: fastHasher })],
   })
   auth.providers.register(
     password<MyProfile>({

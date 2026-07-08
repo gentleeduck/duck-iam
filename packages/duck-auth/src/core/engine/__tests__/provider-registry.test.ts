@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { CookieTransport } from '../../transport/cookie'
-import type { Engine } from '../engine.types'
 import { AuthEngine } from '../engine'
+import type { Engine } from '../engine.types'
 
 function baseConfig(): Engine.Config {
   const a = new MemoryAdapter()

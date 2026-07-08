@@ -1,3 +1,4 @@
+import type { PasswordsFacet } from '../../providers/password/password.facet'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { InMemoryEvents } from '../events'
@@ -10,10 +11,8 @@ import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../facets/identities
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../facets/mfa'
 import { OperationsFacet } from '../facets/operations'
 import { OrgsFacet } from '../facets/orgs'
-import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from '../facets/passwords'
 import { ProvidersFacet } from '../facets/providers'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../facets/sessions'
-import { ScryptHasher } from '../password/scrypt'
 import { PluginRegistry } from '../plugin'
 import type { Identity } from '../types/identity'
 import type { Limiter as LimiterNs } from '../types/infra'
@@ -108,11 +107,6 @@ export class AuthEngine<
       softDeleteGracePeriodMs:
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
-    })
-    this._passwords = new PasswordsFacet(config.stores.credentials, config.passwords?.hasher ?? new ScryptHasher(), {
-      minLength: config.passwords?.minLength ?? DEFAULT_PASSWORDS_CONFIG.minLength,
-      maxLength: config.passwords?.maxLength ?? DEFAULT_PASSWORDS_CONFIG.maxLength,
-      rejectCommon: config.passwords?.rejectCommon ?? DEFAULT_PASSWORDS_CONFIG.rejectCommon,
     })
     this.providers = new ProvidersFacet<Profile>([])
     this._mfa = new MfaFacet(config.stores.credentials, this.events, {

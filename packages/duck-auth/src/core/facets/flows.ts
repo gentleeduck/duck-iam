@@ -1,3 +1,4 @@
+import type { PasswordsFacet } from '../../providers/password/password.facet'
 import { AuthError } from '../errors'
 import type { Identity } from '../types'
 import type { Events, Provider } from '../types/provider'
@@ -25,7 +26,6 @@ import {
 } from './flows/signup'
 import type { IdentitiesFacet } from './identities'
 import type { MfaFacet } from './mfa'
-import type { PasswordsFacet } from './passwords'
 import type { ProvidersFacet } from './providers'
 import type { SessionsFacet } from './sessions'
 

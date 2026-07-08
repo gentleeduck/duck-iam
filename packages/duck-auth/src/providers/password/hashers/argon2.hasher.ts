@@ -1,7 +1,7 @@
 /** Argon2id-backed password hasher (compliance presets); needs `@node-rs/argon2` peerDep. */
 
-import { AuthError } from '../errors'
-import type { Hasher } from '../types/infra'
+import { AuthError } from '../../../core/errors'
+import type { Hasher } from '../../../core/types/infra'
 
 /** Namespace merge - AuthArgon2idHasher.IParams alongside the class. */
 export namespace Argon2idHasher {

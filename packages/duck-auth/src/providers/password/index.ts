@@ -1,116 +1,13 @@
-import type { Identity } from '../../core'
-import { AuthError } from '../../core/errors'
-import type { PasswordsFacet } from '../../core/facets/passwords'
-import type { Provider } from '../../core/types/provider'
-
 /**
- * Sentinel identity id fed to `verify` on the no-such-user branch to keep
- * timing constant (defeats account enumeration). MUST be a syntactically
- * valid UUID: the SQL adapters store `identity_id` as a `uuid` column, so a
- * non-UUID sentinel (e.g. `'__never__'`) makes Postgres throw
- * `invalid input syntax for type uuid` instead of returning zero rows. The
- * all-zero UUID is well-formed and matches no real identity.
+ * Password provider — self-contained capability folder (mechanism A).
+ * Everything password-related lives here: the sign-in provider, the facet,
+ * its config, the hashers, and all types under the `Password` namespace.
  */
-const NO_IDENTITY_SENTINEL = '00000000-0000-0000-0000-000000000000'
 
-export namespace PasswordProvider {
-  /** Config knobs for {@link password}. */
-  export type Options = {
-    /** Function to find an identity given an email. */
-    findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    /** Bound PasswordsFacet - verify + needsRehash + slow rehash. */
-    passwords: PasswordsFacet
-    /** Per-email rate-limit key prefix. Default 'signin:password:'. */
-    limiterKeyPrefix?: string
-    /** Auto-rehash on successful verify when needsRehash=true. Default true. */
-    autoRehash?: boolean
-  }
-
-  /** Input to begin (unused for authPassword but kept for parity). */
-  export type BeginInput = {
-    email: string
-  }
-
-  /** Input to complete. */
-  export type CompleteInput = {
-    email: string
-    password: string
-  }
-}
-
-/**
- * Password provider - email + authPassword sign-in. Operates against the
- * configured PasswordsFacet so hashing/strength rules live in one
- * place.
- *
- * `begin` is a no-op; authPassword flow has no challenge round-trip.
- * `complete` validates input + rate-limits per email + verifies + emits
- * a `startSession` Intent.
- */
-export function password<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
-  opts: PasswordProvider.Options,
-): Provider.Me<PasswordProvider.BeginInput, PasswordProvider.CompleteInput, Profile> {
-  const prefix = opts.limiterKeyPrefix ?? 'signin:password:'
-  const autoRehash = opts.autoRehash ?? true
-  return {
-    id: 'password',
-    kind: 'password',
-    async begin(_ctx, _input) {
-      return []
-    },
-    async complete(ctx, input) {
-      const { email, password: pw } = input
-      // email cap per RFC 5321 (254); authPassword cap matches the
-      // PasswordsFacet maxLength (default 1024). Without caps, an
-      // attacker can DoS via huge inputs reaching the hasher / store.
-      if (
-        typeof email !== 'string' ||
-        typeof pw !== 'string' ||
-        email.length === 0 ||
-        email.length > 254 ||
-        pw.length === 0 ||
-        pw.length > 1024
-      ) {
-        throw new AuthError('AUTH_INVALID_CREDENTIALS')
-      }
-
-      // Canonical (trim + lowercase) email so the rate-limit bucket AND
-      // the identity lookup share one key. If the operator wires
-      // findIdentityByEmail without internal case-folding, raw `email`
-      // would let `A@x.com` and `a@x.com` register/sign-in as distinct
-      // accounts.
-      const emailCanonical = email.trim().toLowerCase()
-      const limitKey = `${prefix}${emailCanonical}`
-      const limited = await ctx.limiter.consume(limitKey)
-      if (!limited.ok) {
-        throw new AuthError('AUTH_RATE_LIMITED', {
-          retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
-        })
-      }
-
-      const identity = await opts.findIdentityByEmail(emailCanonical, ctx.tenant.tenantId)
-      // ALWAYS run verify (even with no matching identity) to keep timing constant.
-      const verifyResult = identity
-        ? await opts.passwords.verify(identity.id, pw, ctx.tenant)
-        : await opts.passwords.verify(NO_IDENTITY_SENTINEL, pw, ctx.tenant)
-
-      if (!identity || !verifyResult.ok) {
-        await ctx.events.emit('signin.failed', { providerId: 'password', reason: 'invalid-credentials' })
-        throw new AuthError('AUTH_INVALID_CREDENTIALS')
-      }
-
-      if (autoRehash && verifyResult.ok && verifyResult.needsRehash) {
-        void opts.passwords.rehash(identity.id, pw, ctx.tenant).catch(() => {})
-      }
-
-      return [
-        {
-          type: 'startSession',
-          identityId: identity.id,
-          factors: [{ method: 'password', completedAt: new Date() }],
-          aal: 1,
-        },
-      ]
-    },
-  }
-}
+export { ARGON2ID_COMPLIANCE, ARGON2ID_DEFAULTS, Argon2idHasher } from './hashers/argon2.hasher'
+export { SCRYPT_DEFAULTS, ScryptHasher } from './hashers/scrypt.hasher'
+export { toPasswordsConfig } from './password.config'
+export { COMMON_PASSWORDS, DEFAULT_PASSWORDS_CONFIG, NO_IDENTITY_SENTINEL } from './password.constants'
+export { PasswordsFacet } from './password.facet'
+export { password, passwordProvider } from './password.provider'
+export type { Password } from './password.types'

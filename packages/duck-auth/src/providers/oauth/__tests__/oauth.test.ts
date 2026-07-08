@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { AuthEngine } from '../../../core/engine'
-import { ScryptHasher } from '../../../core/password/scrypt'
 import { CookieTransport } from '../../../core/transport/cookie'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { passwordProvider } from '../../password'
+import { ScryptHasher } from '../../password/hashers/scrypt.hasher'
 import { OauthClient } from '../core/client'
 import { generatePkce } from '../core/pkce'
 import { oProvider } from '../core/provider'
@@ -254,7 +255,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
         credentials: adapter.credentials,
       },
       limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
-      passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+      providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
     })
 
     const client = new OauthClient({

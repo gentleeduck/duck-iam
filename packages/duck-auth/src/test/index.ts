@@ -3,10 +3,10 @@
 import { MemoryAdapter } from '../adapters/memory'
 import type { AuthEngineTypes } from '../core/engine'
 import { AuthEngine } from '../core/engine'
-import { ScryptHasher } from '../core/password/scrypt'
 import { BearerTransport } from '../core/transport/bearer'
 import type { Identity } from '../core/types/identity'
 import { AuthMemoryLimiter } from '../limiters/memory'
+import { type Password, passwordProvider, ScryptHasher } from '../providers/password'
 
 export namespace Test {
   export interface Overrides<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
@@ -21,8 +21,10 @@ export namespace Test {
     limiter?: AuthEngineTypes.Config<Profile>['limiter']
     events?: AuthEngineTypes.Config<Profile>['events']
     providers?: AuthEngineTypes.Config<Profile, Tenant, OrgMeta>['providers']
-    passwords?: Omit<NonNullable<AuthEngineTypes.Config<Profile>['passwords']>, 'hasher'>
-    hasher?: NonNullable<AuthEngineTypes.Config<Profile>['passwords']>['hasher']
+    /** Password provider tuning (minLength/maxLength/rejectCommon/compliance). */
+    passwords?: Omit<Password.ConfigInput, 'hasher'>
+    /** Password hasher; defaults to scrypt. */
+    hasher?: Password.ConfigInput['hasher']
     baseUrl?: string
   }
 }
@@ -46,9 +48,11 @@ export function createTest<Profile extends Identity.ProfileMetadataBase = Identi
       ...(overrides.orgs !== undefined && { orgs: overrides.orgs }),
     },
     limiter,
-    passwords: { hasher, ...(overrides.passwords ?? {}) },
+    providers: [
+      passwordProvider<Profile, Tenant, OrgMeta>({ hasher, ...(overrides.passwords ?? {}) }),
+      ...(overrides.providers ?? []),
+    ],
     ...(overrides.events !== undefined && { events: overrides.events }),
-    ...(overrides.providers !== undefined && { providers: overrides.providers }),
   }
 
   return new AuthEngine<Profile, Tenant, OrgMeta>(config)

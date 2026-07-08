@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { Identity } from '../../../core'
 import { AuthEngine } from '../../../core/engine'
-import { ScryptHasher } from '../../../core/password/scrypt'
 import { CookieTransport } from '../../../core/transport/cookie'
 import type { Channel } from '../../../core/types/infra'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
 import { credentialInput, identityInput } from '../../../test/store-inputs'
+import { passwordProvider } from '../../password'
+import { ScryptHasher } from '../../password/hashers/scrypt.hasher'
 import { authMagicLink } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
@@ -25,7 +26,7 @@ function buildAuth(channel: Channel.Channel): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   auth.providers.register(
     authMagicLink<MyProfile>({

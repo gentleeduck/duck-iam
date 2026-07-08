@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
-import { ScryptHasher } from '../../password/scrypt'
-import type { Hasher } from '../../types/infra'
-import { PasswordsFacet } from '../passwords'
+import type { Hasher } from '../../../core/types/infra'
+import { ScryptHasher } from '../hashers/scrypt.hasher'
+import { PasswordsFacet } from '../password.facet'
 
 interface VerifyCall {
   plaintext: string

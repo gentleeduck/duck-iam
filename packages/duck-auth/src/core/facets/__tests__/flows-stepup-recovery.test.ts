@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { passwordProvider } from '../../../providers/password'
+import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
 import { AuthEngine } from '../../engine'
 import { totpAt } from '../../mfa/totp'
-import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
 import type { Identity } from '../../types/identity'
 import type { Channel } from '../../types/infra'
@@ -44,7 +45,7 @@ function buildAuth(): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    passwords: { hasher: fastHasher },
+    providers: [passwordProvider({ hasher: fastHasher })],
   })
   return { auth, adapter, channel }
 }

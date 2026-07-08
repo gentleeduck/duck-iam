@@ -1,44 +1,9 @@
-import { isRevoked, toCredentialUpsert } from '../credential-utils'
-import { AuthError } from '../errors'
-import type { Credential } from '../types/identity'
-import type { Hasher, TenantContext } from '../types/infra'
-
-export namespace PasswordsFacet {
-  export interface IConfig {
-    /**
-     * Minimum password length. Default 8. Apps should override to >=10 for
-     * any production deployment; compliance presets force >=12.
-     */
-    minLength: number
-    /**
-     * Maximum password length in characters. Default 1024. SEC: caps
-     * the input fed to argon2id / scrypt so an attacker cannot DoS the
-     * verify path with multi-megabyte plaintext. Set lower (e.g. 256)
-     * if you want to refuse pathological-but-plausible inputs.
-     */
-    maxLength: number
-    /** Reject obvious junk. Default true. */
-    rejectCommon: boolean
-  }
-}
-
-export const DEFAULT_PASSWORDS_CONFIG: PasswordsFacet.IConfig = {
-  minLength: 8,
-  maxLength: 1024,
-  rejectCommon: true,
-}
-
-const COMMON_PASSWORDS = new Set([
-  'password',
-  'password1',
-  '12345678',
-  '123456789',
-  'qwerty12',
-  'iloveyou',
-  'admin123',
-  'welcome1',
-  'letmein1',
-])
+import { isRevoked, toCredentialUpsert } from '../../core/credential-utils'
+import { AuthError } from '../../core/errors'
+import type { Credential } from '../../core/types/identity'
+import type { Hasher, TenantContext } from '../../core/types/infra'
+import { COMMON_PASSWORDS, DEFAULT_PASSWORDS_CONFIG } from './password.constants'
+import type { Password } from './password.types'
 
 /**
  * Passwords facet - credential CRUD + verify, with constant-time discipline.
@@ -53,7 +18,7 @@ export class PasswordsFacet {
   constructor(
     private readonly _credentials: Credential.Store,
     private readonly _hasher: Hasher.IHasher,
-    private readonly _cfg: PasswordsFacet.IConfig = DEFAULT_PASSWORDS_CONFIG,
+    private readonly _cfg: Password.Config = DEFAULT_PASSWORDS_CONFIG,
   ) {}
 
   /**

@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { passwordProvider } from '../../../providers/password'
+import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
 import { credentialInput, identityInput } from '../../../test/store-inputs'
 import { AuthEngine } from '../../engine'
-import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
 import type { Identity } from '../../types/identity'
 
@@ -25,7 +26,7 @@ function buildAuth(): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }

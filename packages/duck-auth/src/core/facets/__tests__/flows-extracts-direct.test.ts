@@ -12,8 +12,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthTestChannel } from '../../../channels/console'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { passwordProvider } from '../../../providers/password'
+import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
 import { AuthEngine } from '../../engine'
-import { ScryptHasher } from '../../password/scrypt'
 import { CookieTransport } from '../../transport/cookie'
 import type { Identity } from '../../types/identity'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../flows/account-deletion'
@@ -34,7 +35,7 @@ function build() {
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }

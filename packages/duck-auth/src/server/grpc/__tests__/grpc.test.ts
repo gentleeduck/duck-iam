@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
 import { AuthEngine } from '../../../core/engine'
-import { ScryptHasher } from '../../../core/password/scrypt'
 import { AuthJwtTransport } from '../../../core/transport/jwt'
 import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { passwordProvider } from '../../../providers/password'
+import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
 import { identityInput } from '../../../test/store-inputs'
 import { GRPC_STATUS, type GrpcAdapter, httpStatusToGrpc, withGrpc } from '../index'
 
@@ -44,7 +45,7 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter, transport }
 }

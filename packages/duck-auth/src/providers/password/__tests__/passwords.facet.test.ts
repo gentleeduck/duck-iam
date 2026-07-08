@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '../../../adapters/memory'
-import { ScryptHasher } from '../../password/scrypt'
-import { DEFAULT_PASSWORDS_CONFIG, PasswordsFacet } from '../passwords'
+import { ScryptHasher } from '../hashers/scrypt.hasher'
+import { DEFAULT_PASSWORDS_CONFIG } from '../password.constants'
+import { PasswordsFacet } from '../password.facet'
 
 describe('PasswordsFacet', () => {
   let adapter: MemoryAdapter

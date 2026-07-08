@@ -127,7 +127,7 @@ describe('Recovery / signup / reset tokens are authSha256-hashed at rest', () =>
     )
     for (const f of tokenWriteFiles) {
       // Each file must import sha256 (or randomBytes) before it can write a token.
-      const importsCrypto = /from '..\/..\/crypto'|from '..\/..\/..\/core\/crypto'/.test(f.contents)
+      const importsCrypto = /from '\.\.\/\.\.\/crypto'|from '\.\.\/\.\.\/\.\.\/core\/crypto'/.test(f.contents)
       if (/secret: token\b/.test(f.contents)) {
         expect(importsCrypto, `${f.path} writes raw token without crypto import`).toBe(true)
       }
@@ -173,7 +173,7 @@ describe('Length caps on user-supplied strings before they enter URLs / headers 
   // strings into upstream IO.
   it('every provider main file has length caps somewhere', () => {
     const providerEntries = filesMatching((f) =>
-      /providers\/(password|magic-link|saml|passkey|oauth\/(authGoogle|authGithub|authMicrosoft|authDiscord|authLinkedin|authApple))\.ts$/.test(
+      /providers\/(password\/password\.provider|magic-link|saml|passkey|oauth\/(authGoogle|authGithub|authMicrosoft|authDiscord|authLinkedin|authApple))\.ts$/.test(
         f.path,
       ),
     )

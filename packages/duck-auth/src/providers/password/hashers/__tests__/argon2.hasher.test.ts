@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Argon2idHasher } from '../argon2'
+import { Argon2idHasher } from '../argon2.hasher'
 
 /**
  * Detect whether `@node-rs/argon2` is installed without forcing CI to

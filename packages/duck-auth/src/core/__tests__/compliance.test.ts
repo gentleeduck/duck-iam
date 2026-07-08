@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { toPasswordsConfig } from '../../providers/password'
 import { applyCompliancePreset, assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
 
 describe('authResolveCompliance', () => {
@@ -46,24 +47,18 @@ describe('authApplyCompliancePreset', () => {
       baseUrl: 'x',
       transport: {} as never,
       stores: {} as never,
-      passwords: { minLength: 6 },
       session: { ttlMs: 30 * 24 * 60 * 60 * 1000 },
     }
     const ratcheted = applyCompliancePreset(base as never, 'hipaa')
-    expect(ratcheted.passwords?.minLength).toBe(12)
     // hipaa caps session ttl to 1h
     expect(ratcheted.session?.ttlMs).toBeLessThanOrEqual(60 * 60 * 1000)
+    // password compliance is provider-level now: passwordProvider({ compliance }) ratchets minLength.
+    expect(toPasswordsConfig({ minLength: 6, compliance: 'hipaa' }).minLength).toBe(12)
   })
 
   it('does not weaken user config below the preset', () => {
-    const base = {
-      baseUrl: 'x',
-      transport: {} as never,
-      stores: {} as never,
-      passwords: { minLength: 20 },
-    }
-    const ratcheted = applyCompliancePreset(base as never, 'hipaa')
-    expect(ratcheted.passwords?.minLength).toBe(20)
+    // A user value above the preset floor is kept.
+    expect(toPasswordsConfig({ minLength: 20, compliance: 'hipaa' }).minLength).toBe(20)
   })
 })
 

@@ -5,11 +5,11 @@ import { authMagicLink } from '../../providers/magic-link'
 import { authGithub } from '../../providers/oauth/github'
 import { authGoogle } from '../../providers/oauth/google'
 import { passkey } from '../../providers/passkey'
-import { password } from '../../providers/password'
+import { password, passwordProvider } from '../../providers/password'
+import { Argon2idHasher } from '../../providers/password/hashers/argon2.hasher'
+import { ScryptHasher } from '../../providers/password/hashers/scrypt.hasher'
 import { createAuth } from '../config'
 import { AuthEngine } from '../engine'
-import { Argon2idHasher } from '../password/argon2'
-import { ScryptHasher } from '../password/scrypt'
 import { CookieTransport } from '../transport/cookie'
 import type { Identity } from '../types/identity'
 
@@ -38,15 +38,20 @@ describe('createAuth', () => {
     expect(auth.transport).toBe(custom)
   })
 
-  it('defaults hasher to AuthScryptHasher when not supplied', () => {
-    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+  it('passwordProvider defaults its hasher to scrypt when not supplied', () => {
+    const auth = createAuth({ baseUrl: 'http://x', providers: [passwordProvider()], stores: memoryStorage<Profile>() })
     expect(auth.passwords).toBeDefined()
+  })
+
+  it('accessing auth.passwords without the password provider throws', () => {
+    const auth = createAuth({ baseUrl: 'http://x', stores: memoryStorage<Profile>() })
+    expect(() => auth.passwords).toThrow(/AUTH_PROVIDER_NOT_REGISTERED|password/)
   })
 
   it('respects explicit hasher', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
-      passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) },
+      providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10 }) })],
       stores: memoryStorage<Profile>(),
     })
     expect(auth.passwords).toBeDefined()
@@ -58,7 +63,7 @@ describe('createAuth', () => {
     expect(() =>
       createAuth({
         baseUrl: 'http://x',
-        passwords: { hasher: new Argon2idHasher() },
+        providers: [passwordProvider({ hasher: new Argon2idHasher() })],
         stores: memoryStorage<Profile>(),
       }),
     ).not.toThrow()

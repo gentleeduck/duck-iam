@@ -17,6 +17,7 @@ export namespace AuthDefine {
     OrgMeta = unknown,
   > =
     | Provider.Me<unknown, unknown, Profile>
+    | Provider.ProviderModule<Profile, Tenant, OrgMeta>
     | false
     | null
     | undefined

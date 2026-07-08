@@ -35,7 +35,6 @@ export function createAuth<
       orgs: config.stores.orgs,
     },
     transport,
-    passwords: config.passwords,
     limiter: config.limiter,
     events: config.events,
     session: config.session,
@@ -52,7 +51,13 @@ export function createAuth<
     // Pass channels as second arg so magic-link / OTP thunks can bind without repeating config.
     const p = typeof entry === 'function' ? entry(auth, config.channels) : entry
     if (!p) continue
-    auth.providers.register(p)
+    // A capability module (mechanism A) mounts its own facet; a bare provider registers directly.
+    if ('name' in p) {
+      if (p.provider) auth.providers.register(p.provider)
+      p.attach?.(auth)
+    } else {
+      auth.providers.register(p)
+    }
   }
 
   if (config.plugins) {
