@@ -6,7 +6,7 @@ import { InMemoryEvents } from '~/core/events'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 import { AuthMemoryPasskeyChallengeStore, passkey } from '../index'
-import type { PasskeyProvider, PasskeyTypes } from '../types'
+import type { Passkey } from '../passkey.types'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {}
 
@@ -25,7 +25,7 @@ function ctxFor(adapter: MemoryAdapter<ProfileShape>) {
   }
 }
 
-function makeWebauthn(newCounter = 5): PasskeyTypes.SimpleWebAuthnServerModule {
+function makeWebauthn(newCounter = 5): Passkey.SimpleWebAuthnServerModule {
   return {
     generateRegistrationOptions: vi.fn(async () => ({
       challenge: 'reg',
@@ -79,7 +79,7 @@ async function plantCredential(
 describe('passkey complete() - metadata parser', () => {
   let adapter: MemoryAdapter<ProfileShape>
   let identityId: string
-  let opts: PasskeyProvider.Options
+  let opts: Passkey.Options
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {

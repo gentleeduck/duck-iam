@@ -5,7 +5,7 @@ import type { Credential } from '~/core/types/identity'
 import type { TenantContext } from '~/core/types/infra'
 import type { Events } from '~/core/types/provider'
 import type { Session } from '~/core/types/session'
-import type { PasskeyTypes } from '~/providers/passkey/types'
+import type { Passkey } from '~/providers/passkey/passkey.types'
 import { DEFAULT_MFA_CONFIG } from './mfa.constants'
 import { buildOtpAuthUri, generateSecret, verifyTotp } from './mfa.totp'
 import type { Mfa } from './mfa.types'
@@ -184,7 +184,7 @@ export class MfaFacet {
     identityId: string,
     opts: Mfa.WebauthnMfaEnrollOpts,
     ctx: TenantContext = {},
-  ): Promise<PasskeyTypes.RegistrationOptions> {
+  ): Promise<Passkey.RegistrationOptions> {
     void ctx
     const webauthn = await loadWebAuthnMfa(opts.webauthnModule)
     const options = await webauthn.generateRegistrationOptions({
@@ -245,7 +245,7 @@ export class MfaFacet {
     identityId: string,
     opts: Mfa.WebauthnMfaVerifyBeginOpts,
     ctx: TenantContext = {},
-  ): Promise<PasskeyTypes.AuthenticationOptions> {
+  ): Promise<Passkey.AuthenticationOptions> {
     const webauthn = await loadWebAuthnMfa(opts.webauthnModule)
     const creds = await this._credentials.listByIdentity(identityId, 'webauthn-mfa', ctx)
     const allowCredentials = creds

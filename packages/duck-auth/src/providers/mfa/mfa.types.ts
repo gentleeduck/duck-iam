@@ -1,5 +1,5 @@
 import type { Compliance } from '~/core/compliance'
-import type { PasskeyTypes } from '~/providers/passkey/types'
+import type { Passkey } from '~/providers/passkey/passkey.types'
 
 /**
  * Every type the MFA provider exposes lives under this one namespace, so
@@ -38,14 +38,14 @@ export namespace Mfa {
 
   /** Structural shape of the `@simplewebauthn/server` module we use. */
   export type WebauthnLibrary = {
-    generateRegistrationOptions(input: unknown): Promise<PasskeyTypes.RegistrationOptions>
+    generateRegistrationOptions(input: unknown): Promise<Passkey.RegistrationOptions>
     verifyRegistrationResponse(input: unknown): Promise<{
       verified: boolean
       registrationInfo?: {
         credential: { id: string; publicKey: Uint8Array; counter?: number; transports?: string[] }
       }
     }>
-    generateAuthenticationOptions(input: unknown): Promise<PasskeyTypes.AuthenticationOptions>
+    generateAuthenticationOptions(input: unknown): Promise<Passkey.AuthenticationOptions>
     verifyAuthenticationResponse(input: unknown): Promise<{
       verified: boolean
       authenticationInfo: { newCounter: number; credentialID: string; userVerified: boolean }

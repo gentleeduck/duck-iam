@@ -1,4 +1,4 @@
-export namespace PasskeyTypes {
+export namespace Passkey {
   /**
    * Subset of `@simplewebauthn/server` we depend on. Kept narrow so
    * the lazy import surface stays small.
@@ -106,10 +106,8 @@ export namespace PasskeyTypes {
     put(key: string, challenge: string, ttlMs: number): Promise<void>
     take(key: string): Promise<string | null>
   }
-}
 
-export namespace PasskeyProvider {
-  /** Config knobs for {@link authPasskey}. */
+  /** Config knobs for {@link passkey}. */
   export type Options = {
     /** Relying-party display name (shown in the OS picker). */
     rpName: string
@@ -120,13 +118,13 @@ export namespace PasskeyProvider {
     /** Locate identity given an email. */
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
     /** Optional override of the challenge store. Default in-memory. */
-    challengeStore?: PasskeyTypes.ChallengeStore
+    challengeStore?: Passkey.ChallengeStore
     /** TTL applied to issued challenges, ms. Default 5 minutes. */
     challengeTtlMs?: number
     /** Required user verification level. Default `'preferred'`. */
     userVerification?: 'discouraged' | 'preferred' | 'required'
     /** Lazy override of the WebAuthn module (tests inject a mock). */
-    webauthnModule?: PasskeyTypes.SimpleWebAuthnServerModule
+    webauthnModule?: Passkey.SimpleWebAuthnServerModule
   }
 
   /** Input to begin. */

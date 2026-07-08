@@ -45,7 +45,7 @@ function walk(dir: string, out: string[] = []): string[] {
 
 /** Per-file overrides for the inferred owner symbol. */
 const OWNER_OVERRIDES: Record<string, string> = {
-  'src/providers/passkey/types.ts': 'PasskeyTypes',
+  'src/providers/passkey/passkey.types.ts': 'Passkey',
   'src/providers/oauth/github/index.ts': 'Githuboauth',
   'src/providers/oauth/google/index.ts': 'Googleoauth',
   'src/providers/oauth/core/refresh.ts': 'oauthRefresh',

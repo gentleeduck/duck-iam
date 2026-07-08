@@ -11,7 +11,7 @@ import {
   completePasskeyRegistration,
   passkey,
 } from '../index'
-import type { PasskeyProvider, PasskeyTypes } from '../types'
+import type { Passkey } from '../passkey.types'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {}
 
@@ -30,7 +30,7 @@ function makeContext(adapter: MemoryAdapter<ProfileShape>) {
   }
 }
 
-function makeMockWebAuthn(): PasskeyTypes.SimpleWebAuthnServerModule {
+function makeMockWebAuthn(): Passkey.SimpleWebAuthnServerModule {
   return {
     generateRegistrationOptions: vi.fn(async (input) => ({
       challenge: 'reg-challenge-' + Math.random().toString(36).slice(2),
@@ -72,8 +72,8 @@ function makeMockWebAuthn(): PasskeyTypes.SimpleWebAuthnServerModule {
 describe('passkey provider - registration', () => {
   let adapter: MemoryAdapter<ProfileShape>
   let identityId: string
-  let opts: PasskeyProvider.Options
-  let mockWebauthn: PasskeyTypes.SimpleWebAuthnServerModule
+  let opts: Passkey.Options
+  let mockWebauthn: Passkey.SimpleWebAuthnServerModule
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {
@@ -155,8 +155,8 @@ describe('passkey provider - registration', () => {
 describe('passkey provider - sign-in', () => {
   let adapter: MemoryAdapter<ProfileShape>
   let identityId: string
-  let opts: PasskeyProvider.Options
-  let mockWebauthn: PasskeyTypes.SimpleWebAuthnServerModule
+  let opts: Passkey.Options
+  let mockWebauthn: Passkey.SimpleWebAuthnServerModule
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {
