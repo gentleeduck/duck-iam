@@ -1,4 +1,4 @@
-import { AuthError } from '../../../core/errors'
+import { AuthError } from '~/core/errors'
 
 export namespace OauthClient {
   /**

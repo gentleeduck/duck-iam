@@ -1,5 +1,5 @@
-import type { Identity } from '../../core/types/identity'
-import type { Session } from '../../core/types/session'
+import type { Identity } from '~/core/types/identity'
+import type { Session } from '~/core/types/session'
 
 export namespace GrpcAdapter {
   export type UnaryHandler<Req = unknown, Res = unknown> = (

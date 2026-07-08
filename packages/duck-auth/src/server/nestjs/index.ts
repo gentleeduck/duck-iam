@@ -1,9 +1,9 @@
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/common'
 import { Catch, createParamDecorator } from '@nestjs/common'
-import type { AuthEngine } from '../../core/engine'
-import { AuthError } from '../../core/errors'
-import type { Identity } from '../../core/types/identity'
-import type { Session } from '../../core/types/session'
+import type { AuthEngine } from '~/core/engine'
+import { AuthError } from '~/core/errors'
+import type { Identity } from '~/core/types/identity'
+import type { Session } from '~/core/types/session'
 import {
   errorToHttp,
   executeIntents,

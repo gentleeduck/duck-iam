@@ -1,7 +1,7 @@
 /** Solid client - context + signals; `solid-js` is an OPTIONAL peerDep. Types live in `./types`. */
 import { createContext, createMemo, createSignal, type JSX, onCleanup, onMount, useContext } from 'solid-js'
-import type { Identity } from '../../core'
-import type { Envelope } from '../../core/types/session'
+import type { Identity } from '~/core'
+import type { Envelope } from '~/core/types/session'
 import { createAuthClient, type VanillaClient } from '../vanilla'
 import type { SolidClient } from './types'
 

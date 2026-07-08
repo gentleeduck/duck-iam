@@ -16,8 +16,8 @@ import {
   runCredentialStoreCompliance,
   runIdentityStoreCompliance,
   runSessionStoreCompliance,
-} from '../../../__compliance__'
-import { createSqlStores } from '../../../sql/sql'
+} from '~/adapters/__compliance__'
+import { createSqlStores } from '~/adapters/sql/sql'
 import { createDrizzleSqliteBridge } from '../sqlite'
 
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/engine'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { password, passwordProvider } from '../../../providers/password'
-import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
-import { identityInput } from '../../../test/store-inputs'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie'
+import { AuthMemoryLimiter } from '~/limiters/memory'
+import { password, passwordProvider } from '~/providers/password'
+import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { identityInput } from '~/test/store-inputs'
 import { makeGuard, type NestAdapter, nestProviderBegin, nestSession, nestSignIn, nestSignOut } from '../index'
 
 function makeReply(): NestAdapter.Response & {

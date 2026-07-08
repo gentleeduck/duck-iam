@@ -1,5 +1,5 @@
-import type { Compliance } from '../../core/compliance'
-import type { Hasher } from '../../core/types/infra'
+import type { Compliance } from '~/core/compliance'
+import type { Hasher } from '~/core/types/infra'
 import type { PasswordsFacet } from './password.facet'
 
 /**

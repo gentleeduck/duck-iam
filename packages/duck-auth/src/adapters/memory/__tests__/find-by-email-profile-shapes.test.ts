@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
-import { identityInput } from '../../../test/store-inputs'
+import type { Identity } from '~/core/types/identity'
+import { identityInput } from '~/test/store-inputs'
 import { MemoryAdapter } from '..'
 
 /**

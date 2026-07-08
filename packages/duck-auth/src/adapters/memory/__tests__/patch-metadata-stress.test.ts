@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { credentialInput } from '../../../test/store-inputs'
+import { credentialInput } from '~/test/store-inputs'
 import { MemoryAdapter } from '../index'
 
 describe('memory.credentials.patchMetadata - concurrency & convergence', () => {

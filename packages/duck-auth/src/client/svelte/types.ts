@@ -1,6 +1,6 @@
 /** Svelte client types — the public `SvelteClient` namespace. */
-import type { Identity } from '../../core'
-import type { Envelope } from '../../core/types/session'
+import type { Identity } from '~/core'
+import type { Envelope } from '~/core/types/session'
 import type { VanillaClient } from '../vanilla'
 
 export namespace SvelteClient {

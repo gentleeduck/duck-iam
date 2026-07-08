@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { makeIdentity, makeSession } from '../../../test/store-inputs'
-import { sha256 } from '../../crypto'
-import type { Identity } from '../../types/identity'
-import type { Session } from '../../types/session'
+import { sha256 } from '~/core/crypto'
+import type { Identity } from '~/core/types/identity'
+import type { Session } from '~/core/types/session'
+import { makeIdentity, makeSession } from '~/test/store-inputs'
 import { AuthMemoryDeviceFingerprintStore, deviceFingerprintDetector } from '../device-fingerprint'
 
 function ctx(overrides: Partial<{ ip: string; userAgent: string; identityId: string }> = {}) {

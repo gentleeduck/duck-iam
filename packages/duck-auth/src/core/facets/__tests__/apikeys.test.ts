@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { randomToken, sha256 } from '../../crypto'
-import { InMemoryEvents } from '../../events'
+import { MemoryAdapter } from '~/adapters/memory'
+import { randomToken, sha256 } from '~/core/crypto'
+import { InMemoryEvents } from '~/core/events'
 import { ApiKeysFacet, DEFAULT_APIKEYS_CONFIG } from '../apikeys'
 
 describe('ApiKeysFacet', () => {

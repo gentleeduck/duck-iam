@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
-import { randomToken, sha256 } from '../../crypto'
+import { MemoryAdapter } from '~/adapters/memory'
+import { randomToken, sha256 } from '~/core/crypto'
+import { credentialInput, identityInput } from '~/test/store-inputs'
 import { BackupCodesFacet } from '../backup-codes'
 
 describe('AuthBackupCodesFacet', () => {

@@ -10,8 +10,8 @@
  * module ships the interceptor + handler factories only.
  */
 
-import type { AuthEngine } from '../../core/engine'
-import { AuthError } from '../../core/errors'
+import type { AuthEngine } from '~/core/engine'
+import { AuthError } from '~/core/errors'
 
 import type { GrpcAdapter } from './grpc.types'
 /**

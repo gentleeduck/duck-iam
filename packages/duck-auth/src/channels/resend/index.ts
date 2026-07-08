@@ -3,9 +3,9 @@
  * npm package (lazy peerDep) for transactional email send.
  */
 
-import { getProfileString } from '../../core/credential-utils'
-import { AuthError } from '../../core/errors'
-import type { Channel } from '../../core/types/infra'
+import { getProfileString } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Channel } from '~/core/types/infra'
 
 export namespace AuthResendChannel {
   /**

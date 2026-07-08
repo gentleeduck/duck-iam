@@ -1,8 +1,8 @@
-import { getCredentialPurpose, isCredentialExpired, isRevoked, toCredentialUpsert } from '../../credential-utils'
-import { AuthError } from '../../errors'
-import type { Identity } from '../../types'
-import type { TenantContext } from '../../types/infra'
-import { isSafeCallbackPath } from '../../url-validators'
+import { getCredentialPurpose, isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Identity } from '~/core/types'
+import type { TenantContext } from '~/core/types/infra'
+import { isSafeCallbackPath } from '~/core/url-validators'
 import type { FlowsFacet } from '../flows'
 
 export async function requestAccountDeletion<Profile extends Identity.ProfileMetadataBase>(

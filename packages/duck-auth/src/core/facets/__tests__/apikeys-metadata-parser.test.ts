@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
-import { randomToken, sha256 } from '../../crypto'
-import { InMemoryEvents } from '../../events'
+import { MemoryAdapter } from '~/adapters/memory'
+import { randomToken, sha256 } from '~/core/crypto'
+import { InMemoryEvents } from '~/core/events'
+import { credentialInput, identityInput } from '~/test/store-inputs'
 import { ApiKeysFacet } from '../apikeys'
 
 function build() {

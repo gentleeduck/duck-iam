@@ -4,10 +4,10 @@ import {
   isProfileBooleanTrue,
   isRevoked,
   toCredentialUpsert,
-} from '../../credential-utils'
-import { AuthError } from '../../errors'
-import type { Identity } from '../../types'
-import { isSafeCallbackPath } from '../../url-validators'
+} from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Identity } from '~/core/types'
+import { isSafeCallbackPath } from '~/core/url-validators'
 import type { FlowsFacet } from '../flows'
 
 export async function requestEmailVerification<Profile extends Identity.ProfileMetadataBase>(

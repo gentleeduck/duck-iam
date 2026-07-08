@@ -1,7 +1,7 @@
-import { isCredentialExpired, isRevoked, toCredentialUpsert } from '../../credential-utils'
-import { AuthError } from '../../errors'
-import type { Identity } from '../../types'
-import type { Session } from '../../types/session'
+import { isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Identity } from '~/core/types'
+import type { Session } from '~/core/types/session'
 import type { FlowsFacet } from '../flows'
 
 export async function beginSignUp<Profile extends Identity.ProfileMetadataBase>(

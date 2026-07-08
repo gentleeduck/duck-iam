@@ -1,4 +1,4 @@
-import type { Limiter } from '../../core/types/infra'
+import type { Limiter } from '~/core/types/infra'
 import type { RedisLike } from './redis-like'
 
 export namespace RedisLimiter {

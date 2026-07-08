@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
+import { credentialInput, identityInput } from '~/test/store-inputs'
 import { MemoryAdapter } from '..'
 
 describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapter', () => {

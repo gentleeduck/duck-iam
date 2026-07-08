@@ -3,7 +3,7 @@ import {
   runCredentialStoreCompliance,
   runIdentityStoreCompliance,
   runSessionStoreCompliance,
-} from '../../__compliance__'
+} from '~/adapters/__compliance__'
 import { MemoryAdapter } from '../index'
 
 describe('MemoryAdapter compliance matrix', () => {

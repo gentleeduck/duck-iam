@@ -8,7 +8,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import type { Kms } from '../../types/infra'
+import type { Kms } from '~/core/types/infra'
 import { AuthKmsEnvelopeDataAtRest } from '../kms-envelope'
 
 function makeFakeKms(): Kms.Provider {

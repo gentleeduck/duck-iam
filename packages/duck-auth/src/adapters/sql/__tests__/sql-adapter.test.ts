@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Credential, Identity } from '../../../core/types/identity'
-import type { Session } from '../../../core/types/session'
-import { credentialInput, identityInput, sessionInput } from '../../../test/store-inputs'
+import type { Credential, Identity } from '~/core/types/identity'
+import type { Session } from '~/core/types/session'
+import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
 import { createSqlStores } from '../index'
 import type { SqlBridge } from '../sql.types'
 

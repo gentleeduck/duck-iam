@@ -1,6 +1,6 @@
-import { AuthError } from '../../core/errors'
-import type { Session } from '../../core/types/session'
-import { AUTH_SESSION_FACTOR_METHODS, AUTH_SESSION_KINDS } from '../../core/types/session'
+import { AuthError } from '~/core/errors'
+import type { Session } from '~/core/types/session'
+import { AUTH_SESSION_FACTOR_METHODS, AUTH_SESSION_KINDS } from '~/core/types/session'
 import type { RedisLike } from './redis-like'
 
 export namespace RedisSessionStore {

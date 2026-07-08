@@ -1,5 +1,5 @@
-import type { Session } from '../../core'
-import type { Credential, Identity } from '../../core/types/identity'
+import type { Session } from '~/core'
+import type { Credential, Identity } from '~/core/types/identity'
 
 export namespace SqlBridge {
   /** Aggregate bridge consumers wire into `createSqlStores`. */

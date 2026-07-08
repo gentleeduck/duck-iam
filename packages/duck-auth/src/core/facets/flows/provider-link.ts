@@ -1,7 +1,7 @@
-import { isRevoked } from '../../credential-utils'
-import { AuthError } from '../../errors'
-import type { Identity } from '../../types'
-import type { TenantContext } from '../../types/infra'
+import { isRevoked } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Identity } from '~/core/types'
+import type { TenantContext } from '~/core/types/infra'
 import type { FlowsFacet } from '../flows'
 
 function isProviderIdSafe(providerId: unknown): providerId is string {

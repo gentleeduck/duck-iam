@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { sha256 } from '../../crypto'
-import { InMemoryEvents } from '../../events'
-import { totpAt } from '../../mfa/totp'
+import { MemoryAdapter } from '~/adapters/memory'
+import { sha256 } from '~/core/crypto'
+import { InMemoryEvents } from '~/core/events'
+import { totpAt } from '~/core/mfa/totp'
 import { DEFAULT_MFA_CONFIG, MfaFacet } from '../mfa'
 
 describe('MfaFacet - TOTP', () => {

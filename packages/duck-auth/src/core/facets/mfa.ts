@@ -1,4 +1,4 @@
-import type { PasskeyTypes } from '../../providers/passkey/types'
+import type { PasskeyTypes } from '~/providers/passkey/types'
 import { isProfileBooleanTrue, toCredentialUpsert } from '../credential-utils'
 import { sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'

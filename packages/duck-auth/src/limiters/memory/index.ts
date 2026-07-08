@@ -1,4 +1,4 @@
-import type { Limiter } from '../../core/types/infra'
+import type { Limiter } from '~/core/types/infra'
 
 /**
  * Token-bucket memory limiter. Dev/test only; production uses Redis.

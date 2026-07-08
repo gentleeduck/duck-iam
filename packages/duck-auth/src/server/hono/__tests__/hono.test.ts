@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/engine'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { password, passwordProvider } from '../../../providers/password'
-import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie'
+import { AuthMemoryLimiter } from '~/limiters/memory'
+import { password, passwordProvider } from '~/providers/password'
+import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
 import { type HonoAdapter, honoSession, honoSignIn, honoSignOut } from '../index'
 
 type MyProfile = {

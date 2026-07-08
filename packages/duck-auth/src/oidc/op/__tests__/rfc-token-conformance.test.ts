@@ -9,13 +9,13 @@
 
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Identity } from '../../../core'
-import { sha256 } from '../../../core/crypto'
-import { AuthEngine } from '../../../core/engine'
-import { CookieTransport } from '../../../core/transport/cookie'
-import { passwordProvider } from '../../../providers/password'
-import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
+import { MemoryAdapter } from '~/adapters/memory'
+import { Identity } from '~/core'
+import { sha256 } from '~/core/crypto'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie'
+import { passwordProvider } from '~/providers/password'
+import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
 import { createOidcOP, type OidcOpRoot } from '../index'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {}

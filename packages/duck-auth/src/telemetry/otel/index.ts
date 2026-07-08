@@ -10,8 +10,8 @@
  * cannot derive on their own.
  */
 
-import { AuthError } from '../../core/errors'
-import type { Events } from '../../core/types/provider'
+import { AuthError } from '~/core/errors'
+import type { Events } from '~/core/types/provider'
 
 /**
  * Records auth-domain metrics off an Events.IBus. The recorded

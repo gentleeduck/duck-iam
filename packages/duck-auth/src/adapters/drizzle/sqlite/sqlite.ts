@@ -15,8 +15,8 @@
 import { createRequire } from 'node:module'
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase, SQLiteColumn } from 'drizzle-orm/sqlite-core'
-import { createSqlStores, pickFreshestCredential } from '../../sql'
-import type { SqlBridge } from '../../sql/sql.types'
+import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
+import type { SqlBridge } from '~/adapters/sql/sql.types'
 import { credentialsTable, identitiesTable, sessionsTable } from './sqlite.schema'
 import type { Sqlite } from './sqlite.types'
 

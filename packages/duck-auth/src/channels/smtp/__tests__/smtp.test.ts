@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
+import type { Identity } from '~/core/types/identity'
 import { AuthSmtpChannel } from '../index'
 
 function makeIdentity(email: string | undefined): Identity.Me {

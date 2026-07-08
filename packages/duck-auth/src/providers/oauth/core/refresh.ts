@@ -1,9 +1,9 @@
-import { isRevoked, toCredentialUpsert } from '../../../core/credential-utils'
-import { sha256 } from '../../../core/crypto'
-import { AuthError } from '../../../core/errors'
-import type { Credential } from '../../../core/types/identity'
-import type { TenantContext } from '../../../core/types/infra'
-import type { Events } from '../../../core/types/provider'
+import { isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { sha256 } from '~/core/crypto'
+import { AuthError } from '~/core/errors'
+import type { Credential } from '~/core/types/identity'
+import type { TenantContext } from '~/core/types/infra'
+import type { Events } from '~/core/types/provider'
 import type { OauthClient } from './client'
 
 export namespace AuthoauthRefresh {

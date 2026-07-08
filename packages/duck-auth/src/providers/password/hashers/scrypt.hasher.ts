@@ -1,6 +1,6 @@
 import { scrypt as nodeScrypt, randomBytes, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-import type { Hasher } from '../../../core/types/infra'
+import type { Hasher } from '~/core/types/infra'
 
 export namespace ScryptHasher {
   export type Params = {

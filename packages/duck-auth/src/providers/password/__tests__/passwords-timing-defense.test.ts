@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import type { Hasher } from '../../../core/types/infra'
+import { MemoryAdapter } from '~/adapters/memory'
+import type { Hasher } from '~/core/types/infra'
 import { ScryptHasher } from '../hashers/scrypt.hasher'
 import { PasswordsFacet } from '../password.facet'
 

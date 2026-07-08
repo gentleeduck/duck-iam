@@ -4,9 +4,9 @@
  * profile + email API calls.
  */
 
-import type { Identity } from '../../../core'
-import { AuthError } from '../../../core/errors'
-import type { Provider } from '../../../core/types/provider'
+import type { Identity } from '~/core'
+import { AuthError } from '~/core/errors'
+import type { Provider } from '~/core/types/provider'
 import { OauthClient } from '../core/client'
 import { type AuthoProvider, oProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'

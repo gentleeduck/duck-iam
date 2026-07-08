@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '../../../core/types/identity'
+import type { Identity } from '~/core/types/identity'
 import { AuthTwilioChannel } from '../index'
 
 function makeIdentity(phone: string | undefined): Identity.Me {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { InMemoryEvents } from '../../events'
+import { InMemoryEvents } from '~/core/events'
 import { AuthWebhookDeliverer, authSignWebhookBody, authVerifyWebhookSignature } from '../index'
 
 function makeFetch(

@@ -5,9 +5,9 @@
  * the auth lib to a specific provider SDK.
  */
 
-import { getProfileString } from '../../core/credential-utils'
-import { AuthError } from '../../core/errors'
-import type { Channel } from '../../core/types/infra'
+import { getProfileString } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Channel } from '~/core/types/infra'
 
 export namespace AuthSmtpChannel {
   /**

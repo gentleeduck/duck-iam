@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { randomToken } from '../../../core/crypto'
+import { randomToken } from '~/core/crypto'
 
 export namespace AuthoauthState {
   /**

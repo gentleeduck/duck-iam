@@ -1,7 +1,7 @@
-import { isRevoked, toCredentialUpsert } from '../../core/credential-utils'
-import { AuthError } from '../../core/errors'
-import type { Credential } from '../../core/types/identity'
-import type { Hasher, TenantContext } from '../../core/types/infra'
+import { isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Credential } from '~/core/types/identity'
+import type { Hasher, TenantContext } from '~/core/types/infra'
 import { COMMON_PASSWORDS, DEFAULT_PASSWORDS_CONFIG } from './password.constants'
 import type { Password } from './password.types'
 

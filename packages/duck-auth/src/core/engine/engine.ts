@@ -1,4 +1,4 @@
-import type { PasswordsFacet } from '../../providers/password/password.facet'
+import type { PasswordsFacet } from '~/providers/password/password.facet'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { InMemoryEvents } from '../events'

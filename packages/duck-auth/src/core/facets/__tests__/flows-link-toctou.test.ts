@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { passwordProvider } from '../../../providers/password'
-import { ScryptHasher } from '../../../providers/password/hashers/scrypt.hasher'
-import { credentialInput, identityInput } from '../../../test/store-inputs'
-import { AuthEngine } from '../../engine'
-import { CookieTransport } from '../../transport/cookie'
-import type { Identity } from '../../types/identity'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie'
+import type { Identity } from '~/core/types/identity'
+import { AuthMemoryLimiter } from '~/limiters/memory'
+import { passwordProvider } from '~/providers/password'
+import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { credentialInput, identityInput } from '~/test/store-inputs'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {
   email: string

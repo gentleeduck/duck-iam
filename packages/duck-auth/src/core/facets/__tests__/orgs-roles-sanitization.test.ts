@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { InMemoryEvents } from '../../events'
+import { MemoryAdapter } from '~/adapters/memory'
+import { InMemoryEvents } from '~/core/events'
 import { OrgsFacet } from '../orgs'
 
 describe('OrgsFacet roles sanitization', () => {

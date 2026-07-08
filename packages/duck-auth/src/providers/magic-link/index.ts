@@ -1,9 +1,9 @@
-import type { Identity } from '../../core'
-import { isCredentialExpired, toCredentialUpsert } from '../../core/credential-utils'
-import { AuthError } from '../../core/errors'
-import type { Channel } from '../../core/types/infra'
-import type { Provider } from '../../core/types/provider'
-import { isSafeCallbackPath } from '../../core/url-validators'
+import type { Identity } from '~/core'
+import { isCredentialExpired, toCredentialUpsert } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Channel } from '~/core/types/infra'
+import type { Provider } from '~/core/types/provider'
+import { isSafeCallbackPath } from '~/core/url-validators'
 
 export namespace AuthMagicLinkProvider {
   /** Config knobs for {@link authMagicLink}. */

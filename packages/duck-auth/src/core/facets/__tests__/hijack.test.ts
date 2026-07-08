@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryEvents } from '../../events'
-import type { Session } from '../../types/session'
+import { InMemoryEvents } from '~/core/events'
+import type { Session } from '~/core/types/session'
 import { HijackFacet } from '../hijack'
 
 function makeSession(overrides: Partial<Session.Me> = {}): Session.Me {

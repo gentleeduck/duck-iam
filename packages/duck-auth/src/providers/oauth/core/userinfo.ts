@@ -1,6 +1,6 @@
 /** Safe-extractor helpers for per-IdP userinfo / id_token claim shapes. */
 
-import { isFiniteNumber } from '../../../core/credential-utils'
+import { isFiniteNumber } from '~/core/credential-utils'
 
 /**
  * Extract a non-empty string field from a userinfo object. Returns

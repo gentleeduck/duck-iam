@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { identityInput } from '../../../test/store-inputs'
+import { identityInput } from '~/test/store-inputs'
 import { MemoryAdapter } from '..'
 
 describe('MemoryAdapter.create - provider-sub uniqueness', () => {

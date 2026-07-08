@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../adapters/memory'
-import { AuthMemoryLimiter } from '../../limiters/memory'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthMemoryLimiter } from '~/limiters/memory'
 import { AuthEngine } from '../engine'
 import { CookieTransport } from '../transport/cookie'
 

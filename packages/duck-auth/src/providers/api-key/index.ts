@@ -1,7 +1,7 @@
-import type { Identity } from '../../core'
-import { AuthError } from '../../core/errors'
-import type { ApiKeysFacet } from '../../core/facets/apikeys'
-import type { Provider } from '../../core/types/provider'
+import type { Identity } from '~/core'
+import { AuthError } from '~/core/errors'
+import type { ApiKeysFacet } from '~/core/facets/apikeys'
+import type { Provider } from '~/core/types/provider'
 
 export namespace AuthApiKeyProvider {
   /** Config knobs for {@link authApiKey}. */

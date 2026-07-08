@@ -1,5 +1,5 @@
-import { isFiniteNumber } from '../../core/credential-utils'
-import type { Idempotency, TenantContext } from '../../core/types/infra'
+import { isFiniteNumber } from '~/core/credential-utils'
+import type { Idempotency, TenantContext } from '~/core/types/infra'
 import type { RedisLike } from './redis-like'
 
 export namespace RedisIdempotencyStore {

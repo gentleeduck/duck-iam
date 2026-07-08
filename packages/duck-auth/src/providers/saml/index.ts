@@ -9,9 +9,9 @@
  * a federal/military-grade artifact resolution profile.
  */
 
-import type { Identity } from '../../core'
-import { AuthError } from '../../core/errors'
-import type { Provider } from '../../core/types/provider'
+import type { Identity } from '~/core'
+import { AuthError } from '~/core/errors'
+import type { Provider } from '~/core/types/provider'
 
 // 1 MiB cap on SAML response; larger XML inputs are adversarial.
 const SAML_RESPONSE_MAX = 1_048_576

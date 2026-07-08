@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { isFiniteNumber, isRevoked, toCredentialUpsert } from '../../core/credential-utils'
-import { AuthError } from '../../core/errors'
-import type { Credential, Identity } from '../../core/types/identity'
-import type { Provider } from '../../core/types/provider'
+import { isFiniteNumber, isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Credential, Identity } from '~/core/types/identity'
+import type { Provider } from '~/core/types/provider'
 import { MemoryPasskeyChallengeStore } from './challenge-store'
 import type { PasskeyProvider, PasskeyTypes } from './types'
 

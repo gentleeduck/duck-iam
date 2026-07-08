@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryEvents } from '../../events'
+import { InMemoryEvents } from '~/core/events'
 import { OperationsFacet } from '../operations'
 
 describe('OperationsFacet', () => {

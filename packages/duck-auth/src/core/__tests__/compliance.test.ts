@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toPasswordsConfig } from '../../providers/password'
+import { toPasswordsConfig } from '~/providers/password'
 import { applyCompliancePreset, assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
 
 describe('authResolveCompliance', () => {

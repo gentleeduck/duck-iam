@@ -1,4 +1,4 @@
-import { resolveCompliance } from '../../core/compliance'
+import { resolveCompliance } from '~/core/compliance'
 import { DEFAULT_PASSWORDS_CONFIG } from './password.constants'
 import type { Password } from './password.types'
 

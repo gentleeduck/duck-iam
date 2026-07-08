@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { InMemoryEvents } from '../../../core/events'
+import { InMemoryEvents } from '~/core/events'
 import { AuthOtelInstrumentation } from '../index'
 
 interface CapturedCounter {

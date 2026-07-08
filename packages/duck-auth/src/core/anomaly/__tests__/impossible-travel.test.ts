@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { makeIdentity, makeSession } from '../../../test/store-inputs'
+import { makeIdentity, makeSession } from '~/test/store-inputs'
 import { authImpossibleTravelDetector } from '../impossible-travel'
 
 const identity = makeIdentity({ id: 'u' })

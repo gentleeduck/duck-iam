@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { credentialInput, sessionInput } from '../../../test/store-inputs'
-import { InMemoryEvents } from '../../events'
-import type { Identity } from '../../types/identity'
+import { MemoryAdapter } from '~/adapters/memory'
+import { InMemoryEvents } from '~/core/events'
+import type { Identity } from '~/core/types/identity'
+import { credentialInput, sessionInput } from '~/test/store-inputs'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../identities'
 
 interface MyProfile extends Identity.ProfileMetadataBase {

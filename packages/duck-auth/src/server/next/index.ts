@@ -1,5 +1,5 @@
-import { csrfGuard } from '../../core/csrf'
-import type { AuthEngine } from '../../core/engine'
+import { csrfGuard } from '~/core/csrf'
+import type { AuthEngine } from '~/core/engine'
 import { errorToHttp, executeIntents, isValidProviderId, parseProviderBeginBody, parseSignInBody } from '../generic'
 
 /** `nextSignIn`. CSRF-guarded. */

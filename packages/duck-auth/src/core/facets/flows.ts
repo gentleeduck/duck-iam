@@ -1,4 +1,4 @@
-import type { PasswordsFacet } from '../../providers/password/password.facet'
+import type { PasswordsFacet } from '~/providers/password/password.facet'
 import { AuthError } from '../errors'
 import type { Identity } from '../types'
 import type { Events, Provider } from '../types/provider'

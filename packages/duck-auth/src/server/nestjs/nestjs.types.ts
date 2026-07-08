@@ -1,5 +1,5 @@
-import type { Identity } from '../../core/types/identity'
-import type { Session } from '../../core/types/session'
+import type { Identity } from '~/core/types/identity'
+import type { Session } from '~/core/types/session'
 
 export namespace NestAdapter {
   export type Handler = (req: NestAdapter.Request, reply: NestAdapter.Response) => Promise<unknown>

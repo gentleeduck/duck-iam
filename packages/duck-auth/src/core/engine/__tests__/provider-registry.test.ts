@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { CookieTransport } from '../../transport/cookie'
+import { MemoryAdapter } from '~/adapters/memory'
+import { CookieTransport } from '~/core/transport/cookie'
 import { AuthEngine } from '../engine'
 import type { Engine } from '../engine.types'
 

@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { Session } from '../../types/session'
+import type { Session } from '~/core/types/session'
 import { AuthJwtTransport } from '../jwt'
 
 /**

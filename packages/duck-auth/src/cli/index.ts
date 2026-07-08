@@ -65,11 +65,11 @@ function printHelp(): void {
  */
 function scaffoldTemplate(flavor: 'quickstart' | 'production'): string {
   if (flavor === 'quickstart') {
-    return `import { AuthEngine, AuthInMemoryEvents, AuthScryptHasher } from '@gentleduck/AUTH/core'
-import { AuthMemoryAdapter } from '@gentleduck/AUTH/adapters/memory'
-import { AuthMemoryLimiter } from '@gentleduck/AUTH/limiters/memory'
-import { AuthCookieTransport } from '@gentleduck/AUTH/core/transport'
-import { passwordProvider } from '@gentleduck/AUTH/providers/password'
+    return `import { AuthEngine, AuthInMemoryEvents, AuthScryptHasher } from '@gentleduck/auth/core'
+import { AuthMemoryAdapter } from '@gentleduck/auth/adapters/memory'
+import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
+import { AuthCookieTransport } from '@gentleduck/auth/core/transport'
+import { passwordProvider } from '@gentleduck/auth/providers/password'
 
 const adapter = new AuthMemoryAdapter()
 
@@ -87,10 +87,10 @@ export const auth = new AuthEngine({
 })
 `
   }
-  return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/AUTH/core'
-import { AuthJwtTransport } from '@gentleduck/AUTH/core/transport'
-import { RedisIdempotencyStore, RedisLimiter, RedisSessionStore } from '@gentleduck/AUTH/adapters/redis'
-import { passwordProvider } from '@gentleduck/AUTH/providers/password'
+  return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/auth/core'
+import { AuthJwtTransport } from '@gentleduck/auth/core/transport'
+import { RedisIdempotencyStore, RedisLimiter, RedisSessionStore } from '@gentleduck/auth/adapters/redis'
+import { passwordProvider } from '@gentleduck/auth/providers/password'
 import { Redis } from 'ioredis'
 
 const redis = new Redis(process.env.REDIS_URL!)

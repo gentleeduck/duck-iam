@@ -1,4 +1,4 @@
-import type { Events } from '../../core/types/provider'
+import type { Events } from '~/core/types/provider'
 import type { RedisLike } from './redis-like'
 
 export namespace RedisEvents {

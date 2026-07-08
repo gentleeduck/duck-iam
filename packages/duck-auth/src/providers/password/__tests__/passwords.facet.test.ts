@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
+import { MemoryAdapter } from '~/adapters/memory'
 import { ScryptHasher } from '../hashers/scrypt.hasher'
 import { DEFAULT_PASSWORDS_CONFIG } from '../password.constants'
 import { PasswordsFacet } from '../password.facet'

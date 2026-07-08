@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { sha256 } from '../../../core/crypto'
-import type { Session } from '../../../core/types/session'
+import { sha256 } from '~/core/crypto'
+import type { Session } from '~/core/types/session'
 import { FakeRedis } from '../redis-like'
 import { RedisSessionStore } from '../session-store'
 

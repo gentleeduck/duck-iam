@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Identity } from '../../../core'
-import { randomToken, sha256, timingSafeEqual } from '../../../core/crypto'
-import { InMemoryEvents } from '../../../core/events'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { identityInput } from '../../../test/store-inputs'
+import { MemoryAdapter } from '~/adapters/memory'
+import { Identity } from '~/core'
+import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
+import { InMemoryEvents } from '~/core/events'
+import { AuthMemoryLimiter } from '~/limiters/memory'
+import { identityInput } from '~/test/store-inputs'
 import { AuthSamlProvider, authSamlProvider } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}

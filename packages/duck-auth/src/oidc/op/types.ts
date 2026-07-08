@@ -9,7 +9,7 @@
  * claim mapping, distributed claims, RP-initiated logout (separate).
  */
 
-import type { Identity } from '../../core'
+import type { Identity } from '~/core'
 
 export namespace OidcOP {
   export type GrantType = 'authorization_code' | 'refresh_token'

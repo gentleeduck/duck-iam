@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryAdapter } from '../../../adapters/memory'
-import { Identity } from '../../../core'
-import { AuthEngine } from '../../../core/engine'
-import { CookieTransport } from '../../../core/transport/cookie'
-import type { Channel } from '../../../core/types/infra'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
+import { MemoryAdapter } from '~/adapters/memory'
+import { Identity } from '~/core'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie'
+import type { Channel } from '~/core/types/infra'
+import { AuthMemoryLimiter } from '~/limiters/memory'
 import { authMagicLink } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}

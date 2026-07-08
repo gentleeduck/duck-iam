@@ -11,9 +11,9 @@ import {
   text,
   varchar,
 } from 'drizzle-orm/mysql-core'
-import { AUTH_CREDENTIAL_KINDS, type Credential, type Identity } from '../../../core/types/identity'
-import { AUTH_SESSION_KINDS, type Session } from '../../../core/types/session'
-import type { SqlBridge } from '../../sql'
+import type { SqlBridge } from '~/adapters/sql'
+import { AUTH_CREDENTIAL_KINDS, type Credential, type Identity } from '~/core/types/identity'
+import { AUTH_SESSION_KINDS, type Session } from '~/core/types/session'
 
 /**
  * @title auth identities table (MySQL / MariaDB)
