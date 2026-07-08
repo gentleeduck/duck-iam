@@ -11,7 +11,7 @@ import { authDrizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
 import { AuthConsoleChannel } from '@gentleduck/auth/channels/console'
 import { AuthArgon2idHasher, AuthCookieTransport, createAuth } from '@gentleduck/auth/core'
 import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
-import { authMagicLink } from '@gentleduck/auth/providers/magic-link'
+import { magicLink } from '@gentleduck/auth/providers/magic-link'
 import { authGithub } from '@gentleduck/auth/providers/oauth/github'
 import { authGoogle } from '@gentleduck/auth/providers/oauth/google'
 import { authPasskey } from '@gentleduck/auth/providers/passkey'
@@ -43,7 +43,7 @@ export const auth = createAuth<DemoProfile>({
         passwords: a.passwords,
       }),
     () =>
-      authMagicLink<DemoProfile>({
+      magicLink<DemoProfile>({
         autoCreateIdentity: true,
         autoCreateProfile: (email) => ({ email, emailVerified: false }),
         callbackPath: '/auth/magic-link/verify',

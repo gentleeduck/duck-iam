@@ -5,7 +5,7 @@ import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie'
 import type { Channel } from '~/core/types/infra'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { authMagicLink } from '../index'
+import { magicLink } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
 
@@ -42,7 +42,7 @@ function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.Channel } = {
     limiter: new AuthMemoryLimiter({ max: 3, windowMs: 60_000 }),
   })
   auth.providers.register(
-    authMagicLink<MyProfile>({
+    magicLink<MyProfile>({
       channels: { email: channel },
       findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
       autoCreateIdentity: opts.autoCreate ?? false,
@@ -138,7 +138,7 @@ describe('magic-link provider', () => {
   describe('callbackPath open-redirect defense', () => {
     it('throws AUTH/MISCONFIGURED at construction when callbackPath is protocol-relative `//evil.com`', () => {
       expect(() =>
-        authMagicLink<MyProfile>({
+        magicLink<MyProfile>({
           channels: { email: fakeChannel() },
           findIdentityByEmail: async () => null,
           callbackPath: '//evil.com',
@@ -148,7 +148,7 @@ describe('magic-link provider', () => {
 
     it('throws on `/\\evil.com` (Windows-style escape)', () => {
       expect(() =>
-        authMagicLink<MyProfile>({
+        magicLink<MyProfile>({
           channels: { email: fakeChannel() },
           findIdentityByEmail: async () => null,
           callbackPath: '/\\evil.com',
@@ -158,7 +158,7 @@ describe('magic-link provider', () => {
 
     it('throws when callbackPath does not start with `/`', () => {
       expect(() =>
-        authMagicLink<MyProfile>({
+        magicLink<MyProfile>({
           channels: { email: fakeChannel() },
           findIdentityByEmail: async () => null,
           callbackPath: 'https://evil.com',
@@ -168,7 +168,7 @@ describe('magic-link provider', () => {
 
     it('accepts a safe same-origin callback path', () => {
       expect(() =>
-        authMagicLink<MyProfile>({
+        magicLink<MyProfile>({
           channels: { email: fakeChannel() },
           findIdentityByEmail: async () => null,
           callbackPath: '/login/finish',

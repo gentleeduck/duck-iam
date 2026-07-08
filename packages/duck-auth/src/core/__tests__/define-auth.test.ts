@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { memoryStorage } from '~/adapters/memory'
 import { AuthConsoleChannel } from '~/channels/console'
 import { apiKeyProvider } from '~/providers/api-key'
-import { authMagicLink } from '~/providers/magic-link'
+import { magicLink } from '~/providers/magic-link'
 import { mfaProvider } from '~/providers/mfa'
 import { authGithub } from '~/providers/oauth/github'
 import { authGoogle } from '~/providers/oauth/google'
@@ -113,7 +113,7 @@ describe('createAuth', () => {
           findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
           passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
         }),
-        authMagicLink({
+        magicLink({
           autoCreateIdentity: true,
           autoCreateProfile: (email) => ({ username: email, email }),
           callbackPath: '/AUTH/magic-link/callback',

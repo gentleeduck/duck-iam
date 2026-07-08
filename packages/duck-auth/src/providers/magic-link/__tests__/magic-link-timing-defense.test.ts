@@ -8,7 +8,7 @@ import { AuthMemoryLimiter } from '~/limiters/memory'
 import { passwordProvider } from '~/providers/password'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
 import { credentialInput, identityInput } from '~/test/store-inputs'
-import { authMagicLink } from '../index'
+import { magicLink } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
 
@@ -29,7 +29,7 @@ function buildAuth(channel: Channel.Channel): {
     providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   auth.providers.register(
-    authMagicLink<MyProfile>({
+    magicLink<MyProfile>({
       channels: { email: channel },
       findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
       autoCreateIdentity: false,
