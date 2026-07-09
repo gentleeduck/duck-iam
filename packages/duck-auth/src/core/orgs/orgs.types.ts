@@ -1,4 +1,4 @@
-import type { TenantContext } from '~/core/types/infra'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 
 /**
  * Organizations + membership. Locked to core in v4.2 (Q1 decision).

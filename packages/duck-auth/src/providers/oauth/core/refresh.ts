@@ -2,8 +2,8 @@ import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import { sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Credential } from '~/core/types/identity'
-import type { TenantContext } from '~/core/types/infra'
 import type { OAuth } from './oauth.types'
 
 /**

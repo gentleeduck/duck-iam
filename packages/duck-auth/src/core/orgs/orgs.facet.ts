@@ -1,6 +1,6 @@
 import type { Events } from '~/core/events/events.types'
 import { AuthError } from '../errors'
-import type { TenantContext } from '../types/infra'
+import type { TenantContext } from '../tenant/tenant.types'
 import type { Org } from './orgs.types'
 
 /**

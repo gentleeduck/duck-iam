@@ -1,5 +1,5 @@
+import type { Kms } from '../dataAtRest/dataAtRest.types'
 import { AuthError } from '../errors'
-import type { Kms } from '../types/infra'
 
 /** Reference `Kms.IProvider` for AWS KMS. Lazy-loads `@aws-sdk/client-kms` (optional peer dep). */
 export class AuthAwsKmsProvider implements Kms.Provider {

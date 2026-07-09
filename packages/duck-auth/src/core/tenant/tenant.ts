@@ -1,7 +1,7 @@
 /** Per-request tenant scope via AsyncLocalStorage. */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import type { TenantContext } from '../types/infra'
+import type { TenantContext } from '../tenant/tenant.types'
 
 const _als = new AsyncLocalStorage<TenantContext>()
 

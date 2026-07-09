@@ -5,6 +5,7 @@
  * domain modules: identity, session, provider, infra.
  */
 
+export type { DataAtRest, Kms } from '../dataAtRest/dataAtRest.types'
+export type { TenantContext } from '../tenant/tenant.types'
 export type { AUTH_CREDENTIAL_KINDS, Credential } from './identity'
-export type { DataAtRest, Kms, TenantContext } from './infra'
 export type { Envelope, Transport } from './session'

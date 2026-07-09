@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import type { Kms } from '~/core/types/infra'
+import type { Kms } from '~/core/dataAtRest/dataAtRest.types'
 import { AuthKmsEnvelopeDataAtRest } from '../kms-envelope'
 
 /** In-memory KMS that mimics AWS encryption-context semantics. */

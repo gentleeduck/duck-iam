@@ -4,8 +4,8 @@ import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities/identities.types'
 import type { Org } from '~/core/orgs/orgs.types'
 import type { Session } from '~/core/sessions/sessions.types'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Credential } from '~/core/types/identity'
-import type { TenantContext } from '~/core/types/infra'
 
 /**
  * In-memory adapter - dev + test only. Production must use redis/drizzle/prisma.

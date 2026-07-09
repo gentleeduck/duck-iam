@@ -1,7 +1,7 @@
 import { isRevoked } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities'
-import type { TenantContext } from '~/core/types/infra'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { FlowsFacet } from './flows.facet'
 
 function isProviderIdSafe(providerId: unknown): providerId is string {

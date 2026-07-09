@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import type { DataAtRest } from '../dataAtRest/dataAtRest.types'
 import { AuthError } from '../errors'
-import type { DataAtRest } from '../types/infra'
 
 /**
  * AES-256-GCM `DataAtRest.IAdapter`. Per-field DEK derived via

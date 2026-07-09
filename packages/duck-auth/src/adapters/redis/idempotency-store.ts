@@ -1,6 +1,6 @@
 import { isFiniteNumber } from '~/core/credentials/credentials'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
-import type { TenantContext } from '~/core/types/infra'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { RedisLike } from './redis-like'
 
 export namespace RedisIdempotencyStore {

@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import type { DataAtRest, Kms } from '../dataAtRest/dataAtRest.types'
 import { AuthError } from '../errors'
-import type { DataAtRest, Kms } from '../types/infra'
 
 /**
  * Envelope-encryption `DataAtRest.IAdapter` driven by any `Kms.IProvider`.

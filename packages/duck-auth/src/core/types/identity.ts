@@ -1,4 +1,4 @@
-import type { TenantContext } from './infra'
+import type { TenantContext } from '../tenant/tenant.types'
 
 /**
  * Credentials + orgs. (The `Identity` domain now lives in `~/core/identities/identities.types`.)

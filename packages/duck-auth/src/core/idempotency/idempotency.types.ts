@@ -1,4 +1,4 @@
-import type { TenantContext } from '~/core/types/infra'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 
 export namespace Idempotency {
   /** IdempotencyFacet tuning. */

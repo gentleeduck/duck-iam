@@ -1,12 +1,4 @@
-/** Infrastructure contracts — tenant context, hasher, KMS, data-at-rest, limiter, idempotency, channel. */
-
-/**
- * Per-request tenant scope. Framework adapters inject this via AsyncLocalStorage;
- * stores receive it on every call. Apps without multi-tenancy leave tenantId undefined.
- */
-export interface TenantContext {
-  tenantId?: string
-}
+/** KMS + data-at-rest contracts — envelope-encryption provider and field-level encrypt/decrypt adapter. */
 
 /** Envelope-encryption KMS provider contract: vendor-neutral 2-method shape (`generateDataKey` / `decryptDataKey`). */
 export namespace Kms {

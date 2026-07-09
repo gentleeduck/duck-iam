@@ -16,8 +16,8 @@ import {
   toCredentialUpsert,
 } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Credential } from '~/core/types/identity'
-import type { TenantContext } from '~/core/types/infra'
 
 export namespace RememberMeFacet {
   export type Config = {
