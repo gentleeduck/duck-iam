@@ -1,5 +1,4 @@
 /** Infrastructure contracts — tenant context, hasher, KMS, data-at-rest, limiter, idempotency, channel. */
-import type { Identity } from '~/core/identities/identities.types'
 
 /**
  * Per-request tenant scope. Framework adapters inject this via AsyncLocalStorage;

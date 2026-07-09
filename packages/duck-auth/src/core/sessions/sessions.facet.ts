@@ -1,9 +1,8 @@
+import type { Events } from '~/core/events/events.types'
 import { isExpiredAt, isFiniteNumber } from '../credential-utils'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identity } from '../identities/identities.types'
-import type { TenantContext } from '../types/infra'
-import type { Events } from '~/core/events/events.types'
 import { DEFAULT_SESSION_CONFIG } from './sessions.constants'
 import type { Session } from './sessions.types'
 
@@ -251,7 +250,6 @@ export async function resolveBySid<Profile extends Identity.ProfileMetadataBase>
   sid: string,
   sessions: Session.Store,
   identities: Identity.Store<Profile>,
-  ctx: TenantContext,
 ): Promise<{ session: Session.Me; identity: Identity.Me<Profile> | null } | null> {
   const hash = sha256(sid)
   const session = await sessions.getByHash(hash)

@@ -216,7 +216,7 @@ describe('SessionsFacet', () => {
 describe('resolveBySid()', () => {
   it('returns null for unknown SID', async () => {
     const adapter = new MemoryAdapter()
-    expect(await resolveBySid('nope', adapter.sessions, adapter.identities, {})).toBeNull()
+    expect(await resolveBySid('nope', adapter.sessions, adapter.identities)).toBeNull()
   })
 
   it('returns (session, identity) for a live SID with linked identity', async () => {
@@ -227,7 +227,7 @@ describe('resolveBySid()', () => {
       identityInput({ profile: { username: 'x@y.com', email: 'x@y.com' }, providers: [] }),
     )
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
-    const resolved = await resolveBySid(sid, adapter.sessions, adapter.identities, {})
+    const resolved = await resolveBySid(sid, adapter.sessions, adapter.identities)
     expect(resolved?.session.identityId).toBe(identity.id)
     expect(resolved?.identity?.profile?.email).toBe('x@y.com')
   })
@@ -238,7 +238,7 @@ describe('resolveBySid()', () => {
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
     await adapter.sessions.update(sha256(sid), { expiresAt: new Date(Date.now() - 1) })
-    expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+    expect(await resolveBySid(sid, adapter.sessions, adapter.identities)).toBeNull()
     expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
   })
 
@@ -251,7 +251,7 @@ describe('resolveBySid()', () => {
     )
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
     await adapter.identities.erase(identity.id)
-    await expect(resolveBySid(sid, adapter.sessions, adapter.identities, {})).rejects.toMatchObject({
+    await expect(resolveBySid(sid, adapter.sessions, adapter.identities)).rejects.toMatchObject({
       code: 'AUTH_SESSION_REVOKED',
     })
   })
@@ -273,7 +273,7 @@ describe('resolveBySid()', () => {
     it('resolveBySid treats NaN expiresAt as expired (central gate fail-closed)', async () => {
       const { adapter, hash, sid } = await setupLiveSession()
       await adapter.sessions.update(hash, { expiresAt: new Date(Number.NaN) })
-      expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+      expect(await resolveBySid(sid, adapter.sessions, adapter.identities)).toBeNull()
       expect(await adapter.sessions.getByHash(hash)).toBeNull()
     })
 
@@ -281,14 +281,14 @@ describe('resolveBySid()', () => {
       const { adapter, hash, sid } = await setupLiveSession()
       // @ts-expect-error: SEC test intentionally violates the typed shape
       await adapter.sessions.update(hash, { expiresAt: 'forever' })
-      expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+      expect(await resolveBySid(sid, adapter.sessions, adapter.identities)).toBeNull()
       expect(await adapter.sessions.getByHash(hash)).toBeNull()
     })
 
     it('resolveBySid treats NaN absoluteExpiresAt as expired', async () => {
       const { adapter, hash, sid } = await setupLiveSession()
       await adapter.sessions.update(hash, { absoluteExpiresAt: new Date(Number.NaN) })
-      expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+      expect(await resolveBySid(sid, adapter.sessions, adapter.identities)).toBeNull()
       expect(await adapter.sessions.getByHash(hash)).toBeNull()
     })
 
@@ -303,7 +303,7 @@ describe('resolveBySid()', () => {
           expiresAt: 'unbounded',
         },
       })
-      expect(await resolveBySid(sid, adapter.sessions, adapter.identities, {})).toBeNull()
+      expect(await resolveBySid(sid, adapter.sessions, adapter.identities)).toBeNull()
       expect(await adapter.sessions.getByHash(hash)).toBeNull()
     })
 

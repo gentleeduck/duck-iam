@@ -192,7 +192,7 @@ export class AuthEngine<
       }
     }
 
-    const resolved = await resolveBySid(token, this.config.stores.sessions, this.config.stores.identities, {})
+    const resolved = await resolveBySid(token, this.config.stores.sessions, this.config.stores.identities)
     if (!resolved) return null
     // same cross-tenant guard as the JWT branch. Reject mismatches
     // AND undefined-vs-expected - see the JWT branch comment above.

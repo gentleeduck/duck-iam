@@ -1,4 +1,4 @@
-import type { Session } from './sessions/sessions.types'
+import type { Session } from '../sessions/sessions.types'
 
 const STATUS_FOR: Record<AuthError.Code, number> = {
   AUTH_UNAUTHENTICATED: 401,
