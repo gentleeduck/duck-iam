@@ -3,7 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { credentialInput } from '~/test/store-inputs'
-import { ApiKeysFacet } from '../api-key.facet'
+import { ApiKeysFacet } from '../api-key'
 
 function build() {
   const adapter = new MemoryAdapter()

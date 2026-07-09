@@ -5,7 +5,7 @@ import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { identityInput } from '~/test/store-inputs'
-import { ApiKeysFacet } from '../api-key.facet'
+import { ApiKeysFacet } from '../api-key'
 import { authApiKey } from '../index'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {}

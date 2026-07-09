@@ -4,8 +4,6 @@
  * facet, its config, and all types under the `ApiKeys` namespace.
  */
 
-export { toApiKeysConfig } from './api-key.config'
-export { DEFAULT_APIKEYS_CONFIG } from './api-key.constants'
-export { ApiKeysFacet } from './api-key.facet'
-export { apiKeyProvider, authApiKey } from './api-key.provider'
+export { ApiKeysFacet, apiKeyProvider, authApiKey } from './api-key'
+export { DEFAULT_APIKEYS_CONFIG, toApiKeysConfig } from './api-key.constants'
 export type { ApiKeys } from './api-key.types'

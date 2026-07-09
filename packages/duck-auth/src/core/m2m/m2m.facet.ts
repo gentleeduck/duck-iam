@@ -11,7 +11,7 @@
  * `{ access_token, token_type, expires_in, scope }` token envelope.
  */
 
-import type { ApiKeysFacet } from '~/providers/api-key/api-key.facet'
+import type { ApiKeysFacet } from '~/providers/api-key'
 import { AuthError } from '../errors'
 import type { Provider } from '../provider/provider.types'
 import type { SessionsFacet } from '../sessions/sessions.facet'

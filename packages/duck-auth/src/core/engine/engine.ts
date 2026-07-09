@@ -1,4 +1,4 @@
-import { ApiKeysFacet } from '~/providers/api-key/api-key.facet'
+import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa/mfa.facet'
 import { PasswordsImpl } from '~/providers/passwords'
 import { DEFAULT_ANOMALY_CONFIG } from '../anomaly/anomaly.constants'

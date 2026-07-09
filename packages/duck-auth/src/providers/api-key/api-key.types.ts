@@ -1,5 +1,5 @@
 import type { Compliance } from '~/core/compliance'
-import type { ApiKeysFacet } from './api-key.facet'
+import type { ApiKeysFacet } from './api-key'
 
 /**
  * Every type the api-key provider exposes lives under this one namespace, so

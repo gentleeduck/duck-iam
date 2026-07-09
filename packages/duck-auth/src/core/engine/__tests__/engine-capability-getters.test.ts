@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { createAuth } from '~/core/config/config'
-import { ApiKeysFacet } from '~/providers/api-key/api-key.facet'
-import { apiKeyProvider } from '~/providers/api-key/api-key.provider'
+import { ApiKeysFacet, apiKeyProvider } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa/mfa.facet'
 import { mfaProvider } from '~/providers/mfa/mfa.provider'
 

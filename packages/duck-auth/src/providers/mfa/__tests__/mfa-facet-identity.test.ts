@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { ApiKeysFacet } from '~/providers/api-key/api-key.facet'
+import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '../mfa.facet'
 
 describe('facet registry identity', () => {
