@@ -159,7 +159,7 @@ describe('oauth / OIDC state nonces are crypto-random', () => {
 
 describe('Flow handlers throw AuthError for request-time errors', () => {
   it('flows/* files import AuthError (request-time errors must carry an error code)', () => {
-    const flowFiles = filesMatching((f) => /core\/facets\/flows\/.+\.ts$/.test(f.path))
+    const flowFiles = filesMatching((f) => /core\/flows\/.+\.flow\.ts$/.test(f.path))
     expect(flowFiles.length).toBeGreaterThan(0)
     for (const f of flowFiles) {
       expect(f.contents, `${f.path} doesn't import AuthError`).toContain('AuthError')
