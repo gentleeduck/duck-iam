@@ -3,8 +3,8 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { password, passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passkey } from '~/providers/passkey'
+import { passwords } from '~/providers/passwords'
 import { mountNext, nextSession, nextSignIn, nextSignOut } from '../index'
 
 type MyProfile = {
@@ -23,22 +23,34 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [],
   })
+
+  auth.providers.register(passwords())
+
   auth.providers.register(
-    password<MyProfile>({
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
-      passwords: auth.passwords,
+    passkey({
+      findIdentityByEmail: adapter.identities.findByEmail,
+      rpID: '',
+      rpName: '',
+      expectedOrigins: '',
     }),
   )
+
+  auth.flows.signIn({
+    providerId: '',
+    tenantId: '',
+    input: {},
+  })
+
   return { auth, adapter }
 }
 
 describe('Next.js adapter - handler primitives', () => {
   it('nextSignIn happy path', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const res = await nextSignIn(auth)(
       new Request('https://x/api/AUTH/signin', {
         method: 'POST',
@@ -50,9 +62,9 @@ describe('Next.js adapter - handler primitives', () => {
   })
 
   it('nextSession after signin', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const signin = await nextSignIn(auth)(
       new Request('https://x/api/AUTH/signin', {
         method: 'POST',
@@ -71,7 +83,7 @@ describe('Next.js adapter - handler primitives', () => {
   it('nextSignOut revokes', async () => {
     const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const signin = await nextSignIn(auth)(
       new Request('https://x/api/AUTH/signin', {
         method: 'POST',
@@ -100,9 +112,9 @@ describe('Next.js adapter - handler primitives', () => {
 
 describe('mountNext - catch-all router', () => {
   it('routes POST /api/AUTH/signin to nextSignIn', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const { POST } = mountNext(auth)
     const res = await POST(
       new Request('https://x/api/AUTH/signin', {

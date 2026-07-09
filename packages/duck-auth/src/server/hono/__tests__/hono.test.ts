@@ -3,8 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { password, passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 import { type HonoAdapter, honoSession, honoSignIn, honoSignOut } from '../index'
 
 type MyProfile = {
@@ -23,12 +22,11 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [],
   })
   auth.providers.register(
-    password<MyProfile>({
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
-      passwords: auth.passwords,
+    passwords<MyProfile>({
+      hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }),
     }),
   )
   return { auth, adapter }
@@ -67,9 +65,9 @@ function makeCtx(
 
 describe('Hono adapter - end-to-end', () => {
   it('honoSignIn happy path returns 200 + Set-Cookie', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const res = await honoSignIn(auth)(
       makeCtx('POST', '/AUTH/signin', {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
@@ -80,9 +78,9 @@ describe('Hono adapter - end-to-end', () => {
   })
 
   it('honoSignIn wrong password returns 401', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const res = await honoSignIn(auth)(
       makeCtx('POST', '/AUTH/signin', {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'wrong' } },
@@ -94,9 +92,9 @@ describe('Hono adapter - end-to-end', () => {
   })
 
   it('honoSession returns resolved session after signin', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const signinRes = await honoSignIn(auth)(
       makeCtx('POST', '/AUTH/signin', {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
@@ -114,7 +112,7 @@ describe('Hono adapter - end-to-end', () => {
   it('honoSignOut revokes + clears cookie', async () => {
     const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const signinRes = await honoSignIn(auth)(
       makeCtx('POST', '/AUTH/signin', {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },

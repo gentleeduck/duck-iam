@@ -3,8 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import { AuthJwtTransport } from '~/core/transport/jwt.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
 import { GRPC_STATUS, type GrpcAdapter, httpStatusToGrpc, withGrpc } from '../index'
 
@@ -45,7 +44,11 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [
+      passwords({
+        hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }),
+      }),
+    ],
   })
   return { auth, adapter, transport }
 }
@@ -89,7 +92,7 @@ describe('withGrpc interceptor', () => {
   })
 
   it('required:false + no token -> handler invoked with no session attached', async () => {
-    const handler = vi.fn((call, cb) => cb(null, { ok: true }))
+    const handler = vi.fn((_call, cb) => cb(null, { ok: true }))
     const wrapped = withGrpc(env.auth, handler, { required: false })
     const call: GrpcAdapter.UnaryCall<unknown> = {
       metadata: makeMetadata(),
@@ -109,7 +112,6 @@ describe('withGrpc interceptor', () => {
   it('valid bearer token -> handler called with call.session populated', async () => {
     const ident = await env.adapter.identities.create(
       identityInput({ profile: { username: 'user', email: 'a@x.com' }, providers: [] }),
-      {},
     )
     const { sid, session } = await env.auth.sessions.create({
       identityId: ident.id,

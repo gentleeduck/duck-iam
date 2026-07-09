@@ -1,10 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { password, passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 import { applyIntents, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
 
 type MyProfile = {
@@ -67,12 +66,10 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: fastHasher })],
   })
   auth.providers.register(
-    password<MyProfile>({
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
-      passwords: auth.passwords,
+    passwords({
+      hasher: fastHasher,
     }),
   )
   return { auth, adapter }
@@ -129,9 +126,9 @@ describe('applyIntents', () => {
 
 describe('mounted handlers - end-to-end', () => {
   it('mountSignIn happy path: cookie set, 200 body', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
 
     const handler = mountSignIn(auth)
     const r = mockRes()
@@ -157,9 +154,9 @@ describe('mounted handlers - end-to-end', () => {
   })
 
   it('mountSignIn wrong password returns 401 with AUTH/INVALID_CREDENTIALS body', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const handler = mountSignIn(auth)
     const r = mockRes()
     await handler(
@@ -176,9 +173,9 @@ describe('mounted handlers - end-to-end', () => {
   })
 
   it('mountSession after signin returns the resolved session shape', async () => {
-    const { auth } = buildAuth()
+    const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
 
     const signinR = mockRes()
     await mountSignIn(auth)(
@@ -211,7 +208,7 @@ describe('mounted handlers - end-to-end', () => {
   it('mountSignOut clears cookie + revokes session', async () => {
     const { auth, adapter } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const r = mockRes()
     await mountSignIn(auth)(
       {

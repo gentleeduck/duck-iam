@@ -3,8 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { password, passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
 import {
   type FastifyAdapter,
@@ -62,12 +61,10 @@ function buildAuth() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   auth.providers.register(
-    password({
-      passwords: auth.passwords,
-      findIdentityByEmail: async (email) => (await adapter.identities.findByEmail(email, {})) as { id: string } | null,
+    passwords({
+      hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }),
     }),
   )
   return { auth, adapter }
@@ -92,9 +89,8 @@ describe('Fastify adapter', () => {
   it('signIn -> startSession sets the cookie + replies 200 OK', async () => {
     const ident = await adapter.identities.create(
       identityInput({ profile: { username: 'user', email: 'user@x.com' }, providers: [] }),
-      {},
     )
-    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', {})
+    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', adapter.credentials)
     const handler = fastifySignIn(auth)
     const reply = makeReply()
     await handler(
