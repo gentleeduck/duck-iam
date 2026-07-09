@@ -4,7 +4,7 @@ import { InMemoryEvents } from '~/core/events'
 import type { Identity } from '~/core/identities/identities.types'
 import { credentialInput, sessionInput } from '~/test/store-inputs'
 import { DEFAULT_IDENTITIES_CONFIG } from '../identities.constants'
-import { IdentitiesFacet } from '../identities.facet'
+import { IdentitiesImpl } from '../identities.facet'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   name?: string
@@ -14,12 +14,12 @@ interface MyProfile extends Identity.ProfileMetadataBase {
 describe('IdentitiesFacet', () => {
   let adapter: MemoryAdapter<MyProfile>
   let events: InMemoryEvents
-  let facet: IdentitiesFacet<MyProfile>
+  let facet: IdentitiesImpl<MyProfile>
 
   beforeEach(() => {
     adapter = new MemoryAdapter<MyProfile>()
     events = new InMemoryEvents()
-    facet = new IdentitiesFacet<MyProfile>(adapter.identities, events, DEFAULT_IDENTITIES_CONFIG)
+    facet = new IdentitiesImpl<MyProfile>(adapter.identities, events, DEFAULT_IDENTITIES_CONFIG)
   })
 
   describe('create', () => {
@@ -57,7 +57,7 @@ describe('IdentitiesFacet', () => {
     })
 
     it('honors an operator-supplied profileMaxBytes cap', async () => {
-      const tight = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
+      const tight = new IdentitiesImpl<MyProfile>(adapter.identities, events, {
         softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
         profileMaxBytes: 32,
       })
@@ -71,7 +71,7 @@ describe('IdentitiesFacet', () => {
     })
 
     it('an at-cap profile passes through', async () => {
-      const tight = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
+      const tight = new IdentitiesImpl<MyProfile>(adapter.identities, events, {
         softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
         profileMaxBytes: 48,
       })
@@ -81,7 +81,7 @@ describe('IdentitiesFacet', () => {
     })
 
     it('opt-out (profileMaxBytes: 0) accepts a large profile', async () => {
-      const unbounded = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
+      const unbounded = new IdentitiesImpl<MyProfile>(adapter.identities, events, {
         softDeleteGracePeriodMs: DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
         profileMaxBytes: 0,
       })
@@ -203,7 +203,7 @@ describe('IdentitiesFacet', () => {
     })
 
     it('restore after grace expired surfaces AUTH_GRACE_EXPIRED', async () => {
-      const tightFacet = new IdentitiesFacet<MyProfile>(adapter.identities, events, {
+      const tightFacet = new IdentitiesImpl<MyProfile>(adapter.identities, events, {
         softDeleteGracePeriodMs: 1, // 1ms grace = always expired by the time we check
       })
       const i = await tightFacet.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
@@ -314,8 +314,8 @@ describe('IdentitiesFacet', () => {
       const blob2 = await facet.exportAll(i.id, adapter.credentials)
       // exportedAt differs each run; assert the rest of the structure
       // round-trips through canonical JSON the same way.
-      const j1 = IdentitiesFacet.exportToJson({ ...blob1, exportedAt: 0 })
-      const j2 = IdentitiesFacet.exportToJson({ ...blob2, exportedAt: 0 })
+      const j1 = IdentitiesImpl.exportToJson({ ...blob1, exportedAt: 0 })
+      const j2 = IdentitiesImpl.exportToJson({ ...blob2, exportedAt: 0 })
       expect(j1).toBe(j2)
       expect(j1.split('\n')[0]).toBe('{')
     })

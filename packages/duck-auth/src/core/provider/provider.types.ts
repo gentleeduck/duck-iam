@@ -1,8 +1,9 @@
 import type { Identity } from '~/core/identities/identities.types'
 import type { Session } from '~/core/sessions/sessions.types'
 import type { Credential } from '~/core/types/identity'
-import type { Limiter, TenantContext } from '~/core/types/infra'
+import type { TenantContext } from '~/core/types/infra'
 import type { Transport } from '~/core/types/session'
+import type { Limiter } from '~/limiters'
 // import type { AuthEngine } from '../engine'
 
 export namespace Provider {
@@ -56,7 +57,7 @@ export namespace Provider {
     }
     tenant: TenantContext
     baseUrl: string
-    limiter: Limiter.Limiter
+    limiter: Limiter.Me
     events: Events
     crypto: Crypto
   }

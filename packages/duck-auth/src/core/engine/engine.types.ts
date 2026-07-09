@@ -1,11 +1,11 @@
+import type { Limiter } from '~/limiters'
 import type { AuthDefine } from '../config/config.types'
 import type { Hijack } from '../hijack/hijack.types'
 import type { Identity } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
 import type { Session } from '../sessions/sessions.types'
 import type { Credential } from '../types/identity'
-import type { Limiter } from '../types/infra'
-import type { Events } from '../types/provider'
+import type { Events } from '~/core/events/events.types'
 import type { Transport } from '../types/session'
 
 export namespace Engine {
@@ -29,7 +29,7 @@ export namespace Engine {
       credentials: Credential.Store
       orgs?: Org.Store<OrgMeta>
     }
-    limiter?: Limiter.Limiter
+    limiter?: Limiter.Me
     /**
      * Capabilities (sign-in providers + attach-only facets), or thunks that
      * build one from the constructed engine + channels. Resolved and registered

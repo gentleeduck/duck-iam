@@ -1,5 +1,5 @@
 import { AuthError } from '../errors'
-import type { Identity } from '../types'
+import type { Identity } from '../identities'
 import type { Provider } from './provider.types'
 
 /** Type guard: a capability that exposes begin/complete is a sign-in provider. */

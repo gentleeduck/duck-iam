@@ -1,9 +1,9 @@
 import { getProfileString } from '../credential-utils'
 import { AuthError } from '../errors'
+import type { Events } from '../events'
 import type { Session } from '../sessions/sessions.types'
 import type { Credential } from '../types/identity'
 import type { TenantContext } from '../types/infra'
-import type { Events } from '../types/provider'
 import { DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
 import type { Identity } from './identities.types'
 
@@ -13,7 +13,7 @@ import type { Identity } from './identities.types'
  * through `update(expectedVersion)`; callers that pass a stale version see
  * `AUTH/STALE_WRITE` and decide retry/surface.
  */
-export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
+export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
   constructor(
     private readonly _store: Identity.Store<Profile>,
     private readonly _events: Events.IBus,
@@ -263,10 +263,6 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
   }
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
 /** Trim + lowercase the `email` field off a profile; `undefined` when absent or non-string. */
 function extractEmail(profile: unknown): string | undefined {
   const raw = getProfileString(profile, 'email')
@@ -276,6 +272,9 @@ function extractEmail(profile: unknown): string | undefined {
 }
 
 function sortKeys(_key: string, value: unknown): unknown {
+  const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === 'object' && v !== null && !Array.isArray(v)
+
   if (isPlainObject(value)) {
     const sorted: Record<string, unknown> = {}
     for (const k of Object.keys(value).sort()) {

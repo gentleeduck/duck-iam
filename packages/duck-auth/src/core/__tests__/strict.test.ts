@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthMemoryLimiter } from '~/limiters/memory'
+import { NoopLimiter } from '~/limiters/mock'
 import { AuthEngine } from '../engine'
 import type { Identity } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
@@ -113,12 +114,11 @@ describe('AuthEngine.strict()', () => {
 
     it('rejects an explicitly-passed AuthNoopLimiter (not just missing limiter)', async () => {
       const adapter = new MemoryAdapter<MyProfile>()
-      const { NoopLimiter: AuthNoopLimiter } = await import('../engine')
       const auth = new AuthEngine<MyProfile>({
         baseUrl: 'https://app.example.com',
         transport: new CookieTransport({ secure: true, name: 'duck-sid' }),
         stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
-        limiter: new AuthNoopLimiter(),
+        limiter: new NoopLimiter(),
         providers: [
           {
             id: 'password',

@@ -1,5 +1,4 @@
-import type { AuthEngineTypes } from '../engine'
-import { AuthEngine } from '../engine'
+import { AuthEngine, type Engine } from '../engine'
 import type { Identity } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
 import type { AuthDefine } from './config.types'
@@ -26,7 +25,7 @@ export function createAuth<
   // Engine-config knobs are genuinely optional tuning (not stored data), so they
   // stay optional and pass straight through — the `...(x !== undefined && {x})`
   // spread guard was noise, not safety (`exactOptionalPropertyTypes: false`).
-  const rootConfig: AuthEngineTypes.Config<Profile, Tenant, OrgMeta> = {
+  const rootConfig: Engine.Config<Profile, Tenant, OrgMeta> = {
     baseUrl: config.baseUrl,
     stores: {
       credentials: config.stores.credentials,

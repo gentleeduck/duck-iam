@@ -1,28 +1,24 @@
+import type { Limiter } from '~/limiters'
+import { NoopLimiter } from '~/limiters/mock'
 import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa'
 import { PasswordsImpl } from '~/providers/passwords'
-import { DEFAULT_ANOMALY_CONFIG } from '../anomaly/anomaly.constants'
-import { AnomalyFacet } from '../anomaly/anomaly.facet'
+import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
-import { InMemoryEvents } from '../events'
-import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../facets/flows.facet'
-import { HijackFacet } from '../hijack/hijack.facet'
+import { type Events, InMemoryEvents } from '../events'
+import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../flows'
+import { HijackFacet } from '../hijack'
+import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet, type Identity } from '../identities'
 // import { DEFAULT_IDEMPOTENCY_CONFIG } from '../idempotency/idempotency.constants'
 // import { IdempotencyFacet, MemoryIdempotencyStore } from '../idempotency/idempotency.facet'
-import { DEFAULT_IDENTITIES_CONFIG } from '../identities/identities.constants'
-import { IdentitiesFacet } from '../identities/identities.facet'
-import type { Identity } from '../identities/identities.types'
 // import { OperationsFacet } from '../operations/operations.facet'
-import { OrgsFacet } from '../orgs/orgs.facet'
-import { Providers } from '../provider/provider'
+import { OrgsFacet } from '../orgs'
+import { Providers } from '../provider'
+import type { Session } from '../sessions'
 // import { PluginRegistry } from '../plugin'
 // import type { Provider } from '../provider/provider.types'
-import { DEFAULT_SESSION_CONFIG } from '../sessions/sessions.constants'
-import { resolveBySid, SessionsFacet } from '../sessions/sessions.facet'
-import type { Session } from '../sessions/sessions.types'
-import type { Limiter as LimiterNs } from '../types/infra'
-import type { Events } from '../types/provider'
+import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions'
 import type { Transport } from '../types/session'
 import type { Engine } from './engine.types'
 
@@ -43,6 +39,14 @@ export class AuthEngine<
   readonly identities: IdentitiesFacet<Profile>
   readonly providers: Providers<Profile>
   readonly orgs: OrgsFacet<OrgMeta> | null
+  readonly flows: FlowsFacet<Profile>
+  readonly limiter: Limiter.Me
+  // readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
+  // readonly operations: OperationsFacet
+  // readonly idempotency: IdempotencyFacet
+  readonly hijack: HijackFacet
+  readonly anomaly: AnomalyFacet
+
   // Provider-owned capabilities live in `this.providers`; the getters below
   // resolve them by type and fail loud (AUTH_PROVIDER_NOT_REGISTERED) when the
   // owning provider was never added to `providers`.
@@ -71,14 +75,6 @@ export class AuthEngine<
       detail: `this operation needs the '${name}' provider; add ${name}Provider() to providers[]`,
     })
   }
-
-  readonly flows: FlowsFacet<Profile>
-  readonly limiter: LimiterNs.Limiter
-  // readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
-  // readonly operations: OperationsFacet
-  // readonly idempotency: IdempotencyFacet
-  readonly hijack: HijackFacet
-  readonly anomaly: AnomalyFacet
 
   constructor(config: Engine.Config<Profile, Tenant, OrgMeta>) {
     this.config = config
@@ -274,27 +270,4 @@ export class AuthEngine<
       })
     }
   }
-}
-
-// Re-export SessionsFacet for consumers that want to type the facet directly.
-export { SessionsFacet } from '../sessions/sessions.facet'
-
-// Used by other facets that need the hashing scheme. Kept private to the package.
-export const __hashSid = sha256
-
-/**
- * No-op limiter used when no Limiter adapter is configured. Always allows.
- * `strict({ env: 'production' })` rejects this - production must supply a real
- * Limiter (redis/upstash) for brute-force protection.
- */
-export class NoopLimiter implements LimiterNs.Limiter {
-  /** Brand consumed by `AuthEngine.strict({ env: 'production' })` to
-   * detect "explicit AuthNoopLimiter" - class-identity comparison breaks
-   * across bundler rewrites (treeshaken duplicates / nested workspaces)
-   * so we tag every instance and check the tag instead. */
-  readonly __isNoopLimiter = true as const
-  async consume(_key: string, _weight = 1): Promise<LimiterNs.Result> {
-    return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: new Date(Date.now() + 60_000) }
-  }
-  async reset(_key: string): Promise<void> {}
 }
