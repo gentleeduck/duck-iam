@@ -6,7 +6,7 @@ export default createTsdownConfig({
     'core/index': 'src/core/index.ts',
     'core/transport/index': 'src/core/transport/index.ts',
     'core/dataAtRest/index': 'src/core/dataAtRest/index.ts',
-    'core/errors': 'src/core/errors.ts',
+    'core/errors': 'src/core/errors/index.ts',
     'adapters/memory/index': 'src/adapters/memory/index.ts',
     'adapters/redis/index': 'src/adapters/redis/index.ts',
     'adapters/sql/index': 'src/adapters/sql/index.ts',
