@@ -16,7 +16,7 @@ import {
   runCredentialStoreCompliance,
   runIdentityStoreCompliance,
   runSessionStoreCompliance,
-} from '~/adapters/__compliance__'
+} from '~/test/store-compliance'
 import { createSqlStores } from '~/adapters/sql/sql'
 import { createDrizzleSqliteBridge } from '../sqlite'
 
