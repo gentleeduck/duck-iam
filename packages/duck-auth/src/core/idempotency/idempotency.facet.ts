@@ -1,20 +1,7 @@
 import { isExpiredAt } from '../credential-utils'
-import type { Idempotency, TenantContext } from '../types/infra'
-
-export namespace IdempotencyFacet {
-  export interface Config {
-    /** TTL for cached responses, ms. Default 24 hours per RFC draft. */
-    ttlMs: number
-    /** When provided, requests carry the header value as the idempotency key. */
-    headerName: string
-    /**
-     * Maximum time (ms) the loser of a `claim()` race will wait for the
-     * winner's response to land before giving up and returning a 409.
-     * Default 5s; tune up for executors that legitimately run longer.
-     */
-    pollTimeoutMs: number
-  }
-}
+import type { TenantContext } from '../types/infra'
+import { DEFAULT_IDEMPOTENCY_CONFIG } from './idempotency.constants'
+import type { Idempotency } from './idempotency.types'
 
 /**
  * In-memory Idempotency store. Dev / test only; production swaps in a
@@ -80,12 +67,6 @@ export class MemoryIdempotencyStore implements Idempotency.Store {
   }
 }
 
-export const DEFAULT_IDEMPOTENCY_CONFIG: IdempotencyFacet.Config = {
-  ttlMs: 24 * 60 * 60 * 1000,
-  headerName: 'idempotency-key',
-  pollTimeoutMs: 5_000,
-}
-
 /**
  * Idempotency facet. Driven by framework adapters: extract the header,
  * call {@link IdempotencyFacet.handle} with an executor; the facet
@@ -94,7 +75,7 @@ export const DEFAULT_IDEMPOTENCY_CONFIG: IdempotencyFacet.Config = {
 export class IdempotencyFacet {
   constructor(
     private readonly _store: Idempotency.Store | null,
-    private readonly _cfg: IdempotencyFacet.Config = DEFAULT_IDEMPOTENCY_CONFIG,
+    private readonly _cfg: Idempotency.Config = DEFAULT_IDEMPOTENCY_CONFIG,
   ) {}
 
   /** True when an Idempotency store is wired; framework adapters skip the dance otherwise. */

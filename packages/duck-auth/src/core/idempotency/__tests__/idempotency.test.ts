@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from '../idempotency.facet'
+import { DEFAULT_IDEMPOTENCY_CONFIG } from '../idempotency.constants'
+import { IdempotencyFacet, MemoryIdempotencyStore } from '../idempotency.facet'
 
 describe('MemoryIdempotencyStore', () => {
   it('get returns null for unseen keys', async () => {
