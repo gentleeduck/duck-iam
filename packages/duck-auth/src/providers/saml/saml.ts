@@ -24,23 +24,23 @@ export class SamlImpl<Profile extends Identity.ProfileMetadataBase = Identity.Pr
   readonly id: string
   readonly kind = 'oauth' as const
 
-  constructor(private readonly opts: Saml.Options<Profile>) {
-    if (!opts.client) {
+  constructor(private readonly cfg: Saml.Options<Profile>) {
+    if (!cfg.client) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'samlProvider requires a pre-built `client` (@node-saml/node-saml SAML instance)',
       })
     }
-    if (!opts.callbackUrl) {
+    if (!cfg.callbackUrl) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'samlProvider requires `callbackUrl` (matches IdP AssertionConsumerService URL)',
       })
     }
-    if (!opts.onSignIn) {
+    if (!cfg.onSignIn) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'samlProvider requires `onSignIn` (just-in-time identity provisioning hook)',
       })
     }
-    this.id = opts.providerId ?? DEFAULT_SAML_CONFIG.providerId
+    this.id = cfg.providerId ?? DEFAULT_SAML_CONFIG.providerId
   }
 
   async begin(_ctx: Provider.Context<Profile>, input: Saml.BeginInput): Promise<Provider.Intent[]> {
@@ -67,7 +67,7 @@ export class SamlImpl<Profile extends Identity.ProfileMetadataBase = Identity.Pr
         detail: 'saml.begin requires host (1-253 chars, no CR/LF)',
       })
     }
-    const url = await this.opts.client.getAuthorizeUrlAsync(input.relayState, input.host, {})
+    const url = await this.cfg.client.getAuthorizeUrlAsync(input.relayState, input.host, {})
     return [{ type: 'redirect', url, status: 302 }]
   }
 
@@ -89,7 +89,7 @@ export class SamlImpl<Profile extends Identity.ProfileMetadataBase = Identity.Pr
     }
     let validated: { profile: Saml.Profile | null; loggedOut: boolean }
     try {
-      validated = await this.opts.client.validatePostResponseAsync({
+      validated = await this.cfg.client.validatePostResponseAsync({
         SAMLResponse: input.SAMLResponse,
       })
     } catch (err) {
@@ -123,7 +123,7 @@ export class SamlImpl<Profile extends Identity.ProfileMetadataBase = Identity.Pr
       })
     }
 
-    const { identityId } = await this.opts.onSignIn({
+    const { identityId } = await this.cfg.onSignIn({
       profile: validated.profile,
       ...(ctx.tenant.tenantId !== undefined && { tenantId: ctx.tenant.tenantId }),
     })

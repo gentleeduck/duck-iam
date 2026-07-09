@@ -3,19 +3,19 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { totpAt } from '../internal/totp'
-import { MfaFacet } from '../mfa'
+import { MfaImpl } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
 import type { Mfa } from '../mfa.types'
 
 describe('MfaFacet - TOTP', () => {
   let adapter: MemoryAdapter
   let events: InMemoryEvents
-  let facet: MfaFacet
+  let facet: MfaImpl
 
   beforeEach(() => {
     adapter = new MemoryAdapter()
     events = new InMemoryEvents()
-    facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
+    facet = new MfaImpl(adapter.credentials, events, DEFAULT_MFA_CONFIG)
   })
 
   describe('enrollment', () => {
@@ -132,12 +132,12 @@ describe('MfaFacet - TOTP', () => {
 describe('MfaFacet - backup codes', () => {
   let adapter: MemoryAdapter
   let events: InMemoryEvents
-  let facet: MfaFacet
+  let facet: MfaImpl
 
   beforeEach(() => {
     adapter = new MemoryAdapter()
     events = new InMemoryEvents()
-    facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
+    facet = new MfaImpl(adapter.credentials, events, DEFAULT_MFA_CONFIG)
   })
 
   it('regenerated backup codes are single-use and case-insensitive on verify', async () => {
@@ -178,7 +178,7 @@ describe('MfaFacet - backup codes', () => {
 describe('MfaFacet - WebAuthn-MFA', () => {
   let adapter: MemoryAdapter
   let events: InMemoryEvents
-  let facet: MfaFacet
+  let facet: MfaImpl
   let identityId: string
 
   function makeMockWebauthn(): Mfa.WebauthnLibrary {
@@ -224,7 +224,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
   beforeEach(() => {
     adapter = new MemoryAdapter()
     events = new InMemoryEvents()
-    facet = new MfaFacet(adapter.credentials, events, DEFAULT_MFA_CONFIG)
+    facet = new MfaImpl(adapter.credentials, events, DEFAULT_MFA_CONFIG)
     identityId = 'user-wa-mfa-1'
   })
 

@@ -15,6 +15,8 @@ export namespace Mfa {
     backupCodeCount: number
     /** Backup code length in characters. Default 10. */
     backupCodeLen: number
+    /** Compliance preset(s); ratchets `backupCodeCount` up to the preset floor. */
+    compliance: Compliance.Preset | Compliance.Preset[]
   }
 
   /**

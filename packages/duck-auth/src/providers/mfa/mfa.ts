@@ -1,4 +1,5 @@
 import type { Identity } from '~/core'
+import { resolveCompliance } from '~/core/compliance'
 import { isProfileBooleanTrue, toCredentialUpsert } from '~/core/credential-utils'
 import { sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
@@ -9,7 +10,7 @@ import type { TenantContext } from '~/core/types/infra'
 import type { Events } from '~/core/types/provider'
 import type { Passkey } from '~/providers/passkey/passkey.types'
 import { buildOtpAuthUri, generateSecret, verifyTotp } from './internal/totp'
-import { DEFAULT_MFA_CONFIG, toMfaConfig } from './mfa.constants'
+import { DEFAULT_MFA_CONFIG } from './mfa.constants'
 import type { Mfa } from './mfa.types'
 
 /**
@@ -22,15 +23,23 @@ import type { Mfa } from './mfa.types'
  * the attack window - and rotation is one-click). Backup codes are
  * persisted hashed as `kind: 'recovery'`, single-use.
  */
-export class MfaFacet {
+export class MfaImpl {
   readonly id = 'mfa'
   readonly kind = 'mfa' as const
+  private readonly _cfg: Omit<Mfa.Config, 'compliance'>
 
   constructor(
-    private readonly _credentials: Credential.Store,
-    private readonly _events: Events.IBus,
-    private readonly _cfg: Mfa.Config = DEFAULT_MFA_CONFIG,
-  ) {}
+    readonly _credentials: Credential.Store,
+    readonly _events: Events.IBus,
+    readonly cfg?: Partial<Mfa.Config>,
+  ) {
+    const floor = cfg?.compliance ? resolveCompliance(cfg.compliance).mfa.backupCodeCount : 0
+    this._cfg = {
+      issuer: cfg?.issuer ?? DEFAULT_MFA_CONFIG.issuer,
+      backupCodeCount: Math.max(cfg?.backupCodeCount ?? DEFAULT_MFA_CONFIG.backupCodeCount, floor),
+      backupCodeLen: cfg?.backupCodeLen ?? DEFAULT_MFA_CONFIG.backupCodeLen,
+    }
+  }
 
   // --- TOTP ---------------------------------------------------------------
 
@@ -421,16 +430,11 @@ function webauthnUserId(identityId: string): Uint8Array {
   return new Uint8Array(require('node:crypto').createHash('sha256').update(identityId, 'utf8').digest())
 }
 
-/**
- * MFA capability. MFA is a second factor, not a sign-in method, so this
- * carries no `begin`/`complete` — it is a facet the engine resolves via
- * `auth.mfa`. Add it to `providers: [mfaProvider()]`; `createAuth` calls
- * the thunk with the constructed engine and registers the returned facet.
- */
-export function mfaProvider<
+/** Factory around {@link MfaImpl} for functional-style config. */
+export function mfa<
   Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
   Tenant = string,
   OrgMeta = unknown,
->(cfg?: Mfa.ConfigInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => MfaFacet {
-  return (auth) => new MfaFacet(auth.config.stores.credentials, auth.events, toMfaConfig(cfg))
+>(cfg?: Mfa.ConfigInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => MfaImpl {
+  return (auth) => new MfaImpl(auth.config.stores.credentials, auth.events, cfg)
 }

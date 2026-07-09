@@ -69,7 +69,7 @@ function scaffoldTemplate(flavor: 'quickstart' | 'production'): string {
 import { AuthMemoryAdapter } from '@gentleduck/auth/adapters/memory'
 import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { AuthCookieTransport } from '@gentleduck/auth/core/transport'
-import { passwordProvider } from '@gentleduck/auth/providers/password'
+import { passwords } from '@gentleduck/auth/providers/password'
 
 const adapter = new AuthMemoryAdapter()
 
@@ -83,14 +83,14 @@ export const auth = new AuthEngine({
   },
   events: new AuthInMemoryEvents(),
   limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-  providers: [passwordProvider({ hasher: new AuthScryptHasher() })],
+  providers: [passwords({ hasher: new AuthScryptHasher() })],
 })
 `
   }
   return `import { AuthEngine, AuthArgon2idHasher } from '@gentleduck/auth/core'
 import { AuthJwtTransport } from '@gentleduck/auth/core/transport'
 import { RedisIdempotencyStore, RedisLimiter, RedisSessionStore } from '@gentleduck/auth/adapters/redis'
-import { passwordProvider } from '@gentleduck/auth/providers/password'
+import { passwords } from '@gentleduck/auth/providers/password'
 import { Redis } from 'ioredis'
 
 const redis = new Redis(process.env.REDIS_URL!)
@@ -114,7 +114,7 @@ export const auth = new AuthEngine({
     credentials,
   },
   limiter: new RedisLimiter({ redis, max: 5, windowMs: 60_000 }),
-  providers: [passwordProvider({ hasher: new AuthArgon2idHasher() })],
+  providers: [passwords({ hasher: new AuthArgon2idHasher() })],
   idempotency: { store: new RedisIdempotencyStore({ redis }), ttlMs: 24 * 60 * 60 * 1000 },
   env: 'production',
 })

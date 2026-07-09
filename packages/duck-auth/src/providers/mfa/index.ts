@@ -16,6 +16,6 @@ export {
   totpAt,
   verifyTotp,
 } from './internal/totp'
-export { MfaFacet, mfaProvider } from './mfa'
-export { DEFAULT_MFA_CONFIG, toMfaConfig } from './mfa.constants'
+export { MfaImpl as MfaFacet, mfa as mfaProvider } from './mfa'
+export { DEFAULT_MFA_CONFIG } from './mfa.constants'
 export type { Mfa } from './mfa.types'

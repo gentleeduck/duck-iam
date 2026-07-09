@@ -6,6 +6,6 @@
  */
 
 export { MemoryPasskeyChallengeStore as AuthMemoryPasskeyChallengeStore } from './internal/challenge-store'
-export { beginPasskeyRegistration, completePasskeyRegistration, passkey, PasskeyImpl } from './passkey'
+export { beginPasskeyRegistration, completePasskeyRegistration, PasskeyImpl, passkey } from './passkey'
 export { DEFAULT_PASSKEY_CONFIG } from './passkey.constants'
 export type { Passkey, Passkey as AuthPasskeyTypes } from './passkey.types'

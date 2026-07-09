@@ -3,11 +3,11 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { ApiKeysFacet } from '~/providers/api-key'
-import { MfaFacet } from '../mfa'
+import { MfaImpl } from '../mfa'
 
 describe('facet registry identity', () => {
   it('MfaFacet advertises id/kind', () => {
-    const f = new MfaFacet(new MemoryAdapter().credentials, new InMemoryEvents())
+    const f = new MfaImpl(new MemoryAdapter().credentials, new InMemoryEvents())
     expect(f.id).toBe('mfa')
     expect(f.kind).toBe('mfa')
   })
