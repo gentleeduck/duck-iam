@@ -11,14 +11,9 @@ import { type Events, InMemoryEvents } from '../events'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../flows'
 import { HijackFacet } from '../hijack'
 import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet, type Identity } from '../identities'
-// import { DEFAULT_IDEMPOTENCY_CONFIG } from '../idempotency/idempotency.constants'
-// import { IdempotencyFacet, MemoryIdempotencyStore } from '../idempotency/idempotency.facet'
-// import { OperationsFacet } from '../operations/operations.facet'
 import { OrgsFacet } from '../orgs'
 import { Providers } from '../provider'
 import type { Session } from '../sessions'
-// import { PluginRegistry } from '../plugin'
-// import type { Provider } from '../provider/provider.types'
 import { DEFAULT_SESSION_CONFIG, SessionsFacet } from '../sessions'
 import type { Transport } from '../transport/transport.types'
 import { resolveSession as resolveSessionImpl } from './engine.resolve-session'
@@ -44,9 +39,6 @@ export class AuthEngine<
   readonly orgs: OrgsFacet<OrgMeta> | null
   readonly flows: FlowsFacet<Profile>
   readonly limiter: Limiter.Me
-  // readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
-  // readonly operations: OperationsFacet
-  // readonly idempotency: IdempotencyFacet
   readonly hijack: HijackFacet
   readonly anomaly: AnomalyFacet
 
@@ -104,9 +96,6 @@ export class AuthEngine<
       this.providers.register(cap)
     }
     this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
-    // this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
-    // this.operations = new OperationsFacet(this.events)
-    // this.idempotency = new IdempotencyFacet(new MemoryIdempotencyStore(), DEFAULT_IDEMPOTENCY_CONFIG)
     this.hijack = new HijackFacet(this.events, config.hijack ?? {})
     this.anomaly = new AnomalyFacet(this.events, DEFAULT_ANOMALY_CONFIG)
     this.flows = new FlowsFacet<Profile>(
@@ -159,11 +148,6 @@ export class AuthEngine<
   } | null> {
     return resolveSessionImpl(this, req, opts)
   }
-
-  /** Install a plugin atomically (providers + events + facets) */
-  // async use(plugin: PluginRegistry.Plugin<Profile, Tenant, OrgMeta>): Promise<void> {
-  //   await this.plugins.install(this, plugin)
-  // }
 
   /** Boot-time strict validation; throws `AUTH/MISCONFIGURED` on any production footgun. */
   strict(opts: { env: 'development' | 'production' | 'test' }): void {
