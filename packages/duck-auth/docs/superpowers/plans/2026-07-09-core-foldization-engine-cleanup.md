@@ -21,6 +21,16 @@
 
 ---
 
+## Progress (updated 2026-07-10)
+
+**Group A (Tasks 0–9) — DONE.** Every core facet subject now lives in its own folder: `core/{sessions,identities,provider,orgs,anomaly,hijack,idempotency,operations,m2m}/` each exist with `<x>.facet.ts` + `index.ts` (+ `.constants.ts`/`.types.ts` where applicable). `git grep` for the old `facets/<x>.facet` paths is empty for all nine. Provider-side work also landed out of band (all providers → class+factory, `password`→`passwords` folder, tsdown/exports aligned).
+
+**Remaining `core/facets/` residue:** only `flows.facet.ts` + `flows/*.flow.ts` (6) + `__tests__/flows-*.test.ts` (11) — i.e. **Task 10 is the next actionable step.**
+
+**⚠ Baseline caveat — the tree is currently NOT green.** An out-of-order start on the Group C type-scatter (Tasks 20–23) has removed `Channel` from `~/core/types/infra` and deleted `~/core/types/provider` without repointing importers → **34 `tsc` errors** + ~88 uncommitted files. The plan's per-task gate ("tsc → 0") therefore cannot pass as written. Until Group C is finished (or reverted), Group A/B moves must gate on **"no *new* tsc errors vs the recorded 34-error baseline"** + affected-suite green, not absolute `0`.
+
+---
+
 ## Target Layout (end state of `src/core/`)
 
 ```
