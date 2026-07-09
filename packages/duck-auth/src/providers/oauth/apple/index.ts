@@ -1,1 +1,1 @@
-export { apple, decodeIdToken, generateClientSecret } from './apple.provider'
+export { apple, decodeIdToken, generateClientSecret } from './apple'

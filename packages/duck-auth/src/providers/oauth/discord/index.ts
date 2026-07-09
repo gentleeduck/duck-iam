@@ -1,1 +1,1 @@
-export { discord } from './discord.provider'
+export { discord } from './discord'

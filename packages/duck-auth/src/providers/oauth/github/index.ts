@@ -1,1 +1,1 @@
-export { github } from './github.provider'
+export { github } from './github'

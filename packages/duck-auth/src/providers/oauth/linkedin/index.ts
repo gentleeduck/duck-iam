@@ -1,1 +1,1 @@
-export { linkedin } from './linkedin.provider'
+export { linkedin } from './linkedin'

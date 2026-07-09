@@ -5,8 +5,7 @@ import { Identity } from '~/core'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 import { OAuthClient } from '../core/client'
 import { generatePkce } from '../core/pkce'
 import { oProvider } from '../core/provider'
@@ -255,7 +254,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
         credentials: adapter.credentials,
       },
       limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
-      providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+      providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
     })
 
     const client = new OAuthClient({
@@ -345,7 +344,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     })
 
     expect(result.session!.factors[0]?.method).toBe('oauth')
-    const identity = await adapter.identities.findByEmail('new@x.com', {})
+    const identity = await adapter.identities.findByEmail('new@x.com')
     expect(identity).not.toBeNull()
     expect(identity?.providers.some((p) => p.providerId === 'oauth:fakeoidc' && p.providerSub === 'idp-user-1')).toBe(
       true,
@@ -425,7 +424,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
     const begin1 = await auth.flows.beginProvider('oauth:fakeoidc', {})
     const state1 = new URL((begin1[0] as { url: string }).url).searchParams.get('state') ?? ''
     await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c1', state: state1 } })
-    const identitiesBefore = await adapter.identities.findByEmail('a@x.com', {})
+    const identitiesBefore = await adapter.identities.findByEmail('a@x.com')
     expect(identitiesBefore).not.toBeNull()
 
     const begin2 = await auth.flows.beginProvider('oauth:fakeoidc', {})

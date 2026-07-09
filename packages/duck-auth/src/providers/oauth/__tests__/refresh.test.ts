@@ -37,7 +37,6 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
     events = new InMemoryEvents()
     const i = await adapter.identities.create(
       identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }),
-      {},
     )
     identityId = i.id
   })

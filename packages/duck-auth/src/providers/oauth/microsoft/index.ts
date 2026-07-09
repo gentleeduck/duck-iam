@@ -1,1 +1,1 @@
-export { microsoft } from './microsoft.provider'
+export { microsoft } from './microsoft'

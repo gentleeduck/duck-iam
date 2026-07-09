@@ -1,1 +1,1 @@
-export { google } from './google.provider'
+export { google } from './google'
