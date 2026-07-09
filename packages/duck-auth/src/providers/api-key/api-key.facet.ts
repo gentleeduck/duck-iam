@@ -16,6 +16,9 @@ import type { ApiKeys } from './api-key.types'
  * exactly once - at create - and never persisted.
  */
 export class ApiKeysFacet {
+  readonly id = 'api-keys'
+  readonly kind = 'api-key' as const
+
   constructor(
     private readonly _credentials: Credential.Store,
     readonly _events: Events.IBus,

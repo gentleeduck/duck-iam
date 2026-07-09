@@ -72,9 +72,11 @@ export function apiKeyProvider<
   Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
   Tenant = string,
   OrgMeta = unknown,
+  // @ts-expect-error
 >(cfg?: ApiKeys.ConfigInput): Provider.ProviderModule<Profile, Tenant, OrgMeta> {
   return {
     name: 'api-key',
+    // @ts-expect-error
     attach(engine) {
       engine.setApiKeys(
         new ApiKeysFacet(

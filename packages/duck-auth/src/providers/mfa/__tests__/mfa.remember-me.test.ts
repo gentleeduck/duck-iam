@@ -14,7 +14,6 @@ describe('AuthRememberMeFacet', () => {
     facet = new RememberMeFacet(adapter.credentials, { authRandomToken: randomToken, authSha256: sha256 })
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }),
-      {},
     )
     identityId = ident.id
   })
@@ -51,7 +50,6 @@ describe('AuthRememberMeFacet', () => {
   it('revoke is a no-op when (identityId, credentialId) ownership does not match', async () => {
     const otherIdentity = await adapter.identities.create(
       identityInput({ profile: { email: 'other@x.com', username: 'other' }, providers: [] }),
-      {},
     )
     const { token, credentialId } = await facet.issue(identityId)
     await facet.revoke(otherIdentity.id, credentialId)

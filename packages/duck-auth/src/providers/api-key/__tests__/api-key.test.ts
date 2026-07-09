@@ -4,7 +4,7 @@ import { Identity } from '~/core'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { identityInput } from '~/test/store-inputs'
 import { ApiKeysFacet } from '../api-key.facet'
 import { authApiKey } from '../index'
 
@@ -42,7 +42,6 @@ describe('api-key provider', () => {
     env = buildContext()
     const ident = await env.adapter.identities.create(
       identityInput({ profile: { email: 'svc@x.com', username: 'svc' }, providers: [] }),
-      {},
     )
     identityId = ident.id
     const created = await env.facet.create(ident.id, { name: 'CI runner', scopes: ['read:users'] })
@@ -134,7 +133,6 @@ describe('api-key provider', () => {
       const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
         identityInput({ profile: { email: 't1@x.com', username: 't1' }, providers: [] }),
-        { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {
         name: 'tenant-A key',
@@ -165,7 +163,6 @@ describe('api-key provider', () => {
       const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
         identityInput({ profile: { email: 't2@x.com', username: 't2' }, providers: [] }),
-        { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {
         name: 'tenant-A key',
@@ -196,7 +193,6 @@ describe('api-key provider', () => {
       const facet = new ApiKeysFacet(adapter.credentials, events, { randomToken: randomToken, sha256: sha256 })
       const ident = await adapter.identities.create(
         identityInput({ profile: { email: 't3@x.com', username: 't3' }, providers: [] }),
-        { tenantId: 'tenant-A' },
       )
       const created = await facet.create(ident.id, {
         name: 'tenant-A key',

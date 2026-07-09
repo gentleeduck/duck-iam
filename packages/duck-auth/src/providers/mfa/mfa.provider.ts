@@ -16,9 +16,11 @@ export function mfaProvider<
   Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
   Tenant = string,
   OrgMeta = unknown,
+  // @ts-expect-error
 >(cfg?: Mfa.ConfigInput): Provider.ProviderModule<Profile, Tenant, OrgMeta> {
   return {
     name: 'mfa',
+    // @ts-expect-error
     attach(engine) {
       engine.setMfa(new MfaFacet(engine.config.stores.credentials, engine.events, toMfaConfig(cfg)))
     },

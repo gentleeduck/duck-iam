@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { credentialInput } from '~/test/store-inputs'
 import { ApiKeysFacet } from '../api-key.facet'
 
 function build() {

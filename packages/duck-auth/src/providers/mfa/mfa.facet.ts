@@ -21,6 +21,9 @@ import type { Mfa } from './mfa.types'
  * persisted hashed as `kind: 'recovery'`, single-use.
  */
 export class MfaFacet {
+  readonly id = 'mfa'
+  readonly kind = 'mfa' as const
+
   constructor(
     private readonly _credentials: Credential.Store,
     private readonly _events: Events.IBus,
