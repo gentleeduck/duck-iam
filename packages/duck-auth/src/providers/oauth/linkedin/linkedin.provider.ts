@@ -13,9 +13,9 @@ import { oProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
 const LINKEDIN_ENDPOINTS: OAuth.Endpoints = {
-  authorizationEndpoint: 'https://www.authLinkedin.com/oauth/v2/authorization',
-  tokenEndpoint: 'https://www.authLinkedin.com/oauth/v2/accessToken',
-  userinfoEndpoint: 'https://api.authLinkedin.com/v2/userinfo',
+  authorizationEndpoint: 'https://www.linkedin.com/oauth/v2/authorization',
+  tokenEndpoint: 'https://www.linkedin.com/oauth/v2/accessToken',
+  userinfoEndpoint: 'https://api.linkedin.com/v2/userinfo',
 }
 
 /** LinkedIn OIDC provider factory. */

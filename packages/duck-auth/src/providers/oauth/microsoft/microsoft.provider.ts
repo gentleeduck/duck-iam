@@ -11,7 +11,7 @@ function endpointsFor(tenant: string): OAuth.Endpoints {
   return {
     authorizationEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/authorize`,
     tokenEndpoint: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`,
-    userinfoEndpoint: 'https://graph.authMicrosoft.com/oidc/userinfo',
+    userinfoEndpoint: 'https://graph.microsoft.com/oidc/userinfo',
   }
 }
 

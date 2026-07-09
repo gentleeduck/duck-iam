@@ -12,10 +12,10 @@ import { oProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
 const DISCORD_ENDPOINTS: OAuth.Endpoints = {
-  authorizationEndpoint: 'https://authDiscord.com/oauth2/authorize',
-  tokenEndpoint: 'https://authDiscord.com/api/oauth2/token',
-  userinfoEndpoint: 'https://authDiscord.com/api/users/@me',
-  revocationEndpoint: 'https://authDiscord.com/api/oauth2/token/revoke',
+  authorizationEndpoint: 'https://discord.com/oauth2/authorize',
+  tokenEndpoint: 'https://discord.com/api/oauth2/token',
+  userinfoEndpoint: 'https://discord.com/api/users/@me',
+  revocationEndpoint: 'https://discord.com/api/oauth2/token/revoke',
 }
 
 /** Discord oauth 2.0 provider factory. */

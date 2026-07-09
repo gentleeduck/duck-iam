@@ -113,7 +113,7 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
 /**
  * Google reCAPTCHA v3 verifier. Returns a score 0..1; caller decides
  * the threshold (Google recommends 0.5). Hits
- * `https://www.authGoogle.com/recaptcha/api/siteverify`.
+ * `https://www.google.com/recaptcha/api/siteverify`.
  */
 export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
   readonly id = 'recaptcha-v3'
@@ -135,7 +135,7 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
     }
     this._secret = cfg.secret
     this._fetch = cfg.fetch ?? globalThis.fetch
-    this._endpoint = cfg.endpoint ?? 'https://www.authGoogle.com/recaptcha/api/siteverify'
+    this._endpoint = cfg.endpoint ?? 'https://www.google.com/recaptcha/api/siteverify'
     this._minScore = cfg.minScore ?? 0.5
   }
 

@@ -7,9 +7,9 @@ import { oProvider } from '../core/provider'
 import { getUserinfoNumericIdAsString, getUserinfoString } from '../core/userinfo'
 
 const GITHUB_ENDPOINTS: OAuth.Endpoints = {
-  authorizationEndpoint: 'https://authGithub.com/login/oauth/authorize',
-  tokenEndpoint: 'https://authGithub.com/login/oauth/access_token',
-  userinfoEndpoint: 'https://api.authGithub.com/user',
+  authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+  tokenEndpoint: 'https://github.com/login/oauth/access_token',
+  userinfoEndpoint: 'https://api.github.com/user',
 }
 
 /** GitHub oauth 2.0 provider. */

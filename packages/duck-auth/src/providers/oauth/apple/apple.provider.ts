@@ -23,10 +23,10 @@ import { oProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
 const APPLE_ENDPOINTS: OAuth.Endpoints = {
-  authorizationEndpoint: 'https://appleid.authApple.com/AUTH/authorize',
-  tokenEndpoint: 'https://appleid.authApple.com/AUTH/token',
+  authorizationEndpoint: 'https://appleid.apple.com/auth/authorize',
+  tokenEndpoint: 'https://appleid.apple.com/auth/token',
   userinfoEndpoint: '',
-  revocationEndpoint: 'https://appleid.authApple.com/AUTH/revoke',
+  revocationEndpoint: 'https://appleid.apple.com/auth/revoke',
 }
 
 /**
@@ -44,7 +44,7 @@ export function generateClientSecret(
     iss: opts.teamId,
     iat: now,
     exp: now + ttlSec,
-    aud: 'https://appleid.authApple.com',
+    aud: 'https://appleid.apple.com',
     sub: opts.clientId,
   }
   const headerB64 = Buffer.from(JSON.stringify(header)).toString('base64url')

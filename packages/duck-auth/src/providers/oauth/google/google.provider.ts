@@ -7,7 +7,7 @@ import { oProvider } from '../core/provider'
 import { getUserinfoBooleanTrue, getUserinfoString } from '../core/userinfo'
 
 const GOOGLE_ENDPOINTS: OAuth.Endpoints = {
-  authorizationEndpoint: 'https://accounts.authGoogle.com/o/oauth2/v2/auth',
+  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenEndpoint: 'https://oauth2.googleapis.com/token',
   userinfoEndpoint: 'https://openidconnect.googleapis.com/v1/userinfo',
   revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
