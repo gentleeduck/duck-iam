@@ -1,5 +1,5 @@
-import { randomToken, sha256, timingSafeEqual } from './crypto'
-import { AuthError } from './errors'
+import { randomToken, sha256, timingSafeEqual } from '../crypto'
+import { AuthError } from '../errors'
 
 export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.Config, 'allowedOrigins'>> & {
   allowedOrigins: string[]
