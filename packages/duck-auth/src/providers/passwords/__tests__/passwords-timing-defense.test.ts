@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import type { Hasher } from '~/core/types/infra'
+import { Hasher } from '../hashers/hashers.types'
 import { ScryptHasher } from '../hashers/scrypt'
 import { PasswordsImpl } from '../passwords'
 
@@ -9,7 +9,7 @@ interface VerifyCall {
   encoded: string
 }
 
-class SpyHasher implements Hasher.IHasher {
+class SpyHasher implements Hasher.Me {
   readonly id = 'spy-scrypt'
   private readonly _inner: ScryptHasher
   readonly verifyCalls: VerifyCall[] = []

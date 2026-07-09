@@ -119,8 +119,8 @@ describe('PasswordsFacet', () => {
       // Now wire a stronger hasher into a new facet and re-verify.
       const stronger = new ScryptHasher({ N: 1 << 12, keylen: 32 })
       const strongerFacet = new PasswordsImpl({
-        hasher: stronger,
         ...DEFAULT_PASSWORDS_CONFIG,
+        hasher: stronger,
       })
       const r = await strongerFacet.verify('user-1', 'password-1234', adapter.credentials)
       expect(r.ok).toBe(true)
@@ -137,8 +137,8 @@ describe('PasswordsFacet', () => {
 
       const stronger = new ScryptHasher({ N: 1 << 12, keylen: 32 })
       const strongerFacet = new PasswordsImpl({
-        hasher: stronger,
         ...DEFAULT_PASSWORDS_CONFIG,
+        hasher: stronger,
       })
       await strongerFacet.rehash('user-1', 'password-1234', adapter.credentials)
 

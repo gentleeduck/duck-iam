@@ -8,8 +8,8 @@
  * need a federal/military-grade artifact resolution profile.
  */
 
-import type { Identity } from '~/core'
 import { AuthError } from '~/core/errors'
+import type { Identity } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { DEFAULT_SAML_CONFIG, SAML_HOST_MAX, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from './saml.constants'
 import type { Saml } from './saml.types'

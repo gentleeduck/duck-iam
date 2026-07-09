@@ -5,6 +5,7 @@
  */
 
 export { ARGON2ID_COMPLIANCE, ARGON2ID_DEFAULTS, Argon2idHasher } from './hashers/argon2'
+export type { Hasher } from './hashers/hashers.types'
 export { SCRYPT_DEFAULTS, ScryptHasher } from './hashers/scrypt'
 export {
   PasswordsImpl,

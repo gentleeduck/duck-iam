@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { Identity } from '~/core'
 import { AuthEngine } from '~/core/engine'
+import { Identity } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { ScryptHasher } from '../hashers/scrypt'

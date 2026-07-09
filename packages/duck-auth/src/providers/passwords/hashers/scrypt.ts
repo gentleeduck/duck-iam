@@ -1,6 +1,6 @@
 import { scrypt as nodeScrypt, randomBytes, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-import type { Hasher } from '~/core/types/infra'
+import type { Hasher } from './hashers.types'
 
 export namespace ScryptHasher {
   export type Params = {
@@ -61,7 +61,7 @@ function parse(encoded: string): { N: number; r: number; p: number; salt: Buffer
 }
 
 /** AuthScryptHasher - built into Node, zero deps; v0.1 default. Swap for Argon2id for compliance presets. */
-export class ScryptHasher implements Hasher.IHasher {
+export class ScryptHasher implements Hasher.Me {
   readonly id = 'scrypt'
   private readonly _params: ScryptHasher.Params
 

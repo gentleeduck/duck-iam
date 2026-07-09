@@ -1,4 +1,4 @@
-import type { Channel } from '~/core/types/infra'
+import type { Channel } from '~/channels/channels.types'
 
 /**
  * Every type the magic-link provider exposes lives under this one namespace, so

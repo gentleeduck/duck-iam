@@ -1,7 +1,7 @@
 /** Argon2id-backed password hasher (compliance presets); needs `@node-rs/argon2` peerDep. */
 
 import { AuthError } from '~/core/errors'
-import type { Hasher } from '~/core/types/infra'
+import type { Hasher } from './hashers.types'
 
 /** Namespace merge - AuthArgon2idHasher.IParams alongside the class. */
 export namespace Argon2idHasher {
@@ -70,7 +70,7 @@ async function loadArgon2(): Promise<NodeRsArgon2Module> {
 }
 
 /** Argon2id hasher; lazy-imports `@node-rs/argon2` and encodes the PHC string `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`. */
-export class Argon2idHasher implements Hasher.IHasher {
+export class Argon2idHasher implements Hasher.Me {
   readonly id = 'argon2id'
   private readonly _params: Argon2idHasher.Params
 

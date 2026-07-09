@@ -1,7 +1,7 @@
-import type { Identity } from '~/core'
 import { toCredentialUpsert } from '~/core/credential-utils'
 import { sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
+import type { Identity } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { OAuth } from './oauth.types'
 import { generatePkce } from './pkce'

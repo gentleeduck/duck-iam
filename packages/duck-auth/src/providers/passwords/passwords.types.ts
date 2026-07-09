@@ -1,5 +1,5 @@
 import type { Compliance } from '~/core/compliance'
-import type { Hasher } from '~/core/types/infra'
+import type { Hasher } from './hashers/hashers.types'
 // import type { PasswordsFacet } from './password.facet'
 
 /**
@@ -17,7 +17,7 @@ export namespace Passwords {
     /** Reject obvious junk. Default true. */
     rejectCommon: boolean
     /** Pluggable hasher. Defaults to scrypt (Node built-in, zero deps). */
-    hasher: Hasher.IHasher
+    hasher: Hasher.Me
     /** Compliance preset(s); ratchets `minLength` up to the preset floor. */
     compliance: Compliance.Preset | Compliance.Preset[]
     /** Per-email rate-limit key prefix. Default 'signin:password:'. */

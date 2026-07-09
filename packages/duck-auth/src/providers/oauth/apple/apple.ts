@@ -15,7 +15,7 @@
  */
 
 import { createSign } from 'node:crypto'
-import type { Identity } from '~/core'
+import type { Identity } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
 import type { OAuth } from '../core/oauth.types'

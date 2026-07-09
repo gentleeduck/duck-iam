@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { credentialInput } from '~/test/store-inputs'
 import { MfaImpl } from '../mfa'
 
 describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
