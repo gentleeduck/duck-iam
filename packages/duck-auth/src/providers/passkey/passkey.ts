@@ -55,148 +55,163 @@ function decodeUserHandle(wireValue: string): string | null {
  * `authBeginPasskeyRegistration` + `authCompletePasskeyRegistration` (separate
  * exports).
  */
-export function passkey<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
-  opts: Passkey.Options,
-): Provider.Me<Passkey.BeginInput, Passkey.CompleteInput, Profile> {
-  const challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
-  const challengeTtlMs = opts.challengeTtlMs ?? DEFAULT_PASSKEY_CONFIG.challengeTtlMs
-  const uv = opts.userVerification ?? DEFAULT_PASSKEY_CONFIG.userVerification
+/**
+ * The `passkey` sign-in provider. Sign-up via
+ * {@link beginPasskeyRegistration} + {@link completePasskeyRegistration}
+ * (separate exports).
+ */
+export class PasskeyImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>
+  implements Provider.Me<Passkey.BeginInput, Passkey.CompleteInput, Profile>
+{
+  readonly id = 'passkey'
+  readonly kind = 'passkey' as const
+  private readonly challengeStore: Passkey.ChallengeStore
+  private readonly challengeTtlMs: number
+  private readonly uv: NonNullable<Passkey.Options['userVerification']>
 
-  async function resolveAllowList(
+  constructor(private readonly opts: Passkey.Options) {
+    this.challengeStore = opts.challengeStore ?? new MemoryPasskeyChallengeStore()
+    this.challengeTtlMs = opts.challengeTtlMs ?? DEFAULT_PASSKEY_CONFIG.challengeTtlMs
+    this.uv = opts.userVerification ?? DEFAULT_PASSKEY_CONFIG.userVerification
+  }
+
+  private async _resolveAllowList(
     email: string | undefined,
     ctx: Provider.Context<Profile>,
   ): Promise<Array<{ id: string; type: 'public-key' }>> {
     if (!email) return []
-    const identity = await opts.findIdentityByEmail(email, ctx.tenant.tenantId)
+    const identity = await this.opts.findIdentityByEmail(email, ctx.tenant.tenantId)
     if (!identity) return []
     const creds = await ctx.stores.credentials.listByIdentity(identity.id, 'passkey', ctx.tenant)
     // `isRevoked` fails closed; `!revokedAt` would let `revokedAt: 0` slip past.
     return creds.filter((c) => !isRevoked(c)).map((c) => ({ id: c.secret, type: 'public-key' as const }))
   }
 
-  return {
-    id: 'passkey',
-    kind: 'passkey',
-
-    async begin(ctx, input): Promise<Provider.Intent[]> {
-      if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
-        throw new AuthError('AUTH_MISCONFIGURED', {
-          detail: 'passkey.begin requires sessionId (string, 1-256 chars)',
-        })
-      }
-      if (input.email !== undefined) {
-        if (typeof input.email !== 'string' || input.email.length === 0 || input.email.length > 254) {
-          throw new AuthError('AUTH_INVALID_CREDENTIALS')
-        }
-      }
-      const webauthn = await loadWebAuthn(opts.webauthnModule)
-      const allowCredentials = await resolveAllowList(input.email, ctx)
-      const options: Passkey.AuthenticationOptions = await webauthn.generateAuthenticationOptions({
-        rpID: opts.rpID,
-        allowCredentials,
-        userVerification: uv,
+  async begin(ctx: Provider.Context<Profile>, input: Passkey.BeginInput): Promise<Provider.Intent[]> {
+    if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'passkey.begin requires sessionId (string, 1-256 chars)',
       })
-      await challengeStore.put(`auth:${input.sessionId}`, options.challenge, challengeTtlMs)
-      return [{ type: 'json', status: 200, body: options }]
-    },
-
-    async complete(ctx, input): Promise<Provider.InternalIntent[]> {
-      if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
-        throw new AuthError('AUTH_MISCONFIGURED', {
-          detail: 'passkey.complete requires sessionId (string, 1-256 chars)',
-        })
+    }
+    if (input.email !== undefined) {
+      if (typeof input.email !== 'string' || input.email.length === 0 || input.email.length > 254) {
+        throw new AuthError('AUTH_INVALID_CREDENTIALS')
       }
-      const expectedChallenge = await challengeStore.take(`auth:${input.sessionId}`)
-      if (!expectedChallenge) {
-        throw new AuthError('AUTH_PASSKEY_MISMATCH')
-      }
-      const webauthn = await loadWebAuthn(opts.webauthnModule)
-
-      const responseObj = input.response as { id?: string }
-      const credentialId = responseObj.id
-      // WebAuthn credential IDs are base64url-encoded random bytes (<255 raw
-      // bytes per spec -> ~340 chars max); 1024 is generous + refuses attacker
-      // multi-MB IDs.
-      if (typeof credentialId !== 'string' || credentialId.length === 0 || credentialId.length > 1024) {
-        throw new AuthError('AUTH_PASSKEY_MISMATCH')
-      }
-      const cred = await ctx.stores.credentials.findByHashedSecret(credentialId, 'passkey', ctx.tenant)
-      if (cred?.kind !== 'passkey' || cred.revokedAt) {
-        throw new AuthError('AUTH_PASSKEY_MISMATCH')
-      }
-
-      // The `email` field is a security assertion - bind the credential
-      // to it so a stolen credentialId cannot impersonate the owner.
-      if (input.email !== undefined) {
-        const hintedIdentity = await opts.findIdentityByEmail(input.email, ctx.tenant.tenantId)
-        if (!hintedIdentity || hintedIdentity.id !== cred.identityId) {
-          throw new AuthError('AUTH_PASSKEY_MISMATCH')
-        }
-      }
-
-      // Bind credential.identityId to response.userHandle when present.
-      const responseInner = (input.response as { response?: { userHandle?: string } }).response
-      if (responseInner?.userHandle) {
-        const decoded = decodeUserHandle(responseInner.userHandle)
-        if (decoded !== null && decoded !== userHandleFor(cred.identityId)) {
-          throw new AuthError('AUTH_PASSKEY_MISMATCH')
-        }
-      }
-
-      const meta = parsePasskeyMetadata(cred.metadata)
-      if (meta === null) {
-        throw new AuthError('AUTH_PASSKEY_MISMATCH')
-      }
-
-      const verification = await webauthn.verifyAuthenticationResponse({
-        response: input.response,
-        expectedChallenge,
-        expectedOrigin: opts.expectedOrigins,
-        expectedRPID: opts.rpID,
-        credential: {
-          id: cred.id,
-          publicKey: base64UrlDecode(meta.publicKey),
-          counter: meta.counter,
-          ...(meta.transports !== undefined && { transports: meta.transports }),
-        },
-        requireUserVerification: uv === 'required',
-      })
-      if (!verification.verified) {
-        throw new AuthError('AUTH_PASSKEY_MISMATCH')
-      }
-
-      // Counter rollback detection (WebAuthn L2 section 6.1.3). `newCounter === 0`
-      // means the authenticator does not track a counter; allowed.
-      // Number.isFinite gates against NaN/Infinity that would short-circuit
-      // both `!== 0` and `<= oldCounter` comparisons.
-      const newCounter = verification.authenticationInfo.newCounter
-      const oldCounter = meta.counter
-      if (!Number.isFinite(newCounter) || !Number.isFinite(oldCounter)) {
-        throw new AuthError('AUTH_PASSKEY_MISMATCH')
-      }
-      if (newCounter !== 0 && newCounter <= oldCounter) {
-        await ctx.events.emit('suspicious', {
-          identityId: cred.identityId,
-          signal: 'passkey-counter-rollback',
-          score: 1,
-          meta: { credentialId: cred.id, oldCounter, newCounter },
-        })
-        throw new AuthError('AUTH_PASSKEY_MISMATCH')
-      }
-      if (newCounter > oldCounter) {
-        await ctx.stores.credentials.patchMetadata(cred.id, { counter: newCounter }, ctx.tenant)
-      }
-
-      return [
-        {
-          type: 'startSession',
-          identityId: cred.identityId,
-          factors: [{ method: 'passkey', completedAt: new Date() }],
-          aal: 2,
-        },
-      ]
-    },
+    }
+    const webauthn = await loadWebAuthn(this.opts.webauthnModule)
+    const allowCredentials = await this._resolveAllowList(input.email, ctx)
+    const options: Passkey.AuthenticationOptions = await webauthn.generateAuthenticationOptions({
+      rpID: this.opts.rpID,
+      allowCredentials,
+      userVerification: this.uv,
+    })
+    await this.challengeStore.put(`auth:${input.sessionId}`, options.challenge, this.challengeTtlMs)
+    return [{ type: 'json', status: 200, body: options }]
   }
+
+  async complete(ctx: Provider.Context<Profile>, input: Passkey.CompleteInput): Promise<Provider.InternalIntent[]> {
+    if (typeof input.sessionId !== 'string' || input.sessionId.length === 0 || input.sessionId.length > 256) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'passkey.complete requires sessionId (string, 1-256 chars)',
+      })
+    }
+    const expectedChallenge = await this.challengeStore.take(`auth:${input.sessionId}`)
+    if (!expectedChallenge) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
+    const webauthn = await loadWebAuthn(this.opts.webauthnModule)
+
+    const responseObj = input.response as { id?: string }
+    const credentialId = responseObj.id
+    // WebAuthn credential IDs are base64url-encoded random bytes (<255 raw
+    // bytes per spec -> ~340 chars max); 1024 is generous + refuses attacker
+    // multi-MB IDs.
+    if (typeof credentialId !== 'string' || credentialId.length === 0 || credentialId.length > 1024) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
+    const cred = await ctx.stores.credentials.findByHashedSecret(credentialId, 'passkey', ctx.tenant)
+    if (cred?.kind !== 'passkey' || cred.revokedAt) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
+
+    // The `email` field is a security assertion - bind the credential
+    // to it so a stolen credentialId cannot impersonate the owner.
+    if (input.email !== undefined) {
+      const hintedIdentity = await this.opts.findIdentityByEmail(input.email, ctx.tenant.tenantId)
+      if (!hintedIdentity || hintedIdentity.id !== cred.identityId) {
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
+      }
+    }
+
+    // Bind credential.identityId to response.userHandle when present.
+    const responseInner = (input.response as { response?: { userHandle?: string } }).response
+    if (responseInner?.userHandle) {
+      const decoded = decodeUserHandle(responseInner.userHandle)
+      if (decoded !== null && decoded !== userHandleFor(cred.identityId)) {
+        throw new AuthError('AUTH_PASSKEY_MISMATCH')
+      }
+    }
+
+    const meta = parsePasskeyMetadata(cred.metadata)
+    if (meta === null) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
+
+    const verification = await webauthn.verifyAuthenticationResponse({
+      response: input.response,
+      expectedChallenge,
+      expectedOrigin: this.opts.expectedOrigins,
+      expectedRPID: this.opts.rpID,
+      credential: {
+        id: cred.id,
+        publicKey: base64UrlDecode(meta.publicKey),
+        counter: meta.counter,
+        ...(meta.transports !== undefined && { transports: meta.transports }),
+      },
+      requireUserVerification: this.uv === 'required',
+    })
+    if (!verification.verified) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
+
+    // Counter rollback detection (WebAuthn L2 section 6.1.3). `newCounter === 0`
+    // means the authenticator does not track a counter; allowed.
+    // Number.isFinite gates against NaN/Infinity that would short-circuit
+    // both `!== 0` and `<= oldCounter` comparisons.
+    const newCounter = verification.authenticationInfo.newCounter
+    const oldCounter = meta.counter
+    if (!Number.isFinite(newCounter) || !Number.isFinite(oldCounter)) {
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
+    if (newCounter !== 0 && newCounter <= oldCounter) {
+      await ctx.events.emit('suspicious', {
+        identityId: cred.identityId,
+        signal: 'passkey-counter-rollback',
+        score: 1,
+        meta: { credentialId: cred.id, oldCounter, newCounter },
+      })
+      throw new AuthError('AUTH_PASSKEY_MISMATCH')
+    }
+    if (newCounter > oldCounter) {
+      await ctx.stores.credentials.patchMetadata(cred.id, { counter: newCounter }, ctx.tenant)
+    }
+
+    return [
+      {
+        type: 'startSession',
+        identityId: cred.identityId,
+        factors: [{ method: 'passkey', completedAt: new Date() }],
+        aal: 2,
+      },
+    ]
+  }
+}
+
+/** Factory around {@link PasskeyImpl} for functional-style config. */
+export function passkey<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+  opts: Passkey.Options,
+): Provider.Me<Passkey.BeginInput, Passkey.CompleteInput, Profile> {
+  return new PasskeyImpl(opts)
 }
 
 /** Issue a registration ceremony. */
