@@ -1,4 +1,4 @@
-import { getProfileString, isRevoked, isSoftDeleted } from '~/core/credential-utils'
+import { getProfileString, isRevoked, isSoftDeleted } from '~/core/credentials/credentials'
 import { randomToken, timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities/identities.types'

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { isFiniteNumber, isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { isFiniteNumber, isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities/identities.types'
 import type { Provider } from '~/core/provider/provider.types'

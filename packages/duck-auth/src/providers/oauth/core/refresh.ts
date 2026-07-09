@@ -1,4 +1,4 @@
-import { isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import { sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events'

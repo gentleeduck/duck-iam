@@ -1,4 +1,4 @@
-import { isCredentialExpired } from '~/core/credential-utils'
+import { isCredentialExpired } from '~/core/credentials/credentials'
 import { randomToken, sha256 } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'

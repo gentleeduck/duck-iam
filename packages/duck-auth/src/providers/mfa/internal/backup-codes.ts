@@ -7,7 +7,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import { timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Credential } from '~/core/types/identity'

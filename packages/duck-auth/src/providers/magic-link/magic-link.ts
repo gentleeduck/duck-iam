@@ -1,4 +1,4 @@
-import { isCredentialExpired, toCredentialUpsert } from '~/core/credential-utils'
+import { isCredentialExpired, toCredentialUpsert } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'

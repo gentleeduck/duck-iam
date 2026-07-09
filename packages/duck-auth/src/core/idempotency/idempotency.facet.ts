@@ -1,4 +1,4 @@
-import { isExpiredAt } from '../credential-utils'
+import { isExpiredAt } from '../credentials/credentials'
 import type { TenantContext } from '../types/infra'
 import { DEFAULT_IDEMPOTENCY_CONFIG } from './idempotency.constants'
 import type { Idempotency } from './idempotency.types'

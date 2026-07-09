@@ -1,4 +1,4 @@
-import { isCredentialExpired } from '~/core/credential-utils'
+import { isCredentialExpired } from '~/core/credentials/credentials'
 import type { Passkey } from '../passkey.types'
 
 /**

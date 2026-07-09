@@ -4,7 +4,7 @@ import {
   isProfileBooleanTrue,
   isRevoked,
   toCredentialUpsert,
-} from '~/core/credential-utils'
+} from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'

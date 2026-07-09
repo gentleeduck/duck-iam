@@ -1,4 +1,4 @@
-import { isFiniteNumber } from '~/core/credential-utils'
+import { isFiniteNumber } from '~/core/credentials/credentials'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import type { TenantContext } from '~/core/types/infra'
 import type { RedisLike } from './redis-like'

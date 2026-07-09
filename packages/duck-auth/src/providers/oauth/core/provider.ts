@@ -1,4 +1,4 @@
-import { toCredentialUpsert } from '~/core/credential-utils'
+import { toCredentialUpsert } from '~/core/credentials/credentials'
 import { sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities'

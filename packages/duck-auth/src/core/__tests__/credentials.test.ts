@@ -7,7 +7,7 @@ import {
   isProfileBooleanTrue,
   isRevoked,
   isSoftDeleted,
-} from '../credential-utils'
+} from '../credentials/credentials'
 
 describe('isRevoked', () => {
   it('false when revokedAt is the null/undefined live sentinel', () => {

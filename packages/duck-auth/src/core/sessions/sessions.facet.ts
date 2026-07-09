@@ -1,5 +1,5 @@
 import type { Events } from '~/core/events/events.types'
-import { isExpiredAt, isFiniteNumber } from '../credential-utils'
+import { isExpiredAt, isFiniteNumber } from '../credentials/credentials'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identity } from '../identities/identities.types'

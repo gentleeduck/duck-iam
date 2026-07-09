@@ -1,5 +1,5 @@
 import { createPublicKey } from 'node:crypto'
-import { isExpiredAt } from '../credential-utils'
+import { isExpiredAt } from '../credentials/credentials'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Provider } from '../provider/provider.types'

@@ -12,7 +12,7 @@
  */
 
 import type { Identity } from '~/core'
-import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '~/core/credential-utils'
+import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '~/core/credentials/credentials'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import {

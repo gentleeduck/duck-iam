@@ -4,7 +4,7 @@
  */
 
 import type { Channel } from '~/channels/channels.types'
-import { getProfileString } from '~/core/credential-utils'
+import { getProfileString } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 
 export namespace AuthResendChannel {

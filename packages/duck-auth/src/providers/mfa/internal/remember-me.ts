@@ -9,7 +9,12 @@
  * `metadata.purpose='trusted-device'` + caller-supplied metadata.
  */
 
-import { getCredentialPurpose, isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import {
+  getCredentialPurpose,
+  isCredentialExpired,
+  isRevoked,
+  toCredentialUpsert,
+} from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Credential } from '~/core/types/identity'
 import type { TenantContext } from '~/core/types/infra'

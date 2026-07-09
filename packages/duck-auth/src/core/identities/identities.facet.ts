@@ -1,4 +1,4 @@
-import { getProfileString } from '../credential-utils'
+import { getProfileString } from '../credentials/credentials'
 import { AuthError } from '../errors'
 import type { Events } from '../events'
 import type { Session } from '../sessions/sessions.types'

@@ -1,5 +1,5 @@
 import { resolveCompliance } from '~/core/compliance'
-import { isProfileBooleanTrue, toCredentialUpsert } from '~/core/credential-utils'
+import { isProfileBooleanTrue, toCredentialUpsert } from '~/core/credentials/credentials'
 import { sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'

@@ -1,4 +1,4 @@
-import { isRevoked } from '~/core/credential-utils'
+import { isRevoked } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities'
 import type { TenantContext } from '~/core/types/infra'

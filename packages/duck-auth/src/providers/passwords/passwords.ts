@@ -1,6 +1,6 @@
 import type { TenantContext } from '~/core'
 import { resolveCompliance } from '~/core/compliance'
-import { isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
