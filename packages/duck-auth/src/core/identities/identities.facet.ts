@@ -1,9 +1,9 @@
 import { getProfileString } from '../credentials/credentials'
+import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
 import type { Events } from '../events'
 import type { Session } from '../sessions/sessions.types'
 import type { TenantContext } from '../tenant/tenant.types'
-import type { Credential } from '../types/identity'
 import { DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
 import type { Identity } from './identities.types'
 

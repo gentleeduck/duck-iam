@@ -1,8 +1,6 @@
 import type { TenantContext } from '../tenant/tenant.types'
 
 /**
- * Credentials + orgs. (The `Identity` domain now lives in `~/core/identities/identities.types`.)
- *
  * Stored proof of an identity. One identity has N credentials; secrets are always
  * stored hashed (passwords, magic-link tokens, recovery codes) or as public-key
  * material (passkey/WebAuthn). oauth refresh tokens stored hashed for reuse

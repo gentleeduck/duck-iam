@@ -1,5 +1,5 @@
+import type { Credential } from '~/core/credentials/credentials.types'
 import type { Session } from '~/core/sessions/sessions.types'
-import type { Credential } from '~/core/types/identity'
 
 /**
  * Stable identity record + the IdentitiesFacet's own config/export types —

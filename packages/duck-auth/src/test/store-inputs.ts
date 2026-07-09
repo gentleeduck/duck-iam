@@ -4,9 +4,9 @@
  * let a test pass only the fields it cares about — no casts, no `undefined`.
  */
 
+import type { Credential } from '../core/credentials/credentials.types'
 import type { Identity } from '../core/identities/identities.types'
 import type { Session } from '../core/sessions/sessions.types'
-import type { Credential } from '../core/types/identity'
 
 /** Build a full {@link Identity.Me} fixture; every field present, nullables default to `null`. */
 export function makeIdentity(over: Partial<Identity.Me> = {}): Identity.Me {

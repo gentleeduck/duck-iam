@@ -1,6 +1,6 @@
+import type { Credential } from '~/core/credentials/credentials.types'
 import type { Identity } from '~/core/identities/identities.types'
 import type { Session } from '~/core/sessions'
-import type { Credential } from '~/core/types/identity'
 
 export namespace SqlBridge {
   export type ProfileMetadataBase = Identity.ProfileMetadataBase

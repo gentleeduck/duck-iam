@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import type { Credential } from '~/core/credentials/credentials.types'
 import type { Identity } from '~/core/identities/identities.types'
 import type { Session } from '~/core/sessions/sessions.types'
-import type { Credential } from '~/core/types/identity'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
 import type { SqlBridge } from '../sql/sql.types'
 

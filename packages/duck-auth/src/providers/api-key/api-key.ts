@@ -1,4 +1,5 @@
 import { isCredentialExpired } from '~/core/credentials/credentials'
+import type { Credential } from '~/core/credentials/credentials.types'
 import { randomToken, sha256 } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
@@ -6,7 +7,6 @@ import type { Events } from '~/core/events/events.types'
 import type { Identity } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
-import type { Credential } from '~/core/types/identity'
 import { DEFAULT_APIKEYS_CONFIG, toApiKeysConfig } from './api-key.constants'
 import type { ApiKeys } from './api-key.types'
 

@@ -1,8 +1,8 @@
+import type { Credential } from '~/core/credentials/credentials.types'
 import { authUlid } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities/identities.types'
 import type { Session } from '~/core/sessions/sessions.types'
-import type { Credential } from '~/core/types/identity'
 import type { SqlBridge } from './sql.types'
 
 /** Drops explicit undefined values from partial patches before passing to the bridge */

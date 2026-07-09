@@ -1,7 +1,7 @@
+import type { Credential } from '~/core/credentials/credentials.types'
 import type { Identity } from '~/core/identities/identities.types'
 import type { Session } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
-import type { Credential } from '~/core/types/identity'
 import type { Transport } from '~/core/types/session'
 import type { Limiter } from '~/limiters'
 // import type { AuthEngine } from '../engine'

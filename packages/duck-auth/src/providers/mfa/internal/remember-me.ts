@@ -15,9 +15,9 @@ import {
   isRevoked,
   toCredentialUpsert,
 } from '~/core/credentials/credentials'
+import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
 import type { TenantContext } from '~/core/tenant/tenant.types'
-import type { Credential } from '~/core/types/identity'
 
 export namespace RememberMeFacet {
   export type Config = {

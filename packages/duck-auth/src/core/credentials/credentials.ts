@@ -1,6 +1,6 @@
 /** Runtime helpers for {@link Credential.Me} shared by multiple facets. */
 
-import type { Credential } from '../types/identity'
+import type { Credential } from '../credentials/credentials.types'
 
 /** True when the credential row carries any `revokedAt` marker. */
 export function isRevoked(row: Pick<Credential.Me, 'revokedAt'>): boolean {
