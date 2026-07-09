@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import type { Session } from '~/core/types/session'
-import { AuthJwtTransport } from '../jwt'
+import { AuthJwtTransport } from '../jwt.transport'
 
 /**
  * SEC helper: mint an HS256-signed JWT with caller-supplied (and

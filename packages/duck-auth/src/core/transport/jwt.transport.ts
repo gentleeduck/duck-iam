@@ -4,10 +4,10 @@ import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
-import { signEddsa, verifyEddsa } from './jwt-algs/eddsa'
-import { signEs256, verifyEs256 } from './jwt-algs/es256'
-import { signHs256, verifyHs256 } from './jwt-algs/hs256'
-import { signRs256, verifyRs256 } from './jwt-algs/rs256'
+import { signEddsa, verifyEddsa } from './jwt-algs/eddsa.alg'
+import { signEs256, verifyEs256 } from './jwt-algs/es256.alg'
+import { signHs256, verifyHs256 } from './jwt-algs/hs256.alg'
+import { signRs256, verifyRs256 } from './jwt-algs/rs256.alg'
 
 /**
  * `AuthJwtTransport` - stateless transport (edge / serverless) backed by `node:crypto`.

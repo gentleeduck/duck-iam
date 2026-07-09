@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import { AuthJwtTransport } from '~/core/transport/jwt'
+import { AuthJwtTransport } from '~/core/transport/jwt.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { passwordProvider } from '~/providers/password'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'

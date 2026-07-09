@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CookieTransport } from '../cookie'
+import { CookieTransport } from '../cookie.transport'
 
 function withCookie(value: string): { headers: Headers } {
   return { headers: new Headers({ cookie: value }) }

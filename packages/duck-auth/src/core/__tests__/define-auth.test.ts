@@ -12,7 +12,7 @@ import { Argon2idHasher } from '~/providers/password/hashers/argon2.hasher'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
 import { createAuth } from '../config'
 import { AuthEngine } from '../engine'
-import { CookieTransport } from '../transport/cookie'
+import { CookieTransport } from '../transport/cookie.transport'
 import type { Identity } from '../types/identity'
 
 type Profile = Identity.ProfileMetadataBase

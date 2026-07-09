@@ -193,7 +193,7 @@ describe('Length caps on user-supplied strings before they enter URLs / headers 
 
 describe('Cookie defaults are HttpOnly + Secure + SameSite', () => {
   it('AuthCookieTransport defaults assert HttpOnly + secure + sameSite', () => {
-    const cookieFile = ALL_FILES.find((f) => f.path === 'core/transport/cookie.ts')
+    const cookieFile = ALL_FILES.find((f) => f.path === 'core/transport/cookie.transport.ts')
     expect(cookieFile).toBeDefined()
     if (!cookieFile) return
     expect(cookieFile.contents).toMatch(/httpOnly|HttpOnly/i)
@@ -204,7 +204,7 @@ describe('Cookie defaults are HttpOnly + Secure + SameSite', () => {
 
 describe('JWT alg pinning prevents alg-confusion (RFC 8725 §3.1)', () => {
   it('AuthJwtTransport verify path checks alg against the verify key, not the header', () => {
-    const jwtFile = ALL_FILES.find((f) => f.path === 'core/transport/jwt.ts')
+    const jwtFile = ALL_FILES.find((f) => f.path === 'core/transport/jwt.transport.ts')
     expect(jwtFile).toBeDefined()
     if (!jwtFile) return
     // The well-known footgun: trusting the JWT header's `alg` field.

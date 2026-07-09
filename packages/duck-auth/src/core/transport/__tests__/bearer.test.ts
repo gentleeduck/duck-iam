@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BearerTransport } from '../bearer'
+import { BearerTransport } from '../bearer.transport'
 
 function authWithStorybook(value: string): { headers: Headers } {
   return { headers: new Headers({ authorization: value }) }

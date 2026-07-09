@@ -1,6 +1,6 @@
 import { createHash, createSign, generateKeyPairSync, type KeyObject } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { bindPayloadToDPoP, computeJwkThumbprint, DPoPVerifier, MemoryDPoPNonceStore } from '../dpop'
+import { bindPayloadToDPoP, computeJwkThumbprint, DPoPVerifier, MemoryDPoPNonceStore } from '../dpop.transport'
 
 interface KeyPair {
   publicJwk: DPoPVerifier.JsonWebKey

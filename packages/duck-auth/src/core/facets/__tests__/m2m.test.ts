@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import { AuthJwtTransport } from '~/core/transport/jwt'
+import { AuthJwtTransport } from '~/core/transport/jwt.transport'
 import type { Identity } from '~/core/types/identity'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { apiKeyProvider } from '~/providers/api-key'

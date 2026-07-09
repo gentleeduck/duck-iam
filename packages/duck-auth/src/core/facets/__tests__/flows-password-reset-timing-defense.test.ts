@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import { CookieTransport } from '~/core/transport/cookie'
+import { CookieTransport } from '~/core/transport/cookie.transport'
 import type { Identity } from '~/core/types/identity'
 import type { Channel } from '~/core/types/infra'
 import { AuthMemoryLimiter } from '~/limiters/memory'

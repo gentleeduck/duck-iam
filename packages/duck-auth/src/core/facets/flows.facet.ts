@@ -13,7 +13,10 @@ import {
   completeEmailVerification as completeEmailVerificationImpl,
   requestEmailVerification as requestEmailVerificationImpl,
 } from './flows/email-verification.flow'
-import { impersonate as impersonateImpl, releaseImpersonation as releaseImpersonationImpl } from './flows/impersonate.flow'
+import {
+  impersonate as impersonateImpl,
+  releaseImpersonation as releaseImpersonationImpl,
+} from './flows/impersonate.flow'
 import {
   completePasswordReset as completePasswordResetImpl,
   requestPasswordReset as requestPasswordResetImpl,

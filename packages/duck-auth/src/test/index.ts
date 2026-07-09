@@ -3,7 +3,7 @@
 import { MemoryAdapter } from '../adapters/memory'
 import type { AuthEngineTypes } from '../core/engine'
 import { AuthEngine } from '../core/engine'
-import { BearerTransport } from '../core/transport/bearer'
+import { BearerTransport } from '../core/transport/bearer.transport'
 import type { Identity } from '../core/types/identity'
 import { AuthMemoryLimiter } from '../limiters/memory'
 import { type ApiKeys, apiKeyProvider } from '../providers/api-key'

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { BearerTransport } from '../bearer'
-import { AuthCompositeTransport } from '../composite'
-import { AuthJwtTransport } from '../jwt'
+import { BearerTransport } from '../bearer.transport'
+import { AuthCompositeTransport } from '../composite.transport'
+import { AuthJwtTransport } from '../jwt.transport'
 
 const SECRET = 'a-very-long-test-secret-that-is-32-bytes!'
 
