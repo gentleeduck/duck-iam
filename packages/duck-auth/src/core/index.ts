@@ -1,3 +1,5 @@
+export { BackupCodesFacet as AuthBackupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from '~/providers/mfa/mfa.backup-codes'
+export { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet as AuthRememberMeFacet } from '~/providers/mfa/mfa.remember-me'
 export {
   ARGON2ID_COMPLIANCE,
   ARGON2ID_DEFAULTS,
@@ -23,8 +25,6 @@ export {
 export { AuthEngine } from './engine'
 export { AuthError } from './errors'
 export { InMemoryEvents as AuthInMemoryEvents } from './events'
-export { BackupCodesFacet as AuthBackupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from '~/providers/mfa/mfa.backup-codes'
-export { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet as AuthRememberMeFacet } from '~/providers/mfa/mfa.remember-me'
 export {
   currentTenant as authCurrentTenant,
   resolveTenant as authResolveTenant,

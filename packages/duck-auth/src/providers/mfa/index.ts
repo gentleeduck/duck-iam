@@ -4,10 +4,12 @@
  * and all types under the `Mfa` namespace.
  */
 
+export { BackupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from './mfa.backup-codes'
 export { toMfaConfig } from './mfa.config'
 export { DEFAULT_MFA_CONFIG } from './mfa.constants'
 export { MfaFacet } from './mfa.facet'
 export { mfaProvider } from './mfa.provider'
+export { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet } from './mfa.remember-me'
 export type { Totp } from './mfa.totp'
 export {
   base32Decode,
@@ -19,5 +21,3 @@ export {
   verifyTotp,
 } from './mfa.totp'
 export type { Mfa } from './mfa.types'
-export { BackupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from './mfa.backup-codes'
-export { RememberMeFacet, DEFAULT_REMEMBER_ME_CONFIG } from './mfa.remember-me'
