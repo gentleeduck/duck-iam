@@ -5,9 +5,8 @@ import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import type { Channel } from '~/core/types/infra'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { passwords, ScryptHasher } from '~/providers/passwords'
+import { identityInput } from '~/test/store-inputs'
 import { magicLink } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
@@ -26,12 +25,12 @@ function buildAuth(channel: Channel.Channel): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   auth.providers.register(
     magicLink<MyProfile>({
       channels: { email: channel },
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
+      findIdentityByEmail: (email) => adapter.identities.findByEmail(email),
       autoCreateIdentity: false,
       ttlMs: 60_000,
     }),
@@ -59,7 +58,7 @@ describe('magic-link.begin - timing-defense', () => {
   it('existing-identity branch returns BEFORE channel.send resolves (fire-and-forget)', async () => {
     const channel = makeSlowChannel(200) // 200 ms simulated SMTP
     const { auth, adapter } = buildAuth(channel)
-    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
+    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }))
 
     const start = performance.now()
     await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
@@ -76,7 +75,6 @@ describe('magic-link.begin - timing-defense', () => {
     const { auth, adapter } = buildAuth(channel)
     await adapter.identities.create(
       identityInput({ profile: { email: 'existing@x.com', username: 'e' }, providers: [] }),
-      {},
     )
 
     // Measure both branches.
@@ -102,7 +100,7 @@ describe('magic-link.begin - timing-defense', () => {
       },
     }
     const { auth, adapter } = buildAuth(failingChannel)
-    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
+    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }))
 
     const seen: string[] = []
     auth.events.on('signin.failed', (payload) => {
@@ -129,7 +127,7 @@ describe('magic-link.begin - timing-defense', () => {
       },
     }
     const { auth, adapter } = buildAuth(rejectingChannel)
-    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }), {})
+    await adapter.identities.create(identityInput({ profile: { email: 'a@x.com', username: 'a' }, providers: [] }))
 
     const seen: string[] = []
     auth.events.on('signin.failed', (payload) => {

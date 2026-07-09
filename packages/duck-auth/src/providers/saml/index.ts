@@ -4,8 +4,8 @@
  * the Single Logout controller, and all types under the `Saml` namespace.
  */
 
+export { buildSpMetadata } from './internal/metadata'
+export { samlSloController } from './internal/slo'
+export { saml } from './saml'
 export { DEFAULT_SAML_CONFIG, SAML_HOST_MAX, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from './saml.constants'
-export { buildSpMetadata } from './saml.metadata'
-export { saml } from './saml.provider'
-export { samlSloController } from './saml.slo'
 export type { Saml } from './saml.types'

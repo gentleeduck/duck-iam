@@ -138,7 +138,6 @@ describe('samlProvider - input caps', () => {
       const adapterInner = new MemoryAdapter<MyProfile>()
       const ident = await adapterInner.identities.create(
         identityInput({ profile: { email: 'u@x.com', username: 'u' }, providers: [] }),
-        {},
       )
       const client = makeClient()
       const provider = saml({
@@ -325,7 +324,6 @@ describe('samlProvider - input caps', () => {
       const adapterInner = new MemoryAdapter<MyProfile>()
       const ident = await adapterInner.identities.create(
         identityInput({ profile: { email: 'u@x.com', username: 'u' }, providers: [] }),
-        {},
       )
       const client = makeClient({
         validatePostResponseAsync: vi.fn(async () => ({

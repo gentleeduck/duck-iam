@@ -4,6 +4,6 @@
  * `MagicLink` namespace.
  */
 
+export { magicLink } from './magic-link'
 export { DEFAULT_MAGIC_LINK_CONFIG } from './magic-link.constants'
-export { magicLink } from './magic-link.provider'
 export type { MagicLink } from './magic-link.types'

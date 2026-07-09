@@ -1,5 +1,5 @@
-import { DEFAULT_SAML_CONFIG } from './saml.constants'
-import type { Saml } from './saml.types'
+import { DEFAULT_SAML_CONFIG } from '../saml.constants'
+import type { Saml } from '../saml.types'
 
 /**
  * Build the SAML SP metadata XML. Prefers the node-saml client's own

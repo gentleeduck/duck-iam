@@ -86,7 +86,6 @@ describe('passkey complete() - metadata parser', () => {
     adapter = new MemoryAdapter<ProfileShape>()
     const id = await adapter.identities.create(
       identityInput({ profile: { email: 'a@b', username: 'a' }, providers: [] }),
-      {},
     )
     identityId = id.id
     challengeStore = new AuthMemoryPasskeyChallengeStore()

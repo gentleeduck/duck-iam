@@ -4,7 +4,7 @@ import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities/identities.types'
 import type { Provider } from '~/core/provider/provider.types'
 import type { Credential } from '~/core/types/identity'
-import { MemoryPasskeyChallengeStore } from './passkey.challenge-store'
+import { MemoryPasskeyChallengeStore } from './internal/challenge-store'
 import { DEFAULT_PASSKEY_CONFIG } from './passkey.constants'
 import type { Passkey } from './passkey.types'
 

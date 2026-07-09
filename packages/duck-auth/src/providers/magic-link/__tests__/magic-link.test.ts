@@ -44,7 +44,7 @@ function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.Channel } = {
   auth.providers.register(
     magicLink<MyProfile>({
       channels: { email: channel },
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
+      findIdentityByEmail: (email) => adapter.identities.findByEmail(email),
       autoCreateIdentity: opts.autoCreate ?? false,
       autoCreateProfile: (email) => ({ username: email, email }),
       ttlMs: 1_000,
@@ -78,14 +78,14 @@ describe('magic-link provider', () => {
       const intents = await auth.flows.beginProvider('magic-link', { email: 'ghost@x.com' })
       expect(intents).toEqual([{ type: 'json', status: 200, body: { ok: true } }])
       expect(channel.sent).toHaveLength(0)
-      expect(await adapter.identities.findByEmail('ghost@x.com', {})).toBeNull()
+      expect(await adapter.identities.findByEmail('ghost@x.com')).toBeNull()
     })
 
     it('unknown email + autoCreate=true -> identity created, token sent', async () => {
       const { auth, channel, adapter } = buildAuth({ autoCreate: true })
       await auth.flows.beginProvider('magic-link', { email: 'new@x.com' })
       expect(channel.sent).toHaveLength(1)
-      const i = await adapter.identities.findByEmail('new@x.com', {})
+      const i = await adapter.identities.findByEmail('new@x.com')
       expect(i).not.toBeNull()
       expect(i?.providers.some((p) => p.providerId === 'magic-link')).toBe(true)
     })
@@ -219,7 +219,7 @@ describe('magic-link provider', () => {
       const { auth, channel, adapter } = buildAuth({ autoCreate: true })
       await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
       const token = extractToken(channel.sent[0]?.url ?? '')
-      const i = await adapter.identities.findByEmail('a@x.com', {})
+      const i = await adapter.identities.findByEmail('a@x.com')
       if (!i) throw new Error('identity missing')
       const creds = await adapter.credentials.listByIdentity(i.id, 'magic-link', {})
       const cred = creds[0]
@@ -247,7 +247,7 @@ describe('magic-link provider', () => {
         const { auth, adapter, channel } = buildAuth({ autoCreate: true })
         await auth.flows.beginProvider('magic-link', { email: 'a@x.com' })
         const token = extractToken(channel.sent[0]?.url ?? '')
-        const i = await adapter.identities.findByEmail('a@x.com', {})
+        const i = await adapter.identities.findByEmail('a@x.com')
         if (!i) throw new Error('identity missing')
         const creds = await adapter.credentials.listByIdentity(i.id, 'magic-link', {})
         const cred = creds[0]

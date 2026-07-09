@@ -75,15 +75,11 @@ export function magicLink<Profile extends Identity.ProfileMetadataBase = Identit
         if (!profile) {
           return [{ type: 'json', status: 200, body: { ok: true } }]
         }
-        const created = await ctx.stores.identities.create(
-          {
-            profile,
-            providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
-            tenantId: null,
-            emailVerified: false,
-          },
-          ctx.tenant,
-        )
+        const created = await ctx.stores.identities.create({
+          profile,
+          providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
+          emailVerified: false,
+        })
         identityId = created.id
       }
 
@@ -101,7 +97,7 @@ export function magicLink<Profile extends Identity.ProfileMetadataBase = Identit
       )
 
       const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-      const identityRow = await ctx.stores.identities.findById(identityId, ctx.tenant)
+      const identityRow = await ctx.stores.identities.findById(identityId)
       // Fire-and-forget the channel dispatch so the wire response shape
       // and latency match between existing- and unknown-identity branches.
       if (!identityRow) {

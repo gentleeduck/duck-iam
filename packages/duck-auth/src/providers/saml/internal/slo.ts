@@ -1,6 +1,6 @@
 import { AuthError } from '~/core/errors'
-import { DEFAULT_SAML_CONFIG, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from './saml.constants'
-import type { Saml } from './saml.types'
+import { DEFAULT_SAML_CONFIG, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from '../saml.constants'
+import type { Saml } from '../saml.types'
 
 /**
  * SLO controller. Three methods cover the three message flows:

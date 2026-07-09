@@ -4,7 +4,7 @@ import { Identity } from '~/core'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { identityInput } from '~/test/store-inputs'
 import {
   AuthMemoryPasskeyChallengeStore,
   beginPasskeyRegistration,
@@ -80,7 +80,6 @@ describe('passkey provider - registration', () => {
     adapter = new MemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create(
       identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
-      {},
     )
     identityId = identity.id
     mockWebauthn = makeMockWebAuthn()
@@ -163,7 +162,6 @@ describe('passkey provider - sign-in', () => {
     adapter = new MemoryAdapter<ProfileShape>()
     const identity = await adapter.identities.create(
       identityInput({ profile: { email: 'a@b.com', username: 'a' }, providers: [] }),
-      {},
     )
     identityId = identity.id
     mockWebauthn = makeMockWebAuthn()
@@ -283,7 +281,6 @@ describe('passkey provider - sign-in', () => {
     // the second identity's email hint but the FIRST identity's credential.
     const otherIdentity = await adapter.identities.create(
       identityInput({ profile: { email: 'other@x.com', username: 'o' }, providers: [] }),
-      {},
     )
     opts.findIdentityByEmail = async (email) => {
       if (email === 'other@x.com') return { id: otherIdentity.id }

@@ -1,5 +1,5 @@
 import { isCredentialExpired } from '~/core/credential-utils'
-import type { Passkey } from './passkey.types'
+import type { Passkey } from '../passkey.types'
 
 /**
  * Reference in-memory `AuthPasskeyTypes.IChallengeStore`. Suitable for
