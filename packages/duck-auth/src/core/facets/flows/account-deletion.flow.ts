@@ -3,7 +3,7 @@ import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/types'
 import type { TenantContext } from '~/core/types/infra'
 import { isSafeCallbackPath } from '~/core/url-validators'
-import type { FlowsFacet } from '../flows'
+import type { FlowsFacet } from '../flows.facet'
 
 export async function requestAccountDeletion<Profile extends Identity.ProfileMetadataBase>(
   deps: FlowsFacet.Deps<Profile>,

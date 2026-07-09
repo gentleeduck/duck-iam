@@ -4,15 +4,15 @@ import type { PasswordsFacet } from '~/providers/password/password.facet'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { InMemoryEvents } from '../events'
-import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../facets/anomaly'
-import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../facets/flows'
-import { HijackFacet } from '../facets/hijack'
-import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from '../facets/idempotency'
-import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../facets/identities'
-import { OperationsFacet } from '../facets/operations'
-import { OrgsFacet } from '../facets/orgs'
-import { ProvidersFacet } from '../facets/providers'
-import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../facets/sessions'
+import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../facets/anomaly.facet'
+import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../facets/flows.facet'
+import { HijackFacet } from '../facets/hijack.facet'
+import { DEFAULT_IDEMPOTENCY_CONFIG, IdempotencyFacet, MemoryIdempotencyStore } from '../facets/idempotency.facet'
+import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../facets/identities.facet'
+import { OperationsFacet } from '../facets/operations.facet'
+import { OrgsFacet } from '../facets/orgs.facet'
+import { ProvidersFacet } from '../facets/providers.facet'
+import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../facets/sessions.facet'
 import { PluginRegistry } from '../plugin'
 import type { Identity } from '../types/identity'
 import type { Limiter as LimiterNs } from '../types/infra'
@@ -173,7 +173,7 @@ export class AuthEngine<
      * branch on `anomaly.decision === 'deny'` / `'step-up'` /
      * `'allow'`; the field is absent when no detectors run.
      */
-    anomaly?: import('../facets/anomaly').AnomalyFacet.Result
+    anomaly?: import('../facets/anomaly.facet').AnomalyFacet.Result
   } | null> {
     const token = this.transport.extract(req)
     if (!token) return null
@@ -184,7 +184,7 @@ export class AuthEngine<
     ): Promise<{
       session: Session.Me
       identity: Identity.Me<Profile> | null
-      anomaly?: import('../facets/anomaly').AnomalyFacet.Result
+      anomaly?: import('../facets/anomaly.facet').AnomalyFacet.Result
     }> => {
       // Auto-evaluate anomaly detectors so routes branch on a single field.
       if (opts.requestSnapshot && identity && this.anomaly.list().length > 0) {
@@ -307,7 +307,7 @@ function isProviderModule<Profile extends Identity.ProfileMetadataBase, Tenant, 
 }
 
 // Re-export SessionsFacet for consumers that want to type the facet directly.
-export { SessionsFacet } from '../facets/sessions'
+export { SessionsFacet } from '../facets/sessions.facet'
 
 // Used by other facets that need the hashing scheme. Kept private to the package.
 export const __hashSid = sha256

@@ -8,7 +8,7 @@ import { apiKeyProvider } from '~/providers/api-key'
 import { passwordProvider } from '~/providers/password'
 import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
 import { credentialInput, identityInput } from '~/test/store-inputs'
-import { M2MFacet } from '../m2m'
+import { M2MFacet } from '../m2m.facet'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string

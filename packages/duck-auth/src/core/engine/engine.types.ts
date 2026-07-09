@@ -1,4 +1,4 @@
-import type { HijackFacet } from '../facets/hijack'
+import type { HijackFacet } from '../facets/hijack.facet'
 import type { Credential, Identity, Org } from '../types/identity'
 import type { Limiter } from '../types/infra'
 import type { Events, Provider } from '../types/provider'

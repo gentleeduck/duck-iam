@@ -8,7 +8,7 @@ import {
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/types'
 import { isSafeCallbackPath } from '~/core/url-validators'
-import type { FlowsFacet } from '../flows'
+import type { FlowsFacet } from '../flows.facet'
 
 export async function requestEmailVerification<Profile extends Identity.ProfileMetadataBase>(
   deps: FlowsFacet.Deps<Profile>,

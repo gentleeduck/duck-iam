@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
-import { OrgsFacet } from '../orgs'
+import { OrgsFacet } from '../orgs.facet'
 
 describe('OrgsFacet.addMember - TOCTOU defense', () => {
   let adapter: MemoryAdapter

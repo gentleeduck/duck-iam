@@ -3,7 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { identityInput } from '~/test/store-inputs'
-import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions'
+import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions.facet'
 
 describe('SessionsFacet', () => {
   let adapter: MemoryAdapter

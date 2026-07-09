@@ -8,26 +8,26 @@ import {
   cancelAccountDeletion as cancelAccountDeletionImpl,
   completeAccountDeletion as completeAccountDeletionImpl,
   requestAccountDeletion as requestAccountDeletionImpl,
-} from './flows/account-deletion'
+} from './flows/account-deletion.flow'
 import {
   completeEmailVerification as completeEmailVerificationImpl,
   requestEmailVerification as requestEmailVerificationImpl,
-} from './flows/email-verification'
-import { impersonate as impersonateImpl, releaseImpersonation as releaseImpersonationImpl } from './flows/impersonate'
+} from './flows/email-verification.flow'
+import { impersonate as impersonateImpl, releaseImpersonation as releaseImpersonationImpl } from './flows/impersonate.flow'
 import {
   completePasswordReset as completePasswordResetImpl,
   requestPasswordReset as requestPasswordResetImpl,
-} from './flows/password-reset'
-import { linkProvider as linkProviderImpl, unlinkProvider as unlinkProviderImpl } from './flows/provider-link'
+} from './flows/password-reset.flow'
+import { linkProvider as linkProviderImpl, unlinkProvider as unlinkProviderImpl } from './flows/provider-link.flow'
 import {
   advanceSignUp as advanceSignUpImpl,
   beginSignUp as beginSignUpImpl,
   completeSignUp as completeSignUpImpl,
   getSignUpFlow as getSignUpFlowImpl,
-} from './flows/signup'
-import type { IdentitiesFacet } from './identities'
-import type { ProvidersFacet } from './providers'
-import type { SessionsFacet } from './sessions'
+} from './flows/signup.flow'
+import type { IdentitiesFacet } from './identities.facet'
+import type { ProvidersFacet } from './providers.facet'
+import type { SessionsFacet } from './sessions.facet'
 
 export namespace FlowsFacet {
   /** Internal dependency bag passed to flow sub-functions. Not part of the public API. */

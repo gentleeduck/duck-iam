@@ -5,7 +5,7 @@ import type { Identity } from '~/core/types/identity'
 import type { Anomaly } from '~/core/types/provider'
 import type { Session } from '~/core/types/session'
 import { makeIdentity, makeSession } from '~/test/store-inputs'
-import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
+import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly.facet'
 
 const identity = makeIdentity({ id: 'u' })
 const session = makeSession({ id: 'sid', identityId: 'u' })
