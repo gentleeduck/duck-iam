@@ -12,12 +12,12 @@
  */
 
 import { beforeAll, describe } from 'vitest'
+import { createSqlStores } from '~/adapters/sql/sql'
 import {
   runCredentialStoreCompliance,
   runIdentityStoreCompliance,
   runSessionStoreCompliance,
 } from '~/test/store-compliance'
-import { createSqlStores } from '~/adapters/sql/sql'
 import { createDrizzleSqliteBridge } from '../sqlite'
 
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'

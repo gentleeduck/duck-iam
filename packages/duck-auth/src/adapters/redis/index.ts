@@ -6,9 +6,9 @@
  * test double) are the only impls that live here.
  */
 
-export type { RedisLike } from './redis-like'
-export { FakeRedis } from './redis-like'
-export { RedisSessionStore } from '~/core/sessions/sessions.redis'
 export { RedisEvents } from '~/core/events/events.redis'
 export { RedisIdempotencyStore } from '~/core/idempotency/idempotency.redis'
+export { RedisSessionStore } from '~/core/sessions/sessions.redis'
 export { RedisDPoPNonceStore } from '~/core/transport/dpop-nonce.redis'
+export type { RedisLike } from './redis-like'
+export { FakeRedis } from './redis-like'

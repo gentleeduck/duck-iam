@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { RedisEvents } from '../events.redis'
 import { FakeRedis } from '~/adapters/redis/redis-like'
+import { RedisEvents } from '../events.redis'
 
 describe('RedisEvents', () => {
   let redis: FakeRedis

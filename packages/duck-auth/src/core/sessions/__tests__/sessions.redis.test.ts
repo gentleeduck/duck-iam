@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { FakeRedis } from '~/adapters/redis/redis-like'
 import { sha256 } from '~/core/crypto'
 import type { Session } from '~/core/sessions/sessions.types'
-import { FakeRedis } from '~/adapters/redis/redis-like'
 import { RedisSessionStore } from '../sessions.redis'
 
 function buildSession(overrides: Partial<Session.Me> = {}): Session.Me {
