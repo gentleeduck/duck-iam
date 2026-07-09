@@ -1,5 +1,5 @@
 /** Vue client types — the public `VueClient` namespace. */
-import type { Identity } from '~/core'
+import type { Identity } from '~/core/identities'
 import type { Envelope } from '~/core/types/session'
 import type { VanillaClient } from '../vanilla'
 
