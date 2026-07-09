@@ -225,7 +225,6 @@ describe('resolveBySid()', () => {
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const identity = await adapter.identities.create(
       identityInput({ profile: { username: 'x@y.com', email: 'x@y.com' }, providers: [] }),
-      {},
     )
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
     const resolved = await resolveBySid(sid, adapter.sessions, adapter.identities, {})
@@ -249,10 +248,9 @@ describe('resolveBySid()', () => {
     const facet = new SessionsFacet(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
     const identity = await adapter.identities.create(
       identityInput({ profile: { username: 'u', email: 'u@x.com' }, providers: [] }),
-      {},
     )
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
-    await adapter.identities.erase(identity.id, {})
+    await adapter.identities.erase(identity.id)
     await expect(resolveBySid(sid, adapter.sessions, adapter.identities, {})).rejects.toMatchObject({
       code: 'AUTH_SESSION_REVOKED',
     })

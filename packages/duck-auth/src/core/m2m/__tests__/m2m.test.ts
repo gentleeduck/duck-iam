@@ -5,9 +5,8 @@ import type { Identity } from '~/core/identities/identities.types'
 import { AuthJwtTransport } from '~/core/transport/jwt.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { apiKeyProvider } from '~/providers/api-key'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { passwords, ScryptHasher } from '~/providers/passwords'
+import { identityInput } from '~/test/store-inputs'
 import { M2MFacet } from '../m2m.facet'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
@@ -31,7 +30,7 @@ function build() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), apiKeyProvider()],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), apiKeyProvider()],
   })
   const m2m = new M2MFacet(auth.apiKeys, auth.sessions, auth.transport)
   return { auth, adapter, transport, m2m }
@@ -47,7 +46,6 @@ describe('M2MFacet - client_credentials grant', () => {
     env = build()
     const ident = await env.adapter.identities.create(
       identityInput({ profile: { username: 'svc@app.test', email: 'svc@app.test' }, providers: [] }),
-      {},
     )
     identityId = ident.id
     const created = await env.auth.apiKeys.create(ident.id, {
