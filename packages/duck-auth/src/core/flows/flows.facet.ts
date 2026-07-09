@@ -1,44 +1,42 @@
+import type { Events } from '~/core/events/events.types'
 import type { Providers } from '~/core/provider/provider'
 import type { MfaFacet } from '~/providers/mfa'
 import type { PasswordsImpl } from '~/providers/passwords'
 import { AuthError } from '../errors'
-import type { IdentitiesFacet } from '../identities/identities.facet'
+import type { Identity } from '../identities'
+import type { IdentitiesImpl } from '../identities/identities.facet'
 import type { Provider } from '../provider/provider.types'
 import type { SessionsFacet } from '../sessions/sessions.facet'
 import type { Session } from '../sessions/sessions.types'
-import type { Identity } from '../types'
-import type { Events } from '../types/provider'
 import type { Transport } from '../types/session'
 import {
   cancelAccountDeletion as cancelAccountDeletionImpl,
   completeAccountDeletion as completeAccountDeletionImpl,
   requestAccountDeletion as requestAccountDeletionImpl,
-} from './flows/account-deletion.flow'
+} from './account-deletion.flow'
 import {
   completeEmailVerification as completeEmailVerificationImpl,
   requestEmailVerification as requestEmailVerificationImpl,
-} from './flows/email-verification.flow'
-import {
-  impersonate as impersonateImpl,
-  releaseImpersonation as releaseImpersonationImpl,
-} from './flows/impersonate.flow'
+} from './email-verification.flow'
+import { DEFAULT_FLOWS_CONFIG } from './flows.constants'
+import { impersonate as impersonateImpl, releaseImpersonation as releaseImpersonationImpl } from './impersonate.flow'
 import {
   completePasswordReset as completePasswordResetImpl,
   requestPasswordReset as requestPasswordResetImpl,
-} from './flows/password-reset.flow'
-import { linkProvider as linkProviderImpl, unlinkProvider as unlinkProviderImpl } from './flows/provider-link.flow'
+} from './password-reset.flow'
+import { linkProvider as linkProviderImpl, unlinkProvider as unlinkProviderImpl } from './provider-link.flow'
 import {
   advanceSignUp as advanceSignUpImpl,
   beginSignUp as beginSignUpImpl,
   completeSignUp as completeSignUpImpl,
   getSignUpFlow as getSignUpFlowImpl,
-} from './flows/signup.flow'
+} from './signup.flow'
 
 export namespace FlowsFacet {
   /** Internal dependency bag passed to flow sub-functions. Not part of the public API. */
   export interface Deps<Profile extends Identity.ProfileMetadataBase> {
     sessions: SessionsFacet
-    identities: IdentitiesFacet<Profile>
+    identities: IdentitiesImpl<Profile>
     providers: Providers<Profile>
     transport: Transport.ITransport
     events: Events.IBus
@@ -179,7 +177,7 @@ export namespace FlowsFacet {
     /** Identity to verify. */
     identityId: string
     /** Channel keyed by kind. Email is the typical default. */
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/infra').Channel.Channel>>
+    channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
     /** Which channel to dispatch on; default 'email'. */
     channel?: 'email' | 'sms' | 'webpush'
     /** TTL of the verification token, ms. Default 30 minutes. */
@@ -197,7 +195,7 @@ export namespace FlowsFacet {
 
   export type AccountDeletionRequestInput = {
     identityId: string
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/infra').Channel.Channel>>
+    channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
     /** Channel kind to use; default `'email'`. */
     channel?: 'email' | 'sms' | 'webpush'
     /** Token TTL in ms. Default 30 minutes. */
@@ -222,16 +220,12 @@ export namespace FlowsFacet {
   }
 }
 
-export const DEFAULT_FLOWS_CONFIG: FlowsFacet.Config = {
-  signInPurpose: 'signin',
-}
-
 export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
   private readonly _deps: FlowsFacet.Deps<Profile>
 
   constructor(
     sessions: SessionsFacet,
-    identities: IdentitiesFacet<Profile>,
+    identities: IdentitiesImpl<Profile>,
     providers: Providers<Profile>,
     transport: Transport.ITransport,
     events: Events.IBus,
@@ -434,7 +428,7 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
   async requestPasswordReset(opts: {
     input: FlowsFacet.PasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('../types/infra').Channel.Channel>>
+    channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
     tenantId?: string
   }): Promise<{ ok: true }> {
     return requestPasswordResetImpl(this._deps, opts)

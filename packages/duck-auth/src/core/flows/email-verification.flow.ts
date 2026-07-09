@@ -6,9 +6,9 @@ import {
   toCredentialUpsert,
 } from '~/core/credential-utils'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/types'
+import type { Identity } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
-import type { FlowsFacet } from '../flows.facet'
+import type { FlowsFacet } from './flows.facet'
 
 export async function requestEmailVerification<Profile extends Identity.ProfileMetadataBase>(
   deps: FlowsFacet.Deps<Profile>,

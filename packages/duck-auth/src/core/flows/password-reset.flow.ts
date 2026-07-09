@@ -8,12 +8,12 @@
  *     identity has TOTP enrolled.
  */
 
+import type { Channel } from '~/channels/channels.types'
 import { isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credential-utils'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/types'
-import type { Channel } from '~/core/types/infra'
+import type { Identity } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
-import type { FlowsFacet } from '../flows.facet'
+import type { FlowsFacet } from './flows.facet'
 
 export async function requestPasswordReset<Profile extends Identity.ProfileMetadataBase>(
   deps: FlowsFacet.Deps<Profile>,

@@ -16,12 +16,12 @@ import type { Identity } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../flows/account-deletion.flow'
-import { completeEmailVerification, requestEmailVerification } from '../flows/email-verification.flow'
-import { impersonate, releaseImpersonation } from '../flows/impersonate.flow'
-import { completePasswordReset, requestPasswordReset } from '../flows/password-reset.flow'
-import { linkProvider, unlinkProvider } from '../flows/provider-link.flow'
-import { advanceSignUp, beginSignUp, completeSignUp, getSignUpFlow } from '../flows/signup.flow'
+import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../account-deletion.flow'
+import { completeEmailVerification, requestEmailVerification } from '../email-verification.flow'
+import { impersonate, releaseImpersonation } from '../impersonate.flow'
+import { completePasswordReset, requestPasswordReset } from '../password-reset.flow'
+import { linkProvider, unlinkProvider } from '../provider-link.flow'
+import { advanceSignUp, beginSignUp, completeSignUp, getSignUpFlow } from '../signup.flow'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   emailVerified?: boolean
