@@ -2,8 +2,9 @@ import { getProfileString, isRevoked, isSoftDeleted } from '~/core/credential-ut
 import { randomToken, timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/identities/identities.types'
+import type { Org } from '~/core/orgs/orgs.types'
 import type { Session } from '~/core/sessions/sessions.types'
-import type { Credential, Org } from '~/core/types/identity'
+import type { Credential } from '~/core/types/identity'
 import type { TenantContext } from '~/core/types/infra'
 
 /**

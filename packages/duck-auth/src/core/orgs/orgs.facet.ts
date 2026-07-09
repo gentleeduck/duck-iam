@@ -1,11 +1,7 @@
 import { AuthError } from '../errors'
-import type { Org } from '../types/identity'
 import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
-
-export namespace OrgsFacet {
-  // No flat type aliases for this facet (class-only public surface).
-}
+import type { Org } from './orgs.types'
 
 /**
  * Orgs + Membership facet. Locked to core in v4.2 (Q1 decision). Apps
