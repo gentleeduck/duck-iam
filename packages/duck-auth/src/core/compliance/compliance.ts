@@ -1,6 +1,7 @@
-import type { AuthEngineTypes } from './engine'
-import { AuthError } from './errors'
-import type { Identity } from './types'
+import type { Engine } from '../engine'
+import { AuthError } from '../errors'
+import type { Identity } from '../identities'
+import type { Compliance } from './compliance.types'
 
 const DEFAULT_OVERRIDES: Compliance.Overrides = {
   passwords: { minLength: 8 },
@@ -89,9 +90,9 @@ export function applyCompliancePreset<
   Tenant = string,
   OrgMeta = unknown,
 >(
-  base: AuthEngineTypes.Config<Profile, Tenant, OrgMeta>,
+  base: Engine.Config<Profile, Tenant, OrgMeta>,
   preset: Compliance.Preset | Compliance.Preset[],
-): AuthEngineTypes.Config<Profile, Tenant, OrgMeta> {
+): Engine.Config<Profile, Tenant, OrgMeta> {
   const overrides = resolveCompliance(preset)
   // Attach the resolved overrides via `__compliancePreset` so
   // `AuthEngine.strict` can apply `authAssertComplianceStrict` automatically.
@@ -188,24 +189,5 @@ export function assertComplianceStrict(opts: {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `compliance strict checks failed:\n  - ${errors.join('\n  - ')}`,
     })
-  }
-}
-
-export namespace Compliance {
-  export type Preset = 'gdpr' | 'hipaa' | 'soc2' | 'fips'
-
-  export type Overrides = {
-    passwords: { minLength: number }
-    sessions: { ttlMs: number; absoluteTtlMs: number; freshnessMs: number }
-    mfa: { backupCodeCount: number }
-    apiKeys: { randomBytes: number }
-    /** Names of strict() checks the preset insists on. */
-    requiredStrictChecks: string[]
-    /** Minimum AAL enforced on every session created during signin. */
-    minAal: 1 | 2 | 3
-    /** When true, dataAtRest adapter required at boot. */
-    requireDataAtRest: boolean
-    /** When true, mailer / channel adapter required for any provider that needs it. */
-    requireChannelForReset: boolean
   }
 }

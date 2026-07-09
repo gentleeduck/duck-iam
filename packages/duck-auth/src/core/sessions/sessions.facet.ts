@@ -3,7 +3,7 @@ import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identity } from '../identities/identities.types'
 import type { TenantContext } from '../types/infra'
-import type { Events } from '../types/provider'
+import type { Events } from '~/core/events/events.types'
 import { DEFAULT_SESSION_CONFIG } from './sessions.constants'
 import type { Session } from './sessions.types'
 

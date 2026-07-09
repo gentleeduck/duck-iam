@@ -1,6 +1,6 @@
 import { AuthError } from '../errors'
 import type { Session } from '../sessions/sessions.types'
-import type { Events } from '../types/provider'
+import type { Events } from '~/core/events/events.types'
 import { DEFAULT_HIJACK_POLICY } from './hijack.constants'
 import type { Hijack } from './hijack.types'
 

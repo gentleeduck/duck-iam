@@ -1,6 +1,6 @@
 import type { Identity } from '../identities/identities.types'
 import type { Session } from '../sessions/sessions.types'
-import type { Events } from '../types/provider'
+import type { Events } from '~/core/events/events.types'
 import { DEFAULT_ANOMALY_CONFIG } from './anomaly.constants'
 import type { Anomaly } from './anomaly.types'
 

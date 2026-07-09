@@ -8,7 +8,6 @@
 export { RedisDPoPNonceStore } from './dpop-nonce-store'
 export { RedisEvents } from './events'
 export { RedisIdempotencyStore } from './idempotency-store'
-export { RedisLimiter } from './limiter'
 export type { RedisLike } from './redis-like'
 export { FakeRedis } from './redis-like'
 export { RedisSessionStore } from './session-store'

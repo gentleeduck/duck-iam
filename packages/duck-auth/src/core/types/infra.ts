@@ -9,18 +9,6 @@ export interface TenantContext {
   tenantId?: string
 }
 
-/** Password hasher contract. Must be salt-deterministic, constant-time verify, and expose `needsRehash`. */
-export namespace Hasher {
-  export interface IHasher {
-    /** Identifier for the algorithm + parameter set encoded into the hash. */
-    readonly id: string
-    hash(plaintext: string): Promise<string>
-    verify(plaintext: string, encoded: string): Promise<boolean>
-    /** True when `encoded` was produced by an older/weaker parameter set than current. */
-    needsRehash(encoded: string): boolean
-  }
-}
-
 /** Envelope-encryption KMS provider contract: vendor-neutral 2-method shape (`generateDataKey` / `decryptDataKey`). */
 export namespace Kms {
   /** Encryption context (AAD) - binds the wrapped DEK to `{identityId, field}` server-side. */
@@ -75,54 +63,5 @@ export namespace DataAtRest {
     decrypt(cipher: string, ctx: Context): Promise<string>
     /** Whether the key version of `cipher` is older than the current; rotation trigger. */
     needsReEncrypt(cipher: string): boolean
-  }
-}
-
-/**
- * Rate-limit + lockout adapter. Brute-force protection is non-optional; strict()
- * refuses production boot without one wired. Dimensions configurable per app
- * (identity, ip, composite). Reference impls: memory (token bucket), redis (Lua).
- */
-export namespace Limiter {
-  export type Result = {
-    ok: boolean
-    remaining: number
-    resetAt: Date
-  }
-
-  export type Limiter = {
-    consume(key: string, weight?: number): Promise<Result>
-    reset(key: string): Promise<void>
-  }
-}
-
-/** Outbound message channel (email / SMS / web-push). Library pre-signs URLs; templates get safe vars only. */
-export namespace Channel {
-  export type Kind = 'email' | 'sms' | 'webpush'
-
-  export type SendInput<
-    Vars = Record<string, unknown>,
-    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
-  > = {
-    /** Resolved recipient - the channel decides which `identity.profile` field to use. */
-    identity: Identity.Me<Profile>
-    /** Library-chosen template id; channel impl maps to its own template store. */
-    templateId: string
-    /** Pre-rendered vars (URLs already signed, strings already i18n-resolved). */
-    vars: Vars
-    tenant: TenantContext
-  }
-
-  export type SendResult = {
-    ok: boolean
-    /** Provider-side id (for support diagnostics). Channels may omit. */
-    providerMessageId?: string
-    error?: string
-  }
-
-  export type Channel<Vars = Record<string, unknown>> = {
-    readonly kind: Kind
-    readonly id: string
-    send(input: SendInput<Vars>): Promise<SendResult>
   }
 }

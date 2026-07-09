@@ -1,4 +1,4 @@
-import type { Events } from './types/provider'
+import type { Events } from './events.types'
 
 /**
  * In-memory event bus. Single-process; production swaps in Redis pub/sub

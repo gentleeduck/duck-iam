@@ -1,13 +1,5 @@
-/** Provider domain — auth providers/intents, events, anomaly detection. */
-
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
-
-/**
- * A sign-in method. Providers are pure logic: they read stores, validate input,
- * and return Intents; the framework adapter executes the Intents against the
- * actual HTTP Request/Response. This keeps providers HTTP-free and unit-testable.
- */
+import type { Identity } from '../identities'
+import type { Session } from '../sessions'
 
 /**
  * Typed event bus. Reference impl is in-memory; production swaps in Redis pub/sub

@@ -11,7 +11,7 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { AuthError } from '../errors'
-import type { Events } from '../types/provider'
+import type { Events } from '../events'
 
 /**
  * Subscribe the bus, sign + POST each emit to the configured endpoints,
