@@ -23,11 +23,16 @@
 
 ## Progress (updated 2026-07-10)
 
-**Group A (Tasks 0–9) — DONE.** Every core facet subject now lives in its own folder: `core/{sessions,identities,provider,orgs,anomaly,hijack,idempotency,operations,m2m}/` each exist with `<x>.facet.ts` + `index.ts` (+ `.constants.ts`/`.types.ts` where applicable). `git grep` for the old `facets/<x>.facet` paths is empty for all nine. Provider-side work also landed out of band (all providers → class+factory, `password`→`passwords` folder, tsdown/exports aligned).
+**Groups A–D — effectively DONE.** The tree is **green**: `tsc` → `0`, full suite **1541 passed** (only the intentionally-empty `plugin.test.ts` remains a no-suite placeholder; `next.test.ts` passes isolated but flakes under parallel load), `scripts/audit-namespaces.ts` → OK.
 
-**Remaining `core/facets/` residue:** only `flows.facet.ts` + `flows/*.flow.ts` (6) + `__tests__/flows-*.test.ts` (11) — i.e. **Task 10 is the next actionable step.**
+- **Group A (Tasks 0–10) — DONE.** Every core facet subject (`sessions, identities, provider, orgs, anomaly, hijack, idempotency, operations, m2m, flows`) lives in its own folder with facet + `index.ts` (+ `.constants.ts`/`.types.ts` where applicable). `core/facets/` is gone.
+- **Group B (Tasks 11–19) — DONE.** `errors, events, crypto, csrf, tenant, credentials (← credential-utils), url-validators, plugin, compliance` all foldered. `src/core/` now has exactly one loose file: `index.ts`.
+- **Group C (Tasks 20–24) — DONE.** `core/types/` is **deleted**. Namespaces homed: `Credential`→`credentials/credentials.types.ts`, `Transport`→`transport/transport.types.ts`, `Envelope`→`errors/errors.types.ts`, `TenantContext`→`tenant/tenant.types.ts`, `Kms`+`DataAtRest`→`dataAtRest/dataAtRest.types.ts` (`Identity`/`Session`/`Org`/`Provider`/`Events`/`Anomaly` were homed earlier). `audit-namespaces.ts` OWNER_OVERRIDES repointed.
+- **Group D (Tasks 25–30) — DONE / N-A.** `NoopLimiter` already lives in `limiters/mock`; `isProviderModule` and `__hashSid` no longer exist; no `SessionsFacet` re-export from engine. **Task 27** (`assertStrict` → `engine.strict.ts`) and **Task 28** (`resolveSession` → `engine.resolve-session.ts`) done — `engine.ts` is now a 172-line composition root.
+  - **Task 29 (`buildFacets`) — DEFERRED (intentional).** The constructor's provider-thunk loop needs the half-built `this`, and the flows wiring closes over the `passwords`/`mfa` getters, so extracting facet-wiring would have to pass the partially-constructed engine back into `buildFacets` — more indirection/coupling than the ~15 lines it removes. Composition root is already clean; revisit only if the constructor grows.
+- **Also fixed this pass:** removed a dead `ctx` param from `resolveBySid` + an unused `infra` import; repointed the `static-analysis.test.ts` flow-handler glob from the retired `core/facets/flows/` to `core/flows/**/*.flow.ts`.
 
-**⚠ Baseline caveat — the tree is currently NOT green.** An out-of-order start on the Group C type-scatter (Tasks 20–23) has removed `Channel` from `~/core/types/infra` and deleted `~/core/types/provider` without repointing importers → **34 `tsc` errors** + ~88 uncommitted files. The plan's per-task gate ("tsc → 0") therefore cannot pass as written. Until Group C is finished (or reverted), Group A/B moves must gate on **"no *new* tsc errors vs the recorded 34-error baseline"** + affected-suite green, not absolute `0`.
+**Known stale (non-blocking):** `static-analysis.test.ts` line ~176 "every provider main file has length caps" globs pre-rename paths (`password/password.provider`, `oauth/authGoogle`, …) and now matches **zero** files → passes *vacuously*. Real coverage rot, but not red; repoint when convenient.
 
 ---
 
