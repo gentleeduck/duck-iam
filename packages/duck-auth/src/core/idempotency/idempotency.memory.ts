@@ -128,7 +128,7 @@ export class IdempotencyFacet {
     const deadline = Date.now() + this._cfg.pollTimeoutMs
     let delay = 10
     while (Date.now() < deadline) {
-      await sleep(delay)
+      await new Promise((r) => setTimeout(r, delay))
       const settled = await this._store.get(scopedKey, ctx)
       if (settled) return settled
       delay = Math.min(delay * 2, 250)
@@ -138,10 +138,4 @@ export class IdempotencyFacet {
     // client can retry with a fresh key.
     return { status: 409, body: { error: 'idempotency-conflict' }, createdAt: new Date() }
   }
-}
-
-/** Promise-flavoured setTimeout. Kept private so the facet has zero
- * runtime dependencies beyond the store contract. */
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
 }
