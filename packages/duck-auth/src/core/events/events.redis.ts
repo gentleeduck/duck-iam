@@ -1,5 +1,5 @@
 import type { Events } from '~/core/events/events.types'
-import type { RedisLike } from './redis-like'
+import type { RedisLike } from '~/adapters/redis/redis-like'
 
 export namespace RedisEvents {
   /**

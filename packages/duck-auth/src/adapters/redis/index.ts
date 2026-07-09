@@ -6,7 +6,7 @@
  */
 
 export { RedisDPoPNonceStore } from './dpop-nonce-store'
-export { RedisEvents } from './events'
+export { RedisEvents } from '~/core/events/events.redis'
 export { RedisIdempotencyStore } from '~/core/idempotency/idempotency.redis'
 export type { RedisLike } from './redis-like'
 export { FakeRedis } from './redis-like'

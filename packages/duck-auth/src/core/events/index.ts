@@ -1,2 +1,3 @@
 export { Events } from './events.types'
-export { InMemoryEvents } from './memory.events'
+export { InMemoryEvents } from './events.memory'
+export { RedisEvents } from './events.redis'
