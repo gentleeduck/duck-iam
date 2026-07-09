@@ -1,4 +1,4 @@
-import type { HijackFacet } from '../facets/hijack.facet'
+import type { Hijack } from '../hijack/hijack.types'
 import type { Identity } from '../identities/identities.types'
 import type { Session } from '../sessions/sessions.types'
 import type { Credential, Org } from '../types/identity'
@@ -40,7 +40,7 @@ export namespace Engine {
       /** SEC: max serialized (JSON UTF-8) profile size, in bytes. Default 16 KiB. Set to `0` to disable. */
       profileMaxBytes?: number
     }
-    hijack?: HijackFacet.Config
+    hijack?: Hijack.Config
     __tenantBrand?: Tenant
   }
 }
