@@ -1,5 +1,5 @@
-import type { Session } from '~/core'
 import type { Identity } from '~/core/identities/identities.types'
+import type { Session } from '~/core/sessions'
 import type { Credential } from '~/core/types/identity'
 
 export namespace SqlBridge {

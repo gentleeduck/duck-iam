@@ -11,7 +11,7 @@
  */
 
 import { AuthError } from '~/core/errors'
-import type { Events } from '~/core/types/provider'
+import type { Events } from '~/core/events'
 
 /**
  * Records auth-domain metrics off an Events.IBus. The recorded

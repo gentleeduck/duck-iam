@@ -192,14 +192,14 @@
         "default": "./dist/limiters/memory/index.cjs"
       }
     },
-    "./providers/password": {
+    "./providers/passwords": {
       "import": {
-        "types": "./dist/providers/password/index.d.ts",
-        "default": "./dist/providers/password/index.js"
+        "types": "./dist/providers/passwords/index.d.ts",
+        "default": "./dist/providers/passwords/index.js"
       },
       "require": {
-        "types": "./dist/providers/password/index.d.cts",
-        "default": "./dist/providers/password/index.cjs"
+        "types": "./dist/providers/passwords/index.d.cts",
+        "default": "./dist/providers/passwords/index.cjs"
       }
     },
     "./providers/mfa": {

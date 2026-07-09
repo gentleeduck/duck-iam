@@ -1,8 +1,7 @@
 /** Test helpers - `authCreateTest()` wires an in-memory AuthEngine for e2e-style tests. */
 
 import { MemoryAdapter } from '../adapters/memory'
-import type { AuthEngineTypes } from '../core/engine'
-import { AuthEngine } from '../core/engine'
+import { AuthEngine, type Engine } from '../core/engine'
 import type { Identity } from '../core/identities/identities.types'
 import { BearerTransport } from '../core/transport/bearer.transport'
 import { AuthMemoryLimiter } from '../limiters/memory'
@@ -15,14 +14,14 @@ export namespace Test {
     /** Drop-in replacement for the bundled AuthMemoryAdapter. */
     adapter?: MemoryAdapter<Profile, OrgMeta>
     /** Override the identities store individually (adapter still backs the rest). */
-    identities?: AuthEngineTypes.Config<Profile>['stores']['identities']
-    sessions?: AuthEngineTypes.Config<Profile>['stores']['sessions']
-    credentials?: AuthEngineTypes.Config<Profile>['stores']['credentials']
-    orgs?: AuthEngineTypes.Config<Profile, string, OrgMeta>['stores']['orgs']
-    transport?: AuthEngineTypes.Config<Profile>['transport']
-    limiter?: AuthEngineTypes.Config<Profile>['limiter']
-    events?: AuthEngineTypes.Config<Profile>['events']
-    providers?: AuthEngineTypes.Config<Profile, Tenant, OrgMeta>['providers']
+    identities?: Engine.Config<Profile>['stores']['identities']
+    sessions?: Engine.Config<Profile>['stores']['sessions']
+    credentials?: Engine.Config<Profile>['stores']['credentials']
+    orgs?: Engine.Config<Profile, string, OrgMeta>['stores']['orgs']
+    transport?: Engine.Config<Profile>['transport']
+    limiter?: Engine.Config<Profile>['limiter']
+    events?: Engine.Config<Profile>['events']
+    providers?: Engine.Config<Profile, Tenant, OrgMeta>['providers']
     /** Password provider tuning (minLength/maxLength/rejectCommon/compliance). */
     passwords?: Partial<Passwords.Config>
     /** MFA provider tuning (issuer/backupCodeCount/backupCodeLen/compliance). */
@@ -42,7 +41,7 @@ export function createTest<Profile extends Identity.ProfileMetadataBase = Identi
   const limiter = overrides.limiter ?? new AuthMemoryLimiter({ max: 1000, windowMs: 60_000 })
   const hasher = overrides.passwords?.hasher ?? new ScryptHasher()
 
-  const config: AuthEngineTypes.Config<Profile, Tenant, OrgMeta> = {
+  const config: Engine.Config<Profile, Tenant, OrgMeta> = {
     baseUrl: overrides.baseUrl ?? 'http://localhost:0',
     transport,
     stores: {

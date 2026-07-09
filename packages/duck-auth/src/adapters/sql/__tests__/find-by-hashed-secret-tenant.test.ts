@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { Credential, Identity } from '~/core'
+import { Credential } from '~/core'
+import { Identity } from '~/core/identities'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 import { createSqlStores, SqlBridge } from '../index'
 
