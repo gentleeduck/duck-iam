@@ -5,6 +5,7 @@ import type { Identity } from '../types/identity'
 import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
 import type { Session } from '../types/session'
+import { DEFAULT_SESSION_CONFIG } from './sessions.constants'
 
 /**
  * Namespace merge - SessionsFacet.IConfig, SessionsFacet.ICreateInput,
@@ -49,12 +50,6 @@ export namespace SessionsFacet {
       | 'guest-promotion'
     previousSid?: string
   }
-}
-
-export const DEFAULT_SESSION_CONFIG: SessionsFacet.Config = {
-  ttlMs: 7 * 24 * 60 * 60 * 1000,
-  absoluteTtlMs: 30 * 24 * 60 * 60 * 1000,
-  freshnessMs: 5 * 60 * 1000,
 }
 
 /**

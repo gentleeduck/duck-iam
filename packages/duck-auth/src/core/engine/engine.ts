@@ -12,8 +12,9 @@ import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../facets/identities
 import { OperationsFacet } from '../facets/operations.facet'
 import { OrgsFacet } from '../facets/orgs.facet'
 import { ProvidersFacet } from '../facets/providers.facet'
-import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../facets/sessions.facet'
 import { PluginRegistry } from '../plugin'
+import { DEFAULT_SESSION_CONFIG } from '../sessions/sessions.constants'
+import { resolveBySid, SessionsFacet } from '../sessions/sessions.facet'
 import type { Identity } from '../types/identity'
 import type { Limiter as LimiterNs } from '../types/infra'
 import type { Events, Provider } from '../types/provider'
@@ -307,7 +308,7 @@ function isProviderModule<Profile extends Identity.ProfileMetadataBase, Tenant, 
 }
 
 // Re-export SessionsFacet for consumers that want to type the facet directly.
-export { SessionsFacet } from '../facets/sessions.facet'
+export { SessionsFacet } from '../sessions/sessions.facet'
 
 // Used by other facets that need the hashing scheme. Kept private to the package.
 export const __hashSid = sha256

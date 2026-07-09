@@ -1,6 +1,7 @@
 import type { MfaFacet } from '~/providers/mfa/mfa.facet'
 import type { PasswordsFacet } from '~/providers/password/password.facet'
 import { AuthError } from '../errors'
+import type { SessionsFacet } from '../sessions/sessions.facet'
 import type { Identity } from '../types'
 import type { Events, Provider } from '../types/provider'
 import type { Session, Transport } from '../types/session'
@@ -30,7 +31,6 @@ import {
 } from './flows/signup.flow'
 import type { IdentitiesFacet } from './identities.facet'
 import type { ProvidersFacet } from './providers.facet'
-import type { SessionsFacet } from './sessions.facet'
 
 export namespace FlowsFacet {
   /** Internal dependency bag passed to flow sub-functions. Not part of the public API. */
