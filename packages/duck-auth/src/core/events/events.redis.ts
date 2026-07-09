@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { Events } from '~/core/events/events.types'
 import type { RedisLike } from '~/adapters/redis/redis-like'
 
@@ -49,7 +50,9 @@ export class RedisEvents implements Events.IBus {
   constructor(cfg: RedisEvents.Config) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:events'
-    this._instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    // Non-cryptographic loopback-dedup id; randomUUID keeps it collision-free
+    // without tripping the "no Math.random in security paths" guard.
+    this._instanceId = randomUUID()
   }
 
   private _ch(event: Events.EventName): string {
