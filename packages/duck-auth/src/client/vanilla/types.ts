@@ -1,6 +1,8 @@
 /** Vanilla client types — config + the public `VanillaClient` namespace. */
+
+import type { Session } from '~/core/sessions/sessions.types'
 import type { Identity } from '~/core/types/identity'
-import type { Envelope, Session } from '~/core/types/session'
+import type { Envelope } from '~/core/types/session'
 
 export namespace VanillaClient {
   /** Client configuration. */

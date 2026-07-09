@@ -1,9 +1,10 @@
 import type { AuthEngine, AuthEngineTypes } from '../engine'
 import type { PluginRegistry } from '../plugin'
+import type { Session } from '../sessions/sessions.types'
 import type { Credential, Identity, Org } from '../types/identity'
 import type { Channel } from '../types/infra'
 import type { Provider } from '../types/provider'
-import type { Session, Transport } from '../types/session'
+import type { Transport } from '../types/session'
 
 export namespace AuthDefine {
   /**

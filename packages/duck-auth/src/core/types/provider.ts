@@ -1,7 +1,9 @@
 /** Provider domain — auth providers/intents, events, anomaly detection. */
+
+import type { Session } from '~/core/sessions/sessions.types'
 import type { Credential, Identity } from './identity'
 import type { Limiter, TenantContext } from './infra'
-import type { Session, Transport } from './session'
+import type { Transport } from './session'
 
 /**
  * A sign-in method. Providers are pure logic: they read stores, validate input,

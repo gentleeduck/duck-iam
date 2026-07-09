@@ -1,9 +1,9 @@
 import { getProfileString, isRevoked, isSoftDeleted } from '~/core/credential-utils'
 import { randomToken, timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
+import type { Session } from '~/core/sessions/sessions.types'
 import type { Credential, Identity, Org } from '~/core/types/identity'
 import type { TenantContext } from '~/core/types/infra'
-import type { Session } from '~/core/types/session'
 
 /**
  * In-memory adapter - dev + test only. Production must use redis/drizzle/prisma.

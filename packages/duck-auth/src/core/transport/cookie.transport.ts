@@ -1,5 +1,6 @@
+import type { Session } from '../sessions/sessions.types'
 import type { Provider } from '../types/provider'
-import type { Session, Transport } from '../types/session'
+import type { Transport } from '../types/session'
 
 /**
  * Cookie transport - opaque session ID in an HttpOnly cookie. Default for web apps.

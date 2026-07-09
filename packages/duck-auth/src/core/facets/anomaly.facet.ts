@@ -1,6 +1,6 @@
+import type { Session } from '../sessions/sessions.types'
 import type { Identity } from '../types/identity'
 import type { Anomaly, Events } from '../types/provider'
-import type { Session } from '../types/session'
 
 export namespace AnomalyFacet {
   /** Recommended response for the caller after evaluating signals. */

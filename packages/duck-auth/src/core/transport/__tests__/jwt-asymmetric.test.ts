@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { Session } from '~/core/types/session'
+import type { Session } from '~/core/sessions/sessions.types'
 import { AuthJwtTransport } from '../jwt.transport'
 
 function fakeSession(): Session.Me {

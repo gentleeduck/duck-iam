@@ -18,8 +18,8 @@
 
 import { authUlid } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
+import type { Session } from '~/core/sessions/sessions.types'
 import type { Credential, Identity } from '~/core/types/identity'
-import type { Session } from '~/core/types/session'
 import type { SqlBridge } from './sql.types'
 
 /**

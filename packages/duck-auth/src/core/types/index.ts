@@ -4,7 +4,9 @@
  * stable, semantically-grouped imports. Types are grouped into four
  * domain modules: identity, session, provider, infra.
  */
+
+export type { Session } from '~/core/sessions/sessions.types'
 export type { Credential, Identity, Org } from './identity'
 export type { Channel, DataAtRest, Hasher, Idempotency, Kms, Limiter, TenantContext } from './infra'
 export type { Anomaly, Events, Provider } from './provider'
-export type { AuthError, Envelope, Session, Transport } from './session'
+export type { AuthError, Envelope, Transport } from './session'

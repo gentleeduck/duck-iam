@@ -1,5 +1,6 @@
+import type { Session } from '../sessions/sessions.types'
 import type { Provider } from '../types/provider'
-import type { Session, Transport } from '../types/session'
+import type { Transport } from '../types/session'
 
 /**
  * Bearer transport - `Authorization: Bearer <opaque>` header. Native/mobile, API keys.

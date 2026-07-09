@@ -4,53 +4,8 @@ import { AuthError } from '../errors'
 import type { Identity } from '../types/identity'
 import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
-import type { Session } from '../types/session'
 import { DEFAULT_SESSION_CONFIG } from './sessions.constants'
-
-/**
- * Namespace merge - SessionsFacet.IConfig, SessionsFacet.ICreateInput,
- * SessionsFacet.IRotateInput. Flat names kept for backwards compatibility.
- */
-export namespace SessionsFacet {
-  export type Config = {
-    /** Sliding TTL in ms. Default 7 days. */
-    ttlMs: number
-    /** Hard absolute cap in ms. Default 30 days. */
-    absoluteTtlMs: number
-    /** Window in ms where a session counts as "fresh" since the last factor. Default 5 min. */
-    freshnessMs: number
-  }
-
-  export type CreateInput = {
-    identityId: string | null
-    kind: Session.Kind
-    aal: Session.AAL
-    factors: Session.Factor[]
-    tenantId?: string | null
-    ip?: string | null
-    userAgent?: string | null
-    fingerprint?: string | null
-    actingAs?: Session.ActingAs | null
-  }
-
-  export interface IRotateInput extends CreateInput {
-    /**
-     * DESIGN section 37 rotation matrix. Drives whether the previous SID is revoked
-     * outright, downgraded (step-up old-SID kept alive at lower AAL), or left
-     * alone (impersonation start runs alongside the original session).
-     */
-    purpose:
-      | 'signin'
-      | 're-auth'
-      | 'step-up'
-      | 'step-down'
-      | 'credential-change'
-      | 'impersonate-start'
-      | 'impersonate-release'
-      | 'guest-promotion'
-    previousSid?: string
-  }
-}
+import type { Session } from './sessions.types'
 
 /**
  * Sessions facet - the only path that creates / rotates / revokes sessions.
@@ -64,7 +19,7 @@ export class SessionsFacet {
   constructor(
     private readonly _store: Session.Store,
     private readonly _events: Events.IBus,
-    private readonly _cfg: SessionsFacet.Config = DEFAULT_SESSION_CONFIG,
+    private readonly _cfg: Session.Config = DEFAULT_SESSION_CONFIG,
   ) {}
 
   /**
@@ -76,7 +31,7 @@ export class SessionsFacet {
    * `Transport.issue()` to put on the wire. The plaintext sid never appears
    * on the persisted row; only its sha-256 hash does.
    */
-  async create(input: SessionsFacet.CreateInput): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
+  async create(input: Session.MintInput): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
     // Cap factors length so a buggy caller can't bloat the session row's
     // JSON column. Real flows mint sessions with 1-3 factors.
     if (!Array.isArray(input.factors) || input.factors.length > 16) {
@@ -121,9 +76,7 @@ export class SessionsFacet {
    * flow handlers always route through this method so fixation is structurally
    * impossible to forget.
    */
-  async rotateOrCreate(
-    input: SessionsFacet.IRotateInput,
-  ): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
+  async rotateOrCreate(input: Session.RotateInput): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
     const fresh = await this.create(input)
     if (
       input.previousSid !== undefined &&

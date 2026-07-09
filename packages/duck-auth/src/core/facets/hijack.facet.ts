@@ -1,6 +1,6 @@
 import { AuthError } from '../errors'
+import type { Session } from '../sessions/sessions.types'
 import type { Events } from '../types/provider'
-import type { Session } from '../types/session'
 
 export namespace HijackFacet {
   export interface Config {

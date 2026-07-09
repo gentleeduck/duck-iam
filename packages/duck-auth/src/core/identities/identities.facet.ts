@@ -3,7 +3,8 @@ import { AuthError } from '../errors'
 import type { Credential, Identity } from '../types/identity'
 import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
-import type { Session } from '../types/session'
+import type { Session } from '../sessions/sessions.types'
+import { DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
 
 export namespace IdentitiesFacet {
   export interface Config {
@@ -26,11 +27,6 @@ export namespace IdentitiesFacet {
     schemaVersion: '1'
     exportedAt: number
   }
-}
-
-export const DEFAULT_IDENTITIES_CONFIG: IdentitiesFacet.Config = {
-  softDeleteGracePeriodMs: 7 * 24 * 60 * 60 * 1000,
-  profileMaxBytes: 16 * 1024,
 }
 
 /**

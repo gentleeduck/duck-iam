@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { sha256 } from '~/core/crypto'
 import type { Identity } from '~/core/types/identity'
-import type { Session } from '~/core/types/session'
+import type { Session } from '~/core/sessions/sessions.types'
 import { makeIdentity, makeSession } from '~/test/store-inputs'
 import { AuthMemoryDeviceFingerprintStore, deviceFingerprintDetector } from '../device-fingerprint.detector'
 

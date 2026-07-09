@@ -3,7 +3,8 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
 import type { Identity } from '~/core/types/identity'
 import { credentialInput, sessionInput } from '~/test/store-inputs'
-import { DEFAULT_IDENTITIES_CONFIG, IdentitiesFacet } from '../identities.facet'
+import { IdentitiesFacet } from '../identities.facet'
+import { DEFAULT_IDENTITIES_CONFIG } from '../identities.constants'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   name?: string

@@ -1,8 +1,9 @@
 import type { HijackFacet } from '../facets/hijack.facet'
+import type { Session } from '../sessions/sessions.types'
 import type { Credential, Identity, Org } from '../types/identity'
 import type { Limiter } from '../types/infra'
 import type { Events, Provider } from '../types/provider'
-import type { Session, Transport } from '../types/session'
+import type { Transport } from '../types/session'
 
 export namespace Engine {
   /**
