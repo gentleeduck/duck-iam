@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { AuthEngine } from '../engine'
-import { CookieTransport } from '../transport/cookie.transport'
 import type { Identity } from '../identities/identities.types'
+import { CookieTransport } from '../transport/cookie.transport'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string

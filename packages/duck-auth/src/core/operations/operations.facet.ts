@@ -1,14 +1,6 @@
 import { AuthError } from '../errors'
 import type { Events } from '../types/provider'
-
-export namespace OperationsFacet {
-  export interface IState {
-    /** When true, every mounted route returns 503 except session/healthz. */
-    maintenance: { on: boolean; message?: string; retryAfterSec?: number; since?: number }
-    /** When true, reads succeed but every mutating route returns 423. */
-    readOnly: { on: boolean; since?: number }
-  }
-}
+import type { Operations } from './operations.types'
 
 /**
  * Operations facet. Drives the two ambient deploy switches every
@@ -26,7 +18,7 @@ export namespace OperationsFacet {
  * DESIGN section O1 + O2.
  */
 export class OperationsFacet {
-  private _state: OperationsFacet.IState = {
+  private _state: Operations.State = {
     maintenance: { on: false },
     readOnly: { on: false },
   }
@@ -34,7 +26,7 @@ export class OperationsFacet {
   constructor(private readonly _events: Events.IBus) {}
 
   /** Read the current state snapshot. */
-  snapshot(): OperationsFacet.IState {
+  snapshot(): Operations.State {
     return {
       maintenance: { ...this._state.maintenance },
       readOnly: { ...this._state.readOnly },

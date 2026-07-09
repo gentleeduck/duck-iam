@@ -4,8 +4,8 @@ import { AuthMemoryLimiter } from '~/limiters/memory'
 import { identityInput } from '~/test/store-inputs'
 import { sha256 } from '../crypto'
 import { AuthEngine } from '../engine'
-import { CookieTransport } from '../transport/cookie.transport'
 import type { Identity } from '../identities/identities.types'
+import { CookieTransport } from '../transport/cookie.transport'
 
 interface Profile extends Identity.ProfileMetadataBase {
   email: string
