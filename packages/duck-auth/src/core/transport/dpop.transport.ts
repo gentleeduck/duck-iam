@@ -14,6 +14,7 @@
 import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type KeyObject } from 'node:crypto'
 import { timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
+import { MemoryDPoPNonceStore } from './dpop-nonce.memory'
 
 export namespace DPoPVerifier {
   /**
@@ -97,29 +98,6 @@ export namespace DPoPVerifier {
     jkt: string
     /** The verified claims. */
     claims: Claims
-  }
-}
-
-/**
- * In-memory nonce store. Single-process only; multi-pod deploys must
- * wire a Redis-backed store using `SETNX` for true atomic claim.
- */
-export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
-  private readonly _seen = new Map<string, number>()
-
-  /** Mark `jti`. Lazy prune assumes uniform TTL; cross-TTL stragglers fail closed (false-positive). */
-  async recordSeen(jti: string, ttlMs: number): Promise<boolean> {
-    const now = Date.now()
-    for (const [k, expiresAt] of this._seen) {
-      if (expiresAt < now) {
-        this._seen.delete(k)
-        continue
-      }
-      break
-    }
-    if (this._seen.has(jti)) return false
-    this._seen.set(jti, now + ttlMs)
-    return true
   }
 }
 
