@@ -4,6 +4,7 @@ import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa'
 import { PasswordsImpl } from '~/providers/passwords'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
+import type { Anomaly } from '../anomaly/anomaly.types'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { type Events, InMemoryEvents } from '../events'
@@ -18,8 +19,9 @@ import { Providers } from '../provider'
 import type { Session } from '../sessions'
 // import { PluginRegistry } from '../plugin'
 // import type { Provider } from '../provider/provider.types'
-import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions'
+import { DEFAULT_SESSION_CONFIG, SessionsFacet } from '../sessions'
 import type { Transport } from '../transport/transport.types'
+import { resolveSession as resolveSessionImpl } from './engine.resolve-session'
 import { assertStrict } from './engine.strict'
 import type { Engine } from './engine.types'
 
@@ -142,7 +144,7 @@ export class AuthEngine<
     req: { headers: Headers },
     opts: {
       expectedTenantId?: string
-      requestSnapshot?: import('../anomaly/anomaly.types').Anomaly.RequestSnapshot
+      requestSnapshot?: Anomaly.RequestSnapshot
     } = {},
   ): Promise<{
     session: Session.Me
@@ -153,54 +155,9 @@ export class AuthEngine<
      * branch on `anomaly.decision === 'deny'` / `'step-up'` /
      * `'allow'`; the field is absent when no detectors run.
      */
-    anomaly?: import('../anomaly/anomaly.types').Anomaly.Result
+    anomaly?: Anomaly.Result
   } | null> {
-    const token = this.transport.extract(req)
-    if (!token) return null
-
-    const finalize = async (
-      session: Session.Me,
-      identity: Identity.Me<Profile> | null,
-    ): Promise<{
-      session: Session.Me
-      identity: Identity.Me<Profile> | null
-      anomaly?: import('../anomaly/anomaly.types').Anomaly.Result
-    }> => {
-      // Auto-evaluate anomaly detectors so routes branch on a single field.
-      if (opts.requestSnapshot && identity && this.anomaly.list().length > 0) {
-        try {
-          const result = await this.anomaly.evaluate({ session, identity, req: opts.requestSnapshot })
-          return { session, identity, anomaly: result }
-        } catch {
-          // Detector machinery already catches per-detector throws;
-          // this catch defends against a bug in the aggregator itself.
-          return { session, identity }
-        }
-      }
-      return { session, identity }
-    }
-
-    if (this.transport.verify) {
-      const verified = await this.transport.verify(token)
-      if (verified) {
-        // Cross-tenant guard; a token minted under tenant A must not
-        // be honoured at a tenant-B endpoint.
-        if (opts.expectedTenantId !== undefined && verified.tenantId !== opts.expectedTenantId) {
-          return null
-        }
-        const identity = verified.identityId ? await this.config.stores.identities.findById(verified.identityId) : null
-        return finalize(verified, identity)
-      }
-    }
-
-    const resolved = await resolveBySid(token, this.config.stores.sessions, this.config.stores.identities)
-    if (!resolved) return null
-    // same cross-tenant guard as the JWT branch. Reject mismatches
-    // AND undefined-vs-expected - see the JWT branch comment above.
-    if (opts.expectedTenantId !== undefined && resolved.session.tenantId !== opts.expectedTenantId) {
-      return null
-    }
-    return finalize(resolved.session, resolved.identity)
+    return resolveSessionImpl(this, req, opts)
   }
 
   /** Install a plugin atomically (providers + events + facets) */
