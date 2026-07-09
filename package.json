@@ -9,7 +9,7 @@
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
     "husky": "^9.1.7",
-    "sherif": "1.11.1",
+    "sherif": "1.13.0",
     "turbo": "^2.9.18",
     "typescript": "^6.0.3"
   },
