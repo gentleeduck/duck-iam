@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { sha256 } from '~/core/crypto'
 import type { Session } from '~/core/sessions/sessions.types'
-import { FakeRedis } from '../redis-like'
-import { RedisSessionStore } from '../session-store'
+import { FakeRedis } from '~/adapters/redis/redis-like'
+import { RedisSessionStore } from '../sessions.redis'
 
 function buildSession(overrides: Partial<Session.Me> = {}): Session.Me {
   const sid = 'sid-' + Math.random().toString(36).slice(2)
