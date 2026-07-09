@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Hasher } from '~/core/types/infra'
-import { ScryptHasher } from '../hashers/scrypt.hasher'
-import { PasswordsFacet } from '../password.facet'
+import { ScryptHasher } from '../hashers/scrypt'
+import { PasswordsImpl } from '../passwords'
 
 interface VerifyCall {
   plaintext: string
@@ -40,16 +40,16 @@ class SpyHasher implements Hasher.IHasher {
 describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
   let adapter: MemoryAdapter
   let hasher: SpyHasher
-  let facet: PasswordsFacet
+  let facet: PasswordsImpl
 
   beforeEach(() => {
     adapter = new MemoryAdapter()
     hasher = new SpyHasher()
-    facet = new PasswordsFacet(adapter.credentials, hasher)
+    facet = new PasswordsImpl({ hasher })
   })
 
   it('calls hasher.verify with a REAL encoded hash on the no-credential branch (not the broken `$$reference$$` literal)', async () => {
-    const result = await facet.verify('ghost-identity', 'attempt-password-1234')
+    const result = await facet.verify('ghost-identity', 'attempt-password-1234', adapter.credentials)
     expect(result.ok).toBe(false)
     expect(hasher.verifyCalls).toHaveLength(1)
     const { encoded } = hasher.verifyCalls[0]!
@@ -64,7 +64,7 @@ describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
 
   it('reuses the cached reference hash across multiple no-credential probes (only one hash() call total)', async () => {
     for (let i = 0; i < 5; i++) {
-      await facet.verify(`ghost-${i}`, 'attempt-pw-1234')
+      await facet.verify(`ghost-${i}`, 'attempt-pw-1234', adapter.credentials)
     }
     expect(hasher.verifyCalls).toHaveLength(5)
     // All 5 used the SAME reference value.
@@ -76,13 +76,13 @@ describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
   })
 
   it('uses the row.secret (not the reference) on the existing-credential branch', async () => {
-    await facet.set('identity-1', 'correct-horse-battery-staple')
+    await facet.set('identity-1', 'correct-horse-battery-staple', adapter.credentials)
     // hash() called once during `set()`.
     expect(hasher.hashCalls).toHaveLength(1)
 
     // Wrong-password attempt; verify SHOULD pass row.secret (not the
     // reference) to the hasher.
-    const result = await facet.verify('identity-1', 'wrong-password')
+    const result = await facet.verify('identity-1', 'wrong-password', adapter.credentials)
     expect(result.ok).toBe(false)
     expect(hasher.verifyCalls).toHaveLength(1)
     const { encoded } = hasher.verifyCalls[0]!
@@ -95,8 +95,8 @@ describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
   })
 
   it('correct password still succeeds (no regression on the happy path)', async () => {
-    await facet.set('identity-1', 'correct-horse-battery-staple')
-    const result = await facet.verify('identity-1', 'correct-horse-battery-staple')
+    await facet.set('identity-1', 'correct-horse-battery-staple', adapter.credentials)
+    const result = await facet.verify('identity-1', 'correct-horse-battery-staple', adapter.credentials)
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.needsRehash).toBe(false)
@@ -108,13 +108,13 @@ describe('PasswordsFacet.verify - username-enumeration timing defense', () => {
     // calls must be IDENTICAL between the two branches. Earlier
     // implementations that bailed early (no hasher call) revealed
     // identity existence by call-count alone (and by wall-clock).
-    await facet.set('identity-1', 'a-real-pw')
+    await facet.set('identity-1', 'a-real-pw', adapter.credentials)
     hasher.verifyCalls.length = 0 // reset counter
 
-    await facet.verify('identity-1', 'wrong')
+    await facet.verify('identity-1', 'wrong', adapter.credentials)
     const realBranchCalls = hasher.verifyCalls.length
 
-    await facet.verify('ghost-identity', 'wrong')
+    await facet.verify('ghost-identity', 'wrong', adapter.credentials)
     const ghostBranchCalls = hasher.verifyCalls.length - realBranchCalls
 
     expect(realBranchCalls).toBe(1)

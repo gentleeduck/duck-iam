@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ScryptHasher } from '../scrypt.hasher'
+import { ScryptHasher } from '../scrypt'
 
 describe('AuthScryptHasher', () => {
   // Cheap params so the suite runs in <1s on CI.

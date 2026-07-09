@@ -4,9 +4,8 @@ import { Identity } from '~/core'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '..'
-import { ScryptHasher } from '../hashers/scrypt.hasher'
-import { password } from '../index'
+import { ScryptHasher } from '../hashers/scrypt'
+import { passwords } from '../index'
 
 interface MyProfile extends Identity.ProfileMetadataBase {}
 
@@ -25,12 +24,11 @@ function buildAuth(): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: fastHasher })],
+    providers: [],
   })
   auth.providers.register(
-    password<MyProfile>({
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
-      passwords: auth.passwords,
+    passwords({
+      hasher: fastHasher,
     }),
   )
   return { auth, adapter }
@@ -46,7 +44,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('full happy path: create identity -> set password -> sign in -> cookie issued', async () => {
     const identity = await auth.identities.create({ profile: { email: 'alice@x.com', username: 'alice' } })
-    await auth.passwords.set(identity.id, 'correct-horse-battery')
+    await auth.passwords.set(identity.id, 'correct-horse-battery', adapter.credentials)
 
     const signinHandler = vi.fn()
     auth.events.on('signin.success', signinHandler)
@@ -72,7 +70,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('wrong password surfaces AUTH/INVALID_CREDENTIALS without revealing which side failed', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
 
     const failedHandler = vi.fn()
     auth.events.on('signin.failed', failedHandler)
@@ -114,7 +112,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('rate limit trips after configured attempts', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
 
     for (let i = 0; i < 5; i++) {
       await auth.flows
@@ -143,7 +141,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('signOut revokes the session and emits clearCookie intent', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const signin = await auth.flows.signIn({
       providerId: 'password',
       input: { email: 'a@x.com', password: 'correct-pw' },
@@ -160,7 +158,7 @@ describe('password provider - end-to-end sign-in', () => {
 
   it('AuthEngine.resolveSession() returns the (session, identity) pair after sign-in', async () => {
     const identity = await auth.identities.create({ profile: { email: 'a@x.com', username: 'a' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
     const signin = await auth.flows.signIn({
       providerId: 'password',
       input: { email: 'a@x.com', password: 'correct-pw' },
@@ -174,7 +172,7 @@ describe('password provider - end-to-end sign-in', () => {
   describe('email case-folding parity', () => {
     it('signs in with mixed-case email when identity is stored lowercase', async () => {
       const identity = await auth.identities.create({ profile: { email: 'alice@x.com', username: 'alice' } })
-      await auth.passwords.set(identity.id, 'correct-pw')
+      await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
       const result = await auth.flows.signIn({
         providerId: 'password',
         input: { email: '  ALICE@X.com  ', password: 'correct-pw' },

@@ -1,10 +1,15 @@
-import type { Password } from './password.types'
+import { Argon2idHasher } from './hashers/argon2'
+import type { Passwords } from './passwords.types'
 
 /** Default resolved facet config (null-discipline: every field explicit). */
-export const DEFAULT_PASSWORDS_CONFIG: Password.Config = {
+export const DEFAULT_PASSWORDS_CONFIG: Passwords.Config = {
   minLength: 8,
   maxLength: 1024,
   rejectCommon: true,
+  autoRehash: true,
+  limiterKeyPrefix: 'signin:password:',
+  hasher: new Argon2idHasher(),
+  compliance: 'gdpr',
 }
 
 /** Obvious junk rejected when `rejectCommon` is on. */
@@ -29,3 +34,5 @@ export const COMMON_PASSWORDS: ReadonlySet<string> = new Set([
  * all-zero UUID is well-formed and matches no real identity.
  */
 export const NO_IDENTITY_SENTINEL = '00000000-0000-0000-0000-000000000000'
+
+export const NO_CREDENTIAL_REFRENCE = 'duck-auth:no-credential-reference'
