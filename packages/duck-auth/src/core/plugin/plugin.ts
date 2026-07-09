@@ -1,7 +1,7 @@
 import type { Events } from '~/core/events/events.types'
 import type { Provider } from '~/core/provider/provider.types'
-import type { AuthEngine } from './engine'
-import type { Identity } from './identities'
+import type { AuthEngine } from '../engine'
+import type { Identity } from '../identities'
 
 /**
  * Plugin registry. Generic over the AuthEngine generics so `install` does not
