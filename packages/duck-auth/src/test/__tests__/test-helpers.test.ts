@@ -55,7 +55,9 @@ describe('authCreateTest()', () => {
       verify: async () => true,
       needsRehash: () => false,
     }
-    const auth = createTest({ hasher: stub })
+    const auth = createTest({ passwords: {
+      hasher: stub
+    }})
     expect(auth.passwords).toBeDefined()
   })
 })

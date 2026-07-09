@@ -8,15 +8,14 @@
  * wraps it. This proves the extraction is real, not a rename.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthTestChannel } from '~/channels/console'
 import { AuthEngine } from '~/core/engine'
 import type { Identity } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../flows/account-deletion.flow'
 import { completeEmailVerification, requestEmailVerification } from '../flows/email-verification.flow'
 import { impersonate, releaseImpersonation } from '../flows/impersonate.flow'
@@ -35,7 +34,7 @@ function build() {
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }

@@ -12,7 +12,6 @@ import type { Credential } from '../core/types/identity'
 export function makeIdentity(over: Partial<Identity.Me> = {}): Identity.Me {
   return {
     id: 'id-1',
-    tenantId: null,
     profile: { username: 'u', email: 'u@x.com' },
     providers: [],
     version: 1,
@@ -50,7 +49,7 @@ export function makeSession(over: Partial<Session.Me> = {}): Session.Me {
 
 /** Build a total {@link Identity.CreateInput}; nullable fields default to `null`. */
 export function identityInput<P>(over: Partial<Identity.CreateInput<P>> & { profile: P }): Identity.CreateInput<P> {
-  return { providers: [], tenantId: null, emailVerified: false, ...over }
+  return { providers: [],  emailVerified: false, ...over }
 }
 
 /** Build a total {@link Session.CreateInput}; nullable fields default to `null`. */

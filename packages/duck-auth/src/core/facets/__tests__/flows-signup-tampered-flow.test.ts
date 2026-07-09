@@ -5,8 +5,7 @@ import { AuthEngine } from '~/core/engine'
 import type { Identity } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 
 interface ProfileShape extends Identity.ProfileMetadataBase {
@@ -25,7 +24,7 @@ function build() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }
@@ -60,7 +59,6 @@ describe('flows signup - tampered flow metadata', () => {
     adapter = built.adapter
     const ident = await adapter.identities.create(
       identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
-      {},
     )
     identityId = ident.id
   })

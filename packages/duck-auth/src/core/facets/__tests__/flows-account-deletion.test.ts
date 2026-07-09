@@ -5,8 +5,7 @@ import { AuthEngine } from '~/core/engine'
 import type { Identity } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
@@ -23,7 +22,7 @@ function build() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }
@@ -65,7 +64,7 @@ describe('FlowsFacet - account deletion', () => {
     expect(result.restorableUntil).toBeGreaterThan(Date.now())
 
     // Identity hidden from finds + sessions revoked.
-    expect(await adapter.identities.findById(identityId, {})).toBeNull()
+    expect(await adapter.identities.findById(identityId)).toBeNull()
     expect(await auth.sessions.getBySid(sid)).toBeNull()
   })
 
@@ -76,10 +75,10 @@ describe('FlowsFacet - account deletion', () => {
     })
     const token = new URL((channel.outbox[0]!.vars as { url: string }).url).searchParams.get('token')!
     await auth.flows.completeAccountDeletion({ token })
-    expect(await adapter.identities.findById(identityId, {})).toBeNull()
+    expect(await adapter.identities.findById(identityId)).toBeNull()
 
     await auth.flows.cancelAccountDeletion({ identityId })
-    expect(await adapter.identities.findById(identityId, {})).not.toBeNull()
+    expect(await adapter.identities.findById(identityId)).not.toBeNull()
   })
 
   it('complete with bogus token throws RECOVERY_TOKEN_INVALID', async () => {

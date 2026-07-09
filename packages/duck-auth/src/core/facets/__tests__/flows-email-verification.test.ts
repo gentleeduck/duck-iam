@@ -5,8 +5,7 @@ import { AuthEngine } from '~/core/engine'
 import type { Identity } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
@@ -24,7 +23,7 @@ function build() {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 3, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }
@@ -55,7 +54,7 @@ describe('FlowsFacet - email verification', () => {
     const token = new URL(url).searchParams.get('token')
     expect(token).toBeTruthy()
     await auth.flows.completeEmailVerification({ token: token! })
-    const ident = await adapter.identities.findById(identityId, {})
+    const ident = await adapter.identities.findById(identityId)
     expect(ident?.profile?.emailVerified).toBe(true)
   })
 
@@ -64,7 +63,6 @@ describe('FlowsFacet - email verification', () => {
       identityId,
       { profile: { username: 'a@x.com', email: 'a@x.com', emailVerified: true } },
       1,
-      {},
     )
     const result = await auth.flows.requestEmailVerification({
       identityId,

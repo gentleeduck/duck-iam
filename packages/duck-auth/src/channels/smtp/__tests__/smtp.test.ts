@@ -5,7 +5,6 @@ import { AuthSmtpChannel } from '../index'
 function makeIdentity(email: string | undefined): Identity.Me {
   return {
     id: 'ident-1',
-    tenantId: null,
     // Empty email string models the "no deliverable address" case; the channel
     // reads it via getProfileString, which treats '' as absent (returns ok:false).
     profile: { username: 'u', email: email ?? '' },

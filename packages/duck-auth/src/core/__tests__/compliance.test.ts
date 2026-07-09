@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toPasswordsConfig } from '~/providers/password'
-import { applyCompliancePreset, assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
+import { assertComplianceStrict, readCompliancePreset, resolveCompliance } from '../compliance'
 
 describe('authResolveCompliance', () => {
   it('returns defaults when no preset', () => {
@@ -38,27 +37,6 @@ describe('authResolveCompliance', () => {
     expect(r.requiredStrictChecks).toContain('lockoutListener')
     // Dedup check: arrays must have unique entries.
     expect(new Set(r.requiredStrictChecks).size).toBe(r.requiredStrictChecks.length)
-  })
-})
-
-describe('authApplyCompliancePreset', () => {
-  it('ratchets user config to the stricter preset value', () => {
-    const base = {
-      baseUrl: 'x',
-      transport: {} as never,
-      stores: {} as never,
-      session: { ttlMs: 30 * 24 * 60 * 60 * 1000 },
-    }
-    const ratcheted = applyCompliancePreset(base as never, 'hipaa')
-    // hipaa caps session ttl to 1h
-    expect(ratcheted.session?.ttlMs).toBeLessThanOrEqual(60 * 60 * 1000)
-    // password compliance is provider-level now: passwordProvider({ compliance }) ratchets minLength.
-    expect(toPasswordsConfig({ minLength: 6, compliance: 'hipaa' }).minLength).toBe(12)
-  })
-
-  it('does not weaken user config below the preset', () => {
-    // A user value above the preset floor is kept.
-    expect(toPasswordsConfig({ minLength: 20, compliance: 'hipaa' }).minLength).toBe(20)
   })
 })
 

@@ -6,9 +6,8 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import type { Channel } from '~/core/types/infra'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { passwords, ScryptHasher } from '~/providers/passwords'
+import { identityInput } from '~/test/store-inputs'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
@@ -25,7 +24,7 @@ function buildAuth(): { auth: AuthEngine<MyProfile>; adapter: MemoryAdapter<MyPr
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
   })
   return { auth, adapter }
 }
@@ -50,7 +49,6 @@ describe('flows.requestPasswordReset - timing-defense', () => {
     const { auth, adapter } = buildAuth()
     const ident = await adapter.identities.create(
       identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
-      {},
     )
     const findIdentityByEmail = async (): Promise<{ id: string } | null> => ({ id: ident.id })
 
@@ -73,7 +71,6 @@ describe('flows.requestPasswordReset - timing-defense', () => {
     const { auth, adapter } = buildAuth()
     const ident = await adapter.identities.create(
       identityInput({ profile: { username: 'existing@x.com', email: 'existing@x.com' }, providers: [] }),
-      {},
     )
     const findIdentityByEmail = async (email: string): Promise<{ id: string } | null> =>
       email === 'existing@x.com' ? { id: ident.id } : null
@@ -108,7 +105,6 @@ describe('flows.requestPasswordReset - timing-defense', () => {
     const { auth, adapter } = buildAuth()
     const ident = await adapter.identities.create(
       identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
-      {},
     )
     const seen: string[] = []
     auth.events.on('signin.failed', (payload) => {
@@ -140,7 +136,6 @@ describe('flows.requestPasswordReset - timing-defense', () => {
     const { auth, adapter } = buildAuth()
     const ident = await adapter.identities.create(
       identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
-      {},
     )
     const seen: string[] = []
     auth.events.on('signin.failed', (payload) => {

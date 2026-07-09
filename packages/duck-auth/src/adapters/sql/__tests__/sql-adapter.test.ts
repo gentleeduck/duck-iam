@@ -25,21 +25,20 @@ function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
 
   return {
     identities: {
-      findById: async (id, tid) => {
+      findById: async (id) => {
         const r = identities.get(id)
-        return r && (tid === undefined || r.tenantId === tid || r.tenantId === null) ? r : null
+        if (!r) return null
+        return r
       },
-      findByEmail: async (email, tid) => {
+      findByEmail: async (email) => {
         for (const r of identities.values()) {
-          if (tid !== undefined && r.tenantId !== tid && r.tenantId !== null) continue
           const profile = r.profile as { email?: string } | null
           if (profile?.email === email) return r
         }
         return null
       },
-      findByProviderSub: async (providerId, sub, tid) => {
+      findByProviderSub: async (providerId, sub) => {
         for (const r of identities.values()) {
-          if (tid !== undefined && r.tenantId !== tid && r.tenantId !== null) continue
           if (r.providers.some((l) => l.providerId === providerId && l.providerSub === sub)) return r
         }
         return null
@@ -47,7 +46,7 @@ function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
       insert: async (row) => {
         identities.set(row.id, row)
       },
-      updateConditional: async (id, patch, expectedVersion, _tid) => {
+      updateConditional: async (id, patch, expectedVersion) => {
         const cur = identities.get(id)
         if (!cur || cur.version !== expectedVersion) return null
         const next = { ...cur, ...patch } as Identity.Me<ProfileShape>
@@ -182,33 +181,28 @@ describe('authCreateSqlStores', () => {
   it('identities.create -> findById round-trips the profile JSON encoded', async () => {
     const ident = await stores.identities.create(
       identityInput({ profile: { username: 'a@b.com', email: 'a@b.com', name: 'A' }, providers: [] }),
-      {},
     )
     expect(ident.id).toBeTruthy()
-    const fetched = await stores.identities.findById(ident.id, {})
+    const fetched = await stores.identities.findById(ident.id)
     expect(fetched?.profile?.email).toBe('a@b.com')
     expect(fetched?.profile?.name).toBe('A')
   })
 
   it('identities.findByEmail decodes the JSON profile', async () => {
-    await stores.identities.create(
-      identityInput({ profile: { username: 'x@y.com', email: 'x@y.com' }, providers: [] }),
-      {},
-    )
-    const found = await stores.identities.findByEmail('x@y.com', {})
+    await stores.identities.create(identityInput({ profile: { username: 'x@y.com', email: 'x@y.com' }, providers: [] }))
+    const found = await stores.identities.findByEmail('x@y.com')
     expect(found?.profile?.email).toBe('x@y.com')
   })
 
   it('identities.update bumps version + rejects stale writes', async () => {
     const ident = await stores.identities.create(
       identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
-      {},
     )
-    const v2 = await stores.identities.update(ident.id, { profile: { username: 'b@b.com', email: 'b@b.com' } }, 1, {})
+    const v2 = await stores.identities.update(ident.id, { profile: { username: 'b@b.com', email: 'b@b.com' } }, 1)
     expect(v2.version).toBe(2)
     expect(v2.profile?.email).toBe('b@b.com')
     await expect(
-      stores.identities.update(ident.id, { profile: { username: 'c@b.com', email: 'c@b.com' } }, 1, {}),
+      stores.identities.update(ident.id, { profile: { username: 'c@b.com', email: 'c@b.com' } }, 1),
     ).rejects.toMatchObject({
       code: 'AUTH_STALE_WRITE',
     })
@@ -217,7 +211,6 @@ describe('authCreateSqlStores', () => {
   it('credentials.upsert + findByHashedSecret round-trips secret + metadata', async () => {
     const ident = await stores.identities.create(
       identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
-      {},
     )
     await stores.credentials.upsert(
       credentialInput({ identityId: ident.id, kind: 'password', secret: 'hash:xyz', metadata: { strength: 0.9 } }),
@@ -231,7 +224,6 @@ describe('authCreateSqlStores', () => {
   it('credentials.rotate bumps version', async () => {
     const ident = await stores.identities.create(
       identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
-      {},
     )
     const cred = await stores.credentials.upsert(
       credentialInput({ identityId: ident.id, kind: 'password', secret: 's1' }),

@@ -4,9 +4,8 @@ import { AuthEngine } from '~/core/engine'
 import type { Identity } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
-import { credentialInput, identityInput } from '~/test/store-inputs'
+import { passwords, ScryptHasher } from '~/providers/passwords'
+import { credentialInput } from '~/test/store-inputs'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
@@ -26,7 +25,7 @@ function buildAuth(): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }
@@ -55,7 +54,7 @@ describe('FlowsFacet - account linking', () => {
     })
     expect(result).toEqual({ identityId: identityA, providerId: 'authGoogle' })
     expect(handler).toHaveBeenCalledOnce()
-    const ident = await adapter.identities.findById(identityA, {})
+    const ident = await adapter.identities.findById(identityA)
     expect(ident?.providers).toEqual([
       expect.objectContaining({ providerId: 'authGoogle', providerSub: 'authGoogle|111' }),
     ])
@@ -72,7 +71,7 @@ describe('FlowsFacet - account linking', () => {
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
     })
-    const ident = await adapter.identities.findById(identityA, {})
+    const ident = await adapter.identities.findById(identityA)
     expect(ident?.providers).toHaveLength(1)
   })
 
@@ -113,7 +112,7 @@ describe('FlowsFacet - account linking', () => {
       {},
     )
     await auth.flows.unlinkProvider({ identityId: identityA, providerId: 'authGoogle' })
-    const ident = await adapter.identities.findById(identityA, {})
+    const ident = await adapter.identities.findById(identityA)
     expect(ident?.providers).toEqual([])
   })
 
@@ -139,7 +138,7 @@ describe('FlowsFacet - account linking', () => {
       providerId: 'authGoogle',
       allowLockout: true,
     })
-    const ident = await adapter.identities.findById(identityA, {})
+    const ident = await adapter.identities.findById(identityA)
     expect(ident?.providers).toEqual([])
   })
 

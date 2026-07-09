@@ -5,7 +5,6 @@ import { AuthTwilioChannel } from '../index'
 function makeIdentity(phone: string | undefined): Identity.Me {
   return {
     id: 'ident-1',
-    tenantId: null,
     // Phone omitted models the "no SMS number" case; the channel reads it via
     // getProfileString, which treats absent as undeliverable (returns ok:false).
     profile: phone ? { username: 'u', email: 'u@x.com', phone } : { username: 'u', email: 'u@x.com' },

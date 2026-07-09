@@ -10,7 +10,6 @@ const SUB: AuthWebPushChannel.ISubscription = {
 function makeIdentity(subscription: AuthWebPushChannel.ISubscription | undefined): Identity.Me {
   return {
     id: 'ident-1',
-    tenantId: null,
     // Subscription omitted models the "no push endpoint" case (channel returns ok:false).
     profile: subscription
       ? { username: 'u', email: 'u@x.com', pushSubscription: subscription }

@@ -7,9 +7,7 @@ import { mfaProvider } from '~/providers/mfa'
 import { github } from '~/providers/oauth/github'
 import { google } from '~/providers/oauth/google'
 import { passkey } from '~/providers/passkey'
-import { password, passwordProvider } from '~/providers/password'
-import { Argon2idHasher } from '~/providers/password/hashers/argon2.hasher'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { Argon2idHasher, passwords, ScryptHasher } from '~/providers/passwords'
 import { createAuth } from '../config'
 import { AuthEngine } from '../engine'
 import type { Identity } from '../identities/identities.types'
@@ -40,8 +38,8 @@ describe('createAuth', () => {
     expect(auth.transport).toBe(custom)
   })
 
-  it('passwordProvider defaults its hasher to scrypt when not supplied', () => {
-    const auth = createAuth({ baseUrl: 'http://x', providers: [passwordProvider()], stores: memoryStorage<Profile>() })
+  it('passwords defaults its hasher to scrypt when not supplied', () => {
+    const auth = createAuth({ baseUrl: 'http://x', providers: [passwords()], stores: memoryStorage<Profile>() })
     expect(auth.passwords).toBeDefined()
   })
 
@@ -53,7 +51,7 @@ describe('createAuth', () => {
   it('respects explicit hasher', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
-      providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10 }) })],
+      providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10 }) })],
       stores: memoryStorage<Profile>(),
     })
     expect(auth.passwords).toBeDefined()
@@ -65,7 +63,7 @@ describe('createAuth', () => {
     expect(() =>
       createAuth({
         baseUrl: 'http://x',
-        providers: [passwordProvider({ hasher: new Argon2idHasher() })],
+        providers: [passwords({ hasher: new Argon2idHasher() })],
         stores: memoryStorage<Profile>(),
       }),
     ).not.toThrow()
@@ -76,9 +74,8 @@ describe('createAuth', () => {
     const auth = createAuth({
       baseUrl: 'http://x',
       providers: [
-        password({
-          findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
+        passwords({
+          hasher: new ScryptHasher({ N: 1 << 10 }),
         }),
       ],
       stores: storage,
@@ -94,9 +91,8 @@ describe('createAuth', () => {
         false,
         null,
         undefined,
-        password({
-          findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
+        passwords({
+          hasher: new ScryptHasher({ N: 1 << 10 }),
         }),
       ],
       stores: storage,
@@ -109,16 +105,15 @@ describe('createAuth', () => {
     const auth = createAuth<Profile>({
       baseUrl: 'http://x',
       providers: [
-        password({
-          findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
-          passwords: { hasher: new ScryptHasher({ N: 1 << 10 }) } as never,
+        passwords({
+          hasher: new ScryptHasher({ N: 1 << 10 }),
         }),
         magicLink({
           autoCreateIdentity: true,
           autoCreateProfile: (email) => ({ username: email, email }),
           callbackPath: '/AUTH/magic-link/callback',
           channels: { email: new AuthConsoleChannel() },
-          findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
+          findIdentityByEmail: (email) => storage.identities.findByEmail(email),
         }),
         google({
           clientId: 'authGoogle-client',
@@ -134,7 +129,7 @@ describe('createAuth', () => {
         }),
         passkey({
           expectedOrigins: 'http://x',
-          findIdentityByEmail: (email) => storage.identities.findByEmail(email, {}),
+          findIdentityByEmail: (email) => storage.identities.findByEmail(email),
           rpID: 'localhost',
           rpName: 'demo',
         }),

@@ -31,7 +31,6 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
     const { auth, adapter } = buildAuth()
     const identity = await adapter.identities.create(
       identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
-      {},
     )
     const { sid } = await auth.sessions.create({
       identityId: identity.id,
@@ -52,7 +51,6 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
     const { auth, adapter } = buildAuth()
     const identity = await adapter.identities.create(
       identityInput({ profile: { username: 'b@x.com', email: 'b@x.com' }, providers: [] }),
-      {},
     )
     const { sid } = await auth.sessions.create({
       identityId: identity.id,
@@ -72,7 +70,6 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
     const { auth, adapter } = buildAuth()
     const identity = await adapter.identities.create(
       identityInput({ profile: { username: 'c@x.com', email: 'c@x.com' }, providers: [] }),
-      {},
     )
     const { sid } = await auth.sessions.create({
       identityId: identity.id,
@@ -92,7 +89,6 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
     const { auth, adapter } = buildAuth()
     const identity = await adapter.identities.create(
       identityInput({ profile: { username: 'd@x.com', email: 'd@x.com' }, providers: [] }),
-      {},
     )
     const { sid } = await auth.sessions.create({
       identityId: identity.id,

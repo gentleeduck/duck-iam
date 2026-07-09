@@ -7,7 +7,6 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'svc@x.com', username: 'svc@x.com' }, providers: [] }),
-      { tenantId: 'tenant-A' },
     )
     await adapter.credentials.upsert(
       credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-1', tenantId: 'tenant-A' }),
@@ -23,7 +22,6 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'svc@x.com', username: 'svc@x.com' }, providers: [] }),
-      { tenantId: 'tenant-A' },
     )
     await adapter.credentials.upsert(
       credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-2', tenantId: 'tenant-A' }),
@@ -39,7 +37,6 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'global@x.com', username: 'global@x.com' }, providers: [] }),
-      {},
     )
     await adapter.credentials.upsert(
       credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-3' }),
@@ -55,7 +52,6 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'svc@x.com', username: 'svc@x.com' }, providers: [] }),
-      { tenantId: 'tenant-A' },
     )
     await adapter.credentials.upsert(
       credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-4', tenantId: 'tenant-A' }),
@@ -69,7 +65,6 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'i@x.com', username: 'i@x.com' }, providers: [] }),
-      { tenantId: 'tenant-A' },
     )
     // No tenantId in input; ctx supplies it.
     await adapter.credentials.upsert(
@@ -90,7 +85,6 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'r@x.com', username: 'r@x.com' }, providers: [] }),
-      {},
     )
     await adapter.credentials.upsert(
       credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-5' }),

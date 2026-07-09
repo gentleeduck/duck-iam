@@ -4,8 +4,7 @@ import { AuthEngine } from '~/core/engine'
 import type { Identity } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { AuthMemoryLimiter } from '~/limiters/memory'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords, ScryptHasher } from '~/providers/passwords'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string
@@ -28,7 +27,7 @@ function buildAuth(): {
       credentials: adapter.credentials,
     },
     limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    providers: [passwordProvider({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }
@@ -50,7 +49,7 @@ describe('FlowsFacet - signup state machine', () => {
     expect(flow.identityId).toBeTruthy()
     expect(flow.completed).toEqual(['email-collected'])
 
-    const identity = await adapter.identities.findById(flow.identityId, {})
+    const identity = await adapter.identities.findById(flow.identityId)
     expect(identity?.profile?.email).toBe('new@x.com')
     expect(identity?.profile?.emailVerified).toBe(false)
   })
@@ -119,7 +118,7 @@ describe('FlowsFacet - signup state machine', () => {
     const out = await auth.flows.completeSignUp({ flowToken })
     expect(out.session!.identityId).toBe(flow.identityId)
 
-    const fresh = await adapter.identities.findById(flow.identityId, {})
+    const fresh = await adapter.identities.findById(flow.identityId)
     expect(fresh?.profile?.emailVerified).toBe(true)
     expect(fresh?.profile?.acceptedTerms).toBe(true)
 

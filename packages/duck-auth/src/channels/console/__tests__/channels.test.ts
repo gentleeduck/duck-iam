@@ -5,7 +5,6 @@ import { AuthConsoleChannel, AuthNoopChannel, AuthTestChannel } from '../index'
 function makeIdentity(): Identity.Me {
   return {
     id: 'ident-1',
-    tenantId: null,
     profile: { username: 'u', email: 'u@x.com' },
     providers: [],
     emailVerified: false,
