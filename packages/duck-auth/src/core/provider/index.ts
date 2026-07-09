@@ -1,2 +1,2 @@
-export { ProvidersFacet } from './provider.facet'
+export { Providers } from './provider'
 export type { Provider } from './provider.types'
