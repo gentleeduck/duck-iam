@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { RedisDPoPNonceStore } from '../dpop-nonce-store'
-import { FakeRedis } from '../redis-like'
+import { RedisDPoPNonceStore } from '../dpop-nonce.redis'
+import { FakeRedis } from '~/adapters/redis/redis-like'
 
 describe('RedisDPoPNonceStore', () => {
   it('first sight returns true, immediate replay returns false', async () => {

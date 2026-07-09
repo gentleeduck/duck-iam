@@ -5,7 +5,7 @@
  * is a one-line change in the `Engine` config.
  */
 
-export { RedisDPoPNonceStore } from './dpop-nonce-store'
+export { RedisDPoPNonceStore } from '~/core/transport/dpop-nonce.redis'
 export { RedisEvents } from '~/core/events/events.redis'
 export { RedisIdempotencyStore } from '~/core/idempotency/idempotency.redis'
 export type { RedisLike } from './redis-like'
