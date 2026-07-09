@@ -4,8 +4,8 @@
  * `pushSubscription` field with the standard VAPID-compatible shape.
  */
 
-import { AuthError } from '~/core/errors'
 import type { Channel } from '~/channels/channels.types'
+import { AuthError } from '~/core/errors'
 
 export namespace AuthWebPushChannel {
   /** Standard Push API subscription shape. */

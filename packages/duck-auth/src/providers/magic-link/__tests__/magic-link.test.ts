@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import type { Channel } from '~/channels/channels.types'
 import { AuthEngine } from '~/core/engine'
 import { Identity } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import type { Channel } from '~/channels/channels.types'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { magicLink } from '../index'
 

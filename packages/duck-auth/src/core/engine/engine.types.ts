@@ -1,3 +1,4 @@
+import type { Events } from '~/core/events/events.types'
 import type { Limiter } from '~/limiters'
 import type { AuthDefine } from '../config/config.types'
 import type { Hijack } from '../hijack/hijack.types'
@@ -5,7 +6,6 @@ import type { Identity } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
 import type { Session } from '../sessions/sessions.types'
 import type { Credential } from '../types/identity'
-import type { Events } from '~/core/events/events.types'
 import type { Transport } from '../types/session'
 
 export namespace Engine {

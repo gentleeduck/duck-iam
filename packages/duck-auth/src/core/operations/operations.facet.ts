@@ -1,5 +1,5 @@
-import { AuthError } from '../errors'
 import type { Events } from '~/core/events/events.types'
+import { AuthError } from '../errors'
 import type { Operations } from './operations.types'
 
 /**

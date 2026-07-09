@@ -1,3 +1,4 @@
+import type { Channel } from '~/channels/channels.types'
 import type { AuthEngine, Engine } from '../engine'
 import type { Identity } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
@@ -5,7 +6,6 @@ import type { PluginRegistry } from '../plugin'
 import type { Provider } from '../provider/provider.types'
 import type { Session } from '../sessions/sessions.types'
 import type { Credential } from '../types/identity'
-import type { Channel } from '~/channels/channels.types'
 import type { Transport } from '../types/session'
 
 export namespace AuthDefine {

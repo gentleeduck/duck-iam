@@ -4,9 +4,9 @@
  * number is read from `identity.profile.phone`.
  */
 
+import type { Channel } from '~/channels/channels.types'
 import { getProfileString } from '~/core/credential-utils'
 import { AuthError } from '~/core/errors'
-import type { Channel } from '~/channels/channels.types'
 
 export namespace AuthTwilioChannel {
   /** Subset of the Twilio SDK we depend on. */

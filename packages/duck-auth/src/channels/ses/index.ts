@@ -3,9 +3,9 @@
  * via `SendEmailCommand` for kind:'email' delivery.
  */
 
+import type { Channel } from '~/channels/channels.types'
 import { getProfileString } from '~/core/credential-utils'
 import { AuthError } from '~/core/errors'
-import type { Channel } from '~/channels/channels.types'
 
 export namespace AuthSesChannel {
   /** Subset of the SES v3 SDK we depend on. */
