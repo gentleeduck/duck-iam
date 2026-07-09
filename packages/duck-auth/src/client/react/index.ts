@@ -18,8 +18,8 @@
  * ```
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import type { Envelope } from '~/core/errors/errors.types'
 import type { Identity } from '~/core/identities'
-import type { Envelope } from '~/core/types/session'
 import { createAuthClient, type VanillaClient } from '../vanilla'
 import type { ReactClient } from './types'
 

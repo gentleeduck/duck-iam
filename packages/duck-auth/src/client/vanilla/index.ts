@@ -3,8 +3,9 @@
  * fetch-based client with a session pub/sub store; every method resolves to the
  * `Envelope` envelope. Types live in `./types`.
  */
+
+import type { Envelope } from '~/core/errors/errors.types'
 import type { Identity } from '~/core/identities'
-import type { Envelope } from '~/core/types/session'
 import type { VanillaClient } from './types'
 
 export type { VanillaClient } from './types'

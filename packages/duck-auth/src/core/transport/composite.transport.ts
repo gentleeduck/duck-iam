@@ -1,6 +1,6 @@
 import type { Provider } from '../provider/provider.types'
 import type { Session } from '../sessions/sessions.types'
-import type { Transport } from '../types/session'
+import type { Transport } from '../transport/transport.types'
 
 /**
  * Try each transport in order on extract; emit Intents from every transport

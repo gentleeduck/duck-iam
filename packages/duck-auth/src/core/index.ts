@@ -12,6 +12,7 @@ export {
   AuthTurnstileVerifier,
 } from './captcha'
 export { type AuthDefine, createAuth } from './config'
+export type { AUTH_CREDENTIAL_KINDS, Credential } from './credentials'
 export { randomToken, sha256, timingSafeEqual } from './crypto'
 export {
   buildCsrfCookieOptions,
@@ -20,16 +21,18 @@ export {
   issueCsrfToken,
   verifyCsrf,
 } from './csrf'
+export type { DataAtRest, Kms } from './dataAtRest'
 export { AuthEngine } from './engine'
+export type { Envelope } from './errors'
 export { AuthError } from './errors'
 export { InMemoryEvents as AuthInMemoryEvents } from './events'
+export type { TenantContext } from './tenant'
 export {
   currentTenant,
   resolveTenant,
   withTenant,
 } from './tenant'
 export * from './transport'
-export * from './types'
 export {
   signWebhookBody as authSignWebhookBody,
   verifyWebhookSignature as authVerifyWebhookSignature,

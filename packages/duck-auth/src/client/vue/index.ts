@@ -1,6 +1,7 @@
 /** Vue 3 plugin + composables; `vue` is an OPTIONAL peerDep resolved lazily. Types live in `./types`. */
+
+import type { Envelope } from '~/core/errors/errors.types'
 import type { Identity } from '~/core/identities'
-import type { Envelope } from '~/core/types/session'
 import { createAuthClient, type VanillaClient } from '../vanilla'
 import type { VueClient } from './types'
 

@@ -8,7 +8,7 @@ import type { IdentitiesImpl } from '../identities/identities.facet'
 import type { Provider } from '../provider/provider.types'
 import type { SessionsFacet } from '../sessions/sessions.facet'
 import type { Session } from '../sessions/sessions.types'
-import type { Transport } from '../types/session'
+import type { Transport } from '../transport/transport.types'
 import {
   cancelAccountDeletion as cancelAccountDeletionImpl,
   completeAccountDeletion as completeAccountDeletionImpl,

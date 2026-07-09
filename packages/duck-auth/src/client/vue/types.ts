@@ -1,6 +1,7 @@
 /** Vue client types — the public `VueClient` namespace. */
+
+import type { Envelope } from '~/core/errors/errors.types'
 import type { Identity } from '~/core/identities'
-import type { Envelope } from '~/core/types/session'
 import type { VanillaClient } from '../vanilla'
 
 export namespace VueClient {

@@ -19,7 +19,7 @@ import type { Session } from '../sessions'
 // import { PluginRegistry } from '../plugin'
 // import type { Provider } from '../provider/provider.types'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions'
-import type { Transport } from '../types/session'
+import type { Transport } from '../transport/transport.types'
 import type { Engine } from './engine.types'
 
 /**

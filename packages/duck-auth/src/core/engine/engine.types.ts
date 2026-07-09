@@ -6,7 +6,7 @@ import type { Hijack } from '../hijack/hijack.types'
 import type { Identity } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
 import type { Session } from '../sessions/sessions.types'
-import type { Transport } from '../types/session'
+import type { Transport } from '../transport/transport.types'
 
 export namespace Engine {
   /**

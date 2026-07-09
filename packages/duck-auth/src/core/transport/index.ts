@@ -8,3 +8,4 @@ export {
   MemoryDPoPNonceStore,
 } from './dpop.transport'
 export { AuthJwtTransport } from './jwt.transport'
+export type { Transport } from './transport.types'
