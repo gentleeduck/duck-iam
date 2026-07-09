@@ -1,4 +1,4 @@
-import type { Anomaly } from '../types/provider'
+import type { Anomaly } from './anomaly.types'
 
 const DEFAULT_CONFIG: AuthImpossibleTravel.IConfig = {
   maxKmPerHour: 900,

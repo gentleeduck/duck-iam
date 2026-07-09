@@ -191,32 +191,3 @@ export namespace Events {
     emit<K extends EventName>(event: K, payload: EventMap[K]): Promise<void>
   }
 }
-
-/**
- * Anomaly-detection adapter contract. Each detector evaluates a request
- * + session and returns zero or more signals. Apps register one or more
- * detectors; AuthEngine aggregates the scores and emits `suspicious` when
- * thresholds trip
- */
-export namespace Anomaly {
-  export type Kind = 'impossible-travel' | 'new-device' | 'high-velocity' | 'off-hours' | 'concurrent-geo'
-
-  export interface Signal {
-    kind: Kind
-    /** 0..1; higher = more suspicious. */
-    score: number
-    evidence: Record<string, unknown>
-  }
-
-  export interface RequestSnapshot {
-    ip?: string
-    userAgent?: string
-    geo?: { country?: string; lat?: number; lon?: number }
-    now: number
-  }
-
-  export type Detector = {
-    readonly id: string
-    evaluate(ctx: { session: Session.Me; identity: Identity.Me; req: RequestSnapshot }): Promise<Signal[]>
-  }
-}

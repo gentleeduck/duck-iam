@@ -1,10 +1,11 @@
 import type { ApiKeysFacet } from '~/providers/api-key/api-key.facet'
 import type { MfaFacet } from '~/providers/mfa/mfa.facet'
 import type { PasswordsFacet } from '~/providers/password/password.facet'
+import { DEFAULT_ANOMALY_CONFIG } from '../anomaly/anomaly.constants'
+import { AnomalyFacet } from '../anomaly/anomaly.facet'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 import { InMemoryEvents } from '../events'
-import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../facets/anomaly.facet'
 import { DEFAULT_FLOWS_CONFIG, FlowsFacet } from '../facets/flows.facet'
 import { ProvidersFacet } from '../facets/providers.facet'
 import { HijackFacet } from '../hijack/hijack.facet'
@@ -167,7 +168,10 @@ export class AuthEngine<
    */
   async resolveSession(
     req: { headers: Headers },
-    opts: { expectedTenantId?: string; requestSnapshot?: import('../types/provider').Anomaly.RequestSnapshot } = {},
+    opts: {
+      expectedTenantId?: string
+      requestSnapshot?: import('../anomaly/anomaly.types').Anomaly.RequestSnapshot
+    } = {},
   ): Promise<{
     session: Session.Me
     identity: Identity.Me<Profile> | null
@@ -177,7 +181,7 @@ export class AuthEngine<
      * branch on `anomaly.decision === 'deny'` / `'step-up'` /
      * `'allow'`; the field is absent when no detectors run.
      */
-    anomaly?: import('../facets/anomaly.facet').AnomalyFacet.Result
+    anomaly?: import('../anomaly/anomaly.types').Anomaly.Result
   } | null> {
     const token = this.transport.extract(req)
     if (!token) return null
@@ -188,7 +192,7 @@ export class AuthEngine<
     ): Promise<{
       session: Session.Me
       identity: Identity.Me<Profile> | null
-      anomaly?: import('../facets/anomaly.facet').AnomalyFacet.Result
+      anomaly?: import('../anomaly/anomaly.types').Anomaly.Result
     }> => {
       // Auto-evaluate anomaly detectors so routes branch on a single field.
       if (opts.requestSnapshot && identity && this.anomaly.list().length > 0) {

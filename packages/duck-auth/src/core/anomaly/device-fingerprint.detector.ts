@@ -1,6 +1,6 @@
 /** Device-fingerprint detector: emit `new-device` on first sight of (identity, ua+ipSubnet). */
 
-import type { Anomaly } from '../types/provider'
+import type { Anomaly } from './anomaly.types'
 
 /** Reference in-memory device-fingerprint store; production wires Redis. */
 export class AuthMemoryDeviceFingerprintStore implements AuthDeviceFingerprint.IStore {

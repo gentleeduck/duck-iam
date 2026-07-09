@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Anomaly } from '~/core/anomaly/anomaly.types'
 import { authImpossibleTravelDetector } from '~/core/anomaly/impossible-travel.detector'
 import { InMemoryEvents } from '~/core/events'
 import type { Identity } from '~/core/identities/identities.types'
 import type { Session } from '~/core/sessions/sessions.types'
-import type { Anomaly } from '~/core/types/provider'
 import { makeIdentity, makeSession } from '~/test/store-inputs'
-import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly.facet'
+import { DEFAULT_ANOMALY_CONFIG } from '../anomaly.constants'
+import { AnomalyFacet } from '../anomaly.facet'
 
 const identity = makeIdentity({ id: 'u' })
 const session = makeSession({ id: 'sid', identityId: 'u' })
