@@ -85,24 +85,4 @@ export namespace Provider {
     begin?: Me['begin']
     complete?: Me['complete']
   }
-
-  // /**
-  //  * A capability module (mechanism A). Carries an optional sign-in provider
-  //  * plus an `attach` hook that builds and mounts the capability's facet onto
-  //  * the engine. Built by `passwords()`, `mfaProvider()`, etc. Passing a
-  //  * bare {@link Me} to `config.providers` is still accepted; the engine
-  //  * normalizes it to `{ name: p.id, provider: p }`.
-  //  */
-  // export interface ProviderModule<
-  //   Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
-  //   Tenant = string,
-  //   OrgMeta = unknown,
-  // > {
-  //   /** Stable capability name; the engine rejects a second module with the same name. */
-  //   name: string
-  //   /** Optional sign-in provider registered into ProvidersFacet at attach time. */
-  //   provider?: Me<unknown, unknown, Profile>
-  //   /** Builds this capability's facet from engine core + own config, then mounts it. */
-  //   attach?(engine: AuthEngine<Profile, Tenant, OrgMeta>): void
-  // }
 }

@@ -1,28 +1,17 @@
 import type { Identity } from '~/core'
-import type { Provider } from '~/core/provider/provider.types'
+import type { AuthEngine } from '~/core/engine'
 import { toMfaConfig } from './mfa.config'
 import { MfaFacet } from './mfa.facet'
 import type { Mfa } from './mfa.types'
 
 /**
- * MFA capability module (mechanism A). Owns the MfaFacet + its config and
- * mounts it onto the engine at construction, exposing `auth.mfa`.
- * Add it to `providers: [mfaProvider()]`.
- *
- * MFA is a second factor, not a sign-in method, so the module is attach-only —
- * it carries no `Provider.Me`.
+ * MFA capability. MFA is a second factor, not a sign-in method, so this
+ * carries no `begin`/`complete` — it is a facet the engine resolves via
+ * `auth.mfa`. Add it to `providers: [mfaProvider()]`; `createAuth` calls
+ * the thunk with the constructed engine and registers the returned facet.
  */
-export function mfaProvider<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
-  Tenant = string,
-  OrgMeta = unknown,
-  // @ts-expect-error
->(cfg?: Mfa.ConfigInput): Provider.ProviderModule<Profile, Tenant, OrgMeta> {
-  return {
-    name: 'mfa',
-    // @ts-expect-error
-    attach(engine) {
-      engine.setMfa(new MfaFacet(engine.config.stores.credentials, engine.events, toMfaConfig(cfg)))
-    },
-  }
+export function mfaProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+  cfg?: Mfa.ConfigInput,
+): (auth: AuthEngine<Profile>) => MfaFacet {
+  return (auth) => new MfaFacet(auth.config.stores.credentials, auth.events, toMfaConfig(cfg))
 }

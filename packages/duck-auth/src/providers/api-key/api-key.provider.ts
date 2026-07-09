@@ -1,5 +1,6 @@
 import type { Identity } from '~/core'
 import { randomToken, sha256 } from '~/core/crypto'
+import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Provider } from '~/core/provider/provider.types'
 import { toApiKeysConfig } from './api-key.config'
@@ -61,31 +62,13 @@ export function authApiKey<Profile extends Identity.ProfileMetadataBase = Identi
 }
 
 /**
- * API-key capability module (mechanism A). Owns the ApiKeysFacet + its config
- * and mounts it onto the engine at construction, exposing `auth.apiKeys`.
- * Add it to `providers: [apiKeyProvider()]`.
- *
+ * API-key capability. Owns the ApiKeysFacet, resolved via `auth.apiKeys`.
  * The bearer *sign-in* provider ({@link authApiKey}) is registered separately
  * by the app, since it binds to the mounted facet + app-specific scope rules.
  */
-export function apiKeyProvider<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
-  Tenant = string,
-  OrgMeta = unknown,
-  // @ts-expect-error
->(cfg?: ApiKeys.ConfigInput): Provider.ProviderModule<Profile, Tenant, OrgMeta> {
-  return {
-    name: 'api-key',
-    // @ts-expect-error
-    attach(engine) {
-      engine.setApiKeys(
-        new ApiKeysFacet(
-          engine.config.stores.credentials,
-          engine.events,
-          { randomToken, sha256 },
-          toApiKeysConfig(cfg),
-        ),
-      )
-    },
-  }
+export function apiKeyProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+  cfg?: ApiKeys.ConfigInput,
+): (auth: AuthEngine<Profile>) => ApiKeysFacet {
+  return (auth) =>
+    new ApiKeysFacet(auth.config.stores.credentials, auth.events, { randomToken, sha256 }, toApiKeysConfig(cfg))
 }
