@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { RedisIdempotencyStore } from '../idempotency-store'
-import { FakeRedis } from '../redis-like'
+import { RedisIdempotencyStore } from '../idempotency.redis'
+import { FakeRedis } from '~/adapters/redis/redis-like'
 
 const ctx = { tenantId: 'acme' }
 const PREFIX = 'test:idem'

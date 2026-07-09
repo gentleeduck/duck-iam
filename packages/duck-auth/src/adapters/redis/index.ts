@@ -7,7 +7,7 @@
 
 export { RedisDPoPNonceStore } from './dpop-nonce-store'
 export { RedisEvents } from './events'
-export { RedisIdempotencyStore } from './idempotency-store'
+export { RedisIdempotencyStore } from '~/core/idempotency/idempotency.redis'
 export type { RedisLike } from './redis-like'
 export { FakeRedis } from './redis-like'
 export { RedisSessionStore } from './session-store'
