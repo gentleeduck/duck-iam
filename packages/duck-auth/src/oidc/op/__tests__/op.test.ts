@@ -5,8 +5,8 @@ import { Identity } from '~/core'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { passwordProvider } from '~/providers/password'
-import { ScryptHasher } from '~/providers/password/hashers/scrypt.hasher'
+import { passwords } from '~/providers/passwords'
+import { ScryptHasher } from '~/providers/passwords/hashers/scrypt'
 import { createOidcOP, type OidcOpRoot } from '../index'
 import type { OidcOP } from '../types'
 
@@ -25,7 +25,7 @@ function buildAuth() {
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
     transport: new CookieTransport({ name: 'duck-sid' }),
-    providers: [passwordProvider({ hasher: new ScryptHasher() })],
+    providers: [passwords({ hasher: new ScryptHasher() })],
   })
 }
 

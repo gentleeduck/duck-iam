@@ -32,13 +32,10 @@ describe('IdentitiesFacet', () => {
       expect(handler).toHaveBeenCalledOnce()
     })
 
-    it('respects tenantId scoping (findByEmail in tenant A misses tenant B)', async () => {
-      await facet.create(
-        { profile: { username: 'shared@x.com', email: 'shared@x.com' }, tenantId: 'A' },
-        { tenantId: 'A' },
-      )
-      const inB = await facet.getByEmail('shared@x.com', { tenantId: 'B' })
-      expect(inB).toBeNull()
+    it('identities are global: getByEmail finds the account regardless of origin tenant', async () => {
+      await facet.create({ profile: { username: 'shared@x.com', email: 'shared@x.com' } })
+      const found = await facet.getByEmail('shared@x.com')
+      expect(found?.profile.email).toBe('shared@x.com')
     })
 
     it('rejects an oversize profile (storage / read amplification defense)', async () => {

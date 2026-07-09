@@ -39,39 +39,38 @@ export class MemoryAdapter<
 
   private _buildIdentityStore(): Identity.Store<Profile> {
     const store = this._identities
-    const filter = (id: Identity.Me<Profile>, ctx: TenantContext) =>
-      ctx.tenantId === undefined || id.tenantId === ctx.tenantId
 
     return {
-      findById: async (id, ctx) => {
+      findById: async (id) => {
         const i = store.get(id)
-        return i && filter(i, ctx) && !isSoftDeleted(i) ? i : null
+        if (!i || isSoftDeleted(i)) return null
+        return i
       },
-      findByEmail: async (email, ctx) => {
+      findByEmail: async (email) => {
         for (const i of store.values()) {
-          if (!filter(i, ctx) || isSoftDeleted(i)) continue
+          if (isSoftDeleted(i)) continue
           const e = getProfileString(i.profile, 'email')
           if (e === email) return i
         }
         return null
       },
-      findByProviderSub: async (providerId, sub, ctx) => {
+      findByProviderSub: async (providerId, sub) => {
         for (const i of store.values()) {
-          if (!filter(i, ctx) || isSoftDeleted(i)) continue
+          if (isSoftDeleted(i)) continue
           if (i.providers.some((p) => p.providerId === providerId && p.providerSub === sub)) {
             return i
           }
         }
         return null
       },
-      create: async (input, ctx) => {
+      create: async (input) => {
         // Atomic provider-sub uniqueness scan to close the race between
         // two concurrent first-oauth-callbacks on the same (providerId, sub).
         const providers = input.providers ?? []
         for (const link of providers) {
           if (link.providerSub === null) continue
           for (const other of store.values()) {
-            if (filter(other, ctx) === false || isSoftDeleted(other)) continue
+            if (isSoftDeleted(other)) continue
             if (other.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
               throw new AuthError('AUTH_PROVIDER_FAILED', {
                 providerId: link.providerId,
@@ -85,7 +84,6 @@ export class MemoryAdapter<
         const id: Identity.Me<Profile> = {
           ...input,
           id: randomToken(16),
-          tenantId: input.tenantId ?? ctx.tenantId ?? null,
           providers,
           // New identities are unverified unless the caller states otherwise.
           emailVerified: input.emailVerified ?? false,
@@ -97,7 +95,7 @@ export class MemoryAdapter<
         store.set(id.id, id)
         return id
       },
-      update: async (id, patch, expectedVersion, _ctx) => {
+      update: async (id, patch, expectedVersion) => {
         const cur = store.get(id)
         if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
         if (cur.version !== expectedVersion) {
@@ -115,12 +113,12 @@ export class MemoryAdapter<
         store.set(id, next)
         return next
       },
-      softDelete: async (id, gracePeriodMs, _ctx) => {
+      softDelete: async (id, gracePeriodMs) => {
         const cur = store.get(id)
         if (!cur) return
         store.set(id, { ...cur, deletedAt: new Date(Date.now() + gracePeriodMs) })
       },
-      restore: async (id, _ctx) => {
+      restore: async (id) => {
         const cur = store.get(id)
         if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
         const deletedAtMs = cur.deletedAt?.getTime()
@@ -133,10 +131,10 @@ export class MemoryAdapter<
         store.set(id, next)
         return next
       },
-      erase: async (id, _ctx) => {
+      erase: async (id) => {
         store.delete(id)
       },
-      link: async (identityId, link, _ctx) => {
+      link: async (identityId, link) => {
         const cur = store.get(identityId)
         if (!cur) return
         // Atomic uniqueness check under JS single-threading; closes the
@@ -145,7 +143,6 @@ export class MemoryAdapter<
         if (link.providerSub !== null) {
           for (const [otherId, other] of store) {
             if (otherId === identityId) continue
-            if (filter(other, _ctx) === false || isSoftDeleted(other)) continue
             if (other.providers.some((p) => p.providerId === link.providerId && p.providerSub === link.providerSub)) {
               throw new AuthError('AUTH_PROVIDER_FAILED', {
                 providerId: link.providerId,
@@ -156,7 +153,7 @@ export class MemoryAdapter<
         }
         store.set(identityId, { ...cur, providers: [...cur.providers, link] })
       },
-      unlink: async (identityId, providerId, _ctx) => {
+      unlink: async (identityId, providerId) => {
         const cur = store.get(identityId)
         if (!cur) return
         store.set(identityId, {
@@ -164,7 +161,7 @@ export class MemoryAdapter<
           providers: cur.providers.filter((p) => p.providerId !== providerId),
         })
       },
-      merge: async (survivorId, dupId, _ctx) => {
+      merge: async (survivorId, dupId) => {
         const survivor = store.get(survivorId)
         const dup = store.get(dupId)
         if (!survivor || !dup) return

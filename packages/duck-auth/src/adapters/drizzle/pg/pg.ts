@@ -1,16 +1,5 @@
-/**
- * Drizzle (node-postgres) implementation of the {@link SqlBridge} contract.
- *
- * Two entry points:
- * - {@link createDrizzlePgBridge} — wrap an existing `NodePgDatabase`.
- * - {@link drizzlePgStorage} — fold a connection string / `pg.Pool` / db into ready-to-use stores.
- *
- * Queries are tenant-scoped when a `tenantId` is passed; `undefined` skips the
- * filter and `NULL`-tenant rows are treated as global (reachable from any tenant).
- */
-
 import { createRequire } from 'node:module'
-import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
@@ -18,190 +7,153 @@ import type { SqlBridge } from '~/adapters/sql/sql.types'
 import { credentialsTable, identitiesTable, sessionsTable } from './pg.schema'
 import type { Pg } from './pg.types'
 
-/**
- * Build the low-level {@link SqlBridge.Me} over a Drizzle pg database.
- *
- * Prefer {@link drizzlePgStorage}, which wires this into full stores; reach for
- * this directly only when you already hold a configured `NodePgDatabase`.
- *
- * @template TSchema - Drizzle schema attached to the db instance.
- * @param db - The Drizzle pg database instance.
- * @returns The identity / credential / session bridge for gentleduck/auth.
- */
 export function createDrizzlePgBridge<const TSchema extends Record<string, unknown>>(
   db: NodePgDatabase<TSchema>,
 ): SqlBridge.Me {
-  /** Scope a where clause by tenantId; undefined tenant skips the filter. */
-  function tenantWhere<T extends { tenantId: PgColumn }>(table: T, tenantId: string | undefined) {
-    return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
-  }
+  const tenantWhere = <T extends { tenantId: PgColumn }>(table: T, tenantId: string | undefined) =>
+    tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
 
   return {
-    // --- Identities ---
     identities: {
-      findById: async (id, tenantId) => {
-        // Tenant is checked after the fetch so NULL-tenant (global) rows stay visible.
-        const rows = await db
+      findById: (id) =>
+        db
           .select()
           .from(identitiesTable)
           .where(and(eq(identitiesTable.id, id), isNull(identitiesTable.deletedAt)))
           .limit(1)
-        const row = rows[0]
-        if (!row) return null
-        if (tenantId !== undefined && row.tenantId !== tenantId && row.tenantId !== null) return null
-        return row
-      },
-      findByEmail: async (email, tenantId) => {
-        const rows = await db
+          .then((r) => r[0] ?? null),
+
+      findByEmail: (email) =>
+        db
+          .select()
+          .from(identitiesTable)
+          .where(and(sql`${identitiesTable.profile}->>'email' = ${email}`, isNull(identitiesTable.deletedAt)))
+          .limit(1)
+          .then((r) => r[0] ?? null),
+
+      findByProviderSub: (providerId, sub) =>
+        db
           .select()
           .from(identitiesTable)
           .where(
             and(
-              sql`${identitiesTable.profile}->>'email' = ${email}`,
+              sql`${identitiesTable.providers} @> ${JSON.stringify([{ providerId, providerSub: sub }])}]::jsonb`,
               isNull(identitiesTable.deletedAt),
-              tenantId === undefined
-                ? undefined
-                : or(isNull(identitiesTable.tenantId), eq(identitiesTable.tenantId, tenantId)),
             ),
           )
           .limit(1)
-        return rows[0] ?? null
-      },
-      findByProviderSub: async (providerId, sub, tenantId) => {
-        // `@>` jsonb containment; matchPattern is bound as a parameter, never interpolated.
-        const matchPattern = JSON.stringify([{ providerId, providerSub: sub }])
-        const rows = await db
-          .select()
-          .from(identitiesTable)
-          .where(
-            and(
-              sql`${identitiesTable.providers} @> ${matchPattern}::jsonb`,
-              isNull(identitiesTable.deletedAt),
-              tenantId === undefined
-                ? undefined
-                : or(isNull(identitiesTable.tenantId), eq(identitiesTable.tenantId, tenantId)),
-            ),
-          )
-          .limit(1)
-        return rows[0] ?? null
-      },
-      insert: async (row) => {
-        await db.insert(identitiesTable).values(row)
-      },
-      updateConditional: async (id, patch, expectedVersion, tenantId) => {
-        const result = await db
+          .then((r) => r[0] ?? null),
+
+      insert: (row) =>
+        db
+          .insert(identitiesTable)
+          .values(row)
+          .then(() => {}),
+
+      updateConditional: (id, patch, expectedVersion) =>
+        db
           .update(identitiesTable)
           .set(patch)
-          .where(
-            and(
-              eq(identitiesTable.id, id),
-              eq(identitiesTable.version, expectedVersion),
-              tenantWhere(identitiesTable, tenantId),
-            ),
-          )
+          .where(and(eq(identitiesTable.id, id), eq(identitiesTable.version, expectedVersion)))
           .returning()
-        return result[0] ?? null
-      },
-      softDelete: async (id, deletedAt, tenantId) => {
-        await db
+          .then((r) => r[0] ?? null),
+
+      softDelete: (id, deletedAt) =>
+        db
           .update(identitiesTable)
           .set({ deletedAt })
-          .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
-      },
-      restore: async (id, tenantId) => {
-        const result = await db
+          .where(eq(identitiesTable.id, id))
+          .then(() => {}),
+
+      restore: (id) =>
+        db
           .update(identitiesTable)
           .set({ deletedAt: null })
-          .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+          .where(eq(identitiesTable.id, id))
           .returning()
-        return result[0] ?? null
-      },
-      erase: async (id, tenantId) => {
-        // FK CASCADE handles credentials and sessions; explicit deletes are belt-and-suspenders.
+          .then((r) => r[0] ?? null),
+
+      erase: async (id) => {
         await db.delete(credentialsTable).where(eq(credentialsTable.identityId, id))
         await db.delete(sessionsTable).where(eq(sessionsTable.identityId, id))
-        await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+        await db.delete(identitiesTable).where(eq(identitiesTable.id, id))
       },
-      insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
-        // Remove existing link for this providerId, then append the new one.
-        const newLink = JSON.stringify([{ providerId, providerSub: providerSub ?? null, addedAt }])
-        await db.execute(
-          sql`update ${identitiesTable}
-              set providers = (
-                select coalesce(jsonb_agg(elem), '[]'::jsonb)
-                from jsonb_array_elements(providers) elem
-                where (elem->>'providerId') != ${providerId}
-              ) || ${newLink}::jsonb
-              where id = ${identityId}
-                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)`,
-        )
-      },
-      deleteProviderLink: async (identityId, providerId, tenantId) => {
-        await db.execute(
-          sql`update ${identitiesTable}
-              set providers = (
-                select coalesce(jsonb_agg(elem), '[]'::jsonb)
-                from jsonb_array_elements(providers) elem
-                where (elem->>'providerId') != ${providerId}
-              )
-              where id = ${identityId}
-                and (${tenantId ?? null}::text is null or tenant_id = ${tenantId ?? null}::text)`,
-        )
-      },
-      merge: async (survivorId, dupId, tenantId) => {
-        // Union dup's provider links into the survivor before re-pointing rows.
+
+      insertProviderLink: (identityId, providerId, providerSub, addedAt) =>
+        db
+          .execute(sql`
+          update ${identitiesTable}
+          set providers = (
+            select coalesce(jsonb_agg(elem), '[]'::jsonb)
+            from jsonb_array_elements(providers) elem
+            where (elem->>'providerId') != ${providerId}
+          ) || ${JSON.stringify([{ providerId, providerSub: providerSub ?? null, addedAt }])}]::jsonb
+          where id = ${identityId}
+        `)
+          .then(() => {}),
+
+      deleteProviderLink: (identityId, providerId) =>
+        db
+          .execute(sql`
+          update ${identitiesTable}
+          set providers = (
+            select coalesce(jsonb_agg(elem), '[]'::jsonb)
+            from jsonb_array_elements(providers) elem
+            where (elem->>'providerId') != ${providerId}
+          )
+          where id = ${identityId}
+        `)
+          .then(() => {}),
+
+      merge: async (survivorId, dupId) => {
         const [surv] = await db
-          .select({ providers: identitiesTable.providers })
+          .select({ p: identitiesTable.providers })
           .from(identitiesTable)
           .where(eq(identitiesTable.id, survivorId))
           .limit(1)
         const [dupRow] = await db
-          .select({ providers: identitiesTable.providers })
+          .select({ p: identitiesTable.providers })
           .from(identitiesTable)
           .where(eq(identitiesTable.id, dupId))
           .limit(1)
         if (surv && dupRow) {
           await db
             .update(identitiesTable)
-            .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
+            .set({ providers: [...(surv.p ?? []), ...(dupRow.p ?? [])] })
             .where(eq(identitiesTable.id, survivorId))
         }
-        await db
-          .update(credentialsTable)
-          .set({ identityId: survivorId })
-          .where(and(eq(credentialsTable.identityId, dupId), tenantWhere(credentialsTable, tenantId)))
-        await db
-          .update(sessionsTable)
-          .set({ identityId: survivorId })
-          .where(and(eq(sessionsTable.identityId, dupId), tenantWhere(sessionsTable, tenantId)))
-        await db
-          .delete(identitiesTable)
-          .where(and(eq(identitiesTable.id, dupId), tenantWhere(identitiesTable, tenantId)))
+        // Global-account merge: repoint ALL of the dup's tenant-scoped rows
+        // (across every tenant) before erasing it, so the FK cascade on delete
+        // cannot orphan another tenant's credentials/sessions.
+        await db.update(credentialsTable).set({ identityId: survivorId }).where(eq(credentialsTable.identityId, dupId))
+        await db.update(sessionsTable).set({ identityId: survivorId }).where(eq(sessionsTable.identityId, dupId))
+        await db.delete(identitiesTable).where(eq(identitiesTable.id, dupId))
       },
     },
-    // --- Credentials ---
+
     credentials: {
-      findById: async (id, tenantId) => {
-        const rows = await db
+      findById: (id, tenantId) =>
+        db
           .select()
           .from(credentialsTable)
           .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
           .limit(1)
-        return rows[0] ?? null
-      },
-      listByIdentity: async (identityId, kind, tenantId) => {
-        const where = [
-          eq(credentialsTable.identityId, identityId),
-          ...(kind ? [eq(credentialsTable.kind, kind)] : []),
-          ...(tenantId ? [eq(credentialsTable.tenantId, tenantId)] : []),
-        ]
-        return db
+          .then((r) => r[0] ?? null),
+
+      listByIdentity: (identityId, kind, tenantId) =>
+        db
           .select()
           .from(credentialsTable)
-          .where(and(...where))
-      },
-      findByProviderSub: async (provider, sub, _tenantId) => {
-        const rows = await db
+          .where(
+            and(
+              eq(credentialsTable.identityId, identityId),
+              ...(kind ? [eq(credentialsTable.kind, kind)] : []),
+              ...(tenantId ? [eq(credentialsTable.tenantId, tenantId)] : []),
+            ),
+          ),
+
+      findByProviderSub: (provider, sub) =>
+        db
           .select()
           .from(credentialsTable)
           .where(
@@ -211,12 +163,10 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
             ),
           )
           .limit(1)
-        return rows[0] ?? null
-      },
-      findByHashedSecret: async (secretHash, kind, tenantId) => {
-        // Prefer the freshest live row; fall back to the freshest revoked one
-        // so callers can distinguish "revoked" from "never existed".
-        const rows = await db
+          .then((r) => r[0] ?? null),
+
+      findByHashedSecret: (secretHash, kind, tenantId) =>
+        db
           .select()
           .from(credentialsTable)
           .where(
@@ -226,13 +176,16 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
               tenantWhere(credentialsTable, tenantId),
             ),
           )
-        return pickFreshestCredential(rows)
-      },
-      insert: async (row) => {
-        await db.insert(credentialsTable).values(row)
-      },
-      updateConditional: async (id, patch, expectedVersion, tenantId) => {
-        const result = await db
+          .then(pickFreshestCredential),
+
+      insert: (row) =>
+        db
+          .insert(credentialsTable)
+          .values(row)
+          .then(() => {}),
+
+      updateConditional: (id, patch, expectedVersion, tenantId) =>
+        db
           .update(credentialsTable)
           .set(patch)
           .where(
@@ -243,21 +196,23 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
             ),
           )
           .returning()
-        return result[0] ?? null
-      },
-      revoke: async (id, revokedAt, tenantId) => {
-        await db
+          .then((r) => r[0] ?? null),
+
+      revoke: (id, revokedAt, tenantId) =>
+        db
           .update(credentialsTable)
           .set({ revokedAt })
           .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
-      },
-      delete: async (id, tenantId) => {
-        await db
+          .then(() => {}),
+
+      delete: (id, tenantId) =>
+        db
           .delete(credentialsTable)
           .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
-      },
-      deleteByKind: async (identityId, kind, tenantId) => {
-        await db
+          .then(() => {}),
+
+      deleteByKind: (identityId, kind, tenantId) =>
+        db
           .delete(credentialsTable)
           .where(
             and(
@@ -266,75 +221,60 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
               tenantWhere(credentialsTable, tenantId),
             ),
           )
-      },
+          .then(() => {}),
     },
-    // --- Sessions ---
+
     sessions: {
-      insert: async (row) => {
-        await db.insert(sessionsTable).values(row)
-      },
-      findByHash: async (sidHash) => {
-        const rows = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sidHash)).limit(1)
-        return rows[0] ?? null
-      },
-      update: async (id, patch) => {
-        const result = await db.update(sessionsTable).set(patch).where(eq(sessionsTable.id, id)).returning()
-        return result[0] ?? null
-      },
-      delete: async (id) => {
-        await db.delete(sessionsTable).where(eq(sessionsTable.id, id))
-      },
-      listByIdentity: async (identityId) => {
-        return db.select().from(sessionsTable).where(eq(sessionsTable.identityId, identityId))
-      },
-      deleteAllForIdentity: async (identityId) => {
-        await db.delete(sessionsTable).where(eq(sessionsTable.identityId, identityId))
-      },
-      deleteExpired: async (now) => {
-        const result = await db.delete(sessionsTable).where(lt(sessionsTable.absoluteExpiresAt, now)).returning()
-        return result.length
-      },
+      insert: (row) =>
+        db
+          .insert(sessionsTable)
+          .values(row)
+          .then(() => {}),
+      findByHash: (sidHash) =>
+        db
+          .select()
+          .from(sessionsTable)
+          .where(eq(sessionsTable.id, sidHash))
+          .limit(1)
+          .then((r) => r[0] ?? null),
+      update: (id, patch) =>
+        db
+          .update(sessionsTable)
+          .set(patch)
+          .where(eq(sessionsTable.id, id))
+          .returning()
+          .then((r) => r[0] ?? null),
+      delete: (id) =>
+        db
+          .delete(sessionsTable)
+          .where(eq(sessionsTable.id, id))
+          .then(() => {}),
+      listByIdentity: (identityId) => db.select().from(sessionsTable).where(eq(sessionsTable.identityId, identityId)),
+      deleteAllForIdentity: (identityId) =>
+        db
+          .delete(sessionsTable)
+          .where(eq(sessionsTable.identityId, identityId))
+          .then(() => {}),
+      deleteExpired: (now) =>
+        db
+          .delete(sessionsTable)
+          .where(lt(sessionsTable.absoluteExpiresAt, now))
+          .returning()
+          .then((r) => r.length),
     },
   }
 }
 
-/**
- * One-call storage helper: folds `connection -> drizzle -> bridge -> stores`.
- *
- * `pg` and `drizzle-orm` are optional peerDeps, lazily required only when a
- * connection string or `pg.Pool` is passed — supplying a `NodePgDatabase`
- * skips the require entirely.
- *
- * @template Profile - Identity profile shape.
- * @param input - A connection string, `pg.Pool`, or `NodePgDatabase`.
- * @returns The identity / credential / session stores for gentleduck/auth.
- */
 export function drizzlePgStorage<Profile extends SqlBridge.ProfileMetadataBase>(
   input: string | Pg.NodePgPoolLike | Pg.AnyNodePgDatabase,
 ): ReturnType<typeof createSqlStores<Profile>> {
-  function isNodePgDatabase(input: Pg.NodePgPoolLike | Pg.AnyNodePgDatabase): input is Pg.AnyNodePgDatabase {
-    return typeof (input as Pg.AnyNodePgDatabase).select === 'function'
-  }
-
   const lazyRequire = createRequire(import.meta.url)
+  const db =
+    typeof input === 'string'
+      ? lazyRequire('drizzle-orm/node-postgres').drizzle(new (lazyRequire('pg').Pool)({ connectionString: input }))
+      : 'select' in input
+        ? (input as Pg.AnyNodePgDatabase)
+        : lazyRequire('drizzle-orm/node-postgres').drizzle(input)
 
-  // Lazy-require to avoid a hard runtime dep when consumers wire the
-  // bridge themselves; `pg` + `drizzle-orm` are optional peerDeps.
-  let db: Pg.AnyNodePgDatabase
-  if (typeof input === 'string') {
-    const { Pool } = lazyRequire('pg')
-    const { drizzle } = lazyRequire('drizzle-orm/node-postgres')
-    db = drizzle(new Pool({ connectionString: input }))
-  } else {
-    if (isNodePgDatabase(input)) {
-      db = input
-    } else {
-      const { drizzle } = lazyRequire('drizzle-orm/node-postgres')
-      db = drizzle(input)
-    }
-  }
-  // The bridge speaks the base profile shape; the caller asserts the concrete
-  // `Profile` here (the DB `chk_auth_identities_profile_shape` check guarantees
-  // the base keys exist at runtime). Single assertion, localized to this seam.
   return createSqlStores<Profile>(createDrizzlePgBridge(db) as SqlBridge.Me<Profile>)
 }

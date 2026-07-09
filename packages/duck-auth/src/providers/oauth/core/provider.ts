@@ -73,26 +73,18 @@ export function oProvider<Profile extends Identity.ProfileMetadataBase = Identit
       if (opts.onSignIn) {
         const r = await opts.onSignIn({
           profile,
-          findByProviderSub: (sub) => ctx.stores.identities.findByProviderSub(fullProviderId, sub, ctx.tenant),
-          findByEmail: (email) => ctx.stores.identities.findByEmail(email, ctx.tenant),
+          findByProviderSub: (sub) => ctx.stores.identities.findByProviderSub(fullProviderId, sub),
+          findByEmail: (email) => ctx.stores.identities.findByEmail(email),
           createIdentity: async (p) => {
-            const created = await ctx.stores.identities.create(
-              {
-                profile: p,
-                providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() }],
-                tenantId: null,
-                emailVerified: false,
-              },
-              ctx.tenant,
-            )
+            const created = await ctx.stores.identities.create({
+              profile: p,
+              providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() }],
+              emailVerified: false,
+            })
             return { id: created.id }
           },
           linkProvider: async (id, sub) => {
-            await ctx.stores.identities.link(
-              id,
-              { providerId: fullProviderId, providerSub: sub, addedAt: new Date() },
-              ctx.tenant,
-            )
+            await ctx.stores.identities.link(id, { providerId: fullProviderId, providerSub: sub, addedAt: new Date() })
           },
         })
         if (!r) {
@@ -103,11 +95,11 @@ export function oProvider<Profile extends Identity.ProfileMetadataBase = Identit
         }
         identityId = r.identityId
       } else {
-        const bySub = await ctx.stores.identities.findByProviderSub(fullProviderId, profile.sub, ctx.tenant)
+        const bySub = await ctx.stores.identities.findByProviderSub(fullProviderId, profile.sub)
         if (bySub) {
           identityId = bySub.id
         } else if (profile.email) {
-          const byEmail = await ctx.stores.identities.findByEmail(profile.email, ctx.tenant)
+          const byEmail = await ctx.stores.identities.findByEmail(profile.email)
           if (byEmail) {
             // Email matches but no sub link; silent auto-link is ATO bait.
             const policy = opts.onFederationConflict ?? 'reject'
@@ -123,11 +115,11 @@ export function oProvider<Profile extends Identity.ProfileMetadataBase = Identit
                   'federation-conflict: an existing identity owns this email; provider-sub link refused under the configured policy',
               })
             }
-            await ctx.stores.identities.link(
-              byEmail.id,
-              { providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() },
-              ctx.tenant,
-            )
+            await ctx.stores.identities.link(byEmail.id, {
+              providerId: fullProviderId,
+              providerSub: profile.sub,
+              addedAt: new Date(),
+            })
             identityId = byEmail.id
           }
         }
@@ -139,15 +131,11 @@ export function oProvider<Profile extends Identity.ProfileMetadataBase = Identit
               detail: 'profileToIdentityProfile rejected the profile',
             })
           }
-          const created = await ctx.stores.identities.create(
-            {
-              profile: projected,
-              providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() }],
-              tenantId: null,
-              emailVerified: false,
-            },
-            ctx.tenant,
-          )
+          const created = await ctx.stores.identities.create({
+            profile: projected,
+            providers: [{ providerId: fullProviderId, providerSub: profile.sub, addedAt: new Date() }],
+            emailVerified: false,
+          })
           identityId = created.id
         }
       }

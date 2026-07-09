@@ -34,44 +34,38 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
 
   // --- lookup -----------------------------------------------------------
 
-  async getById(id: string, ctx: TenantContext = {}): Promise<Identity.Me<Profile> | null> {
-    return this._store.findById(id, ctx)
+  async getById(id: string): Promise<Identity.Me<Profile> | null> {
+    return this._store.findById(id)
   }
 
-  async getByEmail(email: string, ctx: TenantContext = {}): Promise<Identity.Me<Profile> | null> {
+  async getByEmail(email: string): Promise<Identity.Me<Profile> | null> {
     // RFC 5321 cap + typeof guard: prevents multi-MB lookups + non-string crashes
     // before reaching adapter.
     if (typeof email !== 'string' || email.length === 0 || email.length > 254) return null
-    return this._store.findByEmail(email.trim().toLowerCase(), ctx)
+    return this._store.findByEmail(email.trim().toLowerCase())
   }
 
-  async getByProviderSub(
-    providerId: string,
-    sub: string,
-    ctx: TenantContext = {},
-  ): Promise<Identity.Me<Profile> | null> {
+  async getByProviderSub(providerId: string, sub: string): Promise<Identity.Me<Profile> | null> {
     // Defensive caps; both keys flow into SQL `=`-comparisons + JSONB extracts.
     if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 128) return null
     if (typeof sub !== 'string' || sub.length === 0 || sub.length > 512) return null
-    return this._store.findByProviderSub(providerId, sub, ctx)
+    return this._store.findByProviderSub(providerId, sub)
   }
 
   // --- create / update --------------------------------------------------
 
-  async create(
-    input: { profile: Profile; tenantId?: string; providers?: Identity.ProviderLink[]; emailVerified?: boolean },
-    ctx: TenantContext = {},
-  ): Promise<Identity.Me<Profile>> {
+  async create(input: {
+    profile: Profile
+    tenantId?: string
+    providers?: Identity.ProviderLink[]
+    emailVerified?: boolean
+  }): Promise<Identity.Me<Profile>> {
     this._assertProfileWithinCap(input.profile)
-    const created = await this._store.create(
-      {
-        profile: input.profile,
-        providers: input.providers ?? [],
-        tenantId: input.tenantId ?? null,
-        emailVerified: input.emailVerified ?? false,
-      },
-      ctx,
-    )
+    const created = await this._store.create({
+      profile: input.profile,
+      providers: input.providers ?? [],
+      emailVerified: input.emailVerified ?? false,
+    })
     await this._events.emit('signup.completed', { identity: created })
     return created
   }
@@ -80,13 +74,12 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
     id: string,
     profilePatch: Partial<Profile>,
     expectedVersion: number,
-    ctx: TenantContext = {},
   ): Promise<Identity.Me<Profile>> {
-    const cur = await this._store.findById(id, ctx)
+    const cur = await this._store.findById(id)
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     const nextProfile = { ...(cur.profile ?? {}), ...profilePatch } as Profile
     this._assertProfileWithinCap(nextProfile)
-    return this._store.update(id, { profile: nextProfile }, expectedVersion, ctx)
+    return this._store.update(id, { profile: nextProfile }, expectedVersion)
   }
 
   /**
@@ -125,8 +118,8 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
 
   // --- provider linking ------------------------------------------------
 
-  async link(identityId: string, link: Omit<Identity.ProviderLink, 'addedAt'>, ctx: TenantContext = {}): Promise<void> {
-    const cur = await this._store.findById(identityId, ctx)
+  async link(identityId: string, link: Omit<Identity.ProviderLink, 'addedAt'>): Promise<void> {
+    const cur = await this._store.findById(identityId)
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     // Reject duplicate provider link for same identity.
     if (cur.providers.some((p) => p.providerId === link.providerId)) {
@@ -135,12 +128,12 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
         detail: 'already linked',
       })
     }
-    await this._store.link(identityId, { ...link, addedAt: new Date() }, ctx)
+    await this._store.link(identityId, { ...link, addedAt: new Date() })
     await this._events.emit('identity.linked', { identityId, providerId: link.providerId })
   }
 
-  async unlink(identityId: string, providerId: string, ctx: TenantContext = {}): Promise<void> {
-    const cur = await this._store.findById(identityId, ctx)
+  async unlink(identityId: string, providerId: string): Promise<void> {
+    const cur = await this._store.findById(identityId)
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     // Don't allow unlinking the last credential surface - leaves account inaccessible.
     if (cur.providers.length <= 1) {
@@ -149,17 +142,17 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
         detail: 'cannot unlink last provider; add another method first',
       })
     }
-    await this._store.unlink(identityId, providerId, ctx)
+    await this._store.unlink(identityId, providerId)
   }
 
-  async merge(survivorId: string, dupId: string, ctx: TenantContext = {}): Promise<void> {
+  async merge(survivorId: string, dupId: string): Promise<void> {
     if (survivorId === dupId) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'merge',
         detail: 'survivor and dup are the same identity',
       })
     }
-    await this._store.merge(survivorId, dupId, ctx)
+    await this._store.merge(survivorId, dupId)
     await this._events.emit('identity.merged', {
       survivorId,
       mergedFromId: dupId,
@@ -168,17 +161,17 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
 
   // --- soft-delete / restore / erase ----------------------------------
 
-  async softDelete(id: string, ctx: TenantContext = {}): Promise<void> {
-    await this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs, ctx)
+  async softDelete(id: string): Promise<void> {
+    await this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs)
   }
 
-  async restore(id: string, ctx: TenantContext = {}): Promise<Identity.Me<Profile>> {
-    return this._store.restore(id, ctx)
+  async restore(id: string): Promise<Identity.Me<Profile>> {
+    return this._store.restore(id)
   }
 
   /** Hard-erase. Audit-logged for compliance. Cannot be undone. */
-  async erase(id: string, opts: { reason: string; operatorId?: string }, ctx: TenantContext = {}): Promise<void> {
-    await this._store.erase(id, ctx)
+  async erase(id: string, opts: { reason: string; operatorId?: string }): Promise<void> {
+    await this._store.erase(id)
     // Caller emits its own compliance event with reason; library stays out of
     // the audit-envelope shape for the erase action.
     void opts
@@ -198,7 +191,6 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
       providers?: Identity.ProviderLink[]
     }>,
     opts: { mode?: 'skipExisting' | 'merge' | 'replace' } = {},
-    ctx: TenantContext = {},
   ): Promise<{ created: number; skipped: number; failed: number }> {
     const mode = opts.mode ?? 'skipExisting'
     let created = 0
@@ -207,7 +199,7 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
     for (const row of rows) {
       try {
         const email = extractEmail(row.profile)
-        const existing = email ? await this._store.findByEmail(email, ctx) : null
+        const existing = email ? await this._store.findByEmail(email) : null
         if (existing && mode === 'skipExisting') {
           skipped++
           continue
@@ -216,16 +208,16 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
           // Link any new providers without duplicating; do not patch profile here.
           for (const link of row.providers ?? []) {
             if (!existing.providers.some((p) => p.providerId === link.providerId)) {
-              await this._store.link(existing.id, link, ctx)
+              await this._store.link(existing.id, link)
             }
           }
           skipped++
           continue
         }
         if (existing && mode === 'replace') {
-          await this._store.erase(existing.id, ctx)
+          await this._store.erase(existing.id)
         }
-        await this.create(row, ctx)
+        await this.create(row)
         created++
       } catch {
         failed++
@@ -248,7 +240,7 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
     ctx: TenantContext = {},
     opts: { sessions?: Session.Store } = {},
   ): Promise<Identity.ExportBlob<Profile>> {
-    const identity = await this._store.findById(id, ctx)
+    const identity = await this._store.findById(id)
     if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
     const creds = await credentials.listByIdentity(id, null, ctx)
     const sessions = opts.sessions ? await opts.sessions.listByIdentity(id) : []

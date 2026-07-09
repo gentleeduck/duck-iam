@@ -2,6 +2,13 @@ import { AuthError } from '../errors'
 import type { Identity } from '../types'
 import type { Provider } from './provider.types'
 
+/** Type guard: a capability that exposes begin/complete is a sign-in provider. */
+function isSignInCapability<Profile extends Identity.ProfileMetadataBase>(
+  cap: Provider.Capability,
+): cap is Provider.Me<unknown, unknown, Profile> {
+  return typeof cap.begin === 'function' && typeof cap.complete === 'function'
+}
+
 /**
  * Provider/capability registry + sign-in dispatch. Holds every configured
  * capability (sign-in providers AND attach-only facets like mfa/api-key),
@@ -57,12 +64,12 @@ export class Providers<Profile extends Identity.ProfileMetadataBase = Identity.P
   /** Narrow a registered capability to a sign-in provider, or throw. */
   private _signIn(id: string): Provider.Me<unknown, unknown, Profile> {
     const cap = this.get(id)
-    if (typeof cap.begin !== 'function' || typeof cap.complete !== 'function') {
+    // Type-guard narrows without a cast AND returns the original instance, so
+    // `this` stays bound when begin/complete run (facet-style providers).
+    if (!isSignInCapability<Profile>(cap)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', { providerId: id, detail: 'not a sign-in provider' })
     }
-    // Re-wrap (not a cast) so the runtime-checked begin/complete become the
-    // structural Me the dispatch helpers require.
-    return { id: cap.id, kind: cap.kind, begin: cap.begin, complete: cap.complete }
+    return cap
   }
 
   async begin(id: string, ctx: Provider.Context<Profile>, input: unknown): Promise<Provider.Intent[]> {

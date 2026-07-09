@@ -13,7 +13,7 @@
  */
 
 import { createRequire } from 'node:module'
-import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 import type { MySqlColumn } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
@@ -56,8 +56,7 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
   return {
     // --- Identities ---
     identities: {
-      findById: async (id, tenantId) => {
-        // Tenant is checked after the fetch so NULL-tenant (global) rows stay visible.
+      findById: async (id) => {
         const rows = await db
           .select()
           .from(identitiesTable)
@@ -65,86 +64,63 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
           .limit(1)
         const row = rows[0]
         if (!row) return null
-        if (tenantId !== undefined && row.tenantId !== tenantId && row.tenantId !== null) return null
         return row
       },
-      findByEmail: async (email, tenantId) => {
+      findByEmail: async (email) => {
         const rows = await db
           .select()
           .from(identitiesTable)
-          .where(
-            and(
-              sql`${identitiesTable.profile}->>'$.email' = ${email}`,
-              isNull(identitiesTable.deletedAt),
-              tenantId === undefined
-                ? undefined
-                : or(isNull(identitiesTable.tenantId), eq(identitiesTable.tenantId, tenantId)),
-            ),
-          )
+          .where(and(sql`${identitiesTable.profile}->>'$.email' = ${email}`, isNull(identitiesTable.deletedAt)))
           .limit(1)
         return rows[0] ?? null
       },
-      findByProviderSub: async (providerId, sub, tenantId) => {
+      findByProviderSub: async (providerId, sub) => {
         // JSON_CONTAINS(target, candidate); needle is bound as a parameter, never interpolated.
         const needle = JSON.stringify({ providerId, providerSub: sub })
         const rows = await db
           .select()
           .from(identitiesTable)
-          .where(
-            and(
-              sql`json_contains(${identitiesTable.providers}, ${needle})`,
-              isNull(identitiesTable.deletedAt),
-              tenantId === undefined
-                ? undefined
-                : or(isNull(identitiesTable.tenantId), eq(identitiesTable.tenantId, tenantId)),
-            ),
-          )
+          .where(and(sql`json_contains(${identitiesTable.providers}, ${needle})`, isNull(identitiesTable.deletedAt)))
           .limit(1)
         return rows[0] ?? null
       },
       insert: async (row) => {
         await db.insert(identitiesTable).values(row)
       },
-      updateConditional: async (id, patch, expectedVersion, tenantId) => {
+      updateConditional: async (id, patch, expectedVersion) => {
         const result = await db
           .update(identitiesTable)
           .set(patch)
-          .where(
-            and(
-              eq(identitiesTable.id, id),
-              eq(identitiesTable.version, expectedVersion),
-              tenantWhere(identitiesTable, tenantId),
-            ),
-          )
+          .where(and(eq(identitiesTable.id, id), eq(identitiesTable.version, expectedVersion)))
         if (result[0].affectedRows === 0) return null
         return reselectIdentity(id)
       },
-      softDelete: async (id, deletedAt, tenantId) => {
+      softDelete: async (id, deletedAt) => {
         await db
           .update(identitiesTable)
           .set({ deletedAt })
-          .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(identitiesTable.id, id)))
       },
-      restore: async (id, tenantId) => {
+      restore: async (id) => {
         const result = await db
           .update(identitiesTable)
           .set({ deletedAt: null })
-          .where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(identitiesTable.id, id)))
         if (result[0].affectedRows === 0) return null
         return reselectIdentity(id)
       },
-      erase: async (id, tenantId) => {
+      erase: async (id) => {
         // FK CASCADE handles credentials and sessions; explicit deletes are belt-and-suspenders.
         await db.delete(credentialsTable).where(eq(credentialsTable.identityId, id))
         await db.delete(sessionsTable).where(eq(sessionsTable.identityId, id))
-        await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id), tenantWhere(identitiesTable, tenantId)))
+        await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id)))
       },
-      insertProviderLink: async (identityId, providerId, providerSub, addedAt, tenantId) => {
+      insertProviderLink: async (identityId, providerId, providerSub, addedAt) => {
         // Read-modify-write: portable across MySQL 5.7/8.x/MariaDB; splice client-side.
         const rows = await db
           .select({ providers: identitiesTable.providers })
           .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(identitiesTable.id, identityId)))
           .limit(1)
         const cur = rows[0]
         if (!cur) return
@@ -154,13 +130,13 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
         await db
           .update(identitiesTable)
           .set({ providers })
-          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(identitiesTable.id, identityId)))
       },
-      deleteProviderLink: async (identityId, providerId, tenantId) => {
+      deleteProviderLink: async (identityId, providerId) => {
         const rows = await db
           .select({ providers: identitiesTable.providers })
           .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(identitiesTable.id, identityId)))
           .limit(1)
         const cur = rows[0]
         if (!cur) return
@@ -168,9 +144,9 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
         await db
           .update(identitiesTable)
           .set({ providers })
-          .where(and(eq(identitiesTable.id, identityId), tenantWhere(identitiesTable, tenantId)))
+          .where(and(eq(identitiesTable.id, identityId)))
       },
-      merge: async (survivorId, dupId, tenantId) => {
+      merge: async (survivorId, dupId) => {
         // Union dup's provider links into the survivor before re-pointing rows.
         const [surv] = await db
           .select({ providers: identitiesTable.providers })
@@ -188,17 +164,12 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
             .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
             .where(eq(identitiesTable.id, survivorId))
         }
-        await db
-          .update(credentialsTable)
-          .set({ identityId: survivorId })
-          .where(and(eq(credentialsTable.identityId, dupId), tenantWhere(credentialsTable, tenantId)))
-        await db
-          .update(sessionsTable)
-          .set({ identityId: survivorId })
-          .where(and(eq(sessionsTable.identityId, dupId), tenantWhere(sessionsTable, tenantId)))
-        await db
-          .delete(identitiesTable)
-          .where(and(eq(identitiesTable.id, dupId), tenantWhere(identitiesTable, tenantId)))
+        // Global-account merge: repoint ALL of the dup's tenant-scoped rows
+        // (across every tenant) before erasing it, so the FK cascade on delete
+        // cannot orphan another tenant's credentials/sessions.
+        await db.update(credentialsTable).set({ identityId: survivorId }).where(eq(credentialsTable.identityId, dupId))
+        await db.update(sessionsTable).set({ identityId: survivorId }).where(eq(sessionsTable.identityId, dupId))
+        await db.delete(identitiesTable).where(eq(identitiesTable.id, dupId))
       },
     },
     // --- Credentials ---

@@ -9,11 +9,9 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
     const results = await Promise.allSettled([
       adapter.identities.create(
         identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [link] }),
-        {},
       ),
       adapter.identities.create(
         identityInput({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [link] }),
-        {},
       ),
     ])
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -37,7 +35,6 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
     const calls = Array.from({ length: 15 }, (_, i) =>
       adapter.identities.create(
         identityInput({ profile: { email: `r-${i}@x.com`, username: `r-${i}` }, providers: [link] }),
-        {},
       ),
     )
     const results = await Promise.allSettled(calls)
@@ -50,11 +47,9 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const a = await adapter.identities.create(
       identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [] }),
-      {},
     )
     const b = await adapter.identities.create(
       identityInput({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [] }),
-      {},
     )
     expect(a.id).not.toBe(b.id)
   })
@@ -66,7 +61,6 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
         profile: { email: 'a@x.com', username: 'a@x.com' },
         providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
       }),
-      {},
     )
     // Second create with the same providerId (no sub) - should succeed
     // because the uniqueness invariant only applies when both sides
@@ -76,7 +70,6 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
         profile: { email: 'b@x.com', username: 'b@x.com' },
         providers: [{ providerId: 'magic-link', providerSub: null, addedAt: new Date() }],
       }),
-      {},
     )
     expect(a.id).not.toBe(b.id)
   })
@@ -87,18 +80,15 @@ describe('MemoryAdapter.create - provider-sub uniqueness', () => {
     await Promise.allSettled([
       adapter.identities.create(
         identityInput({ profile: { email: 'a@x.com', username: 'a@x.com' }, providers: [link] }),
-        {},
       ),
       adapter.identities.create(
         identityInput({ profile: { email: 'b@x.com', username: 'b@x.com' }, providers: [link] }),
-        {},
       ),
       adapter.identities.create(
         identityInput({ profile: { email: 'c@x.com', username: 'c@x.com' }, providers: [link] }),
-        {},
       ),
     ])
-    const found = await adapter.identities.findByProviderSub('authGoogle', 'race-X', {})
+    const found = await adapter.identities.findByProviderSub('authGoogle', 'race-X')
     expect(found).not.toBeNull()
     // Only one row should exist with this sub. Verify by counting.
     let count = 0

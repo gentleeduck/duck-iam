@@ -23,50 +23,47 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
           profile: { email: 'a@x.com' } as unknown as P,
           providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
         }),
-        { tenantId: 'T' },
       )
       expect(i.id).toBeTruthy()
       expect(i.version).toBe(1)
-      expect(i.tenantId).toBe('T')
       expect(i.providers).toHaveLength(1)
       expect(i.createdAt).toBeInstanceOf(Date)
     })
 
-    it('findByEmail honours tenant scoping', async () => {
+    it('findByEmail finds a created identity (identities are global)', async () => {
       const store = factory()
-      await store.create(identityInput({ profile: { email: 'shared@x' } as unknown as P }), { tenantId: 'A' })
-      expect(await store.findByEmail('shared@x', { tenantId: 'B' })).toBeNull()
-      expect(await store.findByEmail('shared@x', { tenantId: 'A' })).not.toBeNull()
+      await store.create(identityInput({ profile: { email: 'shared@x' } as unknown as P }))
+      expect(await store.findByEmail('shared@x')).not.toBeNull()
     })
 
     it('update with expectedVersion mismatch surfaces AUTH/STALE_WRITE', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'a@x' } as unknown as P }), {})
-      await store.update(i.id, { profile: { email: 'b@x' } as unknown as P }, i.version, {})
-      await expect(store.update(i.id, { profile: { email: 'c@x' } as unknown as P }, 1, {})).rejects.toMatchObject({
+      const i = await store.create(identityInput({ profile: { email: 'a@x' } as unknown as P }))
+      await store.update(i.id, { profile: { email: 'b@x' } as unknown as P }, i.version)
+      await expect(store.update(i.id, { profile: { email: 'c@x' } as unknown as P }, 1)).rejects.toMatchObject({
         code: 'AUTH_STALE_WRITE',
       })
     })
 
     it('softDelete hides; restore brings back within grace; erase is permanent', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'a@x' } as unknown as P }), {})
-      await store.softDelete(i.id, 60_000, {})
-      expect(await store.findById(i.id, {})).toBeNull()
-      const restored = await store.restore(i.id, {})
+      const i = await store.create(identityInput({ profile: { email: 'a@x' } as unknown as P }))
+      await store.softDelete(i.id, 60_000)
+      expect(await store.findById(i.id)).toBeNull()
+      const restored = await store.restore(i.id)
       expect(restored.id).toBe(i.id)
-      await store.erase(i.id, {})
-      expect(await store.findById(i.id, {})).toBeNull()
+      await store.erase(i.id)
+      expect(await store.findById(i.id)).toBeNull()
     })
 
     it('link / unlink mutate providers; findByProviderSub locates linked identities', async () => {
       const store = factory()
-      const i = await store.create(identityInput({ profile: { email: 'a@x' } as unknown as P }), {})
-      await store.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'sub-1', addedAt: new Date() }, {})
-      const found = await store.findByProviderSub('oauth:authGoogle', 'sub-1', {})
+      const i = await store.create(identityInput({ profile: { email: 'a@x' } as unknown as P }))
+      await store.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'sub-1', addedAt: new Date() })
+      const found = await store.findByProviderSub('oauth:authGoogle', 'sub-1')
       expect(found?.id).toBe(i.id)
-      await store.unlink(i.id, 'oauth:authGoogle', {})
-      expect(await store.findByProviderSub('oauth:authGoogle', 'sub-1', {})).toBeNull()
+      await store.unlink(i.id, 'oauth:authGoogle')
+      expect(await store.findByProviderSub('oauth:authGoogle', 'sub-1')).toBeNull()
     })
 
     it('merge moves providers from dup into survivor + deletes dup', async () => {
@@ -76,19 +73,17 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
           profile: { email: 's@x' } as unknown as P,
           providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
         }),
-        {},
       )
       const dup = await store.create(
         identityInput({
           profile: { email: 'd@x' } as unknown as P,
           providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: new Date() }],
         }),
-        {},
       )
-      await store.merge(survivor.id, dup.id, {})
-      const fresh = await store.findById(survivor.id, {})
+      await store.merge(survivor.id, dup.id)
+      const fresh = await store.findById(survivor.id)
       expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
-      expect(await store.findById(dup.id, {})).toBeNull()
+      expect(await store.findById(dup.id)).toBeNull()
     })
   })
 }

@@ -1,6 +1,5 @@
 import type { Session } from '~/core/sessions/sessions.types'
 import type { Credential } from '~/core/types/identity'
-import type { TenantContext } from '~/core/types/infra'
 
 /**
  * Stable identity record + the IdentitiesFacet's own config/export types —
@@ -22,7 +21,6 @@ export namespace Identity {
 
   export type Me<Profile extends ProfileMetadataBase = ProfileMetadataBase> = {
     id: string
-    tenantId: string | null
     profile: Profile
     providers: ProviderLink[]
     /** Optimistic-locking version. Incremented on every successful write. */
@@ -37,27 +35,27 @@ export namespace Identity {
   /**
    * Input to `Store.create`. The store stamps `id`/`version`/`createdAt`/`updatedAt`;
    * `deletedAt` starts `null`. Every field is explicit — the facet coalesces
-   * optional public inputs to `null` / defaults before passing this type.
+   * optional public inputs to defaults before passing this type.
    */
   export type CreateInput<Profile> = {
     profile: Profile
     providers: ProviderLink[]
-    tenantId: string | null
     emailVerified: boolean
   }
 
   export type Store<Profile extends ProfileMetadataBase> = {
-    findById(id: string, ctx: TenantContext): Promise<Me<Profile> | null>
-    findByEmail(email: string, ctx: TenantContext): Promise<Me<Profile> | null>
-    findByProviderSub(providerId: string, sub: string, ctx: TenantContext): Promise<Me<Profile> | null>
-    create(input: CreateInput<Profile>, ctx: TenantContext): Promise<Me<Profile>>
-    update(id: string, patch: Partial<Me<Profile>>, expectedVersion: number, ctx: TenantContext): Promise<Me<Profile>>
-    softDelete(id: string, gracePeriodMs: number, ctx: TenantContext): Promise<void>
-    restore(id: string, ctx: TenantContext): Promise<Me<Profile>>
-    erase(id: string, ctx: TenantContext): Promise<void>
-    link(identityId: string, link: ProviderLink, ctx: TenantContext): Promise<void>
-    unlink(identityId: string, providerId: string, ctx: TenantContext): Promise<void>
-    merge(survivorId: string, dupId: string, ctx: TenantContext): Promise<void>
+    findById(id: string): Promise<Me<Profile> | null>
+    findByEmail(email: string): Promise<Me<Profile> | null>
+    findByProviderSub(providerId: string, sub: string): Promise<Me<Profile> | null>
+    create(input: CreateInput<Profile>): Promise<Me<Profile>>
+    update(id: string, patch: Partial<Me<Profile>>, expectedVersion: number): Promise<Me<Profile>>
+    softDelete(id: string, gracePeriodMs: number): Promise<void>
+    restore(id: string): Promise<Me<Profile>>
+    erase(id: string): Promise<void>
+    link(identityId: string, link: ProviderLink): Promise<void>
+    unlink(identityId: string, providerId: string): Promise<void>
+    /** Merges a duplicate global identity into the survivor, repointing ALL of the dup's tenant-scoped rows (credentials/sessions) before erasing it. */
+    merge(survivorId: string, dupId: string): Promise<void>
   }
 
   /** IdentitiesFacet tuning. */

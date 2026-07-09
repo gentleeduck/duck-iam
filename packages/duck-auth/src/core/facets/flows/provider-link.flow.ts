@@ -24,13 +24,12 @@ export async function linkProvider<Profile extends Identity.ProfileMetadataBase>
       detail: 'invalid providerSub',
     })
   }
-  const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
-  const identity = await deps.identities.getById(opts.identityId, tenant)
+  const identity = await deps.identities.getById(opts.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   const existing = await deps
     .ctxFactory(opts.tenantId)
-    .stores.identities.findByProviderSub(opts.providerId, opts.providerSub, tenant)
+    .stores.identities.findByProviderSub(opts.providerId, opts.providerSub)
   if (existing && existing.id !== opts.identityId) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: opts.providerId,
@@ -45,13 +44,11 @@ export async function linkProvider<Profile extends Identity.ProfileMetadataBase>
     return { identityId: opts.identityId, providerId: opts.providerId }
   }
 
-  await deps
-    .ctxFactory(opts.tenantId)
-    .stores.identities.link(
-      opts.identityId,
-      { providerId: opts.providerId, providerSub: opts.providerSub, addedAt: new Date() },
-      tenant,
-    )
+  await deps.ctxFactory(opts.tenantId).stores.identities.link(opts.identityId, {
+    providerId: opts.providerId,
+    providerSub: opts.providerSub,
+    addedAt: new Date(),
+  })
   await deps.events.emit('identity.linked', {
     identityId: opts.identityId,
     providerId: opts.providerId,
@@ -70,7 +67,7 @@ export async function unlinkProvider<Profile extends Identity.ProfileMetadataBas
     })
   }
   const tenant: TenantContext = opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {}
-  const identity = await deps.identities.getById(opts.identityId, tenant)
+  const identity = await deps.identities.getById(opts.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   const linked = identity.providers.filter((p) => p.providerId === opts.providerId)
@@ -91,6 +88,6 @@ export async function unlinkProvider<Profile extends Identity.ProfileMetadataBas
     }
   }
 
-  await deps.ctxFactory(opts.tenantId).stores.identities.unlink(opts.identityId, opts.providerId, tenant)
+  await deps.ctxFactory(opts.tenantId).stores.identities.unlink(opts.identityId, opts.providerId)
   return { identityId: opts.identityId, providerId: opts.providerId }
 }
