@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { InMemoryEvents } from '~/core/events'
 import { credentialInput, identityInput } from '~/test/store-inputs'
-import { MfaFacet } from '../mfa.facet'
+import { MfaFacet } from '../mfa'
 
 describe('MfaFacet.verifyTotp / hasTotp - confirmed flag', () => {
   let adapter: MemoryAdapter

@@ -3,7 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
 import { ApiKeysFacet } from '~/providers/api-key'
-import { MfaFacet } from '../mfa.facet'
+import { MfaFacet } from '../mfa'
 
 describe('facet registry identity', () => {
   it('MfaFacet advertises id/kind', () => {

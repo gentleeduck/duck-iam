@@ -7,7 +7,7 @@ import {
   TOTP_DEFAULTS,
   totpAt,
   verifyTotp,
-} from '../mfa.totp'
+} from '../internal/totp'
 
 describe('base32', () => {
   it('roundtrip arbitrary bytes', () => {

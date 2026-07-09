@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { createAuth } from '~/core/config/config'
 import { ApiKeysFacet, apiKeyProvider } from '~/providers/api-key'
-import { MfaFacet } from '~/providers/mfa/mfa.facet'
-import { mfaProvider } from '~/providers/mfa/mfa.provider'
+import { MfaFacet, mfaProvider } from '~/providers/mfa'
 
 function base() {
   const a = new MemoryAdapter()

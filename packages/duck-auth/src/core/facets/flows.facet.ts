@@ -1,6 +1,6 @@
-import type { ProvidersFacet } from '~/core/provider/provider.facet'
-import type { MfaFacet } from '~/providers/mfa/mfa.facet'
-import type { PasswordsFacet } from '~/providers/password/password.facet'
+import type { Providers } from '~/core/provider/provider'
+import type { MfaFacet } from '~/providers/mfa'
+import type { PasswordsImpl } from '~/providers/passwords'
 import { AuthError } from '../errors'
 import type { IdentitiesFacet } from '../identities/identities.facet'
 import type { Provider } from '../provider/provider.types'
@@ -39,12 +39,12 @@ export namespace FlowsFacet {
   export interface Deps<Profile extends Identity.ProfileMetadataBase> {
     sessions: SessionsFacet
     identities: IdentitiesFacet<Profile>
-    providers: ProvidersFacet<Profile>
+    providers: Providers<Profile>
     transport: Transport.ITransport
     events: Events.IBus
     ctxFactory: (tenantId?: string) => Provider.Context<Profile>
     /** Lazy accessor — resolves the password facet at call-time; throws if the provider is absent. */
-    requirePasswords: () => PasswordsFacet
+    requirePasswords: () => PasswordsImpl
     /** Lazy accessor — resolves the mfa facet at call-time; throws if the provider is absent. */
     requireMfa: () => MfaFacet
     cfg: FlowsFacet.Config
@@ -232,11 +232,11 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
   constructor(
     sessions: SessionsFacet,
     identities: IdentitiesFacet<Profile>,
-    providers: ProvidersFacet<Profile>,
+    providers: Providers<Profile>,
     transport: Transport.ITransport,
     events: Events.IBus,
     ctxFactory: (tenantId?: string) => Provider.Context<Profile>,
-    requirePasswords: () => PasswordsFacet,
+    requirePasswords: () => PasswordsImpl,
     requireMfa: () => MfaFacet,
     cfg: FlowsFacet.Config = DEFAULT_FLOWS_CONFIG,
   ) {
@@ -255,12 +255,14 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    */
   async signIn(opts: FlowsFacet.SignInOptions): Promise<FlowsFacet.SignInOutcome> {
     const { sessions, identities, providers, transport, events, ctxFactory, cfg } = this._deps
+
     if (!isProviderIdSafe(opts.providerId) || !providers.has(opts.providerId)) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: isProviderIdSafe(opts.providerId) ? opts.providerId : 'invalid',
         detail: 'unknown provider id',
       })
     }
+
     const ctx = ctxFactory(opts.tenantId)
     const rawIntents = await providers.complete(opts.providerId, ctx, opts.input)
 
@@ -274,10 +276,7 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
       return { session: null, sid: '', intents: adapterIntents }
     }
 
-    const identity = await identities.getById(
-      startIntent.identityId,
-      opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {},
-    )
+    const identity = await identities.getById(startIntent.identityId)
     if (!identity) {
       throw new AuthError('AUTH_UNAUTHENTICATED')
     }

@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
+import { totpAt } from '../internal/totp'
+import { MfaFacet } from '../mfa'
 import { DEFAULT_MFA_CONFIG } from '../mfa.constants'
-import { MfaFacet } from '../mfa.facet'
-import { totpAt } from '../mfa.totp'
 import type { Mfa } from '../mfa.types'
 
 describe('MfaFacet - TOTP', () => {

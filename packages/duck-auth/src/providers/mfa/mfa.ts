@@ -1,13 +1,15 @@
+import type { Identity } from '~/core'
 import { isProfileBooleanTrue, toCredentialUpsert } from '~/core/credential-utils'
 import { sha256, timingSafeEqual } from '~/core/crypto'
+import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Session } from '~/core/sessions/sessions.types'
 import type { Credential } from '~/core/types/identity'
 import type { TenantContext } from '~/core/types/infra'
 import type { Events } from '~/core/types/provider'
 import type { Passkey } from '~/providers/passkey/passkey.types'
-import { DEFAULT_MFA_CONFIG } from './mfa.constants'
-import { buildOtpAuthUri, generateSecret, verifyTotp } from './mfa.totp'
+import { buildOtpAuthUri, generateSecret, verifyTotp } from './internal/totp'
+import { DEFAULT_MFA_CONFIG, toMfaConfig } from './mfa.constants'
 import type { Mfa } from './mfa.types'
 
 /**
@@ -417,4 +419,18 @@ function webauthnUserId(identityId: string): Uint8Array {
   // so cross-identity collisions stay impossible regardless of
   // identityId length.
   return new Uint8Array(require('node:crypto').createHash('sha256').update(identityId, 'utf8').digest())
+}
+
+/**
+ * MFA capability. MFA is a second factor, not a sign-in method, so this
+ * carries no `begin`/`complete` — it is a facet the engine resolves via
+ * `auth.mfa`. Add it to `providers: [mfaProvider()]`; `createAuth` calls
+ * the thunk with the constructed engine and registers the returned facet.
+ */
+export function mfaProvider<
+  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Tenant = string,
+  OrgMeta = unknown,
+>(cfg?: Mfa.ConfigInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => MfaFacet {
+  return (auth) => new MfaFacet(auth.config.stores.credentials, auth.events, toMfaConfig(cfg))
 }

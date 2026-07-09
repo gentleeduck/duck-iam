@@ -1,11 +1,9 @@
-export { BackupCodesFacet as AuthBackupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from '~/providers/mfa/mfa.backup-codes'
-export { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet as AuthRememberMeFacet } from '~/providers/mfa/mfa.remember-me'
 export {
-  ARGON2ID_COMPLIANCE,
-  ARGON2ID_DEFAULTS,
-  Argon2idHasher as AuthArgon2idHasher,
-} from '../providers/password/hashers/argon2.hasher'
-export { SCRYPT_DEFAULTS, ScryptHasher as AuthScryptHasher } from '../providers/password/hashers/scrypt.hasher'
+  BackupCodesFacet as AuthBackupCodesFacet,
+  DEFAULT_BACKUP_CODES_CONFIG,
+  DEFAULT_REMEMBER_ME_CONFIG,
+  RememberMeFacet,
+} from '~/providers/mfa'
 export type { AuthCaptcha } from './captcha'
 export {
   AuthHCaptchaVerifier,
@@ -14,22 +12,26 @@ export {
   AuthTurnstileVerifier,
 } from './captcha'
 export { type AuthDefine, createAuth } from './config'
-export { randomToken as authRandomToken, sha256 as authSha256, timingSafeEqual as authTimingSafeEqual } from './crypto'
+export { randomToken, sha256, timingSafeEqual } from './crypto'
 export {
-  buildCsrfCookieOptions as authBuildCsrfCookieOptions,
-  type Csrf as AuthCsrf,
-  csrfGuard as authCsrfGuard,
-  issueCsrfToken as authIssueCsrfToken,
-  verifyCsrf as authVerifyCsrf,
+  buildCsrfCookieOptions,
+  type Csrf,
+  csrfGuard,
+  issueCsrfToken,
+  verifyCsrf,
 } from './csrf'
 export { AuthEngine } from './engine'
 export { AuthError } from './errors'
 export { InMemoryEvents as AuthInMemoryEvents } from './events'
 export {
-  currentTenant as authCurrentTenant,
-  resolveTenant as authResolveTenant,
-  withTenant as authWithTenant,
+  currentTenant,
+  resolveTenant,
+  withTenant,
 } from './tenant'
 export * from './transport'
 export * from './types'
-export { AuthWebhookDeliverer, authSignWebhookBody, authVerifyWebhookSignature } from './webhooks'
+export {
+  signWebhookBody as authSignWebhookBody,
+  verifyWebhookSignature as authVerifyWebhookSignature,
+  WebhookDeliverer as AuthWebhookDeliverer,
+} from './webhooks'
