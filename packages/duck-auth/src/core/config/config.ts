@@ -40,30 +40,13 @@ export function createAuth<
     session: config.session,
     identities: config.identities,
     hijack: config.hijack,
+    // Provider registration (incl. thunk resolution) happens in the engine
+    // constructor, so `new AuthEngine` and `createAuth` behave identically.
+    providers: config.providers,
+    channels: config.channels,
   }
 
   const auth = new AuthEngine<Profile, Tenant, OrgMeta>(rootConfig)
-
-  for (const entry of config.providers ?? []) {
-    if (!entry) continue
-    // Pass channels as second arg so magic-link / OTP thunks can bind without repeating config.
-    const p = typeof entry === 'function' ? entry(auth, config.channels) : entry
-    if (!p) continue
-    // A capability module (mechanism A) mounts its own facet; a bare provider registers directly.
-    if ('name' in p) {
-      if (p.provider) auth.providers.register(p.provider)
-      p.attach?.(auth)
-    } else {
-      auth.providers.register(p)
-    }
-  }
-
-  if (config.plugins) {
-    for (const plugin of config.plugins) {
-      if (!plugin) continue
-      void auth.use(plugin)
-    }
-  }
 
   if (config.strict) auth.strict({ env: config.strict })
 

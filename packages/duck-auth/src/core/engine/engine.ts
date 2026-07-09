@@ -95,7 +95,15 @@ export class AuthEngine<
         config.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
       profileMaxBytes: config.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
     })
-    this.providers = new Providers<Profile>(config.providers)
+    this.providers = new Providers<Profile>()
+    for (const entry of config.providers ?? []) {
+      if (!entry) continue
+      // Thunks receive the constructed engine + channels so capabilities can
+      // bind to stores/events (mfa, api-key) or channels (magic-link, otp).
+      const cap = typeof entry === 'function' ? entry(this, config.channels) : entry
+      if (!cap) continue
+      this.providers.register(cap)
+    }
     this.orgs = config.stores.orgs ? new OrgsFacet<OrgMeta>(config.stores.orgs, this.events) : null
     // this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
     // this.operations = new OperationsFacet(this.events)

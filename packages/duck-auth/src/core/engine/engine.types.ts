@@ -1,7 +1,7 @@
+import type { AuthDefine } from '../config/config.types'
 import type { Hijack } from '../hijack/hijack.types'
 import type { Identity } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
-import type { Provider } from '../provider/provider.types'
 import type { Session } from '../sessions/sessions.types'
 import type { Credential } from '../types/identity'
 import type { Limiter } from '../types/infra'
@@ -30,7 +30,15 @@ export namespace Engine {
       orgs?: Org.Store<OrgMeta>
     }
     limiter?: Limiter.Limiter
-    providers?: (Provider.Me<unknown, unknown, Profile> | Provider.ProviderModule<Profile, Tenant, OrgMeta>)[]
+    /**
+     * Capabilities (sign-in providers + attach-only facets), or thunks that
+     * build one from the constructed engine + channels. Resolved and registered
+     * by the engine constructor, so `new AuthEngine` and `createAuth` behave
+     * identically.
+     */
+    providers?: AuthDefine.IProviderEntry<Profile, Tenant, OrgMeta>[]
+    /** Channel bundle forwarded to provider thunks (magic-link / OTP). */
+    channels?: AuthDefine.IChannels
     events?: Events.IBus
     session?: {
       ttlMs?: number

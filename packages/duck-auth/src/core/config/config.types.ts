@@ -19,8 +19,7 @@ export namespace AuthDefine {
     Tenant = string,
     OrgMeta = unknown,
   > =
-    | Provider.Me<unknown, unknown, Profile>
-    | Provider.ProviderModule<Profile, Tenant, OrgMeta>
+    | Provider.Capability
     | false
     | null
     | undefined
@@ -28,7 +27,7 @@ export namespace AuthDefine {
     | ((
         auth: AuthEngine<Profile, Tenant, OrgMeta>,
         channels: IChannels | undefined,
-      ) => Provider.Me<unknown, unknown, Profile> | false | null | undefined | '')
+      ) => Provider.Capability | false | null | undefined | '')
 
   /** Skipped-or-included plugin entry — same falsy-drop rules as providers. */
   export type IPluginEntry<

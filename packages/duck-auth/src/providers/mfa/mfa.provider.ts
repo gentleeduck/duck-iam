@@ -10,8 +10,10 @@ import type { Mfa } from './mfa.types'
  * `auth.mfa`. Add it to `providers: [mfaProvider()]`; `createAuth` calls
  * the thunk with the constructed engine and registers the returned facet.
  */
-export function mfaProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
-  cfg?: Mfa.ConfigInput,
-): (auth: AuthEngine<Profile>) => MfaFacet {
+export function mfaProvider<
+  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Tenant = string,
+  OrgMeta = unknown,
+>(cfg?: Mfa.ConfigInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => MfaFacet {
   return (auth) => new MfaFacet(auth.config.stores.credentials, auth.events, toMfaConfig(cfg))
 }

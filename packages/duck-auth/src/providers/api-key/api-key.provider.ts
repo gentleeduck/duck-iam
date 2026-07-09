@@ -66,9 +66,11 @@ export function authApiKey<Profile extends Identity.ProfileMetadataBase = Identi
  * The bearer *sign-in* provider ({@link authApiKey}) is registered separately
  * by the app, since it binds to the mounted facet + app-specific scope rules.
  */
-export function apiKeyProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
-  cfg?: ApiKeys.ConfigInput,
-): (auth: AuthEngine<Profile>) => ApiKeysFacet {
+export function apiKeyProvider<
+  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Tenant = string,
+  OrgMeta = unknown,
+>(cfg?: ApiKeys.ConfigInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => ApiKeysFacet {
   return (auth) =>
     new ApiKeysFacet(auth.config.stores.credentials, auth.events, { randomToken, sha256 }, toApiKeysConfig(cfg))
 }
