@@ -20,6 +20,7 @@ import type { Session } from '../sessions'
 // import type { Provider } from '../provider/provider.types'
 import { DEFAULT_SESSION_CONFIG, resolveBySid, SessionsFacet } from '../sessions'
 import type { Transport } from '../transport/transport.types'
+import { assertStrict } from './engine.strict'
 import type { Engine } from './engine.types'
 
 /**
@@ -209,65 +210,6 @@ export class AuthEngine<
 
   /** Boot-time strict validation; throws `AUTH/MISCONFIGURED` on any production footgun. */
   strict(opts: { env: 'development' | 'production' | 'test' }): void {
-    if (opts.env !== 'production') return
-
-    const errors: string[] = []
-
-    // Reject AuthNoopLimiter via class brand (bundlers rename constructors).
-    if (!this.config.limiter || (this.limiter as { __isNoopLimiter?: boolean }).__isNoopLimiter === true) {
-      errors.push('Limiter adapter required (brute-force protection); AuthNoopLimiter rejected in production')
-    }
-
-    // Memory adapter detection over every store; mixed deployments would otherwise
-    // run session state in-process and break revocation/rotation across instances.
-    const stores: Array<{ obj: unknown; label: string }> = [
-      { obj: this.config.stores.identities, label: 'identities' },
-      { obj: this.config.stores.sessions, label: 'sessions' },
-      { obj: this.config.stores.credentials, label: 'credentials' },
-    ]
-    for (const { obj, label } of stores) {
-      const name = (obj as { constructor?: { name?: string } }).constructor?.name ?? ''
-      if (name === 'Object' || /Memory/i.test(name)) {
-        errors.push(`Memory adapter (${label}) rejected in production; use redis/drizzle/prisma`)
-      }
-    }
-
-    // Transport secure-cookie check via the public `secure` getter so
-    // we never reach into private state.
-    const maybeSecureGetter = (this.config.transport as { secure?: boolean }).secure
-    if (typeof maybeSecureGetter === 'boolean' && maybeSecureGetter === false) {
-      errors.push('AuthCookieTransport secure=false rejected in production')
-    }
-
-    // baseUrl must use HTTPS in production so oauth callback URLs, magic-link
-    // URLs, and webhooks aren't issued over plaintext.
-    if (typeof this.config.baseUrl === 'string') {
-      try {
-        const u = new URL(this.config.baseUrl)
-        if (u.protocol !== 'https:') {
-          errors.push(`baseUrl '${this.config.baseUrl}' must use https:// in production (got ${u.protocol})`)
-        }
-      } catch {
-        errors.push(`baseUrl '${this.config.baseUrl}' is not a valid URL`)
-      }
-    }
-
-    if ((this.config.providers ?? []).length === 0 && this.providers.list().length === 0) {
-      errors.push('no provider registered; users cannot sign in')
-    }
-
-    // `lockout` listener via the public `listenerCount` introspection
-    // helper. Bus implementations without the helper skip this check
-    // (we cannot enforce against a foreign Events.IBus impl).
-    const listenerCount = (this.events as { listenerCount?: (event: string) => number }).listenerCount
-    if (typeof listenerCount === 'function' && listenerCount.call(this.events, 'lockout') === 0) {
-      errors.push('no `lockout` event handler subscribed; operators must wire one (paging, audit, etc.)')
-    }
-
-    if (errors.length > 0) {
-      throw new AuthError('AUTH_MISCONFIGURED', {
-        detail: `production strict() checks failed:\n  - ${errors.join('\n  - ')}`,
-      })
-    }
+    assertStrict(this, opts)
   }
 }
