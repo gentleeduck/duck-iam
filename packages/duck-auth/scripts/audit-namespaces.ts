@@ -52,7 +52,8 @@ const OWNER_OVERRIDES: Record<string, string> = {
   'src/providers/oauth/core/state.ts': 'oauthState',
   'src/providers/oauth/core/provider.ts': 'oProvider',
   'src/providers/oauth/core/client.ts': 'oauthClient',
-  'src/core/types/context.ts': 'TenantContext',
+  'src/core/tenant/tenant.types.ts': 'TenantContext',
+  'src/core/errors/errors.types.ts': 'Envelope',
 }
 
 function inferOwner(file: string, decls: Decl[]): string {
