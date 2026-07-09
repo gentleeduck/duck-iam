@@ -7,11 +7,11 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { isRevoked, toCredentialUpsert } from '../credential-utils'
-import { timingSafeEqual } from '../crypto'
-import { AuthError } from '../errors'
-import type { Credential } from '../types/identity'
-import type { TenantContext } from '../types/infra'
+import { isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { timingSafeEqual } from '~/core/crypto'
+import { AuthError } from '~/core/errors'
+import type { Credential } from '~/core/types/identity'
+import type { TenantContext } from '~/core/types/infra'
 
 export namespace BackupCodesFacet {
   export type Config = {

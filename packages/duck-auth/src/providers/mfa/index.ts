@@ -19,3 +19,5 @@ export {
   verifyTotp,
 } from './mfa.totp'
 export type { Mfa } from './mfa.types'
+export { BackupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from './mfa.backup-codes'
+export { RememberMeFacet, DEFAULT_REMEMBER_ME_CONFIG } from './mfa.remember-me'

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256 } from '~/core/crypto'
 import { credentialInput, identityInput } from '~/test/store-inputs'
-import { RememberMeFacet } from '../remember-me'
+import { RememberMeFacet } from '../mfa.remember-me'
 
 describe('AuthRememberMeFacet', () => {
   let adapter: MemoryAdapter

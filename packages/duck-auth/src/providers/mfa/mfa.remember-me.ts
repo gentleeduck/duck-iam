@@ -9,10 +9,10 @@
  * `metadata.purpose='trusted-device'` + caller-supplied metadata.
  */
 
-import { getCredentialPurpose, isCredentialExpired, isRevoked, toCredentialUpsert } from '../credential-utils'
-import { AuthError } from '../errors'
-import type { Credential } from '../types/identity'
-import type { TenantContext } from '../types/infra'
+import { getCredentialPurpose, isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credential-utils'
+import { AuthError } from '~/core/errors'
+import type { Credential } from '~/core/types/identity'
+import type { TenantContext } from '~/core/types/infra'
 
 export namespace RememberMeFacet {
   export type Config = {
