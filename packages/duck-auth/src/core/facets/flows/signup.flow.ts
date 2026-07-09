@@ -26,15 +26,11 @@ export async function beginSignUp<Profile extends Identity.ProfileMetadataBase>(
   const initial = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
   const profile: Profile = { ...initial, email: opts.email, emailVerified: false } as unknown as Profile
 
-  const created = await ctx.stores.identities.create(
-    {
-      profile,
-      providers: [],
-      tenantId: opts.tenantId ?? null,
-      emailVerified: false,
-    },
-    ctx.tenant,
-  )
+  const created = await ctx.stores.identities.create({
+    profile,
+    providers: [],
+    emailVerified: false,
+  })
 
   const flowToken = ctx.crypto.authRandomToken(32)
   const flowTokenHash = ctx.crypto.authSha256(flowToken)
@@ -156,11 +152,11 @@ export async function completeSignUp<Profile extends Identity.ProfileMetadataBas
     throw new AuthError('AUTH_SIGNUP_INCOMPLETE', { missing })
   }
 
-  const identity = await ctx.stores.identities.findById(flow.identityId, ctx.tenant)
+  const identity = await ctx.stores.identities.findById(flow.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
   const baseProfile = isPlainObject(identity.profile) ? identity.profile : {}
   const mergedProfile: Profile = { ...baseProfile, ...flow.data } as Profile
-  await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version, ctx.tenant)
+  await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version)
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
 
   const factors = opts.factors ?? [{ method: 'magic-link', completedAt: new Date() }]

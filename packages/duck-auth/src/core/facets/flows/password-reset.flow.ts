@@ -72,7 +72,7 @@ export async function requestPasswordReset<Profile extends Identity.ProfileMetad
   )
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  const identityRow = await ctx.stores.identities.findById(identity.id, ctx.tenant)
+  const identityRow = await ctx.stores.identities.findById(identity.id)
   if (!identityRow) {
     return { ok: true }
   }
@@ -143,7 +143,7 @@ export async function completePasswordReset<Profile extends Identity.ProfileMeta
     throw err
   }
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
-  await deps.requirePasswords().set(row.identityId, newPassword, ctx.tenant)
+  await deps.requirePasswords().set(row.identityId, newPassword, ctx.stores.credentials)
   await deps.sessions.revokeAllForIdentity(row.identityId)
   await deps.events.emit('recovery.password.completed', { identityId: row.identityId })
   return { ok: true }

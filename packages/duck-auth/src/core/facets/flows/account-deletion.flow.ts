@@ -1,7 +1,6 @@
 import { getCredentialPurpose, isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credential-utils'
 import { AuthError } from '~/core/errors'
 import type { Identity } from '~/core/types'
-import type { TenantContext } from '~/core/types/infra'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import type { FlowsFacet } from '../flows.facet'
 
@@ -25,7 +24,7 @@ export async function requestAccountDeletion<Profile extends Identity.ProfileMet
     })
   }
 
-  const identity = await ctx.stores.identities.findById(opts.identityId, ctx.tenant)
+  const identity = await ctx.stores.identities.findById(opts.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   const requestedChannel = opts.channel ?? 'email'
@@ -100,7 +99,7 @@ export async function completeAccountDeletion<Profile extends Identity.ProfileMe
     throw err
   }
   const identityId = row.identityId
-  await deps.identities.softDelete(identityId, ctx.tenant)
+  await deps.identities.softDelete(identityId)
   await deps.sessions.revokeAllForIdentity(identityId)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
   const restorableUntil = Date.now() + deps.identities.softDeleteGracePeriodMs
@@ -114,7 +113,6 @@ export async function cancelAccountDeletion<Profile extends Identity.ProfileMeta
   if (typeof input.identityId !== 'string' || input.identityId.length === 0 || input.identityId.length > 256) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
-  const tenant: TenantContext = input.tenantId !== undefined ? { tenantId: input.tenantId } : {}
-  await deps.identities.restore(input.identityId, tenant)
+  await deps.identities.restore(input.identityId)
   return { identityId: input.identityId }
 }

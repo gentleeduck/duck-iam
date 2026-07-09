@@ -35,10 +35,7 @@ export async function impersonate<Profile extends Identity.ProfileMetadataBase>(
   const ttlMs = Math.min(opts.ttlMs ?? 60 * 60_000, 60 * 60_000)
   const now = Date.now()
   const nowDate = new Date(now)
-  const target = await deps.identities.getById(
-    opts.targetIdentityId,
-    opts.tenantId !== undefined ? { tenantId: opts.tenantId } : {},
-  )
+  const target = await deps.identities.getById(opts.targetIdentityId)
   if (!target) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   const { session, sid, csrfToken } = await deps.sessions.rotateOrCreate({

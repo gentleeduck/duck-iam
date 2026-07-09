@@ -96,7 +96,7 @@ export function applyCompliancePreset<
   // Attach the resolved overrides via `__compliancePreset` so
   // `AuthEngine.strict` can apply `authAssertComplianceStrict` automatically.
   // NOTE: password, mfa + api-key compliance are provider-level now — pass a
-  // preset to `passwordProvider({ compliance })` / `mfaProvider({ compliance })`
+  // preset to `passwords({ compliance })` / `mfaProvider({ compliance })`
   // / `apiKeyProvider({ compliance })` and each ratchets its own field. Only
   // engine-core capabilities (session) are ratcheted here.
   const out = {

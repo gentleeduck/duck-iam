@@ -279,7 +279,7 @@ export async function resolveBySid<Profile extends Identity.ProfileMetadataBase>
     await sessions.delete(session.id)
     return null
   }
-  const identity = session.identityId ? await identities.findById(session.identityId, ctx) : null
+  const identity = session.identityId ? await identities.findById(session.identityId) : null
   if (session.identityId && !identity) {
     // Identity erased while session was live; surface as missing" rather than misleading "expired".
     throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'identity-erased' })

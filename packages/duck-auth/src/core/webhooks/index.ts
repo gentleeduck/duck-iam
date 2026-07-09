@@ -17,9 +17,9 @@ import type { Events } from '../types/provider'
  * Subscribe the bus, sign + POST each emit to the configured endpoints,
  * retry with exponential backoff, dead-letter on permanent failure.
  */
-export class AuthWebhookDeliverer {
+export class WebhookDeliverer {
   private readonly _endpoints: Array<
-    Required<Omit<AuthWebhookDeliverer.IEndpoint, 'events' | 'signatureHeader' | 'id'>> & {
+    Required<Omit<WebhookDeliverer.IEndpoint, 'events' | 'signatureHeader' | 'id'>> & {
       events: Events.EventName[] | '*'
       signatureHeader: string
       id: string
@@ -29,9 +29,9 @@ export class AuthWebhookDeliverer {
   private readonly _backoffMs: number
   private readonly _timeoutMs: number
   private readonly _fetch: typeof globalThis.fetch
-  private readonly _deadLetter: AuthWebhookDeliverer.IDeadLetterSink | undefined
+  private readonly _deadLetter: WebhookDeliverer.IDeadLetterSink | undefined
 
-  constructor(cfg: AuthWebhookDeliverer.IConfig) {
+  constructor(cfg: WebhookDeliverer.IConfig) {
     if (!cfg.endpoints?.length) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthWebhookDeliverer requires at least one endpoint',
@@ -159,7 +159,7 @@ export class AuthWebhookDeliverer {
     }
     // HMAC covers the body + timestamp so verifiers can reject replays
     // outside a freshness window without trusting the body claim.
-    const signature = authSignWebhookBody(endpoint.secret, body, timestamp)
+    const signature = signWebhookBody(endpoint.secret, body, timestamp)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), this._timeoutMs)
     try {
@@ -253,7 +253,7 @@ function assertSafeWebhookUrl(rawUrl: string, allowInsecure: boolean): void {
  * Two-arg form (no timestamp) is retained for backwards compatibility
  * with consumers that already verify body-only signatures.
  */
-export function authSignWebhookBody(secret: string, body: string, timestamp?: number): string {
+export function signWebhookBody(secret: string, body: string, timestamp?: number): string {
   const payload = timestamp === undefined ? body : `${timestamp}.${body}`
   return `authSha256=${createHmac('sha256', secret).update(payload).digest('hex')}`
 }
@@ -264,7 +264,7 @@ export function authSignWebhookBody(secret: string, body: string, timestamp?: nu
  * `X-Duck-Timestamp` header was supplied, pass `timestamp` + tolerance
  * to defend against replays. Default tolerance: 5 minutes.
  */
-export function authVerifyWebhookSignature(
+export function verifyWebhookSignature(
   secret: string,
   body: string,
   signature: string,
@@ -276,7 +276,7 @@ export function authVerifyWebhookSignature(
     const tolerance = opts.toleranceMs ?? 5 * 60_000
     if (Math.abs(Date.now() - opts.timestamp) > tolerance) return false
   }
-  const expected = authSignWebhookBody(secret, body, opts.timestamp)
+  const expected = signWebhookBody(secret, body, opts.timestamp)
   const a = Buffer.from(signature)
   const b = Buffer.from(expected)
   return a.length === b.length && timingSafeEqual(a, b)
@@ -304,9 +304,9 @@ const EVERY_EVENT: Events.EventName[] = [
   'maintenance.off',
 ]
 
-export namespace AuthWebhookDeliverer {
+export namespace WebhookDeliverer {
   export interface IConfig {
-    endpoints: AuthWebhookDeliverer.IEndpoint[]
+    endpoints: WebhookDeliverer.IEndpoint[]
     /** Maximum delivery attempts before dead-lettering. Default 5. */
     maxAttempts?: number
     /** Base backoff in ms (exponential). Default 500ms (so 0.5s, 1s, 2s, 4s, 8s). */
@@ -316,7 +316,7 @@ export namespace AuthWebhookDeliverer {
     /** Override fetch impl (tests). */
     fetch?: typeof globalThis.fetch
     /** Sink for permanently-failed deliveries. */
-    deadLetter?: AuthWebhookDeliverer.IDeadLetterSink
+    deadLetter?: WebhookDeliverer.IDeadLetterSink
     /**
      * Accept non-HTTPS endpoint URLs. Default false. Dev-only - leaves
      * webhook payloads readable on the wire. The SSRF guard still
@@ -343,7 +343,7 @@ export namespace AuthWebhookDeliverer {
   }
 
   export interface IDeadLetterSink {
-    put(envelope: AuthWebhookDeliverer.IDeadLetterEntry): Promise<void>
+    put(envelope: WebhookDeliverer.IDeadLetterEntry): Promise<void>
   }
 
   export interface IDeadLetterEntry {

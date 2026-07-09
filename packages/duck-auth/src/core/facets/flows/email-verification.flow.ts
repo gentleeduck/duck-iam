@@ -25,7 +25,7 @@ export async function requestEmailVerification<Profile extends Identity.ProfileM
     })
   }
 
-  const identity = await ctx.stores.identities.findById(opts.identityId, ctx.tenant)
+  const identity = await ctx.stores.identities.findById(opts.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   if (isProfileBooleanTrue(identity.profile, 'emailVerified')) {
@@ -96,12 +96,12 @@ export async function completeEmailVerification<Profile extends Identity.Profile
     throw err
   }
 
-  const identity = await ctx.stores.identities.findById(row.identityId, ctx.tenant)
+  const identity = await ctx.stores.identities.findById(row.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
   const baseProfile = isPlainObject(identity.profile) ? identity.profile : {}
   const mergedProfile: Profile = { ...baseProfile, emailVerified: true } as unknown as Profile
-  await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version, ctx.tenant)
+  await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
   return { identityId: row.identityId }
 }
