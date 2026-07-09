@@ -1,7 +1,7 @@
 import { isExpiredAt, isFiniteNumber } from '../credential-utils'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
-import type { Identity } from '../types/identity'
+import type { Identity } from '../identities/identities.types'
 import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
 import { DEFAULT_SESSION_CONFIG } from './sessions.constants'

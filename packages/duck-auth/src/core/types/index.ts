@@ -5,8 +5,9 @@
  * domain modules: identity, session, provider, infra.
  */
 
+export type { Identity } from '~/core/identities/identities.types'
 export type { Session } from '~/core/sessions/sessions.types'
-export type { Credential, Identity, Org } from './identity'
+export type { Credential, Org } from './identity'
 export type { Channel, DataAtRest, Hasher, Idempotency, Kms, Limiter, TenantContext } from './infra'
 export type { Anomaly, Events, Provider } from './provider'
 export type { AuthError, Envelope, Transport } from './session'

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
+import type { Identity } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import type { Identity } from '~/core/types/identity'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 
 interface MyProfile extends Identity.ProfileMetadataBase {

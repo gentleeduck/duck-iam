@@ -1,7 +1,8 @@
 /** Provider domain — auth providers/intents, events, anomaly detection. */
 
+import type { Identity } from '~/core/identities/identities.types'
 import type { Session } from '~/core/sessions/sessions.types'
-import type { Credential, Identity } from './identity'
+import type { Credential } from './identity'
 import type { Limiter, TenantContext } from './infra'
 import type { Transport } from './session'
 

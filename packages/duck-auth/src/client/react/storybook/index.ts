@@ -25,7 +25,7 @@
 
 import { createElement, type JSX, type ReactNode } from 'react'
 import { createAuthClient, type VanillaClient } from '~/client/vanilla'
-import type { Identity } from '~/core/types/identity'
+import type { Identity } from '~/core/identities/identities.types'
 import type { Session } from '~/core/sessions/sessions.types'
 import { Provider } from '../index'
 

@@ -1,8 +1,9 @@
 import { isNull, sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { SqlBridge } from '~/adapters/sql'
+import type { Identity } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Session } from '~/core/sessions/sessions.types'
-import { AUTH_CREDENTIAL_KINDS, type Credential, type Identity } from '~/core/types/identity'
+import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/types/identity'
 
 /**
  * @title auth identities table (SQLite)

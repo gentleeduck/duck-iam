@@ -3,7 +3,7 @@ import { MemoryAdapter } from '~/adapters/memory'
 import { AuthMemoryLimiter } from '~/limiters/memory'
 import { AuthEngine } from '../engine'
 import { CookieTransport } from '../transport/cookie.transport'
-import type { Identity } from '../types/identity'
+import type { Identity } from '../identities/identities.types'
 
 interface MyProfile extends Identity.ProfileMetadataBase {
   email: string

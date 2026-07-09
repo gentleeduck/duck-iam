@@ -1,65 +1,8 @@
 import type { TenantContext } from './infra'
 
 /**
- * Stable identity record. Opaque to the auth core - application-specific shape
- * carried in `profile`. The iam-auth-bridge projects this into Subject for
- * iam evaluation; non-iam apps leave the bridge unwired and pay zero coupling.
- */
-export namespace Identity {
-  export type ProviderLink = {
-    providerId: string
-    providerSub: string | null
-    addedAt: Date
-  }
-
-  export type ProfileMetadataBase = {
-    username: string
-    email: string
-    [key: string]: unknown
-  }
-
-  export type Me<Profile extends ProfileMetadataBase = ProfileMetadataBase> = {
-    id: string
-    tenantId: string | null
-    profile: Profile
-    providers: ProviderLink[]
-    /** Optimistic-locking version. Incremented on every successful write. */
-    version: number
-    emailVerified: boolean
-    createdAt: Date
-    updatedAt: Date
-    /** Soft-delete grace; identity hidden from queries when set, hard-purged after window. */
-    deletedAt: Date | null
-  }
-
-  /**
-   * Input to `Store.create`. The store stamps `id`/`version`/`createdAt`/`updatedAt`;
-   * `deletedAt` starts `null`. Every field is explicit — the facet coalesces
-   * optional public inputs to `null` / defaults before passing this type.
-   */
-  export type CreateInput<Profile> = {
-    profile: Profile
-    providers: ProviderLink[]
-    tenantId: string | null
-    emailVerified: boolean
-  }
-
-  export type Store<Profile extends ProfileMetadataBase> = {
-    findById(id: string, ctx: TenantContext): Promise<Me<Profile> | null>
-    findByEmail(email: string, ctx: TenantContext): Promise<Me<Profile> | null>
-    findByProviderSub(providerId: string, sub: string, ctx: TenantContext): Promise<Me<Profile> | null>
-    create(input: CreateInput<Profile>, ctx: TenantContext): Promise<Me<Profile>>
-    update(id: string, patch: Partial<Me<Profile>>, expectedVersion: number, ctx: TenantContext): Promise<Me<Profile>>
-    softDelete(id: string, gracePeriodMs: number, ctx: TenantContext): Promise<void>
-    restore(id: string, ctx: TenantContext): Promise<Me<Profile>>
-    erase(id: string, ctx: TenantContext): Promise<void>
-    link(identityId: string, link: ProviderLink, ctx: TenantContext): Promise<void>
-    unlink(identityId: string, providerId: string, ctx: TenantContext): Promise<void>
-    merge(survivorId: string, dupId: string, ctx: TenantContext): Promise<void>
-  }
-}
-
-/**
+ * Credentials + orgs. (The `Identity` domain now lives in `~/core/identities/identities.types`.)
+ *
  * Stored proof of an identity. One identity has N credentials; secrets are always
  * stored hashed (passwords, magic-link tokens, recovery codes) or as public-key
  * material (passkey/WebAuthn). oauth refresh tokens stored hashed for reuse

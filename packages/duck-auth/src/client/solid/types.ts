@@ -1,6 +1,6 @@
 /** Solid client types — context shape + the public `SolidClient` namespace. */
 import type { JSX } from 'solid-js'
-import type { Identity } from '~/core/types/identity'
+import type { Identity } from '~/core/identities/identities.types'
 import type { Envelope } from '~/core/types/session'
 import type { VanillaClient } from '../vanilla'
 

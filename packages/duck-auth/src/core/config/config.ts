@@ -1,7 +1,7 @@
 import type { AuthEngineTypes } from '../engine'
 import { AuthEngine } from '../engine'
+import type { Identity } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
-import type { Identity } from '../types/identity'
 import type { AuthDefine } from './config.types'
 
 /**

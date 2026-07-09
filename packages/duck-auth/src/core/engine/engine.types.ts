@@ -1,6 +1,7 @@
 import type { HijackFacet } from '../facets/hijack.facet'
+import type { Identity } from '../identities/identities.types'
 import type { Session } from '../sessions/sessions.types'
-import type { Credential, Identity, Org } from '../types/identity'
+import type { Credential, Org } from '../types/identity'
 import type { Limiter } from '../types/infra'
 import type { Events, Provider } from '../types/provider'
 import type { Transport } from '../types/session'

@@ -1,5 +1,5 @@
+import type { Identity } from '../identities/identities.types'
 import type { Session } from '../sessions/sessions.types'
-import type { Identity } from '../types/identity'
 import type { Anomaly, Events } from '../types/provider'
 
 export namespace AnomalyFacet {

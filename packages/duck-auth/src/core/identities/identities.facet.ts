@@ -1,33 +1,11 @@
 import { getProfileString } from '../credential-utils'
 import { AuthError } from '../errors'
-import type { Credential, Identity } from '../types/identity'
+import type { Session } from '../sessions/sessions.types'
+import type { Credential } from '../types/identity'
 import type { TenantContext } from '../types/infra'
 import type { Events } from '../types/provider'
-import type { Session } from '../sessions/sessions.types'
 import { DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
-
-export namespace IdentitiesFacet {
-  export interface Config {
-    /** Grace before hard-purge after softDelete. Default 7 days. */
-    softDeleteGracePeriodMs: number
-    /**
-     * maximum serialized (JSON / UTF-8 bytes) size of a profile.
-     * Defaults to 16 KiB. Set to `0` to disable (not recommended -
-     * unbounded profiles are a storage / read-amplification DoS).
-     */
-    profileMaxBytes?: number
-  }
-
-  export interface ExportBlob<Profile extends Identity.ProfileMetadataBase> {
-    identity: Identity.Me<Profile>
-    credentials: Array<Omit<Credential.Me, 'secret'>>
-    /** Live + recently-revoked sessions. Empty when caller skips sessions store. */
-    sessions: Array<Omit<Session.Me, 'csrfHash'>>
-    /** GDPR Article 20 envelope: schema version + export timestamp. */
-    schemaVersion: '1'
-    exportedAt: number
-  }
-}
+import type { Identity } from './identities.types'
 
 /**
  * Identities facet - CRUD + linking + merging + GDPR primitives.
@@ -39,7 +17,7 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
   constructor(
     private readonly _store: Identity.Store<Profile>,
     private readonly _events: Events.IBus,
-    private readonly _cfg: IdentitiesFacet.Config = DEFAULT_IDENTITIES_CONFIG,
+    private readonly _cfg: Identity.Config = DEFAULT_IDENTITIES_CONFIG,
   ) {}
 
   /**
@@ -269,7 +247,7 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
     credentials: Credential.Store,
     ctx: TenantContext = {},
     opts: { sessions?: Session.Store } = {},
-  ): Promise<IdentitiesFacet.ExportBlob<Profile>> {
+  ): Promise<Identity.ExportBlob<Profile>> {
     const identity = await this._store.findById(id, ctx)
     if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
     const creds = await credentials.listByIdentity(id, null, ctx)
@@ -288,7 +266,7 @@ export class IdentitiesFacet<Profile extends Identity.ProfileMetadataBase = Iden
    * delivery to the user (file download / portable archive). Stable
    * key ordering across runs so checksum comparisons work.
    */
-  static exportToJson<P extends Identity.ProfileMetadataBase>(blob: IdentitiesFacet.ExportBlob<P>): string {
+  static exportToJson<P extends Identity.ProfileMetadataBase>(blob: Identity.ExportBlob<P>): string {
     return JSON.stringify(blob, sortKeys, 2)
   }
 }
