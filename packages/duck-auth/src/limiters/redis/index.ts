@@ -1,5 +1,5 @@
-import type { Limiter } from '~/core/types/infra'
-import type { RedisLike } from './redis-like'
+import type { RedisLike } from '~/adapters/redis'
+import type { Limiter } from '../limiters.types'
 
 export namespace RedisLimiter {
   /** Config knobs for {@link RedisLimiter}. */
@@ -21,7 +21,7 @@ export namespace RedisLimiter {
  * Redis primary; for clustered Redis with cross-shard accuracy use a
  * Lua script (see `evalScript` below).
  */
-export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> implements Limiter.Limiter {
+export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> implements Limiter.Me {
   private readonly _redis: TRedis
   private readonly _max: number
   private readonly _windowMs: number

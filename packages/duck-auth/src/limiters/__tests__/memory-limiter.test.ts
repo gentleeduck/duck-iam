@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { RedisLimiter } from '../limiter'
-import { FakeRedis } from '../redis-like'
+import { FakeRedis } from '~/adapters/redis'
+import { RedisLimiter } from '../redis'
 
 describe('RedisLimiter', () => {
   let redis: FakeRedis

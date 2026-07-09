@@ -1,15 +1,24 @@
-import type { Limiter } from '~/core/types/infra'
+import type { Limiter } from '../limiters.types'
+
+export namespace AuthMemoryLimiter {
+  export type Config = {
+    /** Max consumed weight before further consume() returns ok:false. Default 10. */
+    max?: number
+    /** Window size in ms. Default 15 minutes. */
+    windowMs?: number
+  }
+}
 
 /**
  * Token-bucket memory limiter. Dev/test only; production uses Redis.
  * Per-key independent bucket; reset() empties one bucket.
  */
-export class AuthMemoryLimiter implements Limiter.Limiter {
+export class AuthMemoryLimiter implements Limiter.Me {
   private readonly _max: number
   private readonly _windowMs: number
   private _buckets = new Map<string, { count: number; resetAt: number }>()
 
-  constructor(cfg: AuthMemoryLimiter.IConfig = {}) {
+  constructor(cfg: AuthMemoryLimiter.Config = {}) {
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000
   }
@@ -36,14 +45,5 @@ export class AuthMemoryLimiter implements Limiter.Limiter {
 
   async reset(key: string): Promise<void> {
     this._buckets.delete(key)
-  }
-}
-
-export namespace AuthMemoryLimiter {
-  export interface IConfig {
-    /** Max consumed weight before further consume() returns ok:false. Default 10. */
-    max?: number
-    /** Window size in ms. Default 15 minutes. */
-    windowMs?: number
   }
 }
