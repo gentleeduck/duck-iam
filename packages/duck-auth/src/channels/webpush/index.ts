@@ -5,7 +5,7 @@
  */
 
 import { AuthError } from '~/core/errors'
-import type { Channel } from '~/core/types/infra'
+import type { Channel } from '~/channels/channels.types'
 
 export namespace AuthWebPushChannel {
   /** Standard Push API subscription shape. */

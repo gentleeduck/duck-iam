@@ -3,7 +3,7 @@
  * sink. Built for local development + tests; never wire into production.
  */
 
-import type { Channel } from '~/core/types/infra'
+import type { Channel } from '~/channels/channels.types'
 
 export namespace AuthConsoleChannel {
   /**
