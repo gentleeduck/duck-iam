@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { makeIdentity, makeSession } from '~/test/store-inputs'
-import { authImpossibleTravelDetector } from '../impossible-travel'
+import { authImpossibleTravelDetector } from '../impossible-travel.detector'
 
 const identity = makeIdentity({ id: 'u' })
 const session = makeSession({ id: 'sid', identityId: 'u' })

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { authImpossibleTravelDetector } from '~/core/anomaly/impossible-travel'
+import { authImpossibleTravelDetector } from '~/core/anomaly/impossible-travel.detector'
 import { InMemoryEvents } from '~/core/events'
 import type { Identity } from '~/core/types/identity'
 import type { Anomaly } from '~/core/types/provider'

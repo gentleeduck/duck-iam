@@ -3,7 +3,7 @@ import { sha256 } from '~/core/crypto'
 import type { Identity } from '~/core/types/identity'
 import type { Session } from '~/core/types/session'
 import { makeIdentity, makeSession } from '~/test/store-inputs'
-import { AuthMemoryDeviceFingerprintStore, deviceFingerprintDetector } from '../device-fingerprint'
+import { AuthMemoryDeviceFingerprintStore, deviceFingerprintDetector } from '../device-fingerprint.detector'
 
 function ctx(overrides: Partial<{ ip: string; userAgent: string; identityId: string }> = {}) {
   return {
