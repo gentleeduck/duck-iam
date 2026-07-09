@@ -1,5 +1,5 @@
 import { AuthError } from '~/core/errors'
-import type { Provider } from '~/core/types/provider'
+import type { Provider } from '~/core/provider/provider.types'
 
 /** Web-Fetch executor: turn `Provider.Intent[]` into a `Response`. */
 export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Response {

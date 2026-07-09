@@ -1,5 +1,5 @@
 import type { Identity } from '~/core'
-import type { Provider } from '~/core/types/provider'
+import type { Provider } from '~/core/provider/provider.types'
 import { toMfaConfig } from './mfa.config'
 import { MfaFacet } from './mfa.facet'
 import type { Mfa } from './mfa.types'

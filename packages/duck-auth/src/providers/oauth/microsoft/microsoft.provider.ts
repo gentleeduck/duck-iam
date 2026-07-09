@@ -1,7 +1,7 @@
 /** Microsoft Entra ID (formerly Azure AD) oauth 2.0 / OIDC provider. */
 import type { Identity } from '~/core'
 import { AuthError } from '~/core/errors'
-import type { Provider } from '~/core/types/provider'
+import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
 import type { OAuth } from '../core/oauth.types'
 import { oProvider } from '../core/provider'

@@ -1,11 +1,13 @@
+import type { ProvidersFacet } from '~/core/provider/provider.facet'
 import type { MfaFacet } from '~/providers/mfa/mfa.facet'
 import type { PasswordsFacet } from '~/providers/password/password.facet'
 import { AuthError } from '../errors'
 import type { IdentitiesFacet } from '../identities/identities.facet'
+import type { Provider } from '../provider/provider.types'
 import type { SessionsFacet } from '../sessions/sessions.facet'
 import type { Session } from '../sessions/sessions.types'
 import type { Identity } from '../types'
-import type { Events, Provider } from '../types/provider'
+import type { Events } from '../types/provider'
 import type { Transport } from '../types/session'
 import {
   cancelAccountDeletion as cancelAccountDeletionImpl,
@@ -31,7 +33,6 @@ import {
   completeSignUp as completeSignUpImpl,
   getSignUpFlow as getSignUpFlowImpl,
 } from './flows/signup.flow'
-import type { ProvidersFacet } from './providers.facet'
 
 export namespace FlowsFacet {
   /** Internal dependency bag passed to flow sub-functions. Not part of the public API. */

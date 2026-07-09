@@ -1,6 +1,6 @@
 import { AuthError } from '../errors'
 import type { Identity } from '../types'
-import type { Provider } from '../types/provider'
+import type { Provider } from './provider.types'
 
 /**
  * Providers facet - registry + dispatch. Holds the configured {@link Provider.IProvider}

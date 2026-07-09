@@ -1,5 +1,5 @@
+import type { Provider } from '../provider/provider.types'
 import type { Session } from '../sessions/sessions.types'
-import type { Provider } from '../types/provider'
 import type { Transport } from '../types/session'
 
 /**

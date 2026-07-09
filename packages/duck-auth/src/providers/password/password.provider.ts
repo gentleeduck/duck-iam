@@ -1,6 +1,6 @@
 import type { Identity } from '~/core'
 import { AuthError } from '~/core/errors'
-import type { Provider } from '~/core/types/provider'
+import type { Provider } from '~/core/provider/provider.types'
 import { ScryptHasher } from './hashers/scrypt.hasher'
 import { toPasswordsConfig } from './password.config'
 import { NO_IDENTITY_SENTINEL } from './password.constants'

@@ -13,9 +13,9 @@
 
 import type { ApiKeysFacet } from '~/providers/api-key/api-key.facet'
 import { AuthError } from '../errors'
+import type { Provider } from '../provider/provider.types'
 import type { SessionsFacet } from '../sessions/sessions.facet'
 import type { Session } from '../sessions/sessions.types'
-import type { Provider } from '../types/provider'
 import type { Transport } from '../types/session'
 import { DEFAULT_M2M_CONFIG } from './m2m.constants'
 import type { M2m } from './m2m.types'

@@ -1,6 +1,7 @@
 /** Transport, errors, and the response envelope. (The `Session` domain now lives in `~/core/sessions/sessions.types`.) */
+
+import type { Provider } from '~/core/provider/provider.types'
 import type { Session } from '~/core/sessions/sessions.types'
-import type { Provider } from './provider'
 
 /**
  * Session-bearer transport contract. Cookie (web), Bearer (native + API keys),

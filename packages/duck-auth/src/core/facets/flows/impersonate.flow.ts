@@ -1,7 +1,7 @@
 import { AuthError } from '~/core/errors'
+import type { Provider } from '~/core/provider/provider.types'
 import type { Session } from '~/core/sessions/sessions.types'
 import type { Identity } from '~/core/types'
-import type { Provider } from '~/core/types/provider'
 import type { FlowsFacet } from '../flows.facet'
 
 export async function impersonate<Profile extends Identity.ProfileMetadataBase>(

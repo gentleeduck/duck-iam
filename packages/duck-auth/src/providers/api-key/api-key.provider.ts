@@ -1,7 +1,7 @@
 import type { Identity } from '~/core'
 import { randomToken, sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
-import type { Provider } from '~/core/types/provider'
+import type { Provider } from '~/core/provider/provider.types'
 import { toApiKeysConfig } from './api-key.config'
 import { ApiKeysFacet } from './api-key.facet'
 import type { ApiKeys } from './api-key.types'

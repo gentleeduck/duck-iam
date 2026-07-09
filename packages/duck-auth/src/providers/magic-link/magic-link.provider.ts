@@ -1,7 +1,7 @@
 import type { Identity } from '~/core'
 import { isCredentialExpired, toCredentialUpsert } from '~/core/credential-utils'
 import { AuthError } from '~/core/errors'
-import type { Provider } from '~/core/types/provider'
+import type { Provider } from '~/core/provider/provider.types'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import { DEFAULT_MAGIC_LINK_CONFIG } from './magic-link.constants'
 import type { MagicLink } from './magic-link.types'

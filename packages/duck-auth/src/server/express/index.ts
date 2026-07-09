@@ -1,6 +1,6 @@
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
-import type { Provider } from '~/core/types/provider'
+import type { Provider } from '~/core/provider/provider.types'
 import {
   errorToHttp,
   isSafeRedirectUrl,
