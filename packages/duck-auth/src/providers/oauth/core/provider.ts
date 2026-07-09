@@ -175,10 +175,7 @@ export class OProviderImpl<Profile extends Identity.ProfileMetadataBase = Identi
   }
 }
 
-/**
- * Generic oauth provider. Specific provider modules (authGoogle, authGithub,
- * ...) pre-fill endpoints + scopes + fetchProfile and re-export.
- */
+/** Factory around {@link OProviderImpl} for functional-style config. */
 export function oProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: OAuth.Options<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {

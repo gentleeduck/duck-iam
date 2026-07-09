@@ -35,8 +35,7 @@ export class MagicLinkImpl<Profile extends Identity.ProfileMetadataBase = Identi
     // as `https://evil.com?...`).
     if (opts.callbackPath !== undefined && !isSafeCallbackPath(opts.callbackPath)) {
       throw new AuthError('AUTH_MISCONFIGURED', {
-        detail:
-          'magic-link.callbackPath must be a same-origin path (starts with `/`, no `//`, no CR/LF, <=256 chars)',
+        detail: 'magic-link.callbackPath must be a same-origin path (starts with `/`, no `//`, no CR/LF, <=256 chars)',
       })
     }
     this.callbackPath = opts.callbackPath ?? DEFAULT_MAGIC_LINK_CONFIG.callbackPath
@@ -180,9 +179,7 @@ export class MagicLinkImpl<Profile extends Identity.ProfileMetadataBase = Identi
   }
 }
 
-/**
- * Factory around {@link MagicLinkImpl} for functional-style config.
- */
+/** Factory around {@link MagicLinkImpl} for functional-style config. */
 export function magicLink<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
   opts: MagicLink.Options<Profile>,
 ): Provider.Me<MagicLink.BeginInput, MagicLink.CompleteInput, Profile> {
