@@ -25,13 +25,6 @@ export const identitiesTable = pgTable(
   'auth_identities',
   {
     id: uuid('id').primaryKey(),
-    /**
-     * Origin/home tenant this identity was created under. Scoping only —
-     * never used to gate access. An identity is a global account and may
-     * be a member of other tenants too; actual membership/authorization
-     * always lives in the host app's own tables, never here.
-     */
-    tenantId: text('tenant_id'),
     profile: jsonb('profile').notNull().$type<SqlBridge.ProfileMetadataBase>(),
     providers: jsonb('providers').notNull().default([]).$type<Identity.ProviderLink[]>(),
     version: integer('version').notNull().default(1),
@@ -42,7 +35,6 @@ export const identitiesTable = pgTable(
   },
   (t) => [
     check('chk_auth_identities_profile_shape', sql`profile ? 'username' AND profile ? 'email'`),
-    index('auth_identities_tenant').on(t.tenantId),
     index('auth_identities_deleted_at').on(t.deletedAt).where(isNull(t.deletedAt)),
     uniqueIndex('uq_auth_identities_email').on(sql`((lower(profile->>'email')))`).where(isNull(t.deletedAt)),
     uniqueIndex('uq_auth_identities_username').on(sql`((lower(profile->>'username')))`).where(isNull(t.deletedAt)),

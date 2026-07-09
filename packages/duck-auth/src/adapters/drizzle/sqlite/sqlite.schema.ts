@@ -16,11 +16,6 @@ export const identitiesTable = sqliteTable(
   'auth_identities',
   {
     id: text('id').primaryKey(),
-    /**
-     * Origin/home tenant this identity was created under. Scoping only —
-     * never used to gate access. Real membership always lives in the host app.
-     */
-    tenantId: text('tenant_id'),
     profile: text('profile', { mode: 'json' }).notNull().$type<SqlBridge.ProfileMetadataBase>(),
     providers: text('providers', { mode: 'json' }).notNull().default('[]').$type<Identity.ProviderLink[]>(),
     version: integer('version').notNull().default(1),
@@ -39,7 +34,6 @@ export const identitiesTable = sqliteTable(
         and json_extract(profile, '$.email') is not null
       )`,
     ),
-    index('auth_identities_tenant').on(t.tenantId),
     index('auth_identities_deleted_at').on(t.deletedAt).where(isNull(t.deletedAt)),
     uniqueIndex('uq_auth_identities_email')
       .on(sql`(lower(json_extract(profile, '$.email')))`)
