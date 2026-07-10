@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { NoopLimiter } from '~/limiters/mock'
 import { AuthEngine } from '../engine'
-import type { Identity } from '../identities/identities.types'
+import type { Identities } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
 
-interface MyProfile extends Identity.ProfileMetadataBase {
+interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
@@ -34,7 +34,7 @@ function makeAuth(
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    ...(o.limiter && { limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }) }),
+    ...(o.limiter && { limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }) }),
   })
   if (o.providers) {
     auth.providers.register({
@@ -166,7 +166,7 @@ describe('AuthEngine.strict()', () => {
           sessions: adapter.sessions,
           credentials: adapter.credentials,
         },
-        limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
+        limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
       })
       auth.providers.register({
         id: 'fake',

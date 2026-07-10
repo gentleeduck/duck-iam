@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { identityInput } from '~/test/store-inputs'
 import { sha256 } from '../crypto'
 import { AuthEngine } from '../engine'
-import type { Identity } from '../identities/identities.types'
+import type { Identities } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
 
-interface Profile extends Identity.ProfileMetadataBase {
+interface Profile extends Identities.ProfileMetadataBase {
   email: string
 }
 
@@ -21,7 +21,7 @@ function buildAuth(): { auth: AuthEngine<Profile>; adapter: MemoryAdapter<Profil
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
   })
   return { auth, adapter }
 }

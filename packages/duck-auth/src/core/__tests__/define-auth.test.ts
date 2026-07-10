@@ -10,19 +10,19 @@ import { passkey } from '~/providers/passkey'
 import { Argon2idHasher, passwords, ScryptHasher } from '~/providers/passwords'
 import { createAuth } from '../config'
 import { AuthEngine } from '../engine'
-import type { Identity } from '../identities/identities.types'
+import type { Identities } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
 
-type Profile = Identity.ProfileMetadataBase
+type Profile = Identities.ProfileMetadataBase
 
 describe('createAuth', () => {
   it('returns an AuthEngine instance with the supplied storage', () => {
     const storage = memoryStorage<Profile>()
     const auth = createAuth({ baseUrl: 'http://x', stores: storage })
     expect(auth).toBeInstanceOf(AuthEngine)
-    expect(auth.config.stores.identities).toBe(storage.identities)
-    expect(auth.config.stores.sessions).toBe(storage.sessions)
-    expect(auth.config.stores.credentials).toBe(storage.credentials)
+    expect(auth.cfg.stores.identities).toBe(storage.identities)
+    expect(auth.cfg.stores.sessions).toBe(storage.sessions)
+    expect(auth.cfg.stores.credentials).toBe(storage.credentials)
   })
 
   it('defaults transport to AuthCookieTransport with name "duck-sid"', () => {
@@ -177,7 +177,7 @@ describe('createAuth', () => {
       session: { ttlMs: 60_000 },
       stores: memoryStorage<Profile>(),
     })
-    expect(auth.config.session?.ttlMs).toBe(60_000)
+    expect(auth.cfg.session?.ttlMs).toBe(60_000)
   })
 
   it('apiKeyProvider mounts auth.apiKeys; prefix flows into created tokens', async () => {

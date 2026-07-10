@@ -21,8 +21,8 @@ export namespace RedisEvents {
     ): Promise<() => Promise<void>>
   }
 
-  /** Config knobs for {@link RedisEvents}. */
-  export type Config = {
+  /** Cfg knobs for {@link RedisEvents}. */
+  export type Cfg = {
     /** Pub/sub-capable Redis client. */
     redis: Client
     /** Channel prefix. Final channel is `${prefix}:${eventName}`. Default `auth:events`. */
@@ -47,7 +47,7 @@ export class RedisEvents implements Events.IBus {
   private readonly _localHandlers = new Map<Events.EventName, Set<(payload: unknown) => void | Promise<void>>>()
   private readonly _subscriptions = new Map<Events.EventName, () => Promise<void>>()
 
-  constructor(cfg: RedisEvents.Config) {
+  constructor(cfg: RedisEvents.Cfg) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:events'
     // Non-cryptographic loopback-dedup id; randomUUID keeps it collision-free

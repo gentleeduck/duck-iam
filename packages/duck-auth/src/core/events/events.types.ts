@@ -1,5 +1,5 @@
-import type { Identity } from '../identities'
-import type { Session } from '../sessions'
+import type { Identities } from '../identities'
+import type { Sessions } from '../sessions'
 
 /**
  * Typed event bus. Reference impl is in-memory; production swaps in Redis pub/sub
@@ -9,26 +9,26 @@ import type { Session } from '../sessions'
 export namespace Events {
   export interface Envelope {
     /** When the session is impersonating, real subject is recorded on every event. */
-    actingAs?: Session.ActingAs
+    actingAs?: Sessions.ActingAs
     /** Optional iam decision id when an action was authorized via iam-auth-bridge. */
     iamDecisionId?: string
   }
 
   export interface EventMap {
     'session.created': {
-      session: Session.Me
-      identity: Identity.Me | null
+      session: Sessions.Me
+      identity: Identities.Me | null
       audit?: Envelope
     }
-    'session.rotated': { session: Session.Me; audit?: Envelope }
+    'session.rotated': { session: Sessions.Me; audit?: Envelope }
     'session.revoked': {
       sessionId: string
       identityId: string | null
       audit?: Envelope
     }
     'signin.success': {
-      identity: Identity.Me
-      factors: Session.Factor[]
+      identity: Identities.Me
+      factors: Sessions.Factor[]
       audit?: Envelope
     }
     'signin.failed': {
@@ -37,16 +37,16 @@ export namespace Events {
       ip?: string
       audit?: Envelope
     }
-    'signup.completed': { identity: Identity.Me; audit?: Envelope }
+    'signup.completed': { identity: Identities.Me; audit?: Envelope }
     lockout: { identityId: string; until: number; audit?: Envelope }
     'mfa.enrolled': {
       identityId: string
-      method: Session.FactorMethod
+      method: Sessions.FactorMethod
       audit?: Envelope
     }
     'mfa.removed': {
       identityId: string
-      method: Session.FactorMethod
+      method: Sessions.FactorMethod
       audit?: Envelope
     }
     'identity.linked': {
