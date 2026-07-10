@@ -21,7 +21,7 @@ function buildAuth() {
   })
 }
 
-function buildOp(args: { dcr?: OidcOP.DcrConfig } = {}): OidcOpRoot<ProfileShape> {
+function buildOp(args: { dcr?: OidcOP.DcrCfg } = {}): OidcOpRoot<ProfileShape> {
   const secret = 'dev-hmac-secret'
   return createOidcOP<ProfileShape>({
     auth: buildAuth(),

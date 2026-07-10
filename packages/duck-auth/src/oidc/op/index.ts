@@ -73,10 +73,10 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
   readonly supportedScopes: string[]
   private deps: IDeps<Profile>
   private ttls = { ...DEFAULT_TTLS }
-  private dcrConfig: OidcOP.DcrConfig
+  private dcrCfg: OidcOP.DcrCfg
 
-  constructor(cfg: OidcOP.IConfig, deps: IDeps<Profile>, dcr?: OidcOP.DcrConfig) {
-    this.dcrConfig = dcr ?? { enabled: false }
+  constructor(cfg: OidcOP.Cfg, deps: IDeps<Profile>, dcr?: OidcOP.DcrCfg) {
+    this.dcrCfg = dcr ?? { enabled: false }
     if (!cfg.issuer) throw new Error('AuthOidcOP: issuer required')
     const parsed = parseIssuer(cfg.issuer, cfg.allowHttp ?? false)
     this.issuer = parsed
@@ -134,7 +134,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
    * RFC 7591 dynamic client registration. Host wires this on
    * `POST /register` and returns the result body as application/json.
    *
-   * When `dcrConfig.initialAccessToken` is set, the request MUST carry
+   * When `dcrCfg.initialAccessToken` is set, the request MUST carry
    * `Authorization: Bearer <token>` (constant-time compared) or the
    * call returns `{ error: 'unauthorized' }`. When unset, registration
    * is open and SHOULD be put behind a private network.
@@ -147,16 +147,16 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
     req: OidcOP.DcrRequest,
     headers: Headers,
   ): Promise<{ status: 201; body: OidcOP.DcrResponse } | { status: number; body: OidcOP.DcrError }> {
-    if (!this.dcrConfig.enabled) {
+    if (!this.dcrCfg.enabled) {
       return { status: 403, body: { error: 'unauthorized', error_description: 'dynamic registration disabled' } }
     }
-    if (this.dcrConfig.initialAccessToken !== undefined) {
+    if (this.dcrCfg.initialAccessToken !== undefined) {
       const auth = headers.get('authorization')
       if (!auth?.toLowerCase().startsWith('bearer ')) {
         return { status: 401, body: { error: 'unauthorized', error_description: 'initial access token required' } }
       }
       const presented = auth.slice(7).trim()
-      if (!timingSafeEqual(presented, this.dcrConfig.initialAccessToken)) {
+      if (!timingSafeEqual(presented, this.dcrCfg.initialAccessToken)) {
         return { status: 401, body: { error: 'unauthorized', error_description: 'invalid initial access token' } }
       }
     }
@@ -166,7 +166,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
         body: { error: 'invalid_redirect_uri', error_description: 'redirect_uris must be a non-empty array' },
       }
     }
-    const maxUris = this.dcrConfig.maxRedirectUris ?? 20
+    const maxUris = this.dcrCfg.maxRedirectUris ?? 20
     if (req.redirect_uris.length > maxUris) {
       return {
         status: 400,
@@ -733,9 +733,9 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
 /** Convenience factory with sensible memory-store defaults. */
 export function createOidcOP<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(args: {
   auth: AuthEngine<Profile>
-  config: OidcOP.IConfig
+  config: OidcOP.Cfg
   signIdToken: (payload: Record<string, unknown>) => Promise<string> | string
-  dcr?: OidcOP.DcrConfig
+  dcr?: OidcOP.DcrCfg
   stores?: {
     clients?: OidcOP.ClientStore
     codes?: OidcOP.CodeStore

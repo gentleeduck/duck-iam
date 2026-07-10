@@ -3,7 +3,7 @@
 import { AuthError } from '../core/errors'
 
 /** Build the discovery document; `extraClaims` is appended verbatim. */
-export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.IConfig): AuthOidcDiscovery.IDocument {
+export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.Cfg): AuthOidcDiscovery.IDocument {
   if (!cfg.issuer) {
     throw new AuthError('AUTH_MISCONFIGURED', {
       detail: 'authBuildOidcDiscovery requires a non-empty issuer',
@@ -61,7 +61,7 @@ export function authBuildOidcDiscovery(cfg: AuthOidcDiscovery.IConfig): AuthOidc
  * mount under `/.well-known/jwks.json` directly.
  */
 export function authBuildOidcRoutes(opts: {
-  config: AuthOidcDiscovery.IConfig
+  config: AuthOidcDiscovery.Cfg
   transport: AuthOidcDiscovery.IJwtTransport
 }): {
   discovery: AuthOidcDiscovery.IDocument
@@ -229,7 +229,7 @@ const _discoveryCache = new Map<string, DiscoveryCacheEntry>()
  * Tune the RP-side discovery cache. Called once at boot; affects
  * every subsequent `authFetchOidcDiscovery` call across the process.
  */
-export function authConfigureOidcDiscoveryCache(opts: { ttlMs?: number; capacity?: number }): void {
+export function authCfgureOidcDiscoveryCache(opts: { ttlMs?: number; capacity?: number }): void {
   if (opts.ttlMs !== undefined) _discoveryTtlMs = opts.ttlMs
   if (opts.capacity !== undefined) _discoveryCapacity = opts.capacity
 }
@@ -240,7 +240,7 @@ export function authFlushOidcDiscoveryCache(): void {
 }
 
 export namespace AuthOidcDiscovery {
-  export interface IConfig {
+  export interface Cfg {
     /** Required. Public issuer URL (no trailing slash). */
     issuer: string
     /** Mount prefix for the auth routes; default `/auth`. */

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   authBuildOidcDiscovery,
   authBuildOidcRoutes,
-  authConfigureOidcDiscoveryCache,
+  authCfgureOidcDiscoveryCache,
   authFetchOidcDiscovery,
   authFlushOidcDiscoveryCache,
 } from '../index'
@@ -134,7 +134,7 @@ describe('authBuildOidcRoutes', () => {
 describe('authFetchOidcDiscovery - RP-side cache', () => {
   beforeEach(() => {
     authFlushOidcDiscoveryCache()
-    authConfigureOidcDiscoveryCache({ ttlMs: 60_000, capacity: 4 })
+    authCfgureOidcDiscoveryCache({ ttlMs: 60_000, capacity: 4 })
   })
 
   it('fetches + caches the discovery document; second call does not hit the network', async () => {

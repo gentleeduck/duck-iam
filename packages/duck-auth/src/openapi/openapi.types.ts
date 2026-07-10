@@ -1,5 +1,5 @@
 export namespace OpenApi {
-  export type Config = {
+  export type Cfg = {
     /** Server URL the routes are mounted under. */
     baseUrl: string
     /** Spec title. Default `Auth API`. */

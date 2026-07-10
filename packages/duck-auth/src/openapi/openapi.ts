@@ -3,11 +3,11 @@
 import type { OpenApi } from './openapi.types'
 
 /** Build the OpenAPI 3.1 spec for the configured providers. */
-export function buildOpenApiSpec(config: OpenApi.Config): OpenApi.ISpec {
-  const title = config.title ?? 'Auth API'
-  const version = config.version ?? '0.1.0'
-  const prefix = config.prefix ?? '/auth'
-  const providers = new Set(config.providers ?? ['password', 'magic-link', 'oauth', 'passkey'])
+export function buildOpenApiSpec(cfg: OpenApi.Cfg): OpenApi.ISpec {
+  const title = cfg.title ?? 'Auth API'
+  const version = cfg.version ?? '0.1.0'
+  const prefix = cfg.prefix ?? '/auth'
+  const providers = new Set(cfg.providers ?? ['password', 'magic-link', 'oauth', 'passkey'])
 
   const spec: OpenApi.ISpec = {
     openapi: '3.1.0',
@@ -17,7 +17,7 @@ export function buildOpenApiSpec(config: OpenApi.Config): OpenApi.ISpec {
       description:
         'Routes mounted by `@gentleduck/auth` framework adapters. Exact mount paths depend on adapter configuration; this spec uses the defaults.',
     },
-    servers: [{ url: config.baseUrl }],
+    servers: [{ url: cfg.baseUrl }],
     paths: {},
     components: {
       schemas: {
@@ -135,7 +135,7 @@ export function buildOpenApiSpec(config: OpenApi.Config): OpenApi.ISpec {
     },
   }
 
-  if (config.includeJwks) {
+  if (cfg.includeJwks) {
     spec.paths['/.well-known/jwks.json'] = {
       get: {
         summary: 'JSON Web Key Set for verifying issued JWT access tokens',

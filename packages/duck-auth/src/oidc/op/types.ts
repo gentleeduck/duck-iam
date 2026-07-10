@@ -119,8 +119,8 @@ export namespace OidcOP {
     upsert(c: Consent): Promise<void>
   }
 
-  /** Configuration for the OP. */
-  export type IConfig = {
+  /** Cfguration for the OP. */
+  export type Cfg = {
     /** Issuer URL. Must match the discovery doc. */
     issuer: string
     /** Supported scopes. Always includes `openid`. */
@@ -254,7 +254,7 @@ export namespace OidcOP {
   }
 
   /** DCR controller config. */
-  export type DcrConfig = {
+  export type DcrCfg = {
     /** Master switch. Default false. */
     enabled: boolean
     /**
