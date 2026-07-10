@@ -1,9 +1,9 @@
-import type { RedisLike } from '~/adapters/redis'
+import type { RedisLike } from '~/adapters/redis/redis-like'
 import type { Limiter } from '../limiters.types'
 
 export namespace RedisLimiter {
-  /** Config knobs for {@link RedisLimiter}. */
-  export type Config<TRedis extends RedisLike.Client = RedisLike.Client> = {
+  /** Cfg knobs for {@link RedisLimiter}. */
+  export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
     /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: TRedis
     /** Max consumed weight per window. Default 10. */
@@ -27,7 +27,7 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
   private readonly _windowMs: number
   private readonly _prefix: string
 
-  constructor(cfg: RedisLimiter.Config<TRedis>) {
+  constructor(cfg: RedisLimiter.Cfg<TRedis>) {
     this._redis = cfg.redis
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000

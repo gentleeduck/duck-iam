@@ -1,7 +1,7 @@
 import type { Limiter } from '../limiters.types'
 
-export namespace AuthMemoryLimiter {
-  export type Config = {
+export namespace MemoryLimiter {
+  export type Cfg = {
     /** Max consumed weight before further consume() returns ok:false. Default 10. */
     max?: number
     /** Window size in ms. Default 15 minutes. */
@@ -13,12 +13,12 @@ export namespace AuthMemoryLimiter {
  * Token-bucket memory limiter. Dev/test only; production uses Redis.
  * Per-key independent bucket; reset() empties one bucket.
  */
-export class AuthMemoryLimiter implements Limiter.Me {
+export class MemoryLimiter implements Limiter.Me {
   private readonly _max: number
   private readonly _windowMs: number
   private _buckets = new Map<string, { count: number; resetAt: number }>()
 
-  constructor(cfg: AuthMemoryLimiter.Config = {}) {
+  constructor(cfg: MemoryLimiter.Cfg = {}) {
     this._max = cfg.max ?? 10
     this._windowMs = cfg.windowMs ?? 15 * 60 * 1000
   }
@@ -46,4 +46,9 @@ export class AuthMemoryLimiter implements Limiter.Me {
   async reset(key: string): Promise<void> {
     this._buckets.delete(key)
   }
+}
+
+/** Factory around {@link MemoryLimiter} for functional-style config. */
+export function memoryLimiter(cfg?: Partial<MemoryLimiter.Cfg>): MemoryLimiter {
+  return new MemoryLimiter(cfg)
 }
