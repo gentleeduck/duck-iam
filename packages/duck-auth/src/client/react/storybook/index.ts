@@ -25,8 +25,8 @@
 
 import { createElement, type JSX, type ReactNode } from 'react'
 import { createAuthClient, type VanillaClient } from '~/client/vanilla'
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import { Provider } from '../index'
 
 /** Default backend URL when a story opts into `live: true` without a custom `baseUrl`. */
@@ -37,7 +37,7 @@ export const AUTH_DEFAULT_LIVE_BASE_URL = 'http://localhost:8787/auth'
  * Every RPC resolves immediately with the configured state; `onChange`
  * fires once on subscribe.
  */
-export function authCreateMockClient<Profile extends Identity.ProfileMetadataBase>(
+export function authCreateMockClient<Profile extends Identities.ProfileMetadataBase>(
   state: Storybook.State<Profile>,
 ): VanillaClient.Client<Profile> {
   const result: VanillaClient.SessionResult<Profile> = {
@@ -77,7 +77,7 @@ export function authCreateMockClient<Profile extends Identity.ProfileMetadataBas
  * `authCreateClient({ baseUrl })` so the story hits a real backend
  * with credentials.
  */
-export function authWithStorybook<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function authWithStorybook<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   defaults: Storybook.State<Profile> = {},
 ) {
   return function authDecorator(
@@ -121,10 +121,10 @@ export namespace Storybook {
    * `http://localhost:8787/auth`, which matches the bundled
    * `apps/duck-auth-demo` server).
    */
-  export type State<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> = {
+  export type State<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     status?: 'loading' | 'authed' | 'guest'
-    identity?: Partial<Identity.Me<Profile>> | null
-    session?: Partial<Session.Me> | null
+    identity?: Partial<Identities.Me<Profile>> | null
+    session?: Partial<Sessions.Me> | null
     /** Use a real client pointed at `baseUrl` instead of the mock. */
     live?: boolean
     /** Backend root for live mode. Defaults to `http://localhost:8787/auth`. */

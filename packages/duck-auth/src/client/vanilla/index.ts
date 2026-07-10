@@ -5,13 +5,13 @@
  */
 
 import type { Envelope } from '~/core/errors/errors.types'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { VanillaClient } from './types'
 
 export type { VanillaClient } from './types'
 
-export function createAuthClient<Profile extends Identity.ProfileMetadataBase>(
-  cfg: VanillaClient.Config = {},
+export function createAuthClient<Profile extends Identities.ProfileMetadataBase>(
+  cfg: VanillaClient.Cfg = {},
 ): VanillaClient.Client<Profile> {
   const baseUrl = (cfg.baseUrl ?? '/auth').replace(/\/$/, '')
   const fetchImpl: typeof globalThis.fetch = cfg.fetch ?? (globalThis.fetch as typeof globalThis.fetch)

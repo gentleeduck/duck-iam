@@ -1,18 +1,18 @@
 /** Solid client types — context shape + the public `SolidClient` namespace. */
 import type { JSX } from 'solid-js'
 import type { Envelope } from '~/core/errors/errors.types'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import type { VanillaClient } from '../vanilla'
 
 export namespace SolidClient {
-  export type Context<Profile extends Identity.ProfileMetadataBase> = {
+  export type Context<Profile extends Identities.ProfileMetadataBase> = {
     client: VanillaClient.Client<Profile>
     state: () => VanillaClient.SessionResult<Profile>
     status: () => 'loading' | 'authed' | 'guest'
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
 
-  export interface IProviderProps<Profile extends Identity.ProfileMetadataBase> extends VanillaClient.Config {
+  export interface IProviderProps<Profile extends Identities.ProfileMetadataBase> extends VanillaClient.Cfg {
     children?: JSX.Element
     /** Pre-built client; overrides config. */
     client?: VanillaClient.Client<Profile>
@@ -20,7 +20,7 @@ export namespace SolidClient {
     noInitialFetch?: boolean
   }
 
-  export type UseSessionResult<Profile extends Identity.ProfileMetadataBase> = {
+  export type UseSessionResult<Profile extends Identities.ProfileMetadataBase> = {
     data: () => VanillaClient.SessionResult<Profile>
     status: () => 'loading' | 'authed' | 'guest'
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>

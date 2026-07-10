@@ -1,7 +1,7 @@
 /** Vue 3 plugin + composables; `vue` is an OPTIONAL peerDep resolved lazily. Types live in `./types`. */
 
 import type { Envelope } from '~/core/errors/errors.types'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import { createAuthClient, type VanillaClient } from '../vanilla'
 import type { VueClient } from './types'
 
@@ -12,8 +12,8 @@ export type { VueClient } from './types'
  * The returned object is plugin-shaped (`{ install }`) so it works
  * with `app.use(authPlugin)` from a `createApp` boot.
  */
-export function createAuthVuePlugin<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
-  cfg: VueClient.IConfig<Profile> = {},
+export function createAuthVuePlugin<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
+  cfg: VueClient.Cfg<Profile> = {},
 ): VueClient.Plugin {
   const client = cfg.client ?? createAuthClient<Profile>(cfg)
   return {
@@ -40,7 +40,7 @@ export function createAuthVuePlugin<Profile extends Identity.ProfileMetadataBase
 export const AUTH_VUE_KEY = Symbol.for('@gentleduck/AUTH/client/vue')
 
 function useAuthCtx<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VueClient.Injected<Profile> {
   const vue = loadVueSync()
   const ctx = vue.inject(AUTH_VUE_KEY) as VueClient.Injected<Profile> | undefined
@@ -51,7 +51,7 @@ function useAuthCtx<
 }
 
 export function useAuthSession<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VueClient.UseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, refresh: ctx.refresh, status: ctx.status }
@@ -77,7 +77,7 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): VueClient.MutationResu
 }
 
 export function useAuthSignIn<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VueClient.MutationResult<VanillaClient.SignInOptions, Envelope<VanillaClient.SessionResult<Profile>, string>> {
   const { client } = useAuthCtx<Profile>()
   return useMutation((opts: VanillaClient.SignInOptions) => client.signIn(opts))
@@ -89,7 +89,7 @@ export function useAuthSignOut(): VueClient.MutationResult<void, Envelope<Record
 }
 
 export function useAuthClient<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VanillaClient.Client<Profile> {
   return useAuthCtx<Profile>().client
 }

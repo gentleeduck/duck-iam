@@ -1,7 +1,7 @@
 /** Svelte client types — the public `SvelteClient` namespace. */
 
 import type { Envelope } from '~/core/errors/errors.types'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { VanillaClient } from '../vanilla'
 
 export namespace SvelteClient {
@@ -14,20 +14,20 @@ export namespace SvelteClient {
     subscribe(run: (value: T) => void): () => void
   }
 
-  export interface IConfig<Profile extends Identity.ProfileMetadataBase> extends VanillaClient.Config {
+  export interface Cfg<Profile extends Identities.ProfileMetadataBase> extends VanillaClient.Cfg {
     /** Pre-built client; overrides cfg. */
     client?: VanillaClient.Client<Profile>
     /** Disable the initial automatic /session fetch on store creation. */
     noInitialFetch?: boolean
   }
 
-  export type State<Profile extends Identity.ProfileMetadataBase> = {
+  export type State<Profile extends Identities.ProfileMetadataBase> = {
     session: VanillaClient.SessionResult<Profile>['session']
     identity: VanillaClient.SessionResult<Profile>['identity']
     status: 'loading' | 'authed' | 'guest'
   }
 
-  export type StoreBag<Profile extends Identity.ProfileMetadataBase> = {
+  export type StoreBag<Profile extends Identities.ProfileMetadataBase> = {
     /** Svelte store exposing `{ session, identity, status }`. */
     state: SvelteClient.Readable<SvelteClient.State<Profile>>
     /** The underlying vanilla client (for advanced flows). */

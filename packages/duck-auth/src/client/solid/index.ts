@@ -1,16 +1,16 @@
 /** Solid client - context + signals; `solid-js` is an OPTIONAL peerDep. Types live in `./types`. */
 import { createContext, createMemo, createSignal, type JSX, onCleanup, onMount, useContext } from 'solid-js'
 import type { Envelope } from '~/core/errors/errors.types'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import { createAuthClient, type VanillaClient } from '../vanilla'
 import type { SolidClient } from './types'
 
 export type { SolidClient } from './types'
 
-const AuthContext = createContext<SolidClient.Context<Identity.ProfileMetadataBase> | null>(null)
+const AuthContext = createContext<SolidClient.Context<Identities.ProfileMetadataBase> | null>(null)
 
 /** `Provider`. */
-export function Provider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function Provider<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   props: SolidClient.IProviderProps<Profile>,
 ): JSX.Element {
   const client = props.client ?? createAuthClient(props)
@@ -42,7 +42,7 @@ export function Provider<Profile extends Identity.ProfileMetadataBase = Identity
 }
 
 function useAuthCtx<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): SolidClient.Context<Profile> {
   const ctx = useContext(AuthContext) as SolidClient.Context<Profile> | null
   if (!ctx) {
@@ -53,7 +53,7 @@ function useAuthCtx<
 
 /** `authUseSession`. */
 export function authUseSession<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): SolidClient.UseSessionResult<Profile> {
   const ctx = useAuthCtx<Profile>()
   return { data: ctx.state, refresh: ctx.refresh, status: ctx.status }
@@ -83,7 +83,7 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): SolidClient.MutationRe
 
 /** `authUseSignIn`. */
 export function authUseSignIn<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): SolidClient.MutationResult<VanillaClient.SignInOptions, Envelope<VanillaClient.SessionResult<Profile>, string>> {
   const { client } = useAuthCtx<Profile>()
   return useMutation((opts: VanillaClient.SignInOptions) => client.signIn(opts))
@@ -97,7 +97,7 @@ export function authUseSignOut(): SolidClient.MutationResult<void, Envelope<Reco
 
 /** `authUseClient`. */
 export function authUseClient<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
 >(): VanillaClient.Client<Profile> {
   return useAuthCtx<Profile>().client
 }

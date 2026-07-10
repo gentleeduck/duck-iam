@@ -1,12 +1,12 @@
 /** Vanilla client types — config + the public `VanillaClient` namespace. */
 
 import type { Envelope } from '~/core/errors/errors.types'
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
 export namespace VanillaClient {
   /** Client configuration. */
-  export type Config = {
+  export type Cfg = {
     /** Mount point on the server. Default `/auth`. */
     baseUrl?: string
     /** Override the fetch impl (test stubs, retry wrappers, etc.). */
@@ -24,9 +24,9 @@ export namespace VanillaClient {
     path?: string
   }
 
-  export type SessionResult<Profile extends Identity.ProfileMetadataBase> = {
-    session: Session.Me | null
-    identity: Identity.Me<Profile> | null
+  export type SessionResult<Profile extends Identities.ProfileMetadataBase> = {
+    session: Sessions.Me | null
+    identity: Identities.Me<Profile> | null
   }
 
   export type SignUpOptions = {
@@ -35,7 +35,7 @@ export namespace VanillaClient {
   }
 
   /** The framework-free client surface. */
-  export type Client<Profile extends Identity.ProfileMetadataBase> = {
+  export type Client<Profile extends Identities.ProfileMetadataBase> = {
     /** POST /AUTH/signin → resolves to the resulting session envelope. */
     signIn(opts: VanillaClient.SignInOptions): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
     /**

@@ -1,5 +1,5 @@
 /** Svelte client - exposes the vanilla AuthClient as duck-typed `Readable` stores. Types live in `./types`. */
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import { createAuthClient } from '../vanilla'
 import type { SvelteClient } from './types'
 
@@ -10,8 +10,8 @@ export type { SvelteClient } from './types'
  * Returns the bag eagerly (no Svelte runtime needed); `state` is a
  * `Readable` and updates whenever the underlying vanilla client emits.
  */
-export function createAuthStore<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
-  cfg: SvelteClient.IConfig<Profile> = {},
+export function createAuthStore<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
+  cfg: SvelteClient.Cfg<Profile> = {},
 ): SvelteClient.StoreBag<Profile> {
   const client = cfg.client ?? createAuthClient<Profile>(cfg)
   let current: SvelteClient.State<Profile> = {

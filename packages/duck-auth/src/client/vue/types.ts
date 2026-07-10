@@ -1,7 +1,7 @@
 /** Vue client types — the public `VueClient` namespace. */
 
 import type { Envelope } from '~/core/errors/errors.types'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { VanillaClient } from '../vanilla'
 
 export namespace VueClient {
@@ -24,21 +24,21 @@ export namespace VueClient {
     install(app: VueClient.App): void
   }
 
-  export interface IConfig<Profile extends Identity.ProfileMetadataBase> extends VanillaClient.Config {
+  export interface Cfg<Profile extends Identities.ProfileMetadataBase> extends VanillaClient.Cfg {
     /** Pre-built client; overrides config. */
     client?: VanillaClient.Client<Profile>
     /** Disable the initial automatic /session fetch on plugin install. */
     noInitialFetch?: boolean
   }
 
-  export type Injected<Profile extends Identity.ProfileMetadataBase> = {
+  export type Injected<Profile extends Identities.ProfileMetadataBase> = {
     client: VanillaClient.Client<Profile>
     state: VueClient.Ref<VanillaClient.SessionResult<Profile>>
     status: VueClient.Ref<'loading' | 'authed' | 'guest'>
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
 
-  export type UseSessionResult<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> = {
+  export type UseSessionResult<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     data: VueClient.Ref<VanillaClient.SessionResult<Profile>>
     status: VueClient.Ref<'loading' | 'authed' | 'guest'>
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
