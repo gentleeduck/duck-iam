@@ -1,22 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { IdempotencyImpl } from '../idempotency'
 import { DEFAULT_IDEMPOTENCY_CONFIG } from '../idempotency.constants'
-import { IdempotencyFacet } from '../idempotency.facet'
-import { MemoryIdempotencyStore } from '../idempotency.memory'
+import { MemoryIdempotency } from '../idempotency.memory'
 
 describe('MemoryIdempotencyStore', () => {
   it('get returns null for unseen keys', async () => {
-    const store = new MemoryIdempotencyStore()
+    const store = new MemoryIdempotency()
     expect(await store.get('k', {})).toBeNull()
   })
 
   it('claim returns true the first time + false on subsequent claims within TTL', async () => {
-    const store = new MemoryIdempotencyStore()
+    const store = new MemoryIdempotency()
     expect(await store.claim('k', 60_000, {})).toBe(true)
     expect(await store.claim('k', 60_000, {})).toBe(false)
   })
 
   it('put + get roundtrip persists status + body', async () => {
-    const store = new MemoryIdempotencyStore()
+    const store = new MemoryIdempotency()
     await store.put('k', { status: 201, body: { ok: true }, createdAt: new Date() }, 60_000, {})
     const got = await store.get('k', {})
     expect(got?.status).toBe(201)
@@ -24,7 +24,7 @@ describe('MemoryIdempotencyStore', () => {
   })
 
   it('respects tenant scope (same key in different tenants do not collide)', async () => {
-    const store = new MemoryIdempotencyStore()
+    const store = new MemoryIdempotency()
     await store.put('k', { status: 200, body: 'A', createdAt: new Date() }, 60_000, { tenantId: 'A' })
     await store.put('k', { status: 200, body: 'B', createdAt: new Date() }, 60_000, { tenantId: 'B' })
     expect((await store.get('k', { tenantId: 'A' }))?.body).toBe('A')
@@ -32,7 +32,7 @@ describe('MemoryIdempotencyStore', () => {
   })
 
   it('TTL elapses + get returns null', async () => {
-    const store = new MemoryIdempotencyStore()
+    const store = new MemoryIdempotency()
     await store.put('k', { status: 200, body: 'x', createdAt: new Date() }, 1, {})
     await new Promise((r) => setTimeout(r, 5))
     expect(await store.get('k', {})).toBeNull()
@@ -40,12 +40,12 @@ describe('MemoryIdempotencyStore', () => {
 })
 
 describe('IdempotencyFacet.handle', () => {
-  let store: MemoryIdempotencyStore
-  let facet: IdempotencyFacet
+  let store: MemoryIdempotency
+  let facet: IdempotencyImpl
 
   beforeEach(() => {
-    store = new MemoryIdempotencyStore()
-    facet = new IdempotencyFacet(store, DEFAULT_IDEMPOTENCY_CONFIG)
+    store = new MemoryIdempotency()
+    facet = new IdempotencyImpl(store, DEFAULT_IDEMPOTENCY_CONFIG)
   })
 
   it('executes once + caches; second call returns the cached response without re-executing', async () => {
@@ -72,7 +72,7 @@ describe('IdempotencyFacet.handle', () => {
   })
 
   it('disabled facet (null store) bypasses the cache entirely', async () => {
-    const disabled = new IdempotencyFacet(null, DEFAULT_IDEMPOTENCY_CONFIG)
+    const disabled = new IdempotencyImpl(null, DEFAULT_IDEMPOTENCY_CONFIG)
     expect(disabled.enabled()).toBe(false)
     const exec = vi.fn(async () => ({ status: 200, body: {}, createdAt: new Date() }))
     await disabled.handle('k', {}, exec)
@@ -105,7 +105,7 @@ describe('IdempotencyFacet.handle', () => {
     // synthetic pre-claim must use the same prefix.
     await store.claim('_anon::orphan-k', DEFAULT_IDEMPOTENCY_CONFIG.ttlMs, {})
     const exec = vi.fn(async () => ({ status: 200, body: { ran: true }, createdAt: new Date() }))
-    const tightFacet = new IdempotencyFacet(store, { ...DEFAULT_IDEMPOTENCY_CONFIG, pollTimeoutMs: 100 })
+    const tightFacet = new IdempotencyImpl(store, { ...DEFAULT_IDEMPOTENCY_CONFIG, pollTimeoutMs: 100 })
     const r = await tightFacet.handle('orphan-k', {}, exec)
     expect(exec).not.toHaveBeenCalled()
     expect(r.status).toBe(409)
@@ -113,7 +113,7 @@ describe('IdempotencyFacet.handle', () => {
   })
 
   it('identity scoping - Alice and Bob can use the same key without collision', async () => {
-    const facet2 = new IdempotencyFacet(store, DEFAULT_IDEMPOTENCY_CONFIG)
+    const facet2 = new IdempotencyImpl(store, DEFAULT_IDEMPOTENCY_CONFIG)
     const aExec = vi.fn(async () => ({ status: 200, body: { who: 'alice' }, createdAt: new Date() }))
     const bExec = vi.fn(async () => ({ status: 200, body: { who: 'bob' }, createdAt: new Date() }))
     const a = await facet2.handle('same-key', {}, aExec, { identityId: 'alice' })
@@ -125,7 +125,7 @@ describe('IdempotencyFacet.handle', () => {
   })
 
   it('identity scoping - same identity replaying same key gets the cached response (not re-executed)', async () => {
-    const facet2 = new IdempotencyFacet(store, DEFAULT_IDEMPOTENCY_CONFIG)
+    const facet2 = new IdempotencyImpl(store, DEFAULT_IDEMPOTENCY_CONFIG)
     const exec = vi.fn(async () => ({ status: 200, body: { ok: true }, createdAt: new Date() }))
     await facet2.handle('k', {}, exec, { identityId: 'alice' })
     await facet2.handle('k', {}, exec, { identityId: 'alice' })

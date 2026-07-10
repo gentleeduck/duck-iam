@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 
-interface ProfileShape extends Identity.ProfileMetadataBase {
+interface ProfileShape extends Identities.ProfileMetadataBase {
   email: string
   emailVerified?: boolean
 }
@@ -23,7 +23,7 @@ function build() {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }

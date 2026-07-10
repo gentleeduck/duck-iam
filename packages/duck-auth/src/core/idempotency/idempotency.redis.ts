@@ -3,9 +3,9 @@ import { isFiniteNumber } from '~/core/credentials/credentials'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 
-export namespace RedisIdempotencyStore {
-  /** Config knobs for {@link RedisIdempotencyStore}. */
-  export type Config<TRedis extends RedisLike.Client = RedisLike.Client> = {
+export namespace RedisIdempotency {
+  /** Cfg knobs for {@link RedisIdempotency}. */
+  export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
     /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: TRedis
     /**
@@ -22,11 +22,11 @@ export namespace RedisIdempotencyStore {
  * per-tenant key prefix; two tenants supplying the same Idempotency-Key
  * cannot collide.
  */
-export class RedisIdempotencyStore<TRedis extends RedisLike.Client = RedisLike.Client> implements Idempotency.Store {
+export class RedisIdempotency<TRedis extends RedisLike.Client = RedisLike.Client> implements Idempotency.Store {
   private readonly _redis: TRedis
   private readonly _prefix: string
 
-  constructor(cfg: RedisIdempotencyStore.Config<TRedis>) {
+  constructor(cfg: RedisIdempotency.Cfg<TRedis>) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:idem'
   }
@@ -116,4 +116,11 @@ function parseStoredIdempotencyEntry(raw: string): Idempotency.CachedResponse | 
     out.headers = safe
   }
   return out
+}
+
+/** Factory around {@link RedisIdempotency} for functional-style config. */
+export function redisIdempotency<TRedis extends RedisLike.Client = RedisLike.Client>(
+  cfg: RedisIdempotency.Cfg<TRedis>,
+): RedisIdempotency<TRedis> {
+  return new RedisIdempotency(cfg)
 }

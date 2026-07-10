@@ -5,13 +5,13 @@ import {
   toCredentialUpsert,
 } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
-import type { FlowsFacet } from './flows.facet'
+import type { Flows } from './flows.types'
 
-export async function requestAccountDeletion<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  opts: FlowsFacet.AccountDeletionRequestInput,
+export async function requestAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  opts: Flows.AccountDeletionRequestInput,
 ): Promise<{ ok: true }> {
   const ctx = deps.ctxFactory(opts.tenantId)
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
@@ -77,9 +77,9 @@ export async function requestAccountDeletion<Profile extends Identity.ProfileMet
   return { ok: true }
 }
 
-export async function completeAccountDeletion<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  input: FlowsFacet.AccountDeletionCompleteInput,
+export async function completeAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  input: Flows.AccountDeletionCompleteInput,
 ): Promise<{ identityId: string; restorableUntil: number }> {
   if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 256) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
@@ -111,9 +111,9 @@ export async function completeAccountDeletion<Profile extends Identity.ProfileMe
   return { identityId, restorableUntil }
 }
 
-export async function cancelAccountDeletion<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  input: FlowsFacet.AccountDeletionCancelInput,
+export async function cancelAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  input: Flows.AccountDeletionCancelInput,
 ): Promise<{ identityId: string }> {
   if (typeof input.identityId !== 'string' || input.identityId.length === 0 || input.identityId.length > 256) {
     throw new AuthError('AUTH_UNAUTHENTICATED')

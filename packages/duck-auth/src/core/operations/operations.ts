@@ -17,7 +17,7 @@ import type { Operations } from './operations.types'
  *
  * DESIGN section O1 + O2.
  */
-export class OperationsFacet {
+export class OperationsImpl {
   private _state: Operations.State = {
     maintenance: { on: false },
     readOnly: { on: false },
@@ -87,4 +87,9 @@ export class OperationsFacet {
 function isMutatingMethod(method: string): boolean {
   const m = method.toUpperCase()
   return m === 'POST' || m === 'PUT' || m === 'PATCH' || m === 'DELETE'
+}
+
+/** Factory for {@link OperationsImpl}. */
+export function operations(events: Events.IBus): OperationsImpl {
+  return new OperationsImpl(events)
 }

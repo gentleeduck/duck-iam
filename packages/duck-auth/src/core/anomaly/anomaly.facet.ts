@@ -1,6 +1,6 @@
 import type { Events } from '~/core/events/events.types'
-import type { Identity } from '../identities/identities.types'
-import type { Session } from '../sessions/sessions.types'
+import type { Identities } from '../identities/identities.types'
+import type { Sessions } from '../sessions/sessions.types'
 import { DEFAULT_ANOMALY_CONFIG } from './anomaly.constants'
 import type { Anomaly } from './anomaly.types'
 
@@ -44,11 +44,11 @@ function isValidSignal(raw: unknown): raw is Anomaly.Signal {
  */
 export class AnomalyFacet {
   private readonly _detectors: Anomaly.Detector[] = []
-  private readonly _cfg: Anomaly.Config
+  private readonly _cfg: Anomaly.Cfg
 
   constructor(
     private readonly _events: Events.IBus,
-    cfg: Partial<Anomaly.Config> = {},
+    cfg: Partial<Anomaly.Cfg> = {},
   ) {
     this._cfg = { ...DEFAULT_ANOMALY_CONFIG, ...cfg }
   }
@@ -78,8 +78,8 @@ export class AnomalyFacet {
    * misbehaving plugin can never lock users out of authn.
    */
   async evaluate(input: {
-    session: Session.Me
-    identity: Identity.Me
+    session: Sessions.Me
+    identity: Identities.Me
     req: Anomaly.RequestSnapshot
   }): Promise<Anomaly.Result> {
     const signals: Anomaly.Signal[] = []

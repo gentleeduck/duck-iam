@@ -10,7 +10,7 @@ import type { Idempotency } from './idempotency.types'
  * Keys are scoped by tenantId so two tenants supplying the same
  * Idempotency-Key cannot collide.
  */
-export class MemoryIdempotencyStore implements Idempotency.Store {
+export class MemoryIdempotency implements Idempotency.Store {
   private readonly _entries = new Map<
     string,
     { response: Idempotency.CachedResponse; expiresAt: number; claimedAt: number }
@@ -64,4 +64,9 @@ export class MemoryIdempotencyStore implements Idempotency.Store {
   async delete(key: string, ctx: TenantContext): Promise<void> {
     this._entries.delete(this._k(key, ctx))
   }
+}
+
+/** Factory around {@link MemoryIdempotency} for functional-style config. */
+export function memoryIdempotency(): MemoryIdempotency {
+  return new MemoryIdempotency()
 }

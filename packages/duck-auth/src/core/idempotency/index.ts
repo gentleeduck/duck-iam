@@ -1,5 +1,5 @@
+export { IdempotencyImpl, idempotency } from './idempotency'
 export { DEFAULT_IDEMPOTENCY_CONFIG } from './idempotency.constants'
-export { IdempotencyFacet } from './idempotency.facet'
-export { MemoryIdempotencyStore } from './idempotency.memory'
-export { RedisIdempotencyStore } from './idempotency.redis'
+export { MemoryIdempotency, memoryIdempotency } from './idempotency.memory'
+export { RedisIdempotency, redisIdempotency } from './idempotency.redis'
 export type { Idempotency } from './idempotency.types'

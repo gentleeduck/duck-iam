@@ -1,5 +1,5 @@
 export namespace Hijack {
-  export interface Config {
+  export interface Cfg {
     /** Reaction on IP change. Default 'rotate'. */
     onIpChange?: Hijack.Reaction
     /** Reaction on User-Agent change. Default 'mfa'. */

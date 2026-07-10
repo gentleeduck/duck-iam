@@ -2,7 +2,7 @@ import type { TenantContext } from '~/core/tenant/tenant.types'
 
 export namespace Idempotency {
   /** IdempotencyFacet tuning. */
-  export interface Config {
+  export interface Cfg {
     /** TTL for cached responses, ms. Default 24 hours per RFC draft. */
     ttlMs: number
     /** When provided, requests carry the header value as the idempotency key. */

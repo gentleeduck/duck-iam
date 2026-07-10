@@ -1,21 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import type { Identity } from '~/core/identities/identities.types'
-import { AuthJwtTransport } from '~/core/transport/jwt.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import type { Identities } from '~/core/identities/identities.types'
+import { JwtTransport } from '~/core/transport/jwt.transport'
+import { MemoryLimiter } from '~/limiters/memory'
 import { apiKeyProvider } from '~/providers/api-key'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
-import { M2MFacet } from '../m2m.facet'
+import { M2MImpl } from '../m2m'
 
-interface MyProfile extends Identity.ProfileMetadataBase {
+interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
 function build() {
   const adapter = new MemoryAdapter<MyProfile>()
-  const transport = new AuthJwtTransport({
+  const transport = new JwtTransport({
     signKey: { kid: 'k1', key: 'secret-32-bytes-of-test-material' },
     verifyKeys: [{ kid: 'k1', key: 'secret-32-bytes-of-test-material' }],
     issuer: 'https://app.test',
@@ -29,10 +29,10 @@ function build() {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), apiKeyProvider()],
   })
-  const m2m = new M2MFacet(auth.apiKeys, auth.sessions, auth.transport)
+  const m2m = new M2MImpl(auth.apiKeys, auth.sessions, auth.transport)
   return { auth, adapter, transport, m2m }
 }
 
@@ -89,7 +89,7 @@ describe('M2MFacet - client_credentials grant', () => {
   })
 
   it('strict mode: requested scope superset triggers SCOPE_INSUFFICIENT', async () => {
-    const strict = new M2MFacet(env.auth.apiKeys, env.auth.sessions, env.transport, {
+    const strict = new M2MImpl(env.auth.apiKeys, env.auth.sessions, env.transport, {
       ttlMs: 60 * 60 * 1000,
       scopeMode: 'strict',
     })

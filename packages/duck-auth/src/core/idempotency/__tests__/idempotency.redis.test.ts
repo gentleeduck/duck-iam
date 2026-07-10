@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { FakeRedis } from '~/adapters/redis/redis-like'
-import { RedisIdempotencyStore } from '../idempotency.redis'
+import { FakeRedis } from '~/adapters/redis'
+import { RedisIdempotency } from '../idempotency.redis'
 
 const ctx = { tenantId: 'acme' }
 
 describe('RedisIdempotencyStore', () => {
   let redis: FakeRedis
-  let store: RedisIdempotencyStore
+  let store: RedisIdempotency
 
   beforeEach(() => {
     redis = new FakeRedis()
-    store = new RedisIdempotencyStore({ redis, prefix: 'test:idem' })
+    store = new RedisIdempotency({ redis, prefix: 'test:idem' })
   })
 
   it('claim() returns true on first call, false on second', async () => {

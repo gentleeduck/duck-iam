@@ -1,5 +1,5 @@
 export namespace M2m {
-  export type Config = {
+  export type Cfg = {
     /** Lifetime of the issued access token, ms. Default 1 hour. */
     ttlMs: number
     /**

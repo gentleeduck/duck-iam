@@ -18,7 +18,7 @@ export const AUTH_SESSION_FACTOR_METHODS = [
   'backup-code',
 ] as const
 
-export namespace Session {
+export namespace Sessions {
   /** NIST 800-63B Authentication Assurance Levels. */
   export type AAL = 1 | 2 | 3
 
@@ -86,7 +86,7 @@ export namespace Session {
   }
 
   /** SessionsFacet tuning. */
-  export type Config = {
+  export type Cfg = {
     /** Sliding TTL in ms. Default 7 days. */
     ttlMs: number
     /** Hard absolute cap in ms. Default 30 days. */

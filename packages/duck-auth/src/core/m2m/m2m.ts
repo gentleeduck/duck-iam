@@ -14,8 +14,8 @@
 import type { ApiKeysFacet } from '~/providers/api-key'
 import { AuthError } from '../errors'
 import type { Provider } from '../provider/provider.types'
-import type { SessionsFacet } from '../sessions/sessions.facet'
-import type { Session } from '../sessions/sessions.types'
+import type { SessionsImpl } from '../sessions/sessions'
+import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
 import { DEFAULT_M2M_CONFIG } from './m2m.constants'
 import type { M2m } from './m2m.types'
@@ -33,12 +33,12 @@ import type { M2m } from './m2m.types'
  * or wire a JTI denylist via a custom transport, or front the resource
  * server with a token-introspection step.
  */
-export class M2MFacet {
+export class M2MImpl {
   constructor(
     private readonly _apiKeys: ApiKeysFacet,
-    private readonly _sessions: SessionsFacet,
+    private readonly _sessions: SessionsImpl,
     private readonly _transport: Transport.ITransport,
-    private readonly _cfg: M2m.Config = DEFAULT_M2M_CONFIG,
+    private readonly _cfg: M2m.Cfg = DEFAULT_M2M_CONFIG,
   ) {}
 
   /**
@@ -90,7 +90,7 @@ export class M2MFacet {
     // tracks the configured M2M policy rather than the SessionsFacet default.
     const sessionExpiresMs =
       session.expiresAt instanceof Date ? session.expiresAt.getTime() : (session.expiresAt as number)
-    const issuedSession: Session.Me = {
+    const issuedSession: Sessions.Me = {
       ...session,
       expiresAt: new Date(Math.min(sessionExpiresMs, now + this._cfg.ttlMs)),
     }
@@ -157,4 +157,14 @@ function parseM2MBody(raw: unknown): { access_token: string; expires_in?: number
   const out: { access_token: string; expires_in?: number } = { access_token: accessToken }
   if (expiresInRaw !== undefined) out.expires_in = expiresInRaw
   return out
+}
+
+/** Factory for {@link M2MImpl}. */
+export function m2m(
+  apiKeys: ApiKeysFacet,
+  sessions: SessionsImpl,
+  transport: Transport.ITransport,
+  cfg: M2m.Cfg,
+): M2MImpl {
+  return new M2MImpl(apiKeys, sessions, transport, cfg)
 }

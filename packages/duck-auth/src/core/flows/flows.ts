@@ -1,14 +1,12 @@
-import type { Events } from '~/core/events/events.types'
-import type { Providers } from '~/core/provider/provider'
+import type { Events } from '~/core/events'
+import type { Providers } from '~/core/provider'
 import type { MfaFacet } from '~/providers/mfa'
 import type { PasswordsImpl } from '~/providers/passwords'
 import { AuthError } from '../errors'
-import type { Identity } from '../identities'
-import type { IdentitiesImpl } from '../identities/identities.facet'
-import type { Provider } from '../provider/provider.types'
-import type { SessionsFacet } from '../sessions/sessions.facet'
-import type { Session } from '../sessions/sessions.types'
-import type { Transport } from '../transport/transport.types'
+import type { Identities, IdentitiesImpl } from '../identities'
+import type { Provider } from '../provider'
+import type { Sessions, SessionsImpl } from '../sessions'
+import type { Transport } from '../transport'
 import {
   cancelAccountDeletion as cancelAccountDeletionImpl,
   completeAccountDeletion as completeAccountDeletionImpl,
@@ -19,6 +17,7 @@ import {
   requestEmailVerification as requestEmailVerificationImpl,
 } from './email-verification.flow'
 import { DEFAULT_FLOWS_CONFIG } from './flows.constants'
+import type { Flows } from './flows.types'
 import { impersonate as impersonateImpl, releaseImpersonation as releaseImpersonationImpl } from './impersonate.flow'
 import {
   completePasswordReset as completePasswordResetImpl,
@@ -32,199 +31,11 @@ import {
   getSignUpFlow as getSignUpFlowImpl,
 } from './signup.flow'
 
-export namespace FlowsFacet {
-  /** Internal dependency bag passed to flow sub-functions. Not part of the public API. */
-  export interface Deps<Profile extends Identity.ProfileMetadataBase> {
-    sessions: SessionsFacet
-    identities: IdentitiesImpl<Profile>
-    providers: Providers<Profile>
-    transport: Transport.ITransport
-    events: Events.IBus
-    ctxFactory: (tenantId?: string) => Provider.Context<Profile>
-    /** Lazy accessor — resolves the password facet at call-time; throws if the provider is absent. */
-    requirePasswords: () => PasswordsImpl
-    /** Lazy accessor — resolves the mfa facet at call-time; throws if the provider is absent. */
-    requireMfa: () => MfaFacet
-    cfg: FlowsFacet.Config
-  }
-
-  export interface Config {
-    /** What `signIn` calls SessionsFacet.rotateOrCreate with by default. */
-    signInPurpose: 'signin' | 're-auth'
-  }
-
-  export interface SignInOptions {
-    providerId: string
-    input: unknown
-    /** Currently-active SID (cookie or bearer); used by rotateOrCreate to revoke. */
-    previousSid?: string
-    ip?: string
-    userAgent?: string
-    tenantId?: string
-  }
-
-  export type SignInOutcome = {
-    /**
-     * Persisted session row; `session.id` is the **hashed** row key. Null when
-     * the provider issued no `startSession` intent (typically because it
-     * returned `requireMfa` and the caller is mid-flow); in that case `sid`
-     * is also empty and `intents` carries the provider's response.
-     */
-    session: Session.Me | null
-    /** Plaintext SID the client uses to authenticate; empty when `session` is null. */
-    sid: string
-    /** Intents the framework adapter must execute on the response. */
-    intents: Provider.Intent[]
-  }
-
-  export type StepUpRequirement = {
-    /** Required AAL on the post-step-up session. Default 2. */
-    aal?: Session.AAL
-    /** Methods that satisfy the requirement (any-of). Default ['totp']. */
-    methods?: Session.FactorMethod[]
-    /** Recency window in ms - re-auth required if last factor older than this. */
-    freshness?: number
-  }
-
-  export type StepUpOutcome =
-    | { satisfied: true; session: Session.Me; sid: string; intents: Provider.Intent[] }
-    | { satisfied: false; reason: 'mfa-required' | 'fresh-required'; methods: Session.FactorMethod[] }
-
-  export type PasswordResetRequestInput = {
-    email: string
-    /** Channel to use; default 'email'. */
-    channel?: 'email' | 'sms' | 'webpush'
-    /** Path on the app that handles the reset; library appends `?token=`. */
-    callbackPath?: string
-    /** Optional override; default 30 minutes. */
-    ttlMs?: number
-  }
-
-  export type PasswordResetCompleteInput = {
-    token: string
-    newPassword: string
-  }
-
-  export type SignUpFlowState<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> = {
-    /** Opaque flow id; surfaced to the framework adapter to put on a __Host-duck-signup cookie. */
-    id: string
-    /** Identity row created at email-collected stage (profile.emailVerified=false until verifyEmail). */
-    identityId: string
-    /** Required stages (ordered); apps configure per signup type (passkey-only, B2B, etc.). */
-    required: FlowsFacet.SignUpStage[]
-    /** Stages the user has already completed; library guarantees idempotent appends. */
-    completed: FlowsFacet.SignUpStage[]
-    /** Accumulated profile across stages; merged into Identity.profile at complete(). */
-    data: Partial<Profile>
-    /** Sliding TTL (default 30 min). */
-    expiresAt: number
-    /** Hard cap (default 24 h); cannot be slid past. */
-    absoluteExpiresAt: number
-    /** Wall-clock created time, ms. */
-    createdAt: number
-  }
-
-  export type ImpersonateOptions = {
-    /** Caller's session id (the real subject). */
-    realSid: string
-    /** Identity being impersonated. */
-    targetIdentityId: string
-    /** Human-readable reason; audit-logged via `identity.impersonated` event. */
-    reason: string
-    /** TTL cap; default 1 hour, cannot exceed 1 hour even if overridden. */
-    ttlMs?: number
-    tenantId?: string
-  }
-
-  export type ImpersonateOutcome = {
-    session: Session.Me
-    /** Plaintext SID for the new actingAs session (separate from real session). */
-    sid: string
-    intents: Provider.Intent[]
-  }
-
-  export type SignUpStage =
-    | 'email-collected'
-    | 'email-verified'
-    | 'profile-completed'
-    | 'mfa-enrolled'
-    | 'terms-accepted'
-    | 'completed'
-
-  export type LinkProviderInput = {
-    /** Identity to attach the provider link to. */
-    identityId: string
-    /** Provider id (`'authGoogle'`, `'authGithub'`, etc). */
-    providerId: string
-    /** Provider-side subject id (verified by the oauth dance the caller just completed). */
-    providerSub: string
-    /** Tenant scope. */
-    tenantId?: string
-  }
-
-  export type UnlinkProviderInput = {
-    identityId: string
-    providerId: string
-    tenantId?: string
-    /**
-     * Set true to bypass the "would lock out the user" guard. Use only
-     * during account deletion flows or admin overrides.
-     */
-    allowLockout?: boolean
-  }
-
-  export type EmailVerificationRequestInput = {
-    /** Identity to verify. */
-    identityId: string
-    /** Channel keyed by kind. Email is the typical default. */
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
-    /** Which channel to dispatch on; default 'email'. */
-    channel?: 'email' | 'sms' | 'webpush'
-    /** TTL of the verification token, ms. Default 30 minutes. */
-    ttlMs?: number
-    /** Callback path on the app; library appends `?token=`. Default `/auth/verify-email`. */
-    callbackPath?: string
-    tenantId?: string
-  }
-
-  export type EmailVerificationCompleteInput = {
-    /** Token plaintext as received from the verify link. */
-    token: string
-    tenantId?: string
-  }
-
-  export type AccountDeletionRequestInput = {
-    identityId: string
-    channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
-    /** Channel kind to use; default `'email'`. */
-    channel?: 'email' | 'sms' | 'webpush'
-    /** Token TTL in ms. Default 30 minutes. */
-    ttlMs?: number
-    /** Path on the app that handles the confirmation. Default `/AUTH/delete-account`. */
-    callbackPath?: string
-    /** Optional human-readable reason persisted in metadata; surfaces in audit log. */
-    reason?: string
-    tenantId?: string
-  }
-
-  export type AccountDeletionCompleteInput = {
-    /** Token from the confirmation link. */
-    token: string
-    tenantId?: string
-  }
-
-  export type AccountDeletionCancelInput = {
-    /** Identity to restore. */
-    identityId: string
-    tenantId?: string
-  }
-}
-
-export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
-  private readonly _deps: FlowsFacet.Deps<Profile>
+export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
+  private readonly _deps: Flows.Deps<Profile>
 
   constructor(
-    sessions: SessionsFacet,
+    sessions: SessionsImpl,
     identities: IdentitiesImpl<Profile>,
     providers: Providers<Profile>,
     transport: Transport.ITransport,
@@ -232,13 +43,13 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
     ctxFactory: (tenantId?: string) => Provider.Context<Profile>,
     requirePasswords: () => PasswordsImpl,
     requireMfa: () => MfaFacet,
-    cfg: FlowsFacet.Config = DEFAULT_FLOWS_CONFIG,
+    cfg: Flows.Cfg = DEFAULT_FLOWS_CONFIG,
   ) {
     this._deps = { sessions, identities, providers, transport, events, ctxFactory, requirePasswords, requireMfa, cfg }
   }
 
   /** Expose deps for testing extracted flow functions directly. */
-  get deps(): FlowsFacet.Deps<Profile> {
+  get deps(): Flows.Deps<Profile> {
     return this._deps
   }
 
@@ -247,7 +58,7 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    * the `startSession` intent is interpreted here (rotateOrCreate +
    * Transport.issue); other intents flow through to the caller.
    */
-  async signIn(opts: FlowsFacet.SignInOptions): Promise<FlowsFacet.SignInOutcome> {
+  async signIn(opts: Flows.SignInOptions): Promise<Flows.SignInOutcome> {
     const { sessions, identities, providers, transport, events, ctxFactory, cfg } = this._deps
 
     if (!isProviderIdSafe(opts.providerId) || !providers.has(opts.providerId)) {
@@ -337,8 +148,8 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    * Returns `{satisfied: true}` (no-op) when the session already meets it;
    * otherwise returns a challenge enumerating the satisfying methods.
    */
-  async checkStepUp(session: Session.Me, requirement: FlowsFacet.StepUpRequirement): Promise<FlowsFacet.StepUpOutcome> {
-    const requiredAal: Session.AAL = requirement.aal ?? 2
+  async checkStepUp(session: Sessions.Me, requirement: Flows.StepUpRequirement): Promise<Flows.StepUpOutcome> {
+    const requiredAal: Sessions.AAL = requirement.aal ?? 2
     const methods = requirement.methods ?? ['totp']
     const freshness = requirement.freshness
 
@@ -369,7 +180,7 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
     method: 'totp' | 'backup-code'
     code: string
     tenantId?: string
-  }): Promise<{ session: Session.Me; sid: string; intents: Provider.Intent[] }> {
+  }): Promise<{ session: Sessions.Me; sid: string; intents: Provider.Intent[] }> {
     if (opts.method !== 'totp' && opts.method !== 'backup-code') {
       throw new AuthError('AUTH_INVALID_CREDENTIALS')
     }
@@ -426,7 +237,7 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    * one provider's options.
    */
   async requestPasswordReset(opts: {
-    input: FlowsFacet.PasswordResetRequestInput
+    input: Flows.PasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
     channels: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
     tenantId?: string
@@ -442,7 +253,7 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    * unless a fresh AAL=2 session is passed via `currentSid`.
    */
   async completePasswordReset(
-    input: FlowsFacet.PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
+    input: Flows.PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
   ): Promise<{ ok: true }> {
     return completePasswordResetImpl(this._deps, input)
   }
@@ -463,7 +274,7 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    *     verified - avoids leaking "verified" status to the caller
    *   - Sends via the supplied channel with templateId='email-verification'
    */
-  async requestEmailVerification(opts: FlowsFacet.EmailVerificationRequestInput): Promise<{ ok: true }> {
+  async requestEmailVerification(opts: Flows.EmailVerificationRequestInput): Promise<{ ok: true }> {
     return requestEmailVerificationImpl(this._deps, opts)
   }
 
@@ -471,7 +282,7 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    * Verify the supplied token, mark `identity.profile.emailVerified=true`,
    * consume the token. Returns `{ identityId }` on success.
    */
-  async completeEmailVerification(input: FlowsFacet.EmailVerificationCompleteInput): Promise<{ identityId: string }> {
+  async completeEmailVerification(input: Flows.EmailVerificationCompleteInput): Promise<{ identityId: string }> {
     return completeEmailVerificationImpl(this._deps, input)
   }
 
@@ -480,23 +291,23 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
   /**
    * Request account deletion. Mints a confirmation token, dispatches
    * via the configured channel, does NOT touch the identity. Caller
-   * confirms via {@link FlowsFacet.completeAccountDeletion}.
+   * confirms via {@link Flows.completeAccountDeletion}.
    *
    * The token is single-use + TTL'd (default 30 min). Multiple
    * outstanding deletion requests for the same identity get the prior
    * token wiped so only the latest verifies.
    */
-  async requestAccountDeletion(opts: FlowsFacet.AccountDeletionRequestInput): Promise<{ ok: true }> {
+  async requestAccountDeletion(opts: Flows.AccountDeletionRequestInput): Promise<{ ok: true }> {
     return requestAccountDeletionImpl(this._deps, opts)
   }
 
   async completeAccountDeletion(
-    input: FlowsFacet.AccountDeletionCompleteInput,
+    input: Flows.AccountDeletionCompleteInput,
   ): Promise<{ identityId: string; restorableUntil: number }> {
     return completeAccountDeletionImpl(this._deps, input)
   }
 
-  async cancelAccountDeletion(input: FlowsFacet.AccountDeletionCancelInput): Promise<{ identityId: string }> {
+  async cancelAccountDeletion(input: Flows.AccountDeletionCancelInput): Promise<{ identityId: string }> {
     return cancelAccountDeletionImpl(this._deps, input)
   }
 
@@ -514,35 +325,35 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    */
   async beginSignUp(opts: {
     email: string
-    required?: FlowsFacet.SignUpStage[]
+    required?: Flows.SignUpStage[]
     initialProfile?: Partial<Profile>
     tenantId?: string
-  }): Promise<{ flow: FlowsFacet.SignUpFlowState<Profile>; flowToken: string }> {
+  }): Promise<{ flow: Flows.SignUpFlowState<Profile>; flowToken: string }> {
     return beginSignUpImpl(this._deps, opts)
   }
 
-  async getSignUpFlow(flowToken: string, tenantId?: string): Promise<FlowsFacet.SignUpFlowState<Profile> | null> {
+  async getSignUpFlow(flowToken: string, tenantId?: string): Promise<Flows.SignUpFlowState<Profile> | null> {
     return getSignUpFlowImpl(this._deps, flowToken, tenantId)
   }
 
   async advanceSignUp(opts: {
     flowToken: string
-    stage: FlowsFacet.SignUpStage
+    stage: Flows.SignUpStage
     profilePatch?: Partial<Profile>
     tenantId?: string
-  }): Promise<FlowsFacet.SignUpFlowState<Profile>> {
+  }): Promise<Flows.SignUpFlowState<Profile>> {
     return advanceSignUpImpl(this._deps, opts)
   }
 
   async completeSignUp(opts: {
     flowToken: string
-    aal?: Session.AAL
-    factors?: Session.Factor[]
+    aal?: Sessions.AAL
+    factors?: Sessions.Factor[]
     tenantId?: string
     ip?: string
     userAgent?: string
     previousSid?: string
-  }): Promise<FlowsFacet.SignInOutcome> {
+  }): Promise<Flows.SignInOutcome> {
     return completeSignUpImpl(this._deps, opts)
   }
 
@@ -556,18 +367,18 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
    * defeats audit and DESIGN section 38's invariant.
    */
   async impersonate(
-    opts: FlowsFacet.ImpersonateOptions & {
-      authorize: (realSession: Session.Me, targetIdentityId: string) => Promise<boolean>
+    opts: Flows.ImpersonateOptions & {
+      authorize: (realSession: Sessions.Me, targetIdentityId: string) => Promise<boolean>
     },
-  ): Promise<FlowsFacet.ImpersonateOutcome> {
+  ): Promise<Flows.ImpersonateOutcome> {
     return impersonateImpl(this._deps, opts)
   }
 
-  async linkProvider(opts: FlowsFacet.LinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+  async linkProvider(opts: Flows.LinkProviderInput): Promise<{ identityId: string; providerId: string }> {
     return linkProviderImpl(this._deps, opts)
   }
 
-  async unlinkProvider(opts: FlowsFacet.UnlinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+  async unlinkProvider(opts: Flows.UnlinkProviderInput): Promise<{ identityId: string; providerId: string }> {
     return unlinkProviderImpl(this._deps, opts)
   }
 
@@ -578,4 +389,29 @@ export class FlowsFacet<Profile extends Identity.ProfileMetadataBase = Identity.
 
 function isProviderIdSafe(providerId: unknown): providerId is string {
   return typeof providerId === 'string' && providerId.length > 0 && providerId.length <= 128
+}
+
+/** Factory around {@link Flows} for functional-style config. */
+export function flows<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
+  sessions: SessionsImpl,
+  identities: IdentitiesImpl<Profile>,
+  providers: Providers<Profile>,
+  transport: Transport.ITransport,
+  events: Events.IBus,
+  ctxFactory: (tenantId?: string) => Provider.Context<Profile>,
+  requirePasswords: () => PasswordsImpl,
+  requireMfa: () => MfaFacet,
+  cfg?: Flows.Cfg,
+): FlowsImpl<Profile> {
+  return new FlowsImpl(
+    sessions,
+    identities,
+    providers,
+    transport,
+    events,
+    ctxFactory,
+    requirePasswords,
+    requireMfa,
+    cfg,
+  )
 }

@@ -2,10 +2,10 @@ import { getProfileString } from '../credentials/credentials'
 import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
 import type { Events } from '../events'
-import type { Session } from '../sessions/sessions.types'
+import type { Sessions } from '../sessions/sessions.types'
 import type { TenantContext } from '../tenant/tenant.types'
 import { DEFAULT_IDENTITIES_CONFIG } from './identities.constants'
-import type { Identity } from './identities.types'
+import type { Identities } from './identities.types'
 
 /**
  * Identities facet - CRUD + linking + merging + GDPR primitives.
@@ -13,16 +13,16 @@ import type { Identity } from './identities.types'
  * through `update(expectedVersion)`; callers that pass a stale version see
  * `AUTH/STALE_WRITE` and decide retry/surface.
  */
-export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
+export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
   constructor(
-    private readonly _store: Identity.Store<Profile>,
+    private readonly _store: Identities.Store<Profile>,
     private readonly _events: Events.IBus,
-    private readonly _cfg: Identity.Config = DEFAULT_IDENTITIES_CONFIG,
+    private readonly _cfg: Identities.Cfg = DEFAULT_IDENTITIES_CONFIG,
   ) {}
 
   /**
    * Public read of the configured soft-delete grace period. Sibling
-   * facets (FlowsFacet.requestAccountDeletion) need it to compute the
+   * facets (FlowsImpl.requestAccountDeletion) need it to compute the
    * caller-visible `restorableUntil` deadline; the legacy approach
    * reached into `_cfg` via an `as unknown as { _cfg }` double-cast
    * which both broke encapsulation and was an unsafe runtime assumption
@@ -34,18 +34,18 @@ export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Ident
 
   // --- lookup -----------------------------------------------------------
 
-  async getById(id: string): Promise<Identity.Me<Profile> | null> {
+  async getById(id: string): Promise<Identities.Me<Profile> | null> {
     return this._store.findById(id)
   }
 
-  async getByEmail(email: string): Promise<Identity.Me<Profile> | null> {
+  async getByEmail(email: string): Promise<Identities.Me<Profile> | null> {
     // RFC 5321 cap + typeof guard: prevents multi-MB lookups + non-string crashes
     // before reaching adapter.
     if (typeof email !== 'string' || email.length === 0 || email.length > 254) return null
     return this._store.findByEmail(email.trim().toLowerCase())
   }
 
-  async getByProviderSub(providerId: string, sub: string): Promise<Identity.Me<Profile> | null> {
+  async getByProviderSub(providerId: string, sub: string): Promise<Identities.Me<Profile> | null> {
     // Defensive caps; both keys flow into SQL `=`-comparisons + JSONB extracts.
     if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 128) return null
     if (typeof sub !== 'string' || sub.length === 0 || sub.length > 512) return null
@@ -57,9 +57,9 @@ export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Ident
   async create(input: {
     profile: Profile
     tenantId?: string
-    providers?: Identity.ProviderLink[]
+    providers?: Identities.ProviderLink[]
     emailVerified?: boolean
-  }): Promise<Identity.Me<Profile>> {
+  }): Promise<Identities.Me<Profile>> {
     this._assertProfileWithinCap(input.profile)
     const created = await this._store.create({
       profile: input.profile,
@@ -74,7 +74,7 @@ export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Ident
     id: string,
     profilePatch: Partial<Profile>,
     expectedVersion: number,
-  ): Promise<Identity.Me<Profile>> {
+  ): Promise<Identities.Me<Profile>> {
     const cur = await this._store.findById(id)
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     const nextProfile = { ...(cur.profile ?? {}), ...profilePatch } as Profile
@@ -118,7 +118,7 @@ export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Ident
 
   // --- provider linking ------------------------------------------------
 
-  async link(identityId: string, link: Omit<Identity.ProviderLink, 'addedAt'>): Promise<void> {
+  async link(identityId: string, link: Omit<Identities.ProviderLink, 'addedAt'>): Promise<void> {
     const cur = await this._store.findById(identityId)
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     // Reject duplicate provider link for same identity.
@@ -165,7 +165,7 @@ export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Ident
     await this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs)
   }
 
-  async restore(id: string): Promise<Identity.Me<Profile>> {
+  async restore(id: string): Promise<Identities.Me<Profile>> {
     return this._store.restore(id)
   }
 
@@ -188,7 +188,7 @@ export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Ident
     rows: Array<{
       profile: Profile
       tenantId?: string
-      providers?: Identity.ProviderLink[]
+      providers?: Identities.ProviderLink[]
     }>,
     opts: { mode?: 'skipExisting' | 'merge' | 'replace' } = {},
   ): Promise<{ created: number; skipped: number; failed: number }> {
@@ -238,8 +238,8 @@ export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Ident
     id: string,
     credentials: Credential.Store,
     ctx: TenantContext = {},
-    opts: { sessions?: Session.Store } = {},
-  ): Promise<Identity.ExportBlob<Profile>> {
+    opts: { sessions?: Sessions.Store } = {},
+  ): Promise<Identities.ExportBlob<Profile>> {
     const identity = await this._store.findById(id)
     if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
     const creds = await credentials.listByIdentity(id, null, ctx)
@@ -258,7 +258,7 @@ export class IdentitiesImpl<Profile extends Identity.ProfileMetadataBase = Ident
    * delivery to the user (file download / portable archive). Stable
    * key ordering across runs so checksum comparisons work.
    */
-  static exportToJson<P extends Identity.ProfileMetadataBase>(blob: Identity.ExportBlob<P>): string {
+  static exportToJson<P extends Identities.ProfileMetadataBase>(blob: Identities.ExportBlob<P>): string {
     return JSON.stringify(blob, sortKeys, 2)
   }
 }
@@ -283,4 +283,13 @@ function sortKeys(_key: string, value: unknown): unknown {
     return sorted
   }
   return value
+}
+
+/** Factory around {@link Identities} for functional-style config. */
+export function identities<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
+  store: Identities.Store<Profile>,
+  events: Events.IBus,
+  cfg?: Identities.Cfg,
+): IdentitiesImpl<Profile> {
+  return new IdentitiesImpl(store, events, cfg)
 }

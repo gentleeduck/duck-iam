@@ -1,16 +1,16 @@
 import { isRevoked } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { TenantContext } from '~/core/tenant/tenant.types'
-import type { FlowsFacet } from './flows.facet'
+import type { Flows } from './flows.types'
 
 function isProviderIdSafe(providerId: unknown): providerId is string {
   return typeof providerId === 'string' && providerId.length > 0 && providerId.length <= 128
 }
 
-export async function linkProvider<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  opts: FlowsFacet.LinkProviderInput,
+export async function linkProvider<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  opts: Flows.LinkProviderInput,
 ): Promise<{ identityId: string; providerId: string }> {
   if (!isProviderIdSafe(opts.providerId)) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
@@ -56,9 +56,9 @@ export async function linkProvider<Profile extends Identity.ProfileMetadataBase>
   return { identityId: opts.identityId, providerId: opts.providerId }
 }
 
-export async function unlinkProvider<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  opts: FlowsFacet.UnlinkProviderInput,
+export async function unlinkProvider<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  opts: Flows.UnlinkProviderInput,
 ): Promise<{ identityId: string; providerId: string }> {
   if (!isProviderIdSafe(opts.providerId)) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {

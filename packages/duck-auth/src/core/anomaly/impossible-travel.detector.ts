@@ -1,6 +1,6 @@
 import type { Anomaly } from './anomaly.types'
 
-const DEFAULT_CONFIG: AuthImpossibleTravel.IConfig = {
+const DEFAULT_CONFIG: AuthImpossibleTravel.Cfg = {
   maxKmPerHour: 900,
   minElapsedMs: 60_000,
 }
@@ -22,9 +22,9 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
  */
 export function authImpossibleTravelDetector(opts: {
   getLastSeen: (identityId: string) => Promise<{ lat: number; lon: number; at: number } | null>
-  config?: Partial<AuthImpossibleTravel.IConfig>
+  config?: Partial<AuthImpossibleTravel.Cfg>
 }): Anomaly.Detector {
-  const cfg: AuthImpossibleTravel.IConfig = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
+  const cfg: AuthImpossibleTravel.Cfg = { ...DEFAULT_CONFIG, ...(opts.config ?? {}) }
   if (!Number.isFinite(cfg.maxKmPerHour) || cfg.maxKmPerHour <= 0) {
     throw new Error(
       `authImpossibleTravelDetector: maxKmPerHour must be a finite positive number (got ${cfg.maxKmPerHour})`,
@@ -67,7 +67,7 @@ export function authImpossibleTravelDetector(opts: {
 }
 
 export namespace AuthImpossibleTravel {
-  export interface IConfig {
+  export interface Cfg {
     /** Max speed (km/h) above which the gap counts as suspicious. Default 900. */
     maxKmPerHour: number
     /** Minimum elapsed time between samples (ms) before evaluating. Default 60s

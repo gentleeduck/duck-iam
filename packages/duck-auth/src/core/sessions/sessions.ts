@@ -2,9 +2,9 @@ import type { Events } from '~/core/events/events.types'
 import { isExpiredAt, isFiniteNumber } from '../credentials/credentials'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
-import type { Identity } from '../identities/identities.types'
+import type { Identities } from '../identities/identities.types'
 import { DEFAULT_SESSION_CONFIG } from './sessions.constants'
-import type { Session } from './sessions.types'
+import type { Sessions } from './sessions.types'
 
 /**
  * Sessions facet - the only path that creates / rotates / revokes sessions.
@@ -14,12 +14,20 @@ import type { Session } from './sessions.types'
  * Resolution is on `AuthEngine.resolveSession()` rather than here because the
  * Transport contract drives extraction; this facet owns lifecycle only.
  */
-export class SessionsFacet {
+export class SessionsImpl {
+  private readonly _cfg: Sessions.Cfg
+
   constructor(
-    private readonly _store: Session.Store,
+    private readonly _store: Sessions.Store,
     private readonly _events: Events.IBus,
-    private readonly _cfg: Session.Config = DEFAULT_SESSION_CONFIG,
-  ) {}
+    private readonly cfg?: Partial<Sessions.Cfg>,
+  ) {
+    this._cfg = {
+      ttlMs: this.cfg?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
+      absoluteTtlMs: this.cfg?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
+      freshnessMs: this.cfg?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
+    }
+  }
 
   /**
    * Build a fresh session record + persist it.
@@ -30,7 +38,7 @@ export class SessionsFacet {
    * `Transport.issue()` to put on the wire. The plaintext sid never appears
    * on the persisted row; only its sha-256 hash does.
    */
-  async create(input: Session.MintInput): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
+  async create(input: Sessions.MintInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
     // Cap factors length so a buggy caller can't bloat the session row's
     // JSON column. Real flows mint sessions with 1-3 factors.
     if (!Array.isArray(input.factors) || input.factors.length > 16) {
@@ -43,7 +51,7 @@ export class SessionsFacet {
     const csrfToken = randomToken(32)
     const now = Date.now()
     const nowDate = new Date(now)
-    const session: Session.Me = {
+    const session: Sessions.Me = {
       id: sha256(sid),
       identityId: input.identityId,
       kind: input.kind,
@@ -75,7 +83,7 @@ export class SessionsFacet {
    * flow handlers always route through this method so fixation is structurally
    * impossible to forget.
    */
-  async rotateOrCreate(input: Session.RotateInput): Promise<{ session: Session.Me; sid: string; csrfToken: string }> {
+  async rotateOrCreate(input: Sessions.RotateInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
     const fresh = await this.create(input)
     if (
       input.previousSid !== undefined &&
@@ -163,7 +171,7 @@ export class SessionsFacet {
   }
 
   /** Resolve a plaintext SID to its session row (no identity join). */
-  async getBySid(sid: string): Promise<Session.Me | null> {
+  async getBySid(sid: string): Promise<Sessions.Me | null> {
     // Defensive typeof + length cap; authSha256(non-string) throws + multi-MB
     // input bloats hashing.
     if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return null
@@ -171,7 +179,7 @@ export class SessionsFacet {
   }
 
   /** Refresh expiresAt by ttlMs without rotating the SID. Stops fresh-window slip. */
-  async touch(sid: string): Promise<Session.Me | null> {
+  async touch(sid: string): Promise<Sessions.Me | null> {
     if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return null
     const hash = sha256(sid)
     const s = await this._store.getByHash(hash)
@@ -197,7 +205,7 @@ export class SessionsFacet {
   }
 
   /** List all live sessions for an identity. Used by UI's "active devices view. */
-  async listForIdentity(identityId: string): Promise<Session.Me[]> {
+  async listForIdentity(identityId: string): Promise<Sessions.Me[]> {
     return this._store.listByIdentity(identityId)
   }
 
@@ -209,7 +217,7 @@ export class SessionsFacet {
   /** Create a guest session - no identity, AAL=1, kind='guest'. Promotable on signin. */
   async createGuest(
     opts: { tenantId?: string; ip?: string; userAgent?: string } = {},
-  ): Promise<{ session: Session.Me; sid: string }> {
+  ): Promise<{ session: Sessions.Me; sid: string }> {
     return this.create({
       identityId: null,
       kind: 'guest',
@@ -225,12 +233,12 @@ export class SessionsFacet {
   async promoteGuest(input: {
     guestSid: string
     identityId: string
-    factors: Session.Factor[]
-    aal: Session.AAL
+    factors: Sessions.Factor[]
+    aal: Sessions.AAL
     tenantId?: string
     ip?: string
     userAgent?: string
-  }): Promise<{ session: Session.Me; sid: string }> {
+  }): Promise<{ session: Sessions.Me; sid: string }> {
     return this.rotateOrCreate({
       purpose: 'guest-promotion',
       previousSid: input.guestSid,
@@ -246,11 +254,11 @@ export class SessionsFacet {
 }
 
 /** Resolve a plaintext SID to (session, identity) - used by AuthEngine.resolveSession. */
-export async function resolveBySid<Profile extends Identity.ProfileMetadataBase>(
+export async function resolveBySid<Profile extends Identities.ProfileMetadataBase>(
   sid: string,
-  sessions: Session.Store,
-  identities: Identity.Store<Profile>,
-): Promise<{ session: Session.Me; identity: Identity.Me<Profile> | null } | null> {
+  sessions: Sessions.Store,
+  identities: Identities.Store<Profile>,
+): Promise<{ session: Sessions.Me; identity: Identities.Me<Profile> | null } | null> {
   const hash = sha256(sid)
   const session = await sessions.getByHash(hash)
   if (!session) return null
@@ -283,4 +291,9 @@ export async function resolveBySid<Profile extends Identity.ProfileMetadataBase>
     throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'identity-erased' })
   }
   return { session, identity }
+}
+
+/** Factory around {@link SessionsImpl} for functional-style config. */
+export function sessions(store: Sessions.Store, events: Events.IBus, cfg?: Partial<Sessions.Cfg>): SessionsImpl {
+  return new SessionsImpl(store, events, cfg)
 }

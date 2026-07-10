@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 
-interface ProfileShape extends Identity.ProfileMetadataBase {
+interface ProfileShape extends Identities.ProfileMetadataBase {
   email: string
 }
 
@@ -20,13 +20,13 @@ function build() {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }
 
-describe('FlowsFacet.linkProvider - TOCTOU defense', () => {
+describe('FlowsImpl.linkProvider - TOCTOU defense', () => {
   let auth: AuthEngine<ProfileShape>
   let adapter: MemoryAdapter<ProfileShape>
   let identityA: string

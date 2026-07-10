@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FakeRedis } from '~/adapters/redis/redis-like'
-import { RedisIdempotencyStore } from '../idempotency.redis'
+import { RedisIdempotency } from '../idempotency.redis'
 
 const ctx = { tenantId: 'acme' }
 const PREFIX = 'test:idem'
@@ -8,11 +8,11 @@ const STORAGE_KEY = `${PREFIX}:acme:k1`
 
 describe('RedisIdempotencyStore.get - parser hardening', () => {
   let redis: FakeRedis
-  let store: RedisIdempotencyStore
+  let store: RedisIdempotency
 
   beforeEach(() => {
     redis = new FakeRedis()
-    store = new RedisIdempotencyStore({ redis, prefix: PREFIX })
+    store = new RedisIdempotency({ redis, prefix: PREFIX })
   })
 
   describe('malformed JSON', () => {

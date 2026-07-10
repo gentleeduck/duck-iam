@@ -1,5 +1,5 @@
 /**
- * Password-reset flow extracted from FlowsFacet. Two phases:
+ * Password-reset flow extracted from Flows. Two phases:
  *
  *   - `requestPasswordReset` - mints + dispatches a single-use token via the
  *     configured channel. Enumeration-safe: always returns `{ ok: true }`.
@@ -11,14 +11,14 @@
 import type { Channel } from '~/channels/channels.types'
 import { isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
-import type { FlowsFacet } from './flows.facet'
+import type { Flows } from './flows.types'
 
-export async function requestPasswordReset<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
+export async function requestPasswordReset<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
   opts: {
-    input: FlowsFacet.PasswordResetRequestInput
+    input: Flows.PasswordResetRequestInput
     findIdentityByEmail: (email: string, tenantId?: string) => Promise<{ id: string } | null>
     channels: Partial<Record<'email' | 'sms' | 'webpush', Channel.Channel>>
     tenantId?: string
@@ -102,9 +102,9 @@ export async function requestPasswordReset<Profile extends Identity.ProfileMetad
   return { ok: true }
 }
 
-export async function completePasswordReset<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  input: FlowsFacet.PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
+export async function completePasswordReset<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  input: Flows.PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
 ): Promise<{ ok: true }> {
   const { token, newPassword } = input
   if (typeof token !== 'string' || token.length === 0 || token.length > 256) {

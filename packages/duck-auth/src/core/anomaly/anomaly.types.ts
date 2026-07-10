@@ -1,5 +1,5 @@
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
 /**
  * Anomaly-detection contract + the AnomalyFacet's own scoring types —
@@ -24,13 +24,13 @@ export namespace Anomaly {
 
   export type Detector = {
     readonly id: string
-    evaluate(ctx: { session: Session.Me; identity: Identity.Me; req: RequestSnapshot }): Promise<Signal[]>
+    evaluate(ctx: { session: Sessions.Me; identity: Identities.Me; req: RequestSnapshot }): Promise<Signal[]>
   }
 
   /** Recommended response for the caller after evaluating signals. */
   export type Decision = 'allow' | 'step-up' | 'deny'
 
-  export type Config = {
+  export type Cfg = {
     /** Score threshold above which the `suspicious` event fires. Default 0.7. */
     threshold: number
     /** Aggregate score at or above which `decide()` returns `'step-up'`. Default 0.7. */

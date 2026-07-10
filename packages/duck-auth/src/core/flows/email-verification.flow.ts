@@ -6,13 +6,13 @@ import {
   toCredentialUpsert,
 } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
-import type { FlowsFacet } from './flows.facet'
+import type { Flows } from './flows.types'
 
-export async function requestEmailVerification<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  opts: FlowsFacet.EmailVerificationRequestInput,
+export async function requestEmailVerification<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  opts: Flows.EmailVerificationRequestInput,
 ): Promise<{ ok: true }> {
   const ctx = deps.ctxFactory(opts.tenantId)
   const ttlMs = opts.ttlMs ?? 30 * 60 * 1000
@@ -69,9 +69,9 @@ export async function requestEmailVerification<Profile extends Identity.ProfileM
   return { ok: true }
 }
 
-export async function completeEmailVerification<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  input: FlowsFacet.EmailVerificationCompleteInput,
+export async function completeEmailVerification<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  input: Flows.EmailVerificationCompleteInput,
 ): Promise<{ identityId: string }> {
   if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 256) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')

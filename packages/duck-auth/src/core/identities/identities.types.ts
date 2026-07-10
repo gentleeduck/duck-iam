@@ -1,12 +1,12 @@
 import type { Credential } from '~/core/credentials/credentials.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
 /**
  * Stable identity record + the IdentitiesFacet's own config/export types —
  * the single `Identity` namespace for the identities subject. Opaque to the
  * auth core; application-specific shape carried in `profile`.
  */
-export namespace Identity {
+export namespace Identities {
   export type ProviderLink = {
     providerId: string
     providerSub: string | null
@@ -59,7 +59,7 @@ export namespace Identity {
   }
 
   /** IdentitiesFacet tuning. */
-  export interface Config {
+  export interface Cfg {
     /** Grace before hard-purge after softDelete. Default 7 days. */
     softDeleteGracePeriodMs: number
     /**
@@ -75,7 +75,7 @@ export namespace Identity {
     identity: Me<Profile>
     credentials: Array<Omit<Credential.Me, 'secret'>>
     /** Live + recently-revoked sessions. Empty when caller skips sessions store. */
-    sessions: Array<Omit<Session.Me, 'csrfHash'>>
+    sessions: Array<Omit<Sessions.Me, 'csrfHash'>>
     /** GDPR Article 20 envelope: schema version + export timestamp. */
     schemaVersion: '1'
     exportedAt: number

@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FakeRedis } from '~/adapters/redis/redis-like'
 import { sha256 } from '~/core/crypto'
-import type { Session } from '~/core/sessions/sessions.types'
-import { RedisSessionStore } from '../sessions.redis'
+import type { Sessions } from '~/core/sessions/sessions.types'
+import { RedisSessionImpl } from '../sessions.redis'
 
-function buildSession(overrides: Partial<Session.Me> = {}): Session.Me {
+function buildSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
   const sid = 'sid-' + Math.random().toString(36).slice(2)
   const now = new Date()
   const exp = new Date(now.getTime() + 60_000)
@@ -31,11 +31,11 @@ function buildSession(overrides: Partial<Session.Me> = {}): Session.Me {
 
 describe('RedisSessionStore', () => {
   let redis: FakeRedis
-  let store: RedisSessionStore
+  let store: RedisSessionImpl
 
   beforeEach(() => {
     redis = new FakeRedis()
-    store = new RedisSessionStore({ redis, prefix: 'test' })
+    store = new RedisSessionImpl({ redis, prefix: 'test' })
   })
 
   it('create + getByHash round-trips the session', async () => {

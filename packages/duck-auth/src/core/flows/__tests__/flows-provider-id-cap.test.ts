@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 
-interface MyProfile extends Identity.ProfileMetadataBase {
+interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
@@ -19,11 +19,11 @@ function buildAuth(): AuthEngine<MyProfile> {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
   })
 }
 
-describe('FlowsFacet provider id reflection-DoS defense', () => {
+describe('FlowsImpl provider id reflection-DoS defense', () => {
   it('signIn refuses an oversize providerId without echoing it back in meta', async () => {
     const auth = buildAuth()
     const huge = 'x'.repeat(129)

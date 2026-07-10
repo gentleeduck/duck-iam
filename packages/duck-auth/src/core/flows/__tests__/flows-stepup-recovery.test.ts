@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
 import { AuthEngine } from '~/core/engine'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider, totpAt } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 
-interface MyProfile extends Identity.ProfileMetadataBase {
+interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
 
@@ -43,7 +43,7 @@ function buildAuth(): {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
     providers: [passwords({ hasher: fastHasher }), mfaProvider()],
   })
   return { auth, adapter, channel }
@@ -53,7 +53,7 @@ function tokenFrom(url: string): string {
   return new URL(url).searchParams.get('token') ?? ''
 }
 
-describe('FlowsFacet - step-up', () => {
+describe('FlowsImpl - step-up', () => {
   it('checkStepUp returns satisfied:true for an AAL=2 fresh session', async () => {
     const { auth } = buildAuth()
     const { session } = await auth.sessions.create({
@@ -127,7 +127,7 @@ describe('FlowsFacet - step-up', () => {
   })
 })
 
-describe('FlowsFacet - password reset', () => {
+describe('FlowsImpl - password reset', () => {
   it('requestPasswordReset for unknown email returns ok (no enumeration)', async () => {
     const { auth, channel } = buildAuth()
     const r = await auth.flows.requestPasswordReset({

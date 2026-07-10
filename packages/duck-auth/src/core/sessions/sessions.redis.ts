@@ -1,11 +1,11 @@
 import type { RedisLike } from '~/adapters/redis/redis-like'
 import { AuthError } from '~/core/errors'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import { AUTH_SESSION_FACTOR_METHODS, AUTH_SESSION_KINDS } from '~/core/sessions/sessions.types'
 
-export namespace RedisSessionStore {
-  /** Config knobs for {@link RedisSessionStore}. */
-  export type Config<TRedis extends RedisLike.Client = RedisLike.Client> = {
+export namespace RedisSession {
+  /** Cfg knobs for {@link RedisSessionImpl}. */
+  export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
     /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: TRedis
     /**
@@ -28,12 +28,12 @@ export namespace RedisSessionStore {
  * the plaintext sid (see SessionsFacet) so the primary key + lookup
  * key are the same value.
  */
-export class RedisSessionStore<TRedis extends RedisLike.Client = RedisLike.Client> implements Session.Store {
+export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client> implements Sessions.Store {
   private readonly _redis: TRedis
   private readonly _prefix: string
   private readonly _maxTtlSec: number
 
-  constructor(cfg: RedisSessionStore.Config<TRedis>) {
+  constructor(cfg: RedisSession.Cfg<TRedis>) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth'
     this._maxTtlSec = cfg.maxTtlSec ?? 30 * 24 * 60 * 60
@@ -47,7 +47,7 @@ export class RedisSessionStore<TRedis extends RedisLike.Client = RedisLike.Clien
     return `${this._prefix}:idx:identity:${identityId}`
   }
 
-  private _ttlFor(session: Session.Me): number {
+  private _ttlFor(session: Sessions.Me): number {
     const absMs =
       session.absoluteExpiresAt instanceof Date ? session.absoluteExpiresAt.getTime() : session.absoluteExpiresAt
     const remainingMs = Math.max(0, absMs - Date.now())
@@ -55,7 +55,7 @@ export class RedisSessionStore<TRedis extends RedisLike.Client = RedisLike.Clien
     return Math.max(1, Math.min(this._maxTtlSec, remainingSec))
   }
 
-  async create(s: Session.Me): Promise<void> {
+  async create(s: Sessions.Me): Promise<void> {
     if (!s.id) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'RedisSessionStore.create requires session.id to be set (sha-256 of sid)',
@@ -69,13 +69,13 @@ export class RedisSessionStore<TRedis extends RedisLike.Client = RedisLike.Clien
     }
   }
 
-  async getByHash(sidHash: string): Promise<Session.Me | null> {
+  async getByHash(sidHash: string): Promise<Sessions.Me | null> {
     const raw = await this._redis.get(this._sessKey(sidHash))
     if (!raw) return null
     return parseStoredSession(raw)
   }
 
-  async update(id: string, patch: Partial<Session.Me>): Promise<Session.Me> {
+  async update(id: string, patch: Partial<Sessions.Me>): Promise<Sessions.Me> {
     const raw = await this._redis.get(this._sessKey(id))
     if (!raw) {
       throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
@@ -84,7 +84,7 @@ export class RedisSessionStore<TRedis extends RedisLike.Client = RedisLike.Clien
     if (!current) {
       throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} corrupted` })
     }
-    const next: Session.Me = { ...current, ...patch }
+    const next: Sessions.Me = { ...current, ...patch }
     const ttl = this._ttlFor(next)
     await this._redis.set(this._sessKey(id), JSON.stringify(next), { ex: ttl })
     if (next.identityId) {
@@ -104,10 +104,10 @@ export class RedisSessionStore<TRedis extends RedisLike.Client = RedisLike.Clien
     }
   }
 
-  async listByIdentity(identityId: string): Promise<Session.Me[]> {
+  async listByIdentity(identityId: string): Promise<Sessions.Me[]> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length === 0) return []
-    const out: Session.Me[] = []
+    const out: Sessions.Me[] = []
     const stale: string[] = []
     for (const id of ids) {
       const raw = await this._redis.get(this._sessKey(id))
@@ -173,7 +173,7 @@ function parseStoredDate(v: unknown): Date | null {
 }
 
 /** Structural validator for a stored Redis session; SEC-critical fields enforced, rest is trusted. */
-function parseStoredSession(raw: string): Session.Me | null {
+function parseStoredSession(raw: string): Sessions.Me | null {
   let obj: Record<string, unknown>
   try {
     const parsed = JSON.parse(raw)
@@ -185,11 +185,11 @@ function parseStoredSession(raw: string): Session.Me | null {
   const id = obj.id
   if (typeof id !== 'string' || id.length === 0) return null
 
-  const kind = AUTH_SESSION_KINDS.includes(obj.kind as Session.Kind) ? (obj.kind as Session.Kind) : null
+  const kind = AUTH_SESSION_KINDS.includes(obj.kind as Sessions.Kind) ? (obj.kind as Sessions.Kind) : null
   if (!kind) return null
 
   const rawAal = obj.aal
-  const aal: Session.AAL | null = rawAal === 1 || rawAal === 2 || rawAal === 3 ? rawAal : null
+  const aal: Sessions.AAL | null = rawAal === 1 || rawAal === 2 || rawAal === 3 ? rawAal : null
   if (!aal) return null
 
   const expiresAtDate = parseStoredDate(obj.expiresAt)
@@ -201,7 +201,7 @@ function parseStoredSession(raw: string): Session.Me | null {
 
   // Reconstitute factors — completedAt may be an ISO string (JSON-serialized Date)
   const rawFactors = Array.isArray(obj.factors) ? obj.factors : []
-  const factors: Session.Factor[] = rawFactors
+  const factors: Sessions.Factor[] = rawFactors
     .filter((f) => AUTH_SESSION_FACTOR_METHODS.includes(f.method))
     .map((f) => ({
       method: f.method,
@@ -209,7 +209,7 @@ function parseStoredSession(raw: string): Session.Me | null {
     }))
 
   // Reconstitute actingAs if present
-  let actingAs: Session.ActingAs | undefined
+  let actingAs: Sessions.ActingAs | undefined
   if (typeof obj.actingAs === 'object' && obj.actingAs !== null && !Array.isArray(obj.actingAs)) {
     const raw = obj.actingAs as Record<string, unknown>
     const startedAt = parseStoredDate(raw.startedAt)
@@ -219,7 +219,7 @@ function parseStoredSession(raw: string): Session.Me | null {
     }
   }
 
-  const session: Session.Me = {
+  const session: Sessions.Me = {
     id,
     identityId: typeof obj.identityId === 'string' ? obj.identityId : null,
     tenantId: typeof obj.tenantId === 'string' ? obj.tenantId : null,
@@ -238,4 +238,11 @@ function parseStoredSession(raw: string): Session.Me | null {
     actingAs: actingAs ?? null,
   }
   return session
+}
+
+/** Factory around {@link SessionImpl} for functional-style config. */
+export function session<TRedis extends RedisLike.Client = RedisLike.Client>(
+  cfg: RedisSession.Cfg<TRedis>,
+): RedisSessionImpl<TRedis> {
+  return new RedisSessionImpl(cfg)
 }

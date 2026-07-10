@@ -1,2 +1,2 @@
-export { OperationsFacet } from './operations.facet'
+export { OperationsImpl, operations } from './operations'
 export type { Operations } from './operations.types'

@@ -1,6 +1,6 @@
 import type { Events } from '~/core/events/events.types'
 import { AuthError } from '../errors'
-import type { Session } from '../sessions/sessions.types'
+import type { Sessions } from '../sessions/sessions.types'
 import { DEFAULT_HIJACK_POLICY } from './hijack.constants'
 import type { Hijack } from './hijack.types'
 
@@ -13,11 +13,11 @@ import type { Hijack } from './hijack.types'
  * of the reaction so audit pipelines see every drift.
  */
 export class HijackFacet {
-  private readonly _policy: Required<Hijack.Config>
+  private readonly _policy: Required<Hijack.Cfg>
 
   constructor(
     private readonly _events: Events.IBus,
-    cfg: Hijack.Config = {},
+    cfg: Hijack.Cfg = {},
   ) {
     this._policy = {
       onIpChange: cfg.onIpChange ?? DEFAULT_HIJACK_POLICY.onIpChange,
@@ -34,7 +34,7 @@ export class HijackFacet {
    * is 'ignore', so the audit pipeline sees every change.
    */
   async evaluate(
-    session: Session.Me,
+    session: Sessions.Me,
     request: { ip?: string | null; userAgent?: string | null },
   ): Promise<Hijack.Evaluation> {
     // Evaluate IP + UA drift independently and return the strongest

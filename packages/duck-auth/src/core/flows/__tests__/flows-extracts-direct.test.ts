@@ -1,7 +1,7 @@
 /**
  * Direct tests of the extracted flow free functions.
  *
- * The `FlowsFacet` class methods are thin shims that delegate to free
+ * The `FlowsImpl` class methods are thin shims that delegate to free
  * functions in `flows/*.ts`. These tests import each free function by
  * name and assert (a) the module exports it with the right shape and
  * (b) the function produces the same result as the class method that
@@ -12,9 +12,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthTestChannel } from '~/channels/console'
 import { AuthEngine } from '~/core/engine'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../account-deletion.flow'
 import { completeEmailVerification, requestEmailVerification } from '../email-verification.flow'
@@ -23,7 +23,7 @@ import { completePasswordReset, requestPasswordReset } from '../password-reset.f
 import { linkProvider, unlinkProvider } from '../provider-link.flow'
 import { advanceSignUp, beginSignUp, completeSignUp, getSignUpFlow } from '../signup.flow'
 
-interface MyProfile extends Identity.ProfileMetadataBase {
+interface MyProfile extends Identities.ProfileMetadataBase {
   emailVerified?: boolean
 }
 
@@ -33,7 +33,7 @@ function build() {
     baseUrl: 'https://app',
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
-    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }

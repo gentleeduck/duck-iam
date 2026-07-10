@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthTestChannel } from '~/channels/console'
 import { AuthEngine } from '~/core/engine'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 
-interface MyProfile extends Identity.ProfileMetadataBase {
+interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
   emailVerified?: boolean
 }
@@ -23,7 +23,7 @@ function build() {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 50, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
   })
   return { auth, adapter }
@@ -50,7 +50,7 @@ function getUrlFromOutbox(channel: AuthTestChannel): URL {
   return new URL(vars.url)
 }
 
-describe('FlowsFacet - callbackPath sanitization', () => {
+describe('FlowsImpl - callbackPath sanitization', () => {
   describe('requestPasswordReset', () => {
     let auth: AuthEngine<MyProfile>
     let channel: AuthTestChannel

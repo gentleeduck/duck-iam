@@ -1,15 +1,15 @@
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
-import type { Session } from '~/core/sessions/sessions.types'
-import type { FlowsFacet } from './flows.facet'
+import type { Sessions } from '~/core/sessions/sessions.types'
+import type { Flows } from './flows.types'
 
-export async function impersonate<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
-  opts: FlowsFacet.ImpersonateOptions & {
-    authorize: (realSession: Session.Me, targetIdentityId: string) => Promise<boolean>
+export async function impersonate<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
+  opts: Flows.ImpersonateOptions & {
+    authorize: (realSession: Sessions.Me, targetIdentityId: string) => Promise<boolean>
   },
-): Promise<FlowsFacet.ImpersonateOutcome> {
+): Promise<Flows.ImpersonateOutcome> {
   if (
     typeof opts.targetIdentityId !== 'string' ||
     opts.targetIdentityId.length === 0 ||
@@ -62,8 +62,8 @@ export async function impersonate<Profile extends Identity.ProfileMetadataBase>(
   return { session, sid, intents }
 }
 
-export async function releaseImpersonation<Profile extends Identity.ProfileMetadataBase>(
-  deps: FlowsFacet.Deps<Profile>,
+export async function releaseImpersonation<Profile extends Identities.ProfileMetadataBase>(
+  deps: Flows.Deps<Profile>,
   impersonationSid: string,
 ): Promise<{ intents: Provider.Intent[] }> {
   const session = await deps.sessions.getBySid(impersonationSid)

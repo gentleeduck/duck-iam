@@ -13,7 +13,7 @@ import type { Org } from './orgs.types'
  * org pair into a Subject whose `roles` come from `Membership.roles`.
  * The library exposes the contract; the projection lives in app code.
  */
-export class OrgsFacet<OrgMeta = unknown> {
+export class OrgsImpl<OrgMeta = unknown> {
   constructor(
     private readonly _store: Org.Store<OrgMeta>,
     readonly _events: Events.IBus,
@@ -84,11 +84,11 @@ export class OrgsFacet<OrgMeta = unknown> {
   }
 }
 
-/** Bounds for `roles: string[]` on `addMember` + `setRoles`; silent per-entry filter, no throw. */
-const ROLES_MAX_COUNT = 64
-const ROLE_MAX_LENGTH = 128
-
 function sanitizeRoles(raw: unknown): string[] {
+  /** Bounds for `roles: string[]` on `addMember` + `setRoles`; silent per-entry filter, no throw. */
+  const ROLES_MAX_COUNT = 64
+  const ROLE_MAX_LENGTH = 128
+
   if (!Array.isArray(raw)) return []
   const out: string[] = []
   for (const r of raw) {
@@ -98,4 +98,9 @@ function sanitizeRoles(raw: unknown): string[] {
     if (out.length >= ROLES_MAX_COUNT) break
   }
   return out
+}
+
+/** Factory for {@link OrgsImpl}. */
+export function orgs<OrgMeta>(store: Org.Store<OrgMeta>, events: Events.IBus): OrgsImpl<OrgMeta> {
+  return new OrgsImpl(store, events)
 }

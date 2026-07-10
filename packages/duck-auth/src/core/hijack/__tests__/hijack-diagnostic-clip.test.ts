@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { InMemoryEvents } from '~/core/events'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import { HijackFacet } from '../hijack.facet'
 
-function fakeSession(overrides: Partial<Session.Me> = {}): Session.Me {
+function fakeSession(overrides: Partial<Sessions.Me> = {}): Sessions.Me {
   const now = Date.now()
   return {
     id: 'sess-1',

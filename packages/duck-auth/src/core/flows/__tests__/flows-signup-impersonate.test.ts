@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 
-interface MyProfile extends Identity.ProfileMetadataBase {
+interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
   emailVerified?: boolean
   name?: string
@@ -26,13 +26,13 @@ function buildAuth(): {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
     providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
   })
   return { auth, adapter }
 }
 
-describe('FlowsFacet - signup state machine', () => {
+describe('FlowsImpl - signup state machine', () => {
   let auth: AuthEngine<MyProfile>
   let adapter: MemoryAdapter<MyProfile>
 
@@ -129,7 +129,7 @@ describe('FlowsFacet - signup state machine', () => {
   })
 })
 
-describe('FlowsFacet - impersonation', () => {
+describe('FlowsImpl - impersonation', () => {
   let auth: AuthEngine<MyProfile>
   let adminId: string
   let targetId: string

@@ -4,14 +4,22 @@ import type { Idempotency } from './idempotency.types'
 
 /**
  * Idempotency facet. Driven by framework adapters: extract the header,
- * call {@link IdempotencyFacet.handle} with an executor; the facet
+ * call {@link IdempotencyImpl.handle} with an executor; the facet
  * replays the cached response when the same key is presented again.
  */
-export class IdempotencyFacet {
+export class IdempotencyImpl {
+  private readonly _cfg: Idempotency.Cfg
+
   constructor(
     private readonly _store: Idempotency.Store | null,
-    private readonly _cfg: Idempotency.Config = DEFAULT_IDEMPOTENCY_CONFIG,
-  ) {}
+    private readonly cfg?: Partial<Idempotency.Cfg>,
+  ) {
+    this._cfg = {
+      ttlMs: this.cfg?.ttlMs ?? DEFAULT_IDEMPOTENCY_CONFIG.ttlMs,
+      headerName: this.cfg?.headerName ?? DEFAULT_IDEMPOTENCY_CONFIG.headerName,
+      pollTimeoutMs: this.cfg?.pollTimeoutMs ?? DEFAULT_IDEMPOTENCY_CONFIG.pollTimeoutMs,
+    }
+  }
 
   /** True when an Idempotency store is wired; framework adapters skip the dance otherwise. */
   enabled(): boolean {
@@ -73,4 +81,9 @@ export class IdempotencyFacet {
     // client can retry with a fresh key.
     return { status: 409, body: { error: 'idempotency-conflict' }, createdAt: new Date() }
   }
+}
+
+/** Factory around {@link IdempotencyImpl} for functional-style config. */
+export function idempotency(store: Idempotency.Store, cfg?: Partial<Idempotency.Cfg>): IdempotencyImpl {
+  return new IdempotencyImpl(store, cfg)
 }
