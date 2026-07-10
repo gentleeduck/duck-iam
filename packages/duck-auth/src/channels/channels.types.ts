@@ -1,5 +1,5 @@
 import type { TenantContext } from '~/core'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 
 /** Outbound message channel (email / SMS / web-push). Library pre-signs URLs; templates get safe vars only. */
 export namespace Channel {
@@ -7,10 +7,10 @@ export namespace Channel {
 
   export type SendInput<
     Vars = Record<string, unknown>,
-    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   > = {
     /** Resolved recipient - the channel decides which `identity.profile` field to use. */
-    identity: Identity.Me<Profile>
+    identity: Identities.Me<Profile>
     /** Library-chosen template id; channel impl maps to its own template store. */
     templateId: string
     /** Pre-rendered vars (URLs already signed, strings already i18n-resolved). */

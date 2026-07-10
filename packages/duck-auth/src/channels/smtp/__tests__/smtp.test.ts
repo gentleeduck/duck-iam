@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { AuthSmtpChannel } from '../index'
 
-function makeIdentity(email: string | undefined): Identity.Me {
+function makeIdentity(email: string | undefined): Identities.Me {
   return {
     id: 'ident-1',
     // Empty email string models the "no deliverable address" case; the channel

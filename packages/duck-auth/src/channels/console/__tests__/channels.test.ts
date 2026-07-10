@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { AuthConsoleChannel, AuthNoopChannel, AuthTestChannel } from '../index'
 
-function makeIdentity(): Identity.Me {
+function makeIdentity(): Identities.Me {
   return {
     id: 'ident-1',
     profile: { username: 'u', email: 'u@x.com' },

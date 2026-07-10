@@ -27,8 +27,8 @@ export namespace AuthTwilioChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ body: string }> | { body: string }
 
-  /** Config knobs for {@link AuthTwilioChannel}. */
-  export interface IConfig {
+  /** Cfg knobs for {@link AuthTwilioChannel}. */
+  export interface Cfg {
     /** Twilio Account SID. Required when `client` is not supplied. */
     accountSid?: string
     /** Twilio Auth Token. Required when `client` is not supplied. */
@@ -75,7 +75,7 @@ export class AuthTwilioChannel implements Channel.Channel {
   private readonly _resolve: AuthTwilioChannel.ITemplateResolver
   private _clientPromise: Promise<AuthTwilioChannel.IClient> | null = null
 
-  constructor(cfg: AuthTwilioChannel.IConfig) {
+  constructor(cfg: AuthTwilioChannel.Cfg) {
     if (!cfg.from && !cfg.messagingServiceSid) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthTwilioChannel requires either `from` or `messagingServiceSid`',

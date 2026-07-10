@@ -34,8 +34,8 @@ export namespace AuthWebPushChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ payload: string; ttl?: number }> | { payload: string; ttl?: number }
 
-  /** Config knobs for {@link AuthWebPushChannel}. */
-  export interface IConfig {
+  /** Cfg knobs for {@link AuthWebPushChannel}. */
+  export interface Cfg {
     /** VAPID subject (HTTPS URL or mailto: URI). Required. */
     subject: string
     /** VAPID public key (base64url). Required. */
@@ -75,10 +75,10 @@ async function loadWebPush(override?: AuthWebPushChannel.IModule): Promise<AuthW
 export class AuthWebPushChannel implements Channel.Channel {
   readonly kind: Channel.Kind = 'webpush'
   readonly id: string
-  private readonly _cfg: AuthWebPushChannel.IConfig
+  private readonly _cfg: AuthWebPushChannel.Cfg
   private _modulePromise: Promise<AuthWebPushChannel.IModule> | null = null
 
-  constructor(cfg: AuthWebPushChannel.IConfig) {
+  constructor(cfg: AuthWebPushChannel.Cfg) {
     if (!cfg.subject || !cfg.publicKey || !cfg.privateKey) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthWebPushChannel requires subject + publicKey + privateKey (VAPID details)',

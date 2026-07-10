@@ -19,8 +19,8 @@ export namespace AuthSesChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
-  /** Config knobs for {@link AuthSesChannel}. */
-  export interface IConfig<TClient extends IClient = IClient> {
+  /** Cfg knobs for {@link AuthSesChannel}. */
+  export interface Cfg<TClient extends IClient = IClient> {
     /** Pre-built SESv3 client. Required. */
     client: TClient
     /** From: address; must be on a verified SES identity. */
@@ -57,9 +57,9 @@ export class AuthSesChannel<TClient extends AuthSesChannel.IClient = AuthSesChan
 {
   readonly kind: Channel.Kind = 'email'
   readonly id: string
-  private readonly _cfg: AuthSesChannel.IConfig<TClient>
+  private readonly _cfg: AuthSesChannel.Cfg<TClient>
 
-  constructor(cfg: AuthSesChannel.IConfig<TClient>) {
+  constructor(cfg: AuthSesChannel.Cfg<TClient>) {
     if (!cfg.from) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthSesChannel requires a non-empty `from` address (must be a verified SES identity)',
@@ -103,7 +103,7 @@ export class AuthSesChannel<TClient extends AuthSesChannel.IClient = AuthSesChan
           },
         },
         ...(this._cfg.configurationSetName !== undefined && {
-          ConfigurationSetName: this._cfg.configurationSetName,
+          CfgurationSetName: this._cfg.configurationSetName,
         }),
       })
       const response = await this._cfg.client.send(cmd)

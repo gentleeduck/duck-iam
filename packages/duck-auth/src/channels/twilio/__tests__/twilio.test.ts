@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { AuthTwilioChannel } from '../index'
 
-function makeIdentity(phone: string | undefined): Identity.Me {
+function makeIdentity(phone: string | undefined): Identities.Me {
   return {
     id: 'ident-1',
     // Phone omitted models the "no SMS number" case; the channel reads it via

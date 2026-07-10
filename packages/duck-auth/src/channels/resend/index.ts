@@ -34,8 +34,8 @@ export namespace AuthResendChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
-  /** Config knobs for {@link AuthResendChannel}. */
-  export interface IConfig {
+  /** Cfg knobs for {@link AuthResendChannel}. */
+  export interface Cfg {
     /** Resend API key. Required when `client` is not supplied. */
     apiKey?: string
     /** Pre-constructed Resend-like client. Useful for tests + custom transports. */
@@ -76,7 +76,7 @@ export class AuthResendChannel implements Channel.Channel {
   private readonly _resolve: AuthResendChannel.ITemplateResolver
   private _clientPromise: Promise<AuthResendChannel.IClient> | null = null
 
-  constructor(cfg: AuthResendChannel.IConfig) {
+  constructor(cfg: AuthResendChannel.Cfg) {
     if (!cfg.from) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthResendChannel requires a non-empty `from` address (must be on a verified Resend domain)',

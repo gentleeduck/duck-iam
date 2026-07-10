@@ -12,8 +12,8 @@ export namespace AuthConsoleChannel {
    */
   export type ISink = (line: string) => void
 
-  /** Config for the channel. */
-  export interface IConfig {
+  /** Cfg for the channel. */
+  export interface Cfg {
     /** `email` | `sms` | `webpush`. Default `email`. */
     kind?: Channel.Kind
     /** Identifier appearing in logs + diagnostics. Default `console`. */
@@ -35,7 +35,7 @@ export class AuthConsoleChannel implements Channel.Channel {
   readonly id: string
   private readonly _sink: AuthConsoleChannel.ISink
 
-  constructor(cfg: AuthConsoleChannel.IConfig = {}) {
+  constructor(cfg: AuthConsoleChannel.Cfg = {}) {
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'console'
     this._sink = cfg.sink ?? ((line) => console.log(line))
@@ -73,7 +73,7 @@ export class AuthNoopChannel implements Channel.Channel {
   readonly kind: Channel.Kind
   readonly id: string
 
-  constructor(cfg: AuthNoopChannel.IConfig = {}) {
+  constructor(cfg: AuthNoopChannel.Cfg = {}) {
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'noop'
   }
@@ -85,7 +85,7 @@ export class AuthNoopChannel implements Channel.Channel {
 }
 
 export namespace AuthNoopChannel {
-  export interface IConfig {
+  export interface Cfg {
     kind?: Channel.Kind
     id?: string
   }
@@ -100,7 +100,7 @@ export class AuthTestChannel implements Channel.Channel {
   readonly id: string
   readonly outbox: AuthTestChannel.IOutboxEntry[] = []
 
-  constructor(cfg: AuthTestChannel.IConfig = {}) {
+  constructor(cfg: AuthTestChannel.Cfg = {}) {
     this.kind = cfg.kind ?? 'email'
     this.id = cfg.id ?? 'test'
   }
@@ -121,7 +121,7 @@ export class AuthTestChannel implements Channel.Channel {
 }
 
 export namespace AuthTestChannel {
-  export interface IConfig {
+  export interface Cfg {
     kind?: Channel.Kind
     id?: string
   }

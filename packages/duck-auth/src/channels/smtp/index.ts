@@ -38,8 +38,8 @@ export namespace AuthSmtpChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
-  /** Config knobs for {@link AuthSmtpChannel}. */
-  export interface IConfig<TTransporter extends ITransporter = ITransporter> {
+  /** Cfg knobs for {@link AuthSmtpChannel}. */
+  export interface Cfg<TTransporter extends ITransporter = ITransporter> {
     /** Transporter implementing `sendMail`. Required. */
     transporter: TTransporter
     /** From: address. Required (SMTP refuses bare envelopes). */
@@ -65,7 +65,7 @@ export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter =
   private readonly _from: string
   private readonly _resolve: AuthSmtpChannel.ITemplateResolver
 
-  constructor(cfg: AuthSmtpChannel.IConfig<TTransporter>) {
+  constructor(cfg: AuthSmtpChannel.Cfg<TTransporter>) {
     if (!cfg.from) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthSmtpChannel requires a non-empty `from` address',

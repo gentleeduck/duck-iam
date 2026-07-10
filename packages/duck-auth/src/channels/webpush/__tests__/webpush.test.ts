@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { AuthWebPushChannel } from '../index'
 
 const SUB: AuthWebPushChannel.ISubscription = {
@@ -7,7 +7,7 @@ const SUB: AuthWebPushChannel.ISubscription = {
   keys: { p256dh: 'PUBLIC', auth: 'AUTH' },
 }
 
-function makeIdentity(subscription: AuthWebPushChannel.ISubscription | undefined): Identity.Me {
+function makeIdentity(subscription: AuthWebPushChannel.ISubscription | undefined): Identities.Me {
   return {
     id: 'ident-1',
     // Subscription omitted models the "no push endpoint" case (channel returns ok:false).
