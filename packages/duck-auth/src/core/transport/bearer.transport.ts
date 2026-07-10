@@ -1,6 +1,15 @@
 import type { Provider } from '../provider/provider.types'
-import type { Session } from '../sessions/sessions.types'
+import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
+
+export namespace BearerTransport {
+  export type Cfg = {
+    /** Header name. Default `Authorization`. */
+    header?: string
+    /** Scheme prefix; whitespace-separated from the token. Default `Bearer`. */
+    scheme?: string
+  }
+}
 
 /**
  * Bearer transport - `Authorization: Bearer <opaque>` header. Native/mobile, API keys.
@@ -10,7 +19,7 @@ export class BearerTransport implements Transport.ITransport {
   private readonly _header: string
   private readonly _scheme: string
 
-  constructor(cfg: BearerTransport.Config = {}) {
+  constructor(cfg: BearerTransport.Cfg = {}) {
     this._header = cfg.header ?? 'authorization'
     this._scheme = cfg.scheme ?? 'Bearer'
   }
@@ -31,7 +40,7 @@ export class BearerTransport implements Transport.ITransport {
     return token
   }
 
-  issue(sid: string, session: Session.Me): Provider.Intent[] {
+  issue(sid: string, session: Sessions.Me): Provider.Intent[] {
     return [
       {
         type: 'json',
@@ -47,11 +56,7 @@ export class BearerTransport implements Transport.ITransport {
   }
 }
 
-export namespace BearerTransport {
-  export type Config = {
-    /** Header name. Default `Authorization`. */
-    header?: string
-    /** Scheme prefix; whitespace-separated from the token. Default `Bearer`. */
-    scheme?: string
-  }
+/** Factory around {@link BearerTransport} for functional-style config. */
+export function bearerTransport(cfg?: Partial<BearerTransport.Cfg>): BearerTransport {
+  return new BearerTransport(cfg)
 }

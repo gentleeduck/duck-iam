@@ -2,8 +2,8 @@ import type { RedisLike } from '~/adapters/redis/redis-like'
 import type { DPoPVerifier } from './dpop.transport'
 
 export namespace RedisDPoPNonceStore {
-  /** Config knobs for {@link RedisDPoPNonceStore}. */
-  export type Config<TRedis extends RedisLike.Client = RedisLike.Client> = {
+  /** Cfg knobs for {@link RedisDPoPNonceStore}. */
+  export type Cfg<TRedis extends RedisLike.Client = RedisLike.Client> = {
     /** RedisLike client (ioredis, @upstash/redis, or FakeRedis). */
     redis: TRedis
     /** Key namespace prefix. Default `auth:dpop:jti`. */
@@ -24,7 +24,7 @@ export class RedisDPoPNonceStore<TRedis extends RedisLike.Client = RedisLike.Cli
   private readonly _redis: TRedis
   private readonly _prefix: string
 
-  constructor(cfg: RedisDPoPNonceStore.Config<TRedis>) {
+  constructor(cfg: RedisDPoPNonceStore.Cfg<TRedis>) {
     this._redis = cfg.redis
     this._prefix = cfg.prefix ?? 'auth:dpop:jti'
   }
@@ -43,4 +43,11 @@ export class RedisDPoPNonceStore<TRedis extends RedisLike.Client = RedisLike.Cli
     const result = await this._redis.set(this._k(jti), '1', { nx: true, ex })
     return result === 'OK'
   }
+}
+
+/** Factory around {@link RedisDPoPNonceStore} for functional-style config. */
+export function redisDPoPNonceStore<TRedis extends RedisLike.Client = RedisLike.Client>(
+  cfg: RedisDPoPNonceStore.Cfg<TRedis>,
+): RedisDPoPNonceStore<TRedis> {
+  return new RedisDPoPNonceStore(cfg)
 }

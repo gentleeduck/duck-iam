@@ -1,5 +1,5 @@
 import type { Provider } from '~/core/provider/provider.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
 /**
  * Session-bearer transport contract. Cookie (web), Bearer (native + API keys),
@@ -44,13 +44,13 @@ export namespace Transport {
      * Cookie transport -> setCookie intent. JWT transport -> setCookie (refresh)
      * + json (access token); the access token is derived from `session`.
      */
-    issue(sid: string, session: Session.Me, opts: IssueOpts): Provider.Intent[]
+    issue(sid: string, session: Sessions.Me, opts: IssueOpts): Provider.Intent[]
     /** Build a response Intent that revokes any persisted bearer. */
     revoke(): Provider.Intent[]
     /**
      * Optional verify step - JWT transports verify locally and reconstruct Session
      * without a store hit; opaque transports return null and rely on Session.IStore lookup.
      */
-    verify?(token: string): Promise<Session.Me | null>
+    verify?(token: string): Promise<Sessions.Me | null>
   }
 }

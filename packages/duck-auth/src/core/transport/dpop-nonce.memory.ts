@@ -1,8 +1,9 @@
 import type { DPoPVerifier } from './dpop.transport'
+import type { RedisDPoPNonceStore } from './dpop-nonce.redis'
 
 /**
  * In-memory nonce store. Single-process only; multi-pod deploys must
- * wire a Redis-backed store using `SETNX` for true atomic claim.
+ * wire a Redis-backed store {@link RedisDPoPNonceStore} using `SETNX` for true atomic claim.
  */
 export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
   private readonly _seen = new Map<string, number>()
@@ -21,4 +22,9 @@ export class MemoryDPoPNonceStore implements DPoPVerifier.NonceStore {
     this._seen.set(jti, now + ttlMs)
     return true
   }
+}
+
+/** Factory around {@link MemoryDPoPNonceStore} for functional-style config. */
+export function memoryDPoPNonceStore(): MemoryDPoPNonceStore {
+  return new MemoryDPoPNonceStore()
 }

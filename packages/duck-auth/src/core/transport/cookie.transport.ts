@@ -1,6 +1,24 @@
 import type { Provider } from '../provider/provider.types'
-import type { Session } from '../sessions/sessions.types'
+import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
+
+export namespace CookieTransport {
+  export interface Cfg {
+    /**
+     * Cookie name. Defaults to `__Host-duck-sid` when no `domain` is set
+     * (browser enforces Secure + Path=/ + no Domain), else `duck-sid`.
+     */
+    name?: string
+    /** Set only for cross-subdomain deployments. Forbidden together with `__Host-` prefix. */
+    domain?: string
+    path?: string
+    /** Must be true in production; strict() rejects false. */
+    secure?: boolean
+    sameSite?: 'strict' | 'lax' | 'none'
+    /** Default 7d. Overridden by Session.absoluteExpiresAt at issue time. */
+    maxAgeSec?: number
+  }
+}
 
 /**
  * Cookie transport - opaque session ID in an HttpOnly cookie. Default for web apps.
@@ -10,7 +28,7 @@ export class CookieTransport implements Transport.ITransport {
   private readonly _name: string
   private readonly _options: Transport.CookieOptions
 
-  constructor(cfg: CookieTransport.IConfig = {}) {
+  constructor(cfg: CookieTransport.Cfg = {}) {
     // Reject invalid cookie names early: RFC 6265 forbids CTL chars and the
     // separators below. Otherwise serializeCookie would emit a malformed
     // Set-Cookie that browsers silently drop, producing "session never sticks"
@@ -80,7 +98,7 @@ export class CookieTransport implements Transport.ITransport {
     return parseCookie(header, this._name)
   }
 
-  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): Provider.Intent[] {
+  issue(sid: string, session: Sessions.Me, opts: Transport.IssueOpts): Provider.Intent[] {
     const expiresInMs = Math.max(0, session.expiresAt.getTime() - Date.now())
     const maxAge = Math.min(this._options.maxAge ?? 0, Math.floor(expiresInMs / 1000))
     const intents: Provider.Intent[] = [
@@ -165,20 +183,7 @@ function parseCookie(header: string, name: string): string | null {
   return found
 }
 
-export namespace CookieTransport {
-  export interface IConfig {
-    /**
-     * Cookie name. Defaults to `__Host-duck-sid` when no `domain` is set
-     * (browser enforces Secure + Path=/ + no Domain), else `duck-sid`.
-     */
-    name?: string
-    /** Set only for cross-subdomain deployments. Forbidden together with `__Host-` prefix. */
-    domain?: string
-    path?: string
-    /** Must be true in production; strict() rejects false. */
-    secure?: boolean
-    sameSite?: 'strict' | 'lax' | 'none'
-    /** Default 7d. Overridden by Session.absoluteExpiresAt at issue time. */
-    maxAgeSec?: number
-  }
+/** Factory around {@link CookieTransport} for functional-style config. */
+export function cookieTransport(cfg: CookieTransport.Cfg = {}): CookieTransport {
+  return new CookieTransport(cfg)
 }

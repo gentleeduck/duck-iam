@@ -3,7 +3,7 @@ import { isExpiredAt } from '../credentials/credentials'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Provider } from '../provider/provider.types'
-import type { Session } from '../sessions/sessions.types'
+import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
 import { signEddsa, verifyEddsa } from './jwt-algs/eddsa.alg'
 import { signEs256, verifyEs256 } from './jwt-algs/es256.alg'
@@ -32,15 +32,15 @@ interface JwtPayload {
   /** Session id (hashed row key). */
   sid: string
   /** Session AAL. */
-  aal: Session.AAL
-  /** Session factors (method names only). Parser validates each entry against {@link Session.FactorMethod}. */
-  factors: Session.FactorMethod[]
+  aal: Sessions.AAL
+  /** Session factors (method names only). Parser validates each entry against {@link Sessions.FactorMethod}. */
+  factors: Sessions.FactorMethod[]
   /** Tenant id when present. */
   tid?: string
   /** Acting-as envelope when impersonating. Timestamps are epoch seconds on the wire. */
   acting_as?: { realIdentityId: string; startedAt: number; reason: string; expiresAt: number }
   /** Session kind (`'user' | 'apikey' | 'guest'`). Preserved so M2M tokens round-trip correctly. */
-  knd?: Session.Kind
+  knd?: Sessions.Kind
   /** Session rotation timestamp (epoch s); drives `session.fresh = now - rotatedAt < freshnessMs`. */
   frsh?: number
   /**
@@ -61,7 +61,7 @@ function base64urlDecode(s: string): string {
   return Buffer.from(s, 'base64url').toString('utf8')
 }
 
-function jwsSign(alg: AuthJwtTransport.IJwtAlg, key: string, signingInput: string): string {
+function jwsSign(alg: JwtTransport.IJwtAlg, key: string, signingInput: string): string {
   switch (alg) {
     case 'HS256':
       return signHs256(key, signingInput)
@@ -74,7 +74,7 @@ function jwsSign(alg: AuthJwtTransport.IJwtAlg, key: string, signingInput: strin
   }
 }
 
-function jwsVerify(alg: AuthJwtTransport.IJwtAlg, key: string, signingInput: string, sigB64: string): boolean {
+function jwsVerify(alg: JwtTransport.IJwtAlg, key: string, signingInput: string, sigB64: string): boolean {
   switch (alg) {
     case 'HS256':
       return verifyHs256(key, signingInput, sigB64)
@@ -88,7 +88,7 @@ function jwsVerify(alg: AuthJwtTransport.IJwtAlg, key: string, signingInput: str
 }
 
 /** Runtime validators for JWT header + payload; any rejection makes `verify()` return `null`. */
-const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<Session.FactorMethod>([
+const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<Sessions.FactorMethod>([
   'password',
   'passkey',
   'totp',
@@ -99,18 +99,18 @@ const FACTOR_METHOD_VALUES: ReadonlySet<string> = new Set<Session.FactorMethod>(
   'api-key',
   'backup-code',
 ])
-const SESSION_KIND_VALUES: ReadonlySet<string> = new Set<Session.Kind>(['guest', 'user', 'apikey'])
-const JWT_ALG_VALUES: ReadonlySet<string> = new Set<AuthJwtTransport.IJwtAlg>(['HS256', 'ES256', 'RS256', 'EdDSA'])
+const SESSION_KIND_VALUES: ReadonlySet<string> = new Set<Sessions.Kind>(['guest', 'user', 'apikey'])
+const JWT_ALG_VALUES: ReadonlySet<string> = new Set<JwtTransport.IJwtAlg>(['HS256', 'ES256', 'RS256', 'EdDSA'])
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-function isFactorMethod(v: unknown): v is Session.FactorMethod {
+function isFactorMethod(v: unknown): v is Sessions.FactorMethod {
   return typeof v === 'string' && FACTOR_METHOD_VALUES.has(v)
 }
 
-function isSessionKind(v: unknown): v is Session.Kind {
+function isSessionKind(v: unknown): v is Sessions.Kind {
   return typeof v === 'string' && SESSION_KIND_VALUES.has(v)
 }
 
@@ -128,12 +128,12 @@ function isActingAs(v: unknown): v is JwtActingAs {
   )
 }
 
-function isJwtAlg(v: unknown): v is AuthJwtTransport.IJwtAlg {
+function isJwtAlg(v: unknown): v is JwtTransport.IJwtAlg {
   return typeof v === 'string' && JWT_ALG_VALUES.has(v)
 }
 
 interface JwtHeaderShape {
-  alg: AuthJwtTransport.IJwtAlg
+  alg: JwtTransport.IJwtAlg
   kid: string
   typ: 'JWT'
 }
@@ -159,7 +159,7 @@ function parseJwtPayload(raw: unknown): JwtPayload | null {
   if (aal !== 1 && aal !== 2 && aal !== 3) return null
   if (!Array.isArray(factors)) return null
   if (factors.length > 16) return null
-  const narrowedFactors: Session.FactorMethod[] = []
+  const narrowedFactors: Sessions.FactorMethod[] = []
   for (const f of factors) {
     if (!isFactorMethod(f)) return null
     narrowedFactors.push(f)
@@ -179,16 +179,16 @@ function parseJwtPayload(raw: unknown): JwtPayload | null {
   return payload
 }
 
-export class AuthJwtTransport implements Transport.ITransport {
-  private readonly _verifyKeys: Map<string, AuthJwtTransport.IVerifyKey>
-  private _signKey: AuthJwtTransport.IConfig['signKey']
+export class JwtTransport implements Transport.ITransport {
+  private readonly _verifyKeys: Map<string, JwtTransport.IVerifyKey>
+  private _signKey: JwtTransport.Cfg['signKey']
   private readonly _ttlMs: number
   private readonly _freshnessMs: number
   private readonly _refreshCookieName: string
   private readonly _refreshTtlMs: number
   private readonly _refreshEnabled: boolean
 
-  constructor(private readonly _cfg: AuthJwtTransport.IConfig) {
+  constructor(private readonly _cfg: JwtTransport.Cfg) {
     // signKey kid sanity check; flows into the JOSE header per token. A
     // huge or non-string kid would inflate every issued JWT.
     if (typeof _cfg.signKey.kid !== 'string' || _cfg.signKey.kid.length === 0 || _cfg.signKey.kid.length > 256) {
@@ -271,13 +271,13 @@ export class AuthJwtTransport implements Transport.ITransport {
    * cookie. The plaintext SID is used as the refresh cookie value so
    * the framework adapter can read it back at refresh time.
    */
-  issue(sid: string, session: Session.Me, opts: Transport.IssueOpts): Provider.Intent[] {
+  issue(sid: string, session: Sessions.Me, opts: Transport.IssueOpts): Provider.Intent[] {
     const now = Math.floor(Date.now() / 1000)
     const sessionExpiresMs =
       session.expiresAt instanceof Date ? session.expiresAt.getTime() : (session.expiresAt as number)
     const exp = Math.min(now + Math.floor(this._ttlMs / 1000), Math.floor(sessionExpiresMs / 1000))
-    const signAlg: AuthJwtTransport.IJwtAlg = this._signKey.alg ?? 'HS256'
-    const headerObj: { alg: AuthJwtTransport.IJwtAlg; typ: 'JWT'; kid: string } = {
+    const signAlg: JwtTransport.IJwtAlg = this._signKey.alg ?? 'HS256'
+    const headerObj: { alg: JwtTransport.IJwtAlg; typ: 'JWT'; kid: string } = {
       alg: signAlg,
       typ: 'JWT',
       kid: this._signKey.kid,
@@ -362,7 +362,7 @@ export class AuthJwtTransport implements Transport.ITransport {
   }
 
   /** Verify the JWT and reconstruct a Session WITHOUT a store hit. */
-  async verify(token: string): Promise<Session.Me | null> {
+  async verify(token: string): Promise<Sessions.Me | null> {
     if (typeof token !== 'string' || token.length === 0 || token.length > 4096) {
       return null
     }
@@ -384,7 +384,7 @@ export class AuthJwtTransport implements Transport.ITransport {
     if (!key) return null
     // Pin the alg to the key configuration to prevent alg-confusion
     // attacks (RFC 8725 section 3.1).
-    const expectedAlg: AuthJwtTransport.IJwtAlg = key.alg ?? 'HS256'
+    const expectedAlg: JwtTransport.IJwtAlg = key.alg ?? 'HS256'
     if (header.alg !== expectedAlg) return null
     // `isExpiredAt` fail-closes; non-finite `notAfter` would slip past expiry.
     if (isExpiredAt(key.notAfter)) return null
@@ -408,7 +408,7 @@ export class AuthJwtTransport implements Transport.ITransport {
     // `frsh` claim (or `iat` fallback) matches cookie-session freshness window.
     const rotatedAtMs = (payload.frsh ?? payload.iat) * 1000
     const completedAtDate = new Date(payload.iat * 1000)
-    const session: Session.Me = {
+    const session: Sessions.Me = {
       id: payload.sid,
       identityId: payload.sub,
       tenantId: payload.tid ?? null,
@@ -451,7 +451,7 @@ export class AuthJwtTransport implements Transport.ITransport {
   jwks(): { keys: Array<Record<string, unknown>> } {
     const out: Array<Record<string, unknown>> = []
     for (const key of this._verifyKeys.values()) {
-      const alg: AuthJwtTransport.IJwtAlg = key.alg ?? 'HS256'
+      const alg: JwtTransport.IJwtAlg = key.alg ?? 'HS256'
       if (alg === 'HS256') continue
       try {
         const pub = createPublicKey(key.key).export({ format: 'jwk' }) as Record<string, unknown>
@@ -467,7 +467,7 @@ export class AuthJwtTransport implements Transport.ITransport {
    * Mint a fresh JWT from a session without rotating the SID. Used by
    * refresh endpoints after verifying the refresh cookie.
    */
-  static mintFresh(transport: AuthJwtTransport, sid: string, session: Session.Me): Provider.Intent[] {
+  static mintFresh(transport: JwtTransport, sid: string, session: Sessions.Me): Provider.Intent[] {
     return transport.issue(sid, session, { fresh: true, absolute: false })
   }
 
@@ -478,9 +478,9 @@ export class AuthJwtTransport implements Transport.ITransport {
    * keep verifying; operators retire them via `retireVerifyKey(kid)`
    * after their grace window elapses.
    */
-  rotateSignKey(opts: AuthJwtTransport.IRotateOpts): void {
+  rotateSignKey(opts: JwtTransport.IRotateOpts): void {
     const newSign = opts.signKey
-    const newAlg: AuthJwtTransport.IJwtAlg = newSign.alg ?? 'HS256'
+    const newAlg: JwtTransport.IJwtAlg = newSign.alg ?? 'HS256'
     if (opts.verifyKey) {
       const existing = this._verifyKeys.get(opts.verifyKey.kid)
       if (existing && (existing.alg ?? 'HS256') !== (opts.verifyKey.alg ?? 'HS256')) {
@@ -518,19 +518,19 @@ export class AuthJwtTransport implements Transport.ITransport {
 // Re-export for parity with cookie/bearer transports.
 export { randomToken as authRandomToken, sha256 as authSha256 }
 
-export namespace AuthJwtTransport {
-  export interface IConfig {
+export namespace JwtTransport {
+  export interface Cfg {
     /**
      * Active signing key. For HS256 the `key` is the secret; for ES256 /
      * RS256 it is the PEM-encoded PRIVATE key. `alg` defaults to HS256.
      */
-    signKey: { kid: string; alg?: AuthJwtTransport.IJwtAlg; key: string }
+    signKey: { kid: string; alg?: JwtTransport.IJwtAlg; key: string }
     /**
      * All currently-valid verify keys. Must contain `signKey`; during rotation,
      * the previous keys remain here for an overlap window so already-issued
      * tokens keep verifying.
      */
-    verifyKeys: AuthJwtTransport.IVerifyKey[]
+    verifyKeys: JwtTransport.IVerifyKey[]
     issuer: string
     audience?: string
     /** JWT TTL in ms. Default 15 minutes. */
@@ -538,7 +538,7 @@ export namespace AuthJwtTransport {
     /**
      * Freshness window in ms. A JWT round-trip reconstructs the session
      * with `fresh = (now - rotatedAt) < freshnessMs`. Default 5 minutes,
-     * matching `SessionsFacet.IConfig.freshnessMs`. Privileged
+     * matching `SessionsFacet.Cfg.freshnessMs`. Privileged
      * operations (password reset with TOTP, step-up-required actions)
      * branch on the `fresh` flag; setting this too high effectively
      * disables the freshness gate.
@@ -559,7 +559,7 @@ export namespace AuthJwtTransport {
      * Algorithm this key verifies. Default `'HS256'` for backwards
      * compatibility; ES256 + RS256 callers must set this explicitly.
      */
-    alg?: AuthJwtTransport.IJwtAlg
+    alg?: JwtTransport.IJwtAlg
     /**
      * Key material. For `HS256`: the UTF-8 secret. For `ES256` / `RS256`:
      * the PEM-encoded public key (SPKI or RSA-PUBLIC).

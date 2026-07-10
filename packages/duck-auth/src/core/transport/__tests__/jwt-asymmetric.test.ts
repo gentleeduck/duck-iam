@@ -1,9 +1,9 @@
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { Session } from '~/core/sessions/sessions.types'
-import { AuthJwtTransport } from '../jwt.transport'
+import type { Sessions } from '~/core/sessions/sessions.types'
+import { JwtTransport } from '../jwt.transport'
 
-function fakeSession(): Session.Me {
+function fakeSession(): Sessions.Me {
   const now = Date.now()
   return {
     id: 'row-hash',
@@ -25,7 +25,7 @@ function fakeSession(): Session.Me {
   }
 }
 
-function findAccessToken(intents: ReturnType<AuthJwtTransport['issue']>): string {
+function findAccessToken(intents: ReturnType<JwtTransport['issue']>): string {
   const json = intents.find((i) => i.type === 'json') as Extract<(typeof intents)[number], { type: 'json' }>
   return (json.body as { access_token: string }).access_token
 }
@@ -34,7 +34,7 @@ describe('AuthJwtTransport - ES256', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
   const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
-  const t = new AuthJwtTransport({
+  const t = new JwtTransport({
     signKey: { kid: 'k-ec', alg: 'ES256', key: privPem },
     verifyKeys: [{ kid: 'k-ec', alg: 'ES256', key: pubPem }],
     issuer: 'https://app.example.com',
@@ -57,7 +57,7 @@ describe('AuthJwtTransport - ES256', () => {
     const intents = t.issue('plaintext-sid', fakeSession(), { fresh: true, absolute: false })
     const jwt = findAccessToken(intents)
     const other = generateKeyPairSync('ec', { namedCurve: 'P-256' })
-    const otherTransport = new AuthJwtTransport({
+    const otherTransport = new JwtTransport({
       signKey: {
         kid: 'k-ec',
         alg: 'ES256',
@@ -91,7 +91,7 @@ describe('AuthJwtTransport - RS256', () => {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
   const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
-  const t = new AuthJwtTransport({
+  const t = new JwtTransport({
     signKey: { kid: 'k-rsa', alg: 'RS256', key: privPem },
     verifyKeys: [{ kid: 'k-rsa', alg: 'RS256', key: pubPem }],
     issuer: 'https://app.example.com',
@@ -125,7 +125,7 @@ describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => 
   it('rejects a token whose header alg differs from the key configured alg', async () => {
     // Use the ES256 key (configured alg=ES256) but forge a header
     // claiming HS256. Verify must reject without trying HMAC.
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       signKey: { kid: 'k1', alg: 'ES256', key: privPem },
       verifyKeys: [{ kid: 'k1', alg: 'ES256', key: pubPem }],
       issuer: 'https://app.example.com',
@@ -150,7 +150,7 @@ describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => 
   })
 
   it('refuses unknown alg headers (none / RS512 / etc.)', async () => {
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       signKey: { kid: 'k1', key: 'secret' },
       verifyKeys: [{ kid: 'k1', key: 'secret' }],
       issuer: 'https://app.example.com',
@@ -164,7 +164,7 @@ describe('AuthJwtTransport - alg-confusion guard (RFC 8725 section 3.1)', () => 
 
 describe('AuthJwtTransport.jwks - HS256 keys never leak', () => {
   it('HS256-only config returns empty keys array', () => {
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       signKey: { kid: 'k1', key: 'secret' },
       verifyKeys: [{ kid: 'k1', key: 'secret' }],
       issuer: 'https://app.example.com',
@@ -177,7 +177,7 @@ describe('AuthJwtTransport - EdDSA (Ed25519)', () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519')
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
   const pubPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
-  const t = new AuthJwtTransport({
+  const t = new JwtTransport({
     signKey: { kid: 'k-ed', alg: 'EdDSA', key: privPem },
     verifyKeys: [{ kid: 'k-ed', alg: 'EdDSA', key: pubPem }],
     issuer: 'https://app.example.com',
@@ -198,7 +198,7 @@ describe('AuthJwtTransport - EdDSA (Ed25519)', () => {
 
   it('rejects a forged token signed with a different ed25519 key', async () => {
     const other = generateKeyPairSync('ed25519')
-    const forge = new AuthJwtTransport({
+    const forge = new JwtTransport({
       signKey: { kid: 'k-ed', alg: 'EdDSA', key: other.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() },
       verifyKeys: [
         { kid: 'k-ed', alg: 'EdDSA', key: other.publicKey.export({ type: 'spki', format: 'pem' }).toString() },
@@ -230,7 +230,7 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
     const bPriv = b.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
     const bPub = b.publicKey.export({ type: 'spki', format: 'pem' }).toString()
 
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       signKey: { kid: 'a', alg: 'EdDSA', key: aPriv },
       verifyKeys: [{ kid: 'a', alg: 'EdDSA', key: aPub }],
       issuer: 'https://app.example.com',
@@ -260,7 +260,7 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
     const a = generateKeyPairSync('ed25519')
     const aPriv = a.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
     const aPub = a.publicKey.export({ type: 'spki', format: 'pem' }).toString()
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       signKey: { kid: 'a', alg: 'EdDSA', key: aPriv },
       verifyKeys: [{ kid: 'a', alg: 'EdDSA', key: aPub }],
       issuer: 'https://app.example.com',
@@ -269,7 +269,7 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
   })
 
   it('HS256 rotation auto-syncs the verify entry from the signKey', async () => {
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       signKey: { kid: 'k1', key: 'old-secret' },
       verifyKeys: [{ kid: 'k1', key: 'old-secret' }],
       issuer: 'https://app.example.com',

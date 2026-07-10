@@ -47,8 +47,8 @@ export namespace DPoPVerifier {
     recordSeen(jti: string, ttlMs: number): Promise<boolean>
   }
 
-  /** Config knobs for {@link DPoPVerifier}. */
-  export interface Config {
+  /** Cfg knobs for {@link DPoPVerifier}. */
+  export interface Cfg {
     /** Tolerated clock skew between client + server, ms. Default 30s. */
     clockSkewMs?: number
     /**
@@ -110,10 +110,10 @@ export class DPoPVerifier {
   private readonly _clockSkewMs: number
   private readonly _freshnessMs: number
   private readonly _nonceStore: DPoPVerifier.NonceStore
-  private readonly _expectedNonce: DPoPVerifier.Config['expectedNonce']
+  private readonly _expectedNonce: DPoPVerifier.Cfg['expectedNonce']
   private readonly _acceptedAlgs: Set<string>
 
-  constructor(cfg: DPoPVerifier.Config = {}) {
+  constructor(cfg: DPoPVerifier.Cfg = {}) {
     this._clockSkewMs = cfg.clockSkewMs ?? 30_000
     this._freshnessMs = cfg.freshnessMs ?? 60_000
     this._nonceStore = cfg.nonceStore ?? new MemoryDPoPNonceStore()
