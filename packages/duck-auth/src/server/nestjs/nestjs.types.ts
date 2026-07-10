@@ -1,5 +1,5 @@
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
 export namespace NestAdapter {
   export type Handler = (req: NestAdapter.Request, reply: NestAdapter.Response) => Promise<unknown>
@@ -10,8 +10,8 @@ export namespace NestAdapter {
     headers: Record<string, string | string[] | undefined>
     body?: unknown
     params?: Record<string, string>
-    session: Session.Me | null
-    identity: Identity.Me | null
+    session: Sessions.Me | null
+    identity: Identities.Me | null
   }
 
   export type Response = {

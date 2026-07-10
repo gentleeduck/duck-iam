@@ -2,8 +2,8 @@ import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/c
 import { Catch, createParamDecorator } from '@nestjs/common'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import {
   errorToHttp,
   executeIntents,
@@ -139,13 +139,13 @@ export class NestExceptionFilter implements ExceptionFilter {
 }
 
 export const CurrentSession = createParamDecorator(
-  (_: unknown, ctx: ExecutionContext): Session.Me | undefined =>
-    ctx.switchToHttp().getRequest<{ session?: Session.Me }>().session,
+  (_: unknown, ctx: ExecutionContext): Sessions.Me | undefined =>
+    ctx.switchToHttp().getRequest<{ session?: Sessions.Me }>().session,
 )
 
 export const CurrentIdentity = createParamDecorator(
-  (_: unknown, ctx: ExecutionContext): Identity.Me | null | undefined =>
-    ctx.switchToHttp().getRequest<{ identity?: Identity.Me | null }>().identity,
+  (_: unknown, ctx: ExecutionContext): Identities.Me | null | undefined =>
+    ctx.switchToHttp().getRequest<{ identity?: Identities.Me | null }>().identity,
 )
 
 export type { NestAdapter } from './nestjs.types'

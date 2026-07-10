@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { passkey } from '~/providers/passkey'
 import { passwords } from '~/providers/passwords'
 import { mountNext, nextSession, nextSignIn, nextSignOut } from '../index'
@@ -22,7 +22,7 @@ function buildAuth() {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
     providers: [],
   })
 

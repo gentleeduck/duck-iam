@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import { AuthJwtTransport } from '~/core/transport/jwt.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { JwtTransport } from '~/core/transport/jwt.transport'
+import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
 import { GRPC_STATUS, type GrpcAdapter, httpStatusToGrpc, withGrpc } from '../index'
@@ -30,7 +30,7 @@ type MyProfile = {
 
 function buildAuth() {
   const adapter = new MemoryAdapter<MyProfile>()
-  const transport = new AuthJwtTransport({
+  const transport = new JwtTransport({
     signKey: { kid: 'k1', key: 'secret-test-32-bytes-of-material' },
     verifyKeys: [{ kid: 'k1', key: 'secret-test-32-bytes-of-material' }],
     issuer: 'https://app.test',
@@ -43,7 +43,7 @@ function buildAuth() {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
     providers: [
       passwords({
         hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }),

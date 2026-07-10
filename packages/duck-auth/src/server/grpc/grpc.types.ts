@@ -1,5 +1,5 @@
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 
 export namespace GrpcAdapter {
   export type UnaryHandler<Req = unknown, Res = unknown> = (
@@ -11,8 +11,8 @@ export namespace GrpcAdapter {
     metadata: GrpcAdapter.Metadata
     request: Req
     /** Mutation slots for the interceptor; downstream handlers read them. Null until the interceptor resolves a session. */
-    session: Session.Me | null
-    identity: Identity.Me | null
+    session: Sessions.Me | null
+    identity: Identities.Me | null
   }
 
   export type Callback<Res = unknown> = (
