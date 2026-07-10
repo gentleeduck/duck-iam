@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
 import type { Credential } from '~/core/credentials/credentials.types'
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
 
 /**
@@ -13,7 +13,7 @@ import { credentialInput, identityInput, sessionInput } from '~/test/store-input
  * @param factory - factory returning a fresh `Identity.IStore` per test
  */
 export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBase = SqlBridge.ProfileMetadataBase>(
-  factory: () => Identity.Store<P>,
+  factory: () => Identities.Store<P>,
 ): void {
   describe('Identity.IStore compliance', () => {
     it('create stamps id, version=1, createdAt, updatedAt; respects providers + tenantId', async () => {
@@ -92,7 +92,7 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
  * Compliance matrix for Session stores. Verifies hashed-key storage,
  * listing, GC purge of expired rows, and per-identity bulk delete.
  */
-export function runSessionStoreCompliance(factory: () => Session.Store): void {
+export function runSessionStoreCompliance(factory: () => Sessions.Store): void {
   describe('Session.IStore compliance', () => {
     it('create + getByHash roundtrip uses the row id directly', async () => {
       const store = factory()

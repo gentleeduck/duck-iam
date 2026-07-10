@@ -5,11 +5,11 @@
  */
 
 import type { Credential } from '../core/credentials/credentials.types'
-import type { Identity } from '../core/identities/identities.types'
-import type { Session } from '../core/sessions/sessions.types'
+import type { Identities } from '../core/identities/identities.types'
+import type { Sessions } from '../core/sessions/sessions.types'
 
-/** Build a full {@link Identity.Me} fixture; every field present, nullables default to `null`. */
-export function makeIdentity(over: Partial<Identity.Me> = {}): Identity.Me {
+/** Build a full {@link Identities.Me} fixture; every field present, nullables default to `null`. */
+export function makeIdentity(over: Partial<Identities.Me> = {}): Identities.Me {
   return {
     id: 'id-1',
     profile: { username: 'u', email: 'u@x.com' },
@@ -23,8 +23,8 @@ export function makeIdentity(over: Partial<Identity.Me> = {}): Identity.Me {
   }
 }
 
-/** Build a full {@link Session.Me} fixture; every field present, nullables default to `null`. */
-export function makeSession(over: Partial<Session.Me> = {}): Session.Me {
+/** Build a full {@link Sessions.Me} fixture; every field present, nullables default to `null`. */
+export function makeSession(over: Partial<Sessions.Me> = {}): Sessions.Me {
   const now = new Date()
   return {
     id: 'sid-1',
@@ -47,16 +47,16 @@ export function makeSession(over: Partial<Session.Me> = {}): Session.Me {
   }
 }
 
-/** Build a total {@link Identity.CreateInput}; nullable fields default to `null`. */
-export function identityInput<P>(over: Partial<Identity.CreateInput<P>> & { profile: P }): Identity.CreateInput<P> {
+/** Build a total {@link Identities.CreateInput}; nullable fields default to `null`. */
+export function identityInput<P>(over: Partial<Identities.CreateInput<P>> & { profile: P }): Identities.CreateInput<P> {
   return { providers: [],  emailVerified: false, ...over }
 }
 
-/** Build a total {@link Session.CreateInput}; nullable fields default to `null`. */
+/** Build a total {@link Sessions.CreateInput}; nullable fields default to `null`. */
 export function sessionInput(
-  over: Partial<Session.CreateInput> &
+  over: Partial<Sessions.CreateInput> &
     Pick<
-      Session.CreateInput,
+      Sessions.CreateInput,
       | 'id'
       | 'identityId'
       | 'kind'
@@ -68,7 +68,7 @@ export function sessionInput(
       | 'absoluteExpiresAt'
       | 'fresh'
     >,
-): Session.CreateInput {
+): Sessions.CreateInput {
   return { tenantId: null, csrfHash: null, ip: null, userAgent: null, fingerprint: null, actingAs: null, ...over }
 }
 

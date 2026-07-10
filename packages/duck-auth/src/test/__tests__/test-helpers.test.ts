@@ -30,7 +30,7 @@ describe('authCreateTest()', () => {
 
   it('honors a baseUrl override', () => {
     const auth = createTest({ baseUrl: 'https://example.test' })
-    expect(auth.config.baseUrl).toBe('https://example.test')
+    expect(auth.cfg.baseUrl).toBe('https://example.test')
   })
 
   it('lets callers swap a single store (identities) while keeping the rest', async () => {

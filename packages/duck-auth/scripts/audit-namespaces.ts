@@ -91,7 +91,7 @@ function audit(file: string): AuditResult {
 
   const namespaceAliases = new Set<string>()
   // Names already taken on the LHS of an alias inside a namespace; needed
-  // so we don't emit `export type IConfig = ...` when an IConfig already
+  // so we don't emit `export type Cfg = ...` when an Cfg already
   // exists with different generics.
   const existingAliasNames = new Set<string>()
   let hasNamespaceBlock = false
@@ -131,7 +131,7 @@ function aliasName(typeName: string): string {
 }
 
 function generateAlias(typeName: string, owner: string): string {
-  // Common patterns: FooConfig -> IConfig, FooOptions -> IOptions, FooBeginInput -> IBeginInput
+  // Common patterns: FooCfg -> Cfg, FooOptions -> IOptions, FooBeginInput -> IBeginInput
   const stripped = typeName.startsWith(owner) ? typeName.slice(owner.length) : typeName
   if (!stripped) return 'I'
   return `I${stripped}`
