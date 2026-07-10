@@ -7,7 +7,7 @@ export class AuthAwsKmsProvider implements Kms.Provider {
   private readonly _keyId: string
   private readonly _client: AuthAwsKmsProvider.IKmsLike
 
-  constructor(cfg: AuthAwsKmsProvider.IConfig) {
+  constructor(cfg: AuthAwsKmsProvider.Cfg) {
     this._keyId = cfg.keyId
     this._client = cfg.client
   }
@@ -79,7 +79,7 @@ export namespace AuthAwsKmsProvider {
   export interface IKmsLike {
     send(command: unknown): Promise<unknown>
   }
-  export interface IConfig {
+  export interface Cfg {
     /** KMS key id, ARN, or alias (e.g., 'alias/duck-auth-data-at-rest'). */
     keyId: string
     /** A pre-configured KmsClient (or any object with a `send` method, for tests). */

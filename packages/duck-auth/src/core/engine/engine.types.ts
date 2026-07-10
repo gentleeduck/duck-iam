@@ -3,29 +3,30 @@ import type { Limiter } from '~/limiters'
 import type { AuthDefine } from '../config/config.types'
 import type { Credential } from '../credentials/credentials.types'
 import type { Hijack } from '../hijack/hijack.types'
-import type { Identity } from '../identities/identities.types'
+import type { IdempotencyImpl } from '../idempotency'
+import type { Identities } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
-import type { Session } from '../sessions/sessions.types'
+import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
 
 export namespace Engine {
   /**
-   * Configuration for creating an {@link Engine} instance.
+   * Cfguration for creating an {@link Engine} instance.
    *
    * @template Profile  - Shape of the user profile stored on identities.
    * @template Tenant   - Tenant discriminator type.
    * @template OrgMeta  - Shape of organization metadata.
    */
-  export type Config<
-    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  export type Cfg<
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
     Tenant = string,
     OrgMeta = unknown,
   > = {
     baseUrl: string
     transport: Transport.ITransport
     stores: {
-      identities: Identity.Store<Profile>
-      sessions: Session.Store
+      identities: Identities.Store<Profile>
+      sessions: Sessions.Store
       credentials: Credential.Store
       orgs?: Org.Store<OrgMeta>
     }
@@ -37,6 +38,7 @@ export namespace Engine {
      * identically.
      */
     providers?: AuthDefine.IProviderEntry<Profile, Tenant, OrgMeta>[]
+    idempotency?: IdempotencyImpl
     /** Channel bundle forwarded to provider thunks (magic-link / OTP). */
     channels?: AuthDefine.IChannels
     events?: Events.IBus
@@ -50,7 +52,7 @@ export namespace Engine {
       /** SEC: max serialized (JSON UTF-8) profile size, in bytes. Default 16 KiB. Set to `0` to disable. */
       profileMaxBytes?: number
     }
-    hijack?: Hijack.Config
+    hijack?: Hijack.Cfg
     __tenantBrand?: Tenant
   }
 }

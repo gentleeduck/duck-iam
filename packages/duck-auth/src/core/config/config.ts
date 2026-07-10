@@ -1,5 +1,5 @@
 import { AuthEngine, type Engine } from '../engine'
-import type { Identity } from '../identities/identities.types'
+import type { Identities } from '../identities/identities.types'
 import { CookieTransport } from '../transport/cookie.transport'
 import type { AuthDefine } from './config.types'
 
@@ -16,16 +16,16 @@ import type { AuthDefine } from './config.types'
  * ```
  */
 export function createAuth<
-  const Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  const Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   const Tenant = string,
   const OrgMeta = unknown,
->(config: AuthDefine.IConfig<Profile, Tenant, OrgMeta>): AuthEngine<Profile, Tenant, OrgMeta> {
+>(config: AuthDefine.Cfg<Profile, Tenant, OrgMeta>): AuthEngine<Profile, Tenant, OrgMeta> {
   const transport = config.transport ?? new CookieTransport({ name: 'duck-sid' })
 
   // Engine-config knobs are genuinely optional tuning (not stored data), so they
   // stay optional and pass straight through — the `...(x !== undefined && {x})`
   // spread guard was noise, not safety (`exactOptionalPropertyTypes: false`).
-  const rootConfig: Engine.Config<Profile, Tenant, OrgMeta> = {
+  const rootCfg: Engine.Cfg<Profile, Tenant, OrgMeta> = {
     baseUrl: config.baseUrl,
     stores: {
       credentials: config.stores.credentials,
@@ -45,7 +45,7 @@ export function createAuth<
     channels: config.channels,
   }
 
-  const auth = new AuthEngine<Profile, Tenant, OrgMeta>(rootConfig)
+  const auth = new AuthEngine<Profile, Tenant, OrgMeta>(rootCfg)
 
   if (config.strict) auth.strict({ env: config.strict })
 

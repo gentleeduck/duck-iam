@@ -13,7 +13,7 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
   readonly id: string
   private readonly _kms: Kms.Provider
 
-  constructor(cfg: AuthKmsEnvelopeDataAtRest.IConfig) {
+  constructor(cfg: AuthKmsEnvelopeDataAtRest.Cfg) {
     this._kms = cfg.kms
     this.id = `kms-envelope:${cfg.kms.id}`
   }
@@ -89,7 +89,7 @@ export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
 }
 
 export namespace AuthKmsEnvelopeDataAtRest {
-  export interface IConfig {
+  export interface Cfg {
     kms: Kms.Provider
   }
 }

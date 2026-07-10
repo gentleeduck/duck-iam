@@ -1,7 +1,7 @@
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
 
-export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.Config, 'allowedOrigins'>> & {
+export const AUTH_DEFAULT_CSRF_CONFIG: Required<Omit<Csrf.Cfg, 'allowedOrigins'>> & {
   allowedOrigins: string[]
 } = {
   cookieName: '__Host-duck-csrf',
@@ -22,7 +22,7 @@ export function issueCsrfToken(): { token: string; hash: string } {
 /** Build a Set-Cookie intent body for the CSRF cookie. */
 export function buildCsrfCookieOptions(
   token: string,
-  cfg: Csrf.Config = {},
+  cfg: Csrf.Cfg = {},
 ): {
   name: string
   value: string
@@ -55,7 +55,7 @@ export function verifyCsrf(opts: {
   method: string
   headers: Headers
   sessionCsrfHash?: string
-  cfg?: Csrf.Config
+  cfg?: Csrf.Cfg
   /** True when the request authenticated via a non-ambient bearer (header, JWT, DPoP). */
   isBearer?: boolean
 }): void {
@@ -125,7 +125,7 @@ export async function csrfGuard(
     } | null>
   },
   req: { method: string; headers: Headers },
-  opts: { isBearer?: boolean; cfg?: Csrf.Config; expectedTenantId?: string } = {},
+  opts: { isBearer?: boolean; cfg?: Csrf.Cfg; expectedTenantId?: string } = {},
 ): Promise<void> {
   if (SAFE_METHODS.has(req.method.toUpperCase())) return
   // Bearer / JWT transports carry auth in the Authorization header,
@@ -144,7 +144,7 @@ export async function csrfGuard(
 }
 
 export namespace Csrf {
-  export type Config = {
+  export type Cfg = {
     /** Cookie name carrying the plaintext token. Default `__Host-duck-csrf`. */
     cookieName?: string
     /** Header name the client puts the token on. Default `x-csrf-token`. */

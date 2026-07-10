@@ -1,14 +1,14 @@
 import type { Events } from '~/core/events/events.types'
 import type { Provider } from '~/core/provider/provider.types'
 import type { AuthEngine } from '../engine'
-import type { Identity } from '../identities'
+import type { Identities } from '../identities'
 
 /**
  * Plugin registry. Generic over the AuthEngine generics so `install` does not
  * need a cast at the call site; `AuthEngine.use(plugin)` forwards its own
  * generics unchanged.
  */
-export class PluginRegistry<Profile extends Identity.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
+export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
   private readonly _plugins = new Map<string, PluginRegistry.Plugin<Profile, Tenant, OrgMeta>>()
   private readonly _eventUnsubs: Array<() => void> = []
 
@@ -62,7 +62,7 @@ export class PluginRegistry<Profile extends Identity.ProfileMetadataBase, Tenant
 }
 
 export namespace PluginRegistry {
-  export interface Plugin<Profile extends Identity.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
+  export interface Plugin<Profile extends Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
     /** Stable id; library refuses duplicate ids. */
     id: string
     /** Optional providers to register at install time. */

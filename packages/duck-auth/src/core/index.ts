@@ -26,7 +26,9 @@ export { AuthEngine } from './engine'
 export type { Envelope } from './errors'
 export { AuthError } from './errors'
 export { InMemoryEvents as AuthInMemoryEvents } from './events'
-export type { Identity } from './identities'
+export type { Identities as Identity } from './identities'
+export type { Provider } from './provider'
+export type { Sessions } from './sessions'
 export type { TenantContext } from './tenant'
 export {
   currentTenant,

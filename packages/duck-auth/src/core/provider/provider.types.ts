@@ -1,6 +1,6 @@
 import type { Credential } from '~/core/credentials/credentials.types'
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Transport } from '~/core/transport/transport.types'
 import type { Limiter } from '~/limiters'
@@ -12,7 +12,7 @@ export namespace Provider {
 
   /**
    * Adapter-safe intents: these are the only intents framework adapters
-   * (NestJS, Express, Fastify, …) ever see. FlowsFacet consumes and strips
+   * (NestJS, Express, Fastify, …) ever see. FlowsImpl consumes and strips
    * the internal `startSession` / `requireMfa` signals before returning.
    */
   export type Intent =
@@ -24,7 +24,7 @@ export namespace Provider {
 
   /**
    * Full internal intent union returned by `IProvider.complete()`.
-   * `startSession` and `requireMfa` are consumed by FlowsFacet; they
+   * `startSession` and `requireMfa` are consumed by FlowsImpl; they
    * must never be forwarded to a framework adapter.
    */
   export type InternalIntent =
@@ -32,8 +32,8 @@ export namespace Provider {
     | {
         type: 'startSession'
         identityId: string
-        factors: Session.Factor[]
-        aal: Session.AAL
+        factors: Sessions.Factor[]
+        aal: Sessions.AAL
       }
     | { type: 'requireMfa'; identityId: string; methods: string[] }
 
@@ -49,10 +49,10 @@ export namespace Provider {
     emit(event: string, payload: unknown): Promise<void>
   }
 
-  export type Context<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> = {
+  export type Context<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     stores: {
-      identities: Identity.Store<Profile>
-      sessions: Session.Store
+      identities: Identities.Store<Profile>
+      sessions: Sessions.Store
       credentials: Credential.Store
     }
     tenant: TenantContext
@@ -65,7 +65,7 @@ export namespace Provider {
   export interface Me<
     BeginIn = unknown,
     CompleteIn = unknown,
-    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   > {
     id: string
     /** Open string so custom providers declare their own kind without patching the type. */

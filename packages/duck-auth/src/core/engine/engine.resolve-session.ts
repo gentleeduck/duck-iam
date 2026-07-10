@@ -1,13 +1,13 @@
 import type { Anomaly } from '../anomaly/anomaly.types'
-import type { Identity } from '../identities'
-import type { Session } from '../sessions'
+import type { Identities } from '../identities'
+import type { Sessions } from '../sessions'
 import { resolveBySid } from '../sessions'
 import type { AuthEngine } from './engine'
 
 /** Result shape of {@link resolveSession}; `anomaly` present only when detectors ran. */
-type ResolveResult<Profile extends Identity.ProfileMetadataBase> = {
-  session: Session.Me
-  identity: Identity.Me<Profile> | null
+type ResolveResult<Profile extends Identities.ProfileMetadataBase> = {
+  session: Sessions.Me
+  identity: Identities.Me<Profile> | null
   anomaly?: Anomaly.Result
 }
 
@@ -17,7 +17,7 @@ type ResolveResult<Profile extends Identity.ProfileMetadataBase> = {
  * the session up by hashed sid. Every branch — the cross-tenant guard, the
  * anomaly auto-evaluation — is identical to the inline method it replaced.
  */
-export async function resolveSession<Profile extends Identity.ProfileMetadataBase, Tenant, OrgMeta>(
+export async function resolveSession<Profile extends Identities.ProfileMetadataBase, Tenant, OrgMeta>(
   engine: AuthEngine<Profile, Tenant, OrgMeta>,
   req: { headers: Headers },
   opts: { expectedTenantId?: string; requestSnapshot?: Anomaly.RequestSnapshot } = {},
@@ -26,8 +26,8 @@ export async function resolveSession<Profile extends Identity.ProfileMetadataBas
   if (!token) return null
 
   const finalize = async (
-    session: Session.Me,
-    identity: Identity.Me<Profile> | null,
+    session: Sessions.Me,
+    identity: Identities.Me<Profile> | null,
   ): Promise<ResolveResult<Profile>> => {
     // Auto-evaluate anomaly detectors so routes branch on a single field.
     if (opts.requestSnapshot && identity && engine.anomaly.list().length > 0) {
@@ -51,12 +51,12 @@ export async function resolveSession<Profile extends Identity.ProfileMetadataBas
       if (opts.expectedTenantId !== undefined && verified.tenantId !== opts.expectedTenantId) {
         return null
       }
-      const identity = verified.identityId ? await engine.config.stores.identities.findById(verified.identityId) : null
+      const identity = verified.identityId ? await engine.cfg.stores.identities.findById(verified.identityId) : null
       return finalize(verified, identity)
     }
   }
 
-  const resolved = await resolveBySid(token, engine.config.stores.sessions, engine.config.stores.identities)
+  const resolved = await resolveBySid(token, engine.cfg.stores.sessions, engine.cfg.stores.identities)
   if (!resolved) return null
   // same cross-tenant guard as the JWT branch. Reject mismatches
   // AND undefined-vs-expected - see the JWT branch comment above.

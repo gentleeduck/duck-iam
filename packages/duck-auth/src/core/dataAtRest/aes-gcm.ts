@@ -18,7 +18,7 @@ export class AuthAesGcmDataAtRest implements DataAtRest.Adapter {
    * always uses `_currentKid`. */
   private readonly _keys: Map<string, Buffer>
 
-  constructor(cfg: AuthAesGcmDataAtRest.IConfig) {
+  constructor(cfg: AuthAesGcmDataAtRest.Cfg) {
     this._currentKid = cfg.kid
     this._keys = new Map()
     this._keys.set(cfg.kid, normalizeKey(cfg.masterKey))
@@ -129,7 +129,7 @@ function normalizeKey(masterKey: Buffer | string): Buffer {
 }
 
 export namespace AuthAesGcmDataAtRest {
-  export interface IConfig {
+  export interface Cfg {
     /** Stable key id; written into every ciphertext. Used for rotation. */
     kid: string
     /** 32-byte symmetric master key (UTF-8 string OK if you cast to Buffer). */

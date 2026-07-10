@@ -1,11 +1,11 @@
 import type { Channel } from '~/channels/channels.types'
 import type { Credential } from '../credentials/credentials.types'
 import type { AuthEngine, Engine } from '../engine'
-import type { Identity } from '../identities/identities.types'
+import type { Identities } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
 import type { PluginRegistry } from '../plugin'
 import type { Provider } from '../provider/provider.types'
-import type { Session } from '../sessions/sessions.types'
+import type { Sessions } from '../sessions/sessions.types'
 import type { Transport } from '../transport/transport.types'
 
 export namespace AuthDefine {
@@ -15,7 +15,7 @@ export namespace AuthDefine {
    * so magic-link / OTP providers can bind both without repeating config.
    */
   export type IProviderEntry<
-    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
     Tenant = string,
     OrgMeta = unknown,
   > =
@@ -31,18 +31,18 @@ export namespace AuthDefine {
 
   /** Skipped-or-included plugin entry — same falsy-drop rules as providers. */
   export type IPluginEntry<
-    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
     Tenant = string,
     OrgMeta = unknown,
   > = PluginRegistry.Plugin<Profile, Tenant, OrgMeta> | false | null | undefined | ''
 
   /** Storage triple returned by `authMemoryStorage()` / `authDrizzlePgStorage()` / etc. */
   export interface IStorage<
-    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
     OrgMeta = unknown,
   > {
-    identities: Identity.Store<Profile>
-    sessions: Session.Store
+    identities: Identities.Store<Profile>
+    sessions: Sessions.Store
     credentials: Credential.Store
     /**
      * Optional org store. Not provided by `authDrizzlePgStorage` — implement
@@ -67,11 +67,11 @@ export namespace AuthDefine {
    * @template Tenant   - Tenant discriminator type (phantom; drives type-safety only).
    * @template OrgMeta  - Shape of organization metadata.
    */
-  export interface IConfig<
-    Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  export interface Cfg<
+    Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
     Tenant = string,
     OrgMeta = unknown,
-  > extends Omit<Engine.Config<Profile, Tenant, OrgMeta>, 'providers' | 'transport'> {
+  > extends Omit<Engine.Cfg<Profile, Tenant, OrgMeta>, 'providers' | 'transport'> {
     transport?: Transport.ITransport
     /** Channel bundle forwarded to provider thunks as second argument. */
     channels?: IChannels

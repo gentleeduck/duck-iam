@@ -1,6 +1,6 @@
 import type { Engine } from '../engine'
 import { AuthError } from '../errors'
-import type { Identity } from '../identities'
+import type { Identities } from '../identities'
 import type { Compliance } from './compliance.types'
 
 const DEFAULT_OVERRIDES: Compliance.Overrides = {
@@ -86,13 +86,13 @@ function mergeStricter(a: Compliance.Overrides, b: Compliance.Overrides): Compli
 
 /** Apply preset overrides to an AuthEngine config; never mutates input, stricter rule wins per field. */
 export function applyCompliancePreset<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   Tenant = string,
   OrgMeta = unknown,
 >(
-  base: Engine.Config<Profile, Tenant, OrgMeta>,
+  base: Engine.Cfg<Profile, Tenant, OrgMeta>,
   preset: Compliance.Preset | Compliance.Preset[],
-): Engine.Config<Profile, Tenant, OrgMeta> {
+): Engine.Cfg<Profile, Tenant, OrgMeta> {
   const overrides = resolveCompliance(preset)
   // Attach the resolved overrides via `__compliancePreset` so
   // `AuthEngine.strict` can apply `authAssertComplianceStrict` automatically.

@@ -1,9 +1,9 @@
 import { AuthError } from '../errors'
-import type { Identity } from '../identities'
+import type { Identities } from '../identities'
 import type { Provider } from './provider.types'
 
 /** Type guard: a capability that exposes begin/complete is a sign-in provider. */
-function isSignInCapability<Profile extends Identity.ProfileMetadataBase>(
+function isSignInCapability<Profile extends Identities.ProfileMetadataBase>(
   cap: Provider.Capability,
 ): cap is Provider.Me<unknown, unknown, Profile> {
   return typeof cap.begin === 'function' && typeof cap.complete === 'function'
@@ -14,7 +14,7 @@ function isSignInCapability<Profile extends Identity.ProfileMetadataBase>(
  * capability (sign-in providers AND attach-only facets like mfa/api-key),
  * routes `begin/complete` by id, and resolves facets by type via `resolve`.
  */
-export class Providers<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
+export class Providers<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
   private readonly _byId = new Map<string, Provider.Capability>()
 
   constructor(capabilities: Provider.Capability[] = []) {

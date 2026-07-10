@@ -31,7 +31,7 @@ export class WebhookDeliverer {
   private readonly _fetch: typeof globalThis.fetch
   private readonly _deadLetter: WebhookDeliverer.IDeadLetterSink | undefined
 
-  constructor(cfg: WebhookDeliverer.IConfig) {
+  constructor(cfg: WebhookDeliverer.Cfg) {
     if (!cfg.endpoints?.length) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthWebhookDeliverer requires at least one endpoint',
@@ -305,7 +305,7 @@ const EVERY_EVENT: Events.EventName[] = [
 ]
 
 export namespace WebhookDeliverer {
-  export interface IConfig {
+  export interface Cfg {
     endpoints: WebhookDeliverer.IEndpoint[]
     /** Maximum delivery attempts before dead-lettering. Default 5. */
     maxAttempts?: number
