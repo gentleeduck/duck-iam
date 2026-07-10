@@ -3,12 +3,12 @@ import type { Passkey } from '~/providers/passkey/passkey.types'
 
 /**
  * Every type the MFA provider exposes lives under this one namespace, so
- * consumers reach for `Mfa.Config`, `Mfa.WebauthnLibrary`, etc. from a single
+ * consumers reach for `Mfa.Cfg`, `Mfa.WebauthnLibrary`, etc. from a single
  * place.
  */
 export namespace Mfa {
   /** Resolved, total facet config — every field explicit (null-discipline). */
-  export type Config = {
+  export type Cfg = {
     /** Brand shown in TOTP authenticator app entries. */
     issuer: string
     /** How many backup codes to generate per enrollment. Default 10. */
@@ -21,10 +21,10 @@ export namespace Mfa {
 
   /**
    * Ergonomic, end-user-facing config. Every field optional; the boundary
-   * coalesces each key to its default (`toMfaConfig`) so the facet never sees
+   * coalesces each key to its default (`toMfaCfg`) so the facet never sees
    * `undefined`.
    */
-  export type ConfigInput = {
+  export type CfgInput = {
     /** Brand shown in TOTP authenticator app entries. Default 'duck-auth'. */
     issuer?: string
     backupCodeCount?: number

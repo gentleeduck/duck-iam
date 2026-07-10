@@ -2,7 +2,7 @@ import { Argon2idHasher } from './hashers/argon2'
 import type { Passwords } from './passwords.types'
 
 /** Default resolved facet config (null-discipline: every field explicit). */
-export const DEFAULT_PASSWORDS_CONFIG: Passwords.Config = {
+export const DEFAULT_PASSWORDS_CONFIG: Passwords.Cfg = {
   minLength: 8,
   maxLength: 1024,
   rejectCommon: true,

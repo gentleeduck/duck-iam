@@ -1,7 +1,7 @@
 import { toCredentialUpsert } from '~/core/credentials/credentials'
 import { sha256 } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { OAuth } from './oauth.types'
 import { generatePkce } from './pkce'
@@ -11,7 +11,7 @@ import { authBuildState, authVerifyState, signState } from './state'
  * Generic oauth provider. Specific provider modules (authGoogle, authGithub,
  * ...) pre-fill endpoints + scopes + fetchProfile and re-export.
  */
-export class OProviderImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>
+export class OProviderImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile>
 {
   readonly id: string
@@ -176,7 +176,7 @@ export class OProviderImpl<Profile extends Identity.ProfileMetadataBase = Identi
 }
 
 /** Factory around {@link OProviderImpl} for functional-style config. */
-export function oProvider<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function oProvider<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.Options<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   return new OProviderImpl(opts)

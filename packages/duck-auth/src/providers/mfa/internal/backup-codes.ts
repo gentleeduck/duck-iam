@@ -14,7 +14,7 @@ import { AuthError } from '~/core/errors'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 
 export namespace BackupCodesFacet {
-  export type Config = {
+  export type Cfg = {
     /** Number of codes minted per call to `generate`. Default 10. */
     count: number
     /** Code length in bytes (4 -> 8 hex chars; 5 -> 10; etc). Default 5. */
@@ -50,7 +50,7 @@ function generateBackupCode(_crypto: { authRandomToken(b: number): string }, len
   return out
 }
 
-export const DEFAULT_BACKUP_CODES_CONFIG: BackupCodesFacet.Config = {
+export const DEFAULT_BACKUP_CODES_CONFIG: BackupCodesFacet.Cfg = {
   count: 10,
   byteLength: 5,
   groupFour: true,
@@ -69,7 +69,7 @@ export class BackupCodesFacet {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
     },
-    private readonly _cfg: BackupCodesFacet.Config = DEFAULT_BACKUP_CODES_CONFIG,
+    private readonly _cfg: BackupCodesFacet.Cfg = DEFAULT_BACKUP_CODES_CONFIG,
   ) {}
 
   /**

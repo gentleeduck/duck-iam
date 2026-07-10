@@ -2,9 +2,9 @@ import { createHmac } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { AuthEngine } from '~/core/engine'
-import { Identity } from '~/core/identities'
+import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { OAuthClient } from '../core/client'
 import { generatePkce } from '../core/pkce'
@@ -23,7 +23,7 @@ function mintRawState(payload: unknown, secret: string): string {
   return `${body}.${sig}`
 }
 
-interface MyProfile extends Identity.ProfileMetadataBase {}
+interface MyProfile extends Identities.ProfileMetadataBase {}
 
 describe('oauth core - PKCE + state', () => {
   it('authGeneratePkce produces an S256 challenge derived from the verifier', () => {
@@ -253,7 +253,7 @@ describe('oProvider - generic end-to-end (mocked IdP)', () => {
         sessions: adapter.sessions,
         credentials: adapter.credentials,
       },
-      limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
+      limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
       providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
     })
 

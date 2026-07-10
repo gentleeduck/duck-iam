@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { isFiniteNumber, isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import type { Provider } from '~/core/provider/provider.types'
 import { MemoryPasskeyChallengeStore } from './internal/challenge-store'
 import { DEFAULT_PASSKEY_CONFIG } from './passkey.constants'
@@ -60,7 +60,7 @@ function decodeUserHandle(wireValue: string): string | null {
  * {@link beginPasskeyRegistration} + {@link completePasskeyRegistration}
  * (separate exports).
  */
-export class PasskeyImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>
+export class PasskeyImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<Passkey.BeginInput, Passkey.CompleteInput, Profile>
 {
   readonly id = 'passkey'
@@ -208,7 +208,7 @@ export class PasskeyImpl<Profile extends Identity.ProfileMetadataBase = Identity
 }
 
 /** Factory around {@link PasskeyImpl} for functional-style config. */
-export function passkey<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function passkey<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: Passkey.Options,
 ): Provider.Me<Passkey.BeginInput, Passkey.CompleteInput, Profile> {
   return new PasskeyImpl(opts)

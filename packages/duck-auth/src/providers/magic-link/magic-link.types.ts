@@ -6,7 +6,7 @@ import type { Channel } from '~/channels/channels.types'
  * single place.
  */
 export namespace MagicLink {
-  /** Config knobs for {@link magicLink}. */
+  /** Cfg knobs for {@link magicLink}. */
   export interface Options<Profile = unknown> {
     /** Channel implementations keyed by their `kind`. */
     channels: { email?: Channel.Channel; sms?: Channel.Channel; webpush?: Channel.Channel }

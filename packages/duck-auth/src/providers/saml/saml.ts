@@ -9,7 +9,7 @@
  */
 
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { DEFAULT_SAML_CONFIG, SAML_HOST_MAX, SAML_RELAY_STATE_MAX, SAML_RESPONSE_MAX } from './saml.constants'
 import type { Saml } from './saml.types'
@@ -18,7 +18,7 @@ import type { Saml } from './saml.types'
  * SAML provider. Standard `Provider.Me` shape so it slots into
  * AuthEngine.providers alongside the password / oauth providers.
  */
-export class SamlImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>
+export class SamlImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<Saml.BeginInput, Saml.CompleteInput, Profile>
 {
   readonly id: string
@@ -139,7 +139,7 @@ export class SamlImpl<Profile extends Identity.ProfileMetadataBase = Identity.Pr
 }
 
 /** Factory around {@link SamlImpl} for functional-style config. */
-export function saml<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function saml<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: Saml.Options<Profile>,
 ): Provider.Me<Saml.BeginInput, Saml.CompleteInput, Profile> {
   return new SamlImpl(opts)

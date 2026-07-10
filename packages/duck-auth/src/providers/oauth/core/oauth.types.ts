@@ -23,7 +23,7 @@ export namespace OAuth {
     revocationEndpoint?: string
   }
 
-  /** Config knobs for the `OAuthClient`. */
+  /** Cfg knobs for the `OAuthClient`. */
   export type ClientOptions = {
     clientId: string
     clientSecret?: string

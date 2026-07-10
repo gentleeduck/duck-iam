@@ -5,7 +5,7 @@
  */
 
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
 import type { OAuth } from '../core/oauth.types'
@@ -19,7 +19,7 @@ const LINKEDIN_ENDPOINTS: OAuth.Endpoints = {
 }
 
 /** LinkedIn OIDC provider factory. */
-export function linkedin<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function linkedin<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.LinkedinOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   const client = new OAuthClient({

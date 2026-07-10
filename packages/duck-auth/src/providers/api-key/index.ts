@@ -5,5 +5,5 @@
  */
 
 export { ApiKeysFacet, AuthApiKeyImpl, apiKeyProvider, authApiKey } from './api-key'
-export { DEFAULT_APIKEYS_CONFIG, toApiKeysConfig } from './api-key.constants'
+export { DEFAULT_APIKEYS_CONFIG, toApiKeysCfg } from './api-key.constants'
 export type { ApiKeys } from './api-key.types'

@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { Identity } from '~/core/identities'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { Identities } from '~/core/identities'
+import { MemoryLimiter } from '~/limiters/memory'
 import { identityInput } from '~/test/store-inputs'
 import { ApiKeysFacet } from '../api-key'
 import { authApiKey } from '../index'
 
-interface ProfileShape extends Identity.ProfileMetadataBase {}
+interface ProfileShape extends Identities.ProfileMetadataBase {}
 
 function buildContext() {
   const adapter = new MemoryAdapter<ProfileShape>()
@@ -26,7 +26,7 @@ function buildContext() {
       },
       tenant: {},
       baseUrl: 'https://app.test',
-      limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
+      limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
       events,
       crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
     },
@@ -148,7 +148,7 @@ describe('api-key provider', () => {
         },
         tenant: {},
         baseUrl: 'https://app.test',
-        limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
+        limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
         events,
         crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
       }
@@ -178,7 +178,7 @@ describe('api-key provider', () => {
         },
         tenant: { tenantId: 'tenant-B' },
         baseUrl: 'https://app.test',
-        limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
+        limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
         events,
         crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
       }
@@ -208,7 +208,7 @@ describe('api-key provider', () => {
         },
         tenant: { tenantId: 'tenant-A' },
         baseUrl: 'https://app.test',
-        limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
+        limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
         events,
         crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
       }

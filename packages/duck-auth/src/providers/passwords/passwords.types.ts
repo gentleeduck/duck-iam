@@ -4,12 +4,12 @@ import type { Hasher } from './hashers/hashers.types'
 
 /**
  * Every type the password provider exposes lives under this one namespace, so
- * consumers reach for `Password.Config`, `Password.Options`, etc. from a single
+ * consumers reach for `Password.Cfg`, `Password.Options`, etc. from a single
  * place.
  */
 export namespace Passwords {
   /** Resolved, total facet config — every field explicit (null-discipline). */
-  export type Config = {
+  export type Cfg = {
     /** Minimum password length. Default 8; compliance presets force >=12. */
     minLength: number
     /** Maximum password length. Default 1024. SEC: caps argon2/scrypt DoS surface. */

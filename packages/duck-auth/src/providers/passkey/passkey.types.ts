@@ -107,7 +107,7 @@ export namespace Passkey {
     take(key: string): Promise<string | null>
   }
 
-  /** Config knobs for {@link passkey}. */
+  /** Cfg knobs for {@link passkey}. */
   export type Options = {
     /** Relying-party display name (shown in the OS picker). */
     rpName: string

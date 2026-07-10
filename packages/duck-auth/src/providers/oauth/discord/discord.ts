@@ -4,7 +4,7 @@
  */
 
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
 import type { OAuth } from '../core/oauth.types'
@@ -19,7 +19,7 @@ const DISCORD_ENDPOINTS: OAuth.Endpoints = {
 }
 
 /** Discord oauth 2.0 provider factory. */
-export function discord<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function discord<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.DiscordOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   const client = new OAuthClient({

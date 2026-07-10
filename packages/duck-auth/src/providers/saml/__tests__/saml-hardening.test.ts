@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { Identity } from '~/core/identities'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { Identities } from '~/core/identities'
+import { MemoryLimiter } from '~/limiters/memory'
 import { identityInput } from '~/test/store-inputs'
 import { Saml, saml } from '../index'
 
-interface MyProfile extends Identity.ProfileMetadataBase {}
+interface MyProfile extends Identities.ProfileMetadataBase {}
 
 function ctxFor(adapter: MemoryAdapter<MyProfile>, events?: InMemoryEvents) {
   return {
@@ -18,7 +18,7 @@ function ctxFor(adapter: MemoryAdapter<MyProfile>, events?: InMemoryEvents) {
     },
     tenant: {},
     baseUrl: 'https://app.test',
-    limiter: new AuthMemoryLimiter(),
+    limiter: new MemoryLimiter(),
     events: events ?? new InMemoryEvents(),
     crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
   }

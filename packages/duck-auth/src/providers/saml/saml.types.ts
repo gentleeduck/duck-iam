@@ -48,7 +48,7 @@ export namespace Saml {
     attributes?: Record<string, string | string[]>
   }
 
-  /** Config knobs for {@link saml}. */
+  /** Cfg knobs for {@link saml}. */
   export interface Options<AppProfile = unknown> {
     /**
      * Provider id reported back to consumers (e.g. `'okta'`,
@@ -128,7 +128,7 @@ export namespace Saml {
     redirectUrl: string
   }
 
-  /** Config knobs for {@link buildSpMetadata}. */
+  /** Cfg knobs for {@link buildSpMetadata}. */
   export interface MetadataOptions {
     /** SP entityID. Must match the AudienceRestriction set at the IdP. */
     entityId: string

@@ -1,6 +1,6 @@
 import { isCredentialExpired, toCredentialUpsert } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import { DEFAULT_MAGIC_LINK_CONFIG } from './magic-link.constants'
@@ -17,7 +17,7 @@ import type { MagicLink } from './magic-link.types'
  *                      validate expiry + non-revoked, REVOKE on use,
  *                      return startSession intent.
  */
-export class MagicLinkImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>
+export class MagicLinkImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<MagicLink.BeginInput, MagicLink.CompleteInput, Profile>
 {
   readonly id = 'magic-link'
@@ -180,7 +180,7 @@ export class MagicLinkImpl<Profile extends Identity.ProfileMetadataBase = Identi
 }
 
 /** Factory around {@link MagicLinkImpl} for functional-style config. */
-export function magicLink<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function magicLink<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: MagicLink.Options<Profile>,
 ): Provider.Me<MagicLink.BeginInput, MagicLink.CompleteInput, Profile> {
   return new MagicLinkImpl(opts)

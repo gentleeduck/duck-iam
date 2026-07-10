@@ -1,5 +1,5 @@
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
 import type { OAuth } from '../core/oauth.types'
@@ -13,7 +13,7 @@ const GITHUB_ENDPOINTS: OAuth.Endpoints = {
 }
 
 /** GitHub oauth 2.0 provider. */
-export function github<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function github<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.GithubOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   const client = new OAuthClient({

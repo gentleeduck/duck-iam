@@ -2,7 +2,7 @@ import { resolveCompliance } from '~/core/compliance'
 import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant'
 import {
@@ -13,18 +13,18 @@ import {
 } from './passwords.constants'
 import type { Passwords } from './passwords.types'
 
-export class PasswordsImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>
+export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<Passwords.BeginInput, Passwords.CompleteInput, Profile>
 {
   readonly id = 'password'
   readonly kind = 'password' as const
-  readonly cfg: Omit<Passwords.Config, 'compliance'>
+  readonly cfg: Omit<Passwords.Cfg, 'compliance'>
   // Lazy reference hash used by verify() in the no-credential branch
   // so the hasher runs scrypt/argon2 work and matches the existing-user
   // timing - defeats username enumeration via wall-clock probes.
   private _referenceHash: string | null = null
 
-  constructor(readonly _cfg?: Partial<Passwords.Config>) {
+  constructor(readonly _cfg?: Partial<Passwords.Cfg>) {
     const floor = _cfg?.compliance ? resolveCompliance(_cfg.compliance).passwords.minLength : 0
     this.cfg = {
       limiterKeyPrefix: _cfg?.limiterKeyPrefix ?? DEFAULT_PASSWORDS_CONFIG.limiterKeyPrefix,
@@ -207,8 +207,8 @@ export class PasswordsImpl<Profile extends Identity.ProfileMetadataBase = Identi
 }
 
 /** Factory around {@link PasswordsImpl} for functional-style config. */
-export function passwords<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
-  cfg?: Partial<Passwords.Config>,
+export function passwords<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
+  cfg?: Partial<Passwords.Cfg>,
 ): Provider.Me<Passwords.BeginInput, Passwords.CompleteInput, Profile> {
   return new PasswordsImpl(cfg)
 }

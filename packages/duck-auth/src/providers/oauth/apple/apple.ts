@@ -15,7 +15,7 @@
  */
 
 import { createSign } from 'node:crypto'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
 import type { OAuth } from '../core/oauth.types'
@@ -106,7 +106,7 @@ export function decodeIdToken(idToken: string): { sub: string; email?: string; e
 }
 
 /** Sign in with Apple provider factory. */
-export function apple<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function apple<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.AppleOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   const client = new OAuthClient({

@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { Identity } from '~/core/identities'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { Identities } from '~/core/identities'
+import { MemoryLimiter } from '~/limiters/memory'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 import { AuthMemoryPasskeyChallengeStore, passkey } from '../index'
 import type { Passkey } from '../passkey.types'
 
-interface ProfileShape extends Identity.ProfileMetadataBase {}
+interface ProfileShape extends Identities.ProfileMetadataBase {}
 
 function ctxFor(adapter: MemoryAdapter<ProfileShape>) {
   return {
@@ -19,7 +19,7 @@ function ctxFor(adapter: MemoryAdapter<ProfileShape>) {
     },
     tenant: {},
     baseUrl: 'https://app.test',
-    limiter: new AuthMemoryLimiter(),
+    limiter: new MemoryLimiter(),
     events: new InMemoryEvents(),
     crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
   }

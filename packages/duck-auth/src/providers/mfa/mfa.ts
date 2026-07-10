@@ -5,8 +5,8 @@ import { sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events/events.types'
-import type { Identity } from '~/core/identities'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Passkey } from '~/providers/passkey/passkey.types'
 import { buildOtpAuthUri, generateSecret, verifyTotp } from './internal/totp'
@@ -26,12 +26,12 @@ import type { Mfa } from './mfa.types'
 export class MfaImpl {
   readonly id = 'mfa'
   readonly kind = 'mfa' as const
-  private readonly _cfg: Omit<Mfa.Config, 'compliance'>
+  private readonly _cfg: Omit<Mfa.Cfg, 'compliance'>
 
   constructor(
     readonly _credentials: Credential.Store,
     readonly _events: Events.IBus,
-    readonly cfg?: Partial<Mfa.Config>,
+    readonly cfg?: Partial<Mfa.Cfg>,
   ) {
     const floor = cfg?.compliance ? resolveCompliance(cfg.compliance).mfa.backupCodeCount : 0
     this._cfg = {
@@ -353,9 +353,9 @@ export class MfaImpl {
    */
   async eligibleAal(
     identityId: string,
-    currentFactors: Session.FactorMethod[],
+    currentFactors: Sessions.FactorMethod[],
     ctx: TenantContext = {},
-  ): Promise<Session.AAL> {
+  ): Promise<Sessions.AAL> {
     const distinct = new Set(currentFactors)
     if (distinct.size === 0) return 1
     if (distinct.size === 1) return 1
@@ -432,9 +432,9 @@ function webauthnUserId(identityId: string): Uint8Array {
 
 /** Factory around {@link MfaImpl} for functional-style config. */
 export function mfa<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   Tenant = string,
   OrgMeta = unknown,
->(cfg?: Mfa.ConfigInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => MfaImpl {
-  return (auth) => new MfaImpl(auth.config.stores.credentials, auth.events, cfg)
+>(cfg?: Mfa.CfgInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => MfaImpl {
+  return (auth) => new MfaImpl(auth.cfg.stores.credentials, auth.events, cfg)
 }

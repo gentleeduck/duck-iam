@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import type { Channel } from '~/channels/channels.types'
 import { AuthEngine } from '~/core/engine'
-import { Identity } from '~/core/identities'
+import { Identities } from '~/core/identities'
 import { CookieTransport } from '~/core/transport/cookie.transport'
-import { AuthMemoryLimiter } from '~/limiters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
 import { magicLink } from '../index'
 
-interface MyProfile extends Identity.ProfileMetadataBase {}
+interface MyProfile extends Identities.ProfileMetadataBase {}
 
 function fakeChannel(): Channel.Channel & { sent: Array<{ to: string; url: string }> } {
   const sent: Array<{ to: string; url: string }> = []
@@ -39,7 +39,7 @@ function buildAuth(opts: { autoCreate?: boolean; channel?: Channel.Channel } = {
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 3, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 3, windowMs: 60_000 }),
   })
   auth.providers.register(
     magicLink<MyProfile>({

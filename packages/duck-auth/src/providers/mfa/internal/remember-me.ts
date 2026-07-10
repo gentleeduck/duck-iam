@@ -20,7 +20,7 @@ import { AuthError } from '~/core/errors'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 
 export namespace RememberMeFacet {
-  export type Config = {
+  export type Cfg = {
     /** Cookie / token TTL in ms. Default 90 days. */
     ttlMs: number
     /** Random-byte length minted per token. Default 32 (256 bits). */
@@ -44,7 +44,7 @@ export namespace RememberMeFacet {
   }
 }
 
-export const DEFAULT_REMEMBER_ME_CONFIG: RememberMeFacet.Config = {
+export const DEFAULT_REMEMBER_ME_CONFIG: RememberMeFacet.Cfg = {
   ttlMs: 90 * 24 * 60 * 60 * 1000,
   byteLength: 32,
 }
@@ -61,7 +61,7 @@ export class RememberMeFacet {
       authRandomToken(bytes: number): string
       authSha256(s: string): string
     },
-    private readonly _cfg: RememberMeFacet.Config = DEFAULT_REMEMBER_ME_CONFIG,
+    private readonly _cfg: RememberMeFacet.Cfg = DEFAULT_REMEMBER_ME_CONFIG,
   ) {}
 
   /**

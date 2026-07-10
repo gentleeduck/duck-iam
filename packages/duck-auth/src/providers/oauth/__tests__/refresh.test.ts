@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { Identity } from '~/core/identities'
+import { Identities } from '~/core/identities'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 import type { OAuth } from '../core/oauth.types'
 import { authRefreshoauthToken, projectAccessToken } from '../core/refresh'
 
-interface Profile extends Identity.ProfileMetadataBase {}
+interface Profile extends Identities.ProfileMetadataBase {}
 
 describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
   let adapter: MemoryAdapter<Profile>

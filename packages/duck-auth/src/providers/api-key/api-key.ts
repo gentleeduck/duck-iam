@@ -4,10 +4,10 @@ import { randomToken, sha256 } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Events } from '~/core/events/events.types'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
-import { DEFAULT_APIKEYS_CONFIG, toApiKeysConfig } from './api-key.constants'
+import { DEFAULT_APIKEYS_CONFIG, toApiKeysCfg } from './api-key.constants'
 import type { ApiKeys } from './api-key.types'
 
 /**
@@ -30,7 +30,7 @@ export class ApiKeysFacet {
       randomToken(bytes: number): string
       sha256(s: string): string
     },
-    private readonly _cfg: ApiKeys.Config = DEFAULT_APIKEYS_CONFIG,
+    private readonly _cfg: ApiKeys.Cfg = DEFAULT_APIKEYS_CONFIG,
   ) {}
 
   /** Create a new API key. Returns plaintext exactly once. */
@@ -199,7 +199,7 @@ function parseApiKeyMetadata(meta: unknown): { name: string; scopes: string[] } 
  * applies the configured per-key rate-limit, and emits a `startSession`
  * Intent with `kind: 'api-key'` + `aal: 1`.
  */
-export class AuthApiKeyImpl<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>
+export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>
   implements Provider.Me<ApiKeys.BeginInput, ApiKeys.CompleteInput, Profile>
 {
   readonly id = 'api-key'
@@ -250,7 +250,7 @@ export class AuthApiKeyImpl<Profile extends Identity.ProfileMetadataBase = Ident
 }
 
 /** Factory around {@link AuthApiKeyImpl} for functional-style config. */
-export function authApiKey<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function authApiKey<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: ApiKeys.Options,
 ): Provider.Me<ApiKeys.BeginInput, ApiKeys.CompleteInput, Profile> {
   return new AuthApiKeyImpl(opts)
@@ -262,10 +262,10 @@ export function authApiKey<Profile extends Identity.ProfileMetadataBase = Identi
  * by the app, since it binds to the mounted facet + app-specific scope rules.
  */
 export function apiKeyProvider<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   Tenant = string,
   OrgMeta = unknown,
->(cfg?: ApiKeys.ConfigInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => ApiKeysFacet {
+>(cfg?: ApiKeys.CfgInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => ApiKeysFacet {
   return (auth) =>
-    new ApiKeysFacet(auth.config.stores.credentials, auth.events, { randomToken, sha256 }, toApiKeysConfig(cfg))
+    new ApiKeysFacet(auth.cfg.stores.credentials, auth.events, { randomToken, sha256 }, toApiKeysCfg(cfg))
 }

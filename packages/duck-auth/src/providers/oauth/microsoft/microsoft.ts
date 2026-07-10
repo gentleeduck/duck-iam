@@ -1,7 +1,7 @@
 /** Microsoft Entra ID (formerly Azure AD) oauth 2.0 / OIDC provider. */
 
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities'
+import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import { OAuthClient } from '../core/client'
 import type { OAuth } from '../core/oauth.types'
@@ -17,7 +17,7 @@ function endpointsFor(tenant: string): OAuth.Endpoints {
 }
 
 /** Microsoft Entra ID OIDC provider factory. */
-export function microsoft<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function microsoft<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   opts: OAuth.MicrosoftOptions<Profile>,
 ): Provider.Me<OAuth.BeginInput, OAuth.CompleteInput, Profile> {
   const tenant = opts.tenant ?? 'common'
