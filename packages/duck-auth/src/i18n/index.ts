@@ -7,7 +7,7 @@ export class AuthI18nMessageCatalog implements AuthI18n.IResolver {
   private readonly _messages: AuthI18n.ICatalogShape
   private readonly _defaultLocale: string
 
-  constructor(cfg: AuthI18n.IConfig) {
+  constructor(cfg: AuthI18n.Cfg) {
     if (!cfg.messages || Object.keys(cfg.messages).length === 0) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthI18nMessageCatalog requires a non-empty `messages` object',
@@ -111,7 +111,7 @@ export namespace AuthI18n {
     [locale: string]: { [messageId: string]: string }
   }
 
-  export interface IConfig {
+  export interface Cfg {
     /** Catalogue keyed by locale -> messageId -> template. */
     messages: AuthI18n.ICatalogShape
     /** Locale used when the requested one is missing. Default `'en'`. */

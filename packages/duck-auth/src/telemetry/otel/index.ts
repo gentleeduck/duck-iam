@@ -41,7 +41,7 @@ export class AuthOtelInstrumentation {
   private readonly _suspicious: AuthOtelInstrumentation.ICounter
   private readonly _defaults: Record<string, string | number | boolean>
 
-  constructor(cfg: AuthOtelInstrumentation.IConfig) {
+  constructor(cfg: AuthOtelInstrumentation.Cfg) {
     if (!cfg.meter) {
       throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthOtelInstrumentation requires a meter from @opentelemetry/api',
@@ -186,7 +186,7 @@ export async function authGetOtelMeter(name = '@gentleduck/auth'): Promise<AuthO
 }
 
 export namespace AuthOtelInstrumentation {
-  export interface IConfig {
+  export interface Cfg {
     /**
      * Meter to record against. Production: `metrics.getMeter('@gentleduck/auth')`
      * from `@opentelemetry/api`. Tests: any stub satisfying `OtelMeterLike`.
