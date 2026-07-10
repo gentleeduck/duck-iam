@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import { identityInput } from '~/test/store-inputs'
 import { MemoryAdapter } from '..'
 
@@ -10,13 +10,14 @@ import { MemoryAdapter } from '..'
  * type level, so `mal()` casts each fixture through — the runtime behaviour is
  * exactly what we are exercising.
  */
-const mal = (p: Record<string, unknown>): Identity.ProfileMetadataBase => p as unknown as Identity.ProfileMetadataBase
+const mal = (p: Record<string, unknown>): Identities.ProfileMetadataBase =>
+  p as unknown as Identities.ProfileMetadataBase
 
 describe('MemoryAdapter.findByEmail - profile-shape robustness', () => {
-  let adapter: MemoryAdapter<Identity.ProfileMetadataBase>
+  let adapter: MemoryAdapter<Identities.ProfileMetadataBase>
 
   beforeEach(() => {
-    adapter = new MemoryAdapter<Identity.ProfileMetadataBase>()
+    adapter = new MemoryAdapter<Identities.ProfileMetadataBase>()
   })
 
   it('finds an identity by well-formed string email', async () => {

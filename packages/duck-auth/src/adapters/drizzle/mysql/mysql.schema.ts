@@ -13,8 +13,8 @@ import {
 } from 'drizzle-orm/mysql-core'
 import type { SqlBridge } from '~/adapters/sql'
 import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/credentials/credentials.types'
-import type { Identity } from '~/core/identities/identities.types'
-import { AUTH_SESSION_KINDS, type Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
 /**
  * @title auth identities table (MySQL / MariaDB)
@@ -37,7 +37,7 @@ export const identitiesTable = mysqlTable(
      */
     tenantId: varchar('tenant_id', { length: 64 }),
     profile: json('profile').notNull().$type<SqlBridge.ProfileMetadataBase>(),
-    providers: json('providers').notNull().default([]).$type<Identity.ProviderLink[]>(),
+    providers: json('providers').notNull().default([]).$type<Identities.ProviderLink[]>(),
     version: int('version').notNull().default(1),
     emailVerified: boolean('email_verified').notNull().default(false),
     createdAt: datetime('created_at', { fsp: 3 }).notNull(),
@@ -96,9 +96,9 @@ export const sessionsTable = mysqlTable(
     identityId: varchar('identity_id', { length: 64 }),
     /** Tenant this session is acting under — drives tenant security policy. Scoping only. */
     tenantId: varchar('tenant_id', { length: 64 }),
-    kind: varchar('kind', { length: 32 }).notNull().$type<Session.Kind>(),
-    aal: int('aal').notNull().$type<Session.AAL>(),
-    factors: json('factors').notNull().default([]).$type<Session.Factor[]>(),
+    kind: varchar('kind', { length: 32 }).notNull().$type<Sessions.Kind>(),
+    aal: int('aal').notNull().$type<Sessions.AAL>(),
+    factors: json('factors').notNull().default([]).$type<Sessions.Factor[]>(),
     csrfHash: varchar('csrf_hash', { length: 128 }),
     ip: varchar('ip', { length: 45 }),
     userAgent: text('user_agent'),
@@ -108,7 +108,7 @@ export const sessionsTable = mysqlTable(
     expiresAt: datetime('expires_at', { fsp: 3 }).notNull(),
     absoluteExpiresAt: datetime('absolute_expires_at', { fsp: 3 }).notNull(),
     fresh: boolean('fresh').notNull(),
-    actingAs: json('acting_as').$type<Session.ActingAs | null>(),
+    actingAs: json('acting_as').$type<Sessions.ActingAs | null>(),
   },
   (t) => [
     index('auth_sessions_identity').on(t.identityId),

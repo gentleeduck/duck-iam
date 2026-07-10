@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Credential } from '~/core/credentials/credentials.types'
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
 import { createSqlStores } from '../index'
 import type { SqlBridge } from '../sql.types'
@@ -19,9 +19,9 @@ type ProfileShape = {
  * undefined coercion) without spinning up Postgres.
  */
 function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
-  const identities = new Map<string, Identity.Me<ProfileShape>>()
+  const identities = new Map<string, Identities.Me<ProfileShape>>()
   const credentials = new Map<string, Credential.Me>()
-  const sessions = new Map<string, Session.Me>()
+  const sessions = new Map<string, Sessions.Me>()
 
   return {
     identities: {
@@ -49,7 +49,7 @@ function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
       updateConditional: async (id, patch, expectedVersion) => {
         const cur = identities.get(id)
         if (!cur || cur.version !== expectedVersion) return null
-        const next = { ...cur, ...patch } as Identity.Me<ProfileShape>
+        const next = { ...cur, ...patch } as Identities.Me<ProfileShape>
         identities.set(id, next)
         return next
       },
@@ -142,7 +142,7 @@ function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
       update: async (id, patch) => {
         const cur = sessions.get(id)
         if (!cur) return null
-        const next = { ...cur, ...patch } as Session.Me
+        const next = { ...cur, ...patch } as Sessions.Me
         sessions.set(id, next)
         return next
       },

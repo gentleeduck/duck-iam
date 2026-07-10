@@ -1,14 +1,14 @@
 import type { Credential } from '~/core/credentials/credentials.types'
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions'
 
 export namespace SqlBridge {
-  export type ProfileMetadataBase = Identity.ProfileMetadataBase
+  export type ProfileMetadataBase = Identities.ProfileMetadataBase
 
-  export type Me<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> = {
-    identities: Identity<Identity.Me<Profile>>
+  export type Me<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
+    identities: Identity<Identities.Me<Profile>>
     credentials: Credential<Credential.Me>
-    sessions: Session<Session.Me>
+    sessions: Session<Sessions.Me>
     // TODO: add events emitter here
   }
 

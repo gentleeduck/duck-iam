@@ -1,8 +1,8 @@
 import type { Credential } from '~/core/credentials/credentials.types'
 import { authUlid } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities/identities.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { SqlBridge } from './sql.types'
 
 /** Drops explicit undefined values from partial patches before passing to the bridge */
@@ -23,12 +23,12 @@ export function pickFreshestCredential(rows: readonly Credential.Me[]): Credenti
   return live ?? revoked
 }
 
-export function createSqlStores<Profile extends Identity.ProfileMetadataBase>(
+export function createSqlStores<Profile extends Identities.ProfileMetadataBase>(
   bridge: SqlBridge.Me<Profile>,
 ): {
-  identities: Identity.Store<Profile>
+  identities: Identities.Store<Profile>
   credentials: Credential.Store
-  sessions: Session.Store
+  sessions: Sessions.Store
 } {
   return {
     identities: buildIdentities<Profile>(bridge.identities),
@@ -37,16 +37,16 @@ export function createSqlStores<Profile extends Identity.ProfileMetadataBase>(
   }
 }
 
-function buildIdentities<Profile extends Identity.ProfileMetadataBase>(
-  bridge: SqlBridge.Identity<Identity.Me<Profile>>,
-): Identity.Store<Profile> {
+function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
+  bridge: SqlBridge.Identity<Identities.Me<Profile>>,
+): Identities.Store<Profile> {
   return {
     findById: (id) => bridge.findById(id),
     findByEmail: (email) => bridge.findByEmail(email),
     findByProviderSub: (providerId, sub) => bridge.findByProviderSub(providerId, sub),
     create: async (input) => {
       const now = new Date()
-      const row: Identity.Me<Profile> = {
+      const row: Identities.Me<Profile> = {
         id: authUlid(),
         profile: input.profile,
         providers: input.providers ?? [],
@@ -135,7 +135,7 @@ function buildCredentials(bridge: SqlBridge.Credential<Credential.Me>): Credenti
   }
 }
 
-function buildSessions(bridge: SqlBridge.Session<Session.Me>): Session.Store {
+function buildSessions(bridge: SqlBridge.Session<Sessions.Me>): Sessions.Store {
   return {
     create: async (s) => {
       await bridge.insert({

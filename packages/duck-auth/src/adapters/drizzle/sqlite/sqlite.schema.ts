@@ -2,8 +2,8 @@ import { isNull, sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { SqlBridge } from '~/adapters/sql'
 import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/credentials/credentials.types'
-import type { Identity } from '~/core/identities/identities.types'
-import { AUTH_SESSION_KINDS, type Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
 /**
  * @title auth identities table (SQLite)
@@ -17,7 +17,7 @@ export const identitiesTable = sqliteTable(
   {
     id: text('id').primaryKey(),
     profile: text('profile', { mode: 'json' }).notNull().$type<SqlBridge.ProfileMetadataBase>(),
-    providers: text('providers', { mode: 'json' }).notNull().default('[]').$type<Identity.ProviderLink[]>(),
+    providers: text('providers', { mode: 'json' }).notNull().default('[]').$type<Identities.ProviderLink[]>(),
     version: integer('version').notNull().default(1),
     emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
@@ -89,9 +89,9 @@ export const sessionsTable = sqliteTable(
     identityId: text('identity_id'),
     /** Tenant this session is acting under — drives tenant security policy. Scoping only. */
     tenantId: text('tenant_id'),
-    kind: text('kind').notNull().$type<Session.Kind>(),
-    aal: integer('aal').notNull().$type<Session.AAL>(),
-    factors: text('factors', { mode: 'json' }).notNull().default('[]').$type<Session.Factor[]>(),
+    kind: text('kind').notNull().$type<Sessions.Kind>(),
+    aal: integer('aal').notNull().$type<Sessions.AAL>(),
+    factors: text('factors', { mode: 'json' }).notNull().default('[]').$type<Sessions.Factor[]>(),
     csrfHash: text('csrf_hash'),
     ip: text('ip'),
     userAgent: text('user_agent'),
@@ -101,7 +101,7 @@ export const sessionsTable = sqliteTable(
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
     absoluteExpiresAt: integer('absolute_expires_at', { mode: 'timestamp_ms' }).notNull(),
     fresh: integer('fresh', { mode: 'boolean' }).notNull(),
-    actingAs: text('acting_as', { mode: 'json' }).$type<Session.ActingAs | null>(),
+    actingAs: text('acting_as', { mode: 'json' }).$type<Sessions.ActingAs | null>(),
   },
   (t) => [
     index('auth_sessions_identity').on(t.identityId),

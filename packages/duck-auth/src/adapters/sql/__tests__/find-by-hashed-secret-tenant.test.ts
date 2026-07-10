@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { Credential } from '~/core'
-import { Identity } from '~/core/identities'
+import { Identities } from '~/core/identities'
 import { credentialInput, identityInput } from '~/test/store-inputs'
 import { createSqlStores, SqlBridge } from '../index'
 
@@ -14,7 +14,7 @@ import { createSqlStores, SqlBridge } from '../index'
 
 function makeBridge(): SqlBridge.Me {
   const credentials = new Map<string, Credential.Me>()
-  const identities = new Map<string, Identity.Me<Identity.ProfileMetadataBase>>()
+  const identities = new Map<string, Identities.Me<Identities.ProfileMetadataBase>>()
   return {
     identities: {
       findById: async () => null,
@@ -67,11 +67,11 @@ function makeBridge(): SqlBridge.Me {
 
 describe('authCreateSqlStores.findByHashedSecret tenant filter parity', () => {
   let bridge: SqlBridge.Me
-  let stores: ReturnType<typeof createSqlStores<Identity.ProfileMetadataBase>>
+  let stores: ReturnType<typeof createSqlStores<Identities.ProfileMetadataBase>>
 
   beforeEach(() => {
     bridge = makeBridge()
-    stores = createSqlStores<Identity.ProfileMetadataBase>(bridge)
+    stores = createSqlStores<Identities.ProfileMetadataBase>(bridge)
   })
 
   it('returns null when ctx.tenantId mismatches the row tenantId', async () => {

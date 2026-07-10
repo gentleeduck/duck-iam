@@ -14,8 +14,8 @@ import {
 } from 'drizzle-orm/pg-core'
 import type { SqlBridge } from '~/adapters/sql'
 import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/credentials/credentials.types'
-import type { Identity } from '~/core/identities/identities.types'
-import { AUTH_SESSION_KINDS, type Session } from '~/core/sessions/sessions.types'
+import type { Identities } from '~/core/identities/identities.types'
+import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
 /**
  * @title auth identities table
@@ -26,7 +26,7 @@ export const identitiesTable = pgTable(
   {
     id: uuid('id').primaryKey(),
     profile: jsonb('profile').notNull().$type<SqlBridge.ProfileMetadataBase>(),
-    providers: jsonb('providers').notNull().default([]).$type<Identity.ProviderLink[]>(),
+    providers: jsonb('providers').notNull().default([]).$type<Identities.ProviderLink[]>(),
     version: integer('version').notNull().default(1),
     emailVerified: boolean('email_verified').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
@@ -99,9 +99,9 @@ export const sessionsTable = pgTable(
      * this as a grant.
      */
     tenantId: text('tenant_id'),
-    kind: text('kind').notNull().$type<Session.Kind>(),
-    aal: integer('aal').notNull().$type<Session.AAL>(),
-    factors: jsonb('factors').notNull().default([]).$type<Session.Factor[]>(),
+    kind: text('kind').notNull().$type<Sessions.Kind>(),
+    aal: integer('aal').notNull().$type<Sessions.AAL>(),
+    factors: jsonb('factors').notNull().default([]).$type<Sessions.Factor[]>(),
     csrfHash: text('csrf_hash'),
     ip: text('ip'),
     userAgent: text('user_agent'),
@@ -111,7 +111,7 @@ export const sessionsTable = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     absoluteExpiresAt: timestamp('absolute_expires_at', { withTimezone: true }).notNull(),
     fresh: boolean('fresh').notNull(),
-    actingAs: jsonb('acting_as').$type<Session.ActingAs | null>(),
+    actingAs: jsonb('acting_as').$type<Sessions.ActingAs | null>(),
   },
   (t) => [
     // Single-column for deleteAllForIdentity; composite for listActive(identity, expires)

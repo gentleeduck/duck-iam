@@ -2,9 +2,9 @@ import { getProfileString, isRevoked, isSoftDeleted } from '~/core/credentials/c
 import type { Credential } from '~/core/credentials/credentials.types'
 import { randomToken, timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
-import type { Identity } from '~/core/identities/identities.types'
+import type { Identities } from '~/core/identities/identities.types'
 import type { Org } from '~/core/orgs/orgs.types'
-import type { Session } from '~/core/sessions/sessions.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 
 /**
@@ -14,16 +14,16 @@ import type { TenantContext } from '~/core/tenant/tenant.types'
  * Multi-tenant: tenantId filters every query so tests can verify isolation.
  */
 export class MemoryAdapter<
-  Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase,
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   OrgMeta = unknown,
 > {
-  readonly identities: Identity.Store<Profile>
-  readonly sessions: Session.Store
+  readonly identities: Identities.Store<Profile>
+  readonly sessions: Sessions.Store
   readonly credentials: Credential.Store
   readonly orgs: Org.Store<OrgMeta>
 
-  private _identities = new Map<string, Identity.Me<Profile>>()
-  private _sessions = new Map<string, Session.Me>()
+  private _identities = new Map<string, Identities.Me<Profile>>()
+  private _sessions = new Map<string, Sessions.Me>()
   private _credentials = new Map<string, Credential.Me>()
   private _orgs = new Map<string, Org.Me<OrgMeta>>()
   private _memberships = new Map<string, Org.Membership>()
@@ -37,7 +37,7 @@ export class MemoryAdapter<
 
   // --- Identity ---------------------------------------------------------
 
-  private _buildIdentityStore(): Identity.Store<Profile> {
+  private _buildIdentityStore(): Identities.Store<Profile> {
     const store = this._identities
 
     return {
@@ -81,7 +81,7 @@ export class MemoryAdapter<
         }
         const nowDate = new Date()
         // SQL adapter parity: prefer explicit input.tenantId, fall back to ctx.
-        const id: Identity.Me<Profile> = {
+        const id: Identities.Me<Profile> = {
           ...input,
           id: randomToken(16),
           providers,
@@ -104,7 +104,7 @@ export class MemoryAdapter<
             actual: cur.version,
           })
         }
-        const next: Identity.Me<Profile> = {
+        const next: Identities.Me<Profile> = {
           ...cur,
           ...patch,
           version: cur.version + 1,
@@ -127,7 +127,7 @@ export class MemoryAdapter<
         }
         // Clear the soft-delete marker back to the `null` sentinel; `Me.deletedAt`
         // is non-optional (`Date | null`), so we reset rather than omit the key.
-        const next: Identity.Me<Profile> = { ...cur, deletedAt: null }
+        const next: Identities.Me<Profile> = { ...cur, deletedAt: null }
         store.set(id, next)
         return next
       },
@@ -188,13 +188,13 @@ export class MemoryAdapter<
 
   // --- Session ----------------------------------------------------------
 
-  private _buildSessionStore(): Session.Store {
+  private _buildSessionStore(): Sessions.Store {
     const store = this._sessions
     return {
       create: async (s) => {
         // Fill the nullable columns the caller may have omitted, so the store
         // always holds a complete `Session.Me` row (SQL adapter parity).
-        const row: Session.Me = {
+        const row: Sessions.Me = {
           id: s.id,
           identityId: s.identityId,
           tenantId: s.tenantId ?? null,
@@ -406,7 +406,7 @@ export class MemoryAdapter<
  *
  * @template Profile - Identity profile shape.
  */
-export const memoryStorage = <Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(): {
+export const memoryStorage = <Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(): {
   identities: MemoryAdapter<Profile>['identities']
   sessions: MemoryAdapter<Profile>['sessions']
   credentials: MemoryAdapter<Profile>['credentials']
