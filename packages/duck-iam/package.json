@@ -294,7 +294,7 @@
     "clean": "rimraf dist .cache .turbo node_modules"
   },
   "dependencies": {
-    "uuid": "^11.0.0"
+    "uuid": "^14.0.1"
   },
   "peerDependencies": {
     "@gentleduck/libs": "^1.0.0",
