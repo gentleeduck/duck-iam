@@ -7,6 +7,36 @@ import type { SqlBridge } from '~/adapters/sql/sql.types'
 import { credentialsTable, identitiesTable, sessionsTable } from './pg.schema'
 import type { Pg } from './pg.types'
 
+/**
+ * Postgres returns `jsonb` columns as already-parsed JSON, so the `Date`
+ * fields nested inside `factors` and `actingAs` come back as ISO strings.
+ * The Redis adapter revives these via `parseStoredDate`; mirror that here so
+ * a materialized `Sessions.Me` satisfies its `Date`-typed contract (otherwise
+ * strict response validators reject it). Top-level timestamptz columns are
+ * already `Date` via drizzle's date mode and are left untouched.
+ */
+function reviveSessionRow<T extends { factors: unknown; actingAs: unknown }>(row: T | null): T | null {
+  return row ? reviveSessionRowRequired(row) : null
+}
+
+function reviveSessionRowRequired<T extends { factors: unknown; actingAs: unknown }>(row: T): T {
+  const factors = Array.isArray(row.factors)
+    ? row.factors.map((f) => {
+        const factor = f as { completedAt: unknown }
+        return { ...factor, completedAt: new Date(factor.completedAt as string) }
+      })
+    : row.factors
+  const acting = row.actingAs
+  const actingAs =
+    acting && typeof acting === 'object'
+      ? (() => {
+          const a = acting as { startedAt: unknown; expiresAt: unknown }
+          return { ...a, startedAt: new Date(a.startedAt as string), expiresAt: new Date(a.expiresAt as string) }
+        })()
+      : acting
+  return { ...row, factors, actingAs }
+}
+
 export function createDrizzlePgBridge<const TSchema extends Record<string, unknown>>(
   db: NodePgDatabase<TSchema>,
 ): SqlBridge.Me {
@@ -236,20 +266,25 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
           .from(sessionsTable)
           .where(eq(sessionsTable.id, sidHash))
           .limit(1)
-          .then((r) => r[0] ?? null),
+          .then((r) => reviveSessionRow(r[0] ?? null)),
       update: (id, patch) =>
         db
           .update(sessionsTable)
           .set(patch)
           .where(eq(sessionsTable.id, id))
           .returning()
-          .then((r) => r[0] ?? null),
+          .then((r) => reviveSessionRow(r[0] ?? null)),
       delete: (id) =>
         db
           .delete(sessionsTable)
           .where(eq(sessionsTable.id, id))
           .then(() => {}),
-      listByIdentity: (identityId) => db.select().from(sessionsTable).where(eq(sessionsTable.identityId, identityId)),
+      listByIdentity: (identityId) =>
+        db
+          .select()
+          .from(sessionsTable)
+          .where(eq(sessionsTable.identityId, identityId))
+          .then((rows) => rows.map((r) => reviveSessionRowRequired(r))),
       deleteAllForIdentity: (identityId) =>
         db
           .delete(sessionsTable)

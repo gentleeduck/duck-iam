@@ -58,5 +58,5 @@ export default createTsdownConfig({
     'telemetry/otel/index': 'src/telemetry/otel/index.ts',
     'test/index': 'src/test/index.ts',
   },
-  external: [...baseExternal, 'react'],
+  external: [...baseExternal, 'react', /^node:/],
 })
