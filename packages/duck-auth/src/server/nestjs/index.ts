@@ -1,50 +1,29 @@
-/**
- * NestJS adapter. NestJS controllers receive `Request` + `Response`
- * (Express adapter) OR `FastifyRequest` + `FastifyReply`; this module
- * ships handler factories that work with either via a narrow
- * shape contract, plus a `@AuthGuard()` you can apply to any
- * controller method to enforce `auth.resolveSession`.
- *
- * Mount on a controller:
- *
- *   ```ts
- *   @Controller('auth')
- *   export class AuthController {
- *     constructor(@Inject('AUTH_ROOT') private auth: AuthEngine) {}
- *
- *     @Post('signin')
- *     signin(@Req() req, @Res() res) {
- *       return authNestSignIn(this.auth)(req, res)
- *     }
- *
- *     @Get('me')
- *     @UseGuards(authMakeGuard(this.auth))
- *     me(@Req() req) { return (req as any).session }
- *   }
- *   ```
- */
-
-import type { AuthEngine } from '../../core/engine'
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthIdentity } from '../../core/types/identity'
-import type { AuthSession } from '../../core/types/session'
+import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/common'
+import { Catch, createParamDecorator } from '@nestjs/common'
+import type { AuthEngine } from '~/core/engine'
+import { AuthError } from '~/core/errors'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import {
-  authErrorToHttp,
-  authExecuteIntents,
-  authExtractSetCookies,
-  authIsValidProviderId,
-  authNodeHeadersToFetch,
-  authParseProviderBeginBody,
-  authParseSignInBody,
+  errorToHttp,
+  executeIntents,
+  extractSetCookies,
+  isValidProviderId,
+  nodeHeadersToFetch,
+  parseProviderBeginBody,
+  parseSignInBody,
 } from '../generic'
 
-const toFetchHeaders: (headers: AuthNestAdapter.IRequest['headers']) => Headers = authNodeHeadersToFetch
+import type { NestAdapter } from './nestjs.types'
 
-async function forward(response: Response, reply: AuthNestAdapter.IReply): Promise<unknown> {
+const toFetchHeaders: (headers: NestAdapter.Request['headers']) => Headers = nodeHeadersToFetch
+
+async function forward(response: Response, reply: NestAdapter.Response): Promise<unknown> {
   reply.status(response.status)
-  for (const cookie of authExtractSetCookies(response)) {
-    if (reply.setHeader) reply.setHeader('set-cookie', cookie)
-    else if (reply.set) reply.set('set-cookie', cookie)
+  const cookies = extractSetCookies(response)
+  if (cookies.length > 0) {
+    if (reply.setHeader) reply.setHeader('set-cookie', cookies)
+    else if (reply.set) reply.set('set-cookie', cookies)
   }
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === 'set-cookie') return
@@ -55,45 +34,45 @@ async function forward(response: Response, reply: AuthNestAdapter.IReply): Promi
   return reply.send(body)
 }
 
-function handleError(err: unknown, reply: AuthNestAdapter.IReply): unknown {
-  const { status, body } = authErrorToHttp(err)
+function handleError(err: unknown, reply: NestAdapter.Response): never {
+  const { status, body } = errorToHttp(err)
   reply.status(status)
   if (reply.setHeader) reply.setHeader('content-type', 'application/json; charset=utf-8')
-  return reply.send(JSON.stringify(body))
+  reply.send(JSON.stringify(body))
+  // rethrow so NestJS exception filter can log to Loki; filter's res.headersSent
+  // check prevents double-send
+  throw err
 }
 
-/** Nest handler for the sign-in route. */
-export function authNestSignIn(auth: AuthEngine): AuthNestAdapter.IHandler {
+export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
-      const parsed = authParseSignInBody(req.body)
+      const parsed = parseSignInBody(req.body)
       if (!parsed) {
-        return forward(authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
+        return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), reply)
       }
       const result = await auth.flows.signIn(parsed)
-      return forward(authExecuteIntents(result.intents), reply)
+      return forward(executeIntents(result.intents), reply)
     } catch (err) {
       return handleError(err, reply)
     }
   }
 }
 
-/** Nest handler for sign-out. */
-export function authNestSignOut(auth: AuthEngine): AuthNestAdapter.IHandler {
+export function nestSignOut(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
       const sid = auth.transport.extract({ headers: toFetchHeaders(req.headers) })
-      if (!sid) return forward(authExecuteIntents(auth.transport.revoke()), reply)
+      if (!sid) return forward(executeIntents(auth.transport.revoke()), reply)
       const { intents } = await auth.flows.signOut(sid)
-      return forward(authExecuteIntents(intents), reply)
+      return forward(executeIntents(intents), reply)
     } catch (err) {
       return handleError(err, reply)
     }
   }
 }
 
-/** Nest handler for the session-introspection route. */
-export function authNestSession(auth: AuthEngine): AuthNestAdapter.IHandler {
+export function nestSession(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
       const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
@@ -110,87 +89,63 @@ export function authNestSession(auth: AuthEngine): AuthNestAdapter.IHandler {
   }
 }
 
-/** Nest handler for the per-provider begin step. */
-export function authNestProviderBegin(auth: AuthEngine): AuthNestAdapter.IHandler {
+export function nestProviderBegin(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
       const id = req.params?.id
-      if (!authIsValidProviderId(id)) {
-        return forward(authExecuteIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }]), reply)
+      if (!isValidProviderId(id)) {
+        return forward(executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]), reply)
       }
-      const body = authParseProviderBeginBody(req.body)
+      const body = parseProviderBeginBody(req.body)
       if (body === null) {
-        return forward(authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }]), reply)
+        return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), reply)
       }
       const intents = await auth.flows.beginProvider(id, body)
-      return forward(authExecuteIntents(intents), reply)
+      return forward(executeIntents(intents), reply)
     } catch (err) {
       return handleError(err, reply)
     }
   }
 }
 
-/**
- * Build a Nest guard that calls `auth.resolveSession` on the request
- * + writes `req.session` + `req.identity`. Returns false (Nest emits
- * 403) when no session resolves; throws AUTH/UNAUTHENTICATED when the
- * caller wants Nest's exception filter to map it.
- *
- * Use:
- *   ```ts
- *   @Injectable()
- *   class DuckAuthGuard {
- *     constructor(@Inject('AUTH_ROOT') private auth: AuthEngine) {}
- *     canActivate = authMakeGuard(this.auth).canActivate
- *   }
- *   ```
- */
-export function authMakeGuard(auth: AuthEngine, opts: { required?: boolean } = {}): AuthNestAdapter.IGuard {
+export function makeGuard(auth: AuthEngine, opts: { required?: boolean } = {}): NestAdapter.Guard {
   const required = opts.required ?? true
   return {
     async canActivate(ctx) {
-      const req = ctx.switchToHttp().getRequest<AuthNestAdapter.IRequest>()
+      const req = ctx.switchToHttp().getRequest<NestAdapter.Request>()
       const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
       if (!resolved) {
         if (required) {
-          throw new AuthErrorObject('AUTH/UNAUTHENTICATED')
+          throw new AuthError('AUTH_UNAUTHENTICATED')
         }
         return true
       }
       req.session = resolved.session
-      req.identity = resolved.identity
+      // Adapter is profile-agnostic; store the resolved identity opaquely.
+      req.identity = resolved.identity as NestAdapter.Request['identity']
       return true
     },
   }
 }
 
-export namespace AuthNestAdapter {
-  export type IHandler = (req: AuthNestAdapter.IRequest, reply: AuthNestAdapter.IReply) => Promise<unknown>
+export const DUCK_AUTH_TOKEN = 'DUCK_AUTH'
 
-  export interface IRequest {
-    method: string
-    url?: string
-    headers: Record<string, string | string[] | undefined>
-    body?: unknown
-    params?: Record<string, string>
-    /** Mutation slot for the guard - the resolved session lands here. */
-    session?: AuthSession.ISession
-    /** Mutation slot for the guard - the resolved identity lands here. */
-    identity?: AuthIdentity.IIdentity<unknown> | null
-  }
-
-  export interface IReply {
-    status(code: number): AuthNestAdapter.IReply
-    setHeader?(name: string, value: string | string[]): AuthNestAdapter.IReply
-    set?(name: string, value: string | string[]): AuthNestAdapter.IReply
-    send(body: unknown): unknown
-  }
-
-  export interface IGuard {
-    canActivate(context: AuthNestAdapter.INestExecutionContextLike): Promise<boolean>
-  }
-
-  export interface INestExecutionContextLike {
-    switchToHttp(): { getRequest<T = AuthNestAdapter.IRequest>(): T }
+@Catch(AuthError)
+export class NestExceptionFilter implements ExceptionFilter {
+  catch(err: AuthError, host: ArgumentsHost): void {
+    const res = host.switchToHttp().getResponse<{ status(code: number): { json(body: unknown): void } }>()
+    res.status(err.status).json(err.toJSON())
   }
 }
+
+export const CurrentSession = createParamDecorator(
+  (_: unknown, ctx: ExecutionContext): Sessions.Me | undefined =>
+    ctx.switchToHttp().getRequest<{ session?: Sessions.Me }>().session,
+)
+
+export const CurrentIdentity = createParamDecorator(
+  (_: unknown, ctx: ExecutionContext): Identities.Me | null | undefined =>
+    ctx.switchToHttp().getRequest<{ identity?: Identities.Me | null }>().identity,
+)
+
+export type { NestAdapter } from './nestjs.types'

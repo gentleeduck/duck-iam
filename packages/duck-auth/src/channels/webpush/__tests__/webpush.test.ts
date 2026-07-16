@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthIdentity } from '../../../core/types/identity'
+import type { Identities } from '~/core/identities/identities.types'
 import { AuthWebPushChannel } from '../index'
 
 const SUB: AuthWebPushChannel.ISubscription = {
@@ -7,14 +7,19 @@ const SUB: AuthWebPushChannel.ISubscription = {
   keys: { p256dh: 'PUBLIC', auth: 'AUTH' },
 }
 
-function makeIdentity(subscription: AuthWebPushChannel.ISubscription | undefined): AuthIdentity.IIdentity<unknown> {
+function makeIdentity(subscription: AuthWebPushChannel.ISubscription | undefined): Identities.Me {
   return {
     id: 'ident-1',
-    profile: subscription ? { pushSubscription: subscription } : {},
+    // Subscription omitted models the "no push endpoint" case (channel returns ok:false).
+    profile: subscription
+      ? { username: 'u', email: 'u@x.com', pushSubscription: subscription }
+      : { username: 'u', email: 'u@x.com' },
     providers: [],
+    emailVerified: false,
     version: 1,
-    createdAt: 0,
-    updatedAt: 0,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    deletedAt: null,
   }
 }
 
@@ -55,7 +60,7 @@ describe('AuthWebPushChannel', () => {
     expect(
       () =>
         new AuthWebPushChannel({ subject: '', publicKey: 'X', privateKey: 'Y', templates: () => ({ payload: '' }) }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('returns ok:false when identity has no pushSubscription', async () => {

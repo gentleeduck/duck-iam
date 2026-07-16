@@ -1,45 +1,58 @@
 import { describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { authPassword } from '../../../providers/password'
-import { authMountNext, authNextSession, authNextSignIn, authNextSignOut } from '../index'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie.transport'
+import { MemoryLimiter } from '~/limiters/memory'
+import { passkey } from '~/providers/passkey'
+import { passwords } from '~/providers/passwords'
+import { mountNext, nextSession, nextSignIn, nextSignOut } from '../index'
 
-interface MyProfile {
+type MyProfile = {
+  username: string
   email: string
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+    providers: [],
   })
+
+  auth.providers.register(passwords())
+
   auth.providers.register(
-    authPassword<MyProfile>({
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
-      passwords: auth.passwords,
+    passkey({
+      findIdentityByEmail: adapter.identities.findByEmail,
+      rpID: '',
+      rpName: '',
+      expectedOrigins: '',
     }),
   )
+
+  auth.flows.signIn({
+    providerId: '',
+    tenantId: '',
+    input: {},
+  })
+
   return { auth, adapter }
 }
 
 describe('Next.js adapter - handler primitives', () => {
-  it('authNextSignIn happy path', async () => {
-    const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
-    const res = await authNextSignIn(auth)(
-      new Request('https://x/api/auth/signin', {
+  it('nextSignIn happy path', async () => {
+    const { auth, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const res = await nextSignIn(auth)(
+      new Request('https://x/api/AUTH/signin', {
         method: 'POST',
         body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
       }),
@@ -48,31 +61,31 @@ describe('Next.js adapter - handler primitives', () => {
     expect(res.headers.get('set-cookie')).toMatch(/^duck-sid=/)
   })
 
-  it('authNextSession after signin', async () => {
-    const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
-    const signin = await authNextSignIn(auth)(
-      new Request('https://x/api/auth/signin', {
+  it('nextSession after signin', async () => {
+    const { auth, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const signin = await nextSignIn(auth)(
+      new Request('https://x/api/AUTH/signin', {
         method: 'POST',
         body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
       }),
     )
     const sid = decodeURIComponent((signin.headers.get('set-cookie')?.match(/^duck-sid=([^;]+)/)?.[1] ?? '') as string)
-    const res = await authNextSession(auth)(
-      new Request('https://x/api/auth/session', { headers: { cookie: `duck-sid=${sid}` } }),
+    const res = await nextSession(auth)(
+      new Request('https://x/api/AUTH/session', { headers: { cookie: `duck-sid=${sid}` } }),
     )
     expect(res.status).toBe(200)
     const body = (await res.json()) as { identity: { id: string } | null }
     expect(body.identity?.id).toBe(identity.id)
   })
 
-  it('authNextSignOut revokes', async () => {
+  it('nextSignOut revokes', async () => {
     const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
-    const signin = await authNextSignIn(auth)(
-      new Request('https://x/api/auth/signin', {
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const signin = await nextSignIn(auth)(
+      new Request('https://x/api/AUTH/signin', {
         method: 'POST',
         body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
       }),
@@ -82,8 +95,8 @@ describe('Next.js adapter - handler primitives', () => {
     const sid = decodeURIComponent(setCookieJoined.match(/duck-sid=([^;,]+)/)?.[1] ?? '')
     const csrfToken = decodeURIComponent(setCookieJoined.match(/__Host-duck-csrf=([^;,]+)/)?.[1] ?? '')
     expect(csrfToken).not.toBe('')
-    const out = await authNextSignOut(auth)(
-      new Request('https://x/api/auth/signout', {
+    const out = await nextSignOut(auth)(
+      new Request('https://x/api/AUTH/signout', {
         method: 'POST',
         headers: {
           cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
@@ -97,14 +110,14 @@ describe('Next.js adapter - handler primitives', () => {
   })
 })
 
-describe('authMountNext - catch-all router', () => {
-  it('routes POST /api/auth/signin to authNextSignIn', async () => {
-    const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
-    const { POST } = authMountNext(auth)
+describe('mountNext - catch-all router', () => {
+  it('routes POST /api/AUTH/signin to nextSignIn', async () => {
+    const { auth, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const { POST } = mountNext(auth)
     const res = await POST(
-      new Request('https://x/api/auth/signin', {
+      new Request('https://x/api/AUTH/signin', {
         method: 'POST',
         body: JSON.stringify({ providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } }),
       }),
@@ -113,10 +126,10 @@ describe('authMountNext - catch-all router', () => {
     expect(res.headers.get('set-cookie')).toMatch(/^duck-sid=/)
   })
 
-  it('routes GET /api/auth/session', async () => {
+  it('routes GET /api/AUTH/session', async () => {
     const { auth } = buildAuth()
-    const { GET } = authMountNext(auth)
-    const res = await GET(new Request('https://x/api/auth/session'))
+    const { GET } = mountNext(auth)
+    const res = await GET(new Request('https://x/api/AUTH/session'))
     expect(res.status).toBe(200)
     const body = (await res.json()) as { identity: null | object }
     expect(body.identity).toBeNull()
@@ -124,8 +137,8 @@ describe('authMountNext - catch-all router', () => {
 
   it('unknown route returns 404 AUTH/PROVIDER_FAILED', async () => {
     const { auth } = buildAuth()
-    const { POST } = authMountNext(auth)
-    const res = await POST(new Request('https://x/api/auth/unknown', { method: 'POST' }))
+    const { POST } = mountNext(auth)
+    const res = await POST(new Request('https://x/api/AUTH_UNKNOWN', { method: 'POST' }))
     expect(res.status).toBe(404)
   })
 })

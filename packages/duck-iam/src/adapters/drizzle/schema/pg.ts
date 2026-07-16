@@ -12,6 +12,7 @@ import {
   timestamp,
   unique,
 } from 'drizzle-orm/pg-core'
+import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
@@ -130,7 +131,7 @@ export const iamRoles = pgTable(
 export const iamAssignments = pgTable(
   'access_assignments',
   {
-    id: text('id').$defaultFn(() => crypto.randomUUID()),
+    id: text('id').$defaultFn(() => uuidv7()),
     subjectId: text('subject_id').notNull(),
     roleId: text('role_id').notNull(),
     scope: text('scope'),

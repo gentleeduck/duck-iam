@@ -1,22 +1,47 @@
 /** Test helpers - `authCreateTest()` wires an in-memory AuthEngine for e2e-style tests. */
 
-import { AuthMemoryAdapter } from '../adapters/memory'
-import type { AuthEngineTypes } from '../core/engine'
-import { AuthEngine } from '../core/engine'
-import { AuthScryptHasher } from '../core/password/scrypt'
-import { AuthBearerTransport } from '../core/transport/bearer'
-import { AuthMemoryLimiter } from '../limiters/memory'
+import { MemoryAdapter } from '../adapters/memory'
+import { AuthEngine, type Engine } from '../core/engine'
+import type { Identities } from '../core/identities/identities.types'
+import { BearerTransport } from '../core/transport/bearer.transport'
+import { MemoryLimiter } from '../limiters/memory'
+import { type ApiKeys, apiKeyProvider } from '../providers/api-key'
+import { type Mfa, mfaProvider } from '../providers/mfa'
+import { type Passwords, passwords, ScryptHasher } from '../providers/passwords'
+
+export namespace Test {
+  export interface Overrides<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown> {
+    /** Drop-in replacement for the bundled AuthMemoryAdapter. */
+    adapter?: MemoryAdapter<Profile, OrgMeta>
+    /** Override the identities store individually (adapter still backs the rest). */
+    identities?: Engine.Cfg<Profile>['stores']['identities']
+    sessions?: Engine.Cfg<Profile>['stores']['sessions']
+    credentials?: Engine.Cfg<Profile>['stores']['credentials']
+    orgs?: Engine.Cfg<Profile, string, OrgMeta>['stores']['orgs']
+    transport?: Engine.Cfg<Profile>['transport']
+    limiter?: Engine.Cfg<Profile>['limiter']
+    events?: Engine.Cfg<Profile>['events']
+    providers?: Engine.Cfg<Profile, Tenant, OrgMeta>['providers']
+    /** Password provider tuning (minLength/maxLength/rejectCommon/compliance). */
+    passwords?: Partial<Passwords.Cfg>
+    /** MFA provider tuning (issuer/backupCodeCount/backupCodeLen/compliance). */
+    mfa?: Mfa.CfgInput
+    /** API-key provider tuning (prefix/randomBytes/compliance). */
+    apiKeys?: ApiKeys.CfgInput
+    baseUrl?: string
+  }
+}
 
 /** Build a fully-wired `AuthEngine` for tests; defaults to in-memory adapter + bearer transport + scrypt hasher. */
-export function authCreateTest<Profile = unknown, Tenant = string, OrgMeta = unknown>(
-  overrides: AuthTest.IOverrides<Profile, Tenant, OrgMeta> = {},
+export function createTest<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase, Tenant = string, OrgMeta = unknown>(
+  overrides: Test.Overrides<Profile, Tenant, OrgMeta> = {},
 ): AuthEngine<Profile, Tenant, OrgMeta> {
-  const adapter = overrides.adapter ?? new AuthMemoryAdapter<Profile, OrgMeta>()
-  const transport = overrides.transport ?? new AuthBearerTransport()
-  const limiter = overrides.limiter ?? new AuthMemoryLimiter({ max: 1000, windowMs: 60_000 })
-  const hasher = overrides.hasher ?? new AuthScryptHasher()
+  const adapter = overrides.adapter ?? new MemoryAdapter<Profile, OrgMeta>()
+  const transport = overrides.transport ?? new BearerTransport()
+  const limiter = overrides.limiter ?? new MemoryLimiter({ max: 1000, windowMs: 60_000 })
+  const hasher = overrides.passwords?.hasher ?? new ScryptHasher()
 
-  const config: AuthEngineTypes.IConfig<Profile, Tenant, OrgMeta> = {
+  const cfg: Engine.Cfg<Profile, Tenant, OrgMeta> = {
     baseUrl: overrides.baseUrl ?? 'http://localhost:0',
     transport,
     stores: {
@@ -26,29 +51,17 @@ export function authCreateTest<Profile = unknown, Tenant = string, OrgMeta = unk
       ...(overrides.orgs !== undefined && { orgs: overrides.orgs }),
     },
     limiter,
-    passwords: { hasher, ...(overrides.passwords ?? {}) },
+    providers: [
+      passwords(overrides?.passwords?? {
+        hasher: hasher
+      }),
+      mfaProvider(overrides.mfa),
+      apiKeyProvider(overrides.apiKeys),
+      ...(overrides.providers ?? []),
+    ],
     ...(overrides.events !== undefined && { events: overrides.events }),
-    ...(overrides.providers !== undefined && { providers: overrides.providers }),
   }
 
-  return new AuthEngine<Profile, Tenant, OrgMeta>(config)
+  return new AuthEngine<Profile, Tenant, OrgMeta>(cfg)
 }
 
-export namespace AuthTest {
-  export interface IOverrides<Profile = unknown, _Tenant = string, OrgMeta = unknown> {
-    /** Drop-in replacement for the bundled AuthMemoryAdapter. */
-    adapter?: AuthMemoryAdapter<Profile, OrgMeta>
-    /** Override the identities store individually (adapter still backs the rest). */
-    identities?: AuthEngineTypes.IConfig<Profile>['stores']['identities']
-    sessions?: AuthEngineTypes.IConfig<Profile>['stores']['sessions']
-    credentials?: AuthEngineTypes.IConfig<Profile>['stores']['credentials']
-    orgs?: AuthEngineTypes.IConfig<Profile, string, OrgMeta>['stores']['orgs']
-    transport?: AuthEngineTypes.IConfig<Profile>['transport']
-    limiter?: AuthEngineTypes.IConfig<Profile>['limiter']
-    events?: AuthEngineTypes.IConfig<Profile>['events']
-    providers?: AuthEngineTypes.IConfig<Profile>['providers']
-    passwords?: Omit<NonNullable<AuthEngineTypes.IConfig<Profile>['passwords']>, 'hasher'>
-    hasher?: NonNullable<AuthEngineTypes.IConfig<Profile>['passwords']>['hasher']
-    baseUrl?: string
-  }
-}

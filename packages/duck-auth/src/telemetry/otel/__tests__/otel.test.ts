@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthInMemoryEvents } from '../../../core/events'
+import { InMemoryEvents } from '~/core/events'
 import { AuthOtelInstrumentation } from '../index'
 
 interface CapturedCounter {
@@ -34,13 +34,13 @@ function makeMeter(): { meter: AuthOtelInstrumentation.IMeter; counters: Map<str
 }
 
 describe('AuthOtelInstrumentation', () => {
-  let bus: AuthInMemoryEvents
+  let bus: InMemoryEvents
   let meter: AuthOtelInstrumentation.IMeter
   let counters: Map<string, CapturedCounter>
   let cleanup: () => void
 
   beforeEach(() => {
-    bus = new AuthInMemoryEvents()
+    bus = new InMemoryEvents()
     ;({ meter, counters } = makeMeter())
     const inst = new AuthOtelInstrumentation({ meter, prefix: 'test' })
     cleanup = inst.attach(bus)
@@ -64,7 +64,7 @@ describe('AuthOtelInstrumentation', () => {
   it('signin.success increments signin.total with provider + result attributes', async () => {
     await bus.emit('signin.success', {
       identity: { id: 'u1' } as never,
-      factors: [{ method: 'password', completedAt: 0 }],
+      factors: [{ method: 'password', completedAt: new Date(0) }],
     })
     const adds = counters.get('test.signin.total')!.adds
     expect(adds).toHaveLength(1)
@@ -110,7 +110,7 @@ describe('AuthOtelInstrumentation', () => {
   })
 
   it('default attributes appended to every record', async () => {
-    bus = new AuthInMemoryEvents()
+    bus = new InMemoryEvents()
     ;({ meter, counters } = makeMeter())
     const inst = new AuthOtelInstrumentation({
       meter,
@@ -128,6 +128,6 @@ describe('AuthOtelInstrumentation', () => {
   it('refuses construction without a meter', () => {
     expect(
       () => new AuthOtelInstrumentation({ meter: null as unknown as AuthOtelInstrumentation.IMeter }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 })

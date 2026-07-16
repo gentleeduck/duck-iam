@@ -1,25 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../adapters/memory'
-import { AuthMemoryLimiter } from '../../limiters/memory'
-import { authSha256 } from '../crypto'
+import { MemoryAdapter } from '~/adapters/memory'
+import { MemoryLimiter } from '~/limiters/memory'
+import { identityInput } from '~/test/store-inputs'
+import { sha256 } from '../crypto'
 import { AuthEngine } from '../engine'
-import { AuthCookieTransport } from '../transport/cookie'
+import type { Identities } from '../identities/identities.types'
+import { CookieTransport } from '../transport/cookie.transport'
 
-interface Profile {
+interface Profile extends Identities.ProfileMetadataBase {
   email: string
 }
 
-function buildAuth(): { auth: AuthEngine<Profile>; adapter: AuthMemoryAdapter<Profile> } {
-  const adapter = new AuthMemoryAdapter<Profile>()
+function buildAuth(): { auth: AuthEngine<Profile>; adapter: MemoryAdapter<Profile> } {
+  const adapter = new MemoryAdapter<Profile>()
   const auth = new AuthEngine<Profile>({
     baseUrl: 'https://app.example.com',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
+    limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
   })
   return { auth, adapter }
 }
@@ -27,7 +29,9 @@ function buildAuth(): { auth: AuthEngine<Profile>; adapter: AuthMemoryAdapter<Pr
 describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
   it('rejects when session.tenantId mismatches expectedTenantId', async () => {
     const { auth, adapter } = buildAuth()
-    const identity = await adapter.identities.create({ profile: { email: 'a@x.com' }, providers: [] }, {})
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { username: 'a@x.com', email: 'a@x.com' }, providers: [] }),
+    )
     const { sid } = await auth.sessions.create({
       identityId: identity.id,
       kind: 'user',
@@ -45,7 +49,9 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
   it('rejects when session.tenantId is undefined but expectedTenantId is set (guest-session leak defense)', async () => {
     // No-tenant session must not satisfy a tenant-scoped expectation.
     const { auth, adapter } = buildAuth()
-    const identity = await adapter.identities.create({ profile: { email: 'b@x.com' }, providers: [] }, {})
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { username: 'b@x.com', email: 'b@x.com' }, providers: [] }),
+    )
     const { sid } = await auth.sessions.create({
       identityId: identity.id,
       kind: 'user',
@@ -62,7 +68,9 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
     // must continue to work - the guard only kicks in when the caller
     // explicitly asked for a specific tenant.
     const { auth, adapter } = buildAuth()
-    const identity = await adapter.identities.create({ profile: { email: 'c@x.com' }, providers: [] }, {})
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { username: 'c@x.com', email: 'c@x.com' }, providers: [] }),
+    )
     const { sid } = await auth.sessions.create({
       identityId: identity.id,
       kind: 'user',
@@ -79,7 +87,9 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
     // tenant-guard tests above are actually exercising the guard, not
     // missing on transport-extract).
     const { auth, adapter } = buildAuth()
-    const identity = await adapter.identities.create({ profile: { email: 'd@x.com' }, providers: [] }, {})
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { username: 'd@x.com', email: 'd@x.com' }, providers: [] }),
+    )
     const { sid } = await auth.sessions.create({
       identityId: identity.id,
       kind: 'user',
@@ -87,6 +97,6 @@ describe('AuthEngine.resolveSession - SEC: cross-tenant access guard', () => {
       factors: [],
       tenantId: 't1',
     })
-    expect(await adapter.sessions.getByHash(authSha256(sid))).not.toBeNull()
+    expect(await adapter.sessions.getByHash(sha256(sid))).not.toBeNull()
   })
 })

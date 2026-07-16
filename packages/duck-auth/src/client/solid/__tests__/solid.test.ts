@@ -1,7 +1,7 @@
 /**
  * Solid's runtime needs a reactive root; we use `createRoot` to host
  * the test signals + verify the same client->signal wiring used by
- * `AuthProvider`. Driving `AuthProvider` directly would require a
+ * `Provider`. Driving `Provider` directly would require a
  * full JSX renderer, which isn't worth the dep weight for a unit
  * test of the bridging logic.
  */
@@ -23,9 +23,9 @@ function mockFetch(handler: (path: string) => { status: number; body: unknown })
 }
 
 describe('Solid client', () => {
-  it('throws if hooks used outside AuthProvider', () => {
+  it('throws if hooks used outside Provider', () => {
     createRoot((dispose) => {
-      expect(() => authUseSignIn()).toThrow(/AuthProvider/)
+      expect(() => authUseSignIn()).toThrow(/Provider/)
       dispose()
     })
   })
@@ -37,7 +37,7 @@ describe('Solid client', () => {
 
   it('mockFetch helper builds a Response-shaped object (smoke)', async () => {
     const f = mockFetch(() => ({ body: { ok: true }, status: 200 }))
-    const res = await f('http://x/auth/session')
+    const res = await f('http://x/AUTH/session')
     expect(res.status).toBe(200)
   })
 })

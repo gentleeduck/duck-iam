@@ -5,7 +5,7 @@
  * proceed without a fresh client-side challenge solution.
  */
 
-import { AuthErrorObject } from '../errors'
+import { AuthError } from '../errors'
 
 /**
  * Cloudflare Turnstile verifier. Hits
@@ -19,7 +19,7 @@ export class AuthTurnstileVerifier implements AuthCaptcha.IVerifier {
 
   constructor(cfg: { secret: string; fetch?: typeof globalThis.fetch; endpoint?: string }) {
     if (!cfg.secret) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthTurnstileVerifier requires a `secret`',
       })
     }
@@ -71,7 +71,7 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
 
   constructor(cfg: { secret: string; fetch?: typeof globalThis.fetch; endpoint?: string }) {
     if (!cfg.secret) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthHCaptchaVerifier requires a `secret`',
       })
     }
@@ -113,7 +113,7 @@ export class AuthHCaptchaVerifier implements AuthCaptcha.IVerifier {
 /**
  * Google reCAPTCHA v3 verifier. Returns a score 0..1; caller decides
  * the threshold (Google recommends 0.5). Hits
- * `https://www.authGoogle.com/recaptcha/api/siteverify`.
+ * `https://www.google.com/recaptcha/api/siteverify`.
  */
 export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
   readonly id = 'recaptcha-v3'
@@ -129,13 +129,13 @@ export class AuthRecaptchaV3Verifier implements AuthCaptcha.IVerifier {
     minScore?: number
   }) {
     if (!cfg.secret) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthRecaptchaV3Verifier requires a `secret`',
       })
     }
     this._secret = cfg.secret
     this._fetch = cfg.fetch ?? globalThis.fetch
-    this._endpoint = cfg.endpoint ?? 'https://www.authGoogle.com/recaptcha/api/siteverify'
+    this._endpoint = cfg.endpoint ?? 'https://www.google.com/recaptcha/api/siteverify'
     this._minScore = cfg.minScore ?? 0.5
   }
 
@@ -270,7 +270,7 @@ export namespace AuthCaptcha {
     success: boolean
     /** Score 0..1 (reCAPTCHA v3); undefined for boolean providers. */
     score?: number
-    /** AuthProvider-side error tokens (`'invalid-input-secret'`, etc.). */
+    /** Provider-side error tokens (`'invalid-input-secret'`, etc.). */
     errorCodes?: string[]
   }
 }

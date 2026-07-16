@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthIdentity } from '../../../core/types/identity'
+import type { Identities } from '~/core/identities/identities.types'
 import { AuthSmtpChannel } from '../index'
 
-function makeIdentity(email: string | undefined): AuthIdentity.IIdentity<unknown> {
+function makeIdentity(email: string | undefined): Identities.Me {
   return {
     id: 'ident-1',
-    profile: email ? { email } : undefined,
+    // Empty email string models the "no deliverable address" case; the channel
+    // reads it via getProfileString, which treats '' as absent (returns ok:false).
+    profile: { username: 'u', email: email ?? '' },
     providers: [],
+    emailVerified: false,
     version: 1,
-    createdAt: 0,
-    updatedAt: 0,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    deletedAt: null,
   }
 }
 
@@ -53,7 +57,7 @@ describe('AuthSmtpChannel', () => {
           from: '',
           templates: () => ({ subject: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('returns ok:false when the identity has no email', async () => {

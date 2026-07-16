@@ -1,2 +1,2 @@
-export { __hashSid, AuthEngine, AuthNoopLimiter, SessionsFacet } from './engine'
-export type { AuthEngineTypes } from './engine.types'
+export { AuthEngine } from './engine'
+export type { Engine } from './engine.types'

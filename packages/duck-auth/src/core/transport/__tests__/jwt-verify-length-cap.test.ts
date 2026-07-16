@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { AuthBearerTransport } from '../bearer'
-import { AuthCompositeTransport } from '../composite'
-import { AuthJwtTransport } from '../jwt'
+import { BearerTransport } from '../bearer.transport'
+import { CompositeTransport } from '../composite.transport'
+import { JwtTransport } from '../jwt.transport'
 
 const SECRET = 'a-very-long-test-secret-that-is-32-bytes!'
 
 describe('AuthJwtTransport.verify - length cap', () => {
-  const t = new AuthJwtTransport({
+  const t = new JwtTransport({
     issuer: 'https://app.test',
     signKey: { kid: 'k1', key: SECRET },
     verifyKeys: [{ kid: 'k1', key: SECRET }],
@@ -49,12 +49,12 @@ describe('AuthJwtTransport.verify - length cap', () => {
 })
 
 describe('AuthCompositeTransport.verify - length cap', () => {
-  const jwt = new AuthJwtTransport({
+  const jwt = new JwtTransport({
     issuer: 'https://app.test',
     signKey: { kid: 'k1', key: SECRET },
     verifyKeys: [{ kid: 'k1', key: SECRET }],
   })
-  const composite = new AuthCompositeTransport([new AuthBearerTransport(), jwt])
+  const composite = new CompositeTransport([new BearerTransport(), jwt])
 
   it('returns null on a multi-MB token without walking any inner transport', async () => {
     const oversize = 'A'.repeat(10 * 1024 * 1024)

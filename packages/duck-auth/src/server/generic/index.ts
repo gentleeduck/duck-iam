@@ -1,8 +1,8 @@
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthProvider } from '../../core/types/provider'
+import { AuthError } from '~/core/errors'
+import type { Provider } from '~/core/provider/provider.types'
 
-/** Web-Fetch executor: turn `AuthProvider.Intent[]` into a `Response`. */
-export function authExecuteIntents(intents: AuthProvider.Intent[], baseStatus = 200): Response {
+/** Web-Fetch executor: turn `Provider.Intent[]` into a `Response`. */
+export function executeIntents(intents: Provider.Intent[], baseStatus = 200): Response {
   let status = baseStatus
   let body: string | null = null
   const headers = new Headers()
@@ -14,14 +14,14 @@ export function authExecuteIntents(intents: AuthProvider.Intent[], baseStatus = 
       case 'clearCookie': {
         headers.append(
           'set-cookie',
-          authSerializeCookie(intent.name, intent.type === 'clearCookie' ? '' : intent.value, intent.options ?? {}),
+          serializeCookie(intent.name, intent.type === 'clearCookie' ? '' : intent.value, intent.options ?? {}),
         )
         break
       }
       case 'redirect': {
-        if (!authIsSafeRedirectUrl(intent.url)) {
+        if (!isSafeRedirectUrl(intent.url)) {
           status = 500
-          body = JSON.stringify({ code: 'AUTH/MISCONFIGURED', detail: 'unsafe redirect URL rejected' })
+          body = JSON.stringify({ code: 'AUTH_MISCONFIGURED', detail: 'unsafe redirect URL rejected' })
           bodyContentType = 'application/json; charset=utf-8'
           break
         }
@@ -37,16 +37,12 @@ export function authExecuteIntents(intents: AuthProvider.Intent[], baseStatus = 
       }
       case 'error': {
         status = intent.status
-        body = JSON.stringify({ code: intent.code, detail: intent.detail })
+        const errBody: Record<string, unknown> = { code: intent.code, status: intent.status }
+        if (intent.detail !== undefined) errBody.detail = intent.detail
+        body = JSON.stringify({ ok: false, error: errBody })
         bodyContentType = 'application/json; charset=utf-8'
         break
       }
-      case 'startSession':
-      case 'requireMfa':
-        status = 500
-        body = JSON.stringify({ code: 'AUTH/MISCONFIGURED', detail: `unhandled intent type: ${intent.type}` })
-        bodyContentType = 'application/json; charset=utf-8'
-        break
     }
   }
 
@@ -55,28 +51,28 @@ export function authExecuteIntents(intents: AuthProvider.Intent[], baseStatus = 
 }
 
 /** Validate the HTTP sign-in body shape. */
-export function authParseSignInBody(raw: unknown): { providerId: string; input: unknown } | null {
+export function parseSignInBody(raw: unknown): { providerId: string; input: unknown } | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   if (!('providerId' in raw)) return null
-  if (!authIsValidProviderId(raw.providerId)) return null
+  if (!isValidProviderId(raw.providerId)) return null
   const input = 'input' in raw ? raw.input : {}
   return { providerId: raw.providerId, input: input ?? {} }
 }
 
 /** Validate the HTTP provider-begin body; `null`/`undefined` normalize to `{}`. */
-export function authParseProviderBeginBody(raw: unknown): object | null {
+export function parseProviderBeginBody(raw: unknown): object | null {
   if (raw === undefined || raw === null) return {}
   if (typeof raw !== 'object' || Array.isArray(raw)) return null
   return raw
 }
 
 const PROVIDER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/
-export function authIsValidProviderId(value: unknown): value is string {
+export function isValidProviderId(value: unknown): value is string {
   return typeof value === 'string' && PROVIDER_ID_RE.test(value)
 }
 
 /** Extract a non-empty bounded string field from a JSON body. */
-export function authParseBodyStringField(raw: unknown, field: string, maxLength = 256): string | null {
+export function parseBodyStringField(raw: unknown, field: string, maxLength = 256): string | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   if (!(field in raw)) return null
   const value: unknown = Reflect.get(raw, field)
@@ -86,7 +82,7 @@ export function authParseBodyStringField(raw: unknown, field: string, maxLength 
 }
 
 /** Validate a redirect URL: http(s) absolute or same-origin path; rejects CTL, protocol-relative, oversize. */
-export function authIsSafeRedirectUrl(url: unknown): boolean {
+export function isSafeRedirectUrl(url: unknown): boolean {
   if (typeof url !== 'string') return false
   if (url.length === 0 || url.length > 2048) return false
   if (hasControlChar(url)) return false
@@ -112,7 +108,7 @@ function hasControlChar(s: string): boolean {
 }
 
 /** Extract `Set-Cookie` headers preserving multiplicity; `[]` on runtimes without `getSetCookie`. */
-export function authExtractSetCookies(response: Response): string[] {
+export function extractSetCookies(response: Response): string[] {
   const headers: Headers = response.headers
   const candidate: unknown = Reflect.get(headers, 'getSetCookie')
   if (typeof candidate !== 'function') return []
@@ -126,7 +122,7 @@ export function authExtractSetCookies(response: Response): string[] {
 }
 
 /** Convert a Node header bag to a Web Fetch `Headers`; arrays expand to one `append` per item. */
-export function authNodeHeadersToFetch(raw: Record<string, string | string[] | undefined>): Headers {
+export function nodeHeadersToFetch(raw: Record<string, string | string[] | undefined>): Headers {
   const h = new Headers()
   for (const [k, v] of Object.entries(raw)) {
     if (v === undefined) continue
@@ -140,15 +136,18 @@ export function authNodeHeadersToFetch(raw: Record<string, string | string[] | u
 }
 
 /** Convert any thrown error into a wire-safe `{ status, body }`. */
-export function authErrorToHttp(err: unknown): { status: number; body: object } {
-  if (err instanceof AuthErrorObject) {
+export function errorToHttp(err: unknown): { status: number; body: object } {
+  if (err instanceof AuthError) {
     return { status: err.status, body: err.toJSON() }
   }
-  return { status: 500, body: { code: 'AUTH/MISCONFIGURED', detail: 'internal error' } }
+  return {
+    status: 500,
+    body: { ok: false, error: { code: 'AUTH_MISCONFIGURED', status: 500, detail: 'internal error' } },
+  }
 }
 
 /** RFC 6265 cookie serializer (zero deps; subset sufficient for auth use). */
-export function authSerializeCookie(
+export function serializeCookie(
   name: string,
   value: string,
   opts: {
@@ -161,11 +160,11 @@ export function authSerializeCookie(
     expires?: Date
   },
 ): string {
-  if (hasControlChar(name) || /[;=]/.test(name)) throw new Error('authSerializeCookie: invalid cookie name')
+  if (hasControlChar(name) || /[;=]/.test(name)) throw new Error('serializeCookie: invalid cookie name')
   if (opts.path !== undefined && (hasControlChar(opts.path) || opts.path.includes(';')))
-    throw new Error('authSerializeCookie: invalid cookie Path')
+    throw new Error('serializeCookie: invalid cookie Path')
   if (opts.domain !== undefined && (hasControlChar(opts.domain) || opts.domain.includes(';')))
-    throw new Error('authSerializeCookie: invalid cookie Domain')
+    throw new Error('serializeCookie: invalid cookie Domain')
   const parts = [`${name}=${encodeURIComponent(value)}`]
   if (opts.maxAge !== undefined) parts.push(`Max-Age=${opts.maxAge}`)
   if (opts.expires) parts.push(`Expires=${opts.expires.toUTCString()}`)

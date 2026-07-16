@@ -9,7 +9,7 @@
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { MySqlDatabase, MySqlQueryResultHKT } from 'drizzle-orm/mysql-core'
 import { bigint, index, mysqlTable, text, varchar } from 'drizzle-orm/mysql-core'
-import type { AuthOidcOP } from '../types'
+import type { OidcOP } from '../types'
 
 export const authOidcClientsTable = mysqlTable('oidc_clients', {
   clientId: varchar('client_id', { length: 255 }).primaryKey(),
@@ -95,20 +95,20 @@ function decodeArray(s: string): string[] {
   return out
 }
 
-function isGrantType(v: string): v is AuthOidcOP.IGrantType {
+function isGrantType(v: string): v is OidcOP.GrantType {
   return v === 'authorization_code' || v === 'refresh_token'
 }
-function isResponseType(v: string): v is AuthOidcOP.IResponseType {
+function isResponseType(v: string): v is OidcOP.ResponseType {
   return v === 'code'
 }
-function isTokenAuthMethod(v: string): v is AuthOidcOP.ITokenEndpointAuthMethod {
+function isTokenAuthMethod(v: string): v is OidcOP.TokenEndpointAuthMethod {
   return v === 'client_secret_basic' || v === 'client_secret_post' || v === 'none'
 }
-function isCodeChallengeMethod(v: string): v is AuthOidcOP.ICodeChallengeMethod {
+function isCodeChallengeMethod(v: string): v is OidcOP.CodeChallengeMethod {
   return v === 'S256' || v === 'plain'
 }
 
-function rowToClient(row: typeof authOidcClientsTable.$inferSelect): AuthOidcOP.IClient {
+function rowToClient(row: typeof authOidcClientsTable.$inferSelect): OidcOP.Client {
   const grantTypes = decodeArray(row.grantTypes).filter(isGrantType)
   const responseTypes = decodeArray(row.responseTypes).filter(isResponseType)
   const tokenAuth = isTokenAuthMethod(row.tokenEndpointAuthMethod) ? row.tokenEndpointAuthMethod : 'none'
@@ -127,7 +127,7 @@ function rowToClient(row: typeof authOidcClientsTable.$inferSelect): AuthOidcOP.
   }
 }
 
-function rowToCode(row: typeof authOidcCodesTable.$inferSelect): AuthOidcOP.ICode {
+function rowToCode(row: typeof authOidcCodesTable.$inferSelect): OidcOP.Code {
   return {
     code: row.code,
     client_id: row.clientId,
@@ -146,7 +146,7 @@ function rowToCode(row: typeof authOidcCodesTable.$inferSelect): AuthOidcOP.ICod
   }
 }
 
-function rowToAccess(row: typeof authOidcAccessTokensTable.$inferSelect): AuthOidcOP.IAccessToken {
+function rowToAccess(row: typeof authOidcAccessTokensTable.$inferSelect): OidcOP.AccessToken {
   return {
     token_hash: row.tokenHash,
     client_id: row.clientId,
@@ -157,7 +157,7 @@ function rowToAccess(row: typeof authOidcAccessTokensTable.$inferSelect): AuthOi
   }
 }
 
-function rowToRefresh(row: typeof authOidcRefreshTokensTable.$inferSelect): AuthOidcOP.IRefreshToken {
+function rowToRefresh(row: typeof authOidcRefreshTokensTable.$inferSelect): OidcOP.RefreshToken {
   return {
     token_hash: row.tokenHash,
     family_id: row.familyId,
@@ -170,7 +170,7 @@ function rowToRefresh(row: typeof authOidcRefreshTokensTable.$inferSelect): Auth
   }
 }
 
-function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): AuthOidcOP.IConsent {
+function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): OidcOP.Consent {
   return {
     identity_id: row.identityId,
     client_id: row.clientId,
@@ -188,11 +188,11 @@ type AnyMySqlDatabase = MySqlDatabase<MySqlQueryResultHKT, any, any>
  * the OP's request volume (codes are single-use, low-rate).
  */
 export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
-  clients: AuthOidcOP.IClientStore
-  codes: AuthOidcOP.ICodeStore
-  accessTokens: AuthOidcOP.IAccessTokenStore
-  refreshTokens: AuthOidcOP.IRefreshTokenStore
-  consents: AuthOidcOP.IConsentStore
+  clients: OidcOP.ClientStore
+  codes: OidcOP.CodeStore
+  accessTokens: OidcOP.AccessTokenStore
+  refreshTokens: OidcOP.RefreshTokenStore
+  consents: OidcOP.ConsentStore
 } {
   return {
     clients: {

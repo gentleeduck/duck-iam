@@ -1,5 +1,5 @@
 /**
- * RFC 8414 (OAuth 2.0 Authorization Server Metadata) +
+ * RFC 8414 (oauth 2.0 Authorization Server Metadata) +
  * OpenID Connect Discovery 1.0 §4 conformance tests for our
  * /.well-known/openid-configuration output.
  *
@@ -83,7 +83,7 @@ describe('RFC 8414 §2 + OIDC Discovery §4 - required claims', () => {
   })
 })
 
-describe('OAuth 2.0 PKCE (RFC 7636) - code_challenge_methods_supported', () => {
+describe('oauth 2.0 PKCE (RFC 7636) - code_challenge_methods_supported', () => {
   it('advertises S256 (RFC 7636 §6.2.1)', () => {
     const doc = authBuildOidcDiscovery({ issuer: HTTPS_ISSUER })
     expect(doc.code_challenge_methods_supported).toContain('S256')

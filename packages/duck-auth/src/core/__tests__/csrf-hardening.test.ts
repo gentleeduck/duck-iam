@@ -1,28 +1,28 @@
 import { describe, expect, it, vi } from 'vitest'
-import { authSha256 } from '../crypto'
-import { authCsrfGuard, authIssueCsrfToken, authVerifyCsrf } from '../csrf'
+import { sha256 } from '../crypto'
+import { csrfGuard, issueCsrfToken, verifyCsrf } from '../csrf'
 
 describe('CSRF - header-token length cap', () => {
   it('rejects oversize X-CSRF-Token (>256 chars) without hashing it', () => {
-    const { token, hash: storedHash } = authIssueCsrfToken()
+    const { token, hash: storedHash } = issueCsrfToken()
     void token
     const oversize = 'A'.repeat(257)
     expect(() =>
-      authVerifyCsrf({
+      verifyCsrf({
         method: 'POST',
         headers: new Headers({ 'x-csrf-token': oversize }),
         sessionCsrfHash: storedHash,
       }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/CSRF' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_CSRF' }))
   })
 
   it('accepts a 256-char token at the cap (boundary)', () => {
     // Construct a 256-char token, store its hash as the session's
     // canonical, then resubmit it - the request should succeed.
     const sized = 'A'.repeat(256)
-    const storedHash = authSha256(sized)
+    const storedHash = sha256(sized)
     expect(() =>
-      authVerifyCsrf({
+      verifyCsrf({
         method: 'POST',
         headers: new Headers({ 'x-csrf-token': sized }),
         sessionCsrfHash: storedHash,
@@ -37,12 +37,12 @@ describe('CSRF - header-token length cap', () => {
     const bigToken = 'A'.repeat(10 * 1024 * 1024)
     const start = performance.now()
     expect(() =>
-      authVerifyCsrf({
+      verifyCsrf({
         method: 'POST',
         headers: new Headers({ 'x-csrf-token': bigToken }),
         sessionCsrfHash: 'whatever',
       }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/CSRF' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_CSRF' }))
     const elapsed = performance.now() - start
     // sha256 of 10 MB on a modern laptop is 30-60 ms (slower on shared CI
     // runners, ~100-150 ms). The cap should be effectively instant - the
@@ -52,10 +52,10 @@ describe('CSRF - header-token length cap', () => {
   })
 
   it('a normal 43-char base64url token still verifies', () => {
-    const { token, hash: storedHash } = authIssueCsrfToken()
+    const { token, hash: storedHash } = issueCsrfToken()
     expect(token.length).toBeLessThanOrEqual(256)
     expect(() =>
-      authVerifyCsrf({
+      verifyCsrf({
         method: 'POST',
         headers: new Headers({ 'x-csrf-token': token }),
         sessionCsrfHash: storedHash,
@@ -79,7 +79,7 @@ describe('CSRF - authCsrfGuard bearer-scheme detection', () => {
   it('accepts case-insensitive `Authorization: bearer xxx` lowercase (matches AuthBearerTransport behavior)', async () => {
     const auth = authStub('some-hash')
     await expect(
-      authCsrfGuard(auth, {
+      csrfGuard(auth, {
         method: 'POST',
         headers: new Headers({ authorization: 'bearer my-token-here' }),
       }),
@@ -92,7 +92,7 @@ describe('CSRF - authCsrfGuard bearer-scheme detection', () => {
   it('accepts `Authorization: BEARER xxx` uppercase', async () => {
     const auth = authStub('some-hash')
     await expect(
-      authCsrfGuard(auth, {
+      csrfGuard(auth, {
         method: 'POST',
         headers: new Headers({ authorization: 'BEARER my-token-here' }),
       }),
@@ -103,7 +103,7 @@ describe('CSRF - authCsrfGuard bearer-scheme detection', () => {
   it('accepts `Authorization: Bearer xxx` PascalCase (the previously-only-accepted form)', async () => {
     const auth = authStub('some-hash')
     await expect(
-      authCsrfGuard(auth, {
+      csrfGuard(auth, {
         method: 'POST',
         headers: new Headers({ authorization: 'Bearer my-token-here' }),
       }),
@@ -115,11 +115,11 @@ describe('CSRF - authCsrfGuard bearer-scheme detection', () => {
     // AuthBearerTransport rejects commas; csrfGuard must match or both layers smuggle.
     const auth = authStub('some-hash')
     await expect(
-      authCsrfGuard(auth, {
+      csrfGuard(auth, {
         method: 'POST',
         headers: new Headers({ authorization: 'Bearer X, Bearer Y' }),
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/CSRF' })
+    ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
     // Bearer was refused -> guard fell through to CSRF check, which has
     // no token in the header -> AUTH/CSRF.
     expect(auth.resolveSession).toHaveBeenCalled()
@@ -128,34 +128,34 @@ describe('CSRF - authCsrfGuard bearer-scheme detection', () => {
   it('still treats non-Bearer schemes (Basic, Digest) as cookie-auth and runs CSRF', async () => {
     const auth = authStub('some-hash')
     await expect(
-      authCsrfGuard(auth, {
+      csrfGuard(auth, {
         method: 'POST',
         headers: new Headers({ authorization: 'Basic dXNlcjpwYXNz' }),
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/CSRF' })
+    ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
     expect(auth.resolveSession).toHaveBeenCalled()
   })
 
   it('schemes that share a `Bearer`-prefix but are not Bearer (e.g. `BearerHack `) are NOT skipped', async () => {
     const auth = authStub('some-hash')
     await expect(
-      authCsrfGuard(auth, {
+      csrfGuard(auth, {
         method: 'POST',
         headers: new Headers({ authorization: 'BearerHack abc' }),
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/CSRF' })
+    ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
   })
 
-  it('safe methods still bypass everything (no auth/header check at all)', async () => {
+  it('safe methods still bypass everything (no AUTH/header check at all)', async () => {
     const auth = authStub('some-hash')
-    await expect(authCsrfGuard(auth, { method: 'GET', headers: new Headers() })).resolves.toBeUndefined()
+    await expect(csrfGuard(auth, { method: 'GET', headers: new Headers() })).resolves.toBeUndefined()
     expect(auth.resolveSession).not.toHaveBeenCalled()
   })
 
   it('explicit isBearer: true wins over header check (caller knows best)', async () => {
     const auth = authStub('some-hash')
     await expect(
-      authCsrfGuard(auth, { method: 'POST', headers: new Headers() }, { isBearer: true }),
+      csrfGuard(auth, { method: 'POST', headers: new Headers() }, { isBearer: true }),
     ).resolves.toBeUndefined()
     expect(auth.resolveSession).not.toHaveBeenCalled()
   })

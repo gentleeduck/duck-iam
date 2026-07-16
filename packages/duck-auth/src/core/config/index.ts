@@ -1,2 +1,2 @@
-export { createAuth } from './create-auth'
-export type { AuthDefine } from './create-auth.types'
+export { createAuth } from './config'
+export type { AuthDefine } from './config.types'

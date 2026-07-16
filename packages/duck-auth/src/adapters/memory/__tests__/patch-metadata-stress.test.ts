@@ -1,17 +1,18 @@
 /**
- * Stress test for `AuthCredential.IStore.patchMetadata` on the memory
+ * Stress test for `Credential.IStore.patchMetadata` on the memory
  * adapter: concurrent patches converge, version monotonically
  * increases, and partial patches don't clobber earlier keys.
  */
 
 import { describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../index'
+import { credentialInput } from '~/test/store-inputs'
+import { MemoryAdapter } from '../index'
 
 describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
   it('100 concurrent disjoint patches all land', async () => {
-    const adapter = new AuthMemoryAdapter()
+    const adapter = new MemoryAdapter()
     const c = await adapter.credentials.upsert(
-      { identityId: 'u', kind: 'passkey', metadata: { counter: 0 }, secret: 's' },
+      credentialInput({ identityId: 'u', kind: 'passkey', metadata: { counter: 0 }, secret: 's' }),
       {},
     )
     await Promise.all(
@@ -25,9 +26,9 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
   })
 
   it('overlapping patches: the last write of a shared key wins; version still bumps cleanly', async () => {
-    const adapter = new AuthMemoryAdapter()
+    const adapter = new MemoryAdapter()
     const c = await adapter.credentials.upsert(
-      { identityId: 'u', kind: 'passkey', metadata: { counter: 0 }, secret: 's' },
+      credentialInput({ identityId: 'u', kind: 'passkey', metadata: { counter: 0 }, secret: 's' }),
       {},
     )
     for (let i = 1; i <= 25; i++) {
@@ -39,14 +40,14 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
   })
 
   it('patch never deletes a pre-existing key not mentioned in the patch', async () => {
-    const adapter = new AuthMemoryAdapter()
+    const adapter = new MemoryAdapter()
     const c = await adapter.credentials.upsert(
-      {
+      credentialInput({
         identityId: 'u',
         kind: 'passkey',
         metadata: { aaguid: 'abc', backedUp: false, counter: 1, deviceType: 'singleDevice' },
         secret: 's',
-      },
+      }),
       {},
     )
     await adapter.credentials.patchMetadata(c.id, { counter: 2 }, {})
@@ -59,9 +60,9 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
   })
 
   it('patch on a revoked credential still succeeds (revoke is informational, not a lock)', async () => {
-    const adapter = new AuthMemoryAdapter()
+    const adapter = new MemoryAdapter()
     const c = await adapter.credentials.upsert(
-      { identityId: 'u', kind: 'passkey', metadata: { counter: 1 }, secret: 's' },
+      credentialInput({ identityId: 'u', kind: 'passkey', metadata: { counter: 1 }, secret: 's' }),
       {},
     )
     await adapter.credentials.revoke(c.id, {})
@@ -72,9 +73,9 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
   })
 
   it('patch on a missing id throws AUTH/UNAUTHENTICATED', async () => {
-    const adapter = new AuthMemoryAdapter()
+    const adapter = new MemoryAdapter()
     await expect(adapter.credentials.patchMetadata('missing', { x: 1 }, {})).rejects.toMatchObject({
-      code: 'AUTH/UNAUTHENTICATED',
+      code: 'AUTH_UNAUTHENTICATED',
     })
   })
 })

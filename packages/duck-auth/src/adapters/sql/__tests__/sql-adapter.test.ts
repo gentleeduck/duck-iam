@@ -1,46 +1,55 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthSqlBridge, authCreateSqlStores } from '../index'
+import type { Credential } from '~/core/credentials/credentials.types'
+import type { Identities } from '~/core/identities/identities.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
+import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
+import { createSqlStores } from '../index'
+import type { SqlBridge } from '../sql.types'
+
+type ProfileShape = {
+  username: string
+  email: string
+  name?: string
+}
 
 /**
- * Pure in-memory `AuthSqlBridge` for tests. Mirrors the rowwise contract a
+ * Pure in-memory `SqlBridge` for tests. Mirrors the rowwise contract a
  * real ORM impl would expose. Sufficient to exercise the wrapper logic
  * (JSON encode/decode, tenant scoping, optimistic version, null vs
  * undefined coercion) without spinning up Postgres.
  */
-function makeInMemoryBridge(): AuthSqlBridge.IBridge {
-  const identities = new Map<string, AuthSqlBridge.IIdentityRow>()
-  const credentials = new Map<string, AuthSqlBridge.ICredentialRow>()
-  const sessions = new Map<string, AuthSqlBridge.ISessionRow>()
+function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
+  const identities = new Map<string, Identities.Me<ProfileShape>>()
+  const credentials = new Map<string, Credential.Me>()
+  const sessions = new Map<string, Sessions.Me>()
 
   return {
     identities: {
-      findById: async (id, tid) => {
+      findById: async (id) => {
         const r = identities.get(id)
-        return r && (tid === undefined || r.tenantId === tid || r.tenantId === null) ? r : null
+        if (!r) return null
+        return r
       },
-      findByEmail: async (email, tid) => {
+      findByEmail: async (email) => {
         for (const r of identities.values()) {
-          if (tid !== undefined && r.tenantId !== tid && r.tenantId !== null) continue
-          const profile = r.profile ? (JSON.parse(r.profile) as { email?: string }) : undefined
+          const profile = r.profile as { email?: string } | null
           if (profile?.email === email) return r
         }
         return null
       },
-      findByProviderSub: async (providerId, sub, tid) => {
+      findByProviderSub: async (providerId, sub) => {
         for (const r of identities.values()) {
-          if (tid !== undefined && r.tenantId !== tid && r.tenantId !== null) continue
-          const links = JSON.parse(r.providers) as Array<{ providerId: string; providerSub?: string }>
-          if (links.some((l) => l.providerId === providerId && l.providerSub === sub)) return r
+          if (r.providers.some((l) => l.providerId === providerId && l.providerSub === sub)) return r
         }
         return null
       },
       insert: async (row) => {
         identities.set(row.id, row)
       },
-      updateConditional: async (id, patch, expectedVersion, _tid) => {
+      updateConditional: async (id, patch, expectedVersion) => {
         const cur = identities.get(id)
         if (!cur || cur.version !== expectedVersion) return null
-        const next = { ...cur, ...patch } as AuthSqlBridge.IIdentityRow
+        const next = { ...cur, ...patch } as Identities.Me<ProfileShape>
         identities.set(id, next)
         return next
       },
@@ -61,21 +70,15 @@ function makeInMemoryBridge(): AuthSqlBridge.IBridge {
       insertProviderLink: async (identityId, providerId, providerSub, addedAt) => {
         const cur = identities.get(identityId)
         if (!cur) return
-        const links = JSON.parse(cur.providers) as Array<{
-          providerId: string
-          providerSub?: string
-          addedAt: number
-        }>
-        links.push({ providerId, providerSub, addedAt })
-        identities.set(identityId, { ...cur, providers: JSON.stringify(links) })
+        identities.set(identityId, { ...cur, providers: [...cur.providers, { providerId, providerSub, addedAt }] })
       },
       deleteProviderLink: async (identityId, providerId) => {
         const cur = identities.get(identityId)
         if (!cur) return
-        const links = (JSON.parse(cur.providers) as Array<{ providerId: string }>).filter(
-          (l) => l.providerId !== providerId,
-        )
-        identities.set(identityId, { ...cur, providers: JSON.stringify(links) })
+        identities.set(identityId, {
+          ...cur,
+          providers: cur.providers.filter((l) => l.providerId !== providerId),
+        })
       },
       merge: async (survivorId, dupId) => {
         for (const c of credentials.values()) {
@@ -93,7 +96,7 @@ function makeInMemoryBridge(): AuthSqlBridge.IBridge {
         [...credentials.values()].filter((r) => r.identityId === identityId && (kind === undefined || r.kind === kind)),
       findByProviderSub: async (provider, sub) => {
         for (const r of credentials.values()) {
-          const meta = r.metadata ? (JSON.parse(r.metadata) as { provider?: string; sub?: string }) : null
+          const meta = r.metadata as { provider?: string; sub?: string } | null
           if (meta?.provider === provider && meta.sub === sub) return r
         }
         return null
@@ -114,13 +117,13 @@ function makeInMemoryBridge(): AuthSqlBridge.IBridge {
       updateConditional: async (id, patch, expectedVersion) => {
         const cur = credentials.get(id)
         if (!cur || cur.version !== expectedVersion) return null
-        const next = { ...cur, ...patch } as AuthSqlBridge.ICredentialRow
+        const next = { ...cur, ...patch } as Credential.Me
         credentials.set(id, next)
         return next
       },
       revoke: async (id, revokedAt) => {
         const cur = credentials.get(id)
-        if (cur) credentials.set(id, { ...cur, revokedAt })
+        if (cur) credentials.set(id, { ...cur, revokedAt: new Date(revokedAt) })
       },
       delete: async (id) => {
         credentials.delete(id)
@@ -139,7 +142,7 @@ function makeInMemoryBridge(): AuthSqlBridge.IBridge {
       update: async (id, patch) => {
         const cur = sessions.get(id)
         if (!cur) return null
-        const next = { ...cur, ...patch } as AuthSqlBridge.ISessionRow
+        const next = { ...cur, ...patch } as Sessions.Me
         sessions.set(id, next)
         return next
       },
@@ -155,7 +158,7 @@ function makeInMemoryBridge(): AuthSqlBridge.IBridge {
       deleteExpired: async (now) => {
         let deleted = 0
         for (const [id, s] of sessions) {
-          if (s.absoluteExpiresAt < now) {
+          if (s.absoluteExpiresAt.getTime() < now.getTime()) {
             sessions.delete(id)
             deleted++
           }
@@ -167,46 +170,50 @@ function makeInMemoryBridge(): AuthSqlBridge.IBridge {
 }
 
 describe('authCreateSqlStores', () => {
-  interface ProfileShape {
-    email: string
-    name?: string
-  }
-  let bridge: AuthSqlBridge.IBridge
-  let stores: ReturnType<typeof authCreateSqlStores<ProfileShape>>
+  let bridge: SqlBridge.Me<ProfileShape>
+  let stores: ReturnType<typeof createSqlStores<ProfileShape>>
 
   beforeEach(() => {
     bridge = makeInMemoryBridge()
-    stores = authCreateSqlStores<ProfileShape>(bridge)
+    stores = createSqlStores<ProfileShape>(bridge)
   })
 
   it('identities.create -> findById round-trips the profile JSON encoded', async () => {
-    const ident = await stores.identities.create({ profile: { email: 'a@b.com', name: 'A' }, providers: [] }, {})
+    const ident = await stores.identities.create(
+      identityInput({ profile: { username: 'a@b.com', email: 'a@b.com', name: 'A' }, providers: [] }),
+    )
     expect(ident.id).toBeTruthy()
-    const fetched = await stores.identities.findById(ident.id, {})
+    const fetched = await stores.identities.findById(ident.id)
     expect(fetched?.profile?.email).toBe('a@b.com')
     expect(fetched?.profile?.name).toBe('A')
   })
 
   it('identities.findByEmail decodes the JSON profile', async () => {
-    await stores.identities.create({ profile: { email: 'x@y.com' }, providers: [] }, {})
-    const found = await stores.identities.findByEmail('x@y.com', {})
+    await stores.identities.create(identityInput({ profile: { username: 'x@y.com', email: 'x@y.com' }, providers: [] }))
+    const found = await stores.identities.findByEmail('x@y.com')
     expect(found?.profile?.email).toBe('x@y.com')
   })
 
   it('identities.update bumps version + rejects stale writes', async () => {
-    const ident = await stores.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
-    const v2 = await stores.identities.update(ident.id, { profile: { email: 'b@b.com' } }, 1, {})
+    const ident = await stores.identities.create(
+      identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
+    )
+    const v2 = await stores.identities.update(ident.id, { profile: { username: 'b@b.com', email: 'b@b.com' } }, 1)
     expect(v2.version).toBe(2)
     expect(v2.profile?.email).toBe('b@b.com')
-    await expect(stores.identities.update(ident.id, { profile: { email: 'c@b.com' } }, 1, {})).rejects.toMatchObject({
-      code: 'AUTH/STALE_WRITE',
+    await expect(
+      stores.identities.update(ident.id, { profile: { username: 'c@b.com', email: 'c@b.com' } }, 1),
+    ).rejects.toMatchObject({
+      code: 'AUTH_STALE_WRITE',
     })
   })
 
   it('credentials.upsert + findByHashedSecret round-trips secret + metadata', async () => {
-    const ident = await stores.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
+    const ident = await stores.identities.create(
+      identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
+    )
     await stores.credentials.upsert(
-      { identityId: ident.id, kind: 'password', secret: 'hash:xyz', metadata: { strength: 0.9 } },
+      credentialInput({ identityId: ident.id, kind: 'password', secret: 'hash:xyz', metadata: { strength: 0.9 } }),
       {},
     )
     const found = await stores.credentials.findByHashedSecret('hash:xyz', 'password', {})
@@ -215,8 +222,13 @@ describe('authCreateSqlStores', () => {
   })
 
   it('credentials.rotate bumps version', async () => {
-    const ident = await stores.identities.create({ profile: { email: 'a@b.com' }, providers: [] }, {})
-    const cred = await stores.credentials.upsert({ identityId: ident.id, kind: 'password', secret: 's1' }, {})
+    const ident = await stores.identities.create(
+      identityInput({ profile: { username: 'a@b.com', email: 'a@b.com' }, providers: [] }),
+    )
+    const cred = await stores.credentials.upsert(
+      credentialInput({ identityId: ident.id, kind: 'password', secret: 's1' }),
+      {},
+    )
     const rotated = await stores.credentials.rotate(cred.id, 's2', cred.version, {})
     expect(rotated.secret).toBe('s2')
     expect(rotated.version).toBe(cred.version + 1)
@@ -224,19 +236,26 @@ describe('authCreateSqlStores', () => {
 
   it('sessions.create -> getByHash round-trips factors + actingAs JSON', async () => {
     const now = Date.now()
-    await stores.sessions.create({
-      id: 'h1',
-      identityId: 'i1',
-      kind: 'user',
-      aal: 2,
-      factors: [{ method: 'password', completedAt: now }],
-      createdAt: now,
-      rotatedAt: now,
-      expiresAt: now + 60_000,
-      absoluteExpiresAt: now + 60_000,
-      fresh: true,
-      actingAs: { realIdentityId: 'admin', startedAt: now, reason: 'support', expiresAt: now + 3600_000 },
-    })
+    await stores.sessions.create(
+      sessionInput({
+        id: 'h1',
+        identityId: 'i1',
+        kind: 'user',
+        aal: 2,
+        factors: [{ method: 'password', completedAt: new Date(now) }],
+        createdAt: new Date(now),
+        rotatedAt: new Date(now),
+        expiresAt: new Date(now + 60_000),
+        absoluteExpiresAt: new Date(now + 60_000),
+        fresh: true,
+        actingAs: {
+          realIdentityId: 'admin',
+          startedAt: new Date(now),
+          reason: 'support',
+          expiresAt: new Date(now + 3600_000),
+        },
+      }),
+    )
     const fetched = await stores.sessions.getByHash('h1')
     expect(fetched?.aal).toBe(2)
     expect(fetched?.factors[0]!.method).toBe('password')
@@ -246,30 +265,34 @@ describe('authCreateSqlStores', () => {
 
   it('sessions.gc reports deleted count of expired rows', async () => {
     const now = Date.now()
-    await stores.sessions.create({
-      id: 'h1',
-      identityId: 'i1',
-      kind: 'user',
-      aal: 1,
-      factors: [],
-      createdAt: now - 10_000,
-      rotatedAt: now - 10_000,
-      expiresAt: now - 5_000,
-      absoluteExpiresAt: now - 5_000,
-      fresh: false,
-    })
-    await stores.sessions.create({
-      id: 'h2',
-      identityId: 'i1',
-      kind: 'user',
-      aal: 1,
-      factors: [],
-      createdAt: now,
-      rotatedAt: now,
-      expiresAt: now + 60_000,
-      absoluteExpiresAt: now + 60_000,
-      fresh: true,
-    })
+    await stores.sessions.create(
+      sessionInput({
+        id: 'h1',
+        identityId: 'i1',
+        kind: 'user',
+        aal: 1,
+        factors: [],
+        createdAt: new Date(now - 10_000),
+        rotatedAt: new Date(now - 10_000),
+        expiresAt: new Date(now - 5_000),
+        absoluteExpiresAt: new Date(now - 5_000),
+        fresh: false,
+      }),
+    )
+    await stores.sessions.create(
+      sessionInput({
+        id: 'h2',
+        identityId: 'i1',
+        kind: 'user',
+        aal: 1,
+        factors: [],
+        createdAt: new Date(now),
+        rotatedAt: new Date(now),
+        expiresAt: new Date(now + 60_000),
+        absoluteExpiresAt: new Date(now + 60_000),
+        fresh: true,
+      }),
+    )
     const result = await stores.sessions.gc(now)
     expect(result.deleted).toBe(1)
   })

@@ -50,14 +50,14 @@ Optional peer dependencies (install only what you wire):
 ## Quick start
 
 ```typescript
-import { defineAuth } from '@gentleduck/auth/core'
+import { createAuth } from '@gentleduck/auth/core/config'
 import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
 import { MemoryLimiter } from '@gentleduck/auth/limiters/memory'
 import { password } from '@gentleduck/auth/providers/password'
 
 const storage = new MemoryAuthAdapter()
 
-export const auth = defineAuth({
+export const auth = createAuth({
   baseUrl: 'http://localhost:3000',
   storage,
   limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
@@ -79,7 +79,7 @@ const result = await auth.flows.signIn({
 // result.session, result.sid, result.intents[]
 ```
 
-`defineAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, ScryptHasher, InMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
+`createAuth` is the factory that wires the 14 facets, picks sane defaults (CookieTransport, AuthScryptHasher, AuthInMemoryEvents), and registers the providers you pass. For full control, instantiate `AuthEngine` directly - both APIs accept the same primitives.
 
 ## Or scaffold it via the CLI
 
@@ -207,7 +207,7 @@ import { executeIntents, parseSignInBody } from '@gentleduck/auth/server/generic
 ## Client libraries
 
 ```typescript
-// React - <AuthProvider> + useSession / useSignIn / useSignOut
+// React - <Provider> + useSession / useSignIn / useSignOut
 import { createAuthClient } from '@gentleduck/auth/client/react'
 
 // Vue, Solid, Svelte - parallel APIs

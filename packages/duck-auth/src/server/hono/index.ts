@@ -1,56 +1,58 @@
-import { authCsrfGuard } from '../../core/csrf'
-import type { AuthEngine } from '../../core/engine'
+import { csrfGuard } from '~/core/csrf'
+import type { AuthEngine } from '~/core/engine'
 import {
-  authErrorToHttp,
-  authExecuteIntents,
-  authIsValidProviderId,
-  authParseBodyStringField,
-  authParseProviderBeginBody,
-  authParseSignInBody,
+  errorToHttp,
+  executeIntents,
+  isValidProviderId,
+  parseBodyStringField,
+  parseProviderBeginBody,
+  parseSignInBody,
 } from '../generic'
 
-function reqHeaders(ctx: AuthHonoAdapter.IContext): Headers {
+import type { HonoAdapter, MountHono } from './hono.types'
+
+function reqHeaders(ctx: HonoAdapter.Context): Headers {
   return ctx.req.raw.headers
 }
 
-function reqMethod(ctx: AuthHonoAdapter.IContext): string {
+function reqMethod(ctx: HonoAdapter.Context): string {
   return ctx.req.raw.method
 }
 
-/** `authHonoSignIn`. CSRF-guarded. */
-export function authHonoSignIn(auth: AuthEngine): AuthHonoAdapter.IHandler {
+/** `honoSignIn`. CSRF-guarded. */
+export function honoSignIn(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
-      await authCsrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
-      const parsed = authParseSignInBody(await ctx.req.json().catch(() => null))
+      await csrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
+      const parsed = parseSignInBody(await ctx.req.json().catch(() => null))
       if (!parsed) {
-        return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+        return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
       const result = await auth.flows.signIn(parsed)
-      return authExecuteIntents(result.intents)
+      return executeIntents(result.intents)
     } catch (err) {
       return handleError(err)
     }
   }
 }
 
-/** `authHonoSignOut`. CSRF-guarded. */
-export function authHonoSignOut(auth: AuthEngine): AuthHonoAdapter.IHandler {
+/** `honoSignOut`. CSRF-guarded. */
+export function honoSignOut(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
-      await authCsrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
+      await csrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
       const sid = auth.transport.extract({ headers: reqHeaders(ctx) })
-      if (!sid) return authExecuteIntents(auth.transport.revoke())
+      if (!sid) return executeIntents(auth.transport.revoke())
       const { intents } = await auth.flows.signOut(sid)
-      return authExecuteIntents(intents)
+      return executeIntents(intents)
     } catch (err) {
       return handleError(err)
     }
   }
 }
 
-/** `authHonoSession`. */
-export function authHonoSession(auth: AuthEngine): AuthHonoAdapter.IHandler {
+/** `honoSession`. */
+export function honoSession(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
       const resolved = await auth.resolveSession({ headers: reqHeaders(ctx) })
@@ -67,21 +69,21 @@ export function authHonoSession(auth: AuthEngine): AuthHonoAdapter.IHandler {
   }
 }
 
-/** `authHonoProviderBegin`. */
-export function authHonoProviderBegin(auth: AuthEngine): AuthHonoAdapter.IHandler {
+/** `honoProviderBegin`. */
+export function honoProviderBegin(auth: AuthEngine): HonoAdapter.Handler {
   return async (ctx) => {
     try {
-      await authCsrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
+      await csrfGuard(auth, { method: reqMethod(ctx), headers: reqHeaders(ctx) })
       const id = ctx.req.param('id')
-      if (!authIsValidProviderId(id)) {
-        return authExecuteIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
+      if (!isValidProviderId(id)) {
+        return executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }])
       }
-      const body = authParseProviderBeginBody(await ctx.req.json().catch(() => null))
+      const body = parseProviderBeginBody(await ctx.req.json().catch(() => null))
       if (body === null) {
-        return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+        return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
       const intents = await auth.flows.beginProvider(id, body)
-      return authExecuteIntents(intents)
+      return executeIntents(intents)
     } catch (err) {
       return handleError(err)
     }
@@ -89,30 +91,15 @@ export function authHonoProviderBegin(auth: AuthEngine): AuthHonoAdapter.IHandle
 }
 
 function handleError(err: unknown): Response {
-  const { status, body } = authErrorToHttp(err)
+  const { status, body } = errorToHttp(err)
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
   })
 }
 
-export namespace AuthHonoAdapter {
-  export type IHandler = (ctx: AuthHonoAdapter.IContext) => Promise<Response>
-
-  export interface IContext {
-    req: {
-      method: string
-      url: string
-      header(name?: string): string | undefined | Record<string, string>
-      raw: Request
-      json: () => Promise<unknown>
-      param(name: string): string | undefined
-    }
-  }
-}
-
-/** Convert a native Hono Context into the structural {@link AuthHonoAdapter.IContext}. */
-export function authToHonoAdapterCtx(c: {
+/** Convert a native Hono Context into the structural {@link HonoAdapter.Context}. */
+export function toHonoAdapterCtx(c: {
   req: {
     method: string
     url: string
@@ -121,7 +108,7 @@ export function authToHonoAdapterCtx(c: {
     param: (n: string) => string | undefined
     header: (n?: string) => unknown
   }
-}): AuthHonoAdapter.IContext {
+}): HonoAdapter.Context {
   return {
     req: {
       header: ((name?: string) => {
@@ -133,7 +120,7 @@ export function authToHonoAdapterCtx(c: {
           return out
         }
         return c.req.header(name) as string | undefined
-      }) as AuthHonoAdapter.IContext['req']['header'],
+      }) as HonoAdapter.Context['req']['header'],
       json: () => c.req.json(),
       method: c.req.method,
       param: (n: string) => c.req.param(n) as string | undefined,
@@ -144,27 +131,27 @@ export function authToHonoAdapterCtx(c: {
 }
 
 /** Register every duck-auth route on a Hono `app`. `opts.skip` omits route groups; `opts.cors` mounts a scoped CORS middleware. */
-export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: AuthMountHono.IOptions = {}): void {
+export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.Options = {}): void {
   const prefix = opts.prefix ?? '/auth'
   const skip = new Set(opts.skip ?? [])
 
-  app.post(`${prefix}/signin`, (c) => authHonoSignIn(auth)(authToHonoAdapterCtx(c)))
-  app.post(`${prefix}/signout`, (c) => authHonoSignOut(auth)(authToHonoAdapterCtx(c)))
-  app.get(`${prefix}/session`, (c) => authHonoSession(auth)(authToHonoAdapterCtx(c)))
-  app.post(`${prefix}/providers/:id/begin`, (c) => authHonoProviderBegin(auth)(authToHonoAdapterCtx(c)))
+  app.post(`${prefix}/signin`, (c) => honoSignIn(auth)(toHonoAdapterCtx(c)))
+  app.post(`${prefix}/signout`, (c) => honoSignOut(auth)(toHonoAdapterCtx(c)))
+  app.get(`${prefix}/session`, (c) => honoSession(auth)(toHonoAdapterCtx(c)))
+  app.post(`${prefix}/providers/:id/begin`, (c) => honoProviderBegin(auth)(toHonoAdapterCtx(c)))
 
   if (!skip.has('oauth')) {
     app.get(`${prefix}/providers/:provider/callback`, async (c) => {
       const provider = c.req.param('provider')
       if (typeof provider !== 'string' || provider.length === 0) {
-        return authExecuteIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
+        return executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }])
       }
       const url = new URL(c.req.url)
       const code = url.searchParams.get('code') ?? ''
       const state = url.searchParams.get('state') ?? ''
       try {
         const result = await auth.flows.signIn({ input: { code, state }, providerId: provider })
-        return authExecuteIntents(result.intents)
+        return executeIntents(result.intents)
       } catch (err) {
         return handleError(err)
       }
@@ -177,7 +164,7 @@ export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: A
       const token = url.searchParams.get('token') ?? ''
       try {
         const result = await auth.flows.signIn({ input: { token }, providerId: 'magic-link' })
-        return authExecuteIntents(result.intents)
+        return executeIntents(result.intents)
       } catch (err) {
         return handleError(err)
       }
@@ -187,12 +174,12 @@ export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: A
   if (!skip.has('passkey')) {
     app.post(`${prefix}/passkey/begin`, async (c) => {
       try {
-        const body = authParseProviderBeginBody(await c.req.json().catch(() => null))
+        const body = parseProviderBeginBody(await c.req.json().catch(() => null))
         if (body === null) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
         }
         const intents = await auth.flows.beginProvider('passkey', body)
-        return authExecuteIntents(intents)
+        return executeIntents(intents)
       } catch (err) {
         return handleError(err)
       }
@@ -201,7 +188,7 @@ export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: A
       try {
         const body: unknown = await c.req.json().catch(() => ({}))
         const result = await auth.flows.signIn({ input: body, providerId: 'passkey' })
-        return authExecuteIntents(result.intents)
+        return executeIntents(result.intents)
       } catch (err) {
         return handleError(err)
       }
@@ -212,15 +199,15 @@ export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: A
     // MFA mutators derive identityId from session (not body) and CSRF-guard.
     app.post(`${prefix}/mfa/totp/begin`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/UNAUTHENTICATED', status: 401 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
         const raw = await c.req.json().catch(() => null)
-        const label = authParseBodyStringField(raw, 'label', 128)
+        const label = parseBodyStringField(raw, 'label', 128)
         if (label === null) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
         }
         return jsonResponse(200, await auth.mfa.beginTotpEnrollment(resolved.session.identityId, label))
       } catch (err) {
@@ -229,15 +216,15 @@ export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: A
     })
     app.post(`${prefix}/mfa/totp/confirm`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/UNAUTHENTICATED', status: 401 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
         const raw = await c.req.json().catch(() => null)
-        const code = authParseBodyStringField(raw, 'code', 64)
+        const code = parseBodyStringField(raw, 'code', 64)
         if (code === null) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
         }
         const result = await auth.mfa.confirmTotpEnrollment(resolved.session.identityId, code)
         return jsonResponse(result.ok ? 200 : 400, result)
@@ -247,15 +234,15 @@ export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: A
     })
     app.post(`${prefix}/mfa/totp/verify`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/UNAUTHENTICATED', status: 401 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
         const raw = await c.req.json().catch(() => null)
-        const code = authParseBodyStringField(raw, 'code', 64)
+        const code = parseBodyStringField(raw, 'code', 64)
         if (code === null) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
         }
         return jsonResponse(200, { ok: await auth.mfa.verifyTotp(resolved.session.identityId, code) })
       } catch (err) {
@@ -264,10 +251,10 @@ export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: A
     })
     app.post(`${prefix}/mfa/totp/remove`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/UNAUTHENTICATED', status: 401 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
         await auth.mfa.removeTotp(resolved.session.identityId)
         return jsonResponse(200, { ok: true })
@@ -277,10 +264,10 @@ export function authMountHono(app: AuthMountHono.IApp, auth: AuthEngine, opts: A
     })
     app.post(`${prefix}/mfa/backup-codes/regenerate`, async (c) => {
       try {
-        await authCsrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
+        await csrfGuard(auth, { method: c.req.raw.method, headers: c.req.raw.headers })
         const resolved = await auth.resolveSession({ headers: c.req.raw.headers })
         if (!resolved?.session.identityId) {
-          return authExecuteIntents([{ type: 'error', code: 'AUTH/UNAUTHENTICATED', status: 401 }])
+          return executeIntents([{ type: 'error', code: 'AUTH_UNAUTHENTICATED', status: 401 }])
         }
         return jsonResponse(200, { codes: await auth.mfa.regenerateBackupCodes(resolved.session.identityId) })
       } catch (err) {
@@ -297,33 +284,4 @@ function jsonResponse(status: number, body: unknown): Response {
   })
 }
 
-export namespace AuthMountHono {
-  /** Subset of Hono's `Context` we use in handlers. */
-  export interface IHonoCtx {
-    req: {
-      method: string
-      url: string
-      raw: Request
-      json: () => Promise<unknown>
-      param: (n: string) => string | undefined
-      header: (n?: string) => unknown
-    }
-  }
-  /** Duck-typed Hono `app` - only `get` / `post` are required. Keeps Hono a peerDep. */
-  export interface IApp {
-    get(path: string, handler: (c: IHonoCtx) => Response | Promise<Response>): void
-    post(path: string, handler: (c: IHonoCtx) => Response | Promise<Response>): void
-  }
-
-  /** Group identifiers that `opts.skip` understands. */
-  export type ISkipGroup = 'oauth' | 'magic-link' | 'passkey' | 'totp'
-
-  export interface IOptions {
-    /** Default `'/auth'`. Set to `'/api/auth'` to re-root. */
-    prefix?: string
-    /** Skip route groups your app doesn't expose. */
-    skip?: ISkipGroup[]
-    /** Reserved for the upcoming `cors: true` shortcut; CORS today is set on the app directly via `hono/cors`. */
-    cors?: boolean | { origins: string[] }
-  }
-}
+export type { HonoAdapter, MountHono } from './hono.types'

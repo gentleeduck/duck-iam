@@ -5,9 +5,9 @@
  * the auth lib to a specific provider SDK.
  */
 
-import { getProfileString } from '../../core/credential-utils'
-import { AuthErrorObject } from '../../core/errors'
-import type { AuthChannel } from '../../core/types/channel'
+import type { Channel } from '~/channels/channels.types'
+import { getProfileString } from '~/core/credentials/credentials'
+import { AuthError } from '~/core/errors'
 
 export namespace AuthSmtpChannel {
   /**
@@ -38,8 +38,8 @@ export namespace AuthSmtpChannel {
     vars: Record<string, unknown>,
   ) => Promise<{ subject: string; text?: string; html?: string }> | { subject: string; text?: string; html?: string }
 
-  /** Config knobs for {@link AuthSmtpChannel}. */
-  export interface IConfig<TTransporter extends ITransporter = ITransporter> {
+  /** Cfg knobs for {@link AuthSmtpChannel}. */
+  export interface Cfg<TTransporter extends ITransporter = ITransporter> {
     /** Transporter implementing `sendMail`. Required. */
     transporter: TTransporter
     /** From: address. Required (SMTP refuses bare envelopes). */
@@ -52,22 +52,22 @@ export namespace AuthSmtpChannel {
 }
 
 /**
- * SMTP channel implementation of `AuthChannel.IChannel`. Reads the
+ * SMTP channel implementation of `Channel.IChannel`. Reads the
  * recipient email from `input.identity.profile.email`; rejects with
  * AUTH/MISCONFIGURED when the identity has no email.
  */
 export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter = AuthSmtpChannel.ITransporter>
-  implements AuthChannel.IChannel
+  implements Channel.Channel
 {
-  readonly kind: AuthChannel.Kind = 'email'
+  readonly kind: Channel.Kind = 'email'
   readonly id: string
   private readonly _transporter: TTransporter
   private readonly _from: string
   private readonly _resolve: AuthSmtpChannel.ITemplateResolver
 
-  constructor(cfg: AuthSmtpChannel.IConfig<TTransporter>) {
+  constructor(cfg: AuthSmtpChannel.Cfg<TTransporter>) {
     if (!cfg.from) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: 'AuthSmtpChannel requires a non-empty `from` address',
       })
     }
@@ -83,14 +83,14 @@ export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter =
    * the underlying error message on transporter failure so the caller
    * can retry / escalate without exception escape.
    */
-  async send(input: AuthChannel.SendInput): Promise<AuthChannel.SendResult> {
+  async send(input: Channel.SendInput): Promise<Channel.SendResult> {
     const to = getProfileString(input.identity.profile, 'email')
     if (!to) {
       return { ok: false, error: 'identity has no email; AuthSmtpChannel cannot deliver' }
     }
     let resolved: Awaited<ReturnType<AuthSmtpChannel.ITemplateResolver>>
     try {
-      resolved = await this._resolve(input.templateId, input.vars as Record<string, unknown>)
+      resolved = await this._resolve(input.templateId, input.vars)
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -102,7 +102,7 @@ export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter =
         ...(resolved.text !== undefined && { text: resolved.text }),
         ...(resolved.html !== undefined && { html: resolved.html }),
       })
-      const out: AuthChannel.SendResult = { ok: true }
+      const out: Channel.SendResult = { ok: true }
       if (result.messageId !== undefined) out.providerMessageId = result.messageId
       return out
     } catch (err) {

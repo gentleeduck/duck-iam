@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router";
 import Header from "../components/Header";
 import { UserSwitcher } from "../components/UserSwitcher";
-import { AuthProvider, useCurrentUser } from "../iam/auth-context";
+import { Provider, useCurrentUser } from "../iam/auth-context";
 import { engine, flow, metrics } from "../iam/engine";
 import TanStackQueryProvider from "../integrations/tanstack-query/root-provider";
 import appCss from "../styles.css?url";
@@ -61,12 +61,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			</head>
 			<body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
 				<TanStackQueryProvider>
-					<AuthProvider>
+					<Provider>
 						<Header />
 						<UserSwitcher />
 						{children}
 						<IamDevtoolsLauncher />
-					</AuthProvider>
+					</Provider>
 				</TanStackQueryProvider>
 				<Scripts />
 			</body>

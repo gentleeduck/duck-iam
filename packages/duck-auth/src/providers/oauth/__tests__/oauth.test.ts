@@ -1,13 +1,14 @@
 import { createHmac } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { AuthOAuthClient } from '../core/client'
-import { authGeneratePkce } from '../core/pkce'
-import { oauthProvider } from '../core/provider'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthEngine } from '~/core/engine'
+import { Identities } from '~/core/identities'
+import { CookieTransport } from '~/core/transport/cookie.transport'
+import { MemoryLimiter } from '~/limiters/memory'
+import { passwords, ScryptHasher } from '~/providers/passwords'
+import { OAuthClient } from '../core/client'
+import { generatePkce } from '../core/pkce'
+import { oProvider } from '../core/provider'
 import { authBuildState, authVerifyState, signState } from '../core/state'
 
 /**
@@ -22,14 +23,11 @@ function mintRawState(payload: unknown, secret: string): string {
   return `${body}.${sig}`
 }
 
-interface MyProfile {
-  email: string
-  name?: string
-}
+interface MyProfile extends Identities.ProfileMetadataBase {}
 
-describe('OAuth core - PKCE + state', () => {
+describe('oauth core - PKCE + state', () => {
   it('authGeneratePkce produces an S256 challenge derived from the verifier', () => {
-    const { verifier, challenge, method } = authGeneratePkce()
+    const { verifier, challenge, method } = generatePkce()
     expect(method).toBe('S256')
     expect(verifier).toMatch(/^[A-Za-z0-9_-]+$/)
     expect(challenge).toMatch(/^[A-Za-z0-9_-]+$/)
@@ -94,7 +92,7 @@ describe('OAuth core - PKCE + state', () => {
     })
 
     it('rejects payload whose returnTo is oversize (URL-bomb defense)', () => {
-      // The state is HMAC-signed and carried in the OAuth provider URL.
+      // The state is HMAC-signed and carried in the oauth provider URL.
       // An attacker who can call begin() with a massive returnTo would
       // mint state cookies / URLs that overflow browser/provider limits
       // and cause unpredictable failures. Cap at 2048.
@@ -144,9 +142,9 @@ describe('OAuth core - PKCE + state', () => {
   })
 })
 
-describe('AuthOAuthClient - SEC: token response validation', () => {
-  function clientWithResponse(body: unknown, status = 200): AuthOAuthClient {
-    return new AuthOAuthClient({
+describe('AuthoauthClient - SEC: token response validation', () => {
+  function clientWithResponse(body: unknown, status = 200): OAuthClient {
+    return new OAuthClient({
       clientId: 'cid',
       endpoints: {
         authorizationEndpoint: 'https://idp/authorize',
@@ -163,44 +161,44 @@ describe('AuthOAuthClient - SEC: token response validation', () => {
     const client = clientWithResponse(['not', 'an', 'object'])
     await expect(
       client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('exchangeCode rejects response missing access_token', async () => {
     const client = clientWithResponse({ token_type: 'Bearer', expires_in: 3600 })
     await expect(
       client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('exchangeCode rejects non-string access_token (would corrupt Bearer header downstream)', async () => {
     const client = clientWithResponse({ access_token: 42, token_type: 'Bearer' })
     await expect(
       client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('exchangeCode rejects non-numeric expires_in (would have stored NaN expiry into family metadata)', async () => {
     const client = clientWithResponse({ access_token: 'at', token_type: 'Bearer', expires_in: '3600' })
     await expect(
       client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('exchangeCode rejects non-string refresh_token', async () => {
     const client = clientWithResponse({ access_token: 'at', token_type: 'Bearer', refresh_token: { evil: true } })
     await expect(
       client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('refresh rejects malformed response', async () => {
     const client = clientWithResponse({ token_type: 'Bearer' })
-    await expect(client.refresh('rt')).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    await expect(client.refresh('rt')).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('exchangeCode rejects invalid JSON body', async () => {
-    const client = new AuthOAuthClient({
+    const client = new OAuthClient({
       clientId: 'cid',
       endpoints: { authorizationEndpoint: 'https://idp/a', tokenEndpoint: 'https://idp/t' },
       scopes: ['openid'],
@@ -208,18 +206,18 @@ describe('AuthOAuthClient - SEC: token response validation', () => {
     })
     await expect(
       client.exchangeCode({ code: 'c', redirectUri: 'https://app/cb', codeVerifier: 'v' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('userinfo rejects non-object response body', async () => {
     const client = clientWithResponse('a string body')
-    await expect(client.userinfo('at')).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    await expect(client.userinfo('at')).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 })
 
-describe('AuthOAuthClient.buildAuthorizeUrl', () => {
+describe('AuthoauthClient.buildAuthorizeUrl', () => {
   it('emits the RFC 6749 authorization URL with PKCE + state', async () => {
-    const client = new AuthOAuthClient({
+    const client = new OAuthClient({
       clientId: 'cid',
       endpoints: {
         authorizationEndpoint: 'https://idp.example.com/authorize',
@@ -244,22 +242,22 @@ describe('AuthOAuthClient.buildAuthorizeUrl', () => {
   })
 })
 
-describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
+describe('oProvider - generic end-to-end (mocked IdP)', () => {
   function buildAuth(fakeIdp: typeof globalThis.fetch) {
-    const adapter = new AuthMemoryAdapter<MyProfile>()
+    const adapter = new MemoryAdapter<MyProfile>()
     const auth = new AuthEngine<MyProfile>({
       baseUrl: 'https://app',
-      transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+      transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
       stores: {
         identities: adapter.identities,
         sessions: adapter.sessions,
         credentials: adapter.credentials,
       },
-      limiter: new AuthMemoryLimiter({ max: 10, windowMs: 60_000 }),
-      passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+      limiter: new MemoryLimiter({ max: 10, windowMs: 60_000 }),
+      providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
     })
 
-    const client = new AuthOAuthClient({
+    const client = new OAuthClient({
       clientId: 'cid',
       clientSecret: 'csec',
       endpoints: {
@@ -272,7 +270,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     })
 
     auth.providers.register(
-      oauthProvider<MyProfile>({
+      oProvider<MyProfile>({
         providerId: 'fakeoidc',
         client,
         endpoints: {
@@ -290,6 +288,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
           }
           return { sub: info.sub, email: info.email, name: info.name }
         },
+        profileToIdentityProfile: (p) => ({ username: p.email ?? '', email: p.email ?? '' }),
       }),
     )
     return { auth, adapter }
@@ -345,7 +344,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     })
 
     expect(result.session!.factors[0]?.method).toBe('oauth')
-    const identity = await adapter.identities.findByEmail('new@x.com', {})
+    const identity = await adapter.identities.findByEmail('new@x.com')
     expect(identity).not.toBeNull()
     expect(identity?.providers.some((p) => p.providerId === 'oauth:fakeoidc' && p.providerSub === 'idp-user-1')).toBe(
       true,
@@ -356,7 +355,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     expect((oauthCreds[0]?.metadata as { familyId: string }).familyId).toContain('oauth:fakeoidc:idp-user-1')
   })
 
-  it('complete with tampered state surfaces AUTH/OAUTH_STATE_MISMATCH', async () => {
+  it('complete with tampered state surfaces AUTH/oauth/STATE_MISMATCH', async () => {
     const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
     const { auth } = buildAuth(fetchImpl)
     await expect(
@@ -364,7 +363,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
         providerId: 'oauth:fakeoidc',
         input: { code: 'authcode', state: 'tampered.state' },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/OAUTH_STATE_MISMATCH' })
+    ).rejects.toMatchObject({ code: 'AUTH_OAUTH_STATE_MISMATCH' })
   })
 
   it('complete rejects oversize code (>2048 chars) BEFORE forwarding to IdP (outbound resource amplification defense)', async () => {
@@ -376,7 +375,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
         providerId: 'oauth:fakeoidc',
         input: { code: huge, state: 'whatever' },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
     // Library MUST not have fired any fetch - code rejected before exchange.
     expect(fetchImpl).not.toHaveBeenCalled()
   })
@@ -389,11 +388,11 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
         providerId: 'oauth:fakeoidc',
         input: { code: '', state: 'whatever' },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('complete with state from a different provider surfaces AUTH/OAUTH_STATE_MISMATCH', async () => {
+  it('complete with state from a different provider surfaces AUTH/oauth/STATE_MISMATCH', async () => {
     const fetchImpl = vi.fn() as unknown as typeof globalThis.fetch
     const { auth } = buildAuth(fetchImpl)
     // Forge a state signed correctly but for a different providerId.
@@ -404,7 +403,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
         providerId: 'oauth:fakeoidc',
         input: { code: 'x', state },
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/OAUTH_STATE_MISMATCH' })
+    ).rejects.toMatchObject({ code: 'AUTH_OAUTH_STATE_MISMATCH' })
   })
 
   it('complete with second sign-in by same sub returns existing identity', async () => {
@@ -425,7 +424,7 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
     const begin1 = await auth.flows.beginProvider('oauth:fakeoidc', {})
     const state1 = new URL((begin1[0] as { url: string }).url).searchParams.get('state') ?? ''
     await auth.flows.signIn({ providerId: 'oauth:fakeoidc', input: { code: 'c1', state: state1 } })
-    const identitiesBefore = await adapter.identities.findByEmail('a@x.com', {})
+    const identitiesBefore = await adapter.identities.findByEmail('a@x.com')
     expect(identitiesBefore).not.toBeNull()
 
     const begin2 = await auth.flows.beginProvider('oauth:fakeoidc', {})
@@ -435,10 +434,10 @@ describe('oauthProvider - generic end-to-end (mocked IdP)', () => {
   })
 })
 
-describe('oauthProvider - redirectUri construction guard', () => {
+describe('oProvider - redirectUri construction guard', () => {
   const baseOpts = {
     providerId: 'fakeoidc',
-    client: new AuthOAuthClient({
+    client: new OAuthClient({
       clientId: 'cid',
       clientSecret: 'csec',
       endpoints: {
@@ -461,30 +460,28 @@ describe('oauthProvider - redirectUri construction guard', () => {
   }
 
   it('throws AUTH/MISCONFIGURED on a `javascript:` redirectUri', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'javascript:alert(1)' })).toThrow(/MISCONFIGURED/)
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'javascript:alert(1)' })).toThrow(/MISCONFIGURED/)
   })
 
   it('throws on a redirectUri containing CR/LF (header injection)', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb\r\nX-Inject: 1' })).toThrow(
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb\r\nX-Inject: 1' })).toThrow(
       /MISCONFIGURED/,
     )
   })
 
   it('throws on a non-string redirectUri', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 42 as unknown as string })).toThrow(
-      /MISCONFIGURED/,
-    )
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 42 as unknown as string })).toThrow(/MISCONFIGURED/)
   })
 
   it('throws on an unparseable redirectUri', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'not a url' })).toThrow(/MISCONFIGURED/)
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'not a url' })).toThrow(/MISCONFIGURED/)
   })
 
   it('accepts a normal https redirectUri', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb' })).not.toThrow()
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'https://app/cb' })).not.toThrow()
   })
 
   it('accepts a http redirectUri (some self-hosted setups still use it)', () => {
-    expect(() => oauthProvider<MyProfile>({ ...baseOpts, redirectUri: 'http://localhost:3000/cb' })).not.toThrow()
+    expect(() => oProvider<MyProfile>({ ...baseOpts, redirectUri: 'http://localhost:3000/cb' })).not.toThrow()
   })
 })

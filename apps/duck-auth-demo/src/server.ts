@@ -3,10 +3,10 @@
  * CORS is wired for the Storybook origin so Live stories on :6006
  * can speak to :8787 with credentials.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
-import { authMountHono } from '@gentleduck/auth/server/hono'
+import { mountHono } from '@gentleduck/auth/server/hono'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { auth } from './auth'
@@ -36,7 +36,7 @@ app.post('/auth/signup', async (c) => {
   return c.json({ identityId: identity.id, ok: true })
 })
 
-authMountHono(app, auth)
+mountHono(app, auth)
 
 app.get('/', (c) => c.json({ docs: 'README.md', name: 'duck-auth-demo', providers: auth.providers.list() }))
 

@@ -127,7 +127,7 @@ describe('Recovery / signup / reset tokens are authSha256-hashed at rest', () =>
     )
     for (const f of tokenWriteFiles) {
       // Each file must import sha256 (or randomBytes) before it can write a token.
-      const importsCrypto = /from '..\/..\/crypto'|from '..\/..\/..\/core\/crypto'/.test(f.contents)
+      const importsCrypto = /from '\.\.\/\.\.\/crypto'|from '\.\.\/\.\.\/\.\.\/core\/crypto'/.test(f.contents)
       if (/secret: token\b/.test(f.contents)) {
         expect(importsCrypto, `${f.path} writes raw token without crypto import`).toBe(true)
       }
@@ -135,17 +135,17 @@ describe('Recovery / signup / reset tokens are authSha256-hashed at rest', () =>
   })
 })
 
-describe('OAuth / OIDC state nonces are crypto-random', () => {
+describe('oauth / OIDC state nonces are crypto-random', () => {
   it('OIDC OP issues codes via authRandomToken (not Math.random / Date.now)', () => {
     const opFile = ALL_FILES.find((f) => f.path === 'oidc/op/index.ts')
     expect(opFile).toBeDefined()
     if (!opFile) return
-    expect(opFile.contents).toContain('authRandomToken(')
+    expect(opFile.contents).toContain('randomToken(')
     expect(opFile.contents).not.toMatch(/code\s*=\s*Date\.now/)
     expect(opFile.contents).not.toMatch(/code\s*=\s*Math\.random/)
   })
 
-  it('OAuth state / nonce generation routes through authRandomToken', () => {
+  it('oauth state / nonce generation routes through authRandomToken', () => {
     const oauthFiles = filesMatching((f) => /providers\/oauth\/.*\.ts$/.test(f.path))
     for (const f of oauthFiles) {
       if (!/state|nonce/i.test(f.contents)) continue
@@ -157,12 +157,12 @@ describe('OAuth / OIDC state nonces are crypto-random', () => {
   })
 })
 
-describe('Flow handlers throw AuthErrorObject for request-time errors', () => {
-  it('flows/* files import AuthErrorObject (request-time errors must carry an error code)', () => {
-    const flowFiles = filesMatching((f) => /core\/facets\/flows\/.+\.ts$/.test(f.path))
+describe('Flow handlers throw AuthError for request-time errors', () => {
+  it('flows/* files import AuthError (request-time errors must carry an error code)', () => {
+    const flowFiles = filesMatching((f) => /core\/flows\/.+\.flow\.ts$/.test(f.path))
     expect(flowFiles.length).toBeGreaterThan(0)
     for (const f of flowFiles) {
-      expect(f.contents, `${f.path} doesn't import AuthErrorObject`).toContain('AuthErrorObject')
+      expect(f.contents, `${f.path} doesn't import AuthError`).toContain('AuthError')
     }
   })
 })
@@ -173,7 +173,7 @@ describe('Length caps on user-supplied strings before they enter URLs / headers 
   // strings into upstream IO.
   it('every provider main file has length caps somewhere', () => {
     const providerEntries = filesMatching((f) =>
-      /providers\/(password|magic-link|saml|passkey|oauth\/(authGoogle|authGithub|authMicrosoft|authDiscord|authLinkedin|authApple))\.ts$/.test(
+      /providers\/(password\/password\.provider|magic-link|saml|passkey|oauth\/(authGoogle|authGithub|authMicrosoft|authDiscord|authLinkedin|authApple))\.ts$/.test(
         f.path,
       ),
     )
@@ -193,7 +193,7 @@ describe('Length caps on user-supplied strings before they enter URLs / headers 
 
 describe('Cookie defaults are HttpOnly + Secure + SameSite', () => {
   it('AuthCookieTransport defaults assert HttpOnly + secure + sameSite', () => {
-    const cookieFile = ALL_FILES.find((f) => f.path === 'core/transport/cookie.ts')
+    const cookieFile = ALL_FILES.find((f) => f.path === 'core/transport/cookie.transport.ts')
     expect(cookieFile).toBeDefined()
     if (!cookieFile) return
     expect(cookieFile.contents).toMatch(/httpOnly|HttpOnly/i)
@@ -204,7 +204,7 @@ describe('Cookie defaults are HttpOnly + Secure + SameSite', () => {
 
 describe('JWT alg pinning prevents alg-confusion (RFC 8725 §3.1)', () => {
   it('AuthJwtTransport verify path checks alg against the verify key, not the header', () => {
-    const jwtFile = ALL_FILES.find((f) => f.path === 'core/transport/jwt.ts')
+    const jwtFile = ALL_FILES.find((f) => f.path === 'core/transport/jwt.transport.ts')
     expect(jwtFile).toBeDefined()
     if (!jwtFile) return
     // The well-known footgun: trusting the JWT header's `alg` field.

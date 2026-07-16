@@ -1,26 +1,19 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { authPassword } from '../../../providers/password'
-import {
-  type AuthNestAdapter,
-  authMakeGuard,
-  authNestProviderBegin,
-  authNestSession,
-  authNestSignIn,
-  authNestSignOut,
-} from '../index'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie.transport'
+import { MemoryLimiter } from '~/limiters/memory'
+import { passwords, ScryptHasher } from '~/providers/passwords'
+import { identityInput } from '~/test/store-inputs'
+import { makeGuard, type NestAdapter, nestProviderBegin, nestSession, nestSignIn, nestSignOut } from '../index'
 
-function makeReply(): AuthNestAdapter.IReply & {
+function makeReply(): NestAdapter.Response & {
   _status?: number
   _headers: Map<string, string[]>
   _body?: string
 } {
   const headers = new Map<string, string[]>()
-  const reply: AuthNestAdapter.IReply & {
+  const reply: NestAdapter.Response & {
     _status?: number
     _headers: Map<string, string[]>
     _body?: string
@@ -45,27 +38,27 @@ function makeReply(): AuthNestAdapter.IReply & {
   return reply
 }
 
-interface MyProfile {
+type MyProfile = {
+  username: string
   email: string
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
+    providers: [],
   })
   auth.providers.register(
-    authPassword({
-      passwords: auth.passwords,
-      findIdentityByEmail: async (email) => (await adapter.identities.findByEmail(email, {})) as { id: string } | null,
+    passwords({
+      hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }),
     }),
   )
   return { auth, adapter }
@@ -81,28 +74,27 @@ describe('NestJS adapter - handlers', () => {
 
   it('signIn missing providerId -> 400 + AUTH/INVALID_CREDENTIALS', async () => {
     const reply = makeReply()
-    await authNestSignIn(auth)(
-      { method: 'POST', url: '/auth/signin', headers: {}, body: {} } as AuthNestAdapter.IRequest,
-      reply,
-    )
+    await nestSignIn(auth)({ method: 'POST', url: '/AUTH/signin', headers: {}, body: {} } as NestAdapter.Request, reply)
     expect(reply._status).toBe(400)
-    expect(reply._body).toContain('AUTH/INVALID_CREDENTIALS')
+    expect(reply._body).toContain('AUTH_INVALID_CREDENTIALS')
   })
 
   it('signIn happy path sets cookie + 200', async () => {
-    const ident = await adapter.identities.create({ profile: { email: 'user@x.com' }, providers: [] }, {})
-    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', {})
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { username: 'user', email: 'user@x.com' }, providers: [] }),
+    )
+    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', adapter.credentials)
     const reply = makeReply()
-    await authNestSignIn(auth)(
+    await nestSignIn(auth)(
       {
         method: 'POST',
-        url: '/auth/signin',
+        url: '/AUTH/signin',
         headers: {},
         body: {
           providerId: 'password',
           input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
         },
-      } as AuthNestAdapter.IRequest,
+      } as NestAdapter.Request,
       reply,
     )
     expect(reply._status).toBe(200)
@@ -113,29 +105,26 @@ describe('NestJS adapter - handlers', () => {
 
   it('session returns null body without cookie', async () => {
     const reply = makeReply()
-    await authNestSession(auth)({ method: 'GET', headers: {} } as AuthNestAdapter.IRequest, reply)
+    await nestSession(auth)({ method: 'GET', headers: {}, session: null, identity: null } as NestAdapter.Request, reply)
     expect(JSON.parse(reply._body!)).toEqual({ session: null, identity: null })
   })
 
   it('signOut clears cookie even without session', async () => {
     const reply = makeReply()
-    await authNestSignOut(auth)({ method: 'POST', headers: {} } as AuthNestAdapter.IRequest, reply)
+    await nestSignOut(auth)({ method: 'POST', headers: {} } as NestAdapter.Request, reply)
     const cookies = reply._headers.get('set-cookie') ?? []
     expect(cookies[0]).toMatch(/Max-Age=0/i)
   })
 
   it('providerBegin requires :id', async () => {
     const reply = makeReply()
-    await authNestProviderBegin(auth)(
-      { method: 'POST', headers: {}, body: {}, params: {} } as AuthNestAdapter.IRequest,
-      reply,
-    )
+    await nestProviderBegin(auth)({ method: 'POST', headers: {}, body: {}, params: {} } as NestAdapter.Request, reply)
     expect(reply._status).toBe(400)
-    expect(reply._body).toContain('AUTH/PROVIDER_FAILED')
+    expect(reply._body).toContain('AUTH_PROVIDER_FAILED')
   })
 })
 
-describe('NestJS adapter - authMakeGuard', () => {
+describe('NestJS adapter - makeGuard', () => {
   let auth: ReturnType<typeof buildAuth>['auth']
 
   beforeEach(() => {
@@ -143,18 +132,18 @@ describe('NestJS adapter - authMakeGuard', () => {
   })
 
   it('required:true + no cookie -> throws AUTH/UNAUTHENTICATED', async () => {
-    const guard = authMakeGuard(auth)
-    const req: AuthNestAdapter.IRequest = { method: 'GET', headers: {} }
+    const guard = makeGuard(auth)
+    const req: NestAdapter.Request = { method: 'GET', headers: {}, session: null, identity: null }
     await expect(
       guard.canActivate({ switchToHttp: () => ({ getRequest: <T>(): T => req as T }) }),
-    ).rejects.toMatchObject({ code: 'AUTH/UNAUTHENTICATED' })
+    ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
   })
 
   it('required:false + no cookie -> passes, no mutation', async () => {
-    const guard = authMakeGuard(auth, { required: false })
-    const req: AuthNestAdapter.IRequest = { method: 'GET', headers: {} }
+    const guard = makeGuard(auth, { required: false })
+    const req: NestAdapter.Request = { method: 'GET', headers: {}, session: null, identity: null }
     const ok = await guard.canActivate({ switchToHttp: () => ({ getRequest: <T>(): T => req as T }) })
     expect(ok).toBe(true)
-    expect(req.session).toBeUndefined()
+    expect(req.session).toBeNull()
   })
 })

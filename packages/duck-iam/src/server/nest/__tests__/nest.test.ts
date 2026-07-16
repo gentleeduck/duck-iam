@@ -111,7 +111,7 @@ describe('iamNestAccessGuard', () => {
 
   it('returns true when handler has no @IamAuthorize meta', async () => {
     const guard = iamNestAccessGuard(engine)
-    const handler = function noAuth() {}
+    const handler = function noauth() {}
     const ctx = makeCtx({ user: { id: 'user-viewer' }, handler })
     expect(await guard(ctx)).toBe(true)
   })

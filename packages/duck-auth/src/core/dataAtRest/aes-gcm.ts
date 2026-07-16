@@ -1,16 +1,16 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
-import { AuthErrorObject } from '../errors'
-import type { AuthDataAtRest } from '../types/dataAtRest'
+import type { DataAtRest } from '../dataAtRest/dataAtRest.types'
+import { AuthError } from '../errors'
 
 /**
- * AES-256-GCM `AuthDataAtRest.IAdapter`. Per-field DEK derived via
+ * AES-256-GCM `DataAtRest.IAdapter`. Per-field DEK derived via
  * `sha256(masterKey || identityId || field)`; each encrypt samples a
  * fresh 12-byte IV. Key rotation is handled via `previousKeys` — old
  * ciphertexts remain decryptable until re-encrypted under the current kid.
  *
  * Ciphertext layout: `aes-256-gcm$<kid>$<ivB64u>$<tagB64u>$<ctB64u>`.
  */
-export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
+export class AuthAesGcmDataAtRest implements DataAtRest.Adapter {
   readonly id = 'aes-256-gcm'
   private readonly _currentKid: string
   /** Map of kid -> 32-byte master key. Includes the current key + every
@@ -18,14 +18,14 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
    * always uses `_currentKid`. */
   private readonly _keys: Map<string, Buffer>
 
-  constructor(cfg: AuthAesGcmDataAtRest.IConfig) {
+  constructor(cfg: AuthAesGcmDataAtRest.Cfg) {
     this._currentKid = cfg.kid
     this._keys = new Map()
     this._keys.set(cfg.kid, normalizeKey(cfg.masterKey))
     // Previous-keys ring keyed by kid; rotation must not strand existing ciphertexts.
     for (const k of cfg.previousKeys ?? []) {
       if (this._keys.has(k.kid)) {
-        throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+        throw new AuthError('AUTH_MISCONFIGURED', {
           detail: `AuthAesGcmDataAtRest: duplicate kid '${k.kid}' across current + previousKeys`,
         })
       }
@@ -33,22 +33,22 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
     }
   }
 
-  private _derive(masterKey: Buffer, ctx: AuthDataAtRest.IContext): Buffer {
+  private _derive(masterKey: Buffer, ctx: DataAtRest.Context): Buffer {
     // DEK = sha256(masterKey || identityId || field); deterministic, so
     // each encrypt samples a fresh 12-byte IV (GCM birthday bound ~2^48).
     return createHash('sha256').update(masterKey).update(ctx.identityId).update(ctx.field).digest()
   }
 
-  async encrypt(plain: string, ctx: AuthDataAtRest.IContext): Promise<string> {
+  async encrypt(plain: string, ctx: DataAtRest.Context): Promise<string> {
     const masterKey = this._keys.get(this._currentKid)
     if (!masterKey) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'aes-256-gcm: current key missing from ring' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: current key missing from ring' })
     }
     // Cap plaintext at 1 MiB so a hostile caller cannot drive multi-GB
     // encrypt cycles + base64 expansion via this surface. Real PII fields
     // are tens to hundreds of bytes; 1 MiB is generous.
     if (typeof plain !== 'string' || plain.length > 1_048_576) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'aes-256-gcm: plaintext must be a <=1MiB string' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: plaintext must be a <=1MiB string' })
     }
     const dek = this._derive(masterKey, ctx)
     const iv = randomBytes(12)
@@ -58,13 +58,13 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
     return `aes-256-gcm$${this._currentKid}$${iv.toString('base64url')}$${tag.toString('base64url')}$${ct.toString('base64url')}`
   }
 
-  async decrypt(cipherText: string, ctx: AuthDataAtRest.IContext): Promise<string> {
+  async decrypt(cipherText: string, ctx: DataAtRest.Context): Promise<string> {
     if (typeof cipherText !== 'string' || cipherText.length === 0 || cipherText.length > 1_048_576) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'aes-256-gcm: ciphertext must be a 1B-1MiB string' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: ciphertext must be a 1B-1MiB string' })
     }
     const parts = cipherText.split('$')
     if (parts.length !== 5 || parts[0] !== 'aes-256-gcm') {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'aes-256-gcm: malformed ciphertext' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: malformed ciphertext' })
     }
     // Destructure WITHOUT an `as` cast - the length+kind check above
     // guarantees parts has 5 strings; downstream guards reject any
@@ -74,14 +74,14 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
     const tagB64 = parts[3]
     const ctB64 = parts[4]
     if (kid === undefined || ivB64 === undefined || tagB64 === undefined || ctB64 === undefined) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'aes-256-gcm: malformed ciphertext' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: malformed ciphertext' })
     }
     // select the master key by the ciphertext's kid, NOT the
     // current kid. Previously the kid was parsed but discarded - new
     // deployments could not decrypt anything written before rotation.
     const masterKey = this._keys.get(kid)
     if (!masterKey) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `aes-256-gcm: ciphertext kid '${kid}' not in key ring (rotation?). Add to previousKeys to recover.`,
       })
     }
@@ -92,10 +92,10 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
     // Require 12-byte IV and 16-byte tag (standard GCM); shorter values
     // weaken the cipher even though Node accepts them.
     if (iv.length !== 12) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'aes-256-gcm: IV must be 12 bytes' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: IV must be 12 bytes' })
     }
     if (tag.length !== 16) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'aes-256-gcm: auth tag must be 16 bytes' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: auth tag must be 16 bytes' })
     }
     const decipher = createDecipheriv('aes-256-gcm', dek, iv)
     decipher.setAuthTag(tag)
@@ -105,7 +105,7 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
     try {
       plain = Buffer.concat([decipher.update(ct), decipher.final()])
     } catch {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'aes-256-gcm: auth-tag mismatch' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'aes-256-gcm: auth-tag mismatch' })
     }
     return plain.toString('utf8')
   }
@@ -121,7 +121,7 @@ export class AuthAesGcmDataAtRest implements AuthDataAtRest.IAdapter {
 function normalizeKey(masterKey: Buffer | string): Buffer {
   const key = typeof masterKey === 'string' ? Buffer.from(masterKey, 'utf8') : masterKey
   if (key.length < 32) {
-    throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+    throw new AuthError('AUTH_MISCONFIGURED', {
       detail: `AuthAesGcmDataAtRest: masterKey must be >= 32 bytes (was ${key.length})`,
     })
   }
@@ -129,7 +129,7 @@ function normalizeKey(masterKey: Buffer | string): Buffer {
 }
 
 export namespace AuthAesGcmDataAtRest {
-  export interface IConfig {
+  export interface Cfg {
     /** Stable key id; written into every ciphertext. Used for rotation. */
     kid: string
     /** 32-byte symmetric master key (UTF-8 string OK if you cast to Buffer). */

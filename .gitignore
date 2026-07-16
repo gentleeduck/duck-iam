@@ -111,3 +111,7 @@ audit-auth/
 packages/duck-auth/**/*.md
 !packages/duck-auth/README.md
 .stryker-tmp/
+
+# local Claude Code state (not shared)
+/.claude/settings.json
+/.claude/scheduled_tasks.lock

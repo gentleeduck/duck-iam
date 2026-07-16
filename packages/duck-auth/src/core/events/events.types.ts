@@ -1,0 +1,94 @@
+import type { Identities } from '../identities'
+import type { Sessions } from '../sessions'
+
+/**
+ * Typed event bus. Reference impl is in-memory; production swaps in Redis pub/sub
+ * (`RedisEvents`) or Kafka (`KafkaEvents`) for multi-process / multi-region listeners.
+ * Audit envelope (impersonation) flows on every event when present.
+ */
+export namespace Events {
+  export interface Envelope {
+    /** When the session is impersonating, real subject is recorded on every event. */
+    actingAs?: Sessions.ActingAs
+    /** Optional iam decision id when an action was authorized via iam-auth-bridge. */
+    iamDecisionId?: string
+  }
+
+  export interface EventMap {
+    'session.created': {
+      session: Sessions.Me
+      identity: Identities.Me | null
+      audit?: Envelope
+    }
+    'session.rotated': { session: Sessions.Me; audit?: Envelope }
+    'session.revoked': {
+      sessionId: string
+      identityId: string | null
+      audit?: Envelope
+    }
+    'signin.success': {
+      identity: Identities.Me
+      factors: Sessions.Factor[]
+      audit?: Envelope
+    }
+    'signin.failed': {
+      providerId: string
+      reason: string
+      ip?: string
+      audit?: Envelope
+    }
+    'signup.completed': { identity: Identities.Me; audit?: Envelope }
+    lockout: { identityId: string; until: number; audit?: Envelope }
+    'mfa.enrolled': {
+      identityId: string
+      method: Sessions.FactorMethod
+      audit?: Envelope
+    }
+    'mfa.removed': {
+      identityId: string
+      method: Sessions.FactorMethod
+      audit?: Envelope
+    }
+    'identity.linked': {
+      identityId: string
+      providerId: string
+      audit?: Envelope
+    }
+    'identity.merged': {
+      survivorId: string
+      mergedFromId: string
+      audit?: Envelope
+    }
+    'identity.impersonated': {
+      realIdentityId: string
+      targetIdentityId: string
+      reason: string
+      iamDecisionId?: string
+    }
+    'recovery.password.requested': { identityId: string; audit?: Envelope }
+    'recovery.password.completed': { identityId: string; audit?: Envelope }
+    'recovery.mfa.escalated': {
+      identityId: string
+      ticketId: string
+      audit?: Envelope
+    }
+    suspicious: {
+      identityId?: string
+      signal: string
+      score: number
+      meta: Record<string, unknown>
+      audit?: Envelope
+    }
+    'maintenance.on': { message?: string; retryAfter?: number }
+    'maintenance.off': Record<string, never>
+  }
+
+  export type EventName = keyof EventMap
+  export type Handler<K extends EventName> = (payload: EventMap[K]) => void | Promise<void>
+  export type Unsubscribe = () => void
+
+  export interface IBus {
+    on<K extends EventName>(event: K, handler: Handler<K>): Unsubscribe
+    emit<K extends EventName>(event: K, payload: EventMap[K]): Promise<void>
+  }
+}

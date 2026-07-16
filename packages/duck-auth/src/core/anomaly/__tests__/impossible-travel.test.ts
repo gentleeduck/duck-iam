@@ -1,27 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { AuthIdentity } from '../../types/identity'
-import type { AuthSession } from '../../types/session'
-import { authImpossibleTravelDetector } from '../impossible-travel'
+import { makeIdentity, makeSession } from '~/test/store-inputs'
+import { authImpossibleTravelDetector } from '../impossible-travel.detector'
 
-const identity: AuthIdentity.IIdentity = {
-  id: 'u',
-  providers: [],
-  version: 1,
-  createdAt: 0,
-  updatedAt: 0,
-}
-const session: AuthSession.ISession = {
-  id: 'sid',
-  identityId: 'u',
-  kind: 'user',
-  aal: 1,
-  factors: [],
-  createdAt: 0,
-  rotatedAt: 0,
-  expiresAt: Date.now() + 60_000,
-  absoluteExpiresAt: Date.now() + 60_000,
-  fresh: true,
-}
+const identity = makeIdentity({ id: 'u' })
+const session = makeSession({ id: 'sid', identityId: 'u' })
 
 describe('authImpossibleTravelDetector', () => {
   it('emits no signal when no last-seen recorded', async () => {

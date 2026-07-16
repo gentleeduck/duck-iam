@@ -1,23 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { authSha256 } from '../crypto'
-import {
-  AUTH_DEFAULT_CSRF_CONFIG,
-  authBuildCsrfCookieOptions,
-  authCsrfGuard,
-  authIssueCsrfToken,
-  authVerifyCsrf,
-} from '../csrf'
+import { sha256 } from '../crypto'
+import { AUTH_DEFAULT_CSRF_CONFIG, buildCsrfCookieOptions, csrfGuard, issueCsrfToken, verifyCsrf } from '../csrf'
 
 describe('CSRF', () => {
   describe('authIssueCsrfToken / authBuildCsrfCookieOptions', () => {
     it('issues a base64url token and its authSha256 hash', () => {
-      const { token, hash } = authIssueCsrfToken()
+      const { token, hash } = issueCsrfToken()
       expect(token).toMatch(/^[A-Za-z0-9_-]+$/)
-      expect(hash).toBe(authSha256(token))
+      expect(hash).toBe(sha256(token))
     })
 
     it('cookie defaults: __Host-duck-csrf, HttpOnly=false, Secure, SameSite=Lax, Path=/', () => {
-      const c = authBuildCsrfCookieOptions('abc')
+      const c = buildCsrfCookieOptions('abc')
       expect(c.name).toBe('__Host-duck-csrf')
       expect(c.value).toBe('abc')
       expect(c.options.httpOnly).toBe(false)
@@ -30,7 +24,7 @@ describe('CSRF', () => {
   describe('authVerifyCsrf - safe methods + bearer exemption', () => {
     it.each(['GET', 'HEAD', 'OPTIONS', 'TRACE'])('exempts %s', (method) => {
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method,
           headers: new Headers(),
         }),
@@ -39,7 +33,7 @@ describe('CSRF', () => {
 
     it('exempts bearer-authed requests regardless of mutating method', () => {
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers(),
           isBearer: true,
@@ -51,29 +45,29 @@ describe('CSRF', () => {
   describe('authVerifyCsrf - Sec-Fetch-Site layer', () => {
     it('rejects cross-site requests', () => {
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({ 'sec-fetch-site': 'cross-site' }),
-          sessionCsrfHash: authSha256('x'),
+          sessionCsrfHash: sha256('x'),
         }),
-      ).toThrow(/AUTH\/CSRF/)
+      ).toThrow(/AUTH_CSRF/)
     })
 
     it('rejects cross-origin requests', () => {
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({ 'sec-fetch-site': 'cross-origin' as never }),
-          sessionCsrfHash: authSha256('x'),
+          sessionCsrfHash: sha256('x'),
         }),
-      ).toThrow(/AUTH\/CSRF/)
+      ).toThrow(/AUTH_CSRF/)
     })
 
     it('allows same-origin / same-site / none', () => {
       for (const sfs of ['same-origin', 'same-site', 'none']) {
-        const t = authIssueCsrfToken()
+        const t = issueCsrfToken()
         expect(() =>
-          authVerifyCsrf({
+          verifyCsrf({
             method: 'POST',
             headers: new Headers({
               'sec-fetch-site': sfs,
@@ -88,9 +82,9 @@ describe('CSRF', () => {
 
   describe('authVerifyCsrf - allowedOrigins layer', () => {
     it('rejects when Origin not in allowedOrigins', () => {
-      const t = authIssueCsrfToken()
+      const t = issueCsrfToken()
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({
             origin: 'https://evil.example.com',
@@ -99,13 +93,13 @@ describe('CSRF', () => {
           sessionCsrfHash: t.hash,
           cfg: { allowedOrigins: ['https://app.example.com'] },
         }),
-      ).toThrow(/AUTH\/CSRF/)
+      ).toThrow(/AUTH_CSRF/)
     })
 
     it('accepts when Origin matches allowedOrigins', () => {
-      const t = authIssueCsrfToken()
+      const t = issueCsrfToken()
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({
             origin: 'https://app.example.com',
@@ -120,14 +114,14 @@ describe('CSRF', () => {
 
   describe('authVerifyCsrf - double-submit token', () => {
     it('rejects when X-CSRF-Token header missing', () => {
-      const t = authIssueCsrfToken()
+      const t = issueCsrfToken()
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers(),
           sessionCsrfHash: t.hash,
         }),
-      ).toThrow(/AUTH\/CSRF/)
+      ).toThrow(/AUTH_CSRF/)
     })
 
     it('passes when sessionCsrfHash missing (unauthenticated state-change - Layer 1 is enough)', () => {
@@ -135,7 +129,7 @@ describe('CSRF', () => {
       // double-submit token to. Layer 1 (Sec-Fetch-Site default `none`
       // or same-origin) already defends the login-CSRF vector.
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({ 'x-csrf-token': 'whatever' }),
         }),
@@ -143,20 +137,20 @@ describe('CSRF', () => {
     })
 
     it('rejects when header token does not hash to sessionCsrfHash', () => {
-      const t = authIssueCsrfToken()
+      const t = issueCsrfToken()
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({ 'x-csrf-token': 'wrong-token' }),
           sessionCsrfHash: t.hash,
         }),
-      ).toThrow(/AUTH\/CSRF/)
+      ).toThrow(/AUTH_CSRF/)
     })
 
     it('accepts when header token hash matches sessionCsrfHash', () => {
-      const t = authIssueCsrfToken()
+      const t = issueCsrfToken()
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({ 'x-csrf-token': t.token }),
           sessionCsrfHash: t.hash,
@@ -168,7 +162,7 @@ describe('CSRF', () => {
   describe('authVerifyCsrf - origin-only mode', () => {
     it('skips token validation when mode=origin-only', () => {
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({ 'sec-fetch-site': 'same-origin' }),
           cfg: { mode: 'origin-only' },
@@ -178,12 +172,12 @@ describe('CSRF', () => {
 
     it('still enforces sec-fetch-site cross-site in origin-only mode', () => {
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({ 'sec-fetch-site': 'cross-site' }),
           cfg: { mode: 'origin-only' },
         }),
-      ).toThrow(/AUTH\/CSRF/)
+      ).toThrow(/AUTH_CSRF/)
     })
 
     it('origin-only mode + sec-fetch-site absent + no allowedOrigins = throw (no defense available)', () => {
@@ -192,18 +186,18 @@ describe('CSRF', () => {
       // origin-only mode without an Origin allowlist, the guard has
       // nothing to compare against - refuse rather than fail-open.
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers(), // no sec-fetch-site, no origin
           cfg: { mode: 'origin-only' },
         }),
-      ).toThrow(/AUTH\/CSRF/)
+      ).toThrow(/AUTH_CSRF/)
     })
 
     it('origin-only + sec-fetch-site absent but allowedOrigins configured + matching Origin = pass', () => {
       // The Origin allowlist substitutes for sec-fetch-site.
       expect(() =>
-        authVerifyCsrf({
+        verifyCsrf({
           method: 'POST',
           headers: new Headers({ origin: 'https://app.example.com' }),
           cfg: { mode: 'origin-only', allowedOrigins: ['https://app.example.com'] },
@@ -226,12 +220,12 @@ describe('CSRF', () => {
     })
 
     it('passes for safe GET regardless of session/token state', async () => {
-      await expect(authCsrfGuard(fakeAuth(null), { method: 'GET', headers: new Headers() })).resolves.toBeUndefined()
+      await expect(csrfGuard(fakeAuth(null), { method: 'GET', headers: new Headers() })).resolves.toBeUndefined()
     })
 
     it('passes for Bearer-authenticated requests (header inspection)', async () => {
       await expect(
-        authCsrfGuard(fakeAuth(null), {
+        csrfGuard(fakeAuth(null), {
           method: 'POST',
           headers: new Headers({ authorization: 'Bearer xyz' }),
         }),
@@ -240,25 +234,25 @@ describe('CSRF', () => {
 
     it('passes for explicit isBearer:true (header may be absent)', async () => {
       await expect(
-        authCsrfGuard(fakeAuth(null), { method: 'POST', headers: new Headers() }, { isBearer: true }),
+        csrfGuard(fakeAuth(null), { method: 'POST', headers: new Headers() }, { isBearer: true }),
       ).resolves.toBeUndefined()
     })
 
     it('throws on cookie-auth POST without CSRF header', async () => {
-      const sessHash = authSha256('plain-token')
+      const sessHash = sha256('plain-token')
       await expect(
-        authCsrfGuard(fakeAuth({ session: { csrfHash: sessHash } }), {
+        csrfGuard(fakeAuth({ session: { csrfHash: sessHash } }), {
           method: 'POST',
           headers: new Headers({ cookie: '__Host-duck-sid=x', 'sec-fetch-site': 'same-origin' }),
         }),
-      ).rejects.toMatchObject({ code: 'AUTH/CSRF' })
+      ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
     })
 
     it('passes when CSRF header matches session csrfHash', async () => {
       const token = 'plain-csrf-token-xyz'
-      const sessHash = authSha256(token)
+      const sessHash = sha256(token)
       await expect(
-        authCsrfGuard(fakeAuth({ session: { csrfHash: sessHash } }), {
+        csrfGuard(fakeAuth({ session: { csrfHash: sessHash } }), {
           method: 'POST',
           headers: new Headers({
             cookie: '__Host-duck-sid=x',

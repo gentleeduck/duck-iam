@@ -1,10 +1,8 @@
 import type { SQL, SQLWrapper } from 'drizzle-orm'
-import type { MySqlDatabase } from 'drizzle-orm/mysql-core'
 import type { MySqlTableWithColumns } from 'drizzle-orm/mysql-core/table'
-import type { PgDatabase } from 'drizzle-orm/pg-core'
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core/table'
-import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
 import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
+import type { IamConfig } from '../../core/config'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import type {
@@ -28,31 +26,18 @@ import type {
 
 /** IamDrizzle adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamDrizzle {
-  /**
-   * Describes the wiring required to instantiate a {@link IamDrizzleAdapter}.
-   *
-   * @example
-   * ```ts
-   * import { drizzle } from 'drizzle-orm/node-postgres'
-   * import { eq, and } from 'drizzle-orm'
-   * import { iamPolicies, iamRoles, iamAssignments, iamSubjectAttrs } from './schema'
-   *
-   * const config: IamDrizzle.IConfig = {
-   *   db: drizzle(pool),
-   *   tables: { policies: iamPolicies, roles: iamRoles, assignments: iamAssignments, attrs: iamSubjectAttrs },
-   *   ops: { eq, and },
-   * }
-   * ```
-   */
-  export interface IConfig<TDb extends AnyDrizzleDb = AnyDrizzleDb> {
+  type TTable<TType extends 'pg' | 'mysql' | 'sqlite'> = TType extends 'pg'
+    ? PgTableWithColumns<any>
+    : TType extends 'mysql'
+      ? MySqlTableWithColumns<any>
+      : SQLiteTableWithColumns<any>
+
+  export interface IConfig<TDb extends AnyDrizzleDb, TType extends 'pg' | 'mysql' | 'sqlite'> {
     /** Provides the IamDrizzle database instance with select/insert/delete builders. */
     db: TDb
     /** Provides references to the four IamDrizzle table schemas used by the adapter. */
     tables: {
-      policies: DbTableFor<TDb>
-      roles: DbTableFor<TDb>
-      assignments: DbTableFor<TDb>
-      attrs: DbTableFor<TDb>
+      [key in 'policies' | 'roles' | 'assignments' | 'attrs']: TTable<TType>
     }
     /** Provides IamDrizzle operator functions for building WHERE clauses. */
     ops: {
@@ -110,21 +95,6 @@ export namespace IamDrizzle {
     insert(table: any): any
     delete(table: any): any
   }
-
-  /**
-   * Maps a concrete db instance to its matching table type so that
-   * passing a pg db with sqlite tables is a compile error.
-   * Falls back to `any` when `TDb` is the bare structural default —
-   * this keeps `IamDrizzle.IConfig` (no type args) permissive for tests/mocks.
-   */
-  export type DbTableFor<TDb extends AnyDrizzleDb> =
-    TDb extends PgDatabase<any, any, any>
-      ? PgTableWithColumns<any>
-      : TDb extends MySqlDatabase<any, any, any, any>
-        ? MySqlTableWithColumns<any>
-        : TDb extends BaseSQLiteDatabase<any, any, any, any>
-          ? SQLiteTableWithColumns<any>
-          : any
 }
 
 /**
@@ -146,26 +116,27 @@ export namespace IamDrizzle {
  * ```
  */
 export class IamDrizzleAdapter<
-  TAction extends string = string,
-  TResource extends string = string,
-  TRole extends string = string,
-  TScope extends string = string,
+  TAction extends string,
+  TResource extends string,
+  TRole extends string,
+  TScope extends string,
   TDb extends IamDrizzle.AnyDrizzleDb = IamDrizzle.AnyDrizzleDb,
+  TType extends 'pg' | 'mysql' | 'sqlite' = 'pg',
 > implements IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
 {
-  private _db: TDb
-  private _t: IamDrizzle.IConfig<TDb>['tables']
-  private _eq: IamDrizzle.IConfig['ops']['eq']
-  private _and: IamDrizzle.IConfig['ops']['and']
-  private _json: 'native' | 'string'
-  private _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
+  private readonly _db: TDb
+  private readonly _t: IamDrizzle.IConfig<TDb, TType>['tables']
+  private readonly _eq: IamDrizzle.IConfig<TDb, TType>['ops']['eq']
+  private readonly _and: IamDrizzle.IConfig<TDb, TType>['ops']['and']
+  private readonly _json: 'native' | 'string'
+  private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
 
   /**
    * Creates a new IamDrizzle adapter.
    *
    * @param config - Provides the IamDrizzle db, tables, and operator functions.
    */
-  constructor(config: IamDrizzle.IConfig<TDb>) {
+  constructor(config: IamDrizzle.IConfig<TDb, TType>) {
     this._db = config.db
     this._t = config.tables
     this._eq = config.ops.eq
@@ -551,4 +522,32 @@ function serializeRole(r: AccessControl.IRole, json: 'native' | 'string'): Recor
     scope: r.scope ?? null,
     metadata: r.metadata ? encodeJson(r.metadata, json) : null,
   }
+}
+
+/**
+ * Creates an IamDrizzleAdapter instance from a Drizzle db instance and
+ * IamDrizzle table schema.
+ *
+ * @template TEngine - The access control engine configuration.
+ * @template TDb - The Drizzle db instance.
+ * @template TType - The Drizzle db dialect.
+ * @template Params - The access control engine configuration parameters.
+ *
+ * @param config - Provides the IamDrizzle db, tables, and operator functions.
+ */
+export function createIamDrizzleAdapter<
+  TEngine extends IamConfig.IAccessConfig<any, any, any, any, any>,
+  TDb extends IamDrizzle.AnyDrizzleDb,
+  TType extends 'pg' | 'mysql' | 'sqlite' = 'pg',
+  Params extends string[] = TEngine extends IamConfig.IAccessConfig<
+    infer TAction,
+    infer TResource,
+    infer TRole,
+    infer TScope,
+    infer TEnv
+  >
+    ? [TAction, TResource, TRole, TScope, TEnv]
+    : never,
+>(config: IamDrizzle.IConfig<TDb, TType>): IamDrizzleAdapter<Params[0], Params[1], Params[2], Params[3], TDb, TType> {
+  return new IamDrizzleAdapter(config)
 }

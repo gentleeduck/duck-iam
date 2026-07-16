@@ -11,10 +11,10 @@
  * module owns the state machine.
  */
 
-import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '../../core/credential-utils'
-import { authRandomToken, authSha256, authTimingSafeEqual } from '../../core/crypto'
-import type { AuthEngine } from '../../core/engine'
-import type { AuthIdentity } from '../../core/types/identity'
+import type { Identity } from '~/core'
+import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '~/core/credentials/credentials'
+import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
+import type { AuthEngine } from '~/core/engine'
 import {
   AuthMemoryAccessTokenStore,
   AuthMemoryClientStore,
@@ -22,9 +22,9 @@ import {
   AuthMemoryConsentStore,
   AuthMemoryRefreshTokenStore,
 } from './stores'
-import type { AuthOidcOP } from './types'
+import type { OidcOP } from './types'
 
-export type { AuthOidcOP } from './types'
+export type { OidcOP as AuthOidcOP } from './types'
 export {
   AuthMemoryAccessTokenStore,
   AuthMemoryClientStore,
@@ -33,13 +33,13 @@ export {
   AuthMemoryRefreshTokenStore,
 }
 
-interface IDeps<Profile> {
+interface IDeps<Profile extends Identity.ProfileMetadataBase> {
   auth: AuthEngine<Profile>
-  clients: AuthOidcOP.IClientStore
-  codes: AuthOidcOP.ICodeStore
-  accessTokens: AuthOidcOP.IAccessTokenStore
-  refreshTokens: AuthOidcOP.IRefreshTokenStore
-  consents: AuthOidcOP.IConsentStore
+  clients: OidcOP.ClientStore
+  codes: OidcOP.CodeStore
+  accessTokens: OidcOP.AccessTokenStore
+  refreshTokens: OidcOP.RefreshTokenStore
+  consents: OidcOP.ConsentStore
   /** Signs an ID-token. Returns the encoded JWT string. */
   signIdToken: (payload: Record<string, unknown>) => Promise<string> | string
 }
@@ -68,15 +68,15 @@ function parseScopeString(raw: unknown): string[] | { error: string } {
  * and route `authorize` / `token` / `userinfo` / `introspect` / `revoke`
  * from your HTTP layer.
  */
-export class AuthOidcOpRoot<Profile = unknown> {
+export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
   readonly issuer: string
   readonly supportedScopes: string[]
   private deps: IDeps<Profile>
   private ttls = { ...DEFAULT_TTLS }
-  private dcrConfig: AuthOidcOP.IDcrConfig
+  private dcrCfg: OidcOP.DcrCfg
 
-  constructor(cfg: AuthOidcOP.IConfig, deps: IDeps<Profile>, dcr?: AuthOidcOP.IDcrConfig) {
-    this.dcrConfig = dcr ?? { enabled: false }
+  constructor(cfg: OidcOP.Cfg, deps: IDeps<Profile>, dcr?: OidcOP.DcrCfg) {
+    this.dcrCfg = dcr ?? { enabled: false }
     if (!cfg.issuer) throw new Error('AuthOidcOP: issuer required')
     const parsed = parseIssuer(cfg.issuer, cfg.allowHttp ?? false)
     this.issuer = parsed
@@ -98,9 +98,9 @@ export class AuthOidcOpRoot<Profile = unknown> {
     client_id: string
     client_secret?: string
     redirect_uris: string[]
-    grant_types?: AuthOidcOP.IGrantType[]
-    response_types?: AuthOidcOP.IResponseType[]
-    token_endpoint_auth_method?: AuthOidcOP.ITokenEndpointAuthMethod
+    grant_types?: OidcOP.GrantType[]
+    response_types?: OidcOP.ResponseType[]
+    token_endpoint_auth_method?: OidcOP.TokenEndpointAuthMethod
     scope?: string[]
     client_name?: string
     client_uri?: string
@@ -112,10 +112,10 @@ export class AuthOidcOpRoot<Profile = unknown> {
     }
     for (const uri of input.redirect_uris) assertValidRedirect(uri)
     const method = input.token_endpoint_auth_method ?? (input.client_secret ? 'client_secret_basic' : 'none')
-    const secret = method === 'none' ? null : (input.client_secret ?? authRandomToken(32))
-    const row: AuthOidcOP.IClient = {
+    const secret = method === 'none' ? null : (input.client_secret ?? randomToken(32))
+    const row: OidcOP.Client = {
       client_id: input.client_id,
-      client_secret_hash: secret === null ? null : authSha256(secret),
+      client_secret_hash: secret === null ? null : sha256(secret),
       redirect_uris: [...input.redirect_uris],
       grant_types: input.grant_types ?? ['authorization_code', 'refresh_token'],
       response_types: input.response_types ?? ['code'],
@@ -134,7 +134,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
    * RFC 7591 dynamic client registration. Host wires this on
    * `POST /register` and returns the result body as application/json.
    *
-   * When `dcrConfig.initialAccessToken` is set, the request MUST carry
+   * When `dcrCfg.initialAccessToken` is set, the request MUST carry
    * `Authorization: Bearer <token>` (constant-time compared) or the
    * call returns `{ error: 'unauthorized' }`. When unset, registration
    * is open and SHOULD be put behind a private network.
@@ -144,19 +144,19 @@ export class AuthOidcOpRoot<Profile = unknown> {
    * to `buildOidcDiscovery`.
    */
   async register(
-    req: AuthOidcOP.IDcrRequest,
+    req: OidcOP.DcrRequest,
     headers: Headers,
-  ): Promise<{ status: 201; body: AuthOidcOP.IDcrResponse } | { status: number; body: AuthOidcOP.IDcrError }> {
-    if (!this.dcrConfig.enabled) {
+  ): Promise<{ status: 201; body: OidcOP.DcrResponse } | { status: number; body: OidcOP.DcrError }> {
+    if (!this.dcrCfg.enabled) {
       return { status: 403, body: { error: 'unauthorized', error_description: 'dynamic registration disabled' } }
     }
-    if (this.dcrConfig.initialAccessToken !== undefined) {
+    if (this.dcrCfg.initialAccessToken !== undefined) {
       const auth = headers.get('authorization')
       if (!auth?.toLowerCase().startsWith('bearer ')) {
         return { status: 401, body: { error: 'unauthorized', error_description: 'initial access token required' } }
       }
       const presented = auth.slice(7).trim()
-      if (!authTimingSafeEqual(presented, this.dcrConfig.initialAccessToken)) {
+      if (!timingSafeEqual(presented, this.dcrCfg.initialAccessToken)) {
         return { status: 401, body: { error: 'unauthorized', error_description: 'invalid initial access token' } }
       }
     }
@@ -166,7 +166,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
         body: { error: 'invalid_redirect_uri', error_description: 'redirect_uris must be a non-empty array' },
       }
     }
-    const maxUris = this.dcrConfig.maxRedirectUris ?? 20
+    const maxUris = this.dcrCfg.maxRedirectUris ?? 20
     if (req.redirect_uris.length > maxUris) {
       return {
         status: 400,
@@ -222,7 +222,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
     if (req.client_name !== undefined && (typeof req.client_name !== 'string' || req.client_name.length > 200)) {
       return { status: 400, body: { error: 'invalid_client_metadata', error_description: 'client_name too long' } }
     }
-    const clientId = `dcr-${authRandomToken(16)}`
+    const clientId = `dcr-${randomToken(16)}`
     const { client_secret } = await this.registerClient({
       client_id: clientId,
       redirect_uris: req.redirect_uris,
@@ -260,9 +260,9 @@ export class AuthOidcOpRoot<Profile = unknown> {
    * fresh code.
    */
   async authorize(
-    req: AuthOidcOP.IAuthorizeRequest,
+    req: OidcOP.AuthorizeRequest,
     httpReq: { headers: Headers },
-  ): Promise<AuthOidcOP.IAuthorizeResult> {
+  ): Promise<OidcOP.AuthorizeResult<Profile>> {
     if (!req.client_id || typeof req.client_id !== 'string') {
       return { kind: 'error', status: 400, body: { error: 'invalid_request', error_description: 'client_id required' } }
     }
@@ -387,7 +387,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
    */
   async completeConsent(input: {
     client_id: string
-    identity: AuthIdentity.IIdentity<Profile>
+    identity: Identity.Me<Profile>
     redirect_uri: string
     scope: string[]
     state?: string
@@ -396,7 +396,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
     code_challenge_method?: string
     sid: string
     tenant_id: string | null
-  }): Promise<AuthOidcOP.IAuthorizeResult> {
+  }): Promise<OidcOP.AuthorizeResult<Profile>> {
     const client = await this.deps.clients.findById(input.client_id)
     if (!client?.redirect_uris.includes(input.redirect_uri)) {
       return { kind: 'error', status: 400, body: { error: 'invalid_request' } }
@@ -422,8 +422,8 @@ export class AuthOidcOpRoot<Profile = unknown> {
   }
 
   private async mintCodeAndRedirect(input: {
-    client: AuthOidcOP.IClient
-    identity: AuthIdentity.IIdentity<Profile>
+    client: OidcOP.Client
+    identity: Identity.Me<Profile>
     redirect_uri: string
     scope: string[]
     state?: string
@@ -432,10 +432,10 @@ export class AuthOidcOpRoot<Profile = unknown> {
     code_challenge_method?: string
     sid: string
     tenant_id: string | null
-  }): Promise<AuthOidcOP.IAuthorizeResult> {
-    const code = authRandomToken(32)
+  }): Promise<OidcOP.AuthorizeResult<Profile>> {
+    const code = randomToken(32)
     const now = Date.now()
-    const challengeMethod: AuthOidcOP.ICodeChallengeMethod | null =
+    const challengeMethod: OidcOP.CodeChallengeMethod | null =
       input.code_challenge_method === 'S256' ? 'S256' : input.code_challenge ? 'S256' : null
     await this.deps.codes.insert({
       code,
@@ -457,10 +457,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
   }
 
   /** Handle a POST /token request. */
-  async token(
-    req: AuthOidcOP.ITokenRequest,
-    headers: Headers,
-  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IOAuthError> {
+  async token(req: OidcOP.TokenRequest, headers: Headers): Promise<OidcOP.TokenResponse | OidcOP.OauthError> {
     const clientAuth = await this.authenticateClient(req, headers)
     if ('error' in clientAuth) return clientAuth
     const { client } = clientAuth
@@ -475,9 +472,9 @@ export class AuthOidcOpRoot<Profile = unknown> {
   }
 
   private async grantAuthorizationCode(
-    req: AuthOidcOP.ITokenRequest,
-    client: AuthOidcOP.IClient,
-  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IOAuthError> {
+    req: OidcOP.TokenRequest,
+    client: OidcOP.Client,
+  ): Promise<OidcOP.TokenResponse | OidcOP.OauthError> {
     if (!client.grant_types.includes('authorization_code')) {
       return { error: 'unauthorized_client' }
     }
@@ -511,9 +508,9 @@ export class AuthOidcOpRoot<Profile = unknown> {
   }
 
   private async grantRefreshToken(
-    req: AuthOidcOP.ITokenRequest,
-    client: AuthOidcOP.IClient,
-  ): Promise<AuthOidcOP.ITokenResponse | AuthOidcOP.IOAuthError> {
+    req: OidcOP.TokenRequest,
+    client: OidcOP.Client,
+  ): Promise<OidcOP.TokenResponse | OidcOP.OauthError> {
     if (!client.grant_types.includes('refresh_token')) {
       return { error: 'unauthorized_client' }
     }
@@ -521,7 +518,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
       return { error: 'invalid_request', error_description: 'refresh_token required' }
     }
     const now = Date.now()
-    const hash = authSha256(req.refresh_token)
+    const hash = sha256(req.refresh_token)
     const existing = await this.deps.refreshTokens.findByHash(hash, now)
     if (existing && existing.consumedAt !== null) {
       // Reuse detected: nuke the whole family.
@@ -552,19 +549,19 @@ export class AuthOidcOpRoot<Profile = unknown> {
   }
 
   private async issueTokens(input: {
-    client: AuthOidcOP.IClient
+    client: OidcOP.Client
     identity_id: string
     tenant_id: string | null
     scope: string[]
     nonce: string | null
     sid: string
     family_id?: string
-  }): Promise<AuthOidcOP.ITokenResponse> {
+  }): Promise<OidcOP.TokenResponse> {
     const now = Math.floor(Date.now() / 1000)
-    const accessTokenPlain = authRandomToken(48)
-    const refreshTokenPlain = input.scope.includes('offline_access') ? authRandomToken(48) : null
+    const accessTokenPlain = randomToken(48)
+    const refreshTokenPlain = input.scope.includes('offline_access') ? randomToken(48) : null
     await this.deps.accessTokens.insert({
-      token_hash: authSha256(accessTokenPlain),
+      token_hash: sha256(accessTokenPlain),
       client_id: input.client.client_id,
       identity_id: input.identity_id,
       scope: input.scope,
@@ -573,9 +570,9 @@ export class AuthOidcOpRoot<Profile = unknown> {
     })
     let refreshOut: string | undefined
     if (refreshTokenPlain) {
-      const family = input.family_id ?? authRandomToken(16)
+      const family = input.family_id ?? randomToken(16)
       await this.deps.refreshTokens.insert({
-        token_hash: authSha256(refreshTokenPlain),
+        token_hash: sha256(refreshTokenPlain),
         family_id: family,
         client_id: input.client.client_id,
         identity_id: input.identity_id,
@@ -611,21 +608,21 @@ export class AuthOidcOpRoot<Profile = unknown> {
   async userinfo(
     headers: Headers,
     ctx: { tenantId?: string } = {},
-  ): Promise<AuthOidcOP.IUserinfoClaims | AuthOidcOP.IOAuthError> {
+  ): Promise<OidcOP.UserinfoClaims | OidcOP.OauthError> {
     const auth = headers.get('authorization')
     if (!auth?.toLowerCase().startsWith('bearer ')) {
       return { error: 'invalid_token', error_description: 'Bearer token required' }
     }
     const token = auth.slice(7).trim()
     if (!token) return { error: 'invalid_token' }
-    const row = await this.deps.accessTokens.findByHash(authSha256(token), Date.now())
+    const row = await this.deps.accessTokens.findByHash(sha256(token), Date.now())
     if (!row) return { error: 'invalid_token', error_description: 'token unknown / expired' }
     if (ctx.tenantId !== undefined && row.tenant_id !== ctx.tenantId) {
       return { error: 'invalid_token', error_description: 'cross-tenant token' }
     }
     const identity = await this.deps.auth.identities.getById(row.identity_id, {})
     if (!identity) return { error: 'invalid_token', error_description: 'subject not found' }
-    const claims: AuthOidcOP.IUserinfoClaims = { sub: identity.id }
+    const claims: OidcOP.UserinfoClaims = { sub: identity.id }
     if (row.scope.includes('profile')) {
       const name = getProfileString(identity.profile, 'name')
       const username = getProfileString(identity.profile, 'username') ?? getProfileString(identity.profile, 'login')
@@ -655,7 +652,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
     if (clientAuth.client.token_endpoint_auth_method === 'none') return { active: false }
     const now = Date.now()
     if (req.token_type_hint !== 'refresh_token') {
-      const at = await this.deps.accessTokens.findByHash(authSha256(req.token), now)
+      const at = await this.deps.accessTokens.findByHash(sha256(req.token), now)
       if (at) {
         return {
           active: true,
@@ -668,7 +665,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
       }
     }
     if (req.token_type_hint !== 'access_token') {
-      const rt = await this.deps.refreshTokens.findByHash(authSha256(req.token), now)
+      const rt = await this.deps.refreshTokens.findByHash(sha256(req.token), now)
       if (rt && rt.consumedAt === null) {
         return {
           active: true,
@@ -690,7 +687,7 @@ export class AuthOidcOpRoot<Profile = unknown> {
   ): Promise<void> {
     const clientAuth = await this.authenticateClient({ grant_type: '' }, headers)
     if ('error' in clientAuth) return
-    const hash = authSha256(req.token)
+    const hash = sha256(req.token)
     if (req.token_type_hint !== 'refresh_token') {
       await this.deps.accessTokens.revokeByHash(hash)
     }
@@ -701,9 +698,9 @@ export class AuthOidcOpRoot<Profile = unknown> {
   }
 
   private async authenticateClient(
-    req: AuthOidcOP.ITokenRequest,
+    req: OidcOP.TokenRequest,
     headers: Headers,
-  ): Promise<{ client: AuthOidcOP.IClient } | AuthOidcOP.IOAuthError> {
+  ): Promise<{ client: OidcOP.Client } | OidcOP.OauthError> {
     const basic = parseBasicAuth(headers.get('authorization'))
     const clientIdFromBasic = basic?.user
     const clientSecretFromBasic = basic?.pass
@@ -717,19 +714,13 @@ export class AuthOidcOpRoot<Profile = unknown> {
         return { client }
       case 'client_secret_basic':
         if (!clientSecretFromBasic) return { error: 'invalid_client', error_description: 'Basic auth required' }
-        if (
-          !client.client_secret_hash ||
-          !authTimingSafeEqual(authSha256(clientSecretFromBasic), client.client_secret_hash)
-        ) {
+        if (!client.client_secret_hash || !timingSafeEqual(sha256(clientSecretFromBasic), client.client_secret_hash)) {
           return { error: 'invalid_client' }
         }
         return { client }
       case 'client_secret_post':
         if (!req.client_secret) return { error: 'invalid_client', error_description: 'client_secret required in body' }
-        if (
-          !client.client_secret_hash ||
-          !authTimingSafeEqual(authSha256(req.client_secret), client.client_secret_hash)
-        ) {
+        if (!client.client_secret_hash || !timingSafeEqual(sha256(req.client_secret), client.client_secret_hash)) {
           return { error: 'invalid_client' }
         }
         return { client }
@@ -740,20 +731,20 @@ export class AuthOidcOpRoot<Profile = unknown> {
 }
 
 /** Convenience factory with sensible memory-store defaults. */
-export function authCreateOidcOP<Profile = unknown>(args: {
+export function createOidcOP<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(args: {
   auth: AuthEngine<Profile>
-  config: AuthOidcOP.IConfig
+  config: OidcOP.Cfg
   signIdToken: (payload: Record<string, unknown>) => Promise<string> | string
-  dcr?: AuthOidcOP.IDcrConfig
+  dcr?: OidcOP.DcrCfg
   stores?: {
-    clients?: AuthOidcOP.IClientStore
-    codes?: AuthOidcOP.ICodeStore
-    accessTokens?: AuthOidcOP.IAccessTokenStore
-    refreshTokens?: AuthOidcOP.IRefreshTokenStore
-    consents?: AuthOidcOP.IConsentStore
+    clients?: OidcOP.ClientStore
+    codes?: OidcOP.CodeStore
+    accessTokens?: OidcOP.AccessTokenStore
+    refreshTokens?: OidcOP.RefreshTokenStore
+    consents?: OidcOP.ConsentStore
   }
-}): AuthOidcOpRoot<Profile> {
-  return new AuthOidcOpRoot<Profile>(
+}): OidcOpRoot<Profile> {
+  return new OidcOpRoot<Profile>(
     args.config,
     {
       auth: args.auth,
@@ -802,19 +793,19 @@ function verifyPkceS256(verifier: string, expectedChallenge: string): boolean {
   if (verifier.length < 43 || verifier.length > 128) return false
   // RFC 7636: base64url(SHA256(verifier))
   const computed = base64urlSha256(verifier)
-  return authTimingSafeEqual(computed, expectedChallenge)
+  return timingSafeEqual(computed, expectedChallenge)
 }
 
 function base64urlSha256(input: string): string {
   // node:crypto via the same path the rest of the package uses.
   // sha256() returns hex; convert to base64url.
-  const hex = authSha256(input)
+  const hex = sha256(input)
   const bytes = Buffer.from(hex, 'hex')
   return bytes.toString('base64url')
 }
 
-function filterGrantTypes(input: string[]): AuthOidcOP.IGrantType[] {
-  const allowed: AuthOidcOP.IGrantType[] = []
+function filterGrantTypes(input: string[]): OidcOP.GrantType[] {
+  const allowed: OidcOP.GrantType[] = []
   for (const g of input) {
     if (g === 'authorization_code' || g === 'refresh_token') {
       if (!allowed.includes(g)) allowed.push(g)
@@ -823,15 +814,15 @@ function filterGrantTypes(input: string[]): AuthOidcOP.IGrantType[] {
   return allowed
 }
 
-function filterResponseTypes(input: string[]): AuthOidcOP.IResponseType[] {
-  const allowed: AuthOidcOP.IResponseType[] = []
+function filterResponseTypes(input: string[]): OidcOP.ResponseType[] {
+  const allowed: OidcOP.ResponseType[] = []
   for (const r of input) {
     if (r === 'code' && !allowed.includes(r)) allowed.push(r)
   }
   return allowed
 }
 
-function normalizeTokenAuth(input: string | undefined): AuthOidcOP.ITokenEndpointAuthMethod | null {
+function normalizeTokenAuth(input: string | undefined): OidcOP.TokenEndpointAuthMethod | null {
   if (input === undefined) return 'client_secret_basic'
   if (input === 'client_secret_basic' || input === 'client_secret_post' || input === 'none') return input
   return null

@@ -1,33 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { authPassword } from '../../../providers/password'
-import { type AuthHonoAdapter, authHonoSession, authHonoSignIn, authHonoSignOut } from '../index'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie.transport'
+import { MemoryLimiter } from '~/limiters/memory'
+import { passwords, ScryptHasher } from '~/providers/passwords'
+import { type HonoAdapter, honoSession, honoSignIn, honoSignOut } from '../index'
 
-interface MyProfile {
+type MyProfile = {
+  username: string
   email: string
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://x',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 5, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new MemoryLimiter({ max: 5, windowMs: 60_000 }),
+    providers: [],
   })
   auth.providers.register(
-    authPassword<MyProfile>({
-      findIdentityByEmail: (email) => adapter.identities.findByEmail(email, {}),
-      passwords: auth.passwords,
+    passwords<MyProfile>({
+      hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }),
     }),
   )
   return { auth, adapter }
@@ -37,7 +36,7 @@ function makeCtx(
   method: string,
   url: string,
   init: { headers?: Record<string, string>; body?: unknown } = {},
-): AuthHonoAdapter.IContext {
+): HonoAdapter.Context {
   const req = new Request(`https://x${url}`, {
     method,
     headers: init.headers,
@@ -65,12 +64,12 @@ function makeCtx(
 }
 
 describe('Hono adapter - end-to-end', () => {
-  it('authHonoSignIn happy path returns 200 + Set-Cookie', async () => {
-    const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
-    const res = await authHonoSignIn(auth)(
-      makeCtx('POST', '/auth/signin', {
+  it('honoSignIn happy path returns 200 + Set-Cookie', async () => {
+    const { auth, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const res = await honoSignIn(auth)(
+      makeCtx('POST', '/AUTH/signin', {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       }),
     )
@@ -78,46 +77,44 @@ describe('Hono adapter - end-to-end', () => {
     expect(res.headers.get('set-cookie')).toMatch(/^duck-sid=/)
   })
 
-  it('authHonoSignIn wrong password returns 401', async () => {
-    const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
-    const res = await authHonoSignIn(auth)(
-      makeCtx('POST', '/auth/signin', {
+  it('honoSignIn wrong password returns 401', async () => {
+    const { auth, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const res = await honoSignIn(auth)(
+      makeCtx('POST', '/AUTH/signin', {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'wrong' } },
       }),
     )
     expect(res.status).toBe(401)
-    const body = (await res.json()) as { code: string }
-    expect(body.code).toBe('AUTH/INVALID_CREDENTIALS')
+    const body = (await res.json()) as { error: { code: string } }
+    expect(body.error.code).toBe('AUTH_INVALID_CREDENTIALS')
   })
 
-  it('authHonoSession returns resolved session after signin', async () => {
-    const { auth } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
-    const signinRes = await authHonoSignIn(auth)(
-      makeCtx('POST', '/auth/signin', {
+  it('honoSession returns resolved session after signin', async () => {
+    const { auth, adapter } = buildAuth()
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const signinRes = await honoSignIn(auth)(
+      makeCtx('POST', '/AUTH/signin', {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       }),
     )
     const sidMatch = signinRes.headers.get('set-cookie')?.match(/^duck-sid=([^;]+)/)
     const sid = sidMatch ? decodeURIComponent(sidMatch[1] ?? '') : ''
 
-    const sessRes = await authHonoSession(auth)(
-      makeCtx('GET', '/auth/session', { headers: { cookie: `duck-sid=${sid}` } }),
-    )
+    const sessRes = await honoSession(auth)(makeCtx('GET', '/AUTH/session', { headers: { cookie: `duck-sid=${sid}` } }))
     expect(sessRes.status).toBe(200)
     const body = (await sessRes.json()) as { identity: { id: string } | null }
     expect(body.identity?.id).toBe(identity.id)
   })
 
-  it('authHonoSignOut revokes + clears cookie', async () => {
+  it('honoSignOut revokes + clears cookie', async () => {
     const { auth, adapter } = buildAuth()
-    const identity = await auth.identities.create({ profile: { email: 'a@x.com' } })
-    await auth.passwords.set(identity.id, 'correct-pw')
-    const signinRes = await authHonoSignIn(auth)(
-      makeCtx('POST', '/auth/signin', {
+    const identity = await auth.identities.create({ profile: { username: 'user', email: 'a@x.com' } })
+    await auth.passwords.set(identity.id, 'correct-pw', adapter.credentials)
+    const signinRes = await honoSignIn(auth)(
+      makeCtx('POST', '/AUTH/signin', {
         body: { providerId: 'password', input: { email: 'a@x.com', password: 'correct-pw' } },
       }),
     )
@@ -128,8 +125,8 @@ describe('Hono adapter - end-to-end', () => {
     const csrfToken = decodeURIComponent(setCookieJoined.match(/__Host-duck-csrf=([^;,]+)/)?.[1] ?? '')
     expect(csrfToken).not.toBe('')
     expect((await adapter.sessions.listByIdentity(identity.id)).length).toBe(1)
-    const outRes = await authHonoSignOut(auth)(
-      makeCtx('POST', '/auth/signout', {
+    const outRes = await honoSignOut(auth)(
+      makeCtx('POST', '/AUTH/signout', {
         headers: {
           cookie: `duck-sid=${sid}; __Host-duck-csrf=${csrfToken}`,
           'x-csrf-token': csrfToken,

@@ -1,23 +1,23 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AuthSamlProvider, authBuildSpMetadata, authSamlSloController } from '../index'
+import { buildSpMetadata, Saml, samlSloController } from '../index'
 
-function makeClient(overrides: Partial<AuthSamlProvider.IClient> = {}): AuthSamlProvider.IClient {
+function makeClient(overrides: Partial<Saml.Client> = {}): Saml.Client {
   return {
     getAuthorizeUrlAsync: vi.fn(async () => 'https://idp/sso'),
     validatePostResponseAsync: vi.fn(async () => ({
-      profile: { nameID: 'user-1' } as AuthSamlProvider.IProfile,
+      profile: { nameID: 'user-1' } as Saml.Profile,
       loggedOut: false,
     })),
     ...overrides,
   }
 }
 
-describe('authBuildSpMetadata', () => {
+describe('buildSpMetadata', () => {
   it('delegates to client.generateServiceProviderMetadata when present', () => {
     const client = makeClient({
       generateServiceProviderMetadata: vi.fn(() => '<md:EntityDescriptor from-client="true"/>'),
     })
-    const xml = authBuildSpMetadata({
+    const xml = buildSpMetadata({
       client,
       metadata: { entityId: 'https://app/sp', acsUrl: 'https://app/acs' },
     })
@@ -25,7 +25,7 @@ describe('authBuildSpMetadata', () => {
   })
 
   it('falls back to a hand-rolled XML doc when client cannot generate', () => {
-    const xml = authBuildSpMetadata({
+    const xml = buildSpMetadata({
       metadata: {
         entityId: 'https://app/sp',
         acsUrl: 'https://app/acs',
@@ -42,7 +42,7 @@ describe('authBuildSpMetadata', () => {
   })
 
   it('escapes XML special characters in user-supplied fields', () => {
-    const xml = authBuildSpMetadata({
+    const xml = buildSpMetadata({
       metadata: {
         entityId: 'https://app/sp?x=<bad>',
         acsUrl: 'https://app/acs?q="evil"&y=1',
@@ -55,7 +55,7 @@ describe('authBuildSpMetadata', () => {
   })
 
   it('omits SLO service element when sloUrl missing', () => {
-    const xml = authBuildSpMetadata({
+    const xml = buildSpMetadata({
       metadata: { entityId: 'https://app/sp', acsUrl: 'https://app/acs' },
     })
     expect(xml).not.toContain('SingleLogoutService')
@@ -67,7 +67,7 @@ describe('samlSloController.beginSp', () => {
     const client = makeClient({
       getLogoutUrlAsync: vi.fn(async () => 'https://idp/slo?SAMLRequest=AAA'),
     })
-    const slo = authSamlSloController({ client })
+    const slo = samlSloController({ client })
     const out = await slo.beginSp({
       nameID: 'user@x.com',
       nameIDFormat: 'urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress',
@@ -83,26 +83,26 @@ describe('samlSloController.beginSp', () => {
   })
 
   it('rejects when client lacks getLogoutUrlAsync', async () => {
-    const slo = authSamlSloController({ client: makeClient() })
-    await expect(slo.beginSp({ nameID: 'u', relayState: 'r' })).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    const slo = samlSloController({ client: makeClient() })
+    await expect(slo.beginSp({ nameID: 'u', relayState: 'r' })).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('rejects empty nameID', async () => {
-    const slo = authSamlSloController({
+    const slo = samlSloController({
       client: makeClient({ getLogoutUrlAsync: vi.fn(async () => 'https://idp/slo') }),
     })
-    await expect(slo.beginSp({ nameID: '', relayState: 'r' })).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    await expect(slo.beginSp({ nameID: '', relayState: 'r' })).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('rejects CR/LF in nameID and relayState', async () => {
-    const slo = authSamlSloController({
+    const slo = samlSloController({
       client: makeClient({ getLogoutUrlAsync: vi.fn(async () => 'https://idp/slo') }),
     })
     await expect(slo.beginSp({ nameID: 'a\nb', relayState: 'r' })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
     await expect(slo.beginSp({ nameID: 'a', relayState: 'r\r' })).rejects.toMatchObject({
-      code: 'AUTH/MISCONFIGURED',
+      code: 'AUTH_MISCONFIGURED',
     })
   })
 })
@@ -111,11 +111,11 @@ describe('samlSloController.completeSp', () => {
   it('returns nameID after validating an IdP LogoutResponse', async () => {
     const client = makeClient({
       validateRedirectAsync: vi.fn(async () => ({
-        profile: { nameID: 'u-1' } as AuthSamlProvider.IProfile,
+        profile: { nameID: 'u-1' } as Saml.Profile,
         loggedOut: true,
       })),
     })
-    const slo = authSamlSloController({ client })
+    const slo = samlSloController({ client })
     const out = await slo.completeSp({
       query: { SAMLResponse: 'enc', SigAlg: 'sig', Signature: 's' },
       originalQuery: 'SAMLResponse=enc&SigAlg=sig&Signature=s',
@@ -126,24 +126,24 @@ describe('samlSloController.completeSp', () => {
   it('rejects when validateRedirectAsync flags loggedOut=false', async () => {
     const client = makeClient({
       validateRedirectAsync: vi.fn(async () => ({
-        profile: { nameID: 'u' } as AuthSamlProvider.IProfile,
+        profile: { nameID: 'u' } as Saml.Profile,
         loggedOut: false,
       })),
     })
-    const slo = authSamlSloController({ client })
+    const slo = samlSloController({ client })
     await expect(
       slo.completeSp({ query: { SAMLResponse: 'x' }, originalQuery: 'SAMLResponse=x' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 
   it('caps oversize originalQuery', async () => {
     const client = makeClient({
       validateRedirectAsync: vi.fn(async () => ({ profile: null, loggedOut: true })),
     })
-    const slo = authSamlSloController({ client })
+    const slo = samlSloController({ client })
     const huge = 'X'.repeat(2_000_000)
     await expect(slo.completeSp({ query: {}, originalQuery: huge })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 
@@ -153,9 +153,9 @@ describe('samlSloController.completeSp', () => {
         throw new Error('signature did not verify against IdP cert XYZ; offset=12345')
       }),
     })
-    const slo = authSamlSloController({ client })
+    const slo = samlSloController({ client })
     await expect(slo.completeSp({ query: {}, originalQuery: 'q=1' })).rejects.toMatchObject({
-      code: 'AUTH/PROVIDER_FAILED',
+      code: 'AUTH_PROVIDER_FAILED',
     })
   })
 })
@@ -164,12 +164,12 @@ describe('samlSloController.completeIdp', () => {
   it('handles a Redirect-binding LogoutRequest end to end', async () => {
     const client = makeClient({
       validateRedirectAsync: vi.fn(async () => ({
-        profile: { nameID: 'idp-init-user' } as AuthSamlProvider.IProfile,
+        profile: { nameID: 'idp-init-user' } as Saml.Profile,
         loggedOut: true,
       })),
       getLogoutResponseUrl: vi.fn(() => 'https://idp/slo?SAMLResponse=BBB'),
     })
-    const slo = authSamlSloController({ client })
+    const slo = samlSloController({ client })
     const out = await slo.completeIdp({
       query: { SAMLRequest: 'enc', Signature: 's' },
       originalQuery: 'SAMLRequest=enc&Signature=s',
@@ -181,36 +181,36 @@ describe('samlSloController.completeIdp', () => {
   it('handles a POST-binding LogoutRequest', async () => {
     const client = makeClient({
       validatePostRequestAsync: vi.fn(async () => ({
-        profile: { nameID: 'post-bind-user' } as AuthSamlProvider.IProfile,
+        profile: { nameID: 'post-bind-user' } as Saml.Profile,
         loggedOut: true,
       })),
       getLogoutResponseUrl: vi.fn(() => 'https://idp/slo?SAMLResponse=CCC'),
     })
-    const slo = authSamlSloController({ client })
+    const slo = samlSloController({ client })
     const out = await slo.completeIdp({ SAMLRequest: '<saml:LogoutRequest/>' })
     expect(out.nameID).toBe('post-bind-user')
   })
 
   it('rejects when neither query nor SAMLRequest is supplied', async () => {
-    const slo = authSamlSloController({ client: makeClient({ getLogoutResponseUrl: vi.fn(() => '') }) })
-    await expect(slo.completeIdp({})).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    const slo = samlSloController({ client: makeClient({ getLogoutResponseUrl: vi.fn(() => '') }) })
+    await expect(slo.completeIdp({})).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('rejects when client lacks getLogoutResponseUrl', async () => {
-    const slo = authSamlSloController({ client: makeClient() })
-    await expect(slo.completeIdp({ SAMLRequest: 'x' })).rejects.toMatchObject({ code: 'AUTH/MISCONFIGURED' })
+    const slo = samlSloController({ client: makeClient() })
+    await expect(slo.completeIdp({ SAMLRequest: 'x' })).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
   })
 
   it('rejects when the validated message is not a logout (loggedOut=false)', async () => {
-    const slo = authSamlSloController({
+    const slo = samlSloController({
       client: makeClient({
         validatePostRequestAsync: vi.fn(async () => ({
-          profile: { nameID: 'u' } as AuthSamlProvider.IProfile,
+          profile: { nameID: 'u' } as Saml.Profile,
           loggedOut: false,
         })),
         getLogoutResponseUrl: vi.fn(() => ''),
       }),
     })
-    await expect(slo.completeIdp({ SAMLRequest: '<x/>' })).rejects.toMatchObject({ code: 'AUTH/PROVIDER_FAILED' })
+    await expect(slo.completeIdp({ SAMLRequest: '<x/>' })).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
   })
 })

@@ -4,15 +4,15 @@
  * implementing the same interfaces.
  */
 
-import type { AuthOidcOP } from './types'
+import type { OidcOP } from './types'
 
 /** In-memory `AuthOidcOP.IClientStore`. Maps `client_id` → registered client. */
-export class AuthMemoryClientStore implements AuthOidcOP.IClientStore {
-  private rows = new Map<string, AuthOidcOP.IClient>()
-  async findById(client_id: string): Promise<AuthOidcOP.IClient | null> {
+export class AuthMemoryClientStore implements OidcOP.ClientStore {
+  private rows = new Map<string, OidcOP.Client>()
+  async findById(client_id: string): Promise<OidcOP.Client | null> {
     return this.rows.get(client_id) ?? null
   }
-  async insert(c: AuthOidcOP.IClient): Promise<void> {
+  async insert(c: OidcOP.Client): Promise<void> {
     if (this.rows.has(c.client_id)) {
       throw new Error(`AuthMemoryClientStore: client_id '${c.client_id}' already registered`)
     }
@@ -21,12 +21,12 @@ export class AuthMemoryClientStore implements AuthOidcOP.IClientStore {
 }
 
 /** In-memory `AuthOidcOP.ICodeStore`. Codes are single-use; `consume` deletes them. */
-export class AuthMemoryCodeStore implements AuthOidcOP.ICodeStore {
-  private rows = new Map<string, AuthOidcOP.ICode>()
-  async insert(c: AuthOidcOP.ICode): Promise<void> {
+export class AuthMemoryCodeStore implements OidcOP.CodeStore {
+  private rows = new Map<string, OidcOP.Code>()
+  async insert(c: OidcOP.Code): Promise<void> {
     this.rows.set(c.code, c)
   }
-  async consume(code: string, now: number): Promise<AuthOidcOP.ICode | null> {
+  async consume(code: string, now: number): Promise<OidcOP.Code | null> {
     const row = this.rows.get(code)
     if (!row) return null
     this.rows.delete(code)
@@ -36,12 +36,12 @@ export class AuthMemoryCodeStore implements AuthOidcOP.ICodeStore {
 }
 
 /** In-memory `AuthOidcOP.IAccessTokenStore`. Keyed by `token_hash`; expired tokens evicted lazily on read. */
-export class AuthMemoryAccessTokenStore implements AuthOidcOP.IAccessTokenStore {
-  private rows = new Map<string, AuthOidcOP.IAccessToken>()
-  async insert(t: AuthOidcOP.IAccessToken): Promise<void> {
+export class AuthMemoryAccessTokenStore implements OidcOP.AccessTokenStore {
+  private rows = new Map<string, OidcOP.AccessToken>()
+  async insert(t: OidcOP.AccessToken): Promise<void> {
     this.rows.set(t.token_hash, t)
   }
-  async findByHash(hash: string, now: number): Promise<AuthOidcOP.IAccessToken | null> {
+  async findByHash(hash: string, now: number): Promise<OidcOP.AccessToken | null> {
     const row = this.rows.get(hash)
     if (!row) return null
     if (row.exp <= now) {
@@ -56,12 +56,12 @@ export class AuthMemoryAccessTokenStore implements AuthOidcOP.IAccessTokenStore 
 }
 
 /** In-memory `AuthOidcOP.IRefreshTokenStore`. Supports RTR family revocation via `revokeFamily`. */
-export class AuthMemoryRefreshTokenStore implements AuthOidcOP.IRefreshTokenStore {
-  private rows = new Map<string, AuthOidcOP.IRefreshToken>()
-  async insert(t: AuthOidcOP.IRefreshToken): Promise<void> {
+export class AuthMemoryRefreshTokenStore implements OidcOP.RefreshTokenStore {
+  private rows = new Map<string, OidcOP.RefreshToken>()
+  async insert(t: OidcOP.RefreshToken): Promise<void> {
     this.rows.set(t.token_hash, t)
   }
-  async findByHash(hash: string, now: number): Promise<AuthOidcOP.IRefreshToken | null> {
+  async findByHash(hash: string, now: number): Promise<OidcOP.RefreshToken | null> {
     const row = this.rows.get(hash)
     if (!row) return null
     if (row.exp <= now) {
@@ -70,7 +70,7 @@ export class AuthMemoryRefreshTokenStore implements AuthOidcOP.IRefreshTokenStor
     }
     return row
   }
-  async consume(hash: string, now: number): Promise<AuthOidcOP.IRefreshToken | null> {
+  async consume(hash: string, now: number): Promise<OidcOP.RefreshToken | null> {
     const row = this.rows.get(hash)
     if (!row) return null
     if (row.exp <= now) {
@@ -90,15 +90,15 @@ export class AuthMemoryRefreshTokenStore implements AuthOidcOP.IRefreshTokenStor
 }
 
 /** In-memory `AuthOidcOP.IConsentStore`. Keyed by `identityId:clientId` pair. */
-export class AuthMemoryConsentStore implements AuthOidcOP.IConsentStore {
-  private rows = new Map<string, AuthOidcOP.IConsent>()
+export class AuthMemoryConsentStore implements OidcOP.ConsentStore {
+  private rows = new Map<string, OidcOP.Consent>()
   private key(identity_id: string, client_id: string) {
     return `${identity_id}:${client_id}`
   }
-  async find(identity_id: string, client_id: string): Promise<AuthOidcOP.IConsent | null> {
+  async find(identity_id: string, client_id: string): Promise<OidcOP.Consent | null> {
     return this.rows.get(this.key(identity_id, client_id)) ?? null
   }
-  async upsert(c: AuthOidcOP.IConsent): Promise<void> {
+  async upsert(c: OidcOP.Consent): Promise<void> {
     this.rows.set(this.key(c.identity_id, c.client_id), c)
   }
 }

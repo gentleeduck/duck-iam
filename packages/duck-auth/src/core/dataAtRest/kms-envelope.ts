@@ -1,28 +1,27 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import { AuthErrorObject } from '../errors'
-import type { AuthDataAtRest } from '../types/dataAtRest'
-import type { AuthKms } from '../types/kms'
+import type { DataAtRest, Kms } from '../dataAtRest/dataAtRest.types'
+import { AuthError } from '../errors'
 
 /**
- * Envelope-encryption `AuthDataAtRest.IAdapter` driven by any `AuthKms.IProvider`.
+ * Envelope-encryption `DataAtRest.IAdapter` driven by any `Kms.IProvider`.
  * Per-record DEK + AES-256-GCM locally; `{identityId, field}` is pinned in
  * the KMS encryption context (AAD) to defeat ciphertext relocation.
  *
  * Ciphertext layout: `kms-env$v1$<keyId>$<wrappedB64u>$<ivB64u>$<tagB64u>$<ctB64u>`.
  */
-export class AuthKmsEnvelopeDataAtRest implements AuthDataAtRest.IAdapter {
+export class AuthKmsEnvelopeDataAtRest implements DataAtRest.Adapter {
   readonly id: string
-  private readonly _kms: AuthKms.IProvider
+  private readonly _kms: Kms.Provider
 
-  constructor(cfg: AuthKmsEnvelopeDataAtRest.IConfig) {
+  constructor(cfg: AuthKmsEnvelopeDataAtRest.Cfg) {
     this._kms = cfg.kms
     this.id = `kms-envelope:${cfg.kms.id}`
   }
 
-  async encrypt(plain: string, ctx: AuthDataAtRest.IContext): Promise<string> {
+  async encrypt(plain: string, ctx: DataAtRest.Context): Promise<string> {
     const dek = await this._kms.generateDataKey(this._aad(ctx))
     if (dek.plaintext.length !== 32) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `kms-envelope: KMS returned ${dek.plaintext.length}-byte DEK; expected 32`,
       })
     }
@@ -45,16 +44,16 @@ export class AuthKmsEnvelopeDataAtRest implements AuthDataAtRest.IAdapter {
     ].join('$')
   }
 
-  async decrypt(cipherText: string, ctx: AuthDataAtRest.IContext): Promise<string> {
+  async decrypt(cipherText: string, ctx: DataAtRest.Context): Promise<string> {
     const parts = cipherText.split('$')
     if (parts.length !== 7 || parts[0] !== 'kms-env' || parts[1] !== 'v1') {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', { detail: 'kms-envelope: malformed ciphertext' })
+      throw new AuthError('AUTH_MISCONFIGURED', { detail: 'kms-envelope: malformed ciphertext' })
     }
     const [, , , wrappedB64, ivB64, tagB64, ctB64] = parts as [string, string, string, string, string, string, string]
     const wrapped = Buffer.from(wrappedB64, 'base64url')
     const dekPlain = await this._kms.decryptDataKey(wrapped, this._aad(ctx))
     if (dekPlain.length !== 32) {
-      throw new AuthErrorObject('AUTH/MISCONFIGURED', {
+      throw new AuthError('AUTH_MISCONFIGURED', {
         detail: `kms-envelope: KMS returned ${dekPlain.length}-byte DEK on decrypt; expected 32`,
       })
     }
@@ -79,8 +78,8 @@ export class AuthKmsEnvelopeDataAtRest implements AuthDataAtRest.IAdapter {
     return false
   }
 
-  private _aad(ctx: AuthDataAtRest.IContext): AuthKms.IEncryptionContext {
-    const aad: AuthKms.IEncryptionContext = {
+  private _aad(ctx: DataAtRest.Context): Kms.EncryptionContext {
+    const aad: Kms.EncryptionContext = {
       field: ctx.field,
       identityId: ctx.identityId,
     }
@@ -90,7 +89,7 @@ export class AuthKmsEnvelopeDataAtRest implements AuthDataAtRest.IAdapter {
 }
 
 export namespace AuthKmsEnvelopeDataAtRest {
-  export interface IConfig {
-    kms: AuthKms.IProvider
+  export interface Cfg {
+    kms: Kms.Provider
   }
 }

@@ -4,16 +4,16 @@
  * skipped when env keys missing), authPasskey (WebAuthn), TOTP/backup
  * codes. Storage: Postgres via the bundled Drizzle adapter.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { authDrizzlePgStorage } from '@gentleduck/auth/adapters/drizzle/pg'
 import { AuthConsoleChannel } from '@gentleduck/auth/channels/console'
 import { AuthArgon2idHasher, AuthCookieTransport, createAuth } from '@gentleduck/auth/core'
 import { AuthMemoryLimiter } from '@gentleduck/auth/limiters/memory'
-import { authMagicLink } from '@gentleduck/auth/providers/magic-link'
-import { authGithub } from '@gentleduck/auth/providers/oauth/github'
-import { authGoogle } from '@gentleduck/auth/providers/oauth/google'
+import { magicLink } from '@gentleduck/auth/providers/magic-link'
+import { github } from '@gentleduck/auth/providers/oauth/github'
+import { google } from '@gentleduck/auth/providers/oauth/google'
 import { authPasskey } from '@gentleduck/auth/providers/passkey'
 import { authPassword } from '@gentleduck/auth/providers/password'
 
@@ -43,7 +43,7 @@ export const auth = createAuth<DemoProfile>({
         passwords: a.passwords,
       }),
     () =>
-      authMagicLink<DemoProfile>({
+      magicLink<DemoProfile>({
         autoCreateIdentity: true,
         autoCreateProfile: (email) => ({ email, emailVerified: false }),
         callbackPath: '/auth/magic-link/verify',
@@ -51,17 +51,17 @@ export const auth = createAuth<DemoProfile>({
         findIdentityByEmail: (e) => storage.identities.findByEmail(e, {}),
       }),
     process.env.GOOGLE_CLIENT_ID &&
-      authGoogle<DemoProfile>({
+      google<DemoProfile>({
         clientId: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
-        redirectUri: `${BASE_URL}/auth/providers/authGoogle/callback`,
+        redirectUri: `${BASE_URL}/auth/providers/google/callback`,
         stateSigningSecret: STATE,
       }),
     process.env.GITHUB_CLIENT_ID &&
-      authGithub<DemoProfile>({
+      github<DemoProfile>({
         clientId: process.env.GITHUB_CLIENT_ID,
         clientSecret: process.env.GITHUB_CLIENT_SECRET ?? '',
-        redirectUri: `${BASE_URL}/auth/providers/authGithub/callback`,
+        redirectUri: `${BASE_URL}/auth/providers/github/callback`,
         stateSigningSecret: STATE,
       }),
     () =>

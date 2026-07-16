@@ -32,10 +32,10 @@ bun add @gentleduck/auth @gentleduck/iam
 ## Quick start
 
 ```ts
-import { defineAuth }         from '@gentleduck/auth/core'
+import { createAuth }         from '@gentleduck/auth/core/config'
 import { createIam } from '@gentleduck/iam/core'
 
-const auth   = defineAuth({ /* baseUrl, storage, providers */ })
+const auth   = createAuth({ /* baseUrl, storage, providers */ })
 const access = createIam({ actions, resources, roles })
 const engine = access.createEngine({ adapter })
 

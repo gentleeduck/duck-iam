@@ -24,7 +24,9 @@ describe('POLICY_JSON_SCHEMA', () => {
     expect(ops).toContain('eq')
     expect(ops).toContain('subset_of')
     expect(ops).toContain('matches')
+    expect(ops).toContain('before')
+    expect(ops).toContain('after')
     // Closed set; new operators here must be mirrored in core/conditions.
-    expect(ops.length).toBe(17)
+    expect(ops.length).toBe(19)
   })
 })

@@ -1,27 +1,23 @@
 /**
  * Elysia adapter. Elysia is Web-Fetch native; the adapter is a thin
- * wrapper around `server/generic.authExecuteIntents` that pulls
+ * wrapper around `server/generic.executeIntents` that pulls
  * `Headers` straight from `context.request`.
  *
  * Mount on an Elysia instance:
  *
- *   app.post('/auth/signin',  authElysiaSignIn(auth))
- *   app.post('/auth/signout', authElysiaSignOut(auth))
- *   app.get('/auth/session',  authElysiaSession(auth))
- *   app.post('/auth/providers/:id/begin', authElysiaProviderBegin(auth))
+ *   app.post('/AUTH/signin',  elysiaSignIn(auth))
+ *   app.post('/AUTH/signout', elysiaSignOut(auth))
+ *   app.get('/AUTH/session',  elysiaSession(auth))
+ *   app.post('/AUTH/providers/:id/begin', elysiaProviderBegin(auth))
  */
 
-import type { AuthEngine } from '../../core/engine'
-import {
-  authErrorToHttp,
-  authExecuteIntents,
-  authIsValidProviderId,
-  authParseProviderBeginBody,
-  authParseSignInBody,
-} from '../generic'
+import type { AuthEngine } from '~/core/engine'
+import { errorToHttp, executeIntents, isValidProviderId, parseProviderBeginBody, parseSignInBody } from '../generic'
+
+import type { ElysiaAdapter } from './elysia.types'
 
 function handleError(err: unknown): Response {
-  const { status, body } = authErrorToHttp(err)
+  const { status, body } = errorToHttp(err)
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8' },
@@ -29,15 +25,15 @@ function handleError(err: unknown): Response {
 }
 
 /** Elysia handler for the sign-in route. */
-export function authElysiaSignIn(auth: AuthEngine): AuthElysiaAdapter.IHandler {
+export function elysiaSignIn(auth: AuthEngine): ElysiaAdapter.Handler {
   return async (ctx) => {
     try {
-      const parsed = authParseSignInBody(ctx.body)
+      const parsed = parseSignInBody(ctx.body)
       if (!parsed) {
-        return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+        return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
       const result = await auth.flows.signIn(parsed)
-      return authExecuteIntents(result.intents)
+      return executeIntents(result.intents)
     } catch (err) {
       return handleError(err)
     }
@@ -45,13 +41,13 @@ export function authElysiaSignIn(auth: AuthEngine): AuthElysiaAdapter.IHandler {
 }
 
 /** Elysia handler for sign-out. */
-export function authElysiaSignOut(auth: AuthEngine): AuthElysiaAdapter.IHandler {
+export function elysiaSignOut(auth: AuthEngine): ElysiaAdapter.Handler {
   return async (ctx) => {
     try {
       const sid = auth.transport.extract({ headers: ctx.request.headers })
-      if (!sid) return authExecuteIntents(auth.transport.revoke())
+      if (!sid) return executeIntents(auth.transport.revoke())
       const { intents } = await auth.flows.signOut(sid)
-      return authExecuteIntents(intents)
+      return executeIntents(intents)
     } catch (err) {
       return handleError(err)
     }
@@ -59,7 +55,7 @@ export function authElysiaSignOut(auth: AuthEngine): AuthElysiaAdapter.IHandler 
 }
 
 /** Elysia handler for the session-introspection route. */
-export function authElysiaSession(auth: AuthEngine): AuthElysiaAdapter.IHandler {
+export function elysiaSession(auth: AuthEngine): ElysiaAdapter.Handler {
   return async (ctx) => {
     try {
       const resolved = await auth.resolveSession({ headers: ctx.request.headers })
@@ -77,33 +73,23 @@ export function authElysiaSession(auth: AuthEngine): AuthElysiaAdapter.IHandler 
 }
 
 /** Elysia handler for the per-provider begin step. */
-export function authElysiaProviderBegin(auth: AuthEngine): AuthElysiaAdapter.IHandler {
+export function elysiaProviderBegin(auth: AuthEngine): ElysiaAdapter.Handler {
   return async (ctx) => {
     try {
       const id = ctx.params?.id
-      if (!authIsValidProviderId(id)) {
-        return authExecuteIntents([{ type: 'error', code: 'AUTH/PROVIDER_FAILED', status: 400 }])
+      if (!isValidProviderId(id)) {
+        return executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }])
       }
-      const body = authParseProviderBeginBody(ctx.body)
+      const body = parseProviderBeginBody(ctx.body)
       if (body === null) {
-        return authExecuteIntents([{ type: 'error', code: 'AUTH/INVALID_CREDENTIALS', status: 400 }])
+        return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
       const intents = await auth.flows.beginProvider(id, body)
-      return authExecuteIntents(intents)
+      return executeIntents(intents)
     } catch (err) {
       return handleError(err)
     }
   }
 }
 
-export namespace AuthElysiaAdapter {
-  export type IHandler = (ctx: AuthElysiaAdapter.IContext) => Promise<Response>
-
-  export interface IContext {
-    request: Request
-    /** Pre-parsed JSON body (Elysia parses by default when content-type is application/json). */
-    body?: unknown
-    /** Route params; populated when the route definition declares `:id` etc. */
-    params?: Record<string, string>
-  }
-}
+export type { ElysiaAdapter } from './elysia.types'

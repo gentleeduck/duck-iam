@@ -45,14 +45,15 @@ function walk(dir: string, out: string[] = []): string[] {
 
 /** Per-file overrides for the inferred owner symbol. */
 const OWNER_OVERRIDES: Record<string, string> = {
-  'src/providers/passkey/types.ts': 'PasskeyTypes',
-  'src/providers/oauth/github/index.ts': 'GithubOAuth',
-  'src/providers/oauth/google/index.ts': 'GoogleOAuth',
-  'src/providers/oauth/core/refresh.ts': 'OAuthRefresh',
-  'src/providers/oauth/core/state.ts': 'OAuthState',
-  'src/providers/oauth/core/provider.ts': 'OAuthProvider',
-  'src/providers/oauth/core/client.ts': 'OAuthClient',
-  'src/core/types/context.ts': 'TenantContext',
+  'src/providers/passkey/passkey.types.ts': 'Passkey',
+  'src/providers/oauth/github/index.ts': 'Githuboauth',
+  'src/providers/oauth/google/index.ts': 'Googleoauth',
+  'src/providers/oauth/core/refresh.ts': 'oauthRefresh',
+  'src/providers/oauth/core/state.ts': 'oauthState',
+  'src/providers/oauth/core/provider.ts': 'oProvider',
+  'src/providers/oauth/core/client.ts': 'oauthClient',
+  'src/core/tenant/tenant.types.ts': 'TenantContext',
+  'src/core/errors/errors.types.ts': 'Envelope',
 }
 
 function inferOwner(file: string, decls: Decl[]): string {
@@ -90,7 +91,7 @@ function audit(file: string): AuditResult {
 
   const namespaceAliases = new Set<string>()
   // Names already taken on the LHS of an alias inside a namespace; needed
-  // so we don't emit `export type IConfig = ...` when an IConfig already
+  // so we don't emit `export type Cfg = ...` when an Cfg already
   // exists with different generics.
   const existingAliasNames = new Set<string>()
   let hasNamespaceBlock = false
@@ -130,7 +131,7 @@ function aliasName(typeName: string): string {
 }
 
 function generateAlias(typeName: string, owner: string): string {
-  // Common patterns: FooConfig -> IConfig, FooOptions -> IOptions, FooBeginInput -> IBeginInput
+  // Common patterns: FooCfg -> Cfg, FooOptions -> IOptions, FooBeginInput -> IBeginInput
   const stripped = typeName.startsWith(owner) ? typeName.slice(owner.length) : typeName
   if (!stripped) return 'I'
   return `I${stripped}`

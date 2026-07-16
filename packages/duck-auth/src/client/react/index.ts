@@ -1,51 +1,42 @@
 /**
- * React client - hooks + provider wrapping the vanilla AuthClient. Keeps
- * React itself as a peerDep so the auth core has no React in its graph.
+ * React client — hooks + provider wrapping the vanilla AuthClient. Keeps React
+ * as a peerDep so the auth core has no React in its graph. Types live in
+ * `./types`.
  *
  * @example
  * ```tsx
- * import { AuthProvider, authUseSession, authUseSignIn } from '@gentleduck/auth/client/react'
+ * import { Provider, useSession, useSignIn } from '@gentleduck/AUTH/client/react'
  *
- * <AuthProvider baseUrl="/auth">
+ * <Provider baseUrl="/auth">
  *   <App />
- * </AuthProvider>
+ * </Provider>
  *
  * function SignIn() {
- *   const signIn = authUseSignIn()
+ *   const signIn = useSignIn()
  *   return <button onClick={() => signIn.mutate({ providerId: 'password', input: { ... } })}>...</button>
  * }
  * ```
  */
-import {
-  createContext,
-  createElement,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
-import { type AuthVanillaClient, authCreateClient } from '../vanilla'
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import type { Envelope } from '~/core/errors/errors.types'
+import type { Identities } from '~/core/identities'
+import { createAuthClient, type VanillaClient } from '../vanilla'
+import type { ReactClient } from './types'
+
+export type { ReactClient } from './types'
 
 // --- context ----------------------------------------------------------
 
-interface AuthContextValue<Profile = unknown> {
-  client: AuthVanillaClient.IClient<Profile>
-  state: AuthVanillaClient.ISessionResult<Profile>
-  status: 'loading' | 'authed' | 'guest'
-  refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
-}
+const AuthContext = createContext<ReactClient.ContextValue<Identities.ProfileMetadataBase> | null>(null)
 
-const AuthContext = createContext<AuthContextValue<unknown> | null>(null)
-
-/** `AuthProvider`. */
-export function AuthProvider(props: AuthReactClient.IProviderProps): ReturnType<typeof createElement> {
+/** `Provider`. */
+export function Provider<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
+  props: ReactClient.IProviderProps,
+): ReturnType<typeof createElement> {
   const { children, client: externalClient, noInitialFetch, ...cfg } = props
   // biome-ignore lint/correctness/useExhaustiveDependencies: cfg is a destructured spread; only baseUrl matters for client identity.
-  const client = useMemo(() => externalClient ?? authCreateClient(cfg), [externalClient, cfg.baseUrl])
-  const [state, setState] = useState<AuthVanillaClient.ISessionResult<unknown>>({ session: null, identity: null })
+  const client = useMemo(() => externalClient ?? createAuthClient(cfg), [externalClient, cfg.baseUrl])
+  const [state, setState] = useState<VanillaClient.SessionResult<Profile>>({ session: null, identity: null })
   const [status, setStatus] = useState<'loading' | 'authed' | 'guest'>(noInitialFetch ? 'guest' : 'loading')
   const subscribed = useRef(false)
 
@@ -65,7 +56,7 @@ export function AuthProvider(props: AuthReactClient.IProviderProps): ReturnType<
     }
   }, [client, noInitialFetch])
 
-  const value: AuthContextValue<unknown> = useMemo(
+  const value: ReactClient.ContextValue<Profile> = useMemo(
     () => ({
       client,
       state,
@@ -78,23 +69,19 @@ export function AuthProvider(props: AuthReactClient.IProviderProps): ReturnType<
   return createElement(AuthContext.Provider, { value }, children)
 }
 
-function useAuthCtx<Profile = unknown>(): AuthContextValue<Profile> {
-  const ctx = useContext(AuthContext) as AuthContextValue<Profile> | null
+function useAuthCtx<
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+>(): ReactClient.ContextValue<Profile> {
+  const ctx = useContext(AuthContext) as ReactClient.ContextValue<Profile> | null
   if (!ctx) {
-    throw new Error('[@gentleduck/auth/client/react] useAuth* hooks must be used inside <AuthProvider>')
+    throw new Error('[@gentleduck/AUTH/client/react] use* hooks must be used inside <Provider>')
   }
   return ctx
 }
 
 // --- hooks ------------------------------------------------------------
 
-/** `authUseSession`. */
-export function authUseSession<Profile = unknown>(): AuthReactClient.IUseSessionResult<Profile> {
-  const ctx = useAuthCtx<Profile>()
-  return { data: ctx.state, status: ctx.status, refresh: ctx.refresh }
-}
-
-function useMutation<I, O>(fn: (input: I) => Promise<O>): AuthReactClient.IMutationResult<I, O> {
+function useMutation<I, O>(fn: (input: I) => Promise<O>): ReactClient.MutationResult<I, O> {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<unknown | null>(null)
   const mutate = useCallback(
@@ -115,53 +102,51 @@ function useMutation<I, O>(fn: (input: I) => Promise<O>): AuthReactClient.IMutat
   return { mutate, loading, error }
 }
 
-/** `authUseSignIn`. */
-export function authUseSignIn<Profile = unknown>(): AuthReactClient.IMutationResult<
-  AuthVanillaClient.ISignInOptions,
-  AuthVanillaClient.ISignInResult<Profile>
-> {
-  const { client } = useAuthCtx<Profile>()
-  return useMutation((opts: AuthVanillaClient.ISignInOptions) => client.signIn(opts))
+/** `useSession`. */
+export function useSession<
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+>(): ReactClient.UseSessionResult<Profile> {
+  const ctx = useAuthCtx<Profile>()
+  return { data: ctx.state, status: ctx.status, refresh: ctx.refresh }
 }
 
-/** `authUseSignOut`. */
-export function authUseSignOut(): AuthReactClient.IMutationResult<void, { ok: true }> {
+/** `useSignIn`. */
+export function useSignIn<
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+>(): ReactClient.MutationResult<VanillaClient.SignInOptions, Envelope<VanillaClient.SessionResult<Profile>, string>> {
+  const { client } = useAuthCtx<Profile>()
+  return useMutation((opts: VanillaClient.SignInOptions) => client.signIn(opts))
+}
+
+/**
+ * `useSignUp`. Registration is app-shaped, so `Input` is caller-typed and the
+ * result echoes the response `data`. Does not create a session.
+ */
+export function useSignUp<
+  Input extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+>(): ReactClient.MutationResult<Input, Envelope<unknown, string>> {
+  const { client } = useAuthCtx()
+  return useMutation((input: Input) => client.signUp(input))
+}
+
+/** `useSignOut`. */
+export function useSignOut(): ReactClient.MutationResult<void, Envelope<Record<string, never>, string>> {
   const { client } = useAuthCtx()
   return useMutation(() => client.signOut())
 }
 
-/** `authUseBeginProvider`. */
-export function authUseBeginProvider(): AuthReactClient.IMutationResult<
+/** `useBeginProvider`. */
+export function useBeginProvider(): ReactClient.MutationResult<
   { id: string; input?: unknown },
-  { body: unknown }
+  Envelope<unknown, string>
 > {
   const { client } = useAuthCtx()
   return useMutation(({ id, input }) => client.beginProvider(id, input))
 }
 
-/** `authUseClient`. */
-export function authUseClient<Profile = unknown>(): AuthVanillaClient.IClient<Profile> {
+/** `useAuthClient`. */
+export function useAuthClient<
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+>(): VanillaClient.Client<Profile> {
   return useAuthCtx<Profile>().client
-}
-
-export namespace AuthReactClient {
-  export interface IProviderProps extends AuthVanillaClient.IConfig {
-    children?: ReactNode
-    /** Optional pre-built client; overrides cfg. */
-    client?: AuthVanillaClient.IClient<unknown>
-    /** Disable the initial automatic /session fetch on mount. */
-    noInitialFetch?: boolean
-  }
-
-  export interface IUseSessionResult<Profile = unknown> {
-    data: AuthVanillaClient.ISessionResult<Profile>
-    status: 'loading' | 'authed' | 'guest'
-    refresh(): Promise<AuthVanillaClient.ISessionResult<Profile>>
-  }
-
-  export interface IMutationResult<I, O> {
-    mutate(input: I): Promise<O>
-    loading: boolean
-    error: unknown | null
-  }
 }

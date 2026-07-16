@@ -4,7 +4,7 @@
  * Bundle benchmark for `@gentleduck/auth`. Measures gzipped size of every
  * shipped subpath + the realistic "full kit" headline (core + cookie
  * transport + memory adapter + password provider + magic-link + TOTP +
- * one OAuth + JWT). Emits JSON to public/benchmarks/results.json so the
+ * one oauth + JWT). Emits JSON to public/benchmarks/results.json so the
  * monorepo can track size over time.
  *
  * Usage: bun run benchmark
@@ -126,7 +126,7 @@ const result = {
   })),
   profiles: {
     fullKit: {
-      label: 'Full kit (core + cookie + memory + password + magic-link + Google OAuth + Express)',
+      label: 'Full kit (core + cookie + memory + password + magic-link + Google oauth + Express)',
       includes: fullKitParts,
       gzipped_kb: +(fullKitGzip / 1024).toFixed(2),
     },

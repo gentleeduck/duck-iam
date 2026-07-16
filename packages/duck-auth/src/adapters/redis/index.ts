@@ -1,14 +1,12 @@
 /**
- * Redis adapter bundle: stores backed by any `AuthRedisLike.IClient`
- * (ioredis, @upstash/redis, or the in-tree AuthFakeRedis for tests). All
- * exports honor the same contracts as the memory adapter so swapping
- * is a one-line change in the `AuthEngine` config.
+ * Redis adapter bundle. The store implementations now live with their
+ * subject in `core/*`; this barrel re-exports them under the public
+ * `@gentleduck/auth/adapters/redis` entry so swapping backends stays a
+ * one-line change. `RedisLike`/`FakeRedis` (the shared client contract +
+ * test double) are the only impls that live here.
  */
 
-export { AuthRedisDPoPNonceStore } from './dpop-nonce-store'
-export { AuthRedisEvents } from './events'
-export { AuthRedisIdempotencyStore } from './idempotency-store'
-export { AuthRedisLimiter } from './limiter'
-export type { AuthRedisLike } from './redis-like'
-export { AuthFakeRedis } from './redis-like'
-export { AuthRedisSessionStore } from './session-store'
+export { RedisEvents } from '~/core/events/events.redis'
+export { type RedisSession, RedisSessionImpl, session } from '~/core/sessions/sessions.redis'
+export { RedisDPoPNonceStore, redisDPoPNonceStore } from '~/core/transport/dpop-nonce.redis'
+export { FakeRedis, type RedisLike } from './redis-like'

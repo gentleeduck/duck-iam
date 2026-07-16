@@ -10,22 +10,28 @@
 
 import { generateKeyPairSync } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import type { AuthSession } from '../../types/session'
-import { AuthJwtTransport } from '../jwt'
+import type { Sessions } from '~/core/sessions/sessions.types'
+import { JwtTransport } from '../jwt.transport'
 
-function fakeSession(): AuthSession.ISession {
+function fakeSession(): Sessions.Me {
   const now = Date.now()
   return {
     aal: 2,
-    absoluteExpiresAt: now + 60_000,
-    createdAt: now,
-    expiresAt: now + 60_000,
-    factors: [{ completedAt: now, method: 'password' }],
+    absoluteExpiresAt: new Date(now + 60_000),
+    createdAt: new Date(now),
+    expiresAt: new Date(now + 60_000),
+    factors: [{ completedAt: new Date(now), method: 'password' }],
     fresh: true,
     id: 'row',
     identityId: 'user-1',
     kind: 'user',
-    rotatedAt: now,
+    rotatedAt: new Date(now),
+    tenantId: null,
+    csrfHash: null,
+    ip: null,
+    userAgent: null,
+    fingerprint: null,
+    actingAs: null,
   }
 }
 
@@ -37,7 +43,7 @@ function ed25519() {
   }
 }
 
-function findAccessToken(intents: ReturnType<AuthJwtTransport['issue']>): string {
+function findAccessToken(intents: ReturnType<JwtTransport['issue']>): string {
   const j = intents.find((i) => i.type === 'json') as Extract<(typeof intents)[number], { type: 'json' }>
   return (j.body as { access_token: string }).access_token
 }
@@ -47,7 +53,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
     const a = ed25519()
     const b = ed25519()
     const c = ed25519()
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: a.priv, kid: 'a' },
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a' }],
@@ -86,7 +92,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
   it('rotation to a kid with mismatched verify-side alg throws', () => {
     const a = ed25519()
     const b = ed25519()
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: a.priv, kid: 'a' },
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a' }],
@@ -102,13 +108,13 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
         signKey: { kid: 'b', key: 'secret' },
         verifyKey: { key: 'secret', kid: 'b' /* HS256 default */ },
       }),
-    ).toThrow('AUTH/MISCONFIGURED')
+    ).toThrow('AUTH_MISCONFIGURED')
   })
 
   it('after rotation, retireVerifyKey(old) makes old tokens fail', async () => {
     const a = ed25519()
     const b = ed25519()
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: a.priv, kid: 'a' },
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a' }],
@@ -125,7 +131,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
 
   it('notAfter cutoff retires tokens at verify time', async () => {
     const a = ed25519()
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: a.priv, kid: 'a' },
       verifyKeys: [{ alg: 'EdDSA', key: a.pub, kid: 'a', notAfter: Date.now() - 1 }],
@@ -143,7 +149,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
     const rsaPriv = rsa.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString()
     const rsaPub = rsa.publicKey.export({ format: 'pem', type: 'spki' }).toString()
 
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: ed.priv, kid: 'ed' },
       verifyKeys: [
@@ -176,7 +182,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
 
   it('EdDSA verify rejects truncated signatures', async () => {
     const ed = ed25519()
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: ed.priv, kid: 'k' },
       verifyKeys: [{ alg: 'EdDSA', key: ed.pub, kid: 'k' }],
@@ -189,7 +195,7 @@ describe('AuthJwtTransport - rotation under concurrent issue', () => {
 
   it('EdDSA verify rejects garbage public key on rotation', () => {
     const ed = ed25519()
-    const t = new AuthJwtTransport({
+    const t = new JwtTransport({
       issuer: 'https://x',
       signKey: { alg: 'EdDSA', key: ed.priv, kid: 'k' },
       verifyKeys: [{ alg: 'EdDSA', key: ed.pub, kid: 'k' }],

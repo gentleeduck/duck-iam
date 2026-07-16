@@ -1,17 +1,20 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthSqlBridge, authCreateSqlStores } from '../index'
+import { Credential } from '~/core'
+import { Identities } from '~/core/identities'
+import { credentialInput, identityInput } from '~/test/store-inputs'
+import { createSqlStores, SqlBridge } from '../index'
 
 /**
  * Bridge-level tenant filter parity tests for authCreateSqlStores.
  *
- * Mirrors packages/duck-auth/src/adapters/memory/__tests__/
+ * Mirrors packages/duck-AUTH/src/adapters/memory/__tests__/
  * find-by-hashed-secret-tenant.test.ts so any future SQL/memory drift
  * is caught here, not in production.
  */
 
-function makeBridge(): AuthSqlBridge.IBridge {
-  const credentials = new Map<string, AuthSqlBridge.ICredentialRow>()
-  const identities = new Map<string, AuthSqlBridge.IIdentityRow>()
+function makeBridge(): SqlBridge.Me {
+  const credentials = new Map<string, Credential.Me>()
+  const identities = new Map<string, Identities.Me<Identities.ProfileMetadataBase>>()
   return {
     identities: {
       findById: async () => null,
@@ -63,21 +66,20 @@ function makeBridge(): AuthSqlBridge.IBridge {
 }
 
 describe('authCreateSqlStores.findByHashedSecret tenant filter parity', () => {
-  let bridge: AuthSqlBridge.IBridge
-  let stores: ReturnType<typeof authCreateSqlStores<{ email: string }>>
+  let bridge: SqlBridge.Me
+  let stores: ReturnType<typeof createSqlStores<Identities.ProfileMetadataBase>>
 
   beforeEach(() => {
     bridge = makeBridge()
-    stores = authCreateSqlStores<{ email: string }>(bridge)
+    stores = createSqlStores<Identities.ProfileMetadataBase>(bridge)
   })
 
   it('returns null when ctx.tenantId mismatches the row tenantId', async () => {
     const ident = await stores.identities.create(
-      { profile: { email: 'svc@x.com' }, providers: [] },
-      { tenantId: 'tenant-A' },
+      identityInput({ profile: { email: 'svc@x.com', username: 'svc' }, providers: [] }),
     )
     await stores.credentials.upsert(
-      { identityId: ident.id, kind: 'api-key', secret: 'hash-1', tenantId: 'tenant-A' },
+      credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-1', tenantId: 'tenant-A' }),
       { tenantId: 'tenant-A' },
     )
     const fromTenantB = await stores.credentials.findByHashedSecret('hash-1', 'api-key', {
@@ -88,11 +90,10 @@ describe('authCreateSqlStores.findByHashedSecret tenant filter parity', () => {
 
   it('returns the row when ctx.tenantId matches', async () => {
     const ident = await stores.identities.create(
-      { profile: { email: 'svc@x.com' }, providers: [] },
-      { tenantId: 'tenant-A' },
+      identityInput({ profile: { email: 'svc@x.com', username: 'svc@x.com' }, providers: [] }),
     )
     await stores.credentials.upsert(
-      { identityId: ident.id, kind: 'api-key', secret: 'hash-2', tenantId: 'tenant-A' },
+      credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-2', tenantId: 'tenant-A' }),
       { tenantId: 'tenant-A' },
     )
     const fromTenantA = await stores.credentials.findByHashedSecret('hash-2', 'api-key', {
@@ -102,8 +103,10 @@ describe('authCreateSqlStores.findByHashedSecret tenant filter parity', () => {
   })
 
   it('returns global (no tenantId) rows from any tenant scope', async () => {
-    const ident = await stores.identities.create({ profile: { email: 'global@x.com' }, providers: [] }, {})
-    await stores.credentials.upsert({ identityId: ident.id, kind: 'api-key', secret: 'hash-3' }, {})
+    const ident = await stores.identities.create(
+      identityInput({ profile: { email: 'global@x.com', username: 'global@x.com' }, providers: [] }),
+    )
+    await stores.credentials.upsert(credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-3' }), {})
     const fromTenantA = await stores.credentials.findByHashedSecret('hash-3', 'api-key', {
       tenantId: 'tenant-A',
     })
@@ -112,11 +115,10 @@ describe('authCreateSqlStores.findByHashedSecret tenant filter parity', () => {
 
   it('returns tenant-scoped row when ctx tenantId is undefined (global search)', async () => {
     const ident = await stores.identities.create(
-      { profile: { email: 'svc@x.com' }, providers: [] },
-      { tenantId: 'tenant-A' },
+      identityInput({ profile: { email: 'svc@x.com', username: 'svc@x.com' }, providers: [] }),
     )
     await stores.credentials.upsert(
-      { identityId: ident.id, kind: 'api-key', secret: 'hash-4', tenantId: 'tenant-A' },
+      credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-4', tenantId: 'tenant-A' }),
       { tenantId: 'tenant-A' },
     )
     const found = await stores.credentials.findByHashedSecret('hash-4', 'api-key', {})
@@ -125,13 +127,11 @@ describe('authCreateSqlStores.findByHashedSecret tenant filter parity', () => {
 
   it('upsert inherits ctx.tenantId when input.tenantId is unset', async () => {
     const ident = await stores.identities.create(
-      { profile: { email: 'i@x.com' }, providers: [] },
-      { tenantId: 'tenant-A' },
+      identityInput({ profile: { email: 'i@x.com', username: 'i@x.com' }, providers: [] }),
     )
-    await stores.credentials.upsert(
-      { identityId: ident.id, kind: 'api-key', secret: 'hash-5' },
-      { tenantId: 'tenant-A' },
-    )
+    await stores.credentials.upsert(credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-5' }), {
+      tenantId: 'tenant-A',
+    })
     const fromTenantA = await stores.credentials.findByHashedSecret('hash-5', 'api-key', {
       tenantId: 'tenant-A',
     })

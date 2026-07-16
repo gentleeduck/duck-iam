@@ -1,8 +1,8 @@
 // Narrow root barrel; prefer subpath imports.
 export { AuthEngine } from './core/engine'
-export { AuthErrorObject } from './core/errors'
+export { AuthError, rethrowAuthError, throwAuthError } from './core/errors'
 export {
-  AuthBearerTransport,
-  AuthCompositeTransport,
-  AuthCookieTransport,
+  BearerTransport as AuthBearerTransport,
+  CompositeTransport as AuthCompositeTransport,
+  CookieTransport as AuthCookieTransport,
 } from './core/transport'

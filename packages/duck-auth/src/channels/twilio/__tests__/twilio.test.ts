@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthIdentity } from '../../../core/types/identity'
+import type { Identities } from '~/core/identities/identities.types'
 import { AuthTwilioChannel } from '../index'
 
-function makeIdentity(phone: string | undefined): AuthIdentity.IIdentity<unknown> {
+function makeIdentity(phone: string | undefined): Identities.Me {
   return {
     id: 'ident-1',
-    profile: phone ? { phone } : undefined,
+    // Phone omitted models the "no SMS number" case; the channel reads it via
+    // getProfileString, which treats absent as undeliverable (returns ok:false).
+    profile: phone ? { username: 'u', email: 'u@x.com', phone } : { username: 'u', email: 'u@x.com' },
     providers: [],
+    emailVerified: false,
     version: 1,
-    createdAt: 0,
-    updatedAt: 0,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    deletedAt: null,
   }
 }
 
@@ -71,7 +75,7 @@ describe('AuthTwilioChannel', () => {
           client: makeClient(),
           templates: () => ({ body: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('refuses construction when neither from nor messagingServiceSid', () => {
@@ -81,7 +85,7 @@ describe('AuthTwilioChannel', () => {
           client: makeClient(),
           templates: () => ({ body: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('refuses construction when neither client nor credentials supplied', () => {
@@ -91,7 +95,7 @@ describe('AuthTwilioChannel', () => {
           from: '+1',
           templates: () => ({ body: 'x' }),
         }),
-    ).toThrowError(expect.objectContaining({ code: 'AUTH/MISCONFIGURED' }))
+    ).toThrowError(expect.objectContaining({ code: 'AUTH_MISCONFIGURED' }))
   })
 
   it('returns ok:false when identity has no phone', async () => {

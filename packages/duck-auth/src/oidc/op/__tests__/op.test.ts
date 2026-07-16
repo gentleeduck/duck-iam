@@ -1,36 +1,37 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authSha256 } from '../../../core/crypto'
-import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { type AuthOidcOpRoot, authCreateOidcOP } from '../index'
-import type { AuthOidcOP } from '../types'
+import { MemoryAdapter } from '~/adapters/memory'
+import { Identity } from '~/core'
+import { sha256 } from '~/core/crypto'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie.transport'
+import { passwords } from '~/providers/passwords'
+import { ScryptHasher } from '~/providers/passwords/hashers/scrypt'
+import { createOidcOP, type OidcOpRoot } from '../index'
+import type { OidcOP } from '../types'
 
-function isOAuthError(v: AuthOidcOP.IOAuthError | object): v is AuthOidcOP.IOAuthError {
+function isoauthError(v: OidcOP.OauthError | object): v is OidcOP.OauthError {
   return 'error' in v && typeof v.error === 'string' && !('sub' in v)
 }
 
-interface ProfileShape {
-  email: string
+interface ProfileShape extends Identity.ProfileMetadataBase {
   name?: string
   email_verified?: boolean
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<ProfileShape>()
+  const adapter = new MemoryAdapter<ProfileShape>()
   return new AuthEngine<ProfileShape>({
     baseUrl: 'http://localhost:8787',
     stores: { identities: adapter.identities, credentials: adapter.credentials, sessions: adapter.sessions },
-    transport: new AuthCookieTransport({ name: 'duck-sid' }),
-    passwords: { hasher: new AuthScryptHasher() },
+    transport: new CookieTransport({ name: 'duck-sid' }),
+    providers: [passwords({ hasher: new ScryptHasher() })],
   })
 }
 
-function buildOp(auth: ReturnType<typeof buildAuth>): AuthOidcOpRoot<ProfileShape> {
+function buildOp(auth: ReturnType<typeof buildAuth>): OidcOpRoot<ProfileShape> {
   const secret = 'dev-hmac-secret'
-  return authCreateOidcOP<ProfileShape>({
+  return createOidcOP<ProfileShape>({
     auth,
     config: {
       issuer: 'http://localhost:8787/auth',
@@ -59,7 +60,7 @@ function decodeJwt(token: string): Record<string, unknown> {
 
 function pkceVerifierAndChallenge(): { verifier: string; challenge: string } {
   const verifier = 'a'.repeat(64)
-  const hex = authSha256(verifier)
+  const hex = sha256(verifier)
   const challenge = Buffer.from(hex, 'hex').toString('base64url')
   return { verifier, challenge }
 }
@@ -336,7 +337,7 @@ describe('AuthOidcOpRoot.authorize gate', () => {
 
 describe('AuthOidcOpRoot end-to-end code flow', () => {
   let auth: ReturnType<typeof buildAuth>
-  let op: AuthOidcOpRoot<ProfileShape>
+  let op: OidcOpRoot<ProfileShape>
 
   beforeEach(() => {
     auth = buildAuth()
@@ -351,7 +352,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       scope: ['openid', 'profile', 'email', 'offline_access'],
     })
     const identity = await auth.identities.create({
-      profile: { email: 'u@x.com', name: 'Ursula', email_verified: true },
+      profile: { email: 'u@x.com', name: 'Ursula', email_verified: true, username: 'u' },
     })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
@@ -396,7 +397,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
     expect(idPayload.iss).toBe('http://localhost:8787/auth')
 
     const ui = await op.userinfo(new Headers({ authorization: `Bearer ${tok.access_token}` }))
-    if (isOAuthError(ui)) throw new Error(ui.error)
+    if (isoauthError(ui)) throw new Error(ui.error)
     expect(ui.sub).toBe(identity.id)
     expect(ui.name).toBe('Ursula')
     expect(ui.email).toBe('u@x.com')
@@ -410,7 +411,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -446,7 +447,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -492,7 +493,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid', 'offline_access'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -568,7 +569,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',
@@ -618,7 +619,7 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       token_endpoint_auth_method: 'none',
       scope: ['openid'],
     })
-    const identity = await auth.identities.create({ profile: { email: 'u@x.com' } })
+    const identity = await auth.identities.create({ profile: { email: 'u@x.com', username: 'u' } })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({
       client_id: 'spa',

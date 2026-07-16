@@ -1,22 +1,22 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { AuthEngine } from '../../../core/engine'
-import { AuthScryptHasher } from '../../../core/password/scrypt'
-import { AuthCookieTransport } from '../../../core/transport/cookie'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import { authPassword } from '../../../providers/password'
-import { type AuthKoaAdapter, authKoaProviderBegin, authKoaSession, authKoaSignIn, authKoaSignOut } from '../index'
+import { MemoryAdapter } from '~/adapters/memory'
+import { AuthEngine } from '~/core/engine'
+import { CookieTransport } from '~/core/transport/cookie.transport'
+import { MemoryLimiter } from '~/limiters/memory'
+import { passwords, ScryptHasher } from '~/providers/passwords'
+import { identityInput } from '~/test/store-inputs'
+import { type KoaAdapter, koaProviderBegin, koaSession, koaSignIn, koaSignOut } from '../index'
 
 function makeCtx(
-  overrides: Partial<AuthKoaAdapter.IContext['request']> & { params?: Record<string, string> } = {},
-): AuthKoaAdapter.IContext & {
+  overrides: Partial<KoaAdapter.Context['request']> & { params?: Record<string, string> } = {},
+): KoaAdapter.Context & {
   _headers: Map<string, string[]>
 } {
   const headers = new Map<string, string[]>()
-  const ctx: AuthKoaAdapter.IContext & { _headers: Map<string, string[]> } = {
+  const ctx: KoaAdapter.Context & { _headers: Map<string, string[]> } = {
     request: {
       method: overrides.method ?? 'POST',
-      url: overrides.url ?? '/auth/x',
+      url: overrides.url ?? '/AUTH/x',
       headers: overrides.headers ?? {},
       body: overrides.body,
     },
@@ -39,27 +39,27 @@ function makeCtx(
   return ctx
 }
 
-interface MyProfile {
+type MyProfile = {
+  username: string
   email: string
 }
 
 function buildAuth() {
-  const adapter = new AuthMemoryAdapter<MyProfile>()
+  const adapter = new MemoryAdapter<MyProfile>()
   const auth = new AuthEngine<MyProfile>({
     baseUrl: 'https://app',
-    transport: new AuthCookieTransport({ secure: false, name: 'duck-sid' }),
+    transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: {
       identities: adapter.identities,
       sessions: adapter.sessions,
       credentials: adapter.credentials,
     },
-    limiter: new AuthMemoryLimiter({ max: 20, windowMs: 60_000 }),
-    passwords: { hasher: new AuthScryptHasher({ N: 1 << 10, keylen: 32 }) },
+    limiter: new MemoryLimiter({ max: 20, windowMs: 60_000 }),
+    providers: [],
   })
   auth.providers.register(
-    authPassword({
-      passwords: auth.passwords,
-      findIdentityByEmail: async (email) => (await adapter.identities.findByEmail(email, {})) as { id: string } | null,
+    passwords({
+      hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }),
     }),
   )
   return { auth, adapter }
@@ -75,21 +75,23 @@ describe('Koa adapter', () => {
 
   it('signIn rejects missing providerId with 400 + AUTH/INVALID_CREDENTIALS body', async () => {
     const ctx = makeCtx({ body: {} })
-    await authKoaSignIn(auth)(ctx)
+    await koaSignIn(auth)(ctx)
     expect(ctx.status).toBe(400)
-    expect(String(ctx.body)).toContain('AUTH/INVALID_CREDENTIALS')
+    expect(String(ctx.body)).toContain('AUTH_INVALID_CREDENTIALS')
   })
 
   it('signIn happy path sets cookie + 200', async () => {
-    const ident = await adapter.identities.create({ profile: { email: 'user@x.com' }, providers: [] }, {})
-    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', {})
+    const ident = await adapter.identities.create(
+      identityInput({ profile: { username: 'user', email: 'user@x.com' }, providers: [] }),
+    )
+    await auth.passwords.set(ident.id, 'correcthorsebatterystaple', adapter.credentials)
     const ctx = makeCtx({
       body: {
         providerId: 'password',
         input: { email: 'user@x.com', password: 'correcthorsebatterystaple' },
       },
     })
-    await authKoaSignIn(auth)(ctx)
+    await koaSignIn(auth)(ctx)
     expect(ctx.status).toBe(200)
     const cookies = ctx._headers.get('set-cookie') ?? []
     expect(cookies.length).toBeGreaterThan(0)
@@ -98,14 +100,14 @@ describe('Koa adapter', () => {
 
   it('session returns null body when no cookie', async () => {
     const ctx = makeCtx({ method: 'GET', body: undefined })
-    await authKoaSession(auth)(ctx)
+    await koaSession(auth)(ctx)
     expect(ctx.status).toBe(200)
     expect(JSON.parse(String(ctx.body))).toEqual({ session: null, identity: null })
   })
 
   it('signOut clears the cookie even without a session', async () => {
     const ctx = makeCtx({ body: undefined })
-    await authKoaSignOut(auth)(ctx)
+    await koaSignOut(auth)(ctx)
     const cookies = ctx._headers.get('set-cookie') ?? []
     expect(cookies.length).toBeGreaterThan(0)
     expect(cookies[0]).toMatch(/Max-Age=0/i)
@@ -113,8 +115,8 @@ describe('Koa adapter', () => {
 
   it('providerBegin requires :id', async () => {
     const ctx = makeCtx({ body: {}, params: {} })
-    await authKoaProviderBegin(auth)(ctx)
+    await koaProviderBegin(auth)(ctx)
     expect(ctx.status).toBe(400)
-    expect(String(ctx.body)).toContain('AUTH/PROVIDER_FAILED')
+    expect(String(ctx.body)).toContain('AUTH_PROVIDER_FAILED')
   })
 })

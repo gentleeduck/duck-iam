@@ -83,6 +83,8 @@ export const POLICY_JSON_SCHEMA = {
             'not_exists',
             'subset_of',
             'superset_of',
+            'before',
+            'after',
           ],
         },
         value: {},

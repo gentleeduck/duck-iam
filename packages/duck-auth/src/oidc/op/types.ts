@@ -9,24 +9,24 @@
  * claim mapping, distributed claims, RP-initiated logout (separate).
  */
 
-import type { AuthIdentity } from '../../core/types/identity'
+import type { Identity } from '~/core'
 
-export namespace AuthOidcOP {
-  export type IGrantType = 'authorization_code' | 'refresh_token'
-  export type IResponseType = 'code'
-  export type ITokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
-  export type ICodeChallengeMethod = 'S256' | 'plain'
-  export type IPrompt = 'none' | 'login' | 'consent' | 'select_account'
+export namespace OidcOP {
+  export type GrantType = 'authorization_code' | 'refresh_token'
+  export type ResponseType = 'code'
+  export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
+  export type CodeChallengeMethod = 'S256' | 'plain'
+  export type Prompt = 'none' | 'login' | 'consent' | 'select_account'
 
   /** A registered OIDC client. */
-  export interface IClient {
+  export type Client = {
     client_id: string
     /** Hashed (authSha256) secret. `null` for public clients. */
     client_secret_hash: string | null
     redirect_uris: string[]
-    grant_types: IGrantType[]
-    response_types: IResponseType[]
-    token_endpoint_auth_method: ITokenEndpointAuthMethod
+    grant_types: GrantType[]
+    response_types: ResponseType[]
+    token_endpoint_auth_method: TokenEndpointAuthMethod
     /** Scopes the client is allowed to ask for. Subset of OP-supported. */
     scope: string[]
     /** Display name for consent screen. */
@@ -39,7 +39,7 @@ export namespace AuthOidcOP {
   }
 
   /** A pending authorization code. TTL ~10 min. */
-  export interface ICode {
+  export type Code = {
     code: string
     client_id: string
     identity_id: string
@@ -47,17 +47,17 @@ export namespace AuthOidcOP {
     scope: string[]
     nonce: string | null
     code_challenge: string | null
-    code_challenge_method: ICodeChallengeMethod | null
+    code_challenge_method: CodeChallengeMethod | null
     /** Tenant binding for cross-tenant guard. */
     tenant_id: string | null
-    /** AuthSession id used to mint this code; surfaced into id_token sid claim. */
+    /** Session id used to mint this code; surfaced into id_token sid claim. */
     sid: string
     /** Expiry, ms epoch. */
     exp: number
   }
 
   /** An issued opaque access token. */
-  export interface IAccessToken {
+  export type AccessToken = {
     /** Hashed token (authSha256). Plaintext is only ever returned at issue time. */
     token_hash: string
     client_id: string
@@ -68,7 +68,7 @@ export namespace AuthOidcOP {
   }
 
   /** An issued refresh token. Rotated on use; reuse triggers family revoke. */
-  export interface IRefreshToken {
+  export type RefreshToken = {
     token_hash: string
     family_id: string
     client_id: string
@@ -81,46 +81,46 @@ export namespace AuthOidcOP {
   }
 
   /** Per (subject, client_id) granted scopes. */
-  export interface IConsent {
+  export type Consent = {
     identity_id: string
     client_id: string
     scope: string[]
     grantedAt: number
   }
 
-  export interface IClientStore {
-    findById(client_id: string): Promise<IClient | null>
-    insert(c: IClient): Promise<void>
+  export type ClientStore = {
+    findById(client_id: string): Promise<Client | null>
+    insert(c: Client): Promise<void>
   }
 
-  export interface ICodeStore {
-    insert(c: ICode): Promise<void>
+  export type CodeStore = {
+    insert(c: Code): Promise<void>
     /** Consume = atomic find-and-delete. Returns null if missing or expired. */
-    consume(code: string, now: number): Promise<ICode | null>
+    consume(code: string, now: number): Promise<Code | null>
   }
 
-  export interface IAccessTokenStore {
-    insert(t: IAccessToken): Promise<void>
-    findByHash(hash: string, now: number): Promise<IAccessToken | null>
+  export type AccessTokenStore = {
+    insert(t: AccessToken): Promise<void>
+    findByHash(hash: string, now: number): Promise<AccessToken | null>
     revokeByHash(hash: string): Promise<void>
   }
 
-  export interface IRefreshTokenStore {
-    insert(t: IRefreshToken): Promise<void>
-    findByHash(hash: string, now: number): Promise<IRefreshToken | null>
+  export type RefreshTokenStore = {
+    insert(t: RefreshToken): Promise<void>
+    findByHash(hash: string, now: number): Promise<RefreshToken | null>
     /** Mark as consumed. Returns the row or null if already consumed / missing. */
-    consume(hash: string, now: number): Promise<IRefreshToken | null>
+    consume(hash: string, now: number): Promise<RefreshToken | null>
     /** Revoke every refresh token in this family (reuse-attack defense). */
     revokeFamily(family_id: string): Promise<void>
   }
 
-  export interface IConsentStore {
-    find(identity_id: string, client_id: string): Promise<IConsent | null>
-    upsert(c: IConsent): Promise<void>
+  export type ConsentStore = {
+    find(identity_id: string, client_id: string): Promise<Consent | null>
+    upsert(c: Consent): Promise<void>
   }
 
-  /** Configuration for the OP. */
-  export interface IConfig {
+  /** Cfguration for the OP. */
+  export type Cfg = {
     /** Issuer URL. Must match the discovery doc. */
     issuer: string
     /** Supported scopes. Always includes `openid`. */
@@ -137,8 +137,8 @@ export namespace AuthOidcOP {
     allowHttp?: boolean
   }
 
-  /** OAuth2-style standard error codes per RFC 6749 section 5.2 / OIDC core section 3.1.2.6. */
-  export type IErrorCode =
+  /** oauth2-style standard error codes per RFC 6749 section 5.2 / OIDC core section 3.1.2.6. */
+  export type ErrorCode =
     | 'invalid_request'
     | 'invalid_client'
     | 'invalid_grant'
@@ -154,15 +154,15 @@ export namespace AuthOidcOP {
     | 'invalid_token'
     | 'insufficient_scope'
 
-  export interface IOAuthError {
-    error: IErrorCode
+  export type OauthError = {
+    error: ErrorCode
     error_description?: string
-    /** OAuth state echo for redirect-bearing errors. */
+    /** oauth state echo for redirect-bearing errors. */
     state?: string
   }
 
   /** /authorize request shape, post URL parse + validation. */
-  export interface IAuthorizeRequest {
+  export type AuthorizeRequest = {
     client_id: string
     redirect_uri: string
     response_type: string
@@ -175,14 +175,14 @@ export namespace AuthOidcOP {
   }
 
   /** /authorize result the host app routes on. */
-  export type IAuthorizeResult =
+  export type AuthorizeResult<Profile extends Identity.ProfileMetadataBase> =
     | { kind: 'redirect'; url: string }
     | { kind: 'login_required'; reason: 'no_session' | 'prompt_login' | 'max_age_exceeded' }
-    | { kind: 'consent_required'; client: IClient; scope: string[]; identity: AuthIdentity.IIdentity<unknown> }
-    | { kind: 'error'; status: number; body: IOAuthError; redirectUri?: string }
+    | { kind: 'consent_required'; client: Client; scope: string[]; identity: Identity.Me<Profile> }
+    | { kind: 'error'; status: number; body: OauthError; redirectUri?: string }
 
   /** /token request shape, post body parse. */
-  export interface ITokenRequest {
+  export type TokenRequest = {
     grant_type: string
     code?: string
     redirect_uri?: string
@@ -195,7 +195,7 @@ export namespace AuthOidcOP {
   }
 
   /** /token success body. */
-  export interface ITokenResponse {
+  export type TokenResponse = {
     access_token: string
     token_type: 'Bearer'
     expires_in: number
@@ -205,7 +205,7 @@ export namespace AuthOidcOP {
   }
 
   /** /userinfo claim payload. Shape varies with granted scopes. */
-  export interface IUserinfoClaims {
+  export type UserinfoClaims = {
     sub: string
     /** Present when `profile` scope granted. */
     name?: string
@@ -217,7 +217,7 @@ export namespace AuthOidcOP {
   }
 
   /** RFC 7591 dynamic client registration request body. */
-  export interface IDcrRequest {
+  export type DcrRequest = {
     redirect_uris: string[]
     client_name?: string
     client_uri?: string
@@ -232,7 +232,7 @@ export namespace AuthOidcOP {
   }
 
   /** RFC 7591 success response. */
-  export interface IDcrResponse {
+  export type DcrResponse = {
     client_id: string
     client_secret?: string
     client_id_issued_at: number
@@ -248,13 +248,13 @@ export namespace AuthOidcOP {
   }
 
   /** RFC 7591 standardized error response. */
-  export interface IDcrError {
+  export type DcrError = {
     error: 'invalid_client_metadata' | 'invalid_redirect_uri' | 'unauthorized'
     error_description?: string
   }
 
   /** DCR controller config. */
-  export interface IDcrConfig {
+  export type DcrCfg = {
     /** Master switch. Default false. */
     enabled: boolean
     /**

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { AuthBearerTransport } from '../bearer'
+import { BearerTransport } from '../bearer.transport'
 
 function authWithStorybook(value: string): { headers: Headers } {
   return { headers: new Headers({ authorization: value }) }
 }
 
 describe('AuthBearerTransport.extract', () => {
-  const t = new AuthBearerTransport()
+  const t = new BearerTransport()
 
   it('returns the token when a well-formed Bearer header is present', () => {
     expect(t.extract(authWithStorybook('Bearer abc123'))).toBe('abc123')
@@ -71,30 +71,30 @@ describe('AuthBearerTransport.extract', () => {
 
   describe('custom scheme/header config', () => {
     it('honors a custom scheme name (Token instead of Bearer)', () => {
-      const custom = new AuthBearerTransport({ scheme: 'Token' })
+      const custom = new BearerTransport({ scheme: 'Token' })
       expect(custom.extract(authWithStorybook('Token xyz'))).toBe('xyz')
       expect(custom.extract(authWithStorybook('Bearer xyz'))).toBeNull()
     })
 
     it('case-insensitive scheme matching applies to custom schemes too', () => {
-      const custom = new AuthBearerTransport({ scheme: 'DPoP' })
+      const custom = new BearerTransport({ scheme: 'DPoP' })
       expect(custom.extract(authWithStorybook('dpop xyz'))).toBe('xyz')
       expect(custom.extract(authWithStorybook('DPOP xyz'))).toBe('xyz')
     })
 
     it('honors a custom header name', () => {
-      const custom = new AuthBearerTransport({ header: 'x-api-token' })
+      const custom = new BearerTransport({ header: 'x-api-token' })
       expect(custom.extract({ headers: new Headers({ 'x-api-token': 'Bearer abc' }) })).toBe('abc')
     })
   })
 })
 
 describe('AuthBearerTransport.issue', () => {
-  const t = new AuthBearerTransport()
+  const t = new BearerTransport()
 
   it('emits a json intent with token + expiresAt', () => {
     const expiresAt = Date.now() + 60_000
-    // @ts-expect-error: this test only exercises the expiresAt projection - the rest of AuthSession.ISession is irrelevant for AuthBearerTransport.issue.
+    // @ts-expect-error: this test only exercises the expiresAt projection - the rest of Session.ISession is irrelevant for AuthBearerTransport.issue.
     const intents = t.issue('sid-1', { expiresAt })
     expect(intents).toHaveLength(1)
     const intent = intents[0]
@@ -106,7 +106,7 @@ describe('AuthBearerTransport.issue', () => {
 
 describe('AuthBearerTransport.revoke', () => {
   it('emits a json intent acknowledging revocation', () => {
-    const intents = new AuthBearerTransport().revoke()
+    const intents = new BearerTransport().revoke()
     expect(intents).toHaveLength(1)
     const intent = intents[0]
     if (!intent || intent.type !== 'json') throw new Error('expected json intent')

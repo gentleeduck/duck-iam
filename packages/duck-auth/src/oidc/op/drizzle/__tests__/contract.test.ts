@@ -9,7 +9,7 @@
  * running Postgres / MySQL or an embedded driver (pglite, mysql2 in
  * mock mode); both are dev-dep additions, not in this workspace.
  *
- * See packages/duck-auth/src/oidc/op/drizzle/README.md (planned) for
+ * See packages/duck-AUTH/src/oidc/op/drizzle/README.md (planned) for
  * the integration-test gap.
  */
 

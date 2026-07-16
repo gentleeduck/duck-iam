@@ -192,14 +192,24 @@
         "default": "./dist/limiters/memory/index.cjs"
       }
     },
-    "./providers/password": {
+    "./providers/passwords": {
       "import": {
-        "types": "./dist/providers/password/index.d.ts",
-        "default": "./dist/providers/password/index.js"
+        "types": "./dist/providers/passwords/index.d.ts",
+        "default": "./dist/providers/passwords/index.js"
       },
       "require": {
-        "types": "./dist/providers/password/index.d.cts",
-        "default": "./dist/providers/password/index.cjs"
+        "types": "./dist/providers/passwords/index.d.cts",
+        "default": "./dist/providers/passwords/index.cjs"
+      }
+    },
+    "./providers/mfa": {
+      "import": {
+        "types": "./dist/providers/mfa/index.d.ts",
+        "default": "./dist/providers/mfa/index.js"
+      },
+      "require": {
+        "types": "./dist/providers/mfa/index.d.cts",
+        "default": "./dist/providers/mfa/index.cjs"
       }
     },
     "./providers/magic-link": {
@@ -573,9 +583,14 @@
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules"
   },
+  "dependencies": {
+    "@types/node": "^26.1.0",
+    "uuid": "^11.0.0"
+  },
   "peerDependencies": {
     "@aws-sdk/client-kms": ">=3 <4",
     "@gentleduck/iam": "workspace:*",
+    "@nestjs/common": ">=10 <12",
     "@node-rs/argon2": ">=2 <3",
     "@simplewebauthn/server": "^13.3.1",
     "drizzle-orm": "^0.45.2",
@@ -589,6 +604,9 @@
       "optional": true
     },
     "@gentleduck/iam": {
+      "optional": true
+    },
+    "@nestjs/common": {
       "optional": true
     },
     "@node-rs/argon2": {
@@ -614,7 +632,6 @@
     }
   },
   "devDependencies": {
-    "@gentleduck/iam": "workspace:*",
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",

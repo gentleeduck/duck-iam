@@ -1,17 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthMemoryAdapter } from '../../../adapters/memory'
-import { authRandomToken, authSha256, authTimingSafeEqual } from '../../../core/crypto'
-import { AuthInMemoryEvents } from '../../../core/events'
-import { AuthMemoryLimiter } from '../../../limiters/memory'
-import type { AuthPasskeyProvider } from '../index'
-import { AuthMemoryPasskeyChallengeStore, authPasskey } from '../index'
-import type { AuthPasskeyTypes } from '../types'
+import { MemoryAdapter } from '~/adapters/memory'
+import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
+import { InMemoryEvents } from '~/core/events'
+import { Identities } from '~/core/identities'
+import { MemoryLimiter } from '~/limiters/memory'
+import { credentialInput, identityInput } from '~/test/store-inputs'
+import { AuthMemoryPasskeyChallengeStore, passkey } from '../index'
+import type { Passkey } from '../passkey.types'
 
-interface ProfileShape {
-  email: string
-}
+interface ProfileShape extends Identities.ProfileMetadataBase {}
 
-function ctxFor(adapter: AuthMemoryAdapter<ProfileShape>) {
+function ctxFor(adapter: MemoryAdapter<ProfileShape>) {
   return {
     stores: {
       identities: adapter.identities,
@@ -20,13 +19,13 @@ function ctxFor(adapter: AuthMemoryAdapter<ProfileShape>) {
     },
     tenant: {},
     baseUrl: 'https://app.test',
-    limiter: new AuthMemoryLimiter(),
-    events: new AuthInMemoryEvents(),
-    crypto: { authRandomToken, authSha256, authTimingSafeEqual },
+    limiter: new MemoryLimiter(),
+    events: new InMemoryEvents(),
+    crypto: { authRandomToken: randomToken, authSha256: sha256, authTimingSafeEqual: timingSafeEqual },
   }
 }
 
-function makeWebauthn(newCounter = 5): AuthPasskeyTypes.ISimpleWebAuthnServerModule {
+function makeWebauthn(newCounter = 5): Passkey.SimpleWebAuthnServerModule {
   return {
     generateRegistrationOptions: vi.fn(async () => ({
       challenge: 'reg',
@@ -62,30 +61,32 @@ function makeWebauthn(newCounter = 5): AuthPasskeyTypes.ISimpleWebAuthnServerMod
 }
 
 async function plantCredential(
-  adapter: AuthMemoryAdapter<ProfileShape>,
+  adapter: MemoryAdapter<ProfileShape>,
   identityId: string,
   metadata: unknown,
 ): Promise<void> {
   await adapter.credentials.upsert(
-    {
+    credentialInput({
       identityId,
       kind: 'passkey',
       secret: 'webauthn-cred-1',
       metadata: metadata as Record<string, unknown>,
-    },
+    }),
     {},
   )
 }
 
 describe('passkey complete() - metadata parser', () => {
-  let adapter: AuthMemoryAdapter<ProfileShape>
+  let adapter: MemoryAdapter<ProfileShape>
   let identityId: string
-  let opts: AuthPasskeyProvider.IOptions
+  let opts: Passkey.Options
   let challengeStore: AuthMemoryPasskeyChallengeStore
 
   beforeEach(async () => {
-    adapter = new AuthMemoryAdapter<ProfileShape>()
-    const id = await adapter.identities.create({ profile: { email: 'a@b' }, providers: [] }, {})
+    adapter = new MemoryAdapter<ProfileShape>()
+    const id = await adapter.identities.create(
+      identityInput({ profile: { email: 'a@b', username: 'a' }, providers: [] }),
+    )
     identityId = id.id
     challengeStore = new AuthMemoryPasskeyChallengeStore()
   })
@@ -99,7 +100,7 @@ describe('passkey complete() - metadata parser', () => {
       webauthnModule: makeWebauthn(5),
       challengeStore,
     }
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     const intents = await provider.begin(ctxFor(adapter), { sessionId: 's1' })
     // Stored challenge under auth:s1
     return (intents[0] && intents[0].type === 'json' && (intents[0].body as { challenge?: string }).challenge) || ''
@@ -108,46 +109,46 @@ describe('passkey complete() - metadata parser', () => {
   it('rejects credential with no publicKey field (AUTH/PASSKEY_MISMATCH)', async () => {
     await begin()
     await plantCredential(adapter, identityId, { counter: 0 })
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     await expect(
       provider.complete(ctxFor(adapter), {
         response: { id: 'webauthn-cred-1' },
         sessionId: 's1',
       }),
-    ).rejects.toMatchObject({ code: 'AUTH/PASSKEY_MISMATCH' })
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
   it('rejects credential with non-string publicKey', async () => {
     await begin()
     await plantCredential(adapter, identityId, { publicKey: 42, counter: 0 })
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     await expect(
       provider.complete(ctxFor(adapter), { response: { id: 'webauthn-cred-1' }, sessionId: 's1' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PASSKEY_MISMATCH' })
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
   it('rejects credential with non-numeric counter (counter-rollback bypass class)', async () => {
     await begin()
     await plantCredential(adapter, identityId, { publicKey: 'AQIDBA', counter: 'abc' })
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     await expect(
       provider.complete(ctxFor(adapter), { response: { id: 'webauthn-cred-1' }, sessionId: 's1' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PASSKEY_MISMATCH' })
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
   it('rejects credential with NaN / Infinity counter', async () => {
     await begin()
     await plantCredential(adapter, identityId, { publicKey: 'AQIDBA', counter: NaN })
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     await expect(
       provider.complete(ctxFor(adapter), { response: { id: 'webauthn-cred-1' }, sessionId: 's1' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PASSKEY_MISMATCH' })
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
   it('accepts credential with missing counter (defaults to 0; cloud-synced passkey case)', async () => {
     await begin()
     await plantCredential(adapter, identityId, { publicKey: 'AQIDBA' })
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     const intents = await provider.complete(ctxFor(adapter), {
       response: { id: 'webauthn-cred-1' },
       sessionId: 's1',
@@ -158,10 +159,10 @@ describe('passkey complete() - metadata parser', () => {
   it('rejects credential where metadata is not a plain object', async () => {
     await begin()
     await plantCredential(adapter, identityId, 'not-an-object')
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     await expect(
       provider.complete(ctxFor(adapter), { response: { id: 'webauthn-cred-1' }, sessionId: 's1' }),
-    ).rejects.toMatchObject({ code: 'AUTH/PASSKEY_MISMATCH' })
+    ).rejects.toMatchObject({ code: 'AUTH_PASSKEY_MISMATCH' })
   })
 
   it('filters non-string entries out of transports array', async () => {
@@ -173,7 +174,7 @@ describe('passkey complete() - metadata parser', () => {
       counter: 0,
       transports: ['internal', 42, null, 'usb'],
     })
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     const intents = await provider.complete(ctxFor(adapter), {
       response: { id: 'webauthn-cred-1' },
       sessionId: 's1',
@@ -191,7 +192,7 @@ describe('passkey complete() - metadata parser', () => {
       counter: 0,
       transports: 'usb',
     })
-    const provider = authPasskey<ProfileShape>(opts)
+    const provider = passkey<ProfileShape>(opts)
     const intents = await provider.complete(ctxFor(adapter), {
       response: { id: 'webauthn-cred-1' },
       sessionId: 's1',

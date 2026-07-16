@@ -96,7 +96,7 @@ describe('isSafeCallbackPath', () => {
 
   describe('type predicate narrows', () => {
     it('narrows unknown -> string in the true branch', () => {
-      const v: unknown = '/auth/reset-password'
+      const v: unknown = '/AUTH/reset-password'
       if (isSafeCallbackPath(v)) {
         // If the predicate works, `v.startsWith` compiles without a cast.
         expect(v.startsWith('/')).toBe(true)
