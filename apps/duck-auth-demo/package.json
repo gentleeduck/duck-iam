@@ -41,7 +41,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "drizzle-kit": "^0.31.0",
-    "storybook": "^8",
+    "storybook": "^10",
     "tailwindcss": "^4.3.0",
     "typescript": "catalog:",
     "vite": "^8.0.12"
