@@ -1,8 +1,8 @@
 export { createDrizzleSqliteBridge, drizzleSqliteStorage } from './sqlite'
 export {
-  credentialsTable,
-  eventsTable,
-  identitiesTable,
-  sessionsTable,
+  authCredentials as credentialsTable,
+  authEvents as eventsTable,
+  authIdentities as identitiesTable,
+  authSessions as sessionsTable,
 } from './sqlite.schema'
 export type { Sqlite } from './sqlite.types'

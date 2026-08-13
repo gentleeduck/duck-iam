@@ -22,7 +22,7 @@ import { createDrizzleSqliteBridge } from '../sqlite'
 
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
 // describe.skip when not bun, so vitest under Node never resolves bun:sqlite.
-const onlyBun = IS_BUN ? describe : describe.skip
+
 
 const DDL = `
 CREATE TABLE auth_identities (
@@ -41,19 +41,37 @@ CREATE TABLE auth_sessions (
   absolute_expires_at INTEGER NOT NULL, fresh INTEGER NOT NULL, acting_as TEXT);
 `
 
-onlyBun('DrizzleSqlite compliance matrix', () => {
+describe('DrizzleSqlite compliance matrix', () => {
   // Fresh in-memory DB (+ tables) per store instance the compliance kit requests.
   let make: () => ReturnType<typeof createSqlStores<{ username: string; email: string }>>
 
   beforeAll(async () => {
-    const { Database } = (await import('bun:sqlite' as string)) as {
-      Database: new (path: string) => { exec(sql: string): void }
+    // Runs on BOTH runtimes — this suite used to be skipped under vitest, which
+    // meant the SQL bridge (shared by pg + mysql + sqlite) was never verified by
+    // the project's own `bun run test`.
+    //   Bun  -> bun:sqlite     via drizzle-orm/bun-sqlite
+    //   Node -> node:sqlite    via drizzle-orm/better-sqlite3 (same prepare/exec
+    //           shape, so the driver adapter accepts it structurally)
+    if (IS_BUN) {
+      const { Database } = (await import('bun:sqlite' as string)) as {
+        Database: new (path: string) => { exec(sql: string): void }
+      }
+      const { drizzle } = await import('drizzle-orm/bun-sqlite')
+      make = () => {
+        const sqlite = new Database(':memory:')
+        sqlite.exec(DDL)
+        // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database is structurally the drizzle client.
+        return createSqlStores<{ username: string; email: string }>(createDrizzleSqliteBridge(drizzle(sqlite as any)))
+      }
+      return
     }
-    const { drizzle } = await import('drizzle-orm/bun-sqlite')
+
+    const { default: Database } = await import('better-sqlite3')
+    const { drizzle } = await import('drizzle-orm/better-sqlite3')
     make = () => {
       const sqlite = new Database(':memory:')
       sqlite.exec(DDL)
-      // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database is structurally the drizzle client.
+      // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
       return createSqlStores<{ username: string; email: string }>(createDrizzleSqliteBridge(drizzle(sqlite as any)))
     }
   })

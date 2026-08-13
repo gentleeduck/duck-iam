@@ -18,7 +18,7 @@ import type { MySqlColumn } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
-import { credentialsTable, identitiesTable, sessionsTable } from './mysql.schema'
+import { authCredentials, authIdentities, authSessions } from './mysql.schema'
 import type { Mysql } from './mysql.types'
 
 /**
@@ -41,15 +41,15 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
 
   /** MySQL has no RETURNING — re-select a row by primary key after a mutation. */
   async function reselectIdentity(id: string) {
-    const rows = await db.select().from(identitiesTable).where(eq(identitiesTable.id, id)).limit(1)
+    const rows = await db.select().from(authIdentities).where(eq(authIdentities.id, id)).limit(1)
     return rows[0] ?? null
   }
   async function reselectCredential(id: string) {
-    const rows = await db.select().from(credentialsTable).where(eq(credentialsTable.id, id)).limit(1)
+    const rows = await db.select().from(authCredentials).where(eq(authCredentials.id, id)).limit(1)
     return rows[0] ?? null
   }
   async function reselectSession(id: string) {
-    const rows = await db.select().from(sessionsTable).where(eq(sessionsTable.id, id)).limit(1)
+    const rows = await db.select().from(authSessions).where(eq(authSessions.id, id)).limit(1)
     return rows[0] ?? null
   }
 
@@ -59,8 +59,8 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
       findById: async (id) => {
         const rows = await db
           .select()
-          .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, id), isNull(identitiesTable.deletedAt)))
+          .from(authIdentities)
+          .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
           .limit(1)
         const row = rows[0]
         if (!row) return null
@@ -69,8 +69,8 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
       findByEmail: async (email) => {
         const rows = await db
           .select()
-          .from(identitiesTable)
-          .where(and(sql`${identitiesTable.profile}->>'$.email' = ${email}`, isNull(identitiesTable.deletedAt)))
+          .from(authIdentities)
+          .where(and(sql`${authIdentities.profile}->>'$.email' = ${email}`, isNull(authIdentities.deletedAt)))
           .limit(1)
         return rows[0] ?? null
       },
@@ -79,48 +79,48 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
         const needle = JSON.stringify({ providerId, providerSub: sub })
         const rows = await db
           .select()
-          .from(identitiesTable)
-          .where(and(sql`json_contains(${identitiesTable.providers}, ${needle})`, isNull(identitiesTable.deletedAt)))
+          .from(authIdentities)
+          .where(and(sql`json_contains(${authIdentities.providers}, ${needle})`, isNull(authIdentities.deletedAt)))
           .limit(1)
         return rows[0] ?? null
       },
       insert: async (row) => {
-        await db.insert(identitiesTable).values(row)
+        await db.insert(authIdentities).values(row)
       },
       updateConditional: async (id, patch, expectedVersion) => {
         const result = await db
-          .update(identitiesTable)
+          .update(authIdentities)
           .set(patch)
-          .where(and(eq(identitiesTable.id, id), eq(identitiesTable.version, expectedVersion)))
+          .where(and(eq(authIdentities.id, id), eq(authIdentities.version, expectedVersion)))
         if (result[0].affectedRows === 0) return null
         return reselectIdentity(id)
       },
       softDelete: async (id, deletedAt) => {
         await db
-          .update(identitiesTable)
+          .update(authIdentities)
           .set({ deletedAt })
-          .where(and(eq(identitiesTable.id, id)))
+          .where(and(eq(authIdentities.id, id)))
       },
       restore: async (id) => {
         const result = await db
-          .update(identitiesTable)
+          .update(authIdentities)
           .set({ deletedAt: null })
-          .where(and(eq(identitiesTable.id, id)))
+          .where(and(eq(authIdentities.id, id)))
         if (result[0].affectedRows === 0) return null
         return reselectIdentity(id)
       },
       erase: async (id) => {
         // FK CASCADE handles credentials and sessions; explicit deletes are belt-and-suspenders.
-        await db.delete(credentialsTable).where(eq(credentialsTable.identityId, id))
-        await db.delete(sessionsTable).where(eq(sessionsTable.identityId, id))
-        await db.delete(identitiesTable).where(and(eq(identitiesTable.id, id)))
+        await db.delete(authCredentials).where(eq(authCredentials.identityId, id))
+        await db.delete(authSessions).where(eq(authSessions.identityId, id))
+        await db.delete(authIdentities).where(and(eq(authIdentities.id, id)))
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt) => {
         // Read-modify-write: portable across MySQL 5.7/8.x/MariaDB; splice client-side.
         const rows = await db
-          .select({ providers: identitiesTable.providers })
-          .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, identityId)))
+          .select({ providers: authIdentities.providers })
+          .from(authIdentities)
+          .where(and(eq(authIdentities.id, identityId)))
           .limit(1)
         const cur = rows[0]
         if (!cur) return
@@ -128,48 +128,48 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
         if (providers.some((p) => p.providerId === providerId && p.providerSub === providerSub)) return
         providers.push({ providerId, providerSub: providerSub ?? null, addedAt })
         await db
-          .update(identitiesTable)
+          .update(authIdentities)
           .set({ providers })
-          .where(and(eq(identitiesTable.id, identityId)))
+          .where(and(eq(authIdentities.id, identityId)))
       },
       deleteProviderLink: async (identityId, providerId) => {
         const rows = await db
-          .select({ providers: identitiesTable.providers })
-          .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, identityId)))
+          .select({ providers: authIdentities.providers })
+          .from(authIdentities)
+          .where(and(eq(authIdentities.id, identityId)))
           .limit(1)
         const cur = rows[0]
         if (!cur) return
         const providers = (cur.providers ?? []).filter((p) => p.providerId !== providerId)
         await db
-          .update(identitiesTable)
+          .update(authIdentities)
           .set({ providers })
-          .where(and(eq(identitiesTable.id, identityId)))
+          .where(and(eq(authIdentities.id, identityId)))
       },
       merge: async (survivorId, dupId) => {
         // Union dup's provider links into the survivor before re-pointing rows.
         const [surv] = await db
-          .select({ providers: identitiesTable.providers })
-          .from(identitiesTable)
-          .where(eq(identitiesTable.id, survivorId))
+          .select({ providers: authIdentities.providers })
+          .from(authIdentities)
+          .where(eq(authIdentities.id, survivorId))
           .limit(1)
         const [dupRow] = await db
-          .select({ providers: identitiesTable.providers })
-          .from(identitiesTable)
-          .where(eq(identitiesTable.id, dupId))
+          .select({ providers: authIdentities.providers })
+          .from(authIdentities)
+          .where(eq(authIdentities.id, dupId))
           .limit(1)
         if (surv && dupRow) {
           await db
-            .update(identitiesTable)
+            .update(authIdentities)
             .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
-            .where(eq(identitiesTable.id, survivorId))
+            .where(eq(authIdentities.id, survivorId))
         }
         // Global-account merge: repoint ALL of the dup's tenant-scoped rows
         // (across every tenant) before erasing it, so the FK cascade on delete
         // cannot orphan another tenant's credentials/sessions.
-        await db.update(credentialsTable).set({ identityId: survivorId }).where(eq(credentialsTable.identityId, dupId))
-        await db.update(sessionsTable).set({ identityId: survivorId }).where(eq(sessionsTable.identityId, dupId))
-        await db.delete(identitiesTable).where(eq(identitiesTable.id, dupId))
+        await db.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
+        await db.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
+        await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
       },
     },
     // --- Credentials ---
@@ -177,30 +177,30 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
       findById: async (id, tenantId) => {
         const rows = await db
           .select()
-          .from(credentialsTable)
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .from(authCredentials)
+          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
           .limit(1)
         return rows[0] ?? null
       },
       listByIdentity: async (identityId, kind, tenantId) => {
         const where = [
-          eq(credentialsTable.identityId, identityId),
-          ...(kind ? [eq(credentialsTable.kind, kind)] : []),
-          ...(tenantId ? [eq(credentialsTable.tenantId, tenantId)] : []),
+          eq(authCredentials.identityId, identityId),
+          ...(kind ? [eq(authCredentials.kind, kind)] : []),
+          ...(tenantId ? [eq(authCredentials.tenantId, tenantId)] : []),
         ]
         return db
           .select()
-          .from(credentialsTable)
+          .from(authCredentials)
           .where(and(...where))
       },
       findByProviderSub: async (provider, sub, _tenantId) => {
         const rows = await db
           .select()
-          .from(credentialsTable)
+          .from(authCredentials)
           .where(
             and(
-              sql`${credentialsTable.metadata}->>'$.provider' = ${provider}`,
-              sql`${credentialsTable.metadata}->>'$.sub' = ${sub}`,
+              sql`${authCredentials.metadata}->>'$.provider' = ${provider}`,
+              sql`${authCredentials.metadata}->>'$.sub' = ${sub}`,
             ),
           )
           .limit(1)
@@ -211,28 +211,28 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
         // so callers can distinguish "revoked" from "never existed".
         const rows = await db
           .select()
-          .from(credentialsTable)
+          .from(authCredentials)
           .where(
             and(
-              eq(credentialsTable.secret, secretHash),
-              eq(credentialsTable.kind, kind),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentials.secret, secretHash),
+              eq(authCredentials.kind, kind),
+              tenantWhere(authCredentials, tenantId),
             ),
           )
         return pickFreshestCredential(rows)
       },
       insert: async (row) => {
-        await db.insert(credentialsTable).values(row)
+        await db.insert(authCredentials).values(row)
       },
       updateConditional: async (id, patch, expectedVersion, tenantId) => {
         const result = await db
-          .update(credentialsTable)
+          .update(authCredentials)
           .set(patch)
           .where(
             and(
-              eq(credentialsTable.id, id),
-              eq(credentialsTable.version, expectedVersion),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentials.id, id),
+              eq(authCredentials.version, expectedVersion),
+              tenantWhere(authCredentials, tenantId),
             ),
           )
         if (result[0].affectedRows === 0) return null
@@ -240,23 +240,21 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
       },
       revoke: async (id, revokedAt, tenantId) => {
         await db
-          .update(credentialsTable)
+          .update(authCredentials)
           .set({ revokedAt })
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
       },
       delete: async (id, tenantId) => {
-        await db
-          .delete(credentialsTable)
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+        await db.delete(authCredentials).where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
       },
       deleteByKind: async (identityId, kind, tenantId) => {
         await db
-          .delete(credentialsTable)
+          .delete(authCredentials)
           .where(
             and(
-              eq(credentialsTable.identityId, identityId),
-              eq(credentialsTable.kind, kind),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentials.identityId, identityId),
+              eq(authCredentials.kind, kind),
+              tenantWhere(authCredentials, tenantId),
             ),
           )
       },
@@ -264,28 +262,28 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
     // --- Sessions ---
     sessions: {
       insert: async (row) => {
-        await db.insert(sessionsTable).values(row)
+        await db.insert(authSessions).values(row)
       },
       findByHash: async (sidHash) => {
-        const rows = await db.select().from(sessionsTable).where(eq(sessionsTable.id, sidHash)).limit(1)
+        const rows = await db.select().from(authSessions).where(eq(authSessions.id, sidHash)).limit(1)
         return rows[0] ?? null
       },
       update: async (id, patch) => {
-        const result = await db.update(sessionsTable).set(patch).where(eq(sessionsTable.id, id))
+        const result = await db.update(authSessions).set(patch).where(eq(authSessions.id, id))
         if (result[0].affectedRows === 0) return null
         return reselectSession(id)
       },
       delete: async (id) => {
-        await db.delete(sessionsTable).where(eq(sessionsTable.id, id))
+        await db.delete(authSessions).where(eq(authSessions.id, id))
       },
       listByIdentity: async (identityId) => {
-        return db.select().from(sessionsTable).where(eq(sessionsTable.identityId, identityId))
+        return db.select().from(authSessions).where(eq(authSessions.identityId, identityId))
       },
       deleteAllForIdentity: async (identityId) => {
-        await db.delete(sessionsTable).where(eq(sessionsTable.identityId, identityId))
+        await db.delete(authSessions).where(eq(authSessions.identityId, identityId))
       },
       deleteExpired: async (now) => {
-        const result = await db.delete(sessionsTable).where(lt(sessionsTable.absoluteExpiresAt, now))
+        const result = await db.delete(authSessions).where(lt(authSessions.absoluteExpiresAt, now))
         return result[0].affectedRows
       },
     },

@@ -193,6 +193,66 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store): void {
       expect(await store.getByHash('expired')).toBeNull()
       expect(await store.getByHash('live')).not.toBeNull()
     })
+
+    // --- update / delete -----------------------------------------------
+    // These two methods had NO cross-adapter coverage. Both confirmed
+    // divergences (error code, implicit rotatedAt) lived here.
+
+    it('getByHash returns null for an unknown id', async () => {
+      expect(await factory().getByHash('nope')).toBeNull()
+    })
+
+    it('update merges the patch and persists it', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await store.create(
+        sessionInput({
+          id: 'u-1', identityId: 'u', kind: 'user', aal: 1, factors: [],
+          createdAt: now, rotatedAt: now, expiresAt: exp, absoluteExpiresAt: exp, fresh: true,
+        }),
+      )
+      const updated = await store.update('u-1', { fresh: false })
+      expect(updated.fresh).toBe(false)
+      expect(await store.getByHash('u-1')).toMatchObject({ fresh: false })
+    })
+
+    it('update does NOT mutate fields the caller did not patch', async () => {
+      const store = factory()
+      const rotated = new Date(Date.now() - 600_000)
+      const exp = new Date(Date.now() + 60_000)
+      await store.create(
+        sessionInput({
+          id: 'u-1', identityId: 'u', kind: 'user', aal: 1, factors: [],
+          createdAt: rotated, rotatedAt: rotated, expiresAt: exp, absoluteExpiresAt: exp, fresh: true,
+        }),
+      )
+      const updated = await store.update('u-1', { fresh: false })
+      // rotatedAt feeds the freshness gate — a store must never move it implicitly.
+      expect(updated.rotatedAt.getTime()).toBe(rotated.getTime())
+      expect(updated.createdAt.getTime()).toBe(rotated.getTime())
+    })
+
+    it('update on an unknown id throws AUTH_SESSION_REVOKED', async () => {
+      await expect(factory().update('nope', { fresh: false })).rejects.toMatchObject({
+        code: 'AUTH_SESSION_REVOKED',
+      })
+    })
+
+    it('delete removes the row; deleting an unknown id is a silent no-op', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await store.create(
+        sessionInput({
+          id: 'd-1', identityId: 'u', kind: 'user', aal: 1, factors: [],
+          createdAt: now, rotatedAt: now, expiresAt: exp, absoluteExpiresAt: exp, fresh: true,
+        }),
+      )
+      await store.delete('d-1')
+      expect(await store.getByHash('d-1')).toBeNull()
+      await expect(store.delete('nope')).resolves.toBeUndefined()
+    })
   })
 }
 

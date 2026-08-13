@@ -27,7 +27,7 @@ import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.type
  * omitted here — MySQL cannot index a JSON path without a stored generated column, so
  * email/username uniqueness is enforced at the application layer for this dialect.
  */
-export const identitiesTable = mysqlTable(
+export const authIdentities = mysqlTable(
   'auth_identities',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
@@ -51,7 +51,7 @@ export const identitiesTable = mysqlTable(
   ],
 )
 
-export const credentialsTable = mysqlTable(
+export const authCredentials = mysqlTable(
   'auth_credentials',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
@@ -83,12 +83,12 @@ export const credentialsTable = mysqlTable(
     foreignKey({
       name: 'fk_auth_credentials_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('cascade'),
   ],
 )
 
-export const sessionsTable = mysqlTable(
+export const authSessions = mysqlTable(
   'auth_sessions',
   {
     // SHA-256 hash of the raw session token — text, not the raw token.
@@ -125,7 +125,7 @@ export const sessionsTable = mysqlTable(
     foreignKey({
       name: 'fk_auth_sessions_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('cascade'),
   ],
 )
@@ -137,7 +137,7 @@ export const sessionsTable = mysqlTable(
  * gap as the pg adapter; wire both together once `SqlBridge.Me` defines
  * an `events` section).
  */
-export const eventsTable = mysqlTable(
+export const authEvents = mysqlTable(
   'auth_events',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
@@ -166,7 +166,7 @@ export const eventsTable = mysqlTable(
     foreignKey({
       name: 'fk_auth_events_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('set null'),
   ],
 )

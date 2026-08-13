@@ -12,7 +12,7 @@ import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.type
  * gives JS-side object ergonomics like pg's jsonb; booleans are INTEGER 0/1;
  * timestamps are INTEGER unix-ms, timezone-naive (store UTC, convert at the edges).
  */
-export const identitiesTable = sqliteTable(
+export const authIdentities = sqliteTable(
   'auth_identities',
   {
     id: text('id').primaryKey(),
@@ -45,7 +45,7 @@ export const identitiesTable = sqliteTable(
   ],
 )
 
-export const credentialsTable = sqliteTable(
+export const authCredentials = sqliteTable(
   'auth_credentials',
   {
     id: text('id').primaryKey(),
@@ -76,12 +76,12 @@ export const credentialsTable = sqliteTable(
     foreignKey({
       name: 'fk_auth_credentials_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('cascade'),
   ],
 )
 
-export const sessionsTable = sqliteTable(
+export const authSessions = sqliteTable(
   'auth_sessions',
   {
     // SHA-256 hash of the raw session token — text, not the raw token.
@@ -118,7 +118,7 @@ export const sessionsTable = sqliteTable(
     foreignKey({
       name: 'fk_auth_sessions_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('cascade'),
   ],
 )
@@ -130,7 +130,7 @@ export const sessionsTable = sqliteTable(
  * gap as the pg adapter; wire both together once `SqlBridge.Me` defines
  * an `events` section).
  */
-export const eventsTable = sqliteTable(
+export const authEvents = sqliteTable(
   'auth_events',
   {
     id: text('id').primaryKey(),
@@ -159,7 +159,7 @@ export const eventsTable = sqliteTable(
     foreignKey({
       name: 'fk_auth_events_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('set null'),
   ],
 )

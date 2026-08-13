@@ -4,7 +4,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
-import { credentialsTable, identitiesTable, sessionsTable } from './pg.schema'
+import { authCredentials, authIdentities, authSessions } from './pg.schema'
 import type { Pg } from './pg.types'
 
 /**
@@ -48,27 +48,27 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
       findById: (id) =>
         db
           .select()
-          .from(identitiesTable)
-          .where(and(eq(identitiesTable.id, id), isNull(identitiesTable.deletedAt)))
+          .from(authIdentities)
+          .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
           .limit(1)
           .then((r) => r[0] ?? null),
 
       findByEmail: (email) =>
         db
           .select()
-          .from(identitiesTable)
-          .where(and(sql`${identitiesTable.profile}->>'email' = ${email}`, isNull(identitiesTable.deletedAt)))
+          .from(authIdentities)
+          .where(and(sql`${authIdentities.profile}->>'email' = ${email}`, isNull(authIdentities.deletedAt)))
           .limit(1)
           .then((r) => r[0] ?? null),
 
       findByProviderSub: (providerId, sub) =>
         db
           .select()
-          .from(identitiesTable)
+          .from(authIdentities)
           .where(
             and(
-              sql`${identitiesTable.providers} @> ${JSON.stringify([{ providerId, providerSub: sub }])}]::jsonb`,
-              isNull(identitiesTable.deletedAt),
+              sql`${authIdentities.providers} @> ${JSON.stringify([{ providerId, providerSub: sub }])}]::jsonb`,
+              isNull(authIdentities.deletedAt),
             ),
           )
           .limit(1)
@@ -76,43 +76,43 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
 
       insert: (row) =>
         db
-          .insert(identitiesTable)
+          .insert(authIdentities)
           .values(row)
           .then(() => {}),
 
       updateConditional: (id, patch, expectedVersion) =>
         db
-          .update(identitiesTable)
+          .update(authIdentities)
           .set(patch)
-          .where(and(eq(identitiesTable.id, id), eq(identitiesTable.version, expectedVersion)))
+          .where(and(eq(authIdentities.id, id), eq(authIdentities.version, expectedVersion)))
           .returning()
           .then((r) => r[0] ?? null),
 
       softDelete: (id, deletedAt) =>
         db
-          .update(identitiesTable)
+          .update(authIdentities)
           .set({ deletedAt })
-          .where(eq(identitiesTable.id, id))
+          .where(eq(authIdentities.id, id))
           .then(() => {}),
 
       restore: (id) =>
         db
-          .update(identitiesTable)
+          .update(authIdentities)
           .set({ deletedAt: null })
-          .where(eq(identitiesTable.id, id))
+          .where(eq(authIdentities.id, id))
           .returning()
           .then((r) => r[0] ?? null),
 
       erase: async (id) => {
-        await db.delete(credentialsTable).where(eq(credentialsTable.identityId, id))
-        await db.delete(sessionsTable).where(eq(sessionsTable.identityId, id))
-        await db.delete(identitiesTable).where(eq(identitiesTable.id, id))
+        await db.delete(authCredentials).where(eq(authCredentials.identityId, id))
+        await db.delete(authSessions).where(eq(authSessions.identityId, id))
+        await db.delete(authIdentities).where(eq(authIdentities.id, id))
       },
 
       insertProviderLink: (identityId, providerId, providerSub, addedAt) =>
         db
           .execute(sql`
-          update ${identitiesTable}
+          update ${authIdentities}
           set providers = (
             select coalesce(jsonb_agg(elem), '[]'::jsonb)
             from jsonb_array_elements(providers) elem
@@ -125,7 +125,7 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
       deleteProviderLink: (identityId, providerId) =>
         db
           .execute(sql`
-          update ${identitiesTable}
+          update ${authIdentities}
           set providers = (
             select coalesce(jsonb_agg(elem), '[]'::jsonb)
             from jsonb_array_elements(providers) elem
@@ -137,27 +137,27 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
 
       merge: async (survivorId, dupId) => {
         const [surv] = await db
-          .select({ p: identitiesTable.providers })
-          .from(identitiesTable)
-          .where(eq(identitiesTable.id, survivorId))
+          .select({ p: authIdentities.providers })
+          .from(authIdentities)
+          .where(eq(authIdentities.id, survivorId))
           .limit(1)
         const [dupRow] = await db
-          .select({ p: identitiesTable.providers })
-          .from(identitiesTable)
-          .where(eq(identitiesTable.id, dupId))
+          .select({ p: authIdentities.providers })
+          .from(authIdentities)
+          .where(eq(authIdentities.id, dupId))
           .limit(1)
         if (surv && dupRow) {
           await db
-            .update(identitiesTable)
+            .update(authIdentities)
             .set({ providers: [...(surv.p ?? []), ...(dupRow.p ?? [])] })
-            .where(eq(identitiesTable.id, survivorId))
+            .where(eq(authIdentities.id, survivorId))
         }
         // Global-account merge: repoint ALL of the dup's tenant-scoped rows
         // (across every tenant) before erasing it, so the FK cascade on delete
         // cannot orphan another tenant's credentials/sessions.
-        await db.update(credentialsTable).set({ identityId: survivorId }).where(eq(credentialsTable.identityId, dupId))
-        await db.update(sessionsTable).set({ identityId: survivorId }).where(eq(sessionsTable.identityId, dupId))
-        await db.delete(identitiesTable).where(eq(identitiesTable.id, dupId))
+        await db.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
+        await db.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
+        await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
       },
     },
 
@@ -165,31 +165,31 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
       findById: (id, tenantId) =>
         db
           .select()
-          .from(credentialsTable)
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .from(authCredentials)
+          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
           .limit(1)
           .then((r) => r[0] ?? null),
 
       listByIdentity: (identityId, kind, tenantId) =>
         db
           .select()
-          .from(credentialsTable)
+          .from(authCredentials)
           .where(
             and(
-              eq(credentialsTable.identityId, identityId),
-              ...(kind ? [eq(credentialsTable.kind, kind)] : []),
-              ...(tenantId ? [eq(credentialsTable.tenantId, tenantId)] : []),
+              eq(authCredentials.identityId, identityId),
+              ...(kind ? [eq(authCredentials.kind, kind)] : []),
+              ...(tenantId ? [eq(authCredentials.tenantId, tenantId)] : []),
             ),
           ),
 
       findByProviderSub: (provider, sub) =>
         db
           .select()
-          .from(credentialsTable)
+          .from(authCredentials)
           .where(
             and(
-              sql`${credentialsTable.metadata}->>'provider' = ${provider}`,
-              sql`${credentialsTable.metadata}->>'sub' = ${sub}`,
+              sql`${authCredentials.metadata}->>'provider' = ${provider}`,
+              sql`${authCredentials.metadata}->>'sub' = ${sub}`,
             ),
           )
           .limit(1)
@@ -198,31 +198,31 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
       findByHashedSecret: (secretHash, kind, tenantId) =>
         db
           .select()
-          .from(credentialsTable)
+          .from(authCredentials)
           .where(
             and(
-              eq(credentialsTable.secret, secretHash),
-              eq(credentialsTable.kind, kind),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentials.secret, secretHash),
+              eq(authCredentials.kind, kind),
+              tenantWhere(authCredentials, tenantId),
             ),
           )
           .then(pickFreshestCredential),
 
       insert: (row) =>
         db
-          .insert(credentialsTable)
+          .insert(authCredentials)
           .values(row)
           .then(() => {}),
 
       updateConditional: (id, patch, expectedVersion, tenantId) =>
         db
-          .update(credentialsTable)
+          .update(authCredentials)
           .set(patch)
           .where(
             and(
-              eq(credentialsTable.id, id),
-              eq(credentialsTable.version, expectedVersion),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentials.id, id),
+              eq(authCredentials.version, expectedVersion),
+              tenantWhere(authCredentials, tenantId),
             ),
           )
           .returning()
@@ -230,25 +230,25 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
 
       revoke: (id, revokedAt, tenantId) =>
         db
-          .update(credentialsTable)
+          .update(authCredentials)
           .set({ revokedAt })
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
           .then(() => {}),
 
       delete: (id, tenantId) =>
         db
-          .delete(credentialsTable)
-          .where(and(eq(credentialsTable.id, id), tenantWhere(credentialsTable, tenantId)))
+          .delete(authCredentials)
+          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
           .then(() => {}),
 
       deleteByKind: (identityId, kind, tenantId) =>
         db
-          .delete(credentialsTable)
+          .delete(authCredentials)
           .where(
             and(
-              eq(credentialsTable.identityId, identityId),
-              eq(credentialsTable.kind, kind),
-              tenantWhere(credentialsTable, tenantId),
+              eq(authCredentials.identityId, identityId),
+              eq(authCredentials.kind, kind),
+              tenantWhere(authCredentials, tenantId),
             ),
           )
           .then(() => {}),
@@ -257,43 +257,43 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
     sessions: {
       insert: (row) =>
         db
-          .insert(sessionsTable)
+          .insert(authSessions)
           .values(row)
           .then(() => {}),
       findByHash: (sidHash) =>
         db
           .select()
-          .from(sessionsTable)
-          .where(eq(sessionsTable.id, sidHash))
+          .from(authSessions)
+          .where(eq(authSessions.id, sidHash))
           .limit(1)
           .then((r) => reviveSessionRow(r[0] ?? null)),
       update: (id, patch) =>
         db
-          .update(sessionsTable)
+          .update(authSessions)
           .set(patch)
-          .where(eq(sessionsTable.id, id))
+          .where(eq(authSessions.id, id))
           .returning()
           .then((r) => reviveSessionRow(r[0] ?? null)),
       delete: (id) =>
         db
-          .delete(sessionsTable)
-          .where(eq(sessionsTable.id, id))
+          .delete(authSessions)
+          .where(eq(authSessions.id, id))
           .then(() => {}),
       listByIdentity: (identityId) =>
         db
           .select()
-          .from(sessionsTable)
-          .where(eq(sessionsTable.identityId, identityId))
+          .from(authSessions)
+          .where(eq(authSessions.identityId, identityId))
           .then((rows) => rows.map((r) => reviveSessionRowRequired(r))),
       deleteAllForIdentity: (identityId) =>
         db
-          .delete(sessionsTable)
-          .where(eq(sessionsTable.identityId, identityId))
+          .delete(authSessions)
+          .where(eq(authSessions.identityId, identityId))
           .then(() => {}),
       deleteExpired: (now) =>
         db
-          .delete(sessionsTable)
-          .where(lt(sessionsTable.absoluteExpiresAt, now))
+          .delete(authSessions)
+          .where(lt(authSessions.absoluteExpiresAt, now))
           .returning()
           .then((r) => r.length),
     },

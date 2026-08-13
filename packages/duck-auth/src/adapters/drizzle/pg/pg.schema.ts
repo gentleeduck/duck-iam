@@ -21,7 +21,7 @@ import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.type
  * @title auth identities table
  * @description Auth identities table. Used to store the identities of users.
  */
-export const identitiesTable = pgTable(
+export const authIdentities = pgTable(
   'auth_identities',
   {
     id: uuid('id').primaryKey(),
@@ -43,7 +43,7 @@ export const identitiesTable = pgTable(
   ],
 )
 
-export const credentialsTable = pgTable(
+export const authCredentials = pgTable(
   'auth_credentials',
   {
     id: uuid('id').primaryKey(),
@@ -80,12 +80,12 @@ export const credentialsTable = pgTable(
     foreignKey({
       name: 'fk_auth_credentials_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('cascade'),
   ],
 )
 
-export const sessionsTable = pgTable(
+export const authSessions = pgTable(
   'auth_sessions',
   {
     // SHA-256 hash of the raw session token — kept as text (not a UUID)
@@ -130,7 +130,7 @@ export const sessionsTable = pgTable(
     foreignKey({
       name: 'fk_auth_sessions_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('cascade'),
   ],
 )
@@ -141,7 +141,7 @@ export const sessionsTable = pgTable(
  * erasure (GDPR: right to erasure applies to personal data in profile, not to
  * the fact that auth events occurred).
  */
-export const eventsTable = pgTable(
+export const authEvents = pgTable(
   'auth_events',
   {
     id: uuid('id').primaryKey(),
@@ -176,7 +176,7 @@ export const eventsTable = pgTable(
     foreignKey({
       name: 'fk_auth_events_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('set null'),
   ],
 )
