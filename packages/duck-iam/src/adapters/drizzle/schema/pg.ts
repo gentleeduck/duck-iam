@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uuid,
 } from 'drizzle-orm/pg-core'
 import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
@@ -59,7 +60,7 @@ export const combineAlgorithm = pgEnum('access_combine_algorithm', [
  * `jsonb`; `algorithm` is constrained to the engine's combining algorithms.
  */
 export const iamPolicies = pgTable(
-  'access_policies',
+  'iam_policies',
   {
     id: text('id').notNull(),
     name: text('name').notNull(),
@@ -77,12 +78,12 @@ export const iamPolicies = pgTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_policies', columns: [t.id] }),
-    unique('uq_access_policies_name').on(t.name),
+    primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
+    unique('uq_iam_policies_name').on(t.name),
     // Containment search over rules, e.g. `rules @> '[{"actions":["read"]}]'`.
-    index('idx_access_policies_rules_gin').using('gin', t.rules),
-    check('ch_access_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
-    check('ch_access_policies_version_positive', sql`${t.version} >= 1`),
+    index('idx_iam_policies_rules_gin').using('gin', t.rules),
+    check('ch_iam_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_iam_policies_version_positive', sql`${t.version} >= 1`),
   ],
 )
 
@@ -91,7 +92,7 @@ export const iamPolicies = pgTable(
  * `jsonb` array of parent role IDs.
  */
 export const iamRoles = pgTable(
-  'access_roles',
+  'iam_roles',
   {
     id: text('id').notNull(),
     name: text('name').notNull(),
@@ -109,16 +110,16 @@ export const iamRoles = pgTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_roles', columns: [t.id] }),
+    primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
     // Role name is unique per scope; NULL (global) scopes collapse so two
     // global roles cannot share a name.
-    unique('uq_access_roles_name_scope').on(t.name, t.scope).nullsNotDistinct(),
+    unique('uq_iam_roles_name_scope').on(t.name, t.scope).nullsNotDistinct(),
     // Scoped roles only - global roles (NULL scope) are excluded to keep it small.
-    index('idx_access_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
+    index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
     // Containment search over permissions, e.g. `permissions @> '[{"resource":"post"}]'`.
-    index('idx_access_roles_permissions_gin').using('gin', t.permissions),
-    check('ch_access_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
-    check('ch_access_roles_scope_not_blank', sql`${t.scope} IS NULL OR length(trim(${t.scope})) > 0`),
+    index('idx_iam_roles_permissions_gin').using('gin', t.permissions),
+    check('ch_iam_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_iam_roles_scope_not_blank', sql`${t.scope} IS NULL OR length(trim(${t.scope})) > 0`),
   ],
 )
 
@@ -129,9 +130,11 @@ export const iamRoles = pgTable(
  * `onConflictDoNothing` is idempotent for global grants too.
  */
 export const iamAssignments = pgTable(
-  'access_assignments',
+  'iam_assignments',
   {
-    id: text('id').$defaultFn(() => uuidv7()),
+    id: uuid('id')
+      .notNull()
+      .$defaultFn(() => uuidv7()),
     subjectId: text('subject_id').notNull(),
     roleId: text('role_id').notNull(),
     scope: text('scope'),
@@ -139,19 +142,19 @@ export const iamAssignments = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_assignments', columns: [t.id] }),
+    primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
     foreignKey({
-      name: 'fk_access_assignments_role',
+      name: 'fk_iam_assignments_role',
       columns: [t.roleId],
       foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
-    unique('uq_access_assignments_subject_role_scope').on(t.subjectId, t.roleId, t.scope).nullsNotDistinct(),
-    index('idx_access_assignments_subject').on(t.subjectId),
-    index('idx_access_assignments_role').on(t.roleId),
+    unique('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, t.scope).nullsNotDistinct(),
+    index('idx_iam_assignments_subject').on(t.subjectId),
+    index('idx_iam_assignments_role').on(t.roleId),
     // Scoped assignments only - speeds tenant-scoped lookups.
-    index('idx_access_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
-    check('ch_access_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
-    check('ch_access_assignments_scope_not_blank', sql`${t.scope} IS NULL OR length(trim(${t.scope})) > 0`),
+    index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
+    check('ch_iam_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    check('ch_iam_assignments_scope_not_blank', sql`${t.scope} IS NULL OR length(trim(${t.scope})) > 0`),
   ],
 )
 
@@ -160,7 +163,7 @@ export const iamAssignments = pgTable(
  * attribute map (`jsonb`) consumed by the ABAC condition engine.
  */
 export const iamSubjectAttrs = pgTable(
-  'access_subject_attrs',
+  'iam_subject_attrs',
   {
     subjectId: text('subject_id').notNull(),
     data: jsonb('data').$type<IamPrimitives.Attributes>().notNull(),
@@ -172,7 +175,7 @@ export const iamSubjectAttrs = pgTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_subject_attrs', columns: [t.subjectId] }),
-    check('ch_access_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
+    check('ch_iam_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
   ],
 )

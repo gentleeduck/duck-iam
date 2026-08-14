@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/mysql-core'
+import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
@@ -45,7 +46,7 @@ const nowMs = sql`CURRENT_TIMESTAMP(3)`
 
 /** Stored ABAC policies. */
 export const iamPolicies = mysqlTable(
-  'access_policies',
+  'iam_policies',
   {
     id: varchar('id', { length: 191 }).notNull(),
     name: varchar('name', { length: 191 }).notNull(),
@@ -63,16 +64,16 @@ export const iamPolicies = mysqlTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_policies', columns: [t.id] }),
-    unique('uq_access_policies_name').on(t.name),
-    check('ch_access_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
-    check('ch_access_policies_version_positive', sql`${t.version} >= 1`),
+    primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
+    unique('uq_iam_policies_name').on(t.name),
+    check('ch_iam_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_iam_policies_version_positive', sql`${t.version} >= 1`),
   ],
 )
 
 /** Stored RBAC roles. `inherits` is a JSON array of parent role IDs. */
 export const iamRoles = mysqlTable(
-  'access_roles',
+  'iam_roles',
   {
     id: varchar('id', { length: 191 }).notNull(),
     name: varchar('name', { length: 191 }).notNull(),
@@ -90,19 +91,19 @@ export const iamRoles = mysqlTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_roles', columns: [t.id] }),
+    primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
     // COALESCE collapses NULL scopes so global roles are unique by name too.
-    uniqueIndex('uq_access_roles_name_scope').on(t.name, sql`(coalesce(${t.scope}, ''))`),
-    index('idx_access_roles_scope').on(t.scope),
-    check('ch_access_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    uniqueIndex('uq_iam_roles_name_scope').on(t.name, sql`(coalesce(${t.scope}, ''))`),
+    index('idx_iam_roles_scope').on(t.scope),
+    check('ch_iam_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
   ],
 )
 
 /** Subject-to-role assignments. NULL scope is a global (unscoped) grant. */
 export const iamAssignments = mysqlTable(
-  'access_assignments',
+  'iam_assignments',
   {
-    id: varchar('id', { length: 191 }).$defaultFn(() => crypto.randomUUID()),
+    id: varchar('id', { length: 191 }).$defaultFn(() => uuidv7()),
     subjectId: varchar('subject_id', { length: 191 }).notNull(),
     roleId: varchar('role_id', { length: 191 }).notNull(),
     scope: varchar('scope', { length: 191 }),
@@ -110,23 +111,23 @@ export const iamAssignments = mysqlTable(
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_assignments', columns: [t.id] }),
+    primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
     foreignKey({
-      name: 'fk_access_assignments_role',
+      name: 'fk_iam_assignments_role',
       columns: [t.roleId],
       foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
     // COALESCE collapses NULL scopes so duplicate global grants conflict.
-    uniqueIndex('uq_access_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`(coalesce(${t.scope}, ''))`),
-    index('idx_access_assignments_subject').on(t.subjectId),
-    index('idx_access_assignments_role').on(t.roleId),
-    check('ch_access_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`(coalesce(${t.scope}, ''))`),
+    index('idx_iam_assignments_subject').on(t.subjectId),
+    index('idx_iam_assignments_role').on(t.roleId),
+    check('ch_iam_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
   ],
 )
 
 /** Per-subject attribute bags, one row per subject. */
 export const iamSubjectAttrs = mysqlTable(
-  'access_subject_attrs',
+  'iam_subject_attrs',
   {
     subjectId: varchar('subject_id', { length: 191 }).notNull(),
     data: json('data').$type<IamPrimitives.Attributes>().notNull(),
@@ -138,7 +139,7 @@ export const iamSubjectAttrs = mysqlTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_subject_attrs', columns: [t.subjectId] }),
-    check('ch_access_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
+    check('ch_iam_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
   ],
 )

@@ -10,6 +10,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
+import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl } from '../../../core/types'
 
 /**
@@ -41,7 +42,7 @@ const nowMs = sql`(unixepoch() * 1000)`
 
 /** Stored ABAC policies. JSON payloads are TEXT and parsed by the adapter. */
 export const iamPolicies = sqliteTable(
-  'access_policies',
+  'iam_policies',
   {
     id: text('id').notNull(),
     name: text('name').notNull(),
@@ -59,20 +60,20 @@ export const iamPolicies = sqliteTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_policies', columns: [t.id] }),
-    unique('uq_access_policies_name').on(t.name),
+    primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
+    unique('uq_iam_policies_name').on(t.name),
     check(
-      'ch_access_policies_algorithm_valid',
+      'ch_iam_policies_algorithm_valid',
       sql`${t.algorithm} IN ('deny-overrides','allow-overrides','first-match','highest-priority')`,
     ),
-    check('ch_access_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
-    check('ch_access_policies_version_positive', sql`${t.version} >= 1`),
+    check('ch_iam_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_iam_policies_version_positive', sql`${t.version} >= 1`),
   ],
 )
 
 /** Stored RBAC roles. `inherits` is JSON TEXT defaulting to `'[]'`. */
 export const iamRoles = sqliteTable(
-  'access_roles',
+  'iam_roles',
   {
     id: text('id').notNull(),
     name: text('name').notNull(),
@@ -90,20 +91,22 @@ export const iamRoles = sqliteTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_roles', columns: [t.id] }),
+    primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
     // COALESCE collapses NULL scopes so global roles are unique by name too.
-    uniqueIndex('uq_access_roles_name_scope').on(t.name, sql`coalesce(${t.scope}, '')`),
+    uniqueIndex('uq_iam_roles_name_scope').on(t.name, sql`coalesce(${t.scope}, '')`),
     // Scoped roles only.
-    index('idx_access_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
-    check('ch_access_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
+    check('ch_iam_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
   ],
 )
 
 /** Subject-to-role assignments. NULL scope is a global (unscoped) grant. */
 export const iamAssignments = sqliteTable(
-  'access_assignments',
+  'iam_assignments',
   {
-    id: text('id').$defaultFn(() => crypto.randomUUID()),
+    id: text('id')
+      .notNull()
+      .$defaultFn(() => uuidv7()),
     subjectId: text('subject_id').notNull(),
     roleId: text('role_id').notNull(),
     scope: text('scope'),
@@ -111,25 +114,25 @@ export const iamAssignments = sqliteTable(
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_assignments', columns: [t.id] }),
+    primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
     foreignKey({
-      name: 'fk_access_assignments_role',
+      name: 'fk_iam_assignments_role',
       columns: [t.roleId],
       foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
     // COALESCE collapses NULL scopes so duplicate global grants conflict.
-    uniqueIndex('uq_access_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`coalesce(${t.scope}, '')`),
-    index('idx_access_assignments_subject').on(t.subjectId),
-    index('idx_access_assignments_role').on(t.roleId),
+    uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`coalesce(${t.scope}, '')`),
+    index('idx_iam_assignments_subject').on(t.subjectId),
+    index('idx_iam_assignments_role').on(t.roleId),
     // Scoped assignments only.
-    index('idx_access_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
-    check('ch_access_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
+    check('ch_iam_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
   ],
 )
 
 /** Per-subject attribute bags, one row per subject. JSON TEXT under `data`. */
 export const iamSubjectAttrs = sqliteTable(
-  'access_subject_attrs',
+  'iam_subject_attrs',
   {
     subjectId: text('subject_id').notNull(),
     data: text('data').$type<string>().notNull(),
@@ -141,7 +144,7 @@ export const iamSubjectAttrs = sqliteTable(
       .$onUpdate(() => new Date()),
   },
   (t) => [
-    primaryKey({ name: 'pk_access_subject_attrs', columns: [t.subjectId] }),
-    check('ch_access_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
+    check('ch_iam_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
   ],
 )
