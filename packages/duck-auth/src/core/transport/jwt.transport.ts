@@ -18,39 +18,104 @@ import { signRs256, verifyRs256 } from './jwt-algs/rs256.alg'
 
 const DEFAULT_REFRESH_COOKIE = '__Host-duck-refresh'
 
-interface JwtPayload {
-  /** Issuer. */
-  iss: string
-  /** Subject - identity id. */
-  sub: string | null
-  /** Audience (optional). */
-  aud?: string
-  /** Issued-at, seconds. */
-  iat: number
-  /** Expiry, seconds. */
-  exp: number
-  /** Session id (hashed row key). */
-  sid: string
-  /** Session AAL. */
-  aal: Sessions.AAL
-  /** Session factors (method names only). Parser validates each entry against {@link Sessions.FactorMethod}. */
-  factors: Sessions.FactorMethod[]
-  /** Tenant id when present. */
-  tid?: string
-  /** Acting-as envelope when impersonating. Timestamps are epoch seconds on the wire. */
-  acting_as?: { realIdentityId: string; startedAt: number; reason: string; expiresAt: number }
-  /** Session kind (`'user' | 'apikey' | 'guest'`). Preserved so M2M tokens round-trip correctly. */
-  knd?: Sessions.Kind
-  /** Session rotation timestamp (epoch s); drives `session.fresh = now - rotatedAt < freshnessMs`. */
-  frsh?: number
-  /**
-   * oauth-style scope string (space-separated). Emitted when
-   * `issue()` was called with `Transport.IssueOpts.scope`. Resource
-   * servers branch on this without an out-of-band scope lookup. Used
-   * by the M2MFacet client_credentials grant so the `scopeMode` knob
-   * has wire-level effect.
-   */
-  scope?: string
+export namespace JwtTransport {
+  export interface Cfg {
+    /**
+     * Active signing key. For HS256 the `key` is the secret; for ES256 /
+     * RS256 it is the PEM-encoded PRIVATE key. `alg` defaults to HS256.
+     */
+    signKey: { kid: string; alg?: JwtTransport.IJwtAlg; key: string }
+    /**
+     * All currently-valid verify keys. Must contain `signKey`; during rotation,
+     * the previous keys remain here for an overlap window so already-issued
+     * tokens keep verifying.
+     */
+    verifyKeys: JwtTransport.IVerifyKey[]
+    issuer: string
+    audience?: string
+    /** JWT TTL in ms. Default 15 minutes. */
+    ttlMs?: number
+    /**
+     * Freshness window in ms. A JWT round-trip reconstructs the session
+     * with `fresh = (now - rotatedAt) < freshnessMs`. Default 5 minutes,
+     * matching `SessionsFacet.Cfg.freshnessMs`. Privileged
+     * operations (password reset with TOTP, step-up-required actions)
+     * branch on the `fresh` flag; setting this too high effectively
+     * disables the freshness gate.
+     */
+    freshnessMs?: number
+    /** Optional refresh cookie shape. */
+    refresh?: {
+      /** Cookie name carrying the opaque refresh token. */
+      cookieName?: string
+      /** Refresh TTL in ms. Default 7 days. */
+      ttlMs?: number
+    }
+  }
+
+  export interface IVerifyKey {
+    kid: string
+    /**
+     * Algorithm this key verifies. Default `'HS256'` for backwards
+     * compatibility; ES256 + RS256 callers must set this explicitly.
+     */
+    alg?: JwtTransport.IJwtAlg
+    /**
+     * Key material. For `HS256`: the UTF-8 secret. For `ES256` / `RS256`:
+     * the PEM-encoded public key (SPKI or RSA-PUBLIC).
+     */
+    key: string
+    /** Optional rotation cutoff - verify-only after this. */
+    notAfter?: number
+  }
+
+  export type IJwtAlg = 'HS256' | 'ES256' | 'RS256' | 'EdDSA'
+
+  export interface IRotateOpts {
+    /** New signing key. Becomes effective for all subsequent issue() calls. */
+    signKey: { kid: string; alg?: IJwtAlg; key: string }
+    /**
+     * Optional verify-side entry for the new key. Required for
+     * asymmetric algs since signKey carries the PRIVATE key and the
+     * verify ring needs the PUBLIC counterpart.
+     */
+    verifyKey?: IVerifyKey
+  }
+
+  export interface Payload {
+    /** Issuer. */
+    iss: string
+    /** Subject - identity id. */
+    sub: string | null
+    /** Audience (optional). */
+    aud?: string
+    /** Issued-at, seconds. */
+    iat: number
+    /** Expiry, seconds. */
+    exp: number
+    /** Session id (hashed row key). */
+    sid: string
+    /** Session AAL. */
+    aal: Sessions.AAL
+    /** Session factors (method names only). Parser validates each entry against {@link Sessions.FactorMethod}. */
+    factors: Sessions.FactorMethod[]
+    /** Tenant id when present. */
+    tid?: string
+    /** Acting-as envelope when impersonating. Timestamps are epoch seconds on the wire. */
+    acting_as?: { realIdentityId: string; startedAt: number; reason: string; expiresAt: number }
+    /** Session kind (`'user' | 'apikey' | 'guest'`). Preserved so M2M tokens round-trip correctly. */
+    knd?: Sessions.Kind
+    /** Session rotation timestamp (epoch s); drives `session.fresh = now - rotatedAt < freshnessMs`. */
+    frsh?: number
+    /**
+     * oauth-style scope string (space-separated). Emitted when
+     * `issue()` was called with `Transport.IssueOpts.scope`. Resource
+     * servers branch on this without an out-of-band scope lookup. Used
+     * by the M2MFacet client_credentials grant so the `scopeMode` knob
+     * has wire-level effect.
+     */
+    scope?: string
+  }
 }
 
 function base64urlEncode(s: string | Buffer): string {
@@ -114,7 +179,7 @@ function isSessionKind(v: unknown): v is Sessions.Kind {
   return typeof v === 'string' && SESSION_KIND_VALUES.has(v)
 }
 
-type JwtActingAs = NonNullable<JwtPayload['acting_as']>
+type JwtActingAs = NonNullable<JwtTransport.Payload['acting_as']>
 
 function isActingAs(v: unknown): v is JwtActingAs {
   if (!isPlainObject(v)) return false
@@ -147,7 +212,7 @@ function parseJwtHeader(raw: unknown): JwtHeaderShape | null {
   return { alg, kid, typ }
 }
 
-function parseJwtPayload(raw: unknown): JwtPayload | null {
+function parseJwtPayload(raw: unknown): JwtTransport.Payload | null {
   if (!isPlainObject(raw)) return null
   const { iss, sub, aud, iat, exp, sid, aal, factors, tid, acting_as, knd, frsh, scope } = raw
   if (typeof iss !== 'string') return null
@@ -169,7 +234,7 @@ function parseJwtPayload(raw: unknown): JwtPayload | null {
   if (knd !== undefined && !isSessionKind(knd)) return null
   if (frsh !== undefined && (typeof frsh !== 'number' || !Number.isFinite(frsh))) return null
   if (scope !== undefined && typeof scope !== 'string') return null
-  const payload: JwtPayload = { iss, sub, iat, exp, sid, aal, factors: narrowedFactors }
+  const payload: JwtTransport.Payload = { iss, sub, iat, exp, sid, aal, factors: narrowedFactors }
   if (aud !== undefined) payload.aud = aud
   if (tid !== undefined) payload.tid = tid
   if (acting_as !== undefined) payload.acting_as = acting_as
@@ -282,7 +347,7 @@ export class JwtTransport implements Transport.ITransport {
       typ: 'JWT',
       kid: this._signKey.kid,
     }
-    const payload: JwtPayload = {
+    const payload: JwtTransport.Payload = {
       iss: this._cfg.issuer,
       sub: session.identityId,
       iat: now,
@@ -515,70 +580,9 @@ export class JwtTransport implements Transport.ITransport {
   }
 }
 
+export function jwtTransport(cfg: JwtTransport.Cfg): JwtTransport {
+  return new JwtTransport(cfg)
+}
+
 // Re-export for parity with cookie/bearer transports.
 export { randomToken as authRandomToken, sha256 as authSha256 }
-
-export namespace JwtTransport {
-  export interface Cfg {
-    /**
-     * Active signing key. For HS256 the `key` is the secret; for ES256 /
-     * RS256 it is the PEM-encoded PRIVATE key. `alg` defaults to HS256.
-     */
-    signKey: { kid: string; alg?: JwtTransport.IJwtAlg; key: string }
-    /**
-     * All currently-valid verify keys. Must contain `signKey`; during rotation,
-     * the previous keys remain here for an overlap window so already-issued
-     * tokens keep verifying.
-     */
-    verifyKeys: JwtTransport.IVerifyKey[]
-    issuer: string
-    audience?: string
-    /** JWT TTL in ms. Default 15 minutes. */
-    ttlMs?: number
-    /**
-     * Freshness window in ms. A JWT round-trip reconstructs the session
-     * with `fresh = (now - rotatedAt) < freshnessMs`. Default 5 minutes,
-     * matching `SessionsFacet.Cfg.freshnessMs`. Privileged
-     * operations (password reset with TOTP, step-up-required actions)
-     * branch on the `fresh` flag; setting this too high effectively
-     * disables the freshness gate.
-     */
-    freshnessMs?: number
-    /** Optional refresh cookie shape. */
-    refresh?: {
-      /** Cookie name carrying the opaque refresh token. */
-      cookieName?: string
-      /** Refresh TTL in ms. Default 7 days. */
-      ttlMs?: number
-    }
-  }
-
-  export interface IVerifyKey {
-    kid: string
-    /**
-     * Algorithm this key verifies. Default `'HS256'` for backwards
-     * compatibility; ES256 + RS256 callers must set this explicitly.
-     */
-    alg?: JwtTransport.IJwtAlg
-    /**
-     * Key material. For `HS256`: the UTF-8 secret. For `ES256` / `RS256`:
-     * the PEM-encoded public key (SPKI or RSA-PUBLIC).
-     */
-    key: string
-    /** Optional rotation cutoff - verify-only after this. */
-    notAfter?: number
-  }
-
-  export type IJwtAlg = 'HS256' | 'ES256' | 'RS256' | 'EdDSA'
-
-  export interface IRotateOpts {
-    /** New signing key. Becomes effective for all subsequent issue() calls. */
-    signKey: { kid: string; alg?: IJwtAlg; key: string }
-    /**
-     * Optional verify-side entry for the new key. Required for
-     * asymmetric algs since signKey carries the PRIVATE key and the
-     * verify ring needs the PUBLIC counterpart.
-     */
-    verifyKey?: IVerifyKey
-  }
-}
