@@ -1,3 +1,4 @@
+import { env } from 'node:process'
 import { isExpiredAt } from '../credentials/credentials'
 import type { TenantContext } from '../tenant/tenant.types'
 import type { Idempotency } from './idempotency.types'
@@ -15,6 +16,16 @@ export class MemoryIdempotency implements Idempotency.Store {
     string,
     { response: Idempotency.CachedResponse; expiresAt: number; claimedAt: number }
   >()
+
+  constructor(
+    private readonly cfg?: {
+      development?: boolean
+    },
+  ) {
+    if (env.NODE_ENV === 'production' || !this.cfg?.development) {
+      throw new Error('MemoryIdempotency is not production ready')
+    }
+  }
 
   /** Compose a tenant-scoped storage key. */
   private _k(key: string, ctx: TenantContext): string {
@@ -67,6 +78,6 @@ export class MemoryIdempotency implements Idempotency.Store {
 }
 
 /** Factory around {@link MemoryIdempotency} for functional-style config. */
-export function memoryIdempotency(): MemoryIdempotency {
-  return new MemoryIdempotency()
+export function memoryIdempotency(cfg?: { development?: boolean }): MemoryIdempotency {
+  return new MemoryIdempotency(cfg)
 }
