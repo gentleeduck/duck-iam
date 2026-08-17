@@ -23,7 +23,6 @@ import { createDrizzleSqliteBridge } from '../sqlite'
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
 // describe.skip when not bun, so vitest under Node never resolves bun:sqlite.
 
-
 const DDL = `
 CREATE TABLE auth_identities (
   id TEXT PRIMARY KEY, tenant_id TEXT, profile TEXT NOT NULL,
