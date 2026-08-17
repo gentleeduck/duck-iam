@@ -15,11 +15,7 @@ export const auth = createAuth({
   transport: bearerTransport(),
   stores: adapter,
   limiter: memoryLimiter({ max: 5, windowMs: 60_000 }),
-  providers: [
-    passwords({ hasher: new ScryptHasher() }),
-    mfaProvider(),
-    apiKeyProvider(),
-  ],
+  providers: [passwords({ hasher: new ScryptHasher() }), mfaProvider(), apiKeyProvider()],
   idempotency: idempotency(memoryIdempotency()),
 })
 

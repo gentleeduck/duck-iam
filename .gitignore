@@ -115,3 +115,13 @@ packages/duck-auth/**/*.md
 # local Claude Code state (not shared)
 /.claude/settings.json
 /.claude/scheduled_tasks.lock
+
+# Superpowers plans/specs - local working docs, never committed (all packages)
+**/docs/superpowers/
+
+# local test credentials (never committed)
+.env.test
+**/.env.test
+
+# Syncthing conflict artifacts
+*.sync-conflict-*
