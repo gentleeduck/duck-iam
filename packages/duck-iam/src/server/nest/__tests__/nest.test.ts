@@ -487,7 +487,8 @@ describe('createIamAdminOperations onAdminMutation', () => {
 
     const guard = iamNestAccessGuard(engine, {
       getUserId: () => 'user-1',
-      getResourceAttributes: (req) => ({ ownerId: (req as { ownerId?: string }).ownerId }),
+      // `undefined` is not an AttributeValue; an absent owner is expressed as null.
+      getResourceAttributes: (req) => ({ ownerId: (req as { ownerId?: string }).ownerId ?? null }),
     })
 
     const handler = (): void => {}
