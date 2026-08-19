@@ -284,11 +284,29 @@ export namespace IamEngineTypes {
    *
    * @template TRole - Union of valid role IDs.
    */
+  export interface IInvalidateAll {
+    readonly kind: 'all'
+  }
+
+  export interface IInvalidatePolicies {
+    readonly kind: 'policies'
+  }
+
+  export interface IInvalidateRoles<TRole extends string = string> {
+    readonly kind: 'roles'
+    readonly roleId?: TRole
+  }
+
+  export interface IInvalidateSubject {
+    readonly kind: 'subject'
+    readonly subjectId: string
+  }
+
   export type IInvalidateEvent<TRole extends string = string> =
-    | { readonly kind: 'all' }
-    | { readonly kind: 'policies' }
-    | { readonly kind: 'roles'; readonly roleId?: TRole }
-    | { readonly kind: 'subject'; readonly subjectId: string }
+    | IInvalidateAll
+    | IInvalidatePolicies
+    | IInvalidateRoles<TRole>
+    | IInvalidateSubject
 
   /** Output of `engine.healthCheck()`. Wire to your `/healthz` route. */
   export interface IHealth {
