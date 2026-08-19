@@ -131,6 +131,45 @@ function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessCon
  * @param input - The candidate policy object (typically parsed JSON or an admin form payload).
  * @returns A {@link IamValidate.IResult} with `valid: false` when any error issue was emitted.
  */
+/**
+ * A matched target with no matching rule folds `defaultEffect`, which is `deny` - so a
+ * target widens what a policy refuses, not only what it inspects. Denying everything it
+ * targets is the point of a restrictive policy, so this only fires once the author has
+ * written an allow rule and left a pair it can never reach.
+ */
+function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.IIssue[]): void {
+  const targets = p.targets as { actions?: string[]; resources?: string[] } | undefined
+  const rules = (Array.isArray(p.rules) ? p.rules : []) as Array<{
+    effect?: string
+    actions?: string[]
+    resources?: string[]
+  }>
+
+  if (!targets) return
+  const allows = rules.filter((r) => r.effect === 'allow')
+  if (allows.length === 0) return
+
+  const covers = (list: string[] | undefined, value: string) =>
+    !list || list.length === 0 || list.includes('*') || list.includes(value)
+
+  for (const action of targets.actions ?? ['*']) {
+    for (const resource of targets.resources ?? ['*']) {
+      const reachable = allows.some((r) => covers(r.actions, action) && covers(r.resources, resource))
+      if (reachable) continue
+
+      issues.push({
+        type: 'warning',
+        code: 'UNREACHABLE_TARGET',
+        message:
+          `Target admits "${action}" on "${resource}" but no allow rule covers it, ` +
+          'so every request matching that pair is denied by this policy. Add a rule that allows it, ' +
+          'or narrow the target.',
+        path: 'targets',
+      })
+    }
+  }
+}
+
 export function validatePolicy(input: unknown): IamValidate.IResult {
   const issues: IamValidate.IIssue[] = []
 
@@ -234,6 +273,8 @@ export function validatePolicy(input: unknown): IamValidate.IResult {
       }
     }
   }
+
+  checkTargetIsReachable(p, issues)
 
   return { valid: issues.every((i) => i.type !== 'error'), issues }
 }
