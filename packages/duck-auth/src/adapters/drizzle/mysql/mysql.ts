@@ -18,6 +18,7 @@ import type { MySqlColumn } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './mysql.schema'
 import type { Mysql } from './mysql.types'
 
@@ -31,9 +32,15 @@ import type { Mysql } from './mysql.types'
  * @param db - The Drizzle mysql database instance.
  * @returns The identity / credential / session bridge for gentleduck/auth.
  */
-export function createDrizzleMysqlBridge<const TSchema extends Record<string, unknown>>(
-  db: MySql2Database<TSchema>,
-): SqlBridge.Me {
+/**
+ * Generic over the profile so a caller with its own profile shape does not have to
+ * cast the result. The row's `profile` column is typed as the base shape by drizzle,
+ * so the widening happens once here rather than at every call site.
+ */
+export function createDrizzleMysqlBridge<
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+  const TSchema extends Record<string, unknown> = Record<string, unknown>,
+>(db: MySql2Database<TSchema>): SqlBridge.Me<Profile> {
   /** Scope a where clause by tenantId; undefined tenant skips the filter. */
   function tenantWhere<T extends { tenantId: MySqlColumn }>(table: T, tenantId: string | undefined) {
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
@@ -53,7 +60,7 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
     return rows[0] ?? null
   }
 
-  return {
+  const bridge: SqlBridge.Me = {
     // --- Identities ---
     identities: {
       findById: async (id) => {
@@ -70,7 +77,9 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
         const rows = await db
           .select()
           .from(authIdentities)
-          .where(and(sql`${authIdentities.profile}->>'$.email' = ${email}`, isNull(authIdentities.deletedAt)))
+          .where(
+            and(sql`lower(${authIdentities.profile}->>'$.email') = lower(${email})`, isNull(authIdentities.deletedAt)),
+          )
           .limit(1)
         return rows[0] ?? null
       },
@@ -288,6 +297,11 @@ export function createDrizzleMysqlBridge<const TSchema extends Record<string, un
       },
     },
   }
+
+  // One assertion, here, rather than one at every call site: drizzle types the
+  // `profile` jsonb column as the base shape, and `Profile` is the caller's
+  // refinement of it. Nothing else about the bridge varies with the profile.
+  return bridge as SqlBridge.Me<Profile>
 }
 
 /**

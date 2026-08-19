@@ -4,6 +4,7 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './pg.schema'
 import type { Pg } from './pg.types'
 
@@ -37,13 +38,19 @@ function reviveSessionRowRequired<T extends { factors: unknown; actingAs: unknow
   return { ...row, factors, actingAs }
 }
 
-export function createDrizzlePgBridge<const TSchema extends Record<string, unknown>>(
-  db: NodePgDatabase<TSchema>,
-): SqlBridge.Me {
+/**
+ * Generic over the profile so a caller with its own profile shape does not have to
+ * cast the result. The row's `profile` column is typed as the base shape by drizzle,
+ * so the widening happens once here rather than at every call site.
+ */
+export function createDrizzlePgBridge<
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+  const TSchema extends Record<string, unknown> = Record<string, unknown>,
+>(db: NodePgDatabase<TSchema>): SqlBridge.Me<Profile> {
   const tenantWhere = <T extends { tenantId: PgColumn }>(table: T, tenantId: string | undefined) =>
     tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
 
-  return {
+  const bridge: SqlBridge.Me = {
     identities: {
       findById: (id) =>
         db
@@ -53,11 +60,17 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
           .limit(1)
           .then((r) => r[0] ?? null),
 
+      // Case-insensitive to match the uniqueness constraint, which is
+      // `unique (lower(profile->>'email'))`. An exact match here meant an identity
+      // registered as `Ada@x.com` could never sign in again: signup stores the
+      // address verbatim, and the lookup never found it.
       findByEmail: (email) =>
         db
           .select()
           .from(authIdentities)
-          .where(and(sql`${authIdentities.profile}->>'email' = ${email}`, isNull(authIdentities.deletedAt)))
+          .where(
+            and(sql`lower(${authIdentities.profile}->>'email') = lower(${email})`, isNull(authIdentities.deletedAt)),
+          )
           .limit(1)
           .then((r) => r[0] ?? null),
 
@@ -298,6 +311,11 @@ export function createDrizzlePgBridge<const TSchema extends Record<string, unkno
           .then((r) => r.length),
     },
   }
+
+  // One assertion, here, rather than one at every call site: drizzle types the
+  // `profile` jsonb column as the base shape, and `Profile` is the caller's
+  // refinement of it. Nothing else about the bridge varies with the profile.
+  return bridge as SqlBridge.Me<Profile>
 }
 
 export function drizzlePgStorage<Profile extends SqlBridge.ProfileMetadataBase>(

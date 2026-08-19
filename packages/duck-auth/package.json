@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/auth",
-  "version": "5.1.0",
+  "version": "5.2.0",
   "publishConfig": {
     "access": "public"
   },
@@ -42,6 +42,16 @@
         "default": "./dist/core/transport/index.cjs"
       }
     },
+    "./core/idempotency": {
+      "import": {
+        "types": "./dist/core/idempotency/index.d.ts",
+        "default": "./dist/core/idempotency/index.js"
+      },
+      "require": {
+        "types": "./dist/core/idempotency/index.d.cts",
+        "default": "./dist/core/idempotency/index.cjs"
+      }
+    },
     "./core/errors": {
       "import": {
         "types": "./dist/core/errors.d.ts",
@@ -60,6 +70,16 @@
       "require": {
         "types": "./dist/core/dataAtRest/index.d.cts",
         "default": "./dist/core/dataAtRest/index.cjs"
+      }
+    },
+    "./core/events": {
+      "import": {
+        "types": "./dist/core/events/index.d.ts",
+        "default": "./dist/core/events/index.js"
+      },
+      "require": {
+        "types": "./dist/core/events/index.d.cts",
+        "default": "./dist/core/events/index.cjs"
       }
     },
     "./adapters/memory": {

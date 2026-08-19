@@ -5,6 +5,8 @@ export default createTsdownConfig({
     index: 'src/index.ts',
     'core/index': 'src/core/index.ts',
     'core/transport/index': 'src/core/transport/index.ts',
+    'core/events/index': 'src/core/events/index.ts',
+    'core/idempotency/index': 'src/core/idempotency/index.ts',
     'core/dataAtRest/index': 'src/core/dataAtRest/index.ts',
     'core/errors': 'src/core/errors/index.ts',
     'adapters/memory/index': 'src/adapters/memory/index.ts',

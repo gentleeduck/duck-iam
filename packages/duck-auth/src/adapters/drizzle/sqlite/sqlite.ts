@@ -17,6 +17,7 @@ import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase, SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './sqlite.schema'
 import type { Sqlite } from './sqlite.types'
 
@@ -30,15 +31,20 @@ import type { Sqlite } from './sqlite.types'
  * @param db - The Drizzle sqlite database instance.
  * @returns The identity / credential / session bridge for gentleduck/auth.
  */
-export function createDrizzleSqliteBridge<const TSchema extends Record<string, unknown>>(
-  db: BaseSQLiteDatabase<'sync' | 'async', unknown, TSchema>,
-): SqlBridge.Me {
+/**
+ * Generic over the profile so a caller with its own profile shape does not have to
+ * cast the result.
+ */
+export function createDrizzleSqliteBridge<
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+  const TSchema extends Record<string, unknown> = Record<string, unknown>,
+>(db: BaseSQLiteDatabase<'sync' | 'async', unknown, TSchema>): SqlBridge.Me<Profile> {
   /** Scope a where clause by tenantId; undefined tenant skips the filter. */
   function tenantWhere<T extends { tenantId: SQLiteColumn }>(table: T, tenantId: string | undefined) {
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
   }
 
-  return {
+  const bridge: SqlBridge.Me = {
     // --- Identities ---
     identities: {
       findById: async (id) => {
@@ -56,7 +62,10 @@ export function createDrizzleSqliteBridge<const TSchema extends Record<string, u
           .select()
           .from(authIdentities)
           .where(
-            and(sql`json_extract(${authIdentities.profile}, '$.email') = ${email}`, isNull(authIdentities.deletedAt)),
+            and(
+              sql`lower(json_extract(${authIdentities.profile}, '$.email')) = lower(${email})`,
+              isNull(authIdentities.deletedAt),
+            ),
           )
           .limit(1)
         return rows[0] ?? null
@@ -282,6 +291,11 @@ export function createDrizzleSqliteBridge<const TSchema extends Record<string, u
       },
     },
   }
+
+  // One assertion, here, rather than one at every call site: drizzle types the
+  // `profile` jsonb column as the base shape, and `Profile` is the caller's
+  // refinement of it. Nothing else about the bridge varies with the profile.
+  return bridge as SqlBridge.Me<Profile>
 }
 
 /**
