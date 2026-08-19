@@ -1,5 +1,24 @@
 # @gentleduck/iam
 
+## 5.3.0
+
+### Minor Changes
+
+- Warn when a policy target names an action/resource pair no rule can allow.
+
+  `evaluatePolicy` folds `defaultEffect` when a policy's target matches and none of its
+  rules do, and that default is `deny`. A target therefore widens what a policy refuses,
+  not only what it inspects: adding a resource to `.target({ resources: [...] })` without
+  an allow rule covering it denies every caller for that resource, and the refusal
+  surfaces far from the policy that caused it.
+
+  `validatePolicy` now emits an `UNREACHABLE_TARGET` warning per uncovered pair. It fires
+  only once the policy contains at least one allow rule, so a purely restrictive policy -
+  where denying everything the target names is the whole point - is untouched.
+
+  Warning rather than error: the behaviour is correct deny-by-default and existing
+  policies that rely on it keep validating.
+
 ## 5.2.0
 
 ### Minor Changes
