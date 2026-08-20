@@ -152,17 +152,28 @@ function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.
   const covers = (list: string[] | undefined, value: string) =>
     !list || list.length === 0 || list.includes('*') || list.includes(value)
 
-  for (const action of targets.actions ?? ['*']) {
-    for (const resource of targets.resources ?? ['*']) {
-      const reachable = allows.some((r) => covers(r.actions, action) && covers(r.resources, resource))
+  // A dimension the target omits is one it does not constrain, so the rules decide it.
+  // Expanding it to a literal '*' would instead demand every rule be a wildcard: a target
+  // naming only `impersonate` was called unreachable because its rule allowed `.of('users')`.
+  const actions = targets.actions?.length ? targets.actions : null
+  const resources = targets.resources?.length ? targets.resources : null
+  if (!actions && !resources) return
+
+  for (const action of actions ?? [null]) {
+    for (const resource of resources ?? [null]) {
+      const reachable = allows.some(
+        (r) =>
+          (action === null || covers(r.actions, action)) && (resource === null || covers(r.resources, resource)),
+      )
       if (reachable) continue
 
+      const pair = resource === null ? `"${action}"` : `"${action ?? '*'}" on "${resource}"`
       issues.push({
-        type: 'warning',
+        type: 'error',
         code: 'UNREACHABLE_TARGET',
         message:
-          `Target admits "${action}" on "${resource}" but no allow rule covers it, ` +
-          'so every request matching that pair is denied by this policy. Add a rule that allows it, ' +
+          `Target admits ${pair} but no allow rule covers it, ` +
+          'so every request matching it is denied by this policy. Add a rule that allows it, ' +
           'or narrow the target.',
         path: 'targets',
       })
