@@ -247,3 +247,8 @@ export class IamMemoryAdapter<
     this._attributes.set(id, { ...(this._attributes.get(id) ?? {}), ...attrs })
   }
 }
+
+/** Factory around {@link IamMemoryAdapter}, for callers who prefer functions to `new`. */
+export function iamMemoryAdapter(...args: ConstructorParameters<typeof IamMemoryAdapter>): IamMemoryAdapter {
+  return new IamMemoryAdapter(...args)
+}

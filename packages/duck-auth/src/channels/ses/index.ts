@@ -115,3 +115,8 @@ export class AuthSesChannel<TClient extends AuthSesChannel.IClient = AuthSesChan
     }
   }
 }
+
+/** Factory around {@link AuthSesChannel}, for callers who prefer functions to `new`. */
+export function authSesChannel(...args: ConstructorParameters<typeof AuthSesChannel>): AuthSesChannel {
+  return new AuthSesChannel(...args)
+}

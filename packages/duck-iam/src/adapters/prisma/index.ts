@@ -383,3 +383,8 @@ function fromRole(r: AccessControl.IRole): Record<string, unknown> {
     metadata: r.metadata ?? null,
   }
 }
+
+/** Factory around {@link IamPrismaAdapter}, for callers who prefer functions to `new`. */
+export function iamPrismaAdapter(...args: ConstructorParameters<typeof IamPrismaAdapter>): IamPrismaAdapter {
+  return new IamPrismaAdapter(...args)
+}

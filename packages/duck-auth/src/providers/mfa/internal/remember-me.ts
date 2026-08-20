@@ -166,3 +166,8 @@ export class RememberMeFacet {
     }
   }
 }
+
+/** Factory around {@link RememberMeFacet}, for callers who prefer functions to `new`. */
+export function rememberMeFacet(...args: ConstructorParameters<typeof RememberMeFacet>): RememberMeFacet {
+  return new RememberMeFacet(...args)
+}

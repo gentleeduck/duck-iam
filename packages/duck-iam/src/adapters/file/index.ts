@@ -662,3 +662,8 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 const parsePolicyRow = parsePolicyRowShared
 const parseRoleRow = parseRoleRowShared
+
+/** Factory around {@link IamFileAdapter}, for callers who prefer functions to `new`. */
+export function iamFileAdapter(...args: ConstructorParameters<typeof IamFileAdapter>): IamFileAdapter {
+  return new IamFileAdapter(...args)
+}

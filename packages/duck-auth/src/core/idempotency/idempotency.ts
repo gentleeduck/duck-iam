@@ -87,3 +87,8 @@ export class IdempotencyImpl {
 export function idempotency(store: Idempotency.Store, cfg?: Partial<Idempotency.Cfg>): IdempotencyImpl {
   return new IdempotencyImpl(store, cfg)
 }
+
+/** Factory around {@link IdempotencyImpl}, for callers who prefer functions to `new`. */
+export function idempotencyImpl(...args: ConstructorParameters<typeof IdempotencyImpl>): IdempotencyImpl {
+  return new IdempotencyImpl(...args)
+}

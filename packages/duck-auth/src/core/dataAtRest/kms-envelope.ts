@@ -93,3 +93,10 @@ export namespace AuthKmsEnvelopeDataAtRest {
     kms: Kms.Provider
   }
 }
+
+/** Factory around {@link AuthKmsEnvelopeDataAtRest}, for callers who prefer functions to `new`. */
+export function authKmsEnvelopeDataAtRest(
+  ...args: ConstructorParameters<typeof AuthKmsEnvelopeDataAtRest>
+): AuthKmsEnvelopeDataAtRest {
+  return new AuthKmsEnvelopeDataAtRest(...args)
+}

@@ -1,5 +1,7 @@
 import type { ArgumentsHost, ExceptionFilter, ExecutionContext } from '@nestjs/common'
 import { Catch, createParamDecorator } from '@nestjs/common'
+import type { Csrf } from '~/core/csrf'
+import { csrfGuard, verifyCsrf } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
@@ -44,9 +46,11 @@ function handleError(err: unknown, reply: NestAdapter.Response): never {
   throw err
 }
 
+/** POST sign-in. CSRF-guarded. */
 export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
+      await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
       const parsed = parseSignInBody(req.body)
       if (!parsed) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), reply)
@@ -59,9 +63,11 @@ export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
   }
 }
 
+/** POST sign-out. CSRF-guarded. */
 export function nestSignOut(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
+      await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
       const sid = auth.transport.extract({ headers: toFetchHeaders(req.headers) })
       if (!sid) return forward(executeIntents(auth.transport.revoke()), reply)
       const { intents } = await auth.flows.signOut(sid)
@@ -89,9 +95,11 @@ export function nestSession(auth: AuthEngine): NestAdapter.Handler {
   }
 }
 
+/** POST provider-begin. CSRF-guarded. */
 export function nestProviderBegin(auth: AuthEngine): NestAdapter.Handler {
   return async (req, reply) => {
     try {
+      await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method })
       const id = req.params?.id
       if (!isValidProviderId(id)) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]), reply)
@@ -108,12 +116,27 @@ export function nestProviderBegin(auth: AuthEngine): NestAdapter.Handler {
   }
 }
 
-export function makeGuard(auth: AuthEngine, opts: { required?: boolean } = {}): NestAdapter.Guard {
+/**
+ * Auth guard for your own routes. CSRF is checked by default because a
+ * cookie-session app mounting only this guard would otherwise have no CSRF
+ * defence at all. Pass `csrf: false` only if something upstream already did it.
+ */
+export function makeGuard(auth: AuthEngine, opts: { required?: boolean; csrf?: boolean } = {}): NestAdapter.Guard {
   const required = opts.required ?? true
+  const csrf = opts.csrf ?? true
   return {
     async canActivate(ctx) {
       const req = ctx.switchToHttp().getRequest<NestAdapter.Request>()
       const resolved = await auth.resolveSession({ headers: toFetchHeaders(req.headers) })
+      if (csrf) {
+        // Reuse the session we just resolved rather than paying a second
+        // resolveSession inside csrfGuard.
+        verifyCsrf({
+          headers: toFetchHeaders(req.headers),
+          method: req.method,
+          ...(resolved?.session.csrfHash != null && { sessionCsrfHash: resolved.session.csrfHash }),
+        })
+      }
       if (!resolved) {
         if (required) {
           throw new AuthError('AUTH_UNAUTHENTICATED')
@@ -123,6 +146,17 @@ export function makeGuard(auth: AuthEngine, opts: { required?: boolean } = {}): 
       req.session = resolved.session
       // Adapter is profile-agnostic; store the resolved identity opaquely.
       req.identity = resolved.identity as NestAdapter.Request['identity']
+      return true
+    },
+  }
+}
+
+/** CSRF-only guard, for routes that need the check without the auth gate. */
+export function makeCsrfGuard(auth: AuthEngine, opts: Csrf.GuardOptions = {}): NestAdapter.Guard {
+  return {
+    async canActivate(ctx) {
+      const req = ctx.switchToHttp().getRequest<NestAdapter.Request>()
+      await csrfGuard(auth, { headers: toFetchHeaders(req.headers), method: req.method }, opts)
       return true
     },
   }
@@ -149,3 +183,8 @@ export const CurrentIdentity = createParamDecorator(
 )
 
 export type { NestAdapter } from './nestjs.types'
+
+/** Factory around {@link NestExceptionFilter}, for callers who prefer functions to `new`. */
+export function nestExceptionFilter(...args: ConstructorParameters<typeof NestExceptionFilter>): NestExceptionFilter {
+  return new NestExceptionFilter(...args)
+}

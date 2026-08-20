@@ -407,3 +407,8 @@ function encodeInteger(buf: Buffer): Buffer {
   const body = needsPad ? Buffer.concat([Buffer.from([0]), buf]) : buf
   return Buffer.concat([Buffer.from([0x02, body.length]), body])
 }
+
+/** Factory around {@link DPoPVerifier}, for callers who prefer functions to `new`. */
+export function dPoPVerifier(...args: ConstructorParameters<typeof DPoPVerifier>): DPoPVerifier {
+  return new DPoPVerifier(...args)
+}

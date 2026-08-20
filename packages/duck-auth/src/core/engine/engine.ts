@@ -7,12 +7,13 @@ import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
 import type { Anomaly } from '../anomaly/anomaly.types'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
 import { AuthError } from '../errors'
-import { type Events, InMemoryEvents } from '../events'
+import { type Events, InMemoryEvents, withAuditStamping } from '../events'
 import { DEFAULT_FLOWS_CONFIG, FlowsImpl } from '../flows'
 import { HijackFacet } from '../hijack'
 import { IdempotencyImpl, MemoryIdempotency } from '../idempotency'
 import { DEFAULT_IDENTITIES_CONFIG, type Identities, IdentitiesImpl } from '../identities'
 import { OrgsImpl } from '../orgs'
+import { PluginRegistry } from '../plugin'
 import { Providers } from '../provider'
 import type { Sessions } from '../sessions'
 import { DEFAULT_SESSION_CONFIG, SessionsImpl } from '../sessions'
@@ -43,6 +44,7 @@ export class AuthEngine<
   readonly hijack: HijackFacet
   readonly anomaly: AnomalyFacet
   readonly idempotency: IdempotencyImpl
+  readonly plugins: PluginRegistry<Profile, Tenant, OrgMeta>
 
   // Provider-owned capabilities live in `this.providers`; the getters below
   // resolve them by type and fail loud (AUTH_PROVIDER_NOT_REGISTERED) when the
@@ -75,9 +77,13 @@ export class AuthEngine<
 
   constructor(cfg: Engine.Cfg<Profile, Tenant, OrgMeta>) {
     this.cfg = cfg
-    this.events = cfg.events ?? new InMemoryEvents()
+    // Wrapped once here so every facet below emits through the stamper. Operator buses
+    // included, so a facet never receives `cfg.events` unwrapped.
+    this.events = withAuditStamping(cfg.events ?? new InMemoryEvents())
     this.transport = cfg.transport
     this.limiter = cfg.limiter ?? new MemoryLimiter()
+    // Dev-only fallback: under NODE_ENV=production `MemoryIdempotency` refuses to
+    // build, so a deploy that forgot to configure a shared store fails at boot.
     this.idempotency = cfg.idempotency ?? new IdempotencyImpl(new MemoryIdempotency())
     this.sessions = new SessionsImpl(cfg.stores.sessions, this.events, {
       ttlMs: cfg.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
@@ -98,6 +104,7 @@ export class AuthEngine<
       if (!cap) continue
       this.providers.register(cap)
     }
+    this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
     this.orgs = cfg.stores.orgs ? new OrgsImpl<OrgMeta>(cfg.stores.orgs, this.events) : null
     this.hijack = new HijackFacet(this.events, cfg.hijack ?? {})
     this.anomaly = new AnomalyFacet(this.events, DEFAULT_ANOMALY_CONFIG)
@@ -152,8 +159,27 @@ export class AuthEngine<
     return resolveSession(this, req, opts)
   }
 
+  /**
+   * Install a plugin: registers its providers, subscribes its event handlers, mounts
+   * its facet under `plugins.facets[id]`, then runs its `install` hook last so it
+   * observes the finished wiring.
+   */
+  async use(plugin: PluginRegistry.Plugin<Profile, Tenant, OrgMeta>): Promise<this> {
+    await this.plugins.install(this, plugin)
+    return this
+  }
+
   /** Boot-time strict validation; throws `AUTH/MISCONFIGURED` on any production footgun. */
   strict(opts: { env: 'development' | 'production' | 'test' }): void {
     assertStrict(this, opts)
   }
+}
+
+/** Factory around {@link AuthEngine}, for callers who prefer functions to `new`. */
+export function authEngine<
+  Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
+  Tenant = string,
+  OrgMeta = unknown,
+>(cfg: Engine.Cfg<Profile, Tenant, OrgMeta>): AuthEngine<Profile, Tenant, OrgMeta> {
+  return new AuthEngine<Profile, Tenant, OrgMeta>(cfg)
 }

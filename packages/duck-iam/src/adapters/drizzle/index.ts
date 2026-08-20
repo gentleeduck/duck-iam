@@ -551,3 +551,17 @@ export function createIamDrizzleAdapter<
 >(config: IamDrizzle.IConfig<TDb, TType>): IamDrizzleAdapter<Params[0], Params[1], Params[2], Params[3], TDb, TType> {
   return new IamDrizzleAdapter(config)
 }
+
+/** Factory around {@link IamDrizzleAdapter}, for callers who prefer functions to `new`. */
+export function iamDrizzleAdapter<
+  TAction extends string,
+  TResource extends string,
+  TRole extends string,
+  TScope extends string,
+  TDb extends IamDrizzle.AnyDrizzleDb = IamDrizzle.AnyDrizzleDb,
+  TType extends 'pg' | 'mysql' | 'sqlite' = 'pg',
+>(
+  ...args: ConstructorParameters<typeof IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType>>
+): IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType> {
+  return new IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType>(...args)
+}

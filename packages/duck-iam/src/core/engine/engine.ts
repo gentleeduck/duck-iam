@@ -824,3 +824,8 @@ export class IamEngine<
     })
   }
 }
+
+/** Factory around {@link IamEngine}, for callers who prefer functions to `new`. */
+export function iamEngine(...args: ConstructorParameters<typeof IamEngine>): IamEngine {
+  return new IamEngine(...args)
+}

@@ -269,3 +269,13 @@ export function apiKeyProvider<
   return (auth) =>
     new ApiKeysFacet(auth.cfg.stores.credentials, auth.events, { randomToken, sha256 }, toApiKeysCfg(cfg))
 }
+
+/** Factory around {@link ApiKeysFacet}, for callers who prefer functions to `new`. */
+export function apiKeysFacet(...args: ConstructorParameters<typeof ApiKeysFacet>): ApiKeysFacet {
+  return new ApiKeysFacet(...args)
+}
+
+/** Factory around {@link AuthApiKeyImpl}, for callers who prefer functions to `new`. */
+export function authApiKeyImpl(...args: ConstructorParameters<typeof AuthApiKeyImpl>): AuthApiKeyImpl {
+  return new AuthApiKeyImpl(...args)
+}

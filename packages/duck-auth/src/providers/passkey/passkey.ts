@@ -316,3 +316,8 @@ function parsePasskeyMetadata(meta: Credential.Me['metadata']): Passkey.Credenti
   if (transports !== undefined) out.transports = transports
   return out
 }
+
+/** Factory around {@link PasskeyImpl}, for callers who prefer functions to `new`. */
+export function passkeyImpl(...args: ConstructorParameters<typeof PasskeyImpl>): PasskeyImpl {
+  return new PasskeyImpl(...args)
+}

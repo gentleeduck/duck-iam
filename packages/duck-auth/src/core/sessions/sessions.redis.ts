@@ -134,9 +134,18 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     await this._redis.del(this._idxKey(identityId))
   }
 
-  // gc impl below
-
-  async gc(_now: number): Promise<{ deleted: number }> {
+  /**
+   * Reconcile the identity indexes and purge expired sessions. The key TTL is
+   * derived from `absoluteExpiresAt` alone, so without this sweep nothing at the
+   * storage layer ever enforces the sliding `expiresAt`.
+   *
+   * `deleted` counts each index member reconciled once, whether its record was
+   * already gone or is removed here.
+   *
+   * Guest sessions carry no `identityId` and so sit in no index; their expiry
+   * stays TTL-only.
+   */
+  async gc(now: number): Promise<{ deleted: number }> {
     let cursor = '0'
     let deleted = 0
     do {
@@ -145,17 +154,34 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
         count: 250,
       })
       cursor = next
-      for (const idxKey of keys) {
-        const ids = await this._redis.smembers(idxKey)
-        const stale: string[] = []
-        for (const id of ids) {
-          const exists = await this._redis.get(this._sessKey(id))
-          if (!exists) stale.push(id)
-        }
-        if (stale.length > 0) {
-          deleted += await this._redis.srem(idxKey, ...stale)
-        }
-      }
+      // One scan page is bounded by `count`, so fanning out per key stays within a
+      // sane concurrency envelope.
+      const pruned = await Promise.all(
+        keys.map(async (idxKey) => {
+          const ids = await this._redis.smembers(idxKey)
+          if (ids.length === 0) return 0
+          const raws = await Promise.all(ids.map((id) => this._redis.get(this._sessKey(id))))
+          const stale: string[] = []
+          for (let i = 0; i < ids.length; i++) {
+            const id = ids[i] as string
+            const raw = raws[i]
+            if (!raw) {
+              stale.push(id)
+              continue
+            }
+            const parsed = parseStoredSession(raw)
+            // An unparseable row is corruption: drop it rather than leave a record
+            // no reader can use.
+            if (parsed === null || parsed.expiresAt.getTime() <= now || parsed.absoluteExpiresAt.getTime() <= now) {
+              await this._redis.del(this._sessKey(id))
+              stale.push(id)
+            }
+          }
+          if (stale.length === 0) return 0
+          return this._redis.srem(idxKey, ...stale)
+        }),
+      )
+      for (const n of pruned) deleted += n
     } while (cursor !== '0')
     return { deleted }
   }
@@ -199,7 +225,7 @@ function parseStoredSession(raw: string): Sessions.Me | null {
   const createdAtDate = parseStoredDate(obj.createdAt) ?? expiresAtDate
   const rotatedAtDate = parseStoredDate(obj.rotatedAt) ?? expiresAtDate
 
-  // Reconstitute factors — completedAt may be an ISO string (JSON-serialized Date)
+  // Reconstitute factors: completedAt may be an ISO string (JSON-serialized Date)
   const rawFactors = Array.isArray(obj.factors) ? obj.factors : []
   const factors: Sessions.Factor[] = rawFactors
     .filter((f) => AUTH_SESSION_FACTOR_METHODS.includes(f.method))
@@ -245,4 +271,9 @@ export function session<TRedis extends RedisLike.Client = RedisLike.Client>(
   cfg: RedisSession.Cfg<TRedis>,
 ): RedisSessionImpl<TRedis> {
   return new RedisSessionImpl(cfg)
+}
+
+/** Factory around {@link RedisSessionImpl}, for callers who prefer functions to `new`. */
+export function redisSessionImpl(...args: ConstructorParameters<typeof RedisSessionImpl>): RedisSessionImpl {
+  return new RedisSessionImpl(...args)
 }

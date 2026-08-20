@@ -102,3 +102,8 @@ export class IamLRUCache<V> {
     }
   }
 }
+
+/** Factory around {@link IamLRUCache}, for callers who prefer functions to `new`. */
+export function iamLRUCache<V>(...args: ConstructorParameters<typeof IamLRUCache<V>>): IamLRUCache<V> {
+  return new IamLRUCache<V>(...args)
+}
