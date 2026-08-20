@@ -4,9 +4,12 @@
  */
 export namespace RedisLike {
   /**
-   * Minimal Redis interface the auth adapters consume. Both `ioredis`
-   * and `@upstash/redis` already implement this surface; consumers
-   * wire their existing client without an extra peerDep cost.
+   * Minimal Redis interface the auth adapters consume, shaped after
+   * `@upstash/redis`, which satisfies it directly.
+   *
+   * `ioredis` and `iovalkey` DO NOT: their `set` takes options variadically
+   * rather than as an object, so passing one straight through drops every TTL
+   * and every NX guard silently. Wrap those with `adapters/valkey`.
    *
    * Methods follow Redis semantics:
    *   - `get` returns the value (string) or null
@@ -250,4 +253,9 @@ function matchGlob(input: string, pattern: string): boolean {
   }
   while (p < pattern.length && pattern[p] === '*') p++
   return p === pattern.length
+}
+
+/** Factory around {@link FakeRedis}, for callers who prefer functions to `new`. */
+export function fakeRedis(...args: ConstructorParameters<typeof FakeRedis>): FakeRedis {
+  return new FakeRedis(...args)
 }

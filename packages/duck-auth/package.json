@@ -212,6 +212,36 @@
         "default": "./dist/limiters/memory/index.cjs"
       }
     },
+    "./limiters/mock": {
+      "import": {
+        "types": "./dist/limiters/mock/index.d.ts",
+        "default": "./dist/limiters/mock/index.js"
+      },
+      "require": {
+        "types": "./dist/limiters/mock/index.d.cts",
+        "default": "./dist/limiters/mock/index.cjs"
+      }
+    },
+    "./limiters/redis": {
+      "import": {
+        "types": "./dist/limiters/redis/index.d.ts",
+        "default": "./dist/limiters/redis/index.js"
+      },
+      "require": {
+        "types": "./dist/limiters/redis/index.d.cts",
+        "default": "./dist/limiters/redis/index.cjs"
+      }
+    },
+    "./adapters/valkey": {
+      "import": {
+        "types": "./dist/adapters/valkey/index.d.ts",
+        "default": "./dist/adapters/valkey/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/valkey/index.d.cts",
+        "default": "./dist/adapters/valkey/index.cjs"
+      }
+    },
     "./providers/passwords": {
       "import": {
         "types": "./dist/providers/passwords/index.d.ts",
@@ -602,7 +632,8 @@
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules",
-    "test:e2e": "vitest run e2e"
+    "test:e2e": "vitest run e2e",
+    "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && node src/test/oidc-e2e-schema.mjs"
   },
   "dependencies": {
     "@types/node": "^26.1.0",
@@ -657,10 +688,12 @@
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",
     "@node-rs/argon2": "2.0.2",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/pg": "^8.21.0",
     "@types/react": "^19.2.17",
     "better-sqlite3": "^13.0.3",
     "ioredis": "^6.0.0",
+    "mysql2": "^3.23.4",
     "pg": "^8.23.0",
     "react": "^19.2.7",
     "tsdown": "^0.22.3",
