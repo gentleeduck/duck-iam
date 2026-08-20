@@ -29,10 +29,15 @@ export class MemoryAdapter<
   private _memberships = new Map<string, Org.Membership>()
 
   constructor() {
-    this.identities = this._buildIdentityStore()
-    this.sessions = this._buildSessionStore()
-    this.credentials = this._buildCredentialStore()
-    this.orgs = this._buildOrgStore()
+    // Brand here rather than only in the factory below: `new MemoryAdapter()` is how
+    // every example and test builds one, and strict() recognises a memory store by
+    // this flag. Branding one construction path and not the other lets the ordinary
+    // path through a production check whose whole job is to refuse it.
+    const brand = { __isMemoryStore: true as const }
+    this.identities = Object.assign(this._buildIdentityStore(), brand)
+    this.sessions = Object.assign(this._buildSessionStore(), brand)
+    this.credentials = Object.assign(this._buildCredentialStore(), brand)
+    this.orgs = Object.assign(this._buildOrgStore(), brand)
   }
 
   // --- Identity ---------------------------------------------------------
@@ -217,8 +222,12 @@ export class MemoryAdapter<
       getByHash: async (sidHash) => store.get(sidHash) ?? null,
       update: async (id, patch) => {
         const cur = store.get(id)
-        if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
-        const next = { ...cur, ...patch, rotatedAt: new Date() }
+        // Redis and SQL both surface a missing row as AUTH_SESSION_REVOKED; memory
+        // was the outlier, and it is the store dev and CI run against.
+        if (!cur) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+        // No implicit `rotatedAt` stamp: it drives the freshness gate, so moving it
+        // on every patch means the gate never expires here but does in production.
+        const next = { ...cur, ...patch }
         store.set(id, next)
         return next
       },
@@ -412,9 +421,18 @@ export const memoryStorage = <Profile extends Identities.ProfileMetadataBase = I
   credentials: MemoryAdapter<Profile>['credentials']
 } => {
   const adapter = new MemoryAdapter<Profile>()
+  // Branded so strict() can recognise these without reading `constructor.name`: every
+  // sql, drizzle and prisma store is a plain object literal too, so a name check
+  // rejects the very adapters its own error message tells you to use.
+  const brand = { __isMemoryStore: true as const }
   return {
-    credentials: adapter.credentials,
-    identities: adapter.identities,
-    sessions: adapter.sessions,
+    credentials: Object.assign(adapter.credentials, brand),
+    identities: Object.assign(adapter.identities, brand),
+    sessions: Object.assign(adapter.sessions, brand),
   }
+}
+
+/** Factory around {@link MemoryAdapter}, for callers who prefer functions to `new`. */
+export function memoryAdapter(...args: ConstructorParameters<typeof MemoryAdapter>): MemoryAdapter {
+  return new MemoryAdapter(...args)
 }

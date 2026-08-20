@@ -35,6 +35,10 @@ export function createAuth<
     },
     transport,
     limiter: config.limiter,
+    // Inherited from Engine.Cfg, so a caller can always pass it and it type-checks.
+    // Forgetting it here dropped it silently: the engine fell back to
+    // MemoryIdempotency and strict() then refused to boot production.
+    idempotency: config.idempotency,
     events: config.events,
     session: config.session,
     identities: config.identities,
