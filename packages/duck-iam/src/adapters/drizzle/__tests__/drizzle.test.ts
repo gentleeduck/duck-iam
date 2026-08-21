@@ -98,9 +98,9 @@ function makeDrizzleMock(): {
     db: {
       select: vi.fn(() => ({
         from: (tableRef: unknown) =>
-          buildSelect(tableForRef(tableRef)) as unknown as ReturnType<
-            TestConfig['db']['select']
-          >['from'] extends (...a: any) => infer X
+          buildSelect(tableForRef(tableRef)) as unknown as ReturnType<TestConfig['db']['select']>['from'] extends (
+            ...a: any
+          ) => infer X
             ? X
             : never,
       })) as unknown as TestConfig['db']['select'],

@@ -162,8 +162,7 @@ function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.
   for (const action of actions ?? [null]) {
     for (const resource of resources ?? [null]) {
       const reachable = allows.some(
-        (r) =>
-          (action === null || covers(r.actions, action)) && (resource === null || covers(r.resources, resource)),
+        (r) => (action === null || covers(r.actions, action)) && (resource === null || covers(r.resources, resource)),
       )
       if (reachable) continue
 
