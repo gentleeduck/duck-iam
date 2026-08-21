@@ -133,3 +133,35 @@ export function verifyTotp(
   }
   return matched
 }
+
+/**
+ * Which time step a code matches, or `null` when none in the drift window does.
+ *
+ * `verifyTotp` answers only yes/no, which is not enough to make a code single-use:
+ * NIST SP 800-63B requires a verifier to accept a given OTP once per validity
+ * period, and enforcing that means recording *which* step was spent. Returning the
+ * step lets the caller refuse anything at or below the last one it consumed.
+ *
+ * Scans the whole window without short-circuiting, for the same reason
+ * `verifyTotp` does: stopping early leaks which step matched.
+ */
+export function matchTotpStep(
+  secretB32: string,
+  code: string,
+  opts: { params?: Totp.Params; nowMs?: number } = {},
+): number | null {
+  const params = opts.params ?? TOTP_DEFAULTS
+  const nowMs = opts.nowMs ?? Date.now()
+  if (code.length !== params.digits) return null
+  if (!/^\d+$/.test(code)) return null
+
+  const currentStep = Math.floor(nowMs / 1000 / params.periodSec)
+  let matchedStep: number | null = null
+  for (let d = -params.driftSteps; d <= params.driftSteps; d++) {
+    const step = currentStep + d
+    const a = Buffer.from(totpAt(secretB32, step, params))
+    const b = Buffer.from(code)
+    if (a.length === b.length && timingSafeEqual(a, b)) matchedStep = step
+  }
+  return matchedStep
+}

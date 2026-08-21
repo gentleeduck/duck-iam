@@ -9,7 +9,7 @@ import type { Identities } from '~/core/identities'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { Passkey } from '~/providers/passkey/passkey.types'
-import { buildOtpAuthUri, generateSecret, verifyTotp } from './internal/totp'
+import { buildOtpAuthUri, generateSecret, matchTotpStep } from './internal/totp'
 import { DEFAULT_MFA_CONFIG } from './mfa.constants'
 import type { Mfa } from './mfa.types'
 
@@ -88,9 +88,12 @@ export class MfaImpl {
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
     const row = rows.find((r) => (r.metadata as Mfa.TotpMetadata | undefined)?.confirmed === false)
     if (!row) throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['totp'] })
-    if (!verifyTotp(row.secret, code)) return { ok: false }
+    const step = matchTotpStep(row.secret, code)
+    if (step === null) return { ok: false }
 
-    await this._credentials.patchMetadata(row.id, { confirmed: true }, ctx)
+    // Spend the confirming code as well, so it cannot immediately be replayed
+    // into a step-up on the enrollment it just created.
+    await this._credentials.patchMetadata(row.id, { confirmed: true, lastTotpStep: step }, ctx)
 
     // Generate backup codes on first enrollment. Plaintext shown once.
     const backupCodes = await this._regenerateBackupCodes(identityId, ctx)
@@ -98,14 +101,29 @@ export class MfaImpl {
     return { ok: true, backupCodes }
   }
 
-  /** Verify a TOTP code against the confirmed enrollment. Used by step-up. */
+  /**
+   * Verify a TOTP code against the confirmed enrollment. Used by step-up.
+   *
+   * Single-use within the validity window: NIST SP 800-63B requires a verifier to
+   * accept a given time-based OTP only once. The drift window spans three steps,
+   * so without spending the step a captured code stays replayable for about ninety
+   * seconds, which is the whole protection on a privileged step-up.
+   */
   async verifyTotp(identityId: string, code: string, ctx: TenantContext = {}): Promise<boolean> {
     if (typeof code !== 'string' || code.length === 0 || code.length > 64) return false
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
     const row = rows.find((r) => r.revokedAt == null && isProfileBooleanTrue(r.metadata, 'confirmed'))
     if (!row) return false
     if (typeof row.secret !== 'string') return false
-    return verifyTotp(row.secret, code)
+
+    const step = matchTotpStep(row.secret, code)
+    if (step === null) return false
+
+    const lastStep = (row.metadata as Mfa.TotpMetadata | undefined)?.lastTotpStep
+    if (typeof lastStep === 'number' && step <= lastStep) return false
+
+    await this._credentials.patchMetadata(row.id, { lastTotpStep: step }, ctx)
+    return true
   }
 
   /** True if the identity has a confirmed TOTP enrollment. */

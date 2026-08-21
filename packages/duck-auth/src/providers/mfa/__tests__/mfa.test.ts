@@ -66,10 +66,43 @@ describe('MfaFacet - TOTP', () => {
   describe('authVerifyTotp', () => {
     it('verifies the current code against a confirmed enrollment', async () => {
       const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
-      const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
+      const step = Math.floor(Date.now() / 1000 / 30)
+      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step))
+      // A later step, because confirming spends the code it was given. This test
+      // used to re-present the confirming code, which is the replay now refused.
+      expect(await facet.verifyTotp('user-1', totpAt(challenge.secret, step + 1))).toBe(true)
+    })
+
+    it('refuses a code that was already spent', async () => {
+      // NIST SP 800-63B: a verifier accepts a given time-based OTP only once in
+      // its validity period. The drift window is three steps wide, so a captured
+      // code would otherwise stay usable for about ninety seconds.
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const step = Math.floor(Date.now() / 1000 / 30)
+      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step))
+      const code = totpAt(challenge.secret, step + 1)
+
+      expect(await facet.verifyTotp('user-1', code)).toBe(true)
+      expect(await facet.verifyTotp('user-1', code)).toBe(false)
+      expect(await facet.verifyTotp('user-1', code)).toBe(false)
+    })
+
+    it('refuses an older code once a newer step has been spent', async () => {
+      // Rewinding inside the drift window is the same replay by another route.
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const step = Math.floor(Date.now() / 1000 / 30)
+      await facet.confirmTotpEnrollment('user-1', totpAt(challenge.secret, step - 1))
+
+      expect(await facet.verifyTotp('user-1', totpAt(challenge.secret, step + 1))).toBe(true)
+      expect(await facet.verifyTotp('user-1', totpAt(challenge.secret, step))).toBe(false)
+    })
+
+    it('confirming spends its own code, so it cannot be replayed into a step-up', async () => {
+      const challenge = await facet.beginTotpEnrollment('user-1', 'alice@x.com')
+      const step = Math.floor(Date.now() / 1000 / 30)
+      const code = totpAt(challenge.secret, step)
       await facet.confirmTotpEnrollment('user-1', code)
-      const verify = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
-      expect(await facet.verifyTotp('user-1', verify)).toBe(true)
+      expect(await facet.verifyTotp('user-1', code)).toBe(false)
     })
 
     it('returns false when no confirmed enrollment exists', async () => {
