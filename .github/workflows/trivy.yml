@@ -2,19 +2,21 @@ name: Trivy filesystem scan
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
   push:
-    branches: [master]
+    branches: [main]
   schedule:
     - cron: "30 5 * * 1"
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

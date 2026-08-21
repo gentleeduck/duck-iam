@@ -2,13 +2,13 @@ name: Coverage
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
     paths-ignore:
       - '**/*.md'
       - '.github/**/*.md'
       - 'docs/**'
   push:
-    branches: [master]
+    branches: [main]
     paths-ignore:
       - '**/*.md'
       - '.github/**/*.md'
