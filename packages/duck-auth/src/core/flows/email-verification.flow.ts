@@ -1,7 +1,6 @@
 import {
   getCredentialPurpose,
   isCredentialExpired,
-  isProfileBooleanTrue,
   isRevoked,
   toCredentialUpsert,
 } from '~/core/credentials/credentials'
@@ -28,7 +27,7 @@ export async function requestEmailVerification<Profile extends Identities.Profil
   const identity = await ctx.stores.identities.findById(opts.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
-  if (isProfileBooleanTrue(identity.profile, 'emailVerified')) {
+  if (identity.emailVerified) {
     return { ok: true }
   }
 
@@ -99,13 +98,9 @@ export async function completeEmailVerification<Profile extends Identities.Profi
   const identity = await ctx.stores.identities.findById(row.identityId)
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
 
-  const baseProfile = isPlainObject(identity.profile) ? identity.profile : {}
-  const mergedProfile: Profile = { ...baseProfile, emailVerified: true } as unknown as Profile
-  await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version)
+  // The column, never the profile. `updateProfile` merges a caller-supplied patch without
+  // filtering keys, so a profile flag is something the account holder can set on themselves.
+  await ctx.stores.identities.update(identity.id, { emailVerified: true }, identity.version)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
   return { identityId: row.identityId }
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
 }

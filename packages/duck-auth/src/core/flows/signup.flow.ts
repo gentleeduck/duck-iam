@@ -24,7 +24,7 @@ export async function beginSignUp<Profile extends Identities.ProfileMetadataBase
   const required = opts.required ?? ['email-verified', 'terms-accepted']
 
   const initial = isPlainObject(opts.initialProfile) ? opts.initialProfile : {}
-  const profile: Profile = { ...initial, email: opts.email, emailVerified: false } as unknown as Profile
+  const profile: Profile = { ...initial, email: opts.email } as unknown as Profile
 
   const created = await ctx.stores.identities.create({
     profile,

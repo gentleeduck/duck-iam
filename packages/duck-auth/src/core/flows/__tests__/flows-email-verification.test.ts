@@ -37,13 +37,13 @@ describe('FlowsImpl - email verification', () => {
   beforeEach(async () => {
     ;({ auth, adapter } = build())
     const ident = await auth.identities.create({
-      profile: { username: 'a@x.com', email: 'a@x.com', emailVerified: false },
+      profile: { username: 'a@x.com', email: 'a@x.com' },
     })
     identityId = ident.id
     channel = new AuthTestChannel()
   })
 
-  it('request -> complete round-trips: identity.profile.emailVerified flips to true', async () => {
+  it('request -> complete round-trips: the emailVerified column flips to true', async () => {
     await auth.flows.requestEmailVerification({
       identityId,
       channels: { email: channel },
@@ -55,15 +55,11 @@ describe('FlowsImpl - email verification', () => {
     expect(token).toBeTruthy()
     await auth.flows.completeEmailVerification({ token: token! })
     const ident = await adapter.identities.findById(identityId)
-    expect(ident?.profile?.emailVerified).toBe(true)
+    expect(ident?.emailVerified).toBe(true)
   })
 
   it('already-verified identity short-circuits: no token minted, channel quiet', async () => {
-    await adapter.identities.update(
-      identityId,
-      { profile: { username: 'a@x.com', email: 'a@x.com', emailVerified: true } },
-      1,
-    )
+    await adapter.identities.update(identityId, { emailVerified: true }, 1)
     const result = await auth.flows.requestEmailVerification({
       identityId,
       channels: { email: channel },

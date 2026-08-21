@@ -12,7 +12,7 @@
  */
 
 import type { Identity } from '~/core'
-import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '~/core/credentials/credentials'
+import { getProfileString, isFiniteNumber } from '~/core/credentials/credentials'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import {
@@ -644,7 +644,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
       const email = getProfileString(identity.profile, 'email')
       if (email !== undefined) {
         claims.email = email
-        claims.email_verified = isProfileBooleanTrue(identity.profile, 'email_verified')
+        claims.email_verified = identity.emailVerified
       }
     }
     return claims
