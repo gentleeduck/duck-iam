@@ -10,7 +10,7 @@ import { AuthError } from '../errors'
 import { type Events, InMemoryEvents, withAuditStamping } from '../events'
 import { DEFAULT_FLOWS_CONFIG, FlowsImpl } from '../flows'
 import { HijackFacet } from '../hijack'
-import { IdempotencyImpl, MemoryIdempotency } from '../idempotency'
+import { type IdempotencyImpl, MemoryIdempotency, resolveIdempotency } from '../idempotency'
 import { DEFAULT_IDENTITIES_CONFIG, type Identities, IdentitiesImpl } from '../identities'
 import { OrgsImpl } from '../orgs'
 import { PluginRegistry } from '../plugin'
@@ -84,7 +84,7 @@ export class AuthEngine<
     this.limiter = cfg.limiter ?? new MemoryLimiter()
     // Dev-only fallback: under NODE_ENV=production `MemoryIdempotency` refuses to
     // build, so a deploy that forgot to configure a shared store fails at boot.
-    this.idempotency = cfg.idempotency ?? new IdempotencyImpl(new MemoryIdempotency())
+    this.idempotency = resolveIdempotency(cfg.idempotency ?? new MemoryIdempotency())
     this.sessions = new SessionsImpl(cfg.stores.sessions, this.events, {
       ttlMs: cfg.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
       absoluteTtlMs: cfg.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
@@ -107,7 +107,7 @@ export class AuthEngine<
     this.plugins = new PluginRegistry<Profile, Tenant, OrgMeta>()
     this.orgs = cfg.stores.orgs ? new OrgsImpl<OrgMeta>(cfg.stores.orgs, this.events) : null
     this.hijack = new HijackFacet(this.events, cfg.hijack ?? {})
-    this.anomaly = new AnomalyFacet(this.events, DEFAULT_ANOMALY_CONFIG)
+    this.anomaly = new AnomalyFacet(this.events, { ...DEFAULT_ANOMALY_CONFIG, ...cfg.anomaly })
     this.flows = new FlowsImpl<Profile>(
       this.sessions,
       this.identities,

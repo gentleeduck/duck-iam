@@ -1,6 +1,6 @@
 import { MemoryAdapter } from '~/adapters/memory'
 import { createAuth } from '~/core/config'
-import { type Idempotency, idempotency, memoryIdempotency } from '~/core/idempotency'
+import { type Idempotency, memoryIdempotency } from '~/core/idempotency'
 import type { TenantContext } from '~/core/tenant'
 import { bearerTransport } from '~/core/transport'
 import { memoryLimiter } from '~/limiters/memory'
@@ -16,12 +16,13 @@ export const auth = createAuth({
   stores: adapter,
   limiter: memoryLimiter({ max: 5, windowMs: 60_000 }),
   providers: [passwords({ hasher: new ScryptHasher() }), mfaProvider(), apiKeyProvider()],
-  idempotency: idempotency(memoryIdempotency()),
+  idempotency: memoryIdempotency(),
 })
 
 void auth.passwords
 void auth.mfa
 void auth.apiKeys
+void auth.events.emit
 
 let chargesExecuted = 0
 

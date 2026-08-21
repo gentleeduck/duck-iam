@@ -1,9 +1,10 @@
 import type { Events } from '~/core/events/events.types'
 import type { Limiter } from '~/limiters'
+import type { Anomaly } from '../anomaly'
 import type { AuthDefine } from '../config/config.types'
 import type { Credential } from '../credentials/credentials.types'
 import type { Hijack } from '../hijack/hijack.types'
-import type { IdempotencyImpl } from '../idempotency'
+import type { IdempotencyInput } from '../idempotency'
 import type { Identities } from '../identities/identities.types'
 import type { Org } from '../orgs/orgs.types'
 import type { Sessions } from '../sessions/sessions.types'
@@ -38,7 +39,11 @@ export namespace Engine {
      * identically.
      */
     providers?: AuthDefine.IProviderEntry<Profile, Tenant, OrgMeta>[]
-    idempotency?: IdempotencyImpl
+    /**
+     * Idempotency facet, or a bare store to wrap in one. Mirrors `limiter`:
+     * `idempotency: redisIdempotency({ prefix: 'auth:idem', redis })`.
+     */
+    idempotency?: IdempotencyInput
     /** Channel bundle forwarded to provider thunks (magic-link / OTP). */
     channels?: AuthDefine.IChannels
     events?: Events.IBus
@@ -53,6 +58,18 @@ export namespace Engine {
       profileMaxBytes?: number
     }
     hijack?: Hijack.Cfg
+    /**
+     * Anomaly scoring thresholds and per-signal reactions. Merged over the
+     * defaults, the same way `hijack` is.
+     */
+    anomaly?: Partial<Anomaly.Cfg>
     __tenantBrand?: Tenant
+  }
+
+  /** Result shape of {@link resolveSession}; `anomaly` present only when detectors ran. */
+  export type ResolveResult<Profile extends Identities.ProfileMetadataBase> = {
+    session: Sessions.Me
+    identity: Identities.Me<Profile> | null
+    anomaly?: Anomaly.Result
   }
 }
