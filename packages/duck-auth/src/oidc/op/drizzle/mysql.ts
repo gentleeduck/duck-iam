@@ -8,7 +8,7 @@
 
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { MySqlDatabase, MySqlQueryResultHKT } from 'drizzle-orm/mysql-core'
-import { bigint, index, mysqlTable, text, varchar } from 'drizzle-orm/mysql-core'
+import { bigint, index, mysqlTable, text, uniqueIndex, varchar } from 'drizzle-orm/mysql-core'
 import type { OidcOP } from '../types'
 
 export const authOidcClientsTable = mysqlTable('oidc_clients', {
@@ -79,7 +79,10 @@ export const authOidcConsentsTable = mysqlTable(
     scope: text('scope').notNull(),
     grantedAt: bigint('granted_at', { mode: 'number' }).notNull(),
   },
-  (t) => [index('oidc_consents_id_client').on(t.identityId, t.clientId)],
+  // Unique, not a plain index: `upsert` relies on ON DUPLICATE KEY, which only
+  // fires against a unique key. Without it the upsert appends a second consent row
+  // for the same pair instead of replacing the scope on the first.
+  (t) => [uniqueIndex('oidc_consents_id_client').on(t.identityId, t.clientId)],
 )
 
 function encodeArray(a: string[]): string {
@@ -179,6 +182,17 @@ function rowToConsent(row: typeof authOidcConsentsTable.$inferSelect): OidcOP.Co
   }
 }
 
+/**
+ * The OP stores take a loosely-typed `MySqlDatabase`, so drizzle cannot tell us the
+ * shape of a mutation result and it arrives as `unknown`. Read the row count through
+ * one narrow place rather than casting at each call site: these counts are what make
+ * code and refresh-token consumption single-use, so they must not be guesswork.
+ */
+function affectedRows(result: unknown): number {
+  const header = Array.isArray(result) ? (result[0] as { affectedRows?: number } | undefined) : undefined
+  return header?.affectedRows ?? 0
+}
+
 type AnyMySqlDatabase = MySqlDatabase<MySqlQueryResultHKT, any, any>
 
 /**
@@ -242,7 +256,13 @@ export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
           const rows = await tx.select().from(authOidcCodesTable).where(eq(authOidcCodesTable.code, code)).limit(1)
           const row = rows[0]
           if (!row) return null
-          await tx.delete(authOidcCodesTable).where(eq(authOidcCodesTable.code, code))
+          // The DELETE decides the winner, not the SELECT. Under REPEATABLE READ a
+          // plain SELECT is a snapshot read, so every concurrent transaction sees
+          // the row and, without this check, every one of them returns it: an
+          // authorization code redeemable as many times as it is presented at once.
+          // DELETE is atomic, so exactly one statement can report a row removed.
+          const result = await tx.delete(authOidcCodesTable).where(eq(authOidcCodesTable.code, code))
+          if (affectedRows(result) !== 1) return null
           if (row.exp <= now) return null
           return rowToCode(row)
         })
@@ -314,10 +334,14 @@ export function authCreateDrizzleMysqlOidcOpStores(db: AnyMySqlDatabase): {
           const row = rows[0]
           if (!row) return null
           if (row.exp <= now) return null
-          await tx
+          // `consumed_at IS NULL` on the UPDATE is what makes this single-use, for
+          // the same reason as codes above: the snapshot SELECT admits every racer,
+          // and rotation-reuse detection is worthless if two of them can both win.
+          const result = await tx
             .update(authOidcRefreshTokensTable)
             .set({ consumedAt: now })
-            .where(eq(authOidcRefreshTokensTable.tokenHash, hash))
+            .where(and(eq(authOidcRefreshTokensTable.tokenHash, hash), isNull(authOidcRefreshTokensTable.consumedAt)))
+          if (affectedRows(result) !== 1) return null
           return rowToRefresh({ ...row, consumedAt: now })
         })
       },
