@@ -156,7 +156,8 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
   if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
   const baseProfile = isPlainObject(identity.profile) ? identity.profile : {}
   const mergedProfile: Profile = { ...baseProfile, ...flow.data } as Profile
-  await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version)
+  // `identity` is stale past this line; listeners need the profile we just wrote.
+  const merged = await ctx.stores.identities.update(identity.id, { profile: mergedProfile }, identity.version)
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
 
   const factors = opts.factors ?? [{ method: 'magic-link', completedAt: new Date() }]
@@ -165,6 +166,7 @@ export async function completeSignUp<Profile extends Identities.ProfileMetadataB
     purpose: 'guest-promotion',
     ...(opts.previousSid !== undefined && { previousSid: opts.previousSid }),
     identityId: flow.identityId,
+    identity: merged,
     kind: 'user',
     aal,
     factors,

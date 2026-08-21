@@ -4,7 +4,7 @@ import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
 import { DEFAULT_SESSION_CONFIG } from './sessions.constants'
-import type { Sessions } from './sessions.types'
+import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from './sessions.types'
 
 /**
  * Sessions facet - the only path that creates / rotates / revokes sessions.
@@ -46,6 +46,20 @@ export class SessionsImpl {
         detail: 'sessions.create: factors must be an array <=16',
       })
     }
+    // Contents too, not just the array shape: the Redis reader drops unlisted methods and
+    // non-Date `completedAt`, so this would persist a row that can't be read back intact.
+    for (const f of input.factors) {
+      if (
+        typeof f !== 'object' ||
+        f === null ||
+        !AUTH_SESSION_FACTOR_METHODS.includes((f as Sessions.Factor).method) ||
+        !((f as Sessions.Factor).completedAt instanceof Date)
+      ) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: 'sessions.create: each factor must be { method: FactorMethod, completedAt: Date }',
+        })
+      }
+    }
     const sid = randomToken(32)
     // Mint plaintext for the cookie, store only the hash on the row.
     const csrfToken = randomToken(32)
@@ -62,7 +76,10 @@ export class SessionsImpl {
       ip: typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, 64) : null,
       userAgent:
         typeof input.userAgent === 'string' && input.userAgent.length > 0 ? input.userAgent.slice(0, 512) : null,
-      fingerprint: input.fingerprint ?? null,
+      // Header-derived like ip/UA, so capped the same way. 256 matches the library's
+      // other opaque-identifier caps.
+      fingerprint:
+        typeof input.fingerprint === 'string' && input.fingerprint.length > 0 ? input.fingerprint.slice(0, 256) : null,
       actingAs: input.actingAs ?? null,
       csrfHash: sha256(csrfToken),
       createdAt: nowDate,
@@ -73,7 +90,7 @@ export class SessionsImpl {
     }
 
     await this._store.create(session)
-    await this._events.emit('session.created', { session, identity: null })
+    await this._events.emit('session.created', { session, identity: input.identity ?? null })
     return { session, sid, csrfToken }
   }
 
@@ -84,6 +101,22 @@ export class SessionsImpl {
    * impossible to forget.
    */
   async rotateOrCreate(input: Sessions.RotateInput): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
+    if (input.purpose === 'credential-change') {
+      if (input.identityId) {
+        const identityId = input.identityId
+        const doomed = await this._store.listByIdentity(identityId)
+        await this._store.deleteAllForIdentity(identityId)
+        await Promise.all(doomed.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
+      }
+      // A guest credential-change has no identity to sweep; it still mints + rotates.
+      const fresh = await this.create(input)
+      await this._events.emit('session.rotated', {
+        session: fresh.session,
+        ...(input.previousSid !== undefined && { previousSessionId: sha256(input.previousSid) }),
+      })
+      return fresh
+    }
+
     const fresh = await this.create(input)
     if (
       input.previousSid !== undefined &&
@@ -105,33 +138,31 @@ export class SessionsImpl {
           })
           break
         case 'step-up': {
-          // Old SID is downgraded, not deleted - long-lived tabs keep working,
-          // but at the prior AAL with fresh=false. Re-step-up is required for
-          // privileged ops.
+          // Old SID is downgraded, not deleted, so long-lived tabs keep working, but at
+          // the prior AAL with fresh=false. Re-step-up is required for privileged ops.
           const prev = await this._store.getByHash(prevHash)
           if (prev) {
             await this._store.update(prev.id, { aal: prev.aal, fresh: false })
           }
           break
         }
-        case 'credential-change':
-          // Every other session for this identity is revoked cross-device.
-          if (input.identityId) {
-            const all = await this._store.listByIdentity(input.identityId)
-            for (const s of all) {
-              if (s.id === fresh.session.id) continue
-              await this._store.delete(s.id)
-              await this._events.emit('session.revoked', {
-                sessionId: s.id,
-                identityId: input.identityId,
-              })
-            }
-          }
-          break
         case 'impersonate-start':
           // Real session is preserved alongside the new actingAs session; no revoke.
           break
+        default: {
+          // Compile-time exhaustiveness: adding a purpose without deciding its revocation
+          // semantics is a build error, not a silent no-op.
+          const _exhaustive: never = input.purpose
+          throw new AuthError('AUTH_MISCONFIGURED', {
+            detail: `sessions.rotateOrCreate: unhandled purpose '${String(_exhaustive)}'`,
+          })
+        }
       }
+      await this._events.emit('session.rotated', {
+        session: fresh.session,
+        previousSessionId: prevHash,
+      })
+      return fresh
     }
     await this._events.emit('session.rotated', { session: fresh.session })
     return fresh
@@ -162,12 +193,7 @@ export class SessionsImpl {
   async revokeAllForIdentity(identityId: string): Promise<void> {
     const all = await this._store.listByIdentity(identityId)
     await this._store.deleteAllForIdentity(identityId)
-    for (const s of all) {
-      await this._events.emit('session.revoked', {
-        sessionId: s.id,
-        identityId,
-      })
-    }
+    await Promise.all(all.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
   }
 
   /** Resolve a plaintext SID to its session row (no identity join). */
@@ -198,6 +224,18 @@ export class SessionsImpl {
       await this._store.delete(s.id)
       return null
     }
+    const expiresAtMs =
+      s.expiresAt instanceof Date
+        ? s.expiresAt.getTime()
+        : isFiniteNumber(s.expiresAt)
+          ? (s.expiresAt as number)
+          : Number.NaN
+    // Fail closed on a non-finite or already-passed sliding expiry. Without this, touch()
+    // revives a session that resolveBySid would have rejected.
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs < now) {
+      await this._store.delete(s.id)
+      return null
+    }
     const rotatedAtMs = s.rotatedAt instanceof Date ? s.rotatedAt.getTime() : (s.rotatedAt as number)
     const newExpiresAt = new Date(Math.min(absoluteExpiresAtMs, now + this._cfg.ttlMs))
     const fresh = now - rotatedAtMs < this._cfg.freshnessMs
@@ -217,7 +255,7 @@ export class SessionsImpl {
   /** Create a guest session - no identity, AAL=1, kind='guest'. Promotable on signin. */
   async createGuest(
     opts: { tenantId?: string; ip?: string; userAgent?: string } = {},
-  ): Promise<{ session: Sessions.Me; sid: string }> {
+  ): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
     return this.create({
       identityId: null,
       kind: 'guest',
@@ -238,30 +276,53 @@ export class SessionsImpl {
     tenantId?: string
     ip?: string
     userAgent?: string
-  }): Promise<{ session: Sessions.Me; sid: string }> {
+    /** Optional {@link Sessions.MintInput.identity} passthrough for callers that already hold the row. */
+    identity?: Identities.Me | null
+    /** Forwarded to {@link Sessions.MintInput}; guest device-binding survives promotion. */
+    fingerprint?: string | null
+    actingAs?: Sessions.ActingAs | null
+  }): Promise<{ session: Sessions.Me; sid: string; csrfToken: string }> {
     return this.rotateOrCreate({
       purpose: 'guest-promotion',
       previousSid: input.guestSid,
       identityId: input.identityId,
+      identity: input.identity ?? null,
       kind: 'user',
       aal: input.aal,
       factors: input.factors,
       tenantId: input.tenantId ?? null,
       ip: input.ip ?? null,
       userAgent: input.userAgent ?? null,
+      fingerprint: input.fingerprint ?? null,
+      actingAs: input.actingAs ?? null,
     })
   }
 }
 
-/** Resolve a plaintext SID to (session, identity) - used by AuthEngine.resolveSession. */
+/**
+ * Resolve a plaintext SID to (session, identity), used by `AuthEngine.resolveSession`.
+ *
+ * Returns `null` for every ordinary miss: unknown SID, expired `expiresAt`, expired
+ * `absoluteExpiresAt`, expired impersonation window. Expired rows are deleted as a
+ * side effect.
+ *
+ * @throws {AuthError} `AUTH_SESSION_REVOKED` with `reason: 'identity-erased'` when the
+ * session row is live but its `identityId` no longer resolves. This is a data-integrity
+ * violation, not an ordinary expiry, and is deliberately NOT collapsed into `null`:
+ * callers must surface it rather than treat it as a plain sign-out.
+ */
 export async function resolveBySid<Profile extends Identities.ProfileMetadataBase>(
   sid: string,
   sessions: Sessions.Store,
   identities: Identities.Store<Profile>,
+  opts: { expectedTenantId?: string } = {},
 ): Promise<{ session: Sessions.Me; identity: Identities.Me<Profile> | null } | null> {
   const hash = sha256(sid)
   const session = await sessions.getByHash(hash)
   if (!session) return null
+  // A foreign tenant's token must look absent, not fail. Here rather than in the caller
+  // because the erased-identity throw below never hands them the session.
+  if (opts.expectedTenantId !== undefined && session.tenantId !== opts.expectedTenantId) return null
   const now = Date.now()
   const expiresAtMs =
     session.expiresAt instanceof Date

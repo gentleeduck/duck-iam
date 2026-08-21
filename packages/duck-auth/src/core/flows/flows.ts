@@ -93,6 +93,8 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
       kind: 'user',
       aal: startIntent.aal,
       factors: startIntent.factors,
+      // Already loaded above to gate the signin; save listeners a re-read.
+      identity,
       ...(opts.tenantId !== undefined && { tenantId: opts.tenantId }),
       ...(opts.ip !== undefined && { ip: opts.ip }),
       ...(opts.userAgent !== undefined && { userAgent: opts.userAgent }),

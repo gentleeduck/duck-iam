@@ -6,16 +6,15 @@
  * identity ids, and the `ON DELETE CASCADE` foreign key to `auth_identities`.
  * Those only exist here.
  *
- * The schema is cloned from the discord app's live database (`pg_dump
- * --schema-only`) into a dedicated `duckauth_e2e` database, so this runs against
- * exactly what ships — and never touches app data.
+ * The suite creates the shipped schema itself (generated from the drizzle pg
+ * schema), so it runs against exactly what ships and never touches app data.
  *
  * Skips when DUCKAUTH_E2E_DATABASE_URL is unset. See `.env.example`.
  */
 import { createHash, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { databaseUrl } from '~/test/e2e-env'
+import { applyPgSchema, databaseUrl } from '~/test/e2e-env'
 
 const URL = databaseUrl()
 const suite = URL ? describe : describe.skip
@@ -63,6 +62,7 @@ suite('E2E sessions on real Postgres (shipped schema)', () => {
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: URL as string, max: 10 })
+    await applyPgSchema(pool)
     identityId = randomUUID()
     await pool.query(
       `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)

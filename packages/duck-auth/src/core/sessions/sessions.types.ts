@@ -1,5 +1,7 @@
 /** Session domain + lifecycle types — the single `Session` namespace for the sessions subject. */
 
+import type { Identities } from '../identities'
+
 /**
  * Authenticated (or guest, or API-key) bearer of access. Issued by the configured
  * Transport; resolved on every authed request. AAL + factor model follows NIST 800-63B.
@@ -106,6 +108,7 @@ export namespace Sessions {
     userAgent?: string | null
     fingerprint?: string | null
     actingAs?: ActingAs | null
+    identity?: Identities.Me | null
   }
 
   export interface RotateInput extends MintInput {

@@ -12,40 +12,13 @@ import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { RedisLike } from '~/adapters/redis/redis-like'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
+import { toRedisLike } from '~/test/e2e-redis'
 import { runSessionStoreCompliance } from '~/test/store-compliance'
 import { RedisSessionImpl } from '../sessions.redis'
 import type { Sessions } from '../sessions.types'
 
 const URL = redisUrl()
 const suite = URL ? describe : describe.skip
-
-/** Adapt ioredis to the minimal `RedisLike.Client` surface the lib consumes. */
-function toRedisLike(r: Redis): RedisLike.Client {
-  return {
-    get: (k) => r.get(k),
-    set: async (k, v, opts) => {
-      if (opts?.ex !== undefined && opts?.nx) {
-        return (await r.set(k, v, 'EX', opts.ex, 'NX')) as string | null
-      }
-      if (opts?.ex !== undefined) return (await r.set(k, v, 'EX', opts.ex)) as string | null
-      if (opts?.nx) return (await r.set(k, v, 'NX')) as string | null
-      return (await r.set(k, v)) as string | null
-    },
-    del: (...keys) => r.del(...keys),
-    expire: (k, s) => r.expire(k, s),
-    scan: async (cursor, opts) => {
-      const args: (string | number)[] = [cursor]
-      if (opts?.match) args.push('MATCH', opts.match)
-      if (opts?.count) args.push('COUNT', opts.count)
-      const [next, keys] = (await r.scan(...(args as [string]))) as [string, string[]]
-      return [next, keys]
-    },
-    incr: (k) => r.incr(k),
-    sadd: (k, ...m) => r.sadd(k, ...m),
-    srem: (k, ...m) => r.srem(k, ...m),
-    smembers: (k) => r.smembers(k),
-  } as RedisLike.Client
-}
 
 function sess(over: Partial<Sessions.Me> = {}): Sessions.Me {
   const now = new Date()
