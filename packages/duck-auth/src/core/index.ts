@@ -1,8 +1,10 @@
 export {
-  BackupCodesFacet as AuthBackupCodesFacet,
+  BackupCodesFacet,
+  backupCodesFacet as AuthBackupCodesFacet,
   DEFAULT_BACKUP_CODES_CONFIG,
   DEFAULT_REMEMBER_ME_CONFIG,
   RememberMeFacet,
+  rememberMeFacet,
 } from '~/providers/mfa'
 export type { AuthCaptcha } from './captcha'
 export {
@@ -10,6 +12,10 @@ export {
   AuthNullCaptchaVerifier,
   AuthRecaptchaV3Verifier,
   AuthTurnstileVerifier,
+  authHCaptchaVerifier,
+  authNullCaptchaVerifier,
+  authRecaptchaV3Verifier,
+  authTurnstileVerifier,
 } from './captcha'
 export { type AuthDefine, createAuth } from './config'
 export type { AUTH_CREDENTIAL_KINDS, Credential } from './credentials'
@@ -26,7 +32,7 @@ export { AuthEngine } from './engine'
 export type { Envelope } from './errors'
 export { AuthError } from './errors'
 export type { Events } from './events'
-export { InMemoryEvents as AuthInMemoryEvents, RedisEvents as AuthRedisEvents } from './events'
+export { InMemoryEvents, inMemoryEvents as AuthInMemoryEvents, RedisEvents as AuthRedisEvents } from './events'
 export type { Identities as Identity } from './identities'
 export type { Provider } from './provider'
 export type { Sessions } from './sessions'

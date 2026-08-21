@@ -1,7 +1,7 @@
 export { BearerTransport, bearerTransport } from './bearer.transport'
 export { CompositeTransport, compositeTransport } from './composite.transport'
 export { CookieTransport, cookieTransport } from './cookie.transport'
-export { bindPayloadToDPoP, computeJwkThumbprint, DPoPVerifier } from './dpop.transport'
+export { bindPayloadToDPoP, computeJwkThumbprint, DPoPVerifier, dPoPVerifier } from './dpop.transport'
 export { MemoryDPoPNonceStore, memoryDPoPNonceStore } from './dpop-nonce.memory'
 export { JwtTransport, jwtTransport } from './jwt.transport'
 export type { Transport } from './transport.types'

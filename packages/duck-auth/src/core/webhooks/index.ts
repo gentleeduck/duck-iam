@@ -357,3 +357,8 @@ export namespace WebhookDeliverer {
     lastAttemptAt: number
   }
 }
+
+/** Factory around {@link WebhookDeliverer}, for callers who prefer functions to `new`. */
+export function webhookDeliverer(cfg: WebhookDeliverer.Cfg): WebhookDeliverer {
+  return new WebhookDeliverer(cfg)
+}

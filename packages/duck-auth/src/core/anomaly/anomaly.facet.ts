@@ -144,3 +144,8 @@ export class AnomalyFacet {
     return 'allow'
   }
 }
+
+/** Factory around {@link AnomalyFacet}, for callers who prefer functions to `new`. */
+export function anomalyFacet(events: Events.IBus, cfg: Partial<Anomaly.Cfg> = {}): AnomalyFacet {
+  return new AnomalyFacet(events, cfg)
+}
