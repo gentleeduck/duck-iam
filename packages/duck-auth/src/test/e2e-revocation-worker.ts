@@ -16,11 +16,16 @@ import Redis from 'ioredis'
 import type { RedisLike } from '~/adapters/redis/redis-like'
 import { RedisEvents } from '~/core/events/events.redis'
 
-const [, , redisUrl, runId, workerId] = process.argv
-if (!redisUrl || !runId || !workerId) {
-  console.error('usage: worker <redisUrl> <runId> <workerId>')
+/** Read a required positional arg. Returns `string`, so callers need no cast. */
+function required(value: string | undefined, name: string): string {
+  if (value !== undefined && value.length > 0) return value
+  console.error(`usage: worker <redisUrl> <runId> <workerId> (missing ${name})`)
   process.exit(1)
 }
+
+const redisUrl = required(process.argv[2], 'redisUrl')
+const runId = required(process.argv[3], 'runId')
+const workerId = required(process.argv[4], 'workerId')
 
 const READY_KEY = `${runId}:ready`
 const RESULT_KEY = `${runId}:results`
@@ -64,8 +69,8 @@ function toEventsClient(cmd: Redis, sub: Redis): RedisEvents.Client {
 }
 
 async function main(): Promise<void> {
-  const cmd = new Redis(redisUrl as string)
-  const sub = new Redis(redisUrl as string)
+  const cmd = new Redis(redisUrl)
+  const sub = new Redis(redisUrl)
   const bus = new RedisEvents({ redis: toEventsClient(cmd, sub) })
 
   // The registry this simulates: identityId -> revocation instant.

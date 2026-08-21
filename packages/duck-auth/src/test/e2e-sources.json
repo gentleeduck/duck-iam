@@ -1,0 +1,588 @@
+{
+  "about": "Where each end-to-end suite's cases come from. Written so the next person can tell a case derived from a published standard apart from one derived from this repo's own audit, and can find the clause to check when a case looks wrong or a spec moves.",
+  "howToUse": [
+    "Adding an e2e case from a standard: cite the source id here rather than only in a code comment.",
+    "A case with no external source is fine. Say so with \"internal-audit\" or \"regression\" and name the finding or bug it pins.",
+    "This file is not generated. Update it in the same change that adds or removes a suite."
+  ],
+  "infrastructure": {
+    "provisioning": "src/test/e2e-containers.ts",
+    "note": "Redis, Postgres and MySQL containers start on ephemeral ports, are seeded, and are removed when the run ends. Suites skip themselves when DUCKAUTH_E2E_* is unset and docker is absent.",
+    "schemas": [
+      "src/test/pg-e2e-schema.sql",
+      "src/test/mysql-e2e-schema.sql",
+      "src/test/oidc-pg-e2e-schema.sql",
+      "src/test/oidc-mysql-e2e-schema.sql"
+    ],
+    "regenerate": "bun run e2e:schema"
+  },
+  "sources": {
+    "rfc9700": {
+      "title": "RFC 9700 / BCP 240: Best Current Practice for OAuth 2.0 Security",
+      "publisher": "IETF",
+      "url": "https://www.rfc-editor.org/rfc/rfc9700.pdf",
+      "usedFor": [
+        "Authorization code injection: bind every code to the client instance it was issued to.",
+        "redirect_uri compared by exact string match, never prefix or wildcard, and the code bound to the one actually used.",
+        "PKCE required for public clients and verified at the token endpoint; a missing verifier is a downgrade, not a default.",
+        "Refresh token rotation with reuse detection: a replayed token revokes the whole family."
+      ]
+    },
+    "rfc7636": {
+      "title": "RFC 7636: Proof Key for Code Exchange by OAuth Public Clients",
+      "publisher": "IETF",
+      "url": "https://www.rfc-editor.org/rfc/rfc7636",
+      "usedFor": [
+        "S256 challenge derivation, base64url(sha256(verifier)), used to build the PKCE fixtures."
+      ]
+    },
+    "owasp-session-management": {
+      "title": "OWASP Session Management Cheat Sheet",
+      "publisher": "OWASP Cheat Sheet Series",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
+      "usedFor": [
+        "Regenerate the session identifier on every privilege change, which is what defeats session fixation.",
+        "Enforce idle timeout and absolute timeout as two separate deadlines, because each covers a different failure."
+      ]
+    },
+    "internal-audit": {
+      "title": "C1 sessions audit and the C1/C2/C4 hardening plans",
+      "publisher": "this repo",
+      "url": "docs/superpowers/plans/C1-sessions/",
+      "usedFor": [
+        "Store-contract divergences, fail-closed expiry handling, and the revocation paths the plans specify."
+      ]
+    },
+    "store-contract": {
+      "title": "Shared store compliance matrices",
+      "publisher": "this repo",
+      "url": "src/test/store-compliance.ts",
+      "usedFor": [
+        "One executable contract every adapter answers, so a dialect cannot quietly diverge.",
+        "Pointing it at a real database is what surfaced the Postgres and MySQL defects listed under regression below."
+      ]
+    },
+    "regression": {
+      "title": "Bugs found during this work, pinned so they cannot return",
+      "publisher": "this repo",
+      "url": "src/test/e2e-sources.json",
+      "usedFor": [
+        "identities.link and findByProviderSub were a SQL syntax error on Postgres (a stray bracket before ::jsonb).",
+        "credentials/identities findById leaked a raw driver error on a non-uuid id instead of returning null.",
+        "MySQL did not revive Date fields nested in json, so factors[].completedAt came back as a string.",
+        "oidc_consents carried a non-unique index, so upsert threw on Postgres and appended a duplicate row on MySQL.",
+        "MySQL code and refresh-token consume used a non-locking read, so every concurrent caller won.",
+        "verifyTotp accepted the same code indefinitely inside its ninety-second window; the spent step is now recorded on the credential."
+      ]
+    },
+    "nist-800-63b": {
+      "title": "NIST SP 800-63B: Digital Identity Guidelines, Authentication and Lifecycle Management",
+      "publisher": "NIST",
+      "url": "https://pages.nist.gov/800-63-3/sp800-63b.html",
+      "usedFor": [
+        "Verifiers SHALL accept a given time-based OTP only once during its validity period. Accepting it anywhere in the drift window without spending it leaves a captured code replayable for the width of that window."
+      ]
+    },
+    "rfc6238": {
+      "title": "RFC 6238: TOTP, Time-Based One-Time Password Algorithm",
+      "publisher": "IETF",
+      "url": "https://www.rfc-editor.org/rfc/rfc6238",
+      "usedFor": [
+        "Time-step derivation and the drift window the replay check has to cover."
+      ]
+    },
+    "hostile-input": {
+      "title": "Adversarial input probing",
+      "publisher": "this repo",
+      "url": "src/__tests__/hostile-input.e2e.test.ts",
+      "usedFor": [
+        "Injection payloads, prototype-pollution keys, NUL bytes, four-byte emoji, combining marks, RTL overrides, oversize values, type confusion and concurrent stampedes, against a real database rather than a Map that accepts anything.",
+        "Cases named FINDING pin behaviour that is surprising and was left unrepaired, so the next reader meets a decision rather than a discovery.",
+        "Values that are the right type and the wrong thing: an AAL of nine, an undefined session kind, a closed impersonation window, a negative rate-limit weight, a javascript: redirect target."
+      ]
+    },
+    "owasp-asvs": {
+      "title": "OWASP Application Security Verification Standard, V7 Session Management",
+      "publisher": "OWASP",
+      "url": "https://asvs.dev/v5.0.0/V7-Session-Management/",
+      "usedFor": [
+        "Session tokens carry at least 64 bits of entropy.",
+        "A new token is generated on authentication.",
+        "Tokens never appear in URL parameters.",
+        "A user can enumerate their own active sessions and end them."
+      ]
+    },
+    "owasp-forgot-password": {
+      "title": "OWASP Forgot Password and Authentication Cheat Sheets",
+      "publisher": "OWASP Cheat Sheet Series",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html",
+      "usedFor": [
+        "Reset tokens generated by a cryptographic RNG and long enough to resist brute force.",
+        "Reset links time limited, and rate limited per account.",
+        "Responses that do not vary by whether the account exists, in content or in timing."
+      ]
+    }
+  },
+  "suites": [
+    {
+      "file": "src/__tests__/engine.e2e.test.ts",
+      "cases": 7,
+      "backing": [
+        "postgres",
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "A whole engine wired as an app wires it: sign-in to sign-out, the CSRF token round-tripping through the database, and the auth guard reading through the shipped queries."
+    },
+    {
+      "file": "src/__tests__/flows.e2e.test.ts",
+      "cases": 23,
+      "backing": [
+        "postgres",
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "store-contract"
+      ],
+      "proves": "Password reset, email verification and account deletion tokens work once, expire, belong to one account only, and cannot be spent across kinds. A reset revokes the account's other sessions and spares everyone else's. Sign-in refuses an unknown address with the same error as a wrong password, so it is not an enumeration oracle, and finds an account whatever the case of its address."
+    },
+    {
+      "file": "src/__tests__/hostile-input.e2e.test.ts",
+      "cases": 43,
+      "backing": [
+        "postgres",
+        "redis"
+      ],
+      "derivedFrom": [
+        "hostile-input",
+        "internal-audit"
+      ],
+      "proves": "Injection payloads stay data, prototype keys stay data, caps on ip, user agent and fingerprint hold, wrong types and blanks are refused, the limiter never over-admits under a two-hundred-way stampede, and malformed cookies resolve to null. Four cases marked FINDING record unrepaired behaviour: a NUL byte reaches the driver, an empty or non-string email is accepted, and NFC and NFD spellings of one address make two accounts."
+    },
+    {
+      "file": "src/__tests__/hostile-values.e2e.test.ts",
+      "cases": 28,
+      "backing": [
+        "postgres",
+        "redis"
+      ],
+      "derivedFrom": [
+        "hostile-input",
+        "rfc9700",
+        "internal-audit"
+      ],
+      "proves": "Redirect-target validation, session field ranges, limiter weight handling, idempotency ttl clamping and tenant scoping under values that parse cleanly but mean nothing. Nine cases marked FINDING record unrepaired behaviour, the worst being that javascript:, data: and file: URIs are all accepted as OIDC redirect targets, and that a large limiter weight is spent as one Redis round trip each."
+    },
+    {
+      "file": "src/__tests__/linking-and-keys.e2e.test.ts",
+      "cases": 26,
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "regression",
+        "internal-audit"
+      ],
+      "proves": "The provider-link flow end to end, which is the caller of the two queries that were a SQL syntax error on Postgres before this audit: link, find by provider sub, idempotent relink, refusal to attach one provider account to a second identity, and the guard that refuses to unlink the last way into an account. Also the whole API key lifecycle, which had no coverage: issue, verify, revoke reaching the row, rotate killing the old secret, and the cascade on identity erase."
+    },
+    {
+      "file": "src/__tests__/one-shot-credentials.e2e.test.ts",
+      "cases": 17,
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "nist-800-63b",
+        "rfc6238",
+        "store-contract",
+        "regression"
+      ],
+      "proves": "Every credential meant to work once does: TOTP codes are spent on use and refused on replay or rewind, backup codes are revoked on redemption, and credential rotation and revocation reach the row. No provider or flow had an e2e suite before this one."
+    },
+    {
+      "file": "src/__tests__/revocation.multiprocess.e2e.test.ts",
+      "cases": 4,
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "Revocation fan-out between separate OS processes, which no in-process test can observe."
+    },
+    {
+      "file": "src/__tests__/session-security.e2e.test.ts",
+      "cases": 20,
+      "backing": [
+        "postgres",
+        "redis"
+      ],
+      "derivedFrom": [
+        "owasp-session-management",
+        "internal-audit"
+      ],
+      "proves": "Identifier rotation on every privilege change, idle and absolute deadlines enforced separately, impersonation windows, tenant scoping, and revocation reaching the row."
+    },
+    {
+      "file": "src/__tests__/token-quality.e2e.test.ts",
+      "cases": 24,
+      "backing": [
+        "postgres",
+        "redis"
+      ],
+      "derivedFrom": [
+        "owasp-asvs",
+        "owasp-forgot-password"
+      ],
+      "proves": "Guessability, which cannot be read off a diff: session ids, CSRF tokens, API keys and reset tokens are sampled in bulk and checked for uniqueness, alphabet spread near six bits per character, absence of a shared prefix between consecutive issues, and hashed-at-rest storage. Also that no secret travels in a URL, that reset requests are rate limited per address, and that known and unknown accounts answer alike in content and in time. One case marked FINDING records that issuing a new reset token leaves every earlier one live."
+    },
+    {
+      "file": "src/adapters/drizzle/mysql/__tests__/compliance.mysql.e2e.test.ts",
+      "cases": 34,
+      "backing": [
+        "mysql"
+      ],
+      "derivedFrom": [
+        "store-contract",
+        "regression"
+      ],
+      "proves": "The same matrix on MySQL, plus the re-SELECT that stands in for RETURNING, JSON_CONTAINS lookups, and datetime(3) precision."
+    },
+    {
+      "file": "src/adapters/drizzle/pg/__tests__/compliance.pg.e2e.test.ts",
+      "cases": 45,
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "store-contract",
+        "regression"
+      ],
+      "proves": "The full store matrix plus dialect behaviour that exists only on Postgres: optimistic locking under real concurrency, the partial unique indexes on lower(profile->>'email') and lower(profile->>'username'), jsonb round trips, timestamptz precision, foreign keys and check constraints."
+    },
+    {
+      "file": "src/adapters/valkey/__tests__/valkey.e2e.test.ts",
+      "cases": 21,
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "store-contract",
+        "internal-audit"
+      ],
+      "proves": "The ioredis-to-RedisLike translation this adapter exists for: an options object silently dropping EX leaves an immortal key, and dropping NX makes a conditional write unconditional. Also drives the whole session store contract through the adapter."
+    },
+    {
+      "file": "src/core/engine/__tests__/resolve-session.pg.e2e.test.ts",
+      "cases": 9,
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "Session resolution against real queries, including that a soft-deleted identity is invisible because of the adapter's WHERE clause rather than any in-memory filtering."
+    },
+    {
+      "file": "src/core/events/__tests__/events.redis.e2e.test.ts",
+      "cases": 5,
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "Real pub/sub fan-out between separate connections, loopback dedup on the emitting instance, channel isolation and unsubscribe."
+    },
+    {
+      "file": "src/core/idempotency/__tests__/idempotency.redis.e2e.test.ts",
+      "cases": 7,
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "SET NX admits exactly one of many concurrent claims. FakeRedis cannot demonstrate this: its set is a Map write in one JS thread, so the race is unobservable there."
+    },
+    {
+      "file": "src/core/sessions/__tests__/sessions.pg.e2e.test.ts",
+      "cases": 10,
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "The shipped Postgres dialect: timestamptz, jsonb, uuid identity ids, and the ON DELETE CASCADE to auth_identities."
+    },
+    {
+      "file": "src/core/sessions/__tests__/sessions.redis-parser.e2e.test.ts",
+      "cases": 17,
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "hostile-input"
+      ],
+      "proves": "What the stored-session parser does with rows it did not write. Seven cases marked FINDING pin audit items S1, S1b and S6, which plan 02 describes and nothing has implemented: a null inside factors throws instead of returning null, taking getByHash and listByIdentity with it; a string, number or empty object in factors is dropped silently, leaving an aal:2 session with no factors; the sixteen-factor cap is not enforced on read; and a partial actingAs envelope is dropped rather than refused, losing both the audit trail and the impersonation expiry."
+    },
+    {
+      "file": "src/core/sessions/__tests__/sessions.redis.e2e.test.ts",
+      "cases": 13,
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "store-contract",
+        "internal-audit"
+      ],
+      "proves": "The session store contract and its races on a real server rather than FakeRedis, whose own header disclaims review."
+    },
+    {
+      "file": "src/core/transport/__tests__/dpop-nonce.redis.e2e.test.ts",
+      "cases": 5,
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "A DPoP jti replay is refused when presented to a different store instance, which is the property the store's own docstring says the memory store cannot provide."
+    },
+    {
+      "file": "src/limiters/redis/__tests__/redis-limiter.e2e.test.ts",
+      "cases": 6,
+      "backing": [
+        "redis"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "Two instances share one counter, a twenty-way race admits exactly the configured number, and the window expires on the server rather than by a timestamp checked on read."
+    },
+    {
+      "file": "src/oidc/op/__tests__/op-security.pg.e2e.test.ts",
+      "cases": 21,
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "rfc9700",
+        "rfc7636"
+      ],
+      "proves": "The provider enforces code-to-client and code-to-redirect_uri binding, PKCE verification, single-use codes under concurrency, and refresh rotation with family revoke on reuse."
+    },
+    {
+      "file": "src/oidc/op/drizzle/__tests__/oidc-op.mysql.e2e.test.ts",
+      "cases": 23,
+      "backing": [
+        "mysql"
+      ],
+      "derivedFrom": [
+        "store-contract",
+        "regression"
+      ],
+      "proves": "The same contract on MySQL, where the concurrent-consume cases found that a non-locking read let every racer redeem the same code."
+    },
+    {
+      "file": "src/oidc/op/drizzle/__tests__/oidc-op.pg.e2e.test.ts",
+      "cases": 23,
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "store-contract",
+        "regression"
+      ],
+      "proves": "The OP store contract on Postgres. Previously only sqlite had a test and it is bun-gated, so under Node these stores were never executed."
+    },
+    {
+      "file": "src/providers/magic-link/__tests__/magic-link.e2e.test.ts",
+      "cases": 18,
+      "backing": [
+        "postgres"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "owasp-forgot-password",
+        "hostile-input"
+      ],
+      "proves": "A magic link works once and no more, eight simultaneous redemptions admit exactly one because the claim is a compare-and-set on the row version, the row is revoked in the database rather than forgotten in memory, an expired link reports distinctly, and a link minted for one identity never touches another. Also that the provider refuses a callback path that could move the authority at construction, so a typo cannot turn every future link into cross-origin token exfiltration."
+    },
+    {
+      "file": "src/core/hijack/__tests__/hijack-policy.test.ts",
+      "cases": 53,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "owasp-asvs"
+      ],
+      "proves": "The hijack policy resolves the way an operator configured it: the stronger of two reactions wins across the whole revoke/mfa/rotate/ignore matrix, a signal is still emitted when the reaction is ignore so audit keeps the record, absence on both sides is agreement while exactly one side present is softened one notch, and the diagnostic values are clipped before they reach an event. Pins that the per-signal softening lets a stripped header weaken a genuine mismatch."
+    },
+    {
+      "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+      "cases": 56,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "owasp-asvs",
+        "nist-800-63b",
+        "hostile-input"
+      ],
+      "proves": "The anomaly ladder holds at its boundaries and a misbehaving detector cannot take authentication down with it. Pins the arithmetic a hostile or buggy detector can steer (a negative score cancels a real signal, a duplicate registration doubles a weight, weak signals sum into a deny), the paths where a decision is taken with no suspicious event written, and the inputs each detector agrees not to look at: a sub-minute continent hop, a future last-seen stamp, a stripped or over-long user agent."
+    },
+    {
+      "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+      "cases": 59,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "owasp-ssrf",
+        "rfc4193",
+        "rfc4291",
+        "hostile-input"
+      ],
+      "proves": "The webhook SSRF deny-list holds against the numeric spellings of loopback because the URL parser canonicalises them first, and fails against the ones it never sees: a trailing-dot localhost, unique-local and link-local IPv6 whose patterns forgot the brackets, and any DNS name that resolves inward. Also that delivery runs inside the emit, so a dead consumer's retry ladder is added to the latency of the sign-in that produced the event, and that the loop cannot tell a 400 or an unserialisable payload from a transient failure."
+    },
+    {
+      "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+      "cases": 35,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "rfc6749",
+        "rfc6750",
+        "rfc9700",
+        "internal-audit"
+      ],
+      "proves": "The client_credentials grant binds a token to the key that asked for it, refuses a mismatched id and secret pair, and honours the scope caps. Pins that a key carrying no tenant lets the request body choose the tid claim it is minted for, that an empty intersection issues a scopeless token rather than refusing, that an empty or whitespace scope string is read as omitted and grants everything the key holds, and that every exchange persists a session row outliving the token it was capped for."
+    },
+    {
+      "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+      "cases": 25,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit"
+      ],
+      "proves": "The preset resolver takes the stricter side of every numeric field and the brand validator refuses anything that is not a known preset. Pins the gap between what a preset declares and what is enforced: nothing in the library reads the brand a config was stamped with, minAal is resolved and consumed by nothing, and seven of the nine names in requiredStrictChecks are never asserted. Also that the no-preset path hands back the module's own default object, aliased inside two presets."
+    },
+    {
+      "file": "src/core/operations/__tests__/operations-gating.test.ts",
+      "cases": 25,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "hostile-input"
+      ],
+      "proves": "Maintenance outranks read-only, the snapshot is a copy, and the four mutating methods are blocked case-insensitively. Pins that the exemption flag skips both modes rather than only maintenance, that read-only classifies by HTTP method so a mutating GET callback still writes, that any method outside the four known ones reads as safe, and that read-only emits no event so it never leaves the instance it was set on."
+    },
+    {
+      "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+      "cases": 32,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "hostile-input"
+      ],
+      "proves": "The siteverify parsers fail closed on every malformed shape, encode a hostile remote address, and keep the secret out of the query string. Pins that the HTTP status is never consulted so an error response carrying a success body passes, that hostname and challenge_ts are read by nobody, that there is no request timeout in front of sign-in, and that the reCAPTCHA threshold accepts a zero, a negative or a NaN without validation."
+    },
+    {
+      "file": "src/core/config/__tests__/create-auth.test.ts",
+      "cases": 21,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "regression"
+      ],
+      "proves": "Every Engine.Cfg knob createAuth accepts reaches the constructed engine, including the idempotency store whose earlier silent drop made strict refuse to boot. Pins the two keys the config type declares and the body never reads, plugins and the oauth-wide state signing secret, plus the absence of any unknown-key check, so a typo disables the setting it meant to change."
+    },
+    {
+      "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+      "cases": 23,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "hostile-input"
+      ],
+      "proves": "Dispatch routes by exact id with this still bound to the registered instance, and a duplicate id is refused at registration. Pins that list() filters on complete alone while dispatch needs begin too, so the sign-in grid can advertise a provider whose first call fails, and that resolve() returns the first instanceof match in insertion order, which is what auth.passwords, auth.mfa and auth.apiKeys read."
+    },
+    {
+      "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+      "cases": 26,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "saml2-core",
+        "saml2-profiles",
+        "owasp-saml",
+        "nist-800-63b",
+        "internal-audit"
+      ],
+      "proves": "The provider refuses a logout response on the sign-in path, a null or blank nameID, and a body past the size cap before the parser sees it, and keeps the client's error text off the wire. Pins that nothing binds a response to the request that started it: complete takes no relay state, succeeds with no preceding begin, accepts the same body replayed, and never reads the callbackUrl it required at construction. Also that every SAML session is stamped aal 2 without inspecting AuthnContextClassRef, and that neither path touches the limiter."
+    },
+    {
+      "file": "src/channels/__tests__/channels-contract.test.ts",
+      "cases": 30,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "rfc8030",
+        "rfc8291",
+        "rfc5321",
+        "owasp-asvs",
+        "internal-audit"
+      ],
+      "proves": "Every channel reports a kind and an id, treats a missing or non-string recipient as a soft failure naming itself, and never throws. Pins what that shared contract does not cover: the recipient is any non-empty string with no address, number, length or CR LF check, nothing caps a rendered body or subject on a route billed per segment, no adapter applies a timeout or a retry, and the console channel logs the vars that carry the magic link and the one-time code."
+    },
+    {
+      "file": "src/core/transport/__tests__/composite.test.ts",
+      "cases": 34,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "rfc6750",
+        "rfc9449",
+        "owasp-asvs",
+        "internal-audit"
+      ],
+      "proves": "First coverage for CompositeTransport. It falls through on extract, returns the first successful verification, caps a token before asking anyone, and composes a cookie with a bearer cleanly. Pins that array order is the whole policy: a request presenting two different credentials is silently resolved rather than refused as RFC 6750 requires, and verification is a disjunction, so composing a proof-of-possession transport with an unbound one leaves the unbound path answering."
+    },
+    {
+      "file": "src/core/config/__tests__/config-ergonomics.test.ts",
+      "cases": 26,
+      "backing": [
+        "memory"
+      ],
+      "derivedFrom": [
+        "internal-audit",
+        "regression"
+      ],
+      "proves": "Every config key takes the value a caller naturally has, in one call, the way limiter already did. Idempotency accepts a one-call facet, a bare store, or an explicitly wrapped one, and wrapping twice is a no-op. Anomaly thresholds and reactions reach the facet through the engine instead of being fixed at the defaults. Guards that a later change reintroducing a wrapper step, or dropping a declared key, fails here."
+    }
+  ]
+}

@@ -11,6 +11,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { randomToken } from '~/core/crypto'
 
 let loaded = false
 
@@ -43,6 +44,11 @@ export function databaseUrl(): string | undefined {
   return process.env.DUCKAUTH_E2E_DATABASE_URL
 }
 
+export function mysqlUrl(): string | undefined {
+  loadEnvTest()
+  return process.env.DUCKAUTH_E2E_MYSQL_URL
+}
+
 export function instanceCount(): number {
   loadEnvTest()
   const raw = process.env.DUCKAUTH_E2E_INSTANCES
@@ -56,7 +62,7 @@ export function instanceCount(): number {
  * another run or leave debris behind.
  */
 export function e2ePrefix(): string {
-  return `e2e:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`
+  return `e2e:${Date.now().toString(36)}:${randomToken(4)}`
 }
 
 /** Delete every key under a prefix. Call in `afterAll`. */
@@ -69,32 +75,41 @@ export async function dropPrefix(
 }
 
 /**
- * DDL for the e2e Postgres database. Mirrors the shipped drizzle pg schema but
- * types `identity_id` as `text` rather than `uuid`, because the shared
- * conformance suite uses readable ids (`'u'`, `'v'`) rather than UUIDs.
- *
- * Tests that must exercise the REAL column types use `PG_DDL_STRICT` instead.
+ * Create the shipped Postgres schema in the e2e database, so the suite provisions
+ * its own tables instead of depending on one cloned by hand from another repo.
+ * The DDL is generated from `adapters/drizzle/pg/pg.schema.ts`; regenerate it with
+ * `bun run e2e:schema` when that schema changes.
  */
-export const PG_DDL = `
-DROP TABLE IF EXISTS auth_sessions_e2e;
-CREATE TABLE auth_sessions_e2e (
-  id                  text PRIMARY KEY,
-  identity_id         text,
-  tenant_id           text,
-  kind                text NOT NULL,
-  aal                 integer NOT NULL,
-  factors             jsonb NOT NULL DEFAULT '[]'::jsonb,
-  csrf_hash           text,
-  ip                  text,
-  user_agent          text,
-  fingerprint         text,
-  created_at          timestamptz NOT NULL,
-  rotated_at          timestamptz NOT NULL,
-  expires_at          timestamptz NOT NULL,
-  absolute_expires_at timestamptz NOT NULL,
-  fresh               boolean NOT NULL,
-  acting_as           jsonb
-);
-CREATE INDEX auth_sessions_e2e_identity ON auth_sessions_e2e (identity_id);
-CREATE INDEX auth_sessions_e2e_expires ON auth_sessions_e2e (expires_at);
-`
+export async function applyPgSchema(pool: { query(sql: string): Promise<{ rows: unknown[] }> }): Promise<void> {
+  const probe = await pool.query(`SELECT to_regclass('public.auth_identities') AS present`)
+  const row = probe.rows[0] as { present: string | null } | undefined
+  if (row?.present) return
+  await pool.query(readFileSync(join(import.meta.dirname, 'pg-e2e-schema.sql'), 'utf8'))
+}
+
+/**
+ * Create a dedicated database and return its URL.
+ *
+ * Suites that wipe tables between cases cannot share the default e2e database:
+ * vitest runs files in parallel workers, so one suite's TRUNCATE lands in the
+ * middle of another's fixtures. An owned database makes the isolation real
+ * rather than a scheduling accident.
+ */
+export async function isolatedDatabaseUrl(name: string): Promise<string | undefined> {
+  const base = databaseUrl()
+  if (!base) return undefined
+  const url = new URL(base)
+  const dbName = `duckauth_e2e_${name}`.toLowerCase().replace(/[^a-z0-9_]/g, '_')
+  const { Pool } = (await import('pg')) as typeof import('pg')
+  const admin = new Pool({ connectionString: base })
+  try {
+    // CREATE DATABASE cannot run in a transaction and has no IF NOT EXISTS, so
+    // drop first and ignore the "does not exist" on a clean run.
+    await admin.query(`DROP DATABASE IF EXISTS ${dbName}`)
+    await admin.query(`CREATE DATABASE ${dbName}`)
+  } finally {
+    await admin.end()
+  }
+  url.pathname = `/${dbName}`
+  return url.toString()
+}

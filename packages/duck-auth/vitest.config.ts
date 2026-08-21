@@ -10,4 +10,9 @@ export default mergeConfig(baseConfig, {
       '~': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  test: {
+    // Provisions throwaway Redis + Postgres for the e2e suites and removes them
+    // afterwards. No-ops when DUCKAUTH_E2E_* is already set or docker is absent.
+    globalSetup: [fileURLToPath(new URL('./src/test/e2e-containers.ts', import.meta.url))],
+  },
 })
