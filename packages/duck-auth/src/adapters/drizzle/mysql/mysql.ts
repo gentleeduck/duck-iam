@@ -33,6 +33,35 @@ import type { Mysql } from './mysql.types'
  * @returns The identity / credential / session bridge for gentleduck/auth.
  */
 /**
+ * MySQL returns `json` columns as already-parsed JSON, so the `Date` fields nested
+ * inside `factors` and `actingAs` arrive as ISO strings while `Sessions.Me` types
+ * them as `Date`. The pg adapter revives these for the same reason and the Redis
+ * store does it via `parseStoredDate`; without it, anything calling
+ * `factor.completedAt.getTime()` throws on MySQL alone.
+ */
+function reviveSessionRow<T extends { factors: unknown; actingAs: unknown }>(row: T | null): T | null {
+  return row ? reviveSessionRowRequired(row) : null
+}
+
+function reviveSessionRowRequired<T extends { factors: unknown; actingAs: unknown }>(row: T): T {
+  const factors = Array.isArray(row.factors)
+    ? row.factors.map((f) => {
+        const factor = f as { completedAt: unknown }
+        return { ...factor, completedAt: new Date(factor.completedAt as string) }
+      })
+    : row.factors
+  const acting = row.actingAs
+  const actingAs =
+    acting && typeof acting === 'object'
+      ? (() => {
+          const a = acting as { startedAt: unknown; expiresAt: unknown }
+          return { ...a, expiresAt: new Date(a.expiresAt as string), startedAt: new Date(a.startedAt as string) }
+        })()
+      : acting
+  return { ...row, actingAs, factors }
+}
+
+/**
  * Generic over the profile so a caller with its own profile shape does not have to
  * cast the result. The row's `profile` column is typed as the base shape by drizzle,
  * so the widening happens once here rather than at every call site.
@@ -57,7 +86,7 @@ export function createDrizzleMysqlBridge<
   }
   async function reselectSession(id: string) {
     const rows = await db.select().from(authSessions).where(eq(authSessions.id, id)).limit(1)
-    return rows[0] ?? null
+    return reviveSessionRow(rows[0] ?? null)
   }
 
   const bridge: SqlBridge.Me = {
@@ -275,7 +304,7 @@ export function createDrizzleMysqlBridge<
       },
       findByHash: async (sidHash) => {
         const rows = await db.select().from(authSessions).where(eq(authSessions.id, sidHash)).limit(1)
-        return rows[0] ?? null
+        return reviveSessionRow(rows[0] ?? null)
       },
       update: async (id, patch) => {
         const result = await db.update(authSessions).set(patch).where(eq(authSessions.id, id))
@@ -286,7 +315,8 @@ export function createDrizzleMysqlBridge<
         await db.delete(authSessions).where(eq(authSessions.id, id))
       },
       listByIdentity: async (identityId) => {
-        return db.select().from(authSessions).where(eq(authSessions.identityId, identityId))
+        const rows = await db.select().from(authSessions).where(eq(authSessions.identityId, identityId))
+        return rows.map(reviveSessionRowRequired)
       },
       deleteAllForIdentity: async (identityId) => {
         await db.delete(authSessions).where(eq(authSessions.identityId, identityId))

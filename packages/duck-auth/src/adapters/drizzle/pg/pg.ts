@@ -39,6 +39,25 @@ function reviveSessionRowRequired<T extends { factors: unknown; actingAs: unknow
 }
 
 /**
+ * Postgres raises `22P02 invalid_text_representation` when a value cannot be cast
+ * to the column's type, so looking up a `uuid` primary key with an arbitrary
+ * string throws instead of finding nothing. Every other adapter returns `null`
+ * there, and the store contract is "unknown id" rather than "crash", so a caller
+ * passing an id straight off a request gets a 500 and a leaked SQL string instead
+ * of a clean unauthenticated error. Treat an unrepresentable id as absent.
+ */
+async function nullOnUnrepresentableId<T>(read: () => Promise<T | null>): Promise<T | null> {
+  try {
+    return await read()
+  } catch (err) {
+    const code =
+      (err as { code?: string; cause?: { code?: string } })?.code ?? (err as { cause?: { code?: string } })?.cause?.code
+    if (code === '22P02') return null
+    throw err
+  }
+}
+
+/**
  * Generic over the profile so a caller with its own profile shape does not have to
  * cast the result. The row's `profile` column is typed as the base shape by drizzle,
  * so the widening happens once here rather than at every call site.
@@ -53,12 +72,14 @@ export function createDrizzlePgBridge<
   const bridge: SqlBridge.Me = {
     identities: {
       findById: (id) =>
-        db
-          .select()
-          .from(authIdentities)
-          .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
-          .limit(1)
-          .then((r) => r[0] ?? null),
+        nullOnUnrepresentableId(() =>
+          db
+            .select()
+            .from(authIdentities)
+            .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
+            .limit(1)
+            .then((r) => r[0] ?? null),
+        ),
 
       // Case-insensitive to match the uniqueness constraint, which is
       // `unique (lower(profile->>'email'))`. An exact match here meant an identity
@@ -80,7 +101,7 @@ export function createDrizzlePgBridge<
           .from(authIdentities)
           .where(
             and(
-              sql`${authIdentities.providers} @> ${JSON.stringify([{ providerId, providerSub: sub }])}]::jsonb`,
+              sql`${authIdentities.providers} @> ${JSON.stringify([{ providerId, providerSub: sub }])}::jsonb`,
               isNull(authIdentities.deletedAt),
             ),
           )
@@ -130,7 +151,7 @@ export function createDrizzlePgBridge<
             select coalesce(jsonb_agg(elem), '[]'::jsonb)
             from jsonb_array_elements(providers) elem
             where (elem->>'providerId') != ${providerId}
-          ) || ${JSON.stringify([{ providerId, providerSub: providerSub ?? null, addedAt }])}]::jsonb
+          ) || ${JSON.stringify([{ providerId, providerSub: providerSub ?? null, addedAt }])}::jsonb
           where id = ${identityId}
         `)
           .then(() => {}),
@@ -176,12 +197,14 @@ export function createDrizzlePgBridge<
 
     credentials: {
       findById: (id, tenantId) =>
-        db
-          .select()
-          .from(authCredentials)
-          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
-          .limit(1)
-          .then((r) => r[0] ?? null),
+        nullOnUnrepresentableId(() =>
+          db
+            .select()
+            .from(authCredentials)
+            .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+            .limit(1)
+            .then((r) => r[0] ?? null),
+        ),
 
       listByIdentity: (identityId, kind, tenantId) =>
         db
