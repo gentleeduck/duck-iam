@@ -69,7 +69,7 @@ const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {
 
 ## Performance
 
-Benchmarked against 7 JS authorization libraries using vitest bench. Simple RBAC check, ops/sec (higher is better):
+Benchmarked against 6 JS authorization libraries using vitest bench. Simple RBAC check, ops/sec (higher is better):
 
 | Library | ops/sec | vs CASL |
 |---------|---------|---------|
@@ -79,7 +79,6 @@ Benchmarked against 7 JS authorization libraries using vitest bench. Simple RBAC
 | @rbac/rbac | 2,884,000 | 5.8x slower |
 | accesscontrol | 674,000 | 25x slower |
 | casbin | 143,000 | 118x slower |
-| role-acl | 140,000 | 120x slower |
 
 CASL is faster on raw lookups because it pre-compiles rules into a hash table at build time. duck-iam supports dynamic policies that can change at runtime, which costs an extra Map lookup per check.
 

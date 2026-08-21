@@ -1,14 +1,13 @@
 /**
  * Benchmark: @gentleduck/iam vs every JS authorization library
  *
- * Libraries tested (7 total):
+ * Libraries tested (6 total):
  *   1. @gentleduck/iam  - policy engine (ABAC+RBAC)
  *   2. @casl/ability     - ability-based (ABAC)
  *   3. casbin            - model-file (PERM DSL)
  *   4. accesscontrol     - fluent grants (RBAC)
- *   5. role-acl          - role + conditions (RBAC+ABAC)
- *   6. @rbac/rbac        - hierarchical RBAC
- *   7. easy-rbac         - simple hierarchical RBAC
+ *   5. @rbac/rbac        - hierarchical RBAC
+ *   6. easy-rbac         - simple hierarchical RBAC
  *
  * METHODOLOGY:
  * - Each library solves the SAME authorization problem
@@ -22,7 +21,6 @@ import RBAC from '@rbac/rbac'
 import { AccessControl } from 'accesscontrol'
 import { newEnforcer, newModel, StringAdapter } from 'casbin'
 import EasyRBAC from 'easy-rbac'
-import * as RoleAcl from 'role-acl'
 import { bench, describe } from 'vitest'
 import { MemoryAdapter } from '../src/adapters/memory'
 import { IamEngine } from '../src/core/engine/engine'
@@ -142,11 +140,6 @@ ac.grant('viewer').readAny('post')
 ac.grant('editor').extend('viewer').updateOwn('post')
 ac.grant('admin').extend('editor').deleteAny('post').createAny('post')
 
-const roleAcl = new RoleAcl.AccessControl()
-roleAcl.grant('viewer').execute('read').on('post')
-roleAcl.grant('editor').extend('viewer').execute('update').on('post')
-roleAcl.grant('admin').extend('editor').execute('delete').on('post').execute('write').on('post')
-
 const rbacRbac = RBAC({ enableLogger: false })({
   viewer: { can: ['post:read'] },
   editor: { can: ['post:read', 'post:update'], inherits: ['viewer'] },
@@ -188,10 +181,6 @@ describe('Simple RBAC: can viewer read post?', () => {
 
   bench('accesscontrol', () => {
     for (let i = 0; i < N; i++) ac.can('viewer').readAny('post')
-  })
-
-  bench('role-acl', async () => {
-    for (let i = 0; i < N; i++) await roleAcl.can('viewer').execute('read').on('post')
   })
 
   bench('@rbac/rbac', async () => {
@@ -236,10 +225,6 @@ describe('Role + condition: can admin delete post?', () => {
     for (let i = 0; i < N; i++) ac.can('admin').deleteAny('post')
   })
 
-  bench('role-acl', async () => {
-    for (let i = 0; i < N; i++) await roleAcl.can('admin').execute('delete').on('post')
-  })
-
   bench('@rbac/rbac', async () => {
     for (let i = 0; i < N; i++) await rbacRbac.can('admin', 'post:delete')
   })
@@ -262,10 +247,6 @@ describe('Deny path: viewer cannot delete', () => {
 
   bench('casbin', async () => {
     for (let i = 0; i < N; i++) await casbinEnforcer.enforce('viewer', 'post', 'delete')
-  })
-
-  bench('role-acl', async () => {
-    for (let i = 0; i < N; i++) await roleAcl.can('viewer').execute('delete').on('post')
   })
 
   bench('@rbac/rbac', async () => {
@@ -319,10 +300,6 @@ describe('Batch: 20 permission checks', () => {
       else if (action === 'delete') ac.can('admin').deleteAny('post')
       else ac.can('admin').createAny('post')
     }
-  })
-
-  bench('role-acl x20', async () => {
-    for (const action of checks) await roleAcl.can('viewer').execute(action).on('post')
   })
 
   bench('@rbac/rbac x20', async () => {
@@ -381,12 +358,6 @@ describe('Cold start: build + first check', () => {
     const a = new AccessControl()
     a.grant('viewer').readAny('post')
     a.can('viewer').readAny('post')
-  })
-
-  bench('role-acl', async () => {
-    const a = new RoleAcl.AccessControl()
-    a.grant('viewer').execute('read').on('post')
-    await a.can('viewer').execute('read').on('post')
   })
 
   bench('@rbac/rbac', async () => {
