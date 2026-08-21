@@ -5,7 +5,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passkey } from '~/providers/passkey'
 import { passwords } from '~/providers/passwords'
-import { mountNext, nextSession, nextSignIn, nextSignOut } from '../index'
+import { mountNext, nextSession, nextSignIn, nextSignOut, withNextCsrf } from '../index'
 
 type MyProfile = {
   username: string
@@ -36,12 +36,6 @@ function buildAuth() {
       expectedOrigins: '',
     }),
   )
-
-  auth.flows.signIn({
-    providerId: '',
-    tenantId: '',
-    input: {},
-  })
 
   return { auth, adapter }
 }
@@ -140,5 +134,37 @@ describe('mountNext - catch-all router', () => {
     const { POST } = mountNext(auth)
     const res = await POST(new Request('https://x/api/AUTH_UNKNOWN', { method: 'POST' }))
     expect(res.status).toBe(404)
+  })
+})
+
+describe('withNextCsrf', () => {
+  async function run(method: string, headers: Record<string, string>) {
+    const { auth } = buildAuth()
+    let reached = false
+    const wrapped = withNextCsrf(auth, async () => {
+      reached = true
+      return Response.json({ ok: true })
+    })
+    const res = await wrapped(new Request('https://x/orders', { headers, method }))
+    return { reached, res }
+  }
+
+  it('lets a safe method through even from a cross-site context', async () => {
+    expect((await run('GET', { 'sec-fetch-site': 'cross-site' })).reached).toBe(true)
+  })
+
+  it('rejects a cross-site mutation with 403 and never reaches the handler', async () => {
+    const { reached, res } = await run('POST', { 'sec-fetch-site': 'cross-site' })
+    expect(reached).toBe(false)
+    expect(res.status).toBe(403)
+    expect(await res.text()).toContain('AUTH_CSRF')
+  })
+
+  it('lets a Bearer request through: no ambient cookie to forge', async () => {
+    expect((await run('POST', { authorization: 'Bearer tok', 'sec-fetch-site': 'cross-site' })).reached).toBe(true)
+  })
+
+  it('lets an ordinary same-origin mutation through', async () => {
+    expect((await run('POST', { 'sec-fetch-site': 'same-origin' })).reached).toBe(true)
   })
 })

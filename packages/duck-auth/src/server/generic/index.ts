@@ -178,3 +178,15 @@ export function serializeCookie(
   }
   return parts.join('; ')
 }
+
+/**
+ * The caller, for the session row. Only ever what the framework resolved: reading a forwarded
+ * header here would take the value the caller wrote, and the host is the only layer that knows
+ * how many proxies it trusts. Omitted keys stay omitted so the flow's own defaults apply.
+ */
+export function callerContext(input: { ip?: string; userAgent?: unknown }): { ip?: string; userAgent?: string } {
+  return {
+    ...(typeof input.ip === 'string' && input.ip.length > 0 && { ip: input.ip }),
+    ...(typeof input.userAgent === 'string' && input.userAgent.length > 0 && { userAgent: input.userAgent }),
+  }
+}

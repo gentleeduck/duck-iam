@@ -3,6 +3,8 @@ export namespace ExpressAdapter {
   export type Request = {
     method: string
     url: string
+    /** Resolved by the framework against its own proxy trust, never read from a header here. */
+    ip?: string
     headers: Record<string, string | string[] | undefined>
     body?: unknown
   }
@@ -19,4 +21,7 @@ export namespace ExpressAdapter {
 
   /** Express handler signature `(req, res) => Promise<void>`. */
   export type Handler = (req: Request, res: Response) => Promise<void>
+
+  /** Express middleware. Skipping `next()` halts the chain. */
+  export type Middleware = (req: Request, res: Response, next: () => void) => Promise<void>
 }

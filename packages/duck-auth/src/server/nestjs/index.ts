@@ -55,11 +55,25 @@ export function nestSignIn(auth: AuthEngine): NestAdapter.Handler {
       if (!parsed) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), reply)
       }
-      const result = await auth.flows.signIn(parsed)
+      // The flow, the store and the columns all take these and the adapter was dropping
+      // them, so every session row recorded a device it could not name.
+      const result = await auth.flows.signIn({ ...parsed, ...callerOf(req) })
       return forward(executeIntents(result.intents), reply)
     } catch (err) {
       return handleError(err, reply)
     }
+  }
+}
+
+/**
+ * `req.ip` and nothing else: the host resolves it against its own proxy trust, and reading a
+ * forwarded header here would take the value the caller wrote.
+ */
+function callerOf(req: NestAdapter.Request): { ip?: string; userAgent?: string } {
+  const ua = req.headers?.['user-agent']
+  return {
+    ...(req.ip !== undefined && { ip: req.ip }),
+    ...(typeof ua === 'string' && { userAgent: ua }),
   }
 }
 

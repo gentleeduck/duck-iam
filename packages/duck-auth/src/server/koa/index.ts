@@ -11,8 +11,11 @@
  *   router.post('/AUTH/providers/:id/begin', koaProviderBegin(auth))
  */
 
+import type { Csrf } from '~/core/csrf'
+import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  callerContext,
   errorToHttp,
   executeIntents,
   extractSetCookies,
@@ -25,6 +28,11 @@ import {
 import type { KoaAdapter } from './koa.types'
 
 const toFetchHeaders: (headers: KoaAdapter.Context['request']['headers']) => Headers = nodeHeadersToFetch
+
+/** Koa keeps method + headers on `ctx.request`; csrfGuard wants them flat. */
+function toCsrfRequest(ctx: KoaAdapter.Context): { method: string; headers: Headers } {
+  return { headers: toFetchHeaders(ctx.request.headers), method: ctx.request.method }
+}
 
 /**
  * Forward a Web Fetch `Response` (from executeIntents) onto a Koa
@@ -55,15 +63,19 @@ function handleError(err: unknown, ctx: KoaAdapter.Context): void {
   ctx.body = JSON.stringify(body)
 }
 
-/** Koa handler for the sign-in route. */
+/** Koa handler for the sign-in route. CSRF-guarded. */
 export function koaSignIn(auth: AuthEngine): KoaAdapter.Handler {
   return async (ctx) => {
     try {
+      await csrfGuard(auth, toCsrfRequest(ctx))
       const parsed = parseSignInBody(ctx.request.body)
       if (!parsed) {
         return forward(executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }]), ctx)
       }
-      const result = await auth.flows.signIn(parsed)
+      const result = await auth.flows.signIn({
+        ...parsed,
+        ...callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] }),
+      })
       await forward(executeIntents(result.intents), ctx)
     } catch (err) {
       handleError(err, ctx)
@@ -71,10 +83,11 @@ export function koaSignIn(auth: AuthEngine): KoaAdapter.Handler {
   }
 }
 
-/** Koa handler for sign-out. */
+/** Koa handler for sign-out. CSRF-guarded. */
 export function koaSignOut(auth: AuthEngine): KoaAdapter.Handler {
   return async (ctx) => {
     try {
+      await csrfGuard(auth, toCsrfRequest(ctx))
       const sid = auth.transport.extract({ headers: toFetchHeaders(ctx.request.headers) })
       if (!sid) {
         await forward(executeIntents(auth.transport.revoke()), ctx)
@@ -104,10 +117,11 @@ export function koaSession(auth: AuthEngine): KoaAdapter.Handler {
   }
 }
 
-/** Koa handler for the per-provider begin step. */
+/** Koa handler for the per-provider begin step. CSRF-guarded. */
 export function koaProviderBegin(auth: AuthEngine): KoaAdapter.Handler {
   return async (ctx) => {
     try {
+      await csrfGuard(auth, toCsrfRequest(ctx))
       const id = ctx.params?.id
       if (!isValidProviderId(id)) {
         await forward(executeIntents([{ type: 'error', code: 'AUTH_PROVIDER_FAILED', status: 400 }]), ctx)
@@ -123,6 +137,19 @@ export function koaProviderBegin(auth: AuthEngine): KoaAdapter.Handler {
     } catch (err) {
       handleError(err, ctx)
     }
+  }
+}
+
+/** CSRF guard for your own routes: `app.use(koaCsrf(auth))`. Skips `next` on failure. */
+export function koaCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): KoaAdapter.Middleware {
+  return async (ctx, next) => {
+    try {
+      await csrfGuard(auth, toCsrfRequest(ctx), opts)
+    } catch (err) {
+      handleError(err, ctx)
+      return
+    }
+    await next()
   }
 }
 

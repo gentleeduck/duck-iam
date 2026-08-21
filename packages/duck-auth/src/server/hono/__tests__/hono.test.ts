@@ -4,7 +4,7 @@ import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { type HonoAdapter, honoSession, honoSignIn, honoSignOut } from '../index'
+import { type HonoAdapter, honoCsrf, honoSession, honoSignIn, honoSignOut } from '../index'
 
 type MyProfile = {
   username: string
@@ -137,5 +137,35 @@ describe('Hono adapter - end-to-end', () => {
     expect(outRes.status).toBe(200)
     expect(outRes.headers.get('set-cookie')).toContain('Max-Age=0')
     expect((await adapter.sessions.listByIdentity(identity.id)).length).toBe(0)
+  })
+})
+
+describe('honoCsrf', () => {
+  async function run(method: string, headers: Record<string, string>) {
+    const { auth } = buildAuth()
+    let nexted = false
+    const res = await honoCsrf(auth)(makeCtx(method, '/orders', { headers }), async () => {
+      nexted = true
+    })
+    return { nexted, res }
+  }
+
+  it('lets a safe method through even from a cross-site context', async () => {
+    expect((await run('GET', { 'sec-fetch-site': 'cross-site' })).nexted).toBe(true)
+  })
+
+  it('short-circuits a cross-site mutation with a 403 Response', async () => {
+    const { nexted, res } = await run('POST', { 'sec-fetch-site': 'cross-site' })
+    expect(nexted).toBe(false)
+    expect(res?.status).toBe(403)
+    expect(await res?.text()).toContain('AUTH_CSRF')
+  })
+
+  it('lets a Bearer request through: no ambient cookie to forge', async () => {
+    expect((await run('POST', { authorization: 'Bearer tok', 'sec-fetch-site': 'cross-site' })).nexted).toBe(true)
+  })
+
+  it('lets an ordinary same-origin mutation through', async () => {
+    expect((await run('POST', { 'sec-fetch-site': 'same-origin' })).nexted).toBe(true)
   })
 })
