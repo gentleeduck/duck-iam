@@ -1,5 +1,60 @@
 # @gentleduck/iam
 
+## 5.5.0
+
+### Minor Changes
+
+- 2853214: Add `engine.admin.updateAssignmentScope(subjectId, roleId, fromScope, toScope, actor?)`
+  to move a role assignment to a different scope in one write instead of
+  revoke + assign.
+
+  `IamAdapter.ISubjectStore` gains an optional `updateAssignmentScope`. When an adapter
+  implements it, the engine uses it directly; when it doesn't (or it returns `false`
+  because nothing matched `fromScope`), the engine transparently falls back to
+  revoke + assign, so the call always succeeds either way.
+
+  Implemented for `memory`, `file`, `prisma`, and `drizzle`. `drizzle` additionally needs
+  `ops.isNull` configured (matching `deletedAt` filtering) to match the global/unscoped
+  case correctly; without it, `updateAssignmentScope` returns `false` and the engine falls
+  back automatically. Not implemented for `redis` (scope is encoded into the Set member
+  itself, so there's no cheaper path than remove + add) or `http` (would need a new
+  endpoint on the operator's server) - both already work correctly via the fallback.
+
+  `iamAssignments` gains `updatedAt`/`updatedBy` in the drizzle schema (pg/mysql/sqlite)
+  to support this - the only table getting them in this release, since it's now the only
+  one with a real update path that didn't already have them.
+
+### Patch Changes
+
+- 2853214: Round out audit columns on the drizzle schema (pg/mysql/sqlite): `iamPolicies` and
+  `iamRoles` gain `deletedAt`; `iamSubjectAttrs` gains the `createdBy` it was missing
+  (it already had `updatedBy`) plus `deletedAt`. `iamAssignments`' own audit columns
+  are covered separately, alongside the new `updateAssignmentScope` feature that needs
+  them.
+
+  `IamDrizzleAdapter`'s `ops` config gains an optional `isNull` operator. When
+  provided, `listPolicies`/`getPolicy`/`listRoles`/`getRole`/`getSubjectRoles`/
+  `getSubjectScopedRoles`/`getSubjectAttributes` exclude rows with `deletedAt` set;
+  omitted (the default, matching every version before this column existed), reads are
+  unchanged. `deletePolicy`/`deleteRole`/`revokeRole` still hard-delete on purpose -
+  turning them into soft-deletes would break the unique-name constraint on policies/
+  roles (a "deleted" name couldn't be reused) and orphan the FK cascade from
+  `iamAssignments`. The column is a hook for something outside the adapter to set
+  (an admin tool, a trigger), not something this adapter writes itself.
+
+- 2853214: Fix scoped role assignments not resolving inherited roles. `resolveSubject` closed
+  `subject.roles` over `inherits` but passed `subject.scopedRoles` through unresolved,
+  so a condition reading `subject.scopedRoles` saw only the directly assigned role and
+  not what it inherits, while the exact same role assigned without a scope resolved
+  correctly. Scoped roles now go through the same inheritance closure.
+
+  `IamClient` also gains `PartialPermissionMap`, the type `engine.permissions()`
+  actually returns (only the checked keys, not every possible combination). The React
+  client's `usePermissions`/`createIamPermissionChecker`/`IContextValue.permissions`
+  now use it instead of the full `PermissionMap`, matching what callers really have.
+  `iamBuildPermissionKey` is also re-exported from the React entry so a consumer
+  building a key by hand doesn't need a second import from core.
+
 ## 5.4.2
 
 ### Patch Changes

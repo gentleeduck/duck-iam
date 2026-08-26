@@ -1,5 +1,13 @@
 # @gentleduck/example-oidc-op
 
+## 0.0.12
+
+### Patch Changes
+
+- Updated dependencies [fd6e8c2]
+- Updated dependencies [30a595d]
+  - @gentleduck/auth@5.3.3
+
 ## 0.0.11
 
 ### Patch Changes
