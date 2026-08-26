@@ -28,7 +28,7 @@ export namespace IamDrizzle {
     ops: {
       eq: (col: unknown, val: unknown) => unknown
       and: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
-      /** Builds an `IS NULL` condition. Optional - omit to keep reads unfiltered on `deletedAt`. */
+      /** Builds an `IS NULL` condition. Optional - required only for `updateAssignmentScope` to match a global (unscoped) assignment. */
       isNull?: (col: unknown) => SQLWrapper
     }
     /**
@@ -129,41 +129,24 @@ export class IamDrizzleAdapter<
     this._onPolicyError = config.onPolicyError
   }
 
-  /** `deletedAt IS NULL` for a table, or undefined when `ops.isNull` is unset or the table has no such column. */
-  private _notDeleted(table: IamDrizzle.DrizzleTable): SQLWrapper | undefined {
-    if (!this._isNull) return undefined
-    const col = (table as unknown as { deletedAt?: unknown }).deletedAt
-    return col === undefined ? undefined : this._isNull(col)
-  }
-
   /**
    * Typed SELECT helpers consolidate the `as unknown as RowType[]` casts at
    * the module edge into one place. IamDrizzle's `select().from()` returns
    * untyped rows; row shapes are pinned at the boundary here.
    */
   private async _selectAll<T>(table: IamDrizzle.DrizzleTable): Promise<T[]> {
-    const notDeleted = this._notDeleted(table)
-    const query = this._db.select().from(table)
-    return notDeleted ? await query.where(notDeleted) : await query
+    return await this._db.select().from(table)
   }
   private async _selectFirst<T>(
     table: IamDrizzle.DrizzleTable,
     whereCol: unknown,
     whereVal: unknown,
   ): Promise<T | undefined> {
-    const notDeleted = this._notDeleted(table)
-    const where = notDeleted
-      ? this._and(this._eq(whereCol, whereVal) as SQLWrapper, notDeleted)
-      : this._eq(whereCol, whereVal)
-    const rows = await this._db.select().from(table).where(where).limit(1)
+    const rows = await this._db.select().from(table).where(this._eq(whereCol, whereVal)).limit(1)
     return rows[0]
   }
   private async _selectWhere<T>(table: IamDrizzle.DrizzleTable, whereCol: unknown, whereVal: unknown): Promise<T[]> {
-    const notDeleted = this._notDeleted(table)
-    const where = notDeleted
-      ? this._and(this._eq(whereCol, whereVal) as SQLWrapper, notDeleted)
-      : this._eq(whereCol, whereVal)
-    return await this._db.select().from(table).where(where)
+    return await this._db.select().from(table).where(this._eq(whereCol, whereVal))
   }
 
   private _reportPolicyError(err: Error, rowId: string): void {

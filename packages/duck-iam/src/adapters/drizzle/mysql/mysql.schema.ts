@@ -20,8 +20,8 @@ import type { AccessControl, IamPrimitives } from '../../../core/types'
  * MySQL schema for the duck-iam IamDrizzle adapter. CHECK constraints are enforced on
  * MySQL 8.0.16+ and parsed-but-ignored below that. No partial indexes, so global rows
  * (NULL scope) are de-duplicated via a `COALESCE(scope, '')` functional unique index.
- * `created_by`/`updated_by`/`deleted_at` are left NULL by the adapter (no actor
- * context); see the Postgres schema for fuller notes.
+ * `created_by`/`updated_by` are left NULL by the adapter (no actor context); see the
+ * Postgres schema for fuller notes.
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}. */
@@ -53,7 +53,6 @@ export const iamPolicies = mysqlTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
-    deletedAt: datetime('deleted_at', { fsp: 3 }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
@@ -81,7 +80,6 @@ export const iamRoles = mysqlTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
-    deletedAt: datetime('deleted_at', { fsp: 3 }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
@@ -106,7 +104,6 @@ export const iamAssignments = mysqlTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
-    deletedAt: datetime('deleted_at', { fsp: 3 }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
@@ -135,7 +132,6 @@ export const iamSubjectAttrs = mysqlTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
-    deletedAt: datetime('deleted_at', { fsp: 3 }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
