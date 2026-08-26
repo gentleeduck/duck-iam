@@ -187,13 +187,7 @@ export function createDrizzlePgBridge<
           db
             .select()
             .from(authCredentials)
-            .where(
-              and(
-                eq(authCredentials.id, id),
-                isNull(authCredentials.deletedAt),
-                tenantWhere(authCredentials, tenantId),
-              ),
-            )
+            .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
             .limit(1)
             .then((r) => r[0] ?? null),
         ),
@@ -205,7 +199,6 @@ export function createDrizzlePgBridge<
           .where(
             and(
               eq(authCredentials.identityId, identityId),
-              isNull(authCredentials.deletedAt),
               ...(kind ? [eq(authCredentials.kind, kind)] : []),
               ...(tenantId ? [eq(authCredentials.tenantId, tenantId)] : []),
             ),
@@ -219,7 +212,6 @@ export function createDrizzlePgBridge<
             and(
               sql`${authCredentials.metadata}->>'provider' = ${provider}`,
               sql`${authCredentials.metadata}->>'sub' = ${sub}`,
-              isNull(authCredentials.deletedAt),
             ),
           )
           .limit(1)
@@ -233,7 +225,6 @@ export function createDrizzlePgBridge<
             and(
               eq(authCredentials.secret, secretHash),
               eq(authCredentials.kind, kind),
-              isNull(authCredentials.deletedAt),
               tenantWhere(authCredentials, tenantId),
             ),
           )
@@ -295,7 +286,7 @@ export function createDrizzlePgBridge<
         db
           .select()
           .from(authSessions)
-          .where(and(eq(authSessions.id, sidHash), isNull(authSessions.deletedAt)))
+          .where(eq(authSessions.id, sidHash))
           .limit(1)
           .then((r) => reviveSessionRow(r[0] ?? null)),
       update: (id, patch) =>
@@ -314,7 +305,7 @@ export function createDrizzlePgBridge<
         db
           .select()
           .from(authSessions)
-          .where(and(eq(authSessions.identityId, identityId), isNull(authSessions.deletedAt)))
+          .where(eq(authSessions.identityId, identityId))
           .then((rows) => rows.map((r) => reviveSessionRowRequired(r))),
       deleteAllForIdentity: (identityId) =>
         db

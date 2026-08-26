@@ -67,7 +67,6 @@ export const authCredentials = sqliteTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
-    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
     lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
     revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
@@ -117,7 +116,6 @@ export const authSessions = sqliteTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
-    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
     rotatedAt: integer('rotated_at', { mode: 'timestamp_ms' }).notNull(),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
     absoluteExpiresAt: integer('absolute_expires_at', { mode: 'timestamp_ms' }).notNull(),

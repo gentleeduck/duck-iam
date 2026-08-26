@@ -192,16 +192,13 @@ export function createDrizzleMysqlBridge<
         const rows = await db
           .select()
           .from(authCredentials)
-          .where(
-            and(eq(authCredentials.id, id), isNull(authCredentials.deletedAt), tenantWhere(authCredentials, tenantId)),
-          )
+          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
           .limit(1)
         return rows[0] ?? null
       },
       listByIdentity: async (identityId, kind, tenantId) => {
         const where = [
           eq(authCredentials.identityId, identityId),
-          isNull(authCredentials.deletedAt),
           ...(kind ? [eq(authCredentials.kind, kind)] : []),
           ...(tenantId ? [eq(authCredentials.tenantId, tenantId)] : []),
         ]
@@ -218,7 +215,6 @@ export function createDrizzleMysqlBridge<
             and(
               sql`${authCredentials.metadata}->>'$.provider' = ${provider}`,
               sql`${authCredentials.metadata}->>'$.sub' = ${sub}`,
-              isNull(authCredentials.deletedAt),
             ),
           )
           .limit(1)
@@ -233,7 +229,6 @@ export function createDrizzleMysqlBridge<
             and(
               eq(authCredentials.secret, secretHash),
               eq(authCredentials.kind, kind),
-              isNull(authCredentials.deletedAt),
               tenantWhere(authCredentials, tenantId),
             ),
           )
@@ -286,7 +281,7 @@ export function createDrizzleMysqlBridge<
         const rows = await db
           .select()
           .from(authSessions)
-          .where(and(eq(authSessions.id, sidHash), isNull(authSessions.deletedAt)))
+          .where(eq(authSessions.id, sidHash))
           .limit(1)
         return reviveSessionRow(rows[0] ?? null)
       },
@@ -302,7 +297,7 @@ export function createDrizzleMysqlBridge<
         const rows = await db
           .select()
           .from(authSessions)
-          .where(and(eq(authSessions.identityId, identityId), isNull(authSessions.deletedAt)))
+          .where(eq(authSessions.identityId, identityId))
         return rows.map(reviveSessionRowRequired)
       },
       deleteAllForIdentity: async (identityId) => {

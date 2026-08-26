@@ -68,7 +68,6 @@ export const authCredentials = mysqlTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
-    deletedAt: datetime('deleted_at', { fsp: 3 }),
     lastUsedAt: datetime('last_used_at', { fsp: 3 }),
     expiresAt: datetime('expires_at', { fsp: 3 }),
     revokedAt: datetime('revoked_at', { fsp: 3 }),
@@ -115,7 +114,6 @@ export const authSessions = mysqlTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
-    deletedAt: datetime('deleted_at', { fsp: 3 }),
     rotatedAt: datetime('rotated_at', { fsp: 3 }).notNull(),
     expiresAt: datetime('expires_at', { fsp: 3 }).notNull(),
     absoluteExpiresAt: datetime('absolute_expires_at', { fsp: 3 }).notNull(),
