@@ -33,6 +33,8 @@ export const authIdentities = mysqlTable(
     providers: json('providers').notNull().default([]).$type<Identities.ProviderLink[]>(),
     version: int('version').notNull().default(1),
     emailVerified: boolean('email_verified').notNull().default(false),
+    createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
     updatedAt: datetime('updated_at', { fsp: 3 })
       .notNull()
@@ -59,6 +61,7 @@ export const authCredentials = mysqlTable(
     secret: varchar('secret', { length: 512 }).notNull(),
     metadata: json('metadata').$type<Record<string, unknown> | null>(),
     version: int('version').notNull().default(1),
+    createdBy: varchar('created_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
     lastUsedAt: datetime('last_used_at', { fsp: 3 }),
     expiresAt: datetime('expires_at', { fsp: 3 }),
@@ -99,6 +102,7 @@ export const authSessions = mysqlTable(
     ip: varchar('ip', { length: 45 }),
     userAgent: text('user_agent'),
     fingerprint: varchar('fingerprint', { length: 128 }),
+    createdBy: varchar('created_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
     rotatedAt: datetime('rotated_at', { fsp: 3 }).notNull(),
     expiresAt: datetime('expires_at', { fsp: 3 }).notNull(),
@@ -143,6 +147,7 @@ export const authEvents = mysqlTable(
     userAgent: text('user_agent'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: json('metadata').$type<Record<string, unknown> | null>(),
+    createdBy: varchar('created_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
   },
   (t) => [

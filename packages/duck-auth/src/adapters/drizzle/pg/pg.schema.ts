@@ -25,6 +25,8 @@ export const authIdentities = pgTable(
     providers: jsonb('providers').notNull().default([]).$type<Identities.ProviderLink[]>(),
     version: integer('version').notNull().default(1),
     emailVerified: boolean('email_verified').notNull().default(false),
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
@@ -53,6 +55,7 @@ export const authCredentials = pgTable(
     secret: text('secret').notNull(),
     metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
     version: integer('version').notNull().default(1),
+    createdBy: text('created_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
@@ -94,6 +97,7 @@ export const authSessions = pgTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     fingerprint: text('fingerprint'),
+    createdBy: text('created_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     rotatedAt: timestamp('rotated_at', { withTimezone: true }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -140,6 +144,7 @@ export const authEvents = pgTable(
     userAgent: text('user_agent'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
+    createdBy: text('created_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

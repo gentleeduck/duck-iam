@@ -19,6 +19,8 @@ export const authIdentities = sqliteTable(
     providers: text('providers', { mode: 'json' }).notNull().default('[]').$type<Identities.ProviderLink[]>(),
     version: integer('version').notNull().default(1),
     emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+    createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
@@ -58,6 +60,7 @@ export const authCredentials = sqliteTable(
     secret: text('secret').notNull(),
     metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown> | null>(),
     version: integer('version').notNull().default(1),
+    createdBy: text('created_by'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
     lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
@@ -101,6 +104,7 @@ export const authSessions = sqliteTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     fingerprint: text('fingerprint'),
+    createdBy: text('created_by'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
     rotatedAt: integer('rotated_at', { mode: 'timestamp_ms' }).notNull(),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
@@ -145,6 +149,7 @@ export const authEvents = sqliteTable(
     userAgent: text('user_agent'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown> | null>(),
+    createdBy: text('created_by'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
   },
   (t) => [
