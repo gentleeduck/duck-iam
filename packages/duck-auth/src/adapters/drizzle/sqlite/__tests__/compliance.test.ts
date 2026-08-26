@@ -32,11 +32,13 @@ CREATE TABLE auth_identities (
 CREATE TABLE auth_credentials (
   id TEXT PRIMARY KEY, identity_id TEXT NOT NULL, tenant_id TEXT, kind TEXT NOT NULL,
   secret TEXT NOT NULL, metadata TEXT, version INTEGER NOT NULL DEFAULT 1, created_by TEXT,
-  created_at INTEGER NOT NULL, last_used_at INTEGER, expires_at INTEGER, revoked_at INTEGER);
+  updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER,
+  last_used_at INTEGER, expires_at INTEGER, revoked_at INTEGER);
 CREATE TABLE auth_sessions (
   id TEXT PRIMARY KEY, identity_id TEXT, tenant_id TEXT, kind TEXT NOT NULL, aal INTEGER NOT NULL,
   factors TEXT NOT NULL DEFAULT '[]', csrf_hash TEXT, ip TEXT, user_agent TEXT, fingerprint TEXT,
-  created_by TEXT, created_at INTEGER NOT NULL, rotated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  deleted_at INTEGER, rotated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
   absolute_expires_at INTEGER NOT NULL, fresh INTEGER NOT NULL, acting_as TEXT);
 `
 

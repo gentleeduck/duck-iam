@@ -162,13 +162,16 @@ export function createDrizzleSqliteBridge<
         const rows = await db
           .select()
           .from(authCredentials)
-          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+          .where(
+            and(eq(authCredentials.id, id), isNull(authCredentials.deletedAt), tenantWhere(authCredentials, tenantId)),
+          )
           .limit(1)
         return rows[0] ?? null
       },
       listByIdentity: async (identityId, kind, tenantId) => {
         const where = [
           eq(authCredentials.identityId, identityId),
+          isNull(authCredentials.deletedAt),
           ...(kind ? [eq(authCredentials.kind, kind)] : []),
           ...(tenantId ? [eq(authCredentials.tenantId, tenantId)] : []),
         ]
@@ -185,6 +188,7 @@ export function createDrizzleSqliteBridge<
             and(
               sql`json_extract(${authCredentials.metadata}, '$.provider') = ${provider}`,
               sql`json_extract(${authCredentials.metadata}, '$.sub') = ${sub}`,
+              isNull(authCredentials.deletedAt),
             ),
           )
           .limit(1)
@@ -199,6 +203,7 @@ export function createDrizzleSqliteBridge<
             and(
               eq(authCredentials.secret, secretHash),
               eq(authCredentials.kind, kind),
+              isNull(authCredentials.deletedAt),
               tenantWhere(authCredentials, tenantId),
             ),
           )
@@ -248,7 +253,11 @@ export function createDrizzleSqliteBridge<
         await db.insert(authSessions).values(row)
       },
       findByHash: async (sidHash) => {
-        const rows = await db.select().from(authSessions).where(eq(authSessions.id, sidHash)).limit(1)
+        const rows = await db
+          .select()
+          .from(authSessions)
+          .where(and(eq(authSessions.id, sidHash), isNull(authSessions.deletedAt)))
+          .limit(1)
         return rows[0] ?? null
       },
       update: async (id, patch) => {
@@ -259,7 +268,10 @@ export function createDrizzleSqliteBridge<
         await db.delete(authSessions).where(eq(authSessions.id, id))
       },
       listByIdentity: async (identityId) => {
-        return db.select().from(authSessions).where(eq(authSessions.identityId, identityId))
+        return db
+          .select()
+          .from(authSessions)
+          .where(and(eq(authSessions.identityId, identityId), isNull(authSessions.deletedAt)))
       },
       deleteAllForIdentity: async (identityId) => {
         await db.delete(authSessions).where(eq(authSessions.identityId, identityId))

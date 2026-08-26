@@ -62,7 +62,13 @@ export const authCredentials = mysqlTable(
     metadata: json('metadata').$type<Record<string, unknown> | null>(),
     version: int('version').notNull().default(1),
     createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+    deletedAt: datetime('deleted_at', { fsp: 3 }),
     lastUsedAt: datetime('last_used_at', { fsp: 3 }),
     expiresAt: datetime('expires_at', { fsp: 3 }),
     revokedAt: datetime('revoked_at', { fsp: 3 }),
@@ -103,7 +109,13 @@ export const authSessions = mysqlTable(
     userAgent: text('user_agent'),
     fingerprint: varchar('fingerprint', { length: 128 }),
     createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+    deletedAt: datetime('deleted_at', { fsp: 3 }),
     rotatedAt: datetime('rotated_at', { fsp: 3 }).notNull(),
     expiresAt: datetime('expires_at', { fsp: 3 }).notNull(),
     absoluteExpiresAt: datetime('absolute_expires_at', { fsp: 3 }).notNull(),
@@ -147,7 +159,6 @@ export const authEvents = mysqlTable(
     userAgent: text('user_agent'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: json('metadata').$type<Record<string, unknown> | null>(),
-    createdBy: varchar('created_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
   },
   (t) => [

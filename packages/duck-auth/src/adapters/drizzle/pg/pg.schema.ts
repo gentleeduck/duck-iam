@@ -56,7 +56,13 @@ export const authCredentials = pgTable(
     metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
     version: integer('version').notNull().default(1),
     createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
@@ -98,7 +104,13 @@ export const authSessions = pgTable(
     userAgent: text('user_agent'),
     fingerprint: text('fingerprint'),
     createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
     rotatedAt: timestamp('rotated_at', { withTimezone: true }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     absoluteExpiresAt: timestamp('absolute_expires_at', { withTimezone: true }).notNull(),
@@ -144,7 +156,6 @@ export const authEvents = pgTable(
     userAgent: text('user_agent'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
-    createdBy: text('created_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

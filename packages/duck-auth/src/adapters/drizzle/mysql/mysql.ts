@@ -192,13 +192,16 @@ export function createDrizzleMysqlBridge<
         const rows = await db
           .select()
           .from(authCredentials)
-          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+          .where(
+            and(eq(authCredentials.id, id), isNull(authCredentials.deletedAt), tenantWhere(authCredentials, tenantId)),
+          )
           .limit(1)
         return rows[0] ?? null
       },
       listByIdentity: async (identityId, kind, tenantId) => {
         const where = [
           eq(authCredentials.identityId, identityId),
+          isNull(authCredentials.deletedAt),
           ...(kind ? [eq(authCredentials.kind, kind)] : []),
           ...(tenantId ? [eq(authCredentials.tenantId, tenantId)] : []),
         ]
@@ -215,6 +218,7 @@ export function createDrizzleMysqlBridge<
             and(
               sql`${authCredentials.metadata}->>'$.provider' = ${provider}`,
               sql`${authCredentials.metadata}->>'$.sub' = ${sub}`,
+              isNull(authCredentials.deletedAt),
             ),
           )
           .limit(1)
@@ -229,6 +233,7 @@ export function createDrizzleMysqlBridge<
             and(
               eq(authCredentials.secret, secretHash),
               eq(authCredentials.kind, kind),
+              isNull(authCredentials.deletedAt),
               tenantWhere(authCredentials, tenantId),
             ),
           )
@@ -278,7 +283,11 @@ export function createDrizzleMysqlBridge<
         await db.insert(authSessions).values(row)
       },
       findByHash: async (sidHash) => {
-        const rows = await db.select().from(authSessions).where(eq(authSessions.id, sidHash)).limit(1)
+        const rows = await db
+          .select()
+          .from(authSessions)
+          .where(and(eq(authSessions.id, sidHash), isNull(authSessions.deletedAt)))
+          .limit(1)
         return reviveSessionRow(rows[0] ?? null)
       },
       update: async (id, patch) => {
@@ -290,7 +299,10 @@ export function createDrizzleMysqlBridge<
         await db.delete(authSessions).where(eq(authSessions.id, id))
       },
       listByIdentity: async (identityId) => {
-        const rows = await db.select().from(authSessions).where(eq(authSessions.identityId, identityId))
+        const rows = await db
+          .select()
+          .from(authSessions)
+          .where(and(eq(authSessions.identityId, identityId), isNull(authSessions.deletedAt)))
         return rows.map(reviveSessionRowRequired)
       },
       deleteAllForIdentity: async (identityId) => {
