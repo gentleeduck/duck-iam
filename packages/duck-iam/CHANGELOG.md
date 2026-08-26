@@ -1,5 +1,113 @@
 # @gentleduck/iam
 
+## 5.4.1
+
+### Patch Changes
+
+- 959a8a4: Restructure the drizzle adapter's schema exports into per-dialect folders, matching
+  `@gentleduck/auth`'s layout.
+
+  `@gentleduck/iam/adapters/drizzle/schema/{pg,mysql,sqlite}` is now
+  `@gentleduck/iam/adapters/drizzle/{pg,mysql,sqlite}`. Each folder also exports a
+  `{Pg,Mysql,Sqlite}` types namespace (`PolicyRow`, `RoleRow`, `AssignmentRow`, `AttrRow`)
+  inferred from that dialect's schema, so a consumer pinned to one dialect no longer needs
+  to import the adapter's cross-dialect union types to get a concrete row shape.
+
+  Update imports from `@gentleduck/iam/adapters/drizzle/schema/pg` (etc.) to
+  `@gentleduck/iam/adapters/drizzle/pg` (etc.).
+
+## 5.4.0
+
+### Minor Changes
+
+- 39aaa82: Export the factories, and finish the barrels.
+
+  The previous release gave every publicly constructed class a factory function, but
+  several were never exported, so `new` remained the only reachable spelling for
+  `AnomalyFacet`, `HijackFacet`, `WebhookDeliverer`, `MemoryPasskeyChallengeStore`,
+  `AuthMemoryDeviceFingerprintStore`, `DPoPVerifier`, the data-at-rest providers, the
+  password hashers, and the api-key / magic-link / passkey / saml / passwords impls.
+
+  The channels barrel exported one type and nothing else, so every channel had to be
+  imported by deep path. All six ship from `@gentleduck/auth/channels` now. The anomaly
+  barrel likewise omitted both detectors and the fingerprint store, which meant the
+  detectors could not be registered without reaching past it.
+
+  On the IAM side, `iamEngine` and `iamLRUCache` are exported alongside their classes.
+
+  BREAKING: three aliases in the `@gentleduck/auth` root now name the factory rather than
+  the class, so `new` on them stops compiling.
+
+  - `AuthBackupCodesFacet` is now `backupCodesFacet`; the class is `BackupCodesFacet`.
+  - `AuthInMemoryEvents` is now `inMemoryEvents`; the class is `InMemoryEvents`.
+
+  Both classes are exported under their own names, so `new BackupCodesFacet(...)` and
+  `new InMemoryEvents()` are the mechanical fix.
+
+- 196f52d: Reject a policy whose target names a pair no allow rule covers, instead of warning.
+
+  `UNREACHABLE_TARGET` was a warning, so `PolicyBuilder.build()` accepted the policy and
+  the only symptom was a denial at request time. A denial reads as the permission system
+  working, which is why this cost five separate incidents to recognise: widening a target
+  is one line and widening the rules is another, nothing couples them, and the drift is
+  silent.
+
+  It is now an error, so `build()` throws where the policy is written.
+
+  Two supporting fixes:
+
+  - The check treated a dimension the target omits as a literal `*`, which demanded that
+    every rule be a wildcard. A target naming only `impersonate` was reported unreachable
+    because its allow rule named `.of('users')`. An omitted dimension is one the target
+    does not constrain, so only the dimensions it names are checked.
+  - `PolicyBuilder.build()` dropped the validator's message and reported only the code and
+    path, so every build failure was cryptic. It now includes the message and the policy id.
+
+  Also re-enables the two drizzle adapter suites, commented out wholesale in f3f57cb8
+  "pending rename follow-up" that never landed. `IamDrizzle.IConfig` had gained
+  `<TDb, TType>` in that rename and the suites still referenced it bare. 62 tests back,
+  and they are not decorative: removing the JSONB shape guard, silencing `onPolicyError`,
+  and dropping the WHERE from the single-row lookup are each caught.
+
+  BREAKING: a policy with an unreachable target now throws at build time rather than
+  loading with a silent denial.
+
+### Patch Changes
+
+- Make the not-blank check constraints reject whitespace.
+
+  `length(trim(x)) > 0` only strips ordinary spaces, so a name, subject id, scope or
+  credential secret consisting of a tab, a newline or a form feed passed the check that
+  exists to refuse exactly that. Seven constraints were affected:
+  `auth_credentials.secret`, `iam_assignments.subject_id` and `.scope`, `iam_policies.name`,
+  `iam_roles.name` and `.scope`, `iam_subject_attrs.subject_id`.
+
+  Each dialect gets the strongest form it has. Postgres and MySQL match a non-whitespace
+  character (`~ '[^[:space:]]'` and `REGEXP '[^[:space:]]'`); SQLite has no regexp operator
+  built in, so it trims the whitespace set explicitly and compares against the empty string.
+  All three were verified against a real server for a tab, a newline, a carriage return, a
+  vertical tab, a form feed and a plain space.
+
+  Existing databases need a migration: drop each constraint and add it back in the new form.
+  Any row already holding a whitespace-only value has to be repaired first, or the
+  `ALTER TABLE` is refused.
+
+- Close scoped role assignments over `inherits`, the way direct assignments already were.
+
+  `resolveSubject` ran `resolveEffectiveRoles` over the roles returned by `getSubjectRoles`
+  and passed `getSubjectScopedRoles` through untouched. A deployment that scopes every
+  assignment therefore had an empty `subject.roles` and a flat scoped set, so a condition
+  reading `subject.roles` saw the assigned role and none of the roles it inherits.
+
+  The effect was silent and direction-dependent: RBAC permission resolution walks `inherits`
+  separately, so a superadmin still had every permission its parents grant, while
+  `w.role(...)`, `w.roles(...)` and `w.contains('subject.roles', ...)` behaved as if the
+  hierarchy did not exist. The same policy then decided differently depending on whether the
+  assignment carried a scope, which is not something the API hints at.
+
+  Scoped roles now expand through the same closure, each inherited role keeping the scope of
+  the assignment it came from.
+
 ## 5.3.0
 
 ### Minor Changes
