@@ -1,5 +1,12 @@
 # @gentleduck/duck-auth-demo
 
+## 0.0.12
+
+### Patch Changes
+
+- Updated dependencies [95a4eb2]
+  - @gentleduck/auth@5.3.2
+
 ## 0.0.11
 
 ### Patch Changes
