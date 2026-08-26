@@ -1,5 +1,12 @@
 # @gentleduck/iam
 
+## 5.4.2
+
+### Patch Changes
+
+- 4d956c8: No functional change. Version bump to resync with the registry after 5.4.1 was
+  published without its git history being committed.
+
 ## 5.4.1
 
 ### Patch Changes
