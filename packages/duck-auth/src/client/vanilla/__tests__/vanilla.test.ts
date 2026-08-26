@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAuthClient } from '../index'
 
 function mockFetch(handler: (path: string, init: RequestInit) => { status: number; body: unknown }) {
@@ -129,6 +129,63 @@ describe('createAuthClient', () => {
       unsubscribe()
       await client.refresh()
       expect(handler).not.toHaveBeenCalled()
+    })
+  })
+  describe('csrf', () => {
+    // The suite runs in node, where there is no document to read a cookie from.
+    afterEach(() => vi.unstubAllGlobals())
+
+    function withCookie(cookie: string) {
+      vi.stubGlobal('document', { cookie })
+    }
+
+    it('echoes the csrf cookie on unsafe methods', async () => {
+      withCookie('other=1; __Host-duck-csrf=tok123; more=2')
+      const fetchImpl = mockFetch(() => ({ status: 200, body: { ok: true, code: 'AUTH_SIGNOUT_OK', data: {} } }))
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+
+      await client.signOut()
+
+      const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>
+      expect(headers['x-csrf-token']).toBe('tok123')
+    })
+
+    it('sends no token on safe methods', async () => {
+      withCookie('__Host-duck-csrf=tok123')
+      const fetchImpl = mockFetch(() => ({ status: 200, body: { session: null, identity: null } }))
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+
+      await client.getSession()
+
+      const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>
+      expect(headers['x-csrf-token']).toBeUndefined()
+    })
+
+    it('omits the header when the cookie is absent', async () => {
+      withCookie('unrelated=1')
+      const fetchImpl = mockFetch(() => ({ status: 200, body: { ok: true, code: 'AUTH_SIGNOUT_OK', data: {} } }))
+      const client = createAuthClient({ baseUrl: '/auth', fetch: fetchImpl as never })
+
+      await client.signOut()
+
+      const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>
+      expect(headers['x-csrf-token']).toBeUndefined()
+    })
+
+    it('honours configured cookie and header names', async () => {
+      withCookie('csrf=abc')
+      const fetchImpl = mockFetch(() => ({ status: 200, body: { ok: true, code: 'AUTH_SIGNOUT_OK', data: {} } }))
+      const client = createAuthClient({
+        baseUrl: '/auth',
+        csrfCookieName: 'csrf',
+        csrfHeaderName: 'x-token',
+        fetch: fetchImpl as never,
+      })
+
+      await client.signOut()
+
+      const headers = fetchImpl.mock.calls[0]?.[1]?.headers as Record<string, string>
+      expect(headers['x-token']).toBe('abc')
     })
   })
 })

@@ -1,5 +1,5 @@
 /**
- * Vanilla client — the framework-free auth client. `authCreateClient` builds a
+ * Vanilla client: the framework-free auth client. `authCreateClient` builds a
  * fetch-based client with a session pub/sub store; every method resolves to the
  * `Envelope` envelope. Types live in `./types`.
  */
@@ -9,6 +9,9 @@ import type { Identities } from '~/core/identities'
 import type { VanillaClient } from './types'
 
 export type { VanillaClient } from './types'
+
+/** Mirrors SAFE_METHODS in core/csrf. */
+const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS', 'TRACE'])
 
 export function createAuthClient<Profile extends Identities.ProfileMetadataBase>(
   cfg: VanillaClient.Cfg = {},
@@ -33,6 +36,18 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
     }
   }
 
+  /** Without this every cookie-authenticated write fails `verifyCsrf`, signout included. */
+  function csrfHeader(method: string): Record<string, string> {
+    if (CSRF_SAFE_METHODS.has(method.toUpperCase())) return {}
+    if (typeof document === 'undefined') return {}
+
+    const name = cfg.csrfCookieName ?? '__Host-duck-csrf'
+    const match = document.cookie.split('; ').find((entry) => entry.startsWith(`${name}=`))
+    if (!match) return {}
+
+    return { [cfg.csrfHeaderName ?? 'x-csrf-token']: decodeURIComponent(match.slice(name.length + 1)) }
+  }
+
   /**
    * Perform a request and always resolve to an {@link Envelope}. The server
    * is expected to speak the envelope; if it doesn't (or the network fails) we
@@ -43,7 +58,7 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
     try {
       res = await fetchImpl(`${baseUrl}${path}`, {
         method,
-        headers,
+        headers: { ...headers, ...csrfHeader(method) },
         credentials: 'include',
         ...(body !== undefined && { body: JSON.stringify(body) }),
       })

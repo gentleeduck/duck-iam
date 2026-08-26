@@ -1,4 +1,4 @@
-/** Vanilla client types — config + the public `VanillaClient` namespace. */
+/** Vanilla client types: config plus the public `VanillaClient` namespace. */
 
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities/identities.types'
@@ -15,6 +15,10 @@ export namespace VanillaClient {
     notifyImmediately?: boolean
     /** Optional headers to merge into every request (e.g. tenant header). */
     headers?: Record<string, string>
+    /** Cookie carrying the plaintext CSRF token. Default `__Host-duck-csrf`. */
+    csrfCookieName?: string
+    /** Header the token is echoed on. Default `x-csrf-token`. */
+    csrfHeaderName?: string
   }
 
   export type SignInOptions = {
@@ -41,7 +45,7 @@ export namespace VanillaClient {
     /**
      * POST /AUTH/signup. Registration is app-shaped (the profile fields are
      * yours), so `input` is opaque and the response `data` is echoed back. Does
-     * not create a session — follow with `signIn` if desired.
+     * not create a session, follow with `signIn` if desired.
      */
     signUp(input: unknown, opts?: VanillaClient.SignUpOptions): Promise<Envelope<unknown, string>>
     /** POST /AUTH/signout */

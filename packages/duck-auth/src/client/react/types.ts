@@ -2,9 +2,27 @@
 import type { ReactNode } from 'react'
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
+import type { Sessions } from '~/core/sessions'
 import type { VanillaClient } from '../vanilla'
 
 export namespace ReactClient {
+  /**
+   * The vanilla types a React consumer actually needs, surfaced here.
+   *
+   * Without these an app using only the React entry still has to import from
+   * `client/vanilla` to name the session it just received from `useSession`,
+   * which makes the vanilla client part of its public API for no reason.
+   */
+  export type Profile = Identities.ProfileMetadataBase
+  export type Identity<P extends Profile = Profile> = Identities.Me<P>
+  export type Session = Sessions.Me
+  export type SessionResult<P extends Profile = Profile> = VanillaClient.SessionResult<P>
+  export type SignInOptions = VanillaClient.SignInOptions
+  export type SignUpOptions = VanillaClient.SignUpOptions
+  export type Cfg = VanillaClient.Cfg
+  export type Client<P extends Profile = Profile> = VanillaClient.Client<P>
+  export type Result<T> = Envelope<T, string>
+
   export type ContextValue<Profile extends Identities.ProfileMetadataBase> = {
     client: VanillaClient.Client<Profile>
     state: VanillaClient.SessionResult<Profile>
@@ -12,10 +30,10 @@ export namespace ReactClient {
     refresh(): Promise<Envelope<VanillaClient.SessionResult<Profile>, string>>
   }
 
-  export interface IProviderProps extends VanillaClient.Cfg {
+  export interface IProviderProps<P extends Profile = Profile> extends VanillaClient.Cfg {
     children?: ReactNode
     /** Optional pre-built client; overrides cfg. */
-    client?: VanillaClient.Client<any>
+    client?: VanillaClient.Client<P>
     /** Disable the initial automatic /session fetch on mount. */
     noInitialFetch?: boolean
   }
