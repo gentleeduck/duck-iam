@@ -20,13 +20,13 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { drizzlePgStorage } from '~/adapters/drizzle/pg'
 import { MemoryAdapter } from '~/adapters/memory'
+import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { AuthEngine } from '~/core/engine'
 import { RedisIdempotency } from '~/core/idempotency/idempotency.redis'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { RedisLimiter } from '~/limiters/redis'
 import { createOidcOP, type OidcOpRoot } from '~/oidc/op'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
-import { toRedisLike } from '~/test/e2e-redis'
 
 const PG_URL = databaseUrl()
 const REDIS_URL = redisUrl()
@@ -216,7 +216,12 @@ suite('E2E hostile values on real Postgres + Redis', () => {
 
   describe('numbers the limiter is handed', () => {
     const limiter = () =>
-      new RedisLimiter({ max: 5, prefix: `${prefix}:w-${e2ePrefix()}`, redis: toRedisLike(raw), windowMs: 60_000 })
+      new RedisLimiter({
+        max: 5,
+        prefix: `${prefix}:w-${e2ePrefix()}`,
+        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        windowMs: 60_000,
+      })
 
     it('treats a negative weight as one rather than refunding budget', async () => {
       // A refund would let a caller mine budget by consuming minus five repeatedly.
@@ -246,7 +251,7 @@ suite('E2E hostile values on real Postgres + Redis', () => {
       // call with real Redis exceeded a five second test timeout. Counted here at
       // a small scale so the finding is deterministic rather than slow.
       let incrs = 0
-      const counting = toRedisLike(raw)
+      const counting = valkeyAdapter(raw as unknown as ValkeyClient.Me)
       const wrapped = {
         ...counting,
         incr: async (k: string) => {
@@ -276,7 +281,11 @@ suite('E2E hostile values on real Postgres + Redis', () => {
   })
 
   describe('numbers the idempotency store is handed', () => {
-    const store = () => new RedisIdempotency({ prefix: `${prefix}:i-${e2ePrefix()}`, redis: toRedisLike(raw) })
+    const store = () =>
+      new RedisIdempotency({
+        prefix: `${prefix}:i-${e2ePrefix()}`,
+        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+      })
 
     it('a negative ttl falls back to a sane window rather than an immortal key', async () => {
       // The counterpart bug in the session store left keys with a NaN TTL, which

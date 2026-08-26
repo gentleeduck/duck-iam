@@ -5,24 +5,9 @@ import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
 import type { IamConfig } from '../../core/config'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
-import type {
-  iamAssignments as AssignmentMysql,
-  iamSubjectAttrs as AttrMysql,
-  iamPolicies as PolicyMysql,
-  iamRoles as RoleMysql,
-} from './schema/mysql'
-import type {
-  iamAssignments as AssignmentPg,
-  iamSubjectAttrs as AttrPg,
-  iamPolicies as PolicyPg,
-  iamRoles as RolePg,
-} from './schema/pg'
-import type {
-  iamAssignments as AssignmentSqlite,
-  iamSubjectAttrs as AttrSqlite,
-  iamPolicies as PolicySqlite,
-  iamRoles as RoleSqlite,
-} from './schema/sqlite'
+import type { Mysql } from './mysql/mysql.types'
+import type { Pg } from './pg/pg.types'
+import type { Sqlite } from './sqlite/sqlite.types'
 
 /** IamDrizzle adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamDrizzle {
@@ -66,26 +51,20 @@ export namespace IamDrizzle {
   }
 
   /** Row shapes returned by IamDrizzle queries. */
-  export type PolicyRow =
-    | typeof PolicyPg.$inferSelect
-    | typeof PolicyMysql.$inferSelect
-    | typeof PolicySqlite.$inferSelect
+  export type PolicyRow = Pg.PolicyRow | Mysql.PolicyRow | Sqlite.PolicyRow
   /** Database row shape for the roles table. */
-  export type RoleRow = typeof RolePg.$inferSelect | typeof RoleMysql.$inferSelect | typeof RoleSqlite.$inferSelect
+  export type RoleRow = Pg.RoleRow | Mysql.RoleRow | Sqlite.RoleRow
 
   /** Database row shape for the role-to-subject assignments table. */
-  export type AssignmentRow =
-    | typeof AssignmentPg.$inferSelect
-    | typeof AssignmentMysql.$inferSelect
-    | typeof AssignmentSqlite.$inferSelect
+  export type AssignmentRow = Pg.AssignmentRow | Mysql.AssignmentRow | Sqlite.AssignmentRow
 
   /** Database row shape for the subject attributes table. */
-  export type AttrRow = typeof AttrPg.$inferSelect | typeof AttrMysql.$inferSelect | typeof AttrSqlite.$inferSelect
+  export type AttrRow = Pg.AttrRow | Mysql.AttrRow | Sqlite.AttrRow
 
   export type DrizzleTable = PgTableWithColumns<any> | MySqlTableWithColumns<any> | SQLiteTableWithColumns<any>
 
   /**
-   * Structural db interface — all supported Drizzle instances satisfy this.
+   * Structural db interface: all supported Drizzle instances satisfy this.
    * Using a structural interface (not a union) lets TypeScript call
    * `db.select()` on a generic `TDb extends AnyDrizzleDb` without the
    * "each member of the union has incompatible signatures" error.

@@ -17,37 +17,16 @@ import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
- * PostgreSQL schema for the duck-iam IamDrizzle adapter.
+ * PostgreSQL schema for the duck-iam IamDrizzle adapter. Run `drizzle-kit generate`
+ * against this file to emit migrations.
  *
- * Run `drizzle-kit generate` against this file to emit migrations.
- *
- * ### JSON storage
- * With the adapter's default `json: 'native'` mode, `rules`, `targets`,
- * `permissions`, `inherits`, `metadata`, and `data` hold real `jsonb` - so the
- * GIN indexes below work and payloads stay queryable. Columns are typed with
- * `$type<>()` for end-to-end safety. (Run the adapter in `json: 'string'` mode
- * only for text-column backends like SQLite.)
- *
- * ### Soft delete
- * No `deletedAt` columns: the adapter's `listRoles`/`listPolicies` do not
- * filter on deletion, so a soft-deleted role would keep granting access. Use
- * hard deletes (`deleteRole`/`deletePolicy`) to revoke.
- *
- * ### Audit
- * `created_by` / `updated_by` capture the actor behind a change. The adapter
- * has no actor context, so it leaves them NULL; set them from triggers or
- * direct admin writes.
- *
- * ### Constraint naming
- * pk_ primary key, fk_ foreign key, uq_ unique, idx_ index, ch_ check.
- * All declared in the table's (t) => [...] block.
+ * No `deletedAt` columns: `listRoles`/`listPolicies` don't filter on deletion, so a
+ * soft-deleted role would keep granting access. `created_by`/`updated_by` are left
+ * NULL by the adapter (no actor context); set them from triggers or admin writes.
+ * Constraint naming: pk_ fk_ uq_ idx_ ch_.
  */
 
-/**
- * Postgres enum mirroring {@link AccessControl.CombiningAlgorithm}. The
- * `satisfies` clause turns any drift between this list and the engine union
- * into a compile error.
- */
+/** Mirrors {@link AccessControl.CombiningAlgorithm}; `satisfies` catches drift at compile time. */
 export const combineAlgorithm = pgEnum('access_combine_algorithm', [
   'deny-overrides',
   'allow-overrides',
@@ -55,10 +34,7 @@ export const combineAlgorithm = pgEnum('access_combine_algorithm', [
   'highest-priority',
 ] as const satisfies readonly AccessControl.CombiningAlgorithm[])
 
-/**
- * Stored ABAC policies. `rules` and `targets` carry the policy payload as
- * `jsonb`; `algorithm` is constrained to the engine's combining algorithms.
- */
+/** Stored ABAC policies. `rules`/`targets` are `jsonb`. */
 export const iamPolicies = pgTable(
   'iam_policies',
   {
@@ -82,15 +58,12 @@ export const iamPolicies = pgTable(
     unique('uq_iam_policies_name').on(t.name),
     // Containment search over rules, e.g. `rules @> '[{"actions":["read"]}]'`.
     index('idx_iam_policies_rules_gin').using('gin', t.rules),
-    check('ch_iam_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_iam_policies_name_not_blank', sql`${t.name} ~ '[^[:space:]]'`),
     check('ch_iam_policies_version_positive', sql`${t.version} >= 1`),
   ],
 )
 
-/**
- * Stored RBAC roles. `permissions` and `metadata` are `jsonb`; `inherits` is a
- * `jsonb` array of parent role IDs.
- */
+/** Stored RBAC roles. `permissions`/`metadata`/`inherits` are `jsonb`. */
 export const iamRoles = pgTable(
   'iam_roles',
   {
@@ -111,24 +84,16 @@ export const iamRoles = pgTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    // Role name is unique per scope; NULL (global) scopes collapse so two
-    // global roles cannot share a name.
     unique('uq_iam_roles_name_scope').on(t.name, t.scope).nullsNotDistinct(),
-    // Scoped roles only - global roles (NULL scope) are excluded to keep it small.
     index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
     // Containment search over permissions, e.g. `permissions @> '[{"resource":"post"}]'`.
     index('idx_iam_roles_permissions_gin').using('gin', t.permissions),
-    check('ch_iam_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
-    check('ch_iam_roles_scope_not_blank', sql`${t.scope} IS NULL OR length(trim(${t.scope})) > 0`),
+    check('ch_iam_roles_name_not_blank', sql`${t.name} ~ '[^[:space:]]'`),
+    check('ch_iam_roles_scope_not_blank', sql`${t.scope} IS NULL OR ${t.scope} ~ '[^[:space:]]'`),
   ],
 )
 
-/**
- * Subject-to-role assignments. A `NULL` scope is a global (unscoped)
- * assignment; a non-null scope binds the role to that tenant/scope. Unique on
- * `(subject_id, role_id, scope)` with NULL scopes collapsed, so `assignRole`'s
- * `onConflictDoNothing` is idempotent for global grants too.
- */
+/** Subject-to-role assignments. NULL `scope` is a global (unscoped) grant. */
 export const iamAssignments = pgTable(
   'iam_assignments',
   {
@@ -151,17 +116,13 @@ export const iamAssignments = pgTable(
     unique('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, t.scope).nullsNotDistinct(),
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
-    // Scoped assignments only - speeds tenant-scoped lookups.
     index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
-    check('ch_iam_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
-    check('ch_iam_assignments_scope_not_blank', sql`${t.scope} IS NULL OR length(trim(${t.scope})) > 0`),
+    check('ch_iam_assignments_subject_not_blank', sql`${t.subjectId} ~ '[^[:space:]]'`),
+    check('ch_iam_assignments_scope_not_blank', sql`${t.scope} IS NULL OR ${t.scope} ~ '[^[:space:]]'`),
   ],
 )
 
-/**
- * Per-subject attribute bags, one row per subject. `data` holds the
- * attribute map (`jsonb`) consumed by the ABAC condition engine.
- */
+/** Per-subject attribute bags, one row per subject. `data` is `jsonb`. */
 export const iamSubjectAttrs = pgTable(
   'iam_subject_attrs',
   {
@@ -176,6 +137,6 @@ export const iamSubjectAttrs = pgTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
-    check('ch_iam_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    check('ch_iam_subject_attrs_subject_not_blank', sql`${t.subjectId} ~ '[^[:space:]]'`),
   ],
 )

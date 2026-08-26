@@ -18,6 +18,7 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { verifyCsrf } from '~/core/csrf'
 import { AuthEngine } from '~/core/engine'
 import { redisIdempotency } from '~/core/idempotency'
@@ -27,7 +28,6 @@ import { RedisLimiter } from '~/limiters/redis'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { makeGuard } from '~/server/nestjs'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
-import { toRedisLike } from '~/test/e2e-redis'
 
 const PG_URL = databaseUrl()
 const REDIS_URL = redisUrl()
@@ -82,8 +82,13 @@ suite('E2E AuthEngine on real Postgres + Redis', () => {
     stores = drizzlePgStorage<Profile>(PG_URL as string)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
-      idempotency: redisIdempotency({ prefix, redis: toRedisLike(raw) }),
-      limiter: new RedisLimiter({ max: 50, prefix, redis: toRedisLike(raw), windowMs: 60_000 }),
+      idempotency: redisIdempotency({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) }),
+      limiter: new RedisLimiter({
+        max: 50,
+        prefix,
+        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        windowMs: 60_000,
+      }),
       providers: [],
       stores: {
         credentials: stores.credentials,

@@ -1,15 +1,9 @@
 /**
- * Drizzle (SQLite) implementation of the {@link SqlBridge} contract.
- *
- * Two entry points:
- * - {@link createDrizzleSqliteBridge} — wrap an existing Drizzle sqlite db.
- * - {@link drizzleSqliteStorage} — fold a file path / better-sqlite3 client / db into ready-to-use stores.
- *
- * Driver-agnostic: works with better-sqlite3, libsql/Turso, or bun:sqlite.
- * SQLite has no jsonb containment operator, so provider-link lookups use
- * `json_each` and link edits are done read-modify-write at the bridge boundary.
- * Queries are tenant-scoped when a `tenantId` is passed; `undefined` skips the
- * filter and `NULL`-tenant rows are treated as global (reachable from any tenant).
+ * Drizzle (SQLite) implementation of the {@link SqlBridge} contract. Driver-agnostic:
+ * works with better-sqlite3, libsql/Turso, or bun:sqlite. SQLite has no jsonb
+ * containment operator, so provider-link lookups use `json_each` and link edits are
+ * read-modify-write at the bridge boundary. Queries are tenant-scoped when `tenantId`
+ * is passed; `undefined` skips the filter.
  */
 
 import { createRequire } from 'node:module'
@@ -21,20 +15,7 @@ import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './sqlite.schema'
 import type { Sqlite } from './sqlite.types'
 
-/**
- * Build the low-level {@link SqlBridge.Me} over a Drizzle sqlite database.
- *
- * Prefer {@link drizzleSqliteStorage}, which wires this into full stores; reach
- * for this directly only when you already hold a configured sqlite db.
- *
- * @template TSchema - Drizzle schema attached to the db instance.
- * @param db - The Drizzle sqlite database instance.
- * @returns The identity / credential / session bridge for gentleduck/auth.
- */
-/**
- * Generic over the profile so a caller with its own profile shape does not have to
- * cast the result.
- */
+/** Generic over the profile so callers with their own profile shape don't have to cast. */
 export function createDrizzleSqliteBridge<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   const TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -71,7 +52,7 @@ export function createDrizzleSqliteBridge<
         return rows[0] ?? null
       },
       findByProviderSub: async (providerId, sub) => {
-        // No jsonb containment in SQLite; walk the providers array with json_each.
+        // No jsonb containment in SQLite, so walk the providers array with json_each.
         const rows = await db
           .select()
           .from(authIdentities)
@@ -168,9 +149,8 @@ export function createDrizzleSqliteBridge<
             .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
             .where(eq(authIdentities.id, survivorId))
         }
-        // Global-account merge: repoint ALL of the dup's tenant-scoped rows
-        // (across every tenant) before erasing it, so the FK cascade on delete
-        // cannot orphan another tenant's credentials/sessions.
+        // Repoint all of the dup's rows across every tenant before erasing it, so the
+        // FK cascade on delete cannot orphan another tenant's credentials/sessions.
         await db.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
         await db.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
         await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
@@ -211,8 +191,7 @@ export function createDrizzleSqliteBridge<
         return rows[0] ?? null
       },
       findByHashedSecret: async (secretHash, kind, tenantId) => {
-        // Prefer the freshest live row; fall back to the freshest revoked one
-        // so callers can distinguish "revoked" from "never existed".
+        // Prefer the freshest live row, fall back to freshest revoked.
         const rows = await db
           .select()
           .from(authCredentials)
@@ -292,22 +271,16 @@ export function createDrizzleSqliteBridge<
     },
   }
 
-  // One assertion, here, rather than one at every call site: drizzle types the
-  // `profile` jsonb column as the base shape, and `Profile` is the caller's
-  // refinement of it. Nothing else about the bridge varies with the profile.
+  // One assertion here instead of one at every call site: drizzle types `profile` as
+  // the base shape, and `Profile` is the caller's refinement of it.
   return bridge as SqlBridge.Me<Profile>
 }
 
 /**
  * One-call storage helper: folds `connection -> drizzle -> bridge -> stores`.
- *
- * `better-sqlite3` and `drizzle-orm` are optional peerDeps, lazily required
- * only when a file path or better-sqlite3 client is passed — supplying an
- * existing Drizzle sqlite db skips the require entirely.
- *
- * @template Profile - Identity profile shape.
- * @param input - A file path, better-sqlite3 `Database`, or Drizzle sqlite db.
- * @returns The identity / credential / session stores for gentleduck/auth.
+ * `better-sqlite3` and `drizzle-orm` are optional peerDeps, lazily required only when a
+ * file path or better-sqlite3 client is passed; an existing Drizzle sqlite db skips
+ * the require entirely.
  */
 export function drizzleSqliteStorage<Profile extends SqlBridge.ProfileMetadataBase>(
   input: string | Sqlite.SqliteClientLike | Sqlite.AnySqliteDatabase,
@@ -331,7 +304,6 @@ export function drizzleSqliteStorage<Profile extends SqlBridge.ProfileMetadataBa
     const { drizzle } = lazyRequire('drizzle-orm/better-sqlite3')
     db = drizzle(input)
   }
-  // The bridge is typed to the base profile; the caller asserts the concrete
-  // `Profile` shape here (DB check constraints guarantee the base keys exist).
+  // Asserts the concrete `Profile` shape; DB check constraints guarantee the base keys exist.
   return createSqlStores<Profile>(createDrizzleSqliteBridge(db) as unknown as SqlBridge.Me<Profile>)
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/auth",
-  "version": "5.2.0",
+  "version": "5.3.0",
   "publishConfig": {
     "access": "public"
   },
@@ -230,6 +230,16 @@
       "require": {
         "types": "./dist/limiters/redis/index.d.cts",
         "default": "./dist/limiters/redis/index.cjs"
+      }
+    },
+    "./limiters/valkey": {
+      "import": {
+        "types": "./dist/limiters/valkey/index.d.ts",
+        "default": "./dist/limiters/valkey/index.js"
+      },
+      "require": {
+        "types": "./dist/limiters/valkey/index.d.cts",
+        "default": "./dist/limiters/valkey/index.cjs"
       }
     },
     "./adapters/valkey": {

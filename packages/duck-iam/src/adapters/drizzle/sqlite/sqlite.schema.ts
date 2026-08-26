@@ -14,22 +14,13 @@ import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl } from '../../../core/types'
 
 /**
- * SQLite schema for the duck-iam IamDrizzle adapter.
- *
- * SQLite has no native JSON or array type, so every payload column is TEXT and
- * the adapter must run in `json: 'string'` mode (`new IamDrizzleAdapter({ ...,
- * json: 'string' })`). Columns are typed with `$type<string>()` to reflect the
- * stored JSON text. `algorithm` is constrained via a CHECK.
- *
- * SQLite treats NULL as distinct in unique indexes, so global rows (NULL scope)
- * are de-duplicated via a `COALESCE(scope, '')` expression unique index.
- *
- * No soft-delete columns; `created_by` / `updated_by` carry audit actors (left
- * NULL by the adapter). See the Postgres schema for fuller notes. Constraint
- * naming: `pk_` `fk_` `uq_` `idx_` `ch_`.
+ * SQLite schema for the duck-iam IamDrizzle adapter. Every payload column is TEXT, so
+ * the adapter must run in `json: 'string'` mode. Global rows (NULL scope) are
+ * de-duplicated via a `COALESCE(scope, '')` expression unique index. See the Postgres
+ * schema for fuller notes.
  */
 
-/** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
+/** Mirrors {@link AccessControl.CombiningAlgorithm}. */
 export const IAM_COMBINE_ALGORITHMS = [
   'deny-overrides',
   'allow-overrides',
@@ -66,7 +57,10 @@ export const iamPolicies = sqliteTable(
       'ch_iam_policies_algorithm_valid',
       sql`${t.algorithm} IN ('deny-overrides','allow-overrides','first-match','highest-priority')`,
     ),
-    check('ch_iam_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check(
+      'ch_iam_policies_name_not_blank',
+      sql`trim(${t.name}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
     check('ch_iam_policies_version_positive', sql`${t.version} >= 1`),
   ],
 )
@@ -92,11 +86,12 @@ export const iamRoles = sqliteTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    // COALESCE collapses NULL scopes so global roles are unique by name too.
     uniqueIndex('uq_iam_roles_name_scope').on(t.name, sql`coalesce(${t.scope}, '')`),
-    // Scoped roles only.
     index('idx_iam_roles_scope').on(t.scope).where(sql`${t.scope} IS NOT NULL`),
-    check('ch_iam_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check(
+      'ch_iam_roles_name_not_blank',
+      sql`trim(${t.name}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
   ],
 )
 
@@ -120,13 +115,14 @@ export const iamAssignments = sqliteTable(
       columns: [t.roleId],
       foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
-    // COALESCE collapses NULL scopes so duplicate global grants conflict.
     uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`coalesce(${t.scope}, '')`),
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
-    // Scoped assignments only.
     index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
-    check('ch_iam_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    check(
+      'ch_iam_assignments_subject_not_blank',
+      sql`trim(${t.subjectId}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
   ],
 )
 
@@ -145,6 +141,9 @@ export const iamSubjectAttrs = sqliteTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
-    check('ch_iam_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    check(
+      'ch_iam_subject_attrs_subject_not_blank',
+      sql`trim(${t.subjectId}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
   ],
 )

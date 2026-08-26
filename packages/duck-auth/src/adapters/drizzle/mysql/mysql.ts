@@ -1,15 +1,8 @@
 /**
- * Drizzle (MySQL / MariaDB) implementation of the {@link SqlBridge} contract.
- *
- * Two entry points:
- * - {@link createDrizzleMysqlBridge} — wrap an existing `MySql2Database`.
- * - {@link drizzleMysqlStorage} — fold a connection string / mysql2 pool / db into ready-to-use stores.
- *
- * Differences from the pg flavour:
- * - MySQL has no `RETURNING`; mutations that must return the new row re-`SELECT` it.
- * - JSON path lookups use `->>'$.key'` and `JSON_CONTAINS` instead of pg's `->>` / `@>`.
- * Queries are tenant-scoped when a `tenantId` is passed; `undefined` skips the
- * filter and `NULL`-tenant rows are treated as global (reachable from any tenant).
+ * Drizzle (MySQL / MariaDB) implementation of the {@link SqlBridge} contract. MySQL has
+ * no `RETURNING`, so mutations that must return the new row re-`SELECT` it, and JSON
+ * lookups use `->>'$.key'`/`JSON_CONTAINS` instead of pg's `->>`/`@>`. Queries are
+ * tenant-scoped when `tenantId` is passed; `undefined` skips the filter.
  */
 
 import { createRequire } from 'node:module'
@@ -23,21 +16,9 @@ import { authCredentials, authIdentities, authSessions } from './mysql.schema'
 import type { Mysql } from './mysql.types'
 
 /**
- * Build the low-level {@link SqlBridge.Me} over a Drizzle mysql database.
- *
- * Prefer {@link drizzleMysqlStorage}, which wires this into full stores; reach
- * for this directly only when you already hold a configured `MySql2Database`.
- *
- * @template TSchema - Drizzle schema attached to the db instance.
- * @param db - The Drizzle mysql database instance.
- * @returns The identity / credential / session bridge for gentleduck/auth.
- */
-/**
- * MySQL returns `json` columns as already-parsed JSON, so the `Date` fields nested
- * inside `factors` and `actingAs` arrive as ISO strings while `Sessions.Me` types
- * them as `Date`. The pg adapter revives these for the same reason and the Redis
- * store does it via `parseStoredDate`; without it, anything calling
- * `factor.completedAt.getTime()` throws on MySQL alone.
+ * MySQL returns `json` columns as already-parsed JSON, so `Date` fields nested inside
+ * `factors`/`actingAs` arrive as ISO strings while `Sessions.Me` types them as `Date`.
+ * Revive them here, same as the pg adapter and the Redis store's `parseStoredDate`.
  */
 function reviveSessionRow<T extends { factors: unknown; actingAs: unknown }>(row: T | null): T | null {
   return row ? reviveSessionRowRequired(row) : null
@@ -61,11 +42,7 @@ function reviveSessionRowRequired<T extends { factors: unknown; actingAs: unknow
   return { ...row, actingAs, factors }
 }
 
-/**
- * Generic over the profile so a caller with its own profile shape does not have to
- * cast the result. The row's `profile` column is typed as the base shape by drizzle,
- * so the widening happens once here rather than at every call site.
- */
+/** Generic over the profile so callers with their own profile shape don't have to cast. */
 export function createDrizzleMysqlBridge<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   const TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -75,7 +52,7 @@ export function createDrizzleMysqlBridge<
     return tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
   }
 
-  /** MySQL has no RETURNING — re-select a row by primary key after a mutation. */
+  /** MySQL has no RETURNING, so re-select a row by primary key after a mutation. */
   async function reselectIdentity(id: string) {
     const rows = await db.select().from(authIdentities).where(eq(authIdentities.id, id)).limit(1)
     return rows[0] ?? null
@@ -202,9 +179,8 @@ export function createDrizzleMysqlBridge<
             .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
             .where(eq(authIdentities.id, survivorId))
         }
-        // Global-account merge: repoint ALL of the dup's tenant-scoped rows
-        // (across every tenant) before erasing it, so the FK cascade on delete
-        // cannot orphan another tenant's credentials/sessions.
+        // Repoint all of the dup's rows across every tenant before erasing it, so the
+        // FK cascade on delete cannot orphan another tenant's credentials/sessions.
         await db.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
         await db.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
         await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
@@ -245,8 +221,7 @@ export function createDrizzleMysqlBridge<
         return rows[0] ?? null
       },
       findByHashedSecret: async (secretHash, kind, tenantId) => {
-        // Prefer the freshest live row; fall back to the freshest revoked one
-        // so callers can distinguish "revoked" from "never existed".
+        // Prefer the freshest live row, fall back to freshest revoked.
         const rows = await db
           .select()
           .from(authCredentials)
@@ -328,22 +303,15 @@ export function createDrizzleMysqlBridge<
     },
   }
 
-  // One assertion, here, rather than one at every call site: drizzle types the
-  // `profile` jsonb column as the base shape, and `Profile` is the caller's
-  // refinement of it. Nothing else about the bridge varies with the profile.
+  // One assertion here instead of one at every call site: drizzle types `profile` as
+  // the base shape, and `Profile` is the caller's refinement of it.
   return bridge as SqlBridge.Me<Profile>
 }
 
 /**
- * One-call storage helper: folds `connection -> drizzle -> bridge -> stores`.
- *
- * `mysql2` and `drizzle-orm` are optional peerDeps, lazily required only when a
- * connection string or mysql2 pool is passed — supplying a `MySql2Database`
- * skips the require entirely.
- *
- * @template Profile - Identity profile shape.
- * @param input - A connection string, mysql2 pool, or `MySql2Database`.
- * @returns The identity / credential / session stores for gentleduck/auth.
+ * One-call storage helper: folds `connection -> drizzle -> bridge -> stores`. `mysql2`
+ * and `drizzle-orm` are optional peerDeps, lazily required only when a connection
+ * string or mysql2 pool is passed; a `MySql2Database` skips the require entirely.
  */
 export function drizzleMysqlStorage<Profile extends SqlBridge.ProfileMetadataBase>(
   input: string | Mysql.MySql2PoolLike | Mysql.AnyMySql2Database,
@@ -365,7 +333,6 @@ export function drizzleMysqlStorage<Profile extends SqlBridge.ProfileMetadataBas
     const { drizzle } = lazyRequire('drizzle-orm/mysql2')
     db = drizzle(input)
   }
-  // The bridge is typed to the base profile; the caller asserts the concrete
-  // `Profile` shape here (DB check constraints guarantee the base keys exist).
+  // Asserts the concrete `Profile` shape; DB check constraints guarantee the base keys exist.
   return createSqlStores<Profile>(createDrizzleMysqlBridge(db) as unknown as SqlBridge.Me<Profile>)
 }

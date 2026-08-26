@@ -11,8 +11,8 @@
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { RedisLike } from '~/adapters/redis/redis-like'
+import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
-import { toRedisLike } from '~/test/e2e-redis'
 import { runSessionStoreCompliance } from '~/test/store-compliance'
 import { RedisSessionImpl } from '../sessions.redis'
 import type { Sessions } from '../sessions.types'
@@ -51,7 +51,7 @@ suite('E2E RedisSessionImpl (real Redis)', () => {
   beforeAll(async () => {
     raw = new Redis(URL as string, { maxRetriesPerRequest: 2, lazyConnect: true })
     await raw.connect()
-    client = toRedisLike(raw)
+    client = valkeyAdapter(raw as unknown as ValkeyClient.Me)
     prefix = e2ePrefix()
   })
 

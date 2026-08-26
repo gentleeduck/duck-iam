@@ -17,10 +17,6 @@ import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/credentials/crede
 import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
-/**
- * @title auth identities table
- * @description Auth identities table. Used to store the identities of users.
- */
 export const authIdentities = pgTable(
   'auth_identities',
   {
@@ -29,8 +25,11 @@ export const authIdentities = pgTable(
     providers: jsonb('providers').notNull().default([]).$type<Identities.ProviderLink[]>(),
     version: integer('version').notNull().default(1),
     emailVerified: boolean('email_verified').notNull().default(false),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
@@ -48,18 +47,13 @@ export const authCredentials = pgTable(
   {
     id: uuid('id').primaryKey(),
     identityId: uuid('identity_id').notNull(),
-    /**
-     * Which tenant's provider/policy config issued or governs this
-     * credential (e.g. tenant-specific SSO IdP, or tenant password policy).
-     * Scoping only. Mostly relevant for federated credentials; typically
-     * null for plain password credentials.
-     */
+    /** Tenant whose provider/policy config governs this credential. Scoping only. */
     tenantId: text('tenant_id'),
     kind: text('kind').notNull().$type<Credential.Kind>(),
     secret: text('secret').notNull(),
     metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
     version: integer('version').notNull().default(1),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
@@ -73,7 +67,7 @@ export const authCredentials = pgTable(
     index('auth_credentials_expires_at').on(t.expiresAt).where(sql`expires_at IS NOT NULL`),
     check('chk_auth_credentials_kind', sql.raw(`kind IN (${AUTH_CREDENTIAL_KINDS.map((k) => `'${k}'`).join(', ')})`)),
     check('chk_auth_credentials_version', sql`version >= 1`),
-    check('chk_auth_credentials_secret_not_blank', sql`length(trim(secret)) > 0`),
+    check('chk_auth_credentials_secret_not_blank', sql`secret ~ '[^[:space:]]'`),
     check('chk_auth_credentials_expires_after_created', sql`expires_at IS NULL OR expires_at >= created_at`),
     check('chk_auth_credentials_revoked_after_created', sql`revoked_at IS NULL OR revoked_at >= created_at`),
     check('chk_auth_credentials_last_used_after_created', sql`last_used_at IS NULL OR last_used_at >= created_at`),
@@ -88,16 +82,10 @@ export const authCredentials = pgTable(
 export const authSessions = pgTable(
   'auth_sessions',
   {
-    // SHA-256 hash of the raw session token — kept as text (not a UUID)
+    // SHA-256 hash of the raw session token, kept as text (not a UUID)
     id: text('id').primaryKey(),
     identityId: uuid('identity_id'),
-    /**
-     * Tenant this session is acting under. Drives tenant-specific security
-     * policy (e.g. required AAL, timeout, IP allowlisting) and may be
-     * embedded in issued tokens as a scoping hint. Scoping only — resource
-     * services must still independently verify authorization, never trust
-     * this as a grant.
-     */
+    /** Tenant this session is acting under, drives tenant security policy. Scoping only. */
     tenantId: text('tenant_id'),
     kind: text('kind').notNull().$type<Sessions.Kind>(),
     aal: integer('aal').notNull().$type<Sessions.AAL>(),
@@ -106,7 +94,7 @@ export const authSessions = pgTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     fingerprint: text('fingerprint'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     rotatedAt: timestamp('rotated_at', { withTimezone: true }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     absoluteExpiresAt: timestamp('absolute_expires_at', { withTimezone: true }).notNull(),
@@ -135,23 +123,14 @@ export const authSessions = pgTable(
   ],
 )
 
-/**
- * Append-only audit log. Never UPDATE or DELETE rows (except compliance-driven
- * purge). Identity FK is SET NULL on hard-delete so the event record survives
- * erasure (GDPR: right to erasure applies to personal data in profile, not to
- * the fact that auth events occurred).
- */
+/** Append-only audit log. Identity FK is SET NULL on hard-delete so the record survives erasure. */
 export const authEvents = pgTable(
   'auth_events',
   {
     id: uuid('id').primaryKey(),
     identityId: uuid('identity_id'),
     sessionId: text('session_id'),
-    /**
-     * Tenant this event occurred under. Audit/compliance partitioning only
-     * (e.g. per-tenant security review, data-residency requests) — purely
-     * descriptive, never drives behavior.
-     */
+    /** Tenant this event occurred under. Descriptive only, never drives behavior. */
     tenantId: text('tenant_id'),
     /** Dot-namespaced event name, e.g. 'login.success', 'mfa.enrolled', 'session.revoked'. */
     event: text('event').notNull(),
@@ -161,7 +140,7 @@ export const authEvents = pgTable(
     userAgent: text('user_agent'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     // Primary query paths: "all events for identity" and "all events in tenant window"

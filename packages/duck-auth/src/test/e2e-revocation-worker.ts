@@ -3,7 +3,7 @@
  *
  * Plan `C3-engine/01-jwt-instant-revocation.md` keeps an in-memory revocation
  * registry fresh over pub/sub. That design **cannot be validated in one
- * process** — a single instance both publishes and subscribes, and `RedisEvents`
+ * process**, a single instance both publishes and subscribes, and `RedisEvents`
  * dedupes its own messages by instance id, so the fan-out path never executes.
  *
  * This worker is a real second instance: its own process, its own connections,
@@ -13,8 +13,9 @@
  * Usage: bun run src/test/e2e-revocation-worker.ts <redisUrl> <runId> <workerId>
  */
 import Redis from 'ioredis'
-import type { RedisLike } from '~/adapters/redis/redis-like'
+import type { ValkeyClient, ValkeySubscriberClient } from '~/adapters/valkey'
 import { RedisEvents } from '~/core/events/events.redis'
+import { valkeyPubSubAdapter } from '~/core/events/events.valkey'
 
 /** Read a required positional arg. Returns `string`, so callers need no cast. */
 function required(value: string | undefined, name: string): string {
@@ -31,47 +32,15 @@ const READY_KEY = `${runId}:ready`
 const RESULT_KEY = `${runId}:results`
 const LIFETIME_MS = 15_000
 
-/** ioredis -> the `RedisEvents.Client` surface (RedisLike + publish/subscribe). */
-function toEventsClient(cmd: Redis, sub: Redis): RedisEvents.Client {
-  const base: Partial<RedisLike.Client> = {
-    get: (k) => cmd.get(k),
-    set: async (k, v, o) => (o?.ex !== undefined ? cmd.set(k, v, 'EX', o.ex) : cmd.set(k, v)),
-    del: (...keys) => cmd.del(...keys),
-    expire: (k, s) => cmd.expire(k, s),
-    incr: (k) => cmd.incr(k),
-    sadd: (k, ...m) => cmd.sadd(k, ...m),
-    srem: (k, ...m) => cmd.srem(k, ...m),
-    smembers: (k) => cmd.smembers(k),
-    scan: async (cursor, opts) => {
-      const args: (string | number)[] = [cursor]
-      if (opts?.match) args.push('MATCH', opts.match)
-      if (opts?.count) args.push('COUNT', opts.count)
-      return (await cmd.scan(...(args as [string]))) as [string, string[]]
-    },
-  }
-  return {
-    ...(base as RedisLike.Client),
-    publish: (channel, message) => cmd.publish(channel, message),
-    subscribe: async (channel, handler) => {
-      // A subscribed ioredis connection cannot issue other commands, which is
-      // exactly why this worker holds two.
-      await sub.subscribe(channel)
-      const onMessage = (ch: string, msg: string) => {
-        if (ch === channel) void handler(ch, msg)
-      }
-      sub.on('message', onMessage)
-      return async () => {
-        sub.off('message', onMessage)
-        await sub.unsubscribe(channel)
-      }
-    },
-  }
-}
-
 async function main(): Promise<void> {
   const cmd = new Redis(redisUrl)
   const sub = new Redis(redisUrl)
-  const bus = new RedisEvents({ redis: toEventsClient(cmd, sub) })
+  const bus = new RedisEvents({
+    redis: valkeyPubSubAdapter(
+      cmd as unknown as ValkeyClient.Me & { publish(channel: string, message: string): Promise<number> },
+      sub as unknown as ValkeySubscriberClient.Me,
+    ),
+  })
 
   // The registry this simulates: identityId -> revocation instant.
   const revoked = new Map<string, number>()

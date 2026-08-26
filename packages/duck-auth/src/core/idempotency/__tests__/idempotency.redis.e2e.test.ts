@@ -11,8 +11,8 @@
  */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
-import { toRedisLike } from '~/test/e2e-redis'
 import { RedisIdempotency } from '../idempotency.redis'
 
 const URL = redisUrl()
@@ -27,7 +27,7 @@ suite('E2E RedisIdempotency (real Redis)', () => {
     raw = new Redis(URL as string, { lazyConnect: true, maxRetriesPerRequest: 2 })
     await raw.connect()
     prefix = e2ePrefix()
-    store = new RedisIdempotency({ prefix, redis: toRedisLike(raw) })
+    store = new RedisIdempotency({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) })
   })
 
   afterAll(async () => {

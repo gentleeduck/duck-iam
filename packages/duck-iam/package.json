@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/iam",
-  "version": "5.3.0",
+  "version": "5.4.0",
   "publishConfig": {
     "access": "public"
   },
@@ -112,34 +112,34 @@
         "default": "./dist/adapters/drizzle/index.cjs"
       }
     },
-    "./adapters/drizzle/schema/pg": {
+    "./adapters/drizzle/pg": {
       "import": {
-        "types": "./dist/adapters/drizzle/schema/pg.d.ts",
-        "default": "./dist/adapters/drizzle/schema/pg.js"
+        "types": "./dist/adapters/drizzle/pg/index.d.ts",
+        "default": "./dist/adapters/drizzle/pg/index.js"
       },
       "require": {
-        "types": "./dist/adapters/drizzle/schema/pg.d.cts",
-        "default": "./dist/adapters/drizzle/schema/pg.cjs"
+        "types": "./dist/adapters/drizzle/pg/index.d.cts",
+        "default": "./dist/adapters/drizzle/pg/index.cjs"
       }
     },
-    "./adapters/drizzle/schema/mysql": {
+    "./adapters/drizzle/mysql": {
       "import": {
-        "types": "./dist/adapters/drizzle/schema/mysql.d.ts",
-        "default": "./dist/adapters/drizzle/schema/mysql.js"
+        "types": "./dist/adapters/drizzle/mysql/index.d.ts",
+        "default": "./dist/adapters/drizzle/mysql/index.js"
       },
       "require": {
-        "types": "./dist/adapters/drizzle/schema/mysql.d.cts",
-        "default": "./dist/adapters/drizzle/schema/mysql.cjs"
+        "types": "./dist/adapters/drizzle/mysql/index.d.cts",
+        "default": "./dist/adapters/drizzle/mysql/index.cjs"
       }
     },
-    "./adapters/drizzle/schema/sqlite": {
+    "./adapters/drizzle/sqlite": {
       "import": {
-        "types": "./dist/adapters/drizzle/schema/sqlite.d.ts",
-        "default": "./dist/adapters/drizzle/schema/sqlite.js"
+        "types": "./dist/adapters/drizzle/sqlite/index.d.ts",
+        "default": "./dist/adapters/drizzle/sqlite/index.js"
       },
       "require": {
-        "types": "./dist/adapters/drizzle/schema/sqlite.d.cts",
-        "default": "./dist/adapters/drizzle/schema/sqlite.cjs"
+        "types": "./dist/adapters/drizzle/sqlite/index.d.cts",
+        "default": "./dist/adapters/drizzle/sqlite/index.cjs"
       }
     },
     "./adapters/redis": {

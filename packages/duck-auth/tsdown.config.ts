@@ -23,6 +23,7 @@ export default createTsdownConfig({
     'channels/ses/index': 'src/channels/ses/index.ts',
     'limiters/memory/index': 'src/limiters/memory/index.ts',
     'limiters/redis/index': 'src/limiters/redis/index.ts',
+    'limiters/valkey/index': 'src/limiters/valkey/index.ts',
     'limiters/mock/index': 'src/limiters/mock/index.ts',
     'adapters/valkey/index': 'src/adapters/valkey/index.ts',
     'providers/passwords/index': 'src/providers/passwords/index.ts',

@@ -6,12 +6,11 @@ import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
 /**
- * @title auth identities table (SQLite)
- * @description Auth identities table. Used to store the identities of users.
- * @note SQLite has no native jsonb/boolean/timestamptz. `text(..., { mode: 'json' })`
- * gives JS-side object ergonomics like pg's jsonb; booleans are INTEGER 0/1;
- * timestamps are INTEGER unix-ms, timezone-naive (store UTC, convert at the edges).
+ * SQLite has no native jsonb/boolean/timestamptz: `text(..., { mode: 'json' })` stands
+ * in for jsonb, booleans are INTEGER 0/1, timestamps are INTEGER unix-ms (store UTC).
  */
+const nowMs = sql`(unixepoch() * 1000)`
+
 export const authIdentities = sqliteTable(
   'auth_identities',
   {
@@ -20,8 +19,11 @@ export const authIdentities = sqliteTable(
     providers: text('providers', { mode: 'json' }).notNull().default('[]').$type<Identities.ProviderLink[]>(),
     version: integer('version').notNull().default(1),
     emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
@@ -56,7 +58,7 @@ export const authCredentials = sqliteTable(
     secret: text('secret').notNull(),
     metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown> | null>(),
     version: integer('version').notNull().default(1),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
     lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
     revokedAt: integer('revoked_at', { mode: 'timestamp_ms' }),
@@ -69,7 +71,10 @@ export const authCredentials = sqliteTable(
     index('auth_credentials_expires_at').on(t.expiresAt).where(sql`expires_at IS NOT NULL`),
     check('chk_auth_credentials_kind', sql.raw(`kind IN (${AUTH_CREDENTIAL_KINDS.map((k) => `'${k}'`).join(', ')})`)),
     check('chk_auth_credentials_version', sql`version >= 1`),
-    check('chk_auth_credentials_secret_not_blank', sql`length(trim(secret)) > 0`),
+    check(
+      'chk_auth_credentials_secret_not_blank',
+      sql`trim(secret, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
     check('chk_auth_credentials_expires_after_created', sql`expires_at IS NULL OR expires_at >= created_at`),
     check('chk_auth_credentials_revoked_after_created', sql`revoked_at IS NULL OR revoked_at >= created_at`),
     check('chk_auth_credentials_last_used_after_created', sql`last_used_at IS NULL OR last_used_at >= created_at`),
@@ -84,10 +89,10 @@ export const authCredentials = sqliteTable(
 export const authSessions = sqliteTable(
   'auth_sessions',
   {
-    // SHA-256 hash of the raw session token — text, not the raw token.
+    // SHA-256 hash of the raw session token, text, not the raw token.
     id: text('id').primaryKey(),
     identityId: text('identity_id'),
-    /** Tenant this session is acting under — drives tenant security policy. Scoping only. */
+    /** Tenant this session is acting under, drives tenant security policy. Scoping only. */
     tenantId: text('tenant_id'),
     kind: text('kind').notNull().$type<Sessions.Kind>(),
     aal: integer('aal').notNull().$type<Sessions.AAL>(),
@@ -96,7 +101,7 @@ export const authSessions = sqliteTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     fingerprint: text('fingerprint'),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
     rotatedAt: integer('rotated_at', { mode: 'timestamp_ms' }).notNull(),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
     absoluteExpiresAt: integer('absolute_expires_at', { mode: 'timestamp_ms' }).notNull(),
@@ -123,13 +128,7 @@ export const authSessions = sqliteTable(
   ],
 )
 
-/**
- * Append-only audit log. Never UPDATE or DELETE rows (except compliance-driven
- * purge). Identity FK is SET NULL on hard-delete so the event record survives
- * erasure. Schema-parity with pg — not yet wired into the bridge (same open
- * gap as the pg adapter; wire both together once `SqlBridge.Me` defines
- * an `events` section).
- */
+/** Append-only audit log. Identity FK is SET NULL on hard-delete so the record survives erasure. */
 export const authEvents = sqliteTable(
   'auth_events',
   {
@@ -146,7 +145,7 @@ export const authEvents = sqliteTable(
     userAgent: text('user_agent'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown> | null>(),
-    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
   },
   (t) => [
     index('auth_events_identity_created').on(t.identityId, t.createdAt),

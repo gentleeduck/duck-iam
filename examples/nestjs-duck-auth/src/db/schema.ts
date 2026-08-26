@@ -9,4 +9,4 @@ export {
   iamPolicies,
   iamRoles,
   iamSubjectAttrs,
-} from '@gentleduck/iam/adapters/drizzle/schema/sqlite'
+} from '@gentleduck/iam/adapters/drizzle/sqlite'

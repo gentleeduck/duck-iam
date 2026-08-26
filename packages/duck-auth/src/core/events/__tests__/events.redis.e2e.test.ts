@@ -15,30 +15,20 @@
  */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { ValkeyClient, ValkeySubscriberClient } from '~/adapters/valkey'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
-import { toRedisLike } from '~/test/e2e-redis'
 import { RedisEvents } from '../events.redis'
+import { valkeyPubSubAdapter } from '../events.valkey'
 
 const URL = redisUrl()
 const suite = URL ? describe : describe.skip
 
 /** Pub/sub needs its own connection: a subscribed ioredis client refuses commands. */
 function eventsClient(cmd: Redis, sub: Redis): RedisEvents.Client {
-  return {
-    ...toRedisLike(cmd),
-    publish: (channel, message) => cmd.publish(channel, message),
-    subscribe: async (channel, onMessage) => {
-      const listener = (ch: string, message: string) => {
-        if (ch === channel) void onMessage(ch, message)
-      }
-      sub.on('message', listener)
-      await sub.subscribe(channel)
-      return async () => {
-        sub.off('message', listener)
-        await sub.unsubscribe(channel)
-      }
-    },
-  } as RedisEvents.Client
+  return valkeyPubSubAdapter(
+    cmd as unknown as ValkeyClient.Me & { publish(channel: string, message: string): Promise<number> },
+    sub as unknown as ValkeySubscriberClient.Me,
+  )
 }
 
 /** Delivery is asynchronous over a socket; poll rather than guess a sleep. */

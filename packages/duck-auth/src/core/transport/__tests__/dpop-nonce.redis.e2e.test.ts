@@ -12,8 +12,8 @@
  */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
-import { toRedisLike } from '~/test/e2e-redis'
 import { RedisDPoPNonceStore } from '../dpop-nonce.redis'
 
 const URL = redisUrl()
@@ -38,7 +38,7 @@ suite('E2E RedisDPoPNonceStore (real Redis)', () => {
 
   /** A store as a separate pod would construct it: same Redis, own instance. */
   function pod(): RedisDPoPNonceStore {
-    return new RedisDPoPNonceStore({ prefix, redis: toRedisLike(raw) })
+    return new RedisDPoPNonceStore({ prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me) })
   }
 
   const jti = (label: string) => `${label}-${e2ePrefix()}`

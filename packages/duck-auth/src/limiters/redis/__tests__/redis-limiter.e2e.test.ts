@@ -12,8 +12,8 @@
  */
 import Redis from 'ioredis'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
-import { toRedisLike } from '~/test/e2e-redis'
 import { RedisLimiter } from '../index'
 
 const URL = redisUrl()
@@ -37,7 +37,7 @@ suite('E2E RedisLimiter (real Redis)', () => {
   })
 
   function limiter(windowMs: number, max: number): RedisLimiter {
-    return new RedisLimiter({ max, prefix, redis: toRedisLike(raw), windowMs })
+    return new RedisLimiter({ max, prefix, redis: valkeyAdapter(raw as unknown as ValkeyClient.Me), windowMs })
   }
 
   it('counts down to zero and then refuses', async () => {

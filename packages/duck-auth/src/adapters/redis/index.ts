@@ -1,9 +1,6 @@
 /**
- * Redis adapter bundle. The store implementations now live with their
- * subject in `core/*`; this barrel re-exports them under the public
- * `@gentleduck/auth/adapters/redis` entry so swapping backends stays a
- * one-line change. `RedisLike`/`FakeRedis` (the shared client contract +
- * test double) are the only impls that live here.
+ * Re-exports the redis-backed stores (which live with their subject in `core/*`) under
+ * the public `@gentleduck/auth/adapters/redis` entry, so swapping backends is one line.
  */
 
 export { RedisEvents, redisEvents } from '~/core/events/events.redis'

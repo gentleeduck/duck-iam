@@ -17,23 +17,13 @@ import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
 
 /**
- * MySQL schema for the duck-iam IamDrizzle adapter.
- *
- * With the adapter's default `json: 'native'` mode, payload columns hold real
- * `json`; columns are typed with `$type<>()` for read-path safety. CHECK
- * constraints are enforced on MySQL 8.0.16+ and parsed-but-ignored below that.
- *
- * MySQL has no partial indexes and treats NULL as distinct in unique keys, so
- * global rows (NULL scope) are de-duplicated via a `COALESCE(scope, '')`
- * functional unique index - keeping uniqueness without changing the adapter's
- * `scope == null` = global semantics.
- *
- * No soft-delete columns; `created_by` / `updated_by` carry audit actors (left
- * NULL by the adapter - set via triggers or admin writes). See the Postgres
- * schema for fuller notes. Constraint naming: `pk_` `fk_` `uq_` `idx_` `ch_`.
+ * MySQL schema for the duck-iam IamDrizzle adapter. CHECK constraints are enforced on
+ * MySQL 8.0.16+ and parsed-but-ignored below that. No partial indexes, so global rows
+ * (NULL scope) are de-duplicated via a `COALESCE(scope, '')` functional unique index.
+ * See the Postgres schema for fuller notes.
  */
 
-/** Allowed combining algorithms, kept in sync with {@link AccessControl.CombiningAlgorithm}. */
+/** Mirrors {@link AccessControl.CombiningAlgorithm}. */
 const IAM_COMBINE_ALGORITHMS = [
   'deny-overrides',
   'allow-overrides',
@@ -66,7 +56,7 @@ export const iamPolicies = mysqlTable(
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
     unique('uq_iam_policies_name').on(t.name),
-    check('ch_iam_policies_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_iam_policies_name_not_blank', sql`${t.name} REGEXP '[^[:space:]]'`),
     check('ch_iam_policies_version_positive', sql`${t.version} >= 1`),
   ],
 )
@@ -92,10 +82,9 @@ export const iamRoles = mysqlTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
-    // COALESCE collapses NULL scopes so global roles are unique by name too.
     uniqueIndex('uq_iam_roles_name_scope').on(t.name, sql`(coalesce(${t.scope}, ''))`),
     index('idx_iam_roles_scope').on(t.scope),
-    check('ch_iam_roles_name_not_blank', sql`length(trim(${t.name})) > 0`),
+    check('ch_iam_roles_name_not_blank', sql`${t.name} REGEXP '[^[:space:]]'`),
   ],
 )
 
@@ -117,11 +106,10 @@ export const iamAssignments = mysqlTable(
       columns: [t.roleId],
       foreignColumns: [iamRoles.id],
     }).onDelete('cascade'),
-    // COALESCE collapses NULL scopes so duplicate global grants conflict.
     uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`(coalesce(${t.scope}, ''))`),
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
-    check('ch_iam_assignments_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    check('ch_iam_assignments_subject_not_blank', sql`${t.subjectId} REGEXP '[^[:space:]]'`),
   ],
 )
 
@@ -140,6 +128,6 @@ export const iamSubjectAttrs = mysqlTable(
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),
-    check('ch_iam_subject_attrs_subject_not_blank', sql`length(trim(${t.subjectId})) > 0`),
+    check('ch_iam_subject_attrs_subject_not_blank', sql`${t.subjectId} REGEXP '[^[:space:]]'`),
   ],
 )

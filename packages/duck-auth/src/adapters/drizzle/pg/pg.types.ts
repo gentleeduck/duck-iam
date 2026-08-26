@@ -1,10 +1,7 @@
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { authCredentials, authEvents, authIdentities, authSessions } from './pg.schema'
 
-/**
- * @title Drizzle pg types
- * @description Types for the drizzle pg adapter.
- */
+/** Types for the drizzle pg adapter. */
 export namespace Pg {
   export type IdentityRow = typeof authIdentities.$inferSelect
   export type CredentialRow = typeof authCredentials.$inferSelect

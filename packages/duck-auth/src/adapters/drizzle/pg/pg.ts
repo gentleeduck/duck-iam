@@ -9,12 +9,9 @@ import { authCredentials, authIdentities, authSessions } from './pg.schema'
 import type { Pg } from './pg.types'
 
 /**
- * Postgres returns `jsonb` columns as already-parsed JSON, so the `Date`
- * fields nested inside `factors` and `actingAs` come back as ISO strings.
- * The Redis adapter revives these via `parseStoredDate`; mirror that here so
- * a materialized `Sessions.Me` satisfies its `Date`-typed contract (otherwise
- * strict response validators reject it). Top-level timestamptz columns are
- * already `Date` via drizzle's date mode and are left untouched.
+ * Postgres returns `jsonb` as already-parsed JSON, so `Date` fields nested inside
+ * `factors`/`actingAs` come back as ISO strings; revive them so `Sessions.Me` satisfies
+ * its `Date`-typed contract. Top-level timestamptz columns are already `Date`.
  */
 function reviveSessionRow<T extends { factors: unknown; actingAs: unknown }>(row: T | null): T | null {
   return row ? reviveSessionRowRequired(row) : null
@@ -39,12 +36,9 @@ function reviveSessionRowRequired<T extends { factors: unknown; actingAs: unknow
 }
 
 /**
- * Postgres raises `22P02 invalid_text_representation` when a value cannot be cast
- * to the column's type, so looking up a `uuid` primary key with an arbitrary
- * string throws instead of finding nothing. Every other adapter returns `null`
- * there, and the store contract is "unknown id" rather than "crash", so a caller
- * passing an id straight off a request gets a 500 and a leaked SQL string instead
- * of a clean unauthenticated error. Treat an unrepresentable id as absent.
+ * Postgres raises `22P02` when a value can't cast to a `uuid` column, so an arbitrary
+ * string thrown at a primary-key lookup crashes instead of returning null like every
+ * other adapter. Treat an unrepresentable id as absent to avoid leaking a SQL error.
  */
 async function nullOnUnrepresentableId<T>(read: () => Promise<T | null>): Promise<T | null> {
   try {
@@ -57,11 +51,7 @@ async function nullOnUnrepresentableId<T>(read: () => Promise<T | null>): Promis
   }
 }
 
-/**
- * Generic over the profile so a caller with its own profile shape does not have to
- * cast the result. The row's `profile` column is typed as the base shape by drizzle,
- * so the widening happens once here rather than at every call site.
- */
+/** Generic over the profile so callers with their own profile shape don't have to cast. */
 export function createDrizzlePgBridge<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   const TSchema extends Record<string, unknown> = Record<string, unknown>,
@@ -81,10 +71,7 @@ export function createDrizzlePgBridge<
             .then((r) => r[0] ?? null),
         ),
 
-      // Case-insensitive to match the uniqueness constraint, which is
-      // `unique (lower(profile->>'email'))`. An exact match here meant an identity
-      // registered as `Ada@x.com` could never sign in again: signup stores the
-      // address verbatim, and the lookup never found it.
+      // Case-insensitive to match the `unique (lower(profile->>'email'))` constraint.
       findByEmail: (email) =>
         db
           .select()
@@ -186,9 +173,8 @@ export function createDrizzlePgBridge<
             .set({ providers: [...(surv.p ?? []), ...(dupRow.p ?? [])] })
             .where(eq(authIdentities.id, survivorId))
         }
-        // Global-account merge: repoint ALL of the dup's tenant-scoped rows
-        // (across every tenant) before erasing it, so the FK cascade on delete
-        // cannot orphan another tenant's credentials/sessions.
+        // Repoint all of the dup's rows across every tenant before erasing it, so the
+        // FK cascade on delete cannot orphan another tenant's credentials/sessions.
         await db.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
         await db.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
         await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
@@ -335,9 +321,8 @@ export function createDrizzlePgBridge<
     },
   }
 
-  // One assertion, here, rather than one at every call site: drizzle types the
-  // `profile` jsonb column as the base shape, and `Profile` is the caller's
-  // refinement of it. Nothing else about the bridge varies with the profile.
+  // One assertion here instead of one at every call site: drizzle types `profile` as
+  // the base shape, and `Profile` is the caller's refinement of it.
   return bridge as SqlBridge.Me<Profile>
 }
 

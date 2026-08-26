@@ -22,6 +22,7 @@ import Redis from 'ioredis'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { drizzlePgStorage } from '~/adapters/drizzle/pg'
+import { type ValkeyClient, valkeyAdapter } from '~/adapters/valkey'
 import { AuthTestChannel } from '~/channels/console'
 import { randomToken, sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
@@ -32,7 +33,6 @@ import { ApiKeysFacet } from '~/providers/api-key'
 import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { applyPgSchema, databaseUrl, dropPrefix, e2ePrefix, redisUrl } from '~/test/e2e-env'
-import { toRedisLike } from '~/test/e2e-redis'
 
 const PG_URL = databaseUrl()
 const REDIS_URL = redisUrl()
@@ -104,7 +104,12 @@ suite('E2E token quality on real Postgres + Redis', () => {
     stores = drizzlePgStorage<Profile>(PG_URL as string)
     auth = new AuthEngine<Profile>({
       baseUrl: 'https://app.test',
-      limiter: new RedisLimiter({ max: 2000, prefix, redis: toRedisLike(raw), windowMs: 60_000 }),
+      limiter: new RedisLimiter({
+        max: 2000,
+        prefix,
+        redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+        windowMs: 60_000,
+      }),
       stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
       transport: new CookieTransport({ name: 'duck-sid', secure: false }),
     })
@@ -282,7 +287,12 @@ suite('E2E token quality on real Postgres + Redis', () => {
     it('is rate limited per address, so it cannot be used to send mail forever', async () => {
       const limited = new AuthEngine<Profile>({
         baseUrl: 'https://app.test',
-        limiter: new RedisLimiter({ max: 3, prefix: `${prefix}:rl`, redis: toRedisLike(raw), windowMs: 60_000 }),
+        limiter: new RedisLimiter({
+          max: 3,
+          prefix: `${prefix}:rl`,
+          redis: valkeyAdapter(raw as unknown as ValkeyClient.Me),
+          windowMs: 60_000,
+        }),
         stores: { credentials: stores.credentials, identities: stores.identities, sessions: stores.sessions },
         transport: new CookieTransport({ name: 'duck-sid', secure: false }),
       })
