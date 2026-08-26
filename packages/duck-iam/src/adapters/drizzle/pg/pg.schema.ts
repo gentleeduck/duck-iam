@@ -20,9 +20,10 @@ import type { AccessControl, IamPrimitives } from '../../../core/types'
  * PostgreSQL schema for the duck-iam IamDrizzle adapter. Run `drizzle-kit generate`
  * against this file to emit migrations.
  *
- * No `deletedAt` columns: `listRoles`/`listPolicies` don't filter on deletion, so a
- * soft-deleted role would keep granting access. `created_by`/`updated_by` are left
- * NULL by the adapter (no actor context); set them from triggers or admin writes.
+ * `created_by`/`updated_by`/`deleted_at` are left NULL by the adapter (no actor
+ * context); an external trigger or admin write sets them. `deleted_at` filtering is
+ * opt-in via `ops.isNull` on the adapter config, off by default. `deleteRole`/
+ * `deletePolicy` still hard-delete, so a role/policy name can be reused after removal.
  * Constraint naming: pk_ fk_ uq_ idx_ ch_.
  */
 
@@ -52,6 +53,7 @@ export const iamPolicies = pgTable(
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
@@ -81,6 +83,7 @@ export const iamRoles = pgTable(
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
@@ -104,7 +107,13 @@ export const iamAssignments = pgTable(
     roleId: text('role_id').notNull(),
     scope: text('scope'),
     createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
@@ -128,12 +137,14 @@ export const iamSubjectAttrs = pgTable(
   {
     subjectId: text('subject_id').notNull(),
     data: jsonb('data').$type<IamPrimitives.Attributes>().notNull(),
+    createdBy: text('created_by'),
     updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),

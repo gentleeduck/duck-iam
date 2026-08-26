@@ -78,6 +78,22 @@ export namespace IamAdapter {
     assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
     /** Revokes a role from a subject, optionally within a scope. */
     revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
+    /**
+     * Moves an existing `(subjectId, roleId, fromScope)` assignment to `toScope` in
+     * place - one write instead of revoke + assign. Returns `false` when no matching
+     * assignment exists, so the engine can fall back to a plain {@link assignRole}.
+     *
+     * Optional: adapters whose storage has no meaningful "in place" update (e.g. scope
+     * is encoded into a set member, as in the Redis adapter) omit this; the engine
+     * falls back to revoke + assign automatically.
+     */
+    updateAssignmentScope?(
+      subjectId: string,
+      roleId: TRole,
+      fromScope: TScope | undefined,
+      toScope: TScope | undefined,
+      actor?: string,
+    ): Promise<boolean>
     /** Returns the attribute bag for a subject. */
     getSubjectAttributes(subjectId: string, opts?: IReadOptions): Promise<IamPrimitives.Attributes>
     /**

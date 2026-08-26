@@ -125,6 +125,21 @@ function makeDrizzleMock(): {
           },
         }
       }) as unknown as TestConfig['db']['insert'],
+      update: vi.fn((tableRef: unknown) => {
+        const table = tableForRef(tableRef)
+        return {
+          set(data: Record<string, unknown>) {
+            return {
+              where(c: unknown) {
+                for (let i = 0; i < table.length; i++) {
+                  if (rowMatches(table[i]!, c)) table[i] = { ...table[i], ...data }
+                }
+                return Promise.resolve(undefined)
+              },
+            }
+          },
+        }
+      }) as unknown as TestConfig['db']['update'],
       delete: vi.fn((tableRef: unknown) => {
         const table = tableForRef(tableRef)
         return {

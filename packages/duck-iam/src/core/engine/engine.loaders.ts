@@ -107,9 +107,16 @@ export async function resolveSubject<
       ])
       const roles = resolveEffectiveRoles(assignedRoles, allRoles)
       const scopedRolesFn = deps.adapter.getSubjectScopedRoles
-      const scopedRoles = scopedRolesFn
+      const assignedScopedRoles = scopedRolesFn
         ? await deps.withTimeout((opts) => scopedRolesFn.call(deps.adapter, subjectId, opts), 'getSubjectScopedRoles')
         : undefined
+      // A scoped assignment is an assignment: it has to be closed over `inherits` too, or
+      // the same role means different things depending on whether it arrived with a scope.
+      // Only RBAC permissions were closed before, so a condition reading `subject.roles`
+      // saw a parent role and not the roles it inherits.
+      const scopedRoles = assignedScopedRoles?.flatMap((sr) =>
+        resolveEffectiveRoles([sr.role], allRoles).map((role) => ({ ...sr, role })),
+      )
       const subject: IamRequest.ISubject = { id: subjectId, roles, scopedRoles, attributes }
       return subject
     },

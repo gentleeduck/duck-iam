@@ -309,6 +309,28 @@ export function createAdmin<
       await adapter.revokeRole(subjectId, roleId, scope)
       engine.cache.invalidateSubject(subjectId)
     },
+    async updateAssignmentScope(
+      subjectId: string,
+      roleId: TRole,
+      fromScope?: TScope,
+      toScope?: TScope,
+      actor?: string,
+    ) {
+      assertNonEmptyStringParam('subjectId', subjectId)
+      assertNonEmptyStringParam('roleId', roleId)
+      assertOptionalNonEmptyStringParam('fromScope', fromScope)
+      assertOptionalNonEmptyStringParam('toScope', toScope)
+      const moved = adapter.updateAssignmentScope
+        ? await adapter.updateAssignmentScope(subjectId, roleId, fromScope, toScope, actor)
+        : false
+      if (!moved) {
+        // Adapter has no in-place update, or nothing matched fromScope: fall back to
+        // revoke + assign so the call still succeeds (assignRole is idempotent).
+        await adapter.revokeRole(subjectId, roleId, fromScope)
+        await adapter.assignRole(subjectId, roleId, toScope)
+      }
+      engine.cache.invalidateSubject(subjectId)
+    },
     async setAttributes(subjectId: string, attrs: IamPrimitives.Attributes) {
       assertNonEmptyStringParam('subjectId', subjectId)
       assertAttributesParam(attrs)

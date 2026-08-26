@@ -16,8 +16,9 @@ import type { AccessControl } from '../../../core/types'
 /**
  * SQLite schema for the duck-iam IamDrizzle adapter. Every payload column is TEXT, so
  * the adapter must run in `json: 'string'` mode. Global rows (NULL scope) are
- * de-duplicated via a `COALESCE(scope, '')` expression unique index. See the Postgres
- * schema for fuller notes.
+ * de-duplicated via a `COALESCE(scope, '')` expression unique index.
+ * `created_by`/`updated_by`/`deleted_at` are left NULL by the adapter (no actor
+ * context); see the Postgres schema for fuller notes.
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}. */
@@ -49,6 +50,7 @@ export const iamPolicies = sqliteTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_policies', columns: [t.id] }),
@@ -83,6 +85,7 @@ export const iamRoles = sqliteTable(
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_roles', columns: [t.id] }),
@@ -106,7 +109,13 @@ export const iamAssignments = sqliteTable(
     roleId: text('role_id').notNull(),
     scope: text('scope'),
     createdBy: text('created_by'),
+    updatedBy: text('updated_by'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_assignments', columns: [t.id] }),
@@ -132,12 +141,14 @@ export const iamSubjectAttrs = sqliteTable(
   {
     subjectId: text('subject_id').notNull(),
     data: text('data').$type<string>().notNull(),
+    createdBy: text('created_by'),
     updatedBy: text('updated_by'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(nowMs)
       .$onUpdate(() => new Date()),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [
     primaryKey({ name: 'pk_iam_subject_attrs', columns: [t.subjectId] }),

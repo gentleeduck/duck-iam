@@ -538,6 +538,30 @@ export class IamFileAdapter<
   }
 
   /**
+   * Moves an existing assignment to a different scope in place.
+   *
+   * @param id - Identifies the subject whose assignment is moving.
+   * @param roleId - Specifies the role of the assignment being moved.
+   * @param fromScope - The assignment's current scope.
+   * @param toScope - The scope to move it to.
+   * @returns `false` when no `(roleId, fromScope)` assignment exists for this subject.
+   */
+  async updateAssignmentScope(id: string, roleId: TRole, fromScope?: TScope, toScope?: TScope): Promise<boolean> {
+    const s = await this._loadState()
+    const entries = s.assignments[id]
+    const entry = entries?.find((e) => e.role === roleId && e.scope === fromScope)
+    if (!entry) return false
+    // The target scope may already be granted; drop the source rather than duplicate it.
+    if (entries?.some((e) => e !== entry && e.role === roleId && e.scope === toScope)) {
+      s.assignments[id] = (entries ?? []).filter((e) => e !== entry)
+    } else {
+      entry.scope = toScope
+    }
+    await this._flush()
+    return true
+  }
+
+  /**
    * Fetches the attribute bag stored for a subject.
    *
    * @param id - Identifies the subject whose attributes are read.

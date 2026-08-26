@@ -24,6 +24,7 @@ function makePrismaWithAttrs(data: unknown): {
       findMany: vi.fn(),
       create: vi.fn(),
       deleteMany: vi.fn(),
+      updateMany: vi.fn(),
     },
     accessSubjectAttr: {
       findUnique: vi.fn(async ({ where }: { where: { subjectId: string } }) => attrs.get(where.subjectId) ?? null),

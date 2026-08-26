@@ -33,6 +33,18 @@ export namespace IamEngineTypes {
     assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
     /** Invalidates the subject's cache entry. */
     revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
+    /**
+     * Moves a subject's role assignment from `fromScope` to `toScope` in place when the
+     * adapter supports it (one write); falls back to revoke + assign otherwise. Invalidates
+     * the subject's cache entry either way.
+     */
+    updateAssignmentScope(
+      subjectId: string,
+      roleId: TRole,
+      fromScope: TScope | undefined,
+      toScope: TScope | undefined,
+      actor?: string,
+    ): Promise<void>
     /** Merges into the subject's attribute bag; invalidates the subject's cache entry. */
     setAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
     getAttributes(subjectId: string): Promise<IamPrimitives.Attributes>

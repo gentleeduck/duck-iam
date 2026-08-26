@@ -98,6 +98,17 @@ function makePrismaMock() {
         }
         return { count: before - assignments.length }
       }),
+      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        let count = 0
+        for (const a of assignments as unknown as Record<string, unknown>[]) {
+          const matches = Object.entries(where).every(([k, v]) => k !== 'NOT' && a[k] === v)
+          if (matches) {
+            Object.assign(a, data)
+            count++
+          }
+        }
+        return { count }
+      }),
     },
     accessSubjectAttr: {
       findUnique: vi.fn(async ({ where }: { where: { subjectId: string } }) => attrs.get(where.subjectId) ?? null),

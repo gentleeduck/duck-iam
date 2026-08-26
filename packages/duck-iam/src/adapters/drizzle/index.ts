@@ -28,6 +28,8 @@ export namespace IamDrizzle {
     ops: {
       eq: (col: unknown, val: unknown) => unknown
       and: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
+      /** Builds an `IS NULL` condition. Optional - omit to keep reads unfiltered on `deletedAt`. */
+      isNull?: (col: unknown) => SQLWrapper
     }
     /**
      * JSON column encoding strategy.
@@ -72,6 +74,7 @@ export namespace IamDrizzle {
   export interface AnyDrizzleDb {
     select(...args: any[]): any
     insert(table: any): any
+    update(table: any): any
     delete(table: any): any
   }
 }
@@ -107,6 +110,7 @@ export class IamDrizzleAdapter<
   private readonly _t: IamDrizzle.IConfig<TDb, TType>['tables']
   private readonly _eq: IamDrizzle.IConfig<TDb, TType>['ops']['eq']
   private readonly _and: IamDrizzle.IConfig<TDb, TType>['ops']['and']
+  private readonly _isNull?: IamDrizzle.IConfig<TDb, TType>['ops']['isNull']
   private readonly _json: 'native' | 'string'
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
 
@@ -120,8 +124,16 @@ export class IamDrizzleAdapter<
     this._t = config.tables
     this._eq = config.ops.eq
     this._and = config.ops.and
+    this._isNull = config.ops.isNull
     this._json = config.json ?? 'native'
     this._onPolicyError = config.onPolicyError
+  }
+
+  /** `deletedAt IS NULL` for a table, or undefined when `ops.isNull` is unset or the table has no such column. */
+  private _notDeleted(table: IamDrizzle.DrizzleTable): SQLWrapper | undefined {
+    if (!this._isNull) return undefined
+    const col = (table as unknown as { deletedAt?: unknown }).deletedAt
+    return col === undefined ? undefined : this._isNull(col)
   }
 
   /**
@@ -130,18 +142,28 @@ export class IamDrizzleAdapter<
    * untyped rows; row shapes are pinned at the boundary here.
    */
   private async _selectAll<T>(table: IamDrizzle.DrizzleTable): Promise<T[]> {
-    return await this._db.select().from(table)
+    const notDeleted = this._notDeleted(table)
+    const query = this._db.select().from(table)
+    return notDeleted ? await query.where(notDeleted) : await query
   }
   private async _selectFirst<T>(
     table: IamDrizzle.DrizzleTable,
     whereCol: unknown,
     whereVal: unknown,
   ): Promise<T | undefined> {
-    const rows = await this._db.select().from(table).where(this._eq(whereCol, whereVal)).limit(1)
+    const notDeleted = this._notDeleted(table)
+    const where = notDeleted
+      ? this._and(this._eq(whereCol, whereVal) as SQLWrapper, notDeleted)
+      : this._eq(whereCol, whereVal)
+    const rows = await this._db.select().from(table).where(where).limit(1)
     return rows[0]
   }
   private async _selectWhere<T>(table: IamDrizzle.DrizzleTable, whereCol: unknown, whereVal: unknown): Promise<T[]> {
-    return await this._db.select().from(table).where(this._eq(whereCol, whereVal))
+    const notDeleted = this._notDeleted(table)
+    const where = notDeleted
+      ? this._and(this._eq(whereCol, whereVal) as SQLWrapper, notDeleted)
+      : this._eq(whereCol, whereVal)
+    return await this._db.select().from(table).where(where)
   }
 
   private _reportPolicyError(err: Error, rowId: string): void {
@@ -405,6 +427,51 @@ export class IamDrizzleAdapter<
     ]
     if (scope) conditions.push(this._eq(this._t.assignments.scope, scope))
     await this._db.delete(this._t.assignments).where(this._and(...(conditions as (SQLWrapper | undefined)[])))
+  }
+
+  /**
+   * Moves `(subjectId, roleId, fromScope)` to `toScope` with one `UPDATE`. Requires
+   * `ops.isNull` (the global/unscoped case needs `IS NULL`, not `eq(col, null)`);
+   * without it, or when nothing matches `fromScope`, returns `false` so the engine
+   * falls back to revoke + assign.
+   */
+  async updateAssignmentScope(
+    subjectId: string,
+    roleId: TRole,
+    fromScope: TScope | undefined,
+    toScope: TScope | undefined,
+    actor?: string,
+  ): Promise<boolean> {
+    if (!this._isNull) return false
+    const table = this._t.assignments as unknown as { subjectId: unknown; roleId: unknown; scope: unknown }
+    const scopeCondition = (scope: TScope | undefined) =>
+      scope === undefined ? (this._isNull as (col: unknown) => SQLWrapper)(table.scope) : this._eq(table.scope, scope)
+
+    const fromCondition = this._and(
+      this._eq(table.subjectId, subjectId) as SQLWrapper,
+      this._eq(table.roleId, roleId) as SQLWrapper,
+      scopeCondition(fromScope) as SQLWrapper,
+    )
+    const existing = await this._db.select().from(this._t.assignments).where(fromCondition).limit(1)
+    if (!existing[0]) return false
+
+    const toCondition = this._and(
+      this._eq(table.subjectId, subjectId) as SQLWrapper,
+      this._eq(table.roleId, roleId) as SQLWrapper,
+      scopeCondition(toScope) as SQLWrapper,
+    )
+    const conflict = await this._db.select().from(this._t.assignments).where(toCondition).limit(1)
+    if (conflict[0]) {
+      // Target scope is already granted; drop the source row rather than collide with it.
+      await this._db.delete(this._t.assignments).where(fromCondition)
+      return true
+    }
+
+    await this._db
+      .update(this._t.assignments)
+      .set({ scope: toScope ?? null, ...(actor !== undefined && { updatedBy: actor }) })
+      .where(fromCondition)
+    return true
   }
 
   /**

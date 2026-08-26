@@ -448,6 +448,44 @@ describe('Engine.admin - CRUD operations', () => {
     expect(await engine.can('user-new', 'read', { type: 'post', attributes: {} })).toBe(false)
   })
 
+  it('updateAssignmentScope moves a grant to a new scope via the adapter (memory: in place)', async () => {
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [editorRole] })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+
+    await engine.admin.assignRole('user-moved', 'editor', 'org-1')
+    await engine.admin.updateAssignmentScope('user-moved', 'editor', 'org-1', 'org-2')
+
+    const scoped = await adapter.getSubjectScopedRoles?.('user-moved')
+    expect(scoped).toEqual([{ role: 'editor', scope: 'org-2' }])
+  })
+
+  it('updateAssignmentScope falls back to revoke + assign when the adapter has no in-place update', async () => {
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [editorRole] })
+    // Strip the optional capability to exercise the engine's fallback path.
+    // biome-ignore lint/performance/noDelete: test-only, deleting the optional method to simulate an adapter without it
+    delete (adapter as { updateAssignmentScope?: unknown }).updateAssignmentScope
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+
+    await engine.admin.assignRole('user-fallback', 'editor', 'org-1')
+    await engine.admin.updateAssignmentScope('user-fallback', 'editor', 'org-1', 'org-2')
+
+    const scoped = await adapter.getSubjectScopedRoles?.('user-fallback')
+    expect(scoped).toEqual([{ role: 'editor', scope: 'org-2' }])
+  })
+
+  it('updateAssignmentScope invalidates the subject cache so a subsequent can() sees the new scope', async () => {
+    const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({ roles: [editorRole] })
+    const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60_000 })
+
+    await engine.admin.assignRole('user-cache', 'editor', 'org-1')
+    await engine.can('user-cache', 'create', { type: 'post', attributes: {} }, undefined, 'org-1')
+
+    await engine.admin.updateAssignmentScope('user-cache', 'editor', 'org-1', 'org-2')
+
+    expect(await engine.can('user-cache', 'create', { type: 'post', attributes: {} }, undefined, 'org-1')).toBe(false)
+    expect(await engine.can('user-cache', 'create', { type: 'post', attributes: {} }, undefined, 'org-2')).toBe(true)
+  })
+
   it('savePolicy / deletePolicy', async () => {
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>()
     const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })

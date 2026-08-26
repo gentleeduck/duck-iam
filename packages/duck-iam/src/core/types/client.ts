@@ -38,6 +38,18 @@ export namespace IamClient {
   > = Record<PermissionKey<TAction, TResource, TScope>, boolean>
 
   /**
+   * What `engine.permissions()` actually returns: only the keys that were in the
+   * batch. {@link PermissionMap} requires every combination, which no caller ever
+   * has, so anything consuming a resolved map takes this instead. Lookups already
+   * default a missing key to `false`, so the two behave identically at runtime.
+   */
+  export type PartialPermissionMap<
+    TAction extends string = string,
+    TResource extends string = string,
+    TScope extends string = string,
+  > = Partial<PermissionMap<TAction, TResource, TScope>>
+
+  /**
    * Permission check descriptor for batch evaluation. Pass an array of these to
    * `engine.permissions()` or `access.checks()`.
    *

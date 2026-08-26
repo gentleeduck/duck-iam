@@ -68,6 +68,7 @@ function makeMock(initialAttrs: Row[]) {
           }) as unknown as ReturnType<TestConfig['db']['select']>,
       ) as unknown as TestConfig['db']['select'],
       insert: vi.fn(),
+      update: vi.fn(),
       delete: vi.fn(),
     },
     tables: tableRefs,
