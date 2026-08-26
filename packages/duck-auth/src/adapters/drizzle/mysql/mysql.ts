@@ -278,11 +278,7 @@ export function createDrizzleMysqlBridge<
         await db.insert(authSessions).values(row)
       },
       findByHash: async (sidHash) => {
-        const rows = await db
-          .select()
-          .from(authSessions)
-          .where(eq(authSessions.id, sidHash))
-          .limit(1)
+        const rows = await db.select().from(authSessions).where(eq(authSessions.id, sidHash)).limit(1)
         return reviveSessionRow(rows[0] ?? null)
       },
       update: async (id, patch) => {
@@ -294,10 +290,7 @@ export function createDrizzleMysqlBridge<
         await db.delete(authSessions).where(eq(authSessions.id, id))
       },
       listByIdentity: async (identityId) => {
-        const rows = await db
-          .select()
-          .from(authSessions)
-          .where(eq(authSessions.identityId, identityId))
+        const rows = await db.select().from(authSessions).where(eq(authSessions.identityId, identityId))
         return rows.map(reviveSessionRowRequired)
       },
       deleteAllForIdentity: async (identityId) => {
