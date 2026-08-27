@@ -1,5 +1,25 @@
 # @gentleduck/iam
 
+## 5.6.0
+
+### Minor Changes
+
+- `iam_assignments` gains `starts_at`, `expires_at`, and `attributes` columns across
+  the pg, mysql, and sqlite drizzle schemas. `getSubjectRoles`/`getSubjectScopedRoles`
+  now filter out assignments outside their `[startsAt, expiresAt)` window; a row with
+  both NULL behaves exactly as before these columns existed.
+
+  `IScopedRole` gains an optional `attributes` field, populated from the new column so
+  a policy condition can read per-grant data (department, region, whatever the caller
+  stores) as `subject.scopedRoles[].attributes`, distinct from the subject's own global
+  attributes. A corrupted `attributes` value drops just that field and reports through
+  `onPolicyError`, it does not fail the whole role.
+
+  `ISubjectStore.assignRole` gains an optional fourth `opts: IamAdapter.IAssignOptions`
+  parameter (`startsAt`/`expiresAt`/`attributes`), implemented by the drizzle adapter.
+  Purely additive - every other adapter (memory, file, redis, prisma, http) still
+  satisfies the interface unchanged.
+
 ## 5.5.1
 
 ### Patch Changes
