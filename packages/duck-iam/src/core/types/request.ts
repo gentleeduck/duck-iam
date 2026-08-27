@@ -13,6 +13,13 @@ export namespace IamRequest {
     readonly role: TRole
     /** The scope this role assignment is restricted to. */
     readonly scope?: TScope
+    /**
+     * Per-assignment attributes (e.g. department, region) available to policy
+     * conditions as `subject.scopedRoles[].attributes`. Distinct from
+     * {@link ISubject.attributes} - those describe the subject globally, these
+     * describe this one grant. Undefined when the adapter/storage carries none.
+     */
+    readonly attributes?: IamPrimitives.Attributes
   }
 
   /**

@@ -96,7 +96,10 @@ export const iamRoles = sqliteTable(
   ],
 )
 
-/** Subject-to-role assignments. NULL scope is a global (unscoped) grant. */
+/**
+ * Subject-to-role assignments. NULL scope is a global (unscoped) grant. NULL
+ * `starts_at`/`expires_at` means unbounded in that direction.
+ */
 export const iamAssignments = sqliteTable(
   'iam_assignments',
   {
@@ -106,6 +109,9 @@ export const iamAssignments = sqliteTable(
     subjectId: text('subject_id').notNull(),
     roleId: text('role_id').notNull(),
     scope: text('scope'),
+    startsAt: integer('starts_at', { mode: 'timestamp_ms' }),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }),
+    attributes: text('attributes').$type<string>(),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
@@ -125,9 +131,14 @@ export const iamAssignments = sqliteTable(
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
     index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
+    index('idx_iam_assignments_expires_at').on(t.expiresAt).where(sql`${t.expiresAt} IS NOT NULL`),
     check(
       'ch_iam_assignments_subject_not_blank',
       sql`trim(${t.subjectId}, char(32) || char(9) || char(10) || char(11) || char(12) || char(13)) <> ''`,
+    ),
+    check(
+      'ch_iam_assignments_starts_before_expires',
+      sql`${t.startsAt} IS NULL OR ${t.expiresAt} IS NULL OR ${t.startsAt} < ${t.expiresAt}`,
     ),
   ],
 )

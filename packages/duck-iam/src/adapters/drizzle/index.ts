@@ -238,6 +238,39 @@ export class IamDrizzleAdapter<
     return role
   }
 
+  /** True unless `now` falls outside `[startsAt, expiresAt)`. Both bounds are optional. */
+  private _isActive(row: IamDrizzle.AssignmentRow, now: number): boolean {
+    const startsAt = row.startsAt ? new Date(row.startsAt).getTime() : null
+    const expiresAt = row.expiresAt ? new Date(row.expiresAt).getTime() : null
+    if (startsAt !== null && now < startsAt) return false
+    if (expiresAt !== null && now >= expiresAt) return false
+    return true
+  }
+
+  /**
+   * Parses an assignment's `attributes` column. Corruption drops just this field
+   * (reported, not thrown) - unlike subject attributes, a bad value here shouldn't
+   * fail the whole role list.
+   */
+  private _parseAssignmentAttributes(row: IamDrizzle.AssignmentRow): IamPrimitives.Attributes | undefined {
+    const raw = row.attributes
+    if (raw === null || raw === undefined) return undefined
+    // mysql's id has no adapter-side default, so AssignmentRow.id is nullable there.
+    const rowId = row.id ?? row.subjectId
+    let value: unknown
+    try {
+      value = typeof raw === 'string' ? JSON.parse(raw) : raw
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
+      return undefined
+    }
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      this._reportPolicyError(new Error(`Assignment attributes for "${rowId}" must be a JSON object`), rowId)
+      return undefined
+    }
+    return value as IamPrimitives.Attributes
+  }
+
   /**
    * Lists every policy in the database.
    *
@@ -356,7 +389,8 @@ export class IamDrizzleAdapter<
       subjectId,
     )
     // Unscoped (global) roles only - mirrors file/memory/redis adapters.
-    return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
+    const now = Date.now()
+    return [...new Set(rows.filter((r) => r.scope == null && this._isActive(r, now)).map((r) => r.roleId as TRole))]
   }
 
   /**
@@ -375,7 +409,17 @@ export class IamDrizzleAdapter<
       this._t.assignments.subjectId,
       subjectId,
     )
-    return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
+    const now = Date.now()
+    return rows
+      .filter((r) => r.scope != null && this._isActive(r, now))
+      .map((r) => {
+        const attributes = this._parseAssignmentAttributes(r)
+        return {
+          role: r.roleId as TRole,
+          scope: r.scope as TScope,
+          ...(attributes !== undefined && { attributes }),
+        }
+      })
   }
 
   /**
@@ -386,12 +430,20 @@ export class IamDrizzleAdapter<
    * @param subjectId - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
+   * @param opts - Optional temporal bounds and per-grant attributes.
    * @returns Resolves once the insert completes.
    */
-  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     await this._db
       .insert(this._t.assignments)
-      .values({ subjectId, roleId, scope: scope ?? null })
+      .values({
+        subjectId,
+        roleId,
+        scope: scope ?? null,
+        startsAt: opts?.startsAt ?? null,
+        expiresAt: opts?.expiresAt ?? null,
+        attributes: opts?.attributes ? encodeJson(opts.attributes, this._json) : null,
+      })
       .onConflictDoNothing()
   }
 

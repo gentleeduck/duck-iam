@@ -89,7 +89,11 @@ export const iamRoles = mysqlTable(
   ],
 )
 
-/** Subject-to-role assignments. NULL scope is a global (unscoped) grant. */
+/**
+ * Subject-to-role assignments. NULL scope is a global (unscoped) grant. NULL
+ * `starts_at`/`expires_at` means unbounded in that direction - a grant with both
+ * NULL never expires, matching every assignment before this column existed.
+ */
 export const iamAssignments = mysqlTable(
   'iam_assignments',
   {
@@ -97,6 +101,9 @@ export const iamAssignments = mysqlTable(
     subjectId: varchar('subject_id', { length: 191 }).notNull(),
     roleId: varchar('role_id', { length: 191 }).notNull(),
     scope: varchar('scope', { length: 191 }),
+    startsAt: datetime('starts_at', { fsp: 3 }),
+    expiresAt: datetime('expires_at', { fsp: 3 }),
+    attributes: json('attributes').$type<IamPrimitives.Attributes>(),
     createdBy: varchar('created_by', { length: 191 }),
     updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
@@ -115,7 +122,12 @@ export const iamAssignments = mysqlTable(
     uniqueIndex('uq_iam_assignments_subject_role_scope').on(t.subjectId, t.roleId, sql`(coalesce(${t.scope}, ''))`),
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
+    index('idx_iam_assignments_expires_at').on(t.expiresAt),
     check('ch_iam_assignments_subject_not_blank', sql`${t.subjectId} REGEXP '[^[:space:]]'`),
+    check(
+      'ch_iam_assignments_starts_before_expires',
+      sql`${t.startsAt} IS NULL OR ${t.expiresAt} IS NULL OR ${t.startsAt} < ${t.expiresAt}`,
+    ),
   ],
 )
 

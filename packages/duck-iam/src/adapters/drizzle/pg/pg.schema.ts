@@ -94,7 +94,11 @@ export const iamRoles = pgTable(
   ],
 )
 
-/** Subject-to-role assignments. NULL `scope` is a global (unscoped) grant. */
+/**
+ * Subject-to-role assignments. NULL `scope` is a global (unscoped) grant. NULL
+ * `starts_at`/`expires_at` means unbounded in that direction - a grant with both
+ * NULL never expires, matching every assignment before this column existed.
+ */
 export const iamAssignments = pgTable(
   'iam_assignments',
   {
@@ -104,6 +108,9 @@ export const iamAssignments = pgTable(
     subjectId: text('subject_id').notNull(),
     roleId: text('role_id').notNull(),
     scope: text('scope'),
+    startsAt: timestamp('starts_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    attributes: jsonb('attributes').$type<IamPrimitives.Attributes>(),
     createdBy: text('created_by'),
     updatedBy: text('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -123,8 +130,13 @@ export const iamAssignments = pgTable(
     index('idx_iam_assignments_subject').on(t.subjectId),
     index('idx_iam_assignments_role').on(t.roleId),
     index('idx_iam_assignments_subject_scope').on(t.subjectId, t.scope).where(sql`${t.scope} IS NOT NULL`),
+    index('idx_iam_assignments_expires_at').on(t.expiresAt).where(sql`${t.expiresAt} IS NOT NULL`),
     check('ch_iam_assignments_subject_not_blank', sql`${t.subjectId} ~ '[^[:space:]]'`),
     check('ch_iam_assignments_scope_not_blank', sql`${t.scope} IS NULL OR ${t.scope} ~ '[^[:space:]]'`),
+    check(
+      'ch_iam_assignments_starts_before_expires',
+      sql`${t.startsAt} IS NULL OR ${t.expiresAt} IS NULL OR ${t.startsAt} < ${t.expiresAt}`,
+    ),
   ],
 )
 

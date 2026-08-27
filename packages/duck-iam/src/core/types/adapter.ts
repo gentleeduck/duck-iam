@@ -11,6 +11,13 @@ export namespace IamAdapter {
     readonly signal?: AbortSignal
   }
 
+  /** Optional extras for {@link ISubjectStore.assignRole}: temporal bounds and per-grant attributes. */
+  export interface IAssignOptions {
+    readonly startsAt?: Date
+    readonly expiresAt?: Date
+    readonly attributes?: IamPrimitives.Attributes
+  }
+
   /**
    * Storage interface for ABAC policies.
    *
@@ -74,8 +81,8 @@ export namespace IamAdapter {
     getSubjectRoles(subjectId: string, opts?: IReadOptions): Promise<TRole[]>
     /** Scoped role assignments. Optional - only when multi-tenant scoped roles are in use. */
     getSubjectScopedRoles?(subjectId: string, opts?: IReadOptions): Promise<IamRequest.IScopedRole<TRole, TScope>[]>
-    /** Assigns a role to a subject, optionally within a scope. */
-    assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
+    /** Assigns a role to a subject, optionally within a scope. `opts` is honoured by adapters that support it. */
+    assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IAssignOptions): Promise<void>
     /** Revokes a role from a subject, optionally within a scope. */
     revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
     /**
