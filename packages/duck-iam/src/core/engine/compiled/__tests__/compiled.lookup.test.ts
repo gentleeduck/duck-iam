@@ -62,7 +62,6 @@ function req(subjectRoles: string[], action: string, resource: string): IamReque
 
 describe('lookup: phase 1 (ROLE_MASK + CONST_ALLOW), differential vs evaluateFast', () => {
   const table = compileTable(roles, policies)
-  // Merge RBAC policy (converted from roles) with regular policies for evaluateFast differential tests
   const rbacPolicy = rolesToPolicy(roles)
   const mergedPolicies = rbacPolicy.rules.length > 0 ? [rbacPolicy, ...policies] : policies
 
@@ -103,9 +102,7 @@ describe('lookup: phase 1 (ROLE_MASK + CONST_ALLOW), differential vs evaluateFas
   })
 
   it('untouched cell: signals fallthrough, does not silently deny', () => {
-    // lookup() returns 'fallthrough' for untouched cells (compiled-table-only signal).
-    // evaluateFast has no 'fallthrough' concept — it always returns a real verdict.
-    // Callers must route lookup's 'fallthrough' to evaluateFast to get the true answer.
+    // 'fallthrough' is a compiled-table-only signal; callers must route it to evaluateFast.
     expect(lookup(table, 0, 'update', 'comment')).toBe('fallthrough')
     const interpreterResult = evaluateFast(mergedPolicies, req([], 'update', 'comment'), 'deny', 'allow-overrides')
     expect(typeof interpreterResult).toBe('boolean')

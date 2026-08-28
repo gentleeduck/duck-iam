@@ -52,15 +52,10 @@ describe('compileTable: DYNAMIC cells', () => {
 
     const subject: IamRequest.ISubject = { id: 'user1', roles: [], attributes: {} }
 
-    // Condition fails: subject.id !== resource.attributes.ownerId. If the
-    // interpreter agreed with a naive CONST_ALLOW classification, this
-    // would incorrectly return true. It must return false, proving the
-    // rule's condition is actually evaluated - never short-circuited.
     const denyingResource: IamRequest.IResource = { type: 'post', attributes: { ownerId: 'someone-else' } }
     const denyingRequest: IamRequest.IAccessRequest = { subject, action: 'update', resource: denyingResource }
     expect(evaluateFast(policies, denyingRequest)).toBe(false)
 
-    // Condition holds: subject.id === resource.attributes.ownerId.
     const allowingResource: IamRequest.IResource = { type: 'post', attributes: { ownerId: 'user1' } }
     const allowingRequest: IamRequest.IAccessRequest = { subject, action: 'update', resource: allowingResource }
     expect(evaluateFast(policies, allowingRequest)).toBe(true)
@@ -233,8 +228,6 @@ describe('DYNAMIC cell evaluation: every operator, differential vs evaluateFast'
     ]
     const t = compileTable(roles, policies)
     const adminMask = 1 << t.roleId.get('admin')!
-    // resource.attributes.v is absent -> the DYNAMIC condition itself would fail,
-    // but the role permission is a separate ROLE_MASK grant folded into `allow`.
     expect(
       lookup(t, adminMask, 'act', 'res', {
         subject: { id: 'u', roles: ['admin'], attributes: {} },

@@ -16,12 +16,7 @@ function hasConditions(group: AccessControl.IConditionGroup): boolean {
         : false
 }
 
-/**
- * Compiles roles + policies into a flat lookup table. Excludes: wildcard
- * action/resource rules, and any policy with `targets` set — both fall
- * through to `evaluateFast` unchanged (see engine-rewrite.md, "What phase 4
- * does not attempt").
- */
+/** Compiles roles + policies into a flat lookup table. Wildcard rules and `targets`-scoped policies fall through to `evaluateFast` unchanged. */
 export function compileTable(
   roles: readonly AccessControl.IRole[],
   policies: readonly AccessControl.IPolicy[],
@@ -55,8 +50,7 @@ export function compileTable(
   const deny = new Uint32Array(actions.length * nR)
   const dynamic: (readonly DynamicPolicyGroup[] | undefined)[] = new Array(actions.length * nR)
 
-  // Close inheritance once; invert to holders[roleIdx] = every role whose
-  // effective set contains roleIdx (same rule resolveEffectiveRoles uses).
+  // holders[roleIdx] = every role whose effective (inherited) set includes roleIdx.
   const byId = new Map(roles.map((r) => [r.id, r]))
   const effective: number[][] = roles.map((r) => {
     const out: number[] = []
@@ -93,13 +87,11 @@ export function compileTable(
     }
   }
 
-  // Track cells touched by allow and deny rules to detect conflicts
   const allowIndices = new Set<number>()
   const denyIndices = new Set<number>()
 
   for (const policy of policies) {
     if (policy.targets) continue
-    // Pre-group this policy's own DYNAMIC candidates per cell before merging into `dynamic`.
     const policyDynamic = new Map<number, AccessControl.IRule[]>()
     for (const rule of policy.rules) {
       const conditional = hasConditions(rule.conditions)
@@ -133,7 +125,7 @@ export function compileTable(
     }
   }
 
-  // Force conflicted cells (both allow and deny touched) to untouched to fall through to evaluateFast
+  // Conflicting allow+deny on the same cell: fall through to evaluateFast.
   for (const idx of allowIndices) {
     if (denyIndices.has(idx)) {
       touched[idx] = 0

@@ -20,21 +20,15 @@ function evaluateDynamicCell(
       const decision = combiners[group.algorithm](matched, defaultEffect)
       perPolicy.push(decision.effect === 'allow')
     } catch {
-      // A single rotten rule (regex-too-large, etc.) drops its policy as
-      // NotApplicable, same as evaluateFast's safeEval — never poisons the
-      // whole cell.
+      // Rotten rule drops its policy as NotApplicable, same as evaluateFast's safeEval.
     }
   }
   if (perPolicy.length === 0) return defaultEffect === 'allow'
   if (policyCombine === 'allow-overrides') return perPolicy.some(Boolean)
-  return perPolicy.every(Boolean) // 'and' (and 'first-applicable', blocked at Engine construction in production)
+  return perPolicy.every(Boolean)
 }
 
-/**
- * Phase 2 lookup. `req` is required once a cell can be DYNAMIC; omit it only
- * when the caller already knows every cell it queries is CONST/ROLE_MASK.
- * Returns `'fallthrough'` for any cell compileTable() never touched.
- */
+/** `'fallthrough'` means compileTable() never touched this cell — route to evaluateFast. */
 export function lookup(
   table: CompiledTable,
   mask: number,
@@ -60,14 +54,7 @@ export function lookup(
   return evaluateDynamicCell(groups, req, defaultEffect, policyCombine)
 }
 
-/**
- * Resolves the scope overlay `(base | scopeAllow) & ~scopeDeny` before
- * calling `lookup()`, so ROLE_MASK and DYNAMIC cells both get scope for
- * free without their own scope-aware branch. `scopeDeny` gates the whole
- * cell outright, including DYNAMIC's role-bypass fast path and its rule
- * closures - scope narrows what role-bits reach a cell, it never bypasses
- * a real ABAC condition. See engine-rewrite.md, "Hierarchical scope."
- */
+/** Applies `(base | scopeAllow) & ~scopeDeny` before `lookup()`, so ROLE_MASK and DYNAMIC cells both get scope for free. */
 export function lookupScoped(
   table: CompiledTable,
   baseMask: number,

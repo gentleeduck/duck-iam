@@ -20,11 +20,7 @@ export function buildScopeTrie(
   return trie
 }
 
-/**
- * `'union'`: OR every matching ancestor level's mask in (org + team grants both apply).
- * `'override'`: stop at the first (most specific) matching level.
- * Mirrors `enrichSubjectWithScopedRoles`'s `scopeCombine` (engine.libs.ts) at the mask level.
- */
+/** `'union'` ORs every matching ancestor level in; `'override'` stops at the most specific match. */
 export function resolveScopeMask(
   trie: ReadonlyMap<string, ScopeMask>,
   scope: string,
