@@ -23,7 +23,11 @@ function evaluateDynamicCell(
   onPolicyError?: OnPolicyError,
 ): boolean | null {
   const perPolicy: boolean[] = []
+  const subjectRoles = Array.isArray(req.subject.roles) ? req.subject.roles : []
   for (const group of groups) {
+    // Role-targeted group: subject without the role doesn't get a vote from it at all
+    // (same as policyApplies()'s target check) - not a deny, just not a voter.
+    if (group.targetRoles && !group.targetRoles.some((r) => subjectRoles.includes(r))) continue
     try {
       const matched = group.rules
         .filter((rule) => evalConditionGroup(req, rule.conditions, 0, caches))

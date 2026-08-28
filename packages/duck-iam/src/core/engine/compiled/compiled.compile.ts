@@ -21,9 +21,13 @@ function hasConditions(group: AccessControl.IConditionGroup): boolean {
         : false
 }
 
-/** targets-scoped, or any rule uses a non-literal action/resource - whole policy stays out of the flat model. */
+/**
+ * Action/resource-targeted, or any rule uses a non-literal action/resource - stays out of
+ * the flat model. A role-only `targets` restriction IS compilable - see `targetRoles` on
+ * `DynamicPolicyGroup`.
+ */
 function isResidualPolicy(policy: AccessControl.IPolicy): boolean {
-  if (policy.targets) return true
+  if (policy.targets?.actions?.length || policy.targets?.resources?.length) return true
   for (const rule of policy.rules) {
     for (const a of rule.actions) if (isWildcard(a)) return true
     for (const r of rule.resources) if (isWildcard(r)) return true
@@ -47,9 +51,9 @@ function isSimplePermission(perm: AccessControl.IPermission, role: AccessControl
  * Compiles roles + policies into a flat lookup table. RBAC and ABAC are kept as two
  * independently-computed votes combined at request time in `lookup()` - see
  * `compiled.types.ts`'s `rbacResidual` doc for why the two RBAC halves (mask bits +
- * residual policy) must never be treated as separate voters. Everything else (targeted
- * policies, wildcard-pattern rules) becomes a residual policy evaluated per-request via
- * `evaluatePolicyFast`.
+ * residual policy) must never be treated as separate voters. Wildcard rules and
+ * action/resource-targeted policies become residual, evaluated per-request via
+ * `evaluatePolicyFast`; role-only-targeted policies compile in (see `isResidualPolicy`).
  */
 export function compileTable(
   roles: readonly AccessControl.IRole[],
@@ -163,9 +167,11 @@ export function compileTable(
   const groupsByIdx = new Map<number, DynamicPolicyGroup[]>()
 
   for (const policy of flatPolicies) {
+    // Role-targeted: answer depends on the subject's roles, so it can never be a CONST cell.
+    const targetRoles = policy.targets?.roles?.length ? policy.targets.roles : undefined
     const policyRules = new Map<number, AccessControl.IRule[]>()
     for (const rule of policy.rules) {
-      const conditional = hasConditions(rule.conditions)
+      const conditional = hasConditions(rule.conditions) || targetRoles !== undefined
       for (const act of rule.actions) {
         for (const res of rule.resources) {
           const a = actionId.get(act)
@@ -188,7 +194,7 @@ export function compileTable(
       }
     }
     for (const [idx, rules] of policyRules) {
-      const group: DynamicPolicyGroup = { policyId: policy.id, algorithm: policy.algorithm, rules, policy }
+      const group: DynamicPolicyGroup = { policyId: policy.id, algorithm: policy.algorithm, rules, policy, targetRoles }
       const existing = groupsByIdx.get(idx)
       if (existing) existing.push(group)
       else groupsByIdx.set(idx, [group])
@@ -212,7 +218,11 @@ export function compileTable(
       const real = groupsByIdx.get(idx)
       dynamic[idx] = flatPolicies.map((policy) => {
         const match = real?.find((g) => g.policyId === policy.id)
-        return match ?? { policyId: policy.id, algorithm: policy.algorithm, rules: [], policy }
+        if (match) return match
+        // Phantom group still needs targetRoles - otherwise a role-targeted policy with no
+        // rule at this cell would wrongly vote defaultEffect for every subject under 'and'.
+        const targetRoles = policy.targets?.roles?.length ? policy.targets.roles : undefined
+        return { policyId: policy.id, algorithm: policy.algorithm, rules: [], policy, targetRoles }
       })
     }
   } else {

@@ -327,7 +327,7 @@ describe("differential: 'allow-overrides' mode - zero behavior change", () => {
   })
 })
 
-describe('differential: residual policies (targets + wildcard rules) agree with evaluate()', () => {
+describe('differential: role-targeted policies (compiled) + wildcard rules (residual) agree with evaluate()', () => {
   const targeted: AccessControl.IPolicy = {
     id: 'admin-only',
     name: 'Admin Only',
@@ -346,9 +346,15 @@ describe('differential: residual policies (targets + wildcard rules) agree with 
     ],
   }
 
+  it('role-targeted policy compiles into the table (not residual) as a DYNAMIC cell', () => {
+    const t = compileTable([], [targeted], 'and')
+    expect(t.residualPolicies.map((p) => p.id)).not.toContain('admin-only')
+    const idx = t.actionId.get('purge')! * t.nResources + t.resourceId.get('cache')!
+    expect(t.kind[idx]).toBe(CellKind.DYNAMIC)
+  })
+
   it('targets-scoped policy: applies for a matching role, agrees with evaluate()', () => {
     const t = compileTable([], [targeted], 'and')
-    expect(t.residualPolicies.map((p) => p.id)).toContain('admin-only')
     const request = req(['admin'], 'purge', 'cache')
     const got = lookup(t, 0, 'purge', 'cache', request, 'deny')
     expect(got).toBe(true)
@@ -361,6 +367,31 @@ describe('differential: residual policies (targets + wildcard rules) agree with 
     const got = lookup(t, 0, 'purge', 'cache', request, 'deny')
     expect(got).toBe(false)
     expect(got).toBe(evaluate([targeted], request, 'deny', 'and').allowed)
+  })
+
+  it("regression: an editor-targeted policy's phantom vote (forced 'and', no rule at this cell) doesn't veto a viewer's unrelated grant", () => {
+    const untargeted: AccessControl.IPolicy = {
+      id: 'public-read',
+      name: 'Public read',
+      algorithm: 'allow-overrides',
+      rules: [
+        { id: 'pr', effect: 'allow', priority: 0, actions: ['read'], resources: ['post'], conditions: { all: [] } },
+      ],
+    }
+    const editorOnly: AccessControl.IPolicy = {
+      id: 'editor-update',
+      name: 'Editor update',
+      algorithm: 'allow-overrides',
+      targets: { roles: ['editor'] },
+      rules: [
+        { id: 'eu', effect: 'allow', priority: 0, actions: ['update'], resources: ['post'], conditions: { all: [] } },
+      ],
+    }
+    const t = compileTable([], [untargeted, editorOnly], 'and')
+    const request = req(['viewer'], 'read', 'post')
+    const got = lookup(t, 0, 'read', 'post', request, 'deny')
+    expect(got).toBe(true)
+    expect(got).toBe(evaluate([untargeted, editorOnly], request, 'deny', 'and').allowed)
   })
 
   it('wildcard-rule policy: matching action, agrees with evaluate()', () => {

@@ -11,6 +11,8 @@ export interface DynamicPolicyGroup {
   readonly rules: readonly import('../../types').AccessControl.IRule[]
   /** The policy itself, so a rotten rule can be reported via `onPolicyError`. */
   readonly policy: import('../../types').AccessControl.IPolicy
+  /** Subject must hold one of these roles for this group to vote. `undefined` = applies to everyone. */
+  readonly targetRoles?: readonly string[]
 }
 
 export interface CompiledTable {
