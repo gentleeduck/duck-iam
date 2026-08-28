@@ -3,6 +3,9 @@ import { rolesToPolicy } from '../../rbac'
 import type { AccessControl } from '../../types'
 import { CellKind, type CompiledTable, type DynamicPolicyGroup } from './compiled.types'
 
+/** `roleId`'s bit position is `1 << index`; a 32-bit mask can't address a 33rd role without aliasing an earlier one. */
+const MAX_ROLES = 32
+
 /** Not a literal string: `'*'`, or an action/resource prefix pattern (`'foo:*'`, `'foo.*'`). */
 function isWildcard(v: string): boolean {
   return v === '*' || v.endsWith(':*') || v.endsWith('.*')
@@ -40,12 +43,25 @@ function isSimplePermission(perm: AccessControl.IPermission, role: AccessControl
   return effectiveScope === undefined || effectiveScope === '*'
 }
 
-/** Compiles roles + policies into a flat lookup table. Everything else (targeted policies, wildcard rules, scoped/conditional role permissions) becomes a residual policy evaluated per-request via `evaluatePolicyFast`. */
+/**
+ * Compiles roles + policies into a flat lookup table. RBAC and ABAC are kept as two
+ * independently-computed votes combined at request time in `lookup()` - see
+ * `compiled.types.ts`'s `rbacResidual` doc for why the two RBAC halves (mask bits +
+ * residual policy) must never be treated as separate voters. Everything else (targeted
+ * policies, wildcard-pattern rules) becomes a residual policy evaluated per-request via
+ * `evaluatePolicyFast`.
+ */
 export function compileTable(
   roles: readonly AccessControl.IRole[],
   policies: readonly AccessControl.IPolicy[],
   policyCombine: AccessControl.PolicyCombine,
 ): CompiledTable {
+  if (roles.length > MAX_ROLES) {
+    throw new Error(
+      `[@gentleduck/iam:compiled] compileTable(): ${roles.length} roles exceeds the ${MAX_ROLES}-role limit the compiled table's 32-bit grant mask can address without bit-index aliasing (role N and role N+32 would silently share a bit). Reduce the role count, or route this deployment through mode: 'development' instead.`,
+    )
+  }
+
   const flatPolicies: AccessControl.IPolicy[] = []
   const residualPolicies: AccessControl.IPolicy[] = []
   for (const policy of policies) {
@@ -53,20 +69,25 @@ export function compileTable(
     else flatPolicies.push(policy)
   }
 
-  // Residual RBAC: same id/inherits/scope so inheritance still resolves, permissions
-  // filtered to only the ones that can't take the fast bit path.
+  // RBAC's residual half: same id/inherits/scope so inheritance still resolves,
+  // permissions filtered to only the ones that can't take the fast bit path. This is
+  // NOT pushed into `residualPolicies` - it is one half of the same logical RBAC vote
+  // the `allow` mask bits below are the other half of. See compiled.types.ts.
   const filteredRoles: AccessControl.IRole[] = roles.map((role) => ({
     ...role,
     permissions: role.permissions.filter((perm) => !isSimplePermission(perm, role)),
   }))
-  const rbacResidual = rolesToPolicy(filteredRoles)
-  if (rbacResidual.rules.length > 0) residualPolicies.push(rbacResidual)
+  const rbacResidualPolicy = rolesToPolicy(filteredRoles)
+  const rbacResidual = rbacResidualPolicy.rules.length > 0 ? rbacResidualPolicy : null
 
   const hasSimpleRoles = roles.some((role) => role.permissions.some((perm) => isSimplePermission(perm, role)))
-  const totalFlatSources = flatPolicies.length + (hasSimpleRoles ? 1 : 0)
-  const forceAndDynamic = policyCombine === 'and' && totalFlatSources > 1
-  const foldRbacIntoAnd = forceAndDynamic && hasSimpleRoles
-  const hasFlatSource = totalFlatSources > 0
+  const hasRbacSource = hasSimpleRoles || rbacResidual !== null
+
+  // RBAC is a single voter (folded in `lookup()`'s rbacVote()) - it does not enter the
+  // ABAC-only phantom-vote 'and'-soundness bookkeeping below, which only ever needs to
+  // reconcile multiple *flatPolicies* touching (or not touching) the same cell.
+  const forceAndDynamic = policyCombine === 'and' && flatPolicies.length > 1
+  const hasFlatSource = flatPolicies.length > 0
 
   const actionSet = new Set<string>()
   const resourceSet = new Set<string>()
@@ -95,7 +116,6 @@ export function compileTable(
   const kind = new Uint8Array(n)
   const touched = new Uint8Array(n)
   const allow = new Uint32Array(n)
-  const deny = new Uint32Array(n)
   const dynamic: (readonly DynamicPolicyGroup[] | undefined)[] = new Array(n)
 
   // holders[roleIdx] = every role whose effective (inherited) set includes roleIdx.
@@ -120,6 +140,8 @@ export function compileTable(
     }
   }
 
+  // Populates `allow` (the RBAC grant mask) only - `kind`/`touched` stay purely ABAC
+  // territory below; RBAC's vote is computed independently in `lookup()`.
   for (let i = 0; i < roles.length; i++) {
     for (const perm of roles[i]!.permissions) {
       if (!isSimplePermission(perm, roles[i]!)) continue
@@ -130,8 +152,6 @@ export function compileTable(
       let mask = 0
       for (const holder of holders[i]!) mask |= 1 << holder
       allow[idx]! |= mask
-      touched[idx] = 1
-      if (kind[idx] === CellKind.CONST_DENY) kind[idx] = CellKind.ROLE_MASK
     }
   }
 
@@ -168,7 +188,7 @@ export function compileTable(
       }
     }
     for (const [idx, rules] of policyRules) {
-      const group: DynamicPolicyGroup = { policyId: policy.id, algorithm: policy.algorithm, rules }
+      const group: DynamicPolicyGroup = { policyId: policy.id, algorithm: policy.algorithm, rules, policy }
       const existing = groupsByIdx.get(idx)
       if (existing) existing.push(group)
       else groupsByIdx.set(idx, [group])
@@ -183,15 +203,16 @@ export function compileTable(
   }
 
   if (forceAndDynamic) {
-    // Every cell touched by any flat source becomes a mandatory-voter DYNAMIC cell: one
-    // group per flatPolicies entry, phantom (`rules: []`) when that policy has none here.
+    // Every cell touched by any flatPolicies entry becomes a mandatory-voter DYNAMIC
+    // cell: one group per flatPolicies entry, phantom (`rules: []`) when that policy
+    // has none here.
     for (let idx = 0; idx < n; idx++) {
       if (touched[idx] === 0) continue
       kind[idx] = CellKind.DYNAMIC
       const real = groupsByIdx.get(idx)
       dynamic[idx] = flatPolicies.map((policy) => {
         const match = real?.find((g) => g.policyId === policy.id)
-        return match ?? { policyId: policy.id, algorithm: policy.algorithm, rules: [] }
+        return match ?? { policyId: policy.id, algorithm: policy.algorithm, rules: [], policy }
       })
     }
   } else {
@@ -209,10 +230,10 @@ export function compileTable(
     kind,
     touched,
     allow,
-    deny,
     dynamic,
     hasFlatSource,
-    foldRbacIntoAnd,
+    hasRbacSource,
+    rbacResidual,
     residualPolicies,
   }
 }

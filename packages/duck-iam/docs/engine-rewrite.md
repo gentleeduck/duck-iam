@@ -1016,7 +1016,7 @@ What changed from every phase above:
   builds and uses the compiled table. There is no non-compiled production
   path left to fall through to.
 - **`'and'`-mode soundness solved at compile time, not deferred.** Every
-  touched cell where more than one flat (RBAC + policy) source applies gets
+  touched cell where more than one *ABAC* flat policy applies gets
   classified `DYNAMIC` with one phantom zero-rule vote group per
   flat-eligible policy absent at that cell — `combiners[algorithm]([],
   defaultEffect)` already resolves an empty rule list correctly, so this
@@ -1024,6 +1024,39 @@ What changed from every phase above:
   `'and'` is now as sound as `'allow-overrides'`, at full compiled speed.
   `'first-applicable'` remains excluded (`mode: 'production'` rejects it at
   construction, unrelated to this design).
+- **RBAC is one independently-computed vote, never folded into the ABAC
+  phantom-vote bookkeeping above.** The first cut of this design tried to
+  fold the RBAC grant-mask bit into the *same* per-cell DYNAMIC machinery as
+  ABAC policies (a `ROLE_MASK` cell kind, a `foldRbacIntoAnd` flag). A final
+  whole-branch review caught that this double-counted RBAC whenever a role
+  held both a simple permission (the fast mask bit) and a complex one
+  (scope/conditions-restricted, evaluated via a synthesized residual
+  policy): the two halves became two independent `'and'` voters instead of
+  the single OR'd vote one `__rbac__` policy actually represents, so a role
+  with *any* complex permission anywhere could spuriously veto *every*
+  simple grant it held, system-wide, under the default `policyCombine:
+  'and'`. Fixed by making RBAC its own top-level vote —
+  `rbacVote()` in `compiled.lookup.ts` — computed as the mask-bit fast path
+  OR (on a miss) the residual policy's own vote, falling back to
+  `defaultEffect` only when neither matches. `CellKind.ROLE_MASK` and
+  `foldRbacIntoAnd` no longer exist; `CompiledTable.rbacResidual` is its own
+  field, deliberately kept out of `residualPolicies` so it can never again
+  be double-counted as an independent voter.
+- **A 33rd role silently aliases the first role's grant bit.** The same
+  review caught that the grant mask is a plain 32-bit integer with no cap
+  on role count — `1 << 32 === 1` in JS, so role index 32 (and 64, 96, ...)
+  collides with role index 0. `compileTable()` now throws past 32 roles
+  rather than silently granting an unrelated subject's permissions to a
+  33rd role's holders.
+- **The engine wiring fed `compileTable` the wrong policy list.** The
+  review also caught that `engine.ts` passed `compileTable` the
+  RBAC-merged policy list (`loadAllPolicies()`, which already includes a
+  synthesized `__rbac__` policy) instead of the raw adapter policies
+  `compileTable` expects to derive RBAC from itself — a second, independent
+  route to the same double-counting bug above, and (before the `rbacVote`
+  fix) enough on its own to force every ROLE_MASK-eligible cell into the
+  slower DYNAMIC path even with zero real ABAC policies configured. Fixed
+  by switching to the raw `loadPolicies()`.
 - **`lookupScoped()` and the scope trie (Phase 3) were deleted, not
   shipped.** They assumed a raw per-scope bitmask-grant data model that
   doesn't exist in this engine — real scoped-role grants are merged into
@@ -1061,24 +1094,44 @@ machine as "How the numbers were made" above.
 
 | Request shape | production (compiled) | development (interpreter) | Speedup |
 |---|---|---|---|
-| ROLE_MASK-covered (`update`/`post`) | 1.92M ops/s | 0.90M ops/s | **2.12x** |
-| DYNAMIC-covered (`read`/`post`, condition-gated) | 1.66M ops/s | 1.25M ops/s | **1.33x** |
+| RBAC mask-covered (`update`/`post`) | 2.39M ops/s | 0.44M ops/s | **5.40x** |
+| DYNAMIC-covered (`read`/`post`, condition-gated) | 1.62M ops/s | 0.96M ops/s | **1.69x** |
 
-Well short of the standalone prototype's 10-20x — expected, since this
+Numbers are post the RBAC-vote redesign below (`rbacVote()` computed as
+its own top-level vote, mask-hit-first). That redesign was a correctness
+fix, not a perf pass, but it measurably *beat* the already-fixed
+dynamic-import numbers on both shapes — the mask-hit fast path now
+short-circuits before ever calling `evaluatePolicyFast` on the RBAC
+residual, where the old design paid that cost unconditionally on every
+single lookup regardless of whether the mask bit already granted access.
+
+Still short of the standalone prototype's 10-20x — expected, since this
 number includes everything the prototype benchmarks factored out (subject
 resolution, hooks, scope enrichment, cache lookups). It's still a real,
 unconditional win on every production request, and it closes out all three
 "still unproven" bullets above: Phases 1-2 hold in the real integration,
 `lookupScoped` is moot (deleted), and `'and'`-mode is sound and fast.
 
-One regression surfaced and was fixed by this benchmark: the first wired
-version of `engine.ts` used `await import('./compiled/compiled.lookup')`
-inside the hot `authorize()`/`permissions()` paths — a dynamic import
-*per request*, intended for code-splitting but paid on every call, not
-just the first. That made production measurably *slower* than the
-interpreter it was replacing (0.70M vs 0.93M ops/s on the ROLE_MASK case).
-Fixed by making `lookup` a static top-level import; `compileTable` stays a
-dynamic import since it only runs on table (re)build, not per request.
+Two regressions surfaced and were fixed along the way, neither by intent —
+both self-discovered, one via this benchmark and one via a dispatched
+final whole-branch review:
+
+- The first wired version of `engine.ts` used
+  `await import('./compiled/compiled.lookup')` inside the hot
+  `authorize()`/`permissions()` paths — a dynamic import *per request*,
+  intended for code-splitting but paid on every call, not just the first.
+  That made production measurably *slower* than the interpreter it was
+  replacing (0.70M vs 0.93M ops/s on the ROLE_MASK case). Fixed by making
+  `lookup` a static top-level import; `compileTable` stays a dynamic
+  import since it only runs on table (re)build, not per request.
+- The review that followed caught three release-blocking correctness bugs
+  in that same wiring — RBAC double-voting under `'and'`, the engine
+  feeding `compileTable` an already-RBAC-merged policy list, and 32-bit
+  role-mask overflow past 32 roles — documented above under "What actually
+  shipped." All three are fixed and covered by new regression tests
+  (`compiled.engine-wiring.test.ts`, `compiled.compile.test.ts`,
+  `compiled.differential.test.ts`); the numbers in the table above are
+  measured *after* that fix.
 
 ---
 

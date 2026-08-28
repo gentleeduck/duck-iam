@@ -131,6 +131,72 @@ describe("production mode: 'and'-mode soundness (the bug this design exists to f
   })
 })
 
+describe('production mode: mixed simple+residual RBAC on one role (regression)', () => {
+  it("a scoped permission elsewhere on the same role does not veto the role's plain grant under 'and'", async () => {
+    const mixedRoles = [
+      {
+        id: 'editor',
+        name: 'Editor',
+        permissions: [
+          { action: 'read', resource: 'post' }, // simple
+          { action: 'update', resource: 'post', scope: 'org-1' }, // residual, unrelated cell
+        ],
+      },
+    ]
+    const adapter = new IamMemoryAdapter({
+      roles: mixedRoles,
+      policies: [],
+      assignments: { 'user-1': ['editor'] },
+      attributes: { 'user-1': {} },
+    })
+    const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' }) // 'and' default
+    const development = new IamEngine({
+      adapter: new IamMemoryAdapter({
+        roles: mixedRoles,
+        policies: [],
+        assignments: { 'user-1': ['editor'] },
+        attributes: { 'user-1': {} },
+      }),
+      defaultEffect: 'deny',
+    })
+    const resource = { type: 'post', attributes: {} }
+    expect(await production.can('user-1', 'read', resource)).toBe(true)
+    expect(await production.can('user-1', 'read', resource)).toBe(
+      (await development.check('user-1', 'read', resource)).allowed,
+    )
+  })
+})
+
+describe('production mode: role count beyond the 32-bit mask capacity', () => {
+  it('fails closed (deny) instead of aliasing role bits, and reports via onError', async () => {
+    const tooManyRoles = Array.from({ length: 33 }, (_, i) => ({
+      id: `role-${i}`,
+      name: `Role ${i}`,
+      permissions: i === 0 ? [{ action: 'delete', resource: 'secret' }] : [],
+    }))
+    const adapter = new IamMemoryAdapter({
+      roles: tooManyRoles,
+      policies: [],
+      assignments: { guest: ['role-32'] }, // aliases role-0's bit under the old (buggy) `1 << 32` behavior
+      attributes: { guest: {} },
+    })
+    let reportedError: Error | undefined
+    const production = new IamEngine({
+      adapter,
+      defaultEffect: 'deny',
+      mode: 'production',
+      hooks: {
+        onError: (err) => {
+          reportedError = err
+        },
+      },
+    })
+    const allowed = await production.can('guest', 'delete', { type: 'secret', attributes: {} })
+    expect(allowed).toBe(false)
+    expect(reportedError?.message).toMatch(/32/)
+  })
+})
+
 describe('production mode: invalidation rebuilds the compiled table', () => {
   it('a role invalidation drops a stale ROLE_MASK grant', async () => {
     const adapter = new IamMemoryAdapter({ roles, policies, assignments, attributes })

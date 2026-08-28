@@ -26,10 +26,13 @@ const policies: AccessControl.IPolicy[] = [
 ]
 
 describe('compileTable: basic classification (allow-overrides: unaffected by forceAndDynamic)', () => {
-  it('compiles a role permission to ROLE_MASK', () => {
+  it('compiles a role permission into the RBAC grant mask (kind stays untouched - RBAC is a separate vote)', () => {
     const t = compileTable(roles, policies, 'allow-overrides')
     const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('post')!
-    expect(t.kind[idx]).toBe(CellKind.ROLE_MASK)
+    // No ABAC flat policy touches read/post, so the ABAC-only `kind`/`touched`
+    // classification never sees this cell - only the RBAC mask does.
+    expect(t.touched[idx]).toBe(0)
+    expect(t.kind[idx]).toBe(CellKind.CONST_DENY)
     const viewerBit = 1 << t.roleId.get('viewer')!
     expect(t.allow[idx]! & viewerBit).not.toBe(0)
   })
@@ -53,9 +56,9 @@ describe('compileTable: basic classification (allow-overrides: unaffected by for
     expect(t.touched[idx]).toBe(0)
   })
 
-  it('marks a role-covered cell as touched', () => {
+  it('marks an ABAC-policy-covered cell as touched (touched is ABAC-only; RBAC-only cells stay untouched)', () => {
     const t = compileTable(roles, policies, 'allow-overrides')
-    const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('post')!
+    const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('comment')!
     expect(t.touched[idx]).toBe(1)
   })
 
@@ -139,9 +142,8 @@ describe('compileTable: role scope/conditions routing to the residual RBAC polic
     const t = compileTable(conditionalRoles, [], 'and')
     // Never entered the fast-bit universe: no policy/role produced a simple grant here.
     expect(t.actionId.has('update')).toBe(false)
-    const rbac = t.residualPolicies.find((p) => p.id === '__rbac__')
-    expect(rbac).toBeDefined()
-    expect(rbac!.rules).toHaveLength(1)
+    expect(t.rbacResidual).not.toBeNull()
+    expect(t.rbacResidual!.rules).toHaveLength(1)
   })
 
   it('a permission with a scope does not get an unconditional ROLE_MASK bit', () => {
@@ -150,16 +152,14 @@ describe('compileTable: role scope/conditions routing to the residual RBAC polic
     ]
     const t = compileTable(scopedRoles, [], 'and')
     expect(t.actionId.has('update')).toBe(false)
-    const rbac = t.residualPolicies.find((p) => p.id === '__rbac__')
-    expect(rbac).toBeDefined()
-    expect(rbac!.rules).toHaveLength(1)
+    expect(t.rbacResidual).not.toBeNull()
+    expect(t.rbacResidual!.rules).toHaveLength(1)
   })
 
-  it('a plain permission (no scope/conditions) still takes the fast ROLE_MASK path', () => {
+  it('a plain permission (no scope/conditions) still takes the fast mask path', () => {
     const t = compileTable(roles, [], 'and')
     expect(t.actionId.has('read')).toBe(true)
-    const rbac = t.residualPolicies.find((p) => p.id === '__rbac__')
-    expect(rbac).toBeUndefined()
+    expect(t.rbacResidual).toBeNull()
   })
 
   it('inheritance through a role with only complex permissions still resolves for the residual RBAC policy', () => {
@@ -178,17 +178,58 @@ describe('compileTable: role scope/conditions routing to the residual RBAC polic
       { id: 'child', name: 'Child', inherits: ['base'], permissions: [] },
     ]
     const t = compileTable(inheritedRoles, [], 'and')
-    const rbac = t.residualPolicies.find((p) => p.id === '__rbac__')
-    expect(rbac).toBeDefined()
+    expect(t.rbacResidual).not.toBeNull()
     // The permission is reachable both directly (holding 'base') and via inheritance
     // (holding 'child', which inherits 'base') - rolesToPolicy emits one rule per path.
-    expect(rbac!.rules.some((r) => JSON.stringify(r.conditions).includes('base'))).toBe(true)
-    expect(rbac!.rules.some((r) => JSON.stringify(r.conditions).includes('child'))).toBe(true)
+    expect(t.rbacResidual!.rules.some((r) => JSON.stringify(r.conditions).includes('base'))).toBe(true)
+    expect(t.rbacResidual!.rules.some((r) => JSON.stringify(r.conditions).includes('child'))).toBe(true)
   })
 })
 
-describe('compileTable: hasFlatSource / foldRbacIntoAnd bookkeeping', () => {
-  it('a table with only residual policies has no flat source', () => {
+describe('compileTable: rbacResidual is never a member of residualPolicies (it is a separate vote, see compiled.lookup)', () => {
+  it('a table with only complex role permissions keeps rbacResidual out of residualPolicies', () => {
+    const conditionalRoles: AccessControl.IRole[] = [
+      {
+        id: 'owner',
+        name: 'Owner',
+        permissions: [
+          {
+            action: 'update',
+            resource: 'post',
+            conditions: { all: [{ field: 'subject.id', operator: 'eq', value: '$resource.attributes.ownerId' }] },
+          },
+        ],
+      },
+    ]
+    const t = compileTable(conditionalRoles, [], 'and')
+    expect(t.rbacResidual).not.toBeNull()
+    expect(t.residualPolicies.map((p) => p.id)).not.toContain('__rbac__')
+    expect(t.residualPolicies).toHaveLength(0)
+  })
+})
+
+describe('compileTable: role count limit', () => {
+  it('throws when the role count exceeds the 32-bit mask capacity', () => {
+    const tooManyRoles: AccessControl.IRole[] = Array.from({ length: 33 }, (_, i) => ({
+      id: `role-${i}`,
+      name: `Role ${i}`,
+      permissions: [],
+    }))
+    expect(() => compileTable(tooManyRoles, [], 'and')).toThrow(/32/)
+  })
+
+  it('accepts exactly 32 roles', () => {
+    const roles32: AccessControl.IRole[] = Array.from({ length: 32 }, (_, i) => ({
+      id: `role-${i}`,
+      name: `Role ${i}`,
+      permissions: [],
+    }))
+    expect(() => compileTable(roles32, [], 'and')).not.toThrow()
+  })
+})
+
+describe('compileTable: hasFlatSource / hasRbacSource bookkeeping', () => {
+  it('a table with only residual policies has no ABAC flat source', () => {
     const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['read'] } }]
     const t = compileTable([], targeted, 'and')
     expect(t.hasFlatSource).toBe(false)
@@ -199,18 +240,31 @@ describe('compileTable: hasFlatSource / foldRbacIntoAnd bookkeeping', () => {
     expect(t.hasFlatSource).toBe(true)
   })
 
-  it("foldRbacIntoAnd is false under 'allow-overrides' regardless of source count", () => {
-    const t = compileTable(roles, policies, 'allow-overrides')
-    expect(t.foldRbacIntoAnd).toBe(false)
+  it('hasRbacSource is false when no role has any permission', () => {
+    const t = compileTable([{ id: 'empty', name: 'Empty', permissions: [] }], [], 'and')
+    expect(t.hasRbacSource).toBe(false)
   })
 
-  it("foldRbacIntoAnd is false under 'and' with a single flat source", () => {
+  it('hasRbacSource is true from a simple permission alone', () => {
     const t = compileTable(roles, [], 'and')
-    expect(t.foldRbacIntoAnd).toBe(false)
+    expect(t.hasRbacSource).toBe(true)
   })
 
-  it("foldRbacIntoAnd is true under 'and' with simple roles plus a flat ABAC policy", () => {
-    const t = compileTable(roles, policies, 'and')
-    expect(t.foldRbacIntoAnd).toBe(true)
+  it('hasRbacSource is true from a residual-only (complex) permission alone', () => {
+    const conditionalRoles: AccessControl.IRole[] = [
+      {
+        id: 'owner',
+        name: 'Owner',
+        permissions: [
+          {
+            action: 'update',
+            resource: 'post',
+            conditions: { all: [{ field: 'subject.id', operator: 'eq', value: '$resource.attributes.ownerId' }] },
+          },
+        ],
+      },
+    ]
+    const t = compileTable(conditionalRoles, [], 'and')
+    expect(t.hasRbacSource).toBe(true)
   })
 })

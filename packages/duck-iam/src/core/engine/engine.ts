@@ -18,7 +18,7 @@ import {
 } from './engine.invalidation'
 import { createAdmin, enrichSubjectWithScopedRoles, ensureEnvNow } from './engine.libs'
 import { disposeInvalidator, preloadEngine, runHealthCheck } from './engine.lifecycle'
-import { type IIamLoaderDeps, loadAllPolicies, loadRoles, resolveSubject } from './engine.loaders'
+import { type IIamLoaderDeps, loadAllPolicies, loadPolicies, loadRoles, resolveSubject } from './engine.loaders'
 import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
 import type { IamEngineTypes } from './engine.types'
 
@@ -257,6 +257,7 @@ export class IamEngine<
     applyInvalidateEvent(this._cacheBag(), event)
     if (event.kind === 'all' || event.kind === 'policies' || event.kind === 'roles') {
       this._compiledTable = null
+      this._compiledTableGen++
     }
   }
 
@@ -294,11 +295,40 @@ export class IamEngine<
     return loadRoles(this._loaderDeps())
   }
 
-  /** Rebuilds production mode's compiled table from the current roles + policies. */
-  private async _rebuildCompiledTable(): Promise<void> {
-    const [roles, policies] = await Promise.all([this._loadRoles(), this._loadAllPolicies()])
-    const { compileTable } = await import('./compiled/compiled.compile')
-    this._compiledTable = compileTable(roles, policies, this._policyCombine)
+  /** In-flight rebuild, so concurrent cold callers await the same compile instead of racing/duplicating it. */
+  private _compiledTableBuild: Promise<CompiledTable> | null = null
+  /** Bumped by every invalidation; a build that started under an older generation must not overwrite a newer invalidation's null with stale data. */
+  private _compiledTableGen = 0
+
+  /**
+   * Rebuilds production mode's compiled table from the current roles + raw adapter
+   * policies (NOT `_loadAllPolicies()`'s RBAC-merged view - `compileTable` derives its
+   * own RBAC representation from `roles` and would double-count a pre-merged `__rbac__`
+   * policy). Returns the table directly so a caller never has to re-read `_compiledTable`
+   * after an `await` a concurrent invalidation could have raced.
+   */
+  private _rebuildCompiledTable(): Promise<CompiledTable> {
+    if (this._compiledTableBuild) return this._compiledTableBuild
+    const gen = this._compiledTableGen
+    const build = (async () => {
+      const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(this._loaderDeps())])
+      const { compileTable } = await import('./compiled/compiled.compile')
+      const table = compileTable(roles, policies, this._policyCombine)
+      // An invalidation that landed mid-build must win: don't resurrect a table
+      // built from data that invalidation has already superseded.
+      if (this._compiledTableGen === gen) this._compiledTable = table
+      return table
+    })()
+    this._compiledTableBuild = build
+    // A separate .finally() chain that nobody awaits still reports the original
+    // rejection as "unhandled" to Node/V8 even though the real caller below
+    // properly awaits `build` itself - swallow that side-chain explicitly.
+    build
+      .finally(() => {
+        if (this._compiledTableBuild === build) this._compiledTableBuild = null
+      })
+      .catch(() => {})
+    return build
   }
 
   /**
@@ -356,13 +386,7 @@ export class IamEngine<
 
       const signals: { failOpen?: boolean } = {}
       if (this._mode === 'production') {
-        if (this._compiledTable === null) await this._rebuildCompiledTable()
-        const table = this._compiledTable
-        if (table === null) {
-          // Unreachable: _rebuildCompiledTable() always assigns a table.
-          // Kept as a real check (not a cast) so the type stays sound.
-          throw new Error('[@gentleduck/iam:engine] compiled table failed to build')
-        }
+        const table = this._compiledTable ?? (await this._rebuildCompiledTable())
         const mask = maskFromRoles(table, req.subject.roles)
         const allowed = lookup(
           table,
@@ -373,6 +397,7 @@ export class IamEngine<
           this._defaultEffect,
           onPolicyError,
           signals,
+          this._caches,
         )
         allowedForMetrics = allowed
         failOpenForMetrics = signals.failOpen === true
@@ -734,12 +759,7 @@ export class IamEngine<
         const signals: { failOpen?: boolean } = {}
 
         if (this._mode === 'production') {
-          if (this._compiledTable === null) await this._rebuildCompiledTable()
-          const table = this._compiledTable
-          if (table === null) {
-            // Unreachable: _rebuildCompiledTable() always assigns a table.
-            throw new Error('[@gentleduck/iam:engine] compiled table failed to build')
-          }
+          const table = this._compiledTable ?? (await this._rebuildCompiledTable())
           const mask = maskFromRoles(table, req.subject.roles)
           const allowed = lookup(
             table,
@@ -750,6 +770,7 @@ export class IamEngine<
             this._defaultEffect,
             onPolicyError,
             signals,
+            this._caches,
           )
           map[key] = allowed
           allowedForCheck = allowed
@@ -841,6 +862,7 @@ export class IamEngine<
   private _invalidateAll(opts: { broadcast?: boolean } = {}): void {
     invalidateAll(this._cacheBag(), opts)
     this._compiledTable = null
+    this._compiledTableGen++
   }
 
   /** @internal Clear one subject's cached data. Reached via {@link cache.invalidateSubject}. */
@@ -852,12 +874,14 @@ export class IamEngine<
   private _invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
     invalidatePolicies(this._cacheBag(), opts)
     this._compiledTable = null
+    this._compiledTableGen++
   }
 
   /** @internal Clear cached roles + selectively drop affected subjects. Reached via {@link cache.invalidateRoles}. */
   private _invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
     invalidateRoles(this._cacheBag(), roleId, opts)
     this._compiledTable = null
+    this._compiledTableGen++
   }
 
   /**

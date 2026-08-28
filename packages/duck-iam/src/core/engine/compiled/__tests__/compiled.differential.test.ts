@@ -171,12 +171,11 @@ describe("differential: 'and'-mode soundness - a co-located but irrelevant polic
     expect(lookup(t, 0, 'read', 'doc', request, 'deny')).toBe(oracle.allowed)
   })
 
-  it('RBAC-plus-one-ABAC-policy variant (foldRbacIntoAnd): role grant alone no longer bypasses the irrelevant policy', () => {
+  it('RBAC-plus-one-ABAC-policy variant: role grant alone no longer bypasses the irrelevant policy', () => {
     const roles: AccessControl.IRole[] = [
       { id: 'editor', name: 'Editor', permissions: [{ action: 'update', resource: 'post' }] },
     ]
     const t = compileTable(roles, [irrelevant], 'and')
-    expect(t.foldRbacIntoAnd).toBe(true)
 
     const mask = maskOf(t, ['editor'])
     const request = req(['editor'], 'update', 'post')
@@ -200,12 +199,61 @@ describe("differential: 'and'-mode soundness - a co-located but irrelevant polic
       ],
     }
     const t = compileTable(roles, [coApplicable], 'and')
-    expect(t.foldRbacIntoAnd).toBe(true)
     const mask = maskOf(t, ['editor'])
     const request = req(['editor'], 'update', 'post')
     const oracle = evaluate([rolesToPolicy(roles), coApplicable], request, 'deny', 'and')
     expect(oracle.allowed).toBe(true)
     expect(lookup(t, mask, 'update', 'post', request, 'deny')).toBe(oracle.allowed)
+  })
+})
+
+describe('differential: mixed simple+residual RBAC (regression - the two halves of one role must OR, not become two AND voters)', () => {
+  // A role with BOTH a simple (mask-eligible) permission AND a complex (scope/condition
+  // -restricted, residual) one used to split RBAC across `residualPolicies` (the residual
+  // half) and the flat mask (the simple half), and `lookup()` treated them as two
+  // independent 'and' voters instead of one OR'd RBAC vote - so a mask hit at the simple
+  // cell could still get vetoed by the residual half voting its own "no rule here"
+  // fallback. See docs/engine-rewrite.md's final-review findings.
+  const roles: AccessControl.IRole[] = [
+    {
+      id: 'editor',
+      name: 'Editor',
+      permissions: [
+        { action: 'read', resource: 'post' }, // simple -> flat mask bit
+        {
+          action: 'update',
+          resource: 'post',
+          scope: 'org-1', // scoped -> residual, unrelated cell
+        },
+      ],
+    },
+  ]
+
+  it("under 'and', the simple grant is not vetoed by the unrelated residual permission", () => {
+    const t = compileTable(roles, [], 'and')
+    expect(t.rbacResidual).not.toBeNull()
+    const mask = maskOf(t, ['editor'])
+    const request = req(['editor'], 'read', 'post')
+    const oracle = evaluate([rolesToPolicy(roles)], request, 'deny', 'and')
+    expect(oracle.allowed).toBe(true)
+    expect(lookup(t, mask, 'read', 'post', request, 'deny')).toBe(oracle.allowed)
+  })
+
+  it("under 'and', a subject lacking the role gets neither grant", () => {
+    const t = compileTable(roles, [], 'and')
+    const request = req([], 'read', 'post')
+    const oracle = evaluate([rolesToPolicy(roles)], request, 'deny', 'and')
+    expect(oracle.allowed).toBe(false)
+    expect(lookup(t, 0, 'read', 'post', request, 'deny')).toBe(oracle.allowed)
+  })
+
+  it('the residual permission itself still applies once its scope condition is met', () => {
+    const t = compileTable(roles, [], 'and')
+    const mask = maskOf(t, ['editor'])
+    const request = req(['editor'], 'update', 'post')
+    const oracle = evaluate([rolesToPolicy(roles)], { ...request, scope: 'org-1' }, 'deny', 'and')
+    expect(oracle.allowed).toBe(true)
+    expect(lookup(t, mask, 'update', 'post', { ...request, scope: 'org-1' }, 'deny')).toBe(oracle.allowed)
   })
 })
 
@@ -248,10 +296,13 @@ describe("differential: 'allow-overrides' mode - zero behavior change", () => {
   ]
   const table = compileTable(roles, policies, 'allow-overrides')
 
-  it('ROLE_MASK cell agrees with evaluate()', () => {
+  it('RBAC mask-hit cell agrees with evaluate()', () => {
     const mask = maskOf(table, ['viewer'])
     const request = req(['viewer'], 'read', 'post')
     expect(lookup(table, mask, 'read', 'post', request, 'deny')).toBe(true)
+    expect(lookup(table, mask, 'read', 'post', request, 'deny')).toBe(
+      evaluate([rolesToPolicy(roles), ...policies], request, 'deny', 'allow-overrides').allowed,
+    )
   })
 
   it('CONST_ALLOW cell agrees with evaluate()', () => {
@@ -365,7 +416,6 @@ describe('CellKind sanity', () => {
   it('re-exports CellKind for direct kind assertions', () => {
     expect(CellKind.CONST_DENY).toBe(0)
     expect(CellKind.CONST_ALLOW).toBe(1)
-    expect(CellKind.ROLE_MASK).toBe(2)
     expect(CellKind.DYNAMIC).toBe(3)
   })
 })
