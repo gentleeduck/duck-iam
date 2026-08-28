@@ -58,4 +58,23 @@ describe('compileTable', () => {
     const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('post')!
     expect(t.touched[idx]).toBe(1)
   })
+
+  it('forces conflicted allow/deny cells to untouched (fall through to evaluateFast)', () => {
+    const conflictRoles: AccessControl.IRole[] = [{ id: 'viewer', name: 'Viewer', permissions: [] }]
+    const conflictPolicies: AccessControl.IPolicy[] = [
+      {
+        id: 'conflict',
+        name: 'Conflict',
+        algorithm: 'deny-overrides',
+        rules: [
+          { id: 'r1', effect: 'allow', priority: 0, actions: ['read'], resources: ['secret'], conditions: { all: [] } },
+          { id: 'r2', effect: 'deny', priority: 0, actions: ['read'], resources: ['secret'], conditions: { all: [] } },
+        ],
+      },
+    ]
+    const t = compileTable(conflictRoles, conflictPolicies)
+    const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('secret')!
+    // Conflicted cells must be untouched to fall through to evaluateFast
+    expect(t.touched[idx]).toBe(0)
+  })
 })

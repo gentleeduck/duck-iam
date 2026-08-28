@@ -1,4 +1,4 @@
-export const enum CellKind {
+export enum CellKind {
   CONST_DENY = 0,
   CONST_ALLOW = 1,
   ROLE_MASK = 2,

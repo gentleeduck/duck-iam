@@ -1,3 +1,4 @@
+/** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
 import type { AccessControl } from '../../types'
 import { CellKind, type CompiledTable, type DynamicPolicyGroup } from './compiled.types'
 
@@ -71,7 +72,11 @@ export function compileTable(
     return out
   })
   const holders: number[][] = roles.map(() => [])
-  effective.forEach((ancestors, i) => ancestors.forEach((a) => holders[a]!.push(i)))
+  for (let i = 0; i < effective.length; i++) {
+    for (const a of effective[i]!) {
+      holders[a]!.push(i)
+    }
+  }
 
   for (let i = 0; i < roles.length; i++) {
     for (const perm of roles[i]!.permissions) {
@@ -88,6 +93,10 @@ export function compileTable(
     }
   }
 
+  // Track cells touched by allow and deny rules to detect conflicts
+  const allowIndices = new Set<number>()
+  const denyIndices = new Set<number>()
+
   for (const policy of policies) {
     if (policy.targets) continue
     for (const rule of policy.rules) {
@@ -101,9 +110,21 @@ export function compileTable(
           if (a === undefined || r === undefined) continue
           const idx = a * nR + r
           touched[idx] = 1
-          if (rule.effect === 'allow' && kind[idx] !== CellKind.DYNAMIC) kind[idx] = CellKind.CONST_ALLOW
+          if (rule.effect === 'allow') {
+            allowIndices.add(idx)
+            if (kind[idx] !== CellKind.DYNAMIC) kind[idx] = CellKind.CONST_ALLOW
+          } else if (rule.effect === 'deny') {
+            denyIndices.add(idx)
+          }
         }
       }
+    }
+  }
+
+  // Force conflicted cells (both allow and deny touched) to untouched to fall through to evaluateFast
+  for (const idx of allowIndices) {
+    if (denyIndices.has(idx)) {
+      touched[idx] = 0
     }
   }
 
