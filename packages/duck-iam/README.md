@@ -69,18 +69,44 @@ const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {
 
 ## Performance
 
-Benchmarked against 6 JS authorization libraries using vitest bench. Simple RBAC check, ops/sec (higher is better):
+Benchmarked against 6 JS authorization libraries using vitest bench
+(`bun run bench`). Two different things get measured - keep them
+separate.
+
+**Rule-matching only** (no adapter, no engine wrapper), ops/sec:
 
 | Library | ops/sec | vs CASL |
 |---------|---------|---------|
-| @casl/ability | 16,857,000 | baseline |
-| **@gentleduck/iam** [PROD] | 8,233,000 | 2x slower |
-| easy-rbac | 5,003,000 | 3.4x slower |
-| @rbac/rbac | 2,884,000 | 5.8x slower |
-| accesscontrol | 674,000 | 25x slower |
-| casbin | 143,000 | 118x slower |
+| @casl/ability | ~17.0M | baseline |
+| easy-rbac | ~5.0M | 3.4x slower |
+| @rbac/rbac | ~3.3M | 5.2x slower |
+| **@gentleduck/iam** `evaluateFast()` | ~7.6M | 2.2x slower |
+| accesscontrol | ~1.3M | 12.8x slower |
+| casbin | ~208K | 82x slower |
 
-CASL is faster on raw lookups because it pre-compiles rules into a hash table at build time. duck-iam supports dynamic policies that can change at runtime, which costs an extra Map lookup per check.
+**`engine.can()`** - the real entry point, full stack (adapter + hooks +
+subject resolution + the compiled table):
+
+| Mode | ops/sec | vs CASL |
+|------|---------|---------|
+| `mode: 'production'` (compiled table) | ~1.15M | ~14x slower |
+| `mode: 'development'` (interpreter) | ~155K | ~110x slower |
+| @casl/ability (ability pre-built, `.can()`) | ~17.0M | baseline |
+
+CASL is a narrower tool: one flat rule set, fully sync, no persistence
+layer. `engine.can()` also runs a policy engine (4 combining algorithms
+across N named policies), RBAC role inheritance, an adapter/cache/
+invalidation layer, and lifecycle hooks - and it's `async`. That gap is
+the cost of that surface, not inefficiency to chase down.
+
+In practice it isn't the bottleneck: ~1.15M ops/sec is ~0.87µs per check
+on one core - network, DB, and serialization around it cost more than
+the check itself in any real request. Throughput doesn't degrade with
+catalog size either; the compiled table is an O(1) index lookup
+regardless of how many roles or policies exist. What actually
+constrains scale is catalog *shape* - role count (hard cap: 32 per
+table), very wide action x resource grids, and deeply nested
+hierarchical resource types - not raw request throughput.
 
 For the smallest bundle, import only what you use via subpaths:
 
