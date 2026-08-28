@@ -72,7 +72,7 @@ function flatVote(
 /**
  * Answers every request definitively - no `'fallthrough'`. Combines the flat layer's vote
  * with one vote per residual policy (`evaluatePolicyFast`), mirroring `evaluateFast`'s own
- * top-level combine.
+ * top-level combine, error handling, and `failOpen` signal.
  */
 export function lookup(
   table: CompiledTable,
@@ -81,16 +81,28 @@ export function lookup(
   resource: string,
   req: IamRequest.IAccessRequest,
   defaultEffect: AccessControl.Effect = 'deny',
+  onPolicyError?: (err: Error, policy: AccessControl.IPolicy) => void,
+  signals?: { failOpen?: boolean },
 ): boolean {
   const flat = flatVote(table, mask, action, resource, req, defaultEffect)
 
   const applicable: boolean[] = []
   for (const policy of table.residualPolicies) {
-    const vote = evaluatePolicyFast(policy, req, defaultEffect)
-    if (vote !== null) applicable.push(vote)
+    // Same fail-skip contract as evaluateFast's safeEval: one rotten residual
+    // policy must not fail-closed the whole request.
+    try {
+      const vote = evaluatePolicyFast(policy, req, defaultEffect)
+      if (vote !== null) applicable.push(vote)
+    } catch (err) {
+      onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
+    }
   }
   if (flat !== null) applicable.push(flat)
 
-  if (applicable.length === 0) return defaultEffect === 'allow'
+  if (applicable.length === 0) {
+    const allowed = defaultEffect === 'allow'
+    if (signals && allowed) signals.failOpen = true
+    return allowed
+  }
   return table.policyCombine === 'allow-overrides' ? applicable.some(Boolean) : applicable.every(Boolean)
 }

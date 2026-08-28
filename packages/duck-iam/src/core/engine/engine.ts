@@ -1,10 +1,11 @@
 import { IamLRUCache } from '../../shared/cache'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { clearRegexCache } from '../conditions/conditions.libs'
-import { evaluate, evaluateFast } from '../evaluate'
+import { evaluate } from '../evaluate'
 import type { Explain } from '../explain'
 import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamClient, IamRequest } from '../types'
+import type { CompiledTable } from './compiled/compiled.types'
 import { emitMetrics, safeHookCall } from './engine.hooks'
 import {
   applyInvalidateEvent,
@@ -16,7 +17,7 @@ import {
 } from './engine.invalidation'
 import { createAdmin, enrichSubjectWithScopedRoles, ensureEnvNow } from './engine.libs'
 import { disposeInvalidator, preloadEngine, runHealthCheck } from './engine.lifecycle'
-import { type IIamLoaderDeps, loadAllPolicies, resolveSubject } from './engine.loaders'
+import { type IIamLoaderDeps, loadAllPolicies, loadRoles, resolveSubject } from './engine.loaders'
 import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
 import type { IamEngineTypes } from './engine.types'
 
@@ -24,6 +25,16 @@ import type { IamEngineTypes } from './engine.types'
 export function iamFlushSharedCaches(): void {
   clearRegexCache()
   clearPathCache()
+}
+
+/** Bit per directly-held role name; `compileTable`'s inheritance closure already bakes inherited grants into `table.allow`, so no re-expansion is needed here. */
+function maskFromRoles(table: CompiledTable, roles: readonly string[]): number {
+  let mask = 0
+  for (const roleName of roles) {
+    const idx = table.roleId.get(roleName)
+    if (idx !== undefined) mask |= 1 << idx
+  }
+  return mask
 }
 /**
  * Central runtime that evaluates access requests against RBAC roles and ABAC
@@ -63,6 +74,8 @@ export class IamEngine<
   private _policyCombine: AccessControl.PolicyCombine
   private _scopeMode: 'flat' | 'hierarchical'
   private _scopeCombine: 'union' | 'override'
+  /** Production mode's evaluator. Lazily built on first `authorize()`/`permissions()` call, rebuilt after any policy/role invalidation. */
+  private _compiledTable: CompiledTable | null = null
   private _hooks: IamEngineTypes.IHooks<TAction, TResource, TScope>
   private _maxPolicies: number
   private _maxRoles: number
@@ -241,6 +254,9 @@ export class IamEngine<
   /** Apply a cross-instance invalidate event to local caches. */
   private _applyInvalidateEvent(event: IamEngineTypes.IInvalidateEvent<TRole>): void {
     applyInvalidateEvent(this._cacheBag(), event)
+    if (event.kind === 'all' || event.kind === 'policies' || event.kind === 'roles') {
+      this._compiledTable = null
+    }
   }
 
   /** Release the invalidator subscription. Call when discarding the engine. */
@@ -271,6 +287,17 @@ export class IamEngine<
 
   private _loadAllPolicies(): Promise<AccessControl.IPolicy[]> {
     return loadAllPolicies(this._loaderDeps())
+  }
+
+  private _loadRoles(): Promise<AccessControl.IRole[]> {
+    return loadRoles(this._loaderDeps())
+  }
+
+  /** Rebuilds production mode's compiled table from the current roles + policies. */
+  private async _rebuildCompiledTable(): Promise<void> {
+    const [roles, policies] = await Promise.all([this._loadRoles(), this._loadAllPolicies()])
+    const { compileTable } = await import('./compiled/compiled.compile')
+    this._compiledTable = compileTable(roles, policies, this._policyCombine)
   }
 
   /**
@@ -321,8 +348,6 @@ export class IamEngine<
       // (tests, replay) is preserved and a normal request still gets one.
       req = ensureEnvNow(req)
 
-      const allPolicies = await this._loadAllPolicies()
-
       const onPolicyErrorHook = this._hooks.onPolicyError
       const onPolicyError = onPolicyErrorHook
         ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
@@ -330,19 +355,30 @@ export class IamEngine<
 
       const signals: { failOpen?: boolean } = {}
       if (this._mode === 'production') {
-        const allowed = evaluateFast(
-          allPolicies,
+        if (this._compiledTable === null) await this._rebuildCompiledTable()
+        const table = this._compiledTable
+        if (table === null) {
+          // Unreachable: _rebuildCompiledTable() always assigns a table.
+          // Kept as a real check (not a cast) so the type stays sound.
+          throw new Error('[@gentleduck/iam:engine] compiled table failed to build')
+        }
+        const mask = maskFromRoles(table, req.subject.roles)
+        const { lookup } = await import('./compiled/compiled.lookup')
+        const allowed = lookup(
+          table,
+          mask,
+          req.action,
+          req.resource.type,
           req,
           this._defaultEffect,
-          this._policyCombine,
           onPolicyError,
           signals,
-          this._caches,
         )
         allowedForMetrics = allowed
         failOpenForMetrics = signals.failOpen === true
         result = this._asResult(allowed)
       } else {
+        const allPolicies = await this._loadAllPolicies()
         const decision = evaluate(
           allPolicies,
           req,
@@ -698,14 +734,23 @@ export class IamEngine<
         const signals: { failOpen?: boolean } = {}
 
         if (this._mode === 'production') {
-          const allowed = evaluateFast(
-            allPolicies,
+          if (this._compiledTable === null) await this._rebuildCompiledTable()
+          const table = this._compiledTable
+          if (table === null) {
+            // Unreachable: _rebuildCompiledTable() always assigns a table.
+            throw new Error('[@gentleduck/iam:engine] compiled table failed to build')
+          }
+          const mask = maskFromRoles(table, req.subject.roles)
+          const { lookup } = await import('./compiled/compiled.lookup')
+          const allowed = lookup(
+            table,
+            mask,
+            req.action,
+            req.resource.type,
             req,
             this._defaultEffect,
-            this._policyCombine,
             onPolicyError,
             signals,
-            this._caches,
           )
           map[key] = allowed
           allowedForCheck = allowed
@@ -796,6 +841,7 @@ export class IamEngine<
   /** @internal Clear all caches + in-flight resolvers. Reached via {@link cache.invalidate}. */
   private _invalidateAll(opts: { broadcast?: boolean } = {}): void {
     invalidateAll(this._cacheBag(), opts)
+    this._compiledTable = null
   }
 
   /** @internal Clear one subject's cached data. Reached via {@link cache.invalidateSubject}. */
@@ -806,11 +852,13 @@ export class IamEngine<
   /** @internal Clear cached policies. Reached via {@link cache.invalidatePolicies}. */
   private _invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
     invalidatePolicies(this._cacheBag(), opts)
+    this._compiledTable = null
   }
 
   /** @internal Clear cached roles + selectively drop affected subjects. Reached via {@link cache.invalidateRoles}. */
   private _invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
     invalidateRoles(this._cacheBag(), roleId, opts)
+    this._compiledTable = null
   }
 
   /**
