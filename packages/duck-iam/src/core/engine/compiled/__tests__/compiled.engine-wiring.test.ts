@@ -32,7 +32,7 @@ const assignments = { 'user-1': ['editor'] }
 const attributes = { 'user-1': {} }
 
 describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombine: %s)', (policyCombine) => {
-  it('ROLE_MASK-covered request: production and development engines agree', async () => {
+  it('RBAC mask-covered request: production and development engines agree', async () => {
     const production = new IamEngine({
       adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
       defaultEffect: 'deny',
@@ -198,7 +198,7 @@ describe('production mode: role count beyond the 32-bit mask capacity', () => {
 })
 
 describe('production mode: invalidation rebuilds the compiled table', () => {
-  it('a role invalidation drops a stale ROLE_MASK grant', async () => {
+  it('a role invalidation drops a stale RBAC mask grant', async () => {
     const adapter = new IamMemoryAdapter({ roles, policies, assignments, attributes })
     const engine = new IamEngine({
       adapter,

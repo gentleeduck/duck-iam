@@ -60,11 +60,11 @@ function req(subjectRoles: string[], action: string, resource: string): IamReque
   }
 }
 
-describe('lookup: ROLE_MASK + CONST_ALLOW + CONST_DENY, differential vs evaluate()', () => {
+describe('lookup: RBAC mask (fast path) + CONST_ALLOW + CONST_DENY, differential vs evaluate()', () => {
   // Single ABAC policy + roles with 'allow-overrides': not forced, matches shipped behavior.
   const table = compileTable(roles, policies, 'allow-overrides')
 
-  it('ROLE_MASK: subject with the role is allowed', () => {
+  it('RBAC mask: subject with the role is allowed', () => {
     const mask = maskOf(table, ['viewer'])
     const r = req(['viewer'], 'read', 'post')
     expect(lookup(table, mask, 'read', 'post', r, 'deny')).toBe(true)
@@ -73,13 +73,13 @@ describe('lookup: ROLE_MASK + CONST_ALLOW + CONST_DENY, differential vs evaluate
     )
   })
 
-  it('ROLE_MASK: subject without the role is denied', () => {
+  it('RBAC mask: subject without the role is denied', () => {
     const mask = maskOf(table, [])
     const r = req([], 'read', 'post')
     expect(lookup(table, mask, 'read', 'post', r, 'deny')).toBe(false)
   })
 
-  it("inherited ROLE_MASK: editor inherits viewer's read", () => {
+  it("inherited RBAC mask: editor inherits viewer's read", () => {
     const mask = maskOf(table, ['editor'])
     expect(lookup(table, mask, 'read', 'post', req(['editor'], 'read', 'post'), 'deny')).toBe(true)
     expect(lookup(table, mask, 'update', 'post', req(['editor'], 'update', 'post'), 'deny')).toBe(true)

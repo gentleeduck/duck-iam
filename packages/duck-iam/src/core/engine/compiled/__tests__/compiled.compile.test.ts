@@ -125,7 +125,7 @@ describe('compileTable: basic classification (allow-overrides: unaffected by for
 })
 
 describe('compileTable: role scope/conditions routing to the residual RBAC policy', () => {
-  it('a permission with conditions does not get an unconditional ROLE_MASK bit', () => {
+  it('a permission with conditions does not get an unconditional RBAC mask bit', () => {
     const conditionalRoles: AccessControl.IRole[] = [
       {
         id: 'owner',
@@ -146,7 +146,7 @@ describe('compileTable: role scope/conditions routing to the residual RBAC polic
     expect(t.rbacResidual!.rules).toHaveLength(1)
   })
 
-  it('a permission with a scope does not get an unconditional ROLE_MASK bit', () => {
+  it('a permission with a scope does not get an unconditional RBAC mask bit', () => {
     const scopedRoles: AccessControl.IRole[] = [
       { id: 'org-admin', name: 'Org Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-1' }] },
     ]
