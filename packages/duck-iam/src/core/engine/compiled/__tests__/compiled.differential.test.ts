@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluate, evaluateFast } from '../../../evaluate'
+import { evaluate } from '../../../evaluate'
 import { rolesToPolicy } from '../../../rbac'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../../types'
 import { CellKind, compileTable } from '../compiled.compile'
@@ -50,19 +50,11 @@ describe('differential: isWildcard fix - action/resource prefix patterns are not
     expect(got).toBe(evaluate(policies, matching, 'deny', 'and').allowed)
   })
 
-  // `evaluatePolicyFast`'s `matchCandidate` (packages/duck-iam/src/core/evaluate/evaluate.ts,
-  // out of scope for this task) skips the action-match check entirely whenever the rule's own
-  // action pattern is expansive (`hasWildcardAction`), instead of verifying the `:*` prefix -
-  // so a wildcard-action rule matches ANY action there, not just the declared prefix. This is
-  // a pre-existing bug independent of this task (`evaluate()` gets it right; `evaluateFast()` /
-  // `evaluatePolicyFast()` do not), so the residual path - which the brief mandates delegating
-  // to `evaluatePolicyFast` - inherits it. Oracle here is `evaluateFast()`, which is what
-  // `lookup()` is actually built on for residual votes; see the task report for detail.
-  it('non-matching action still routes through the residual policy (not silently inert), matching evaluateFast()', () => {
+  it('non-matching action still routes through the residual policy (not silently inert), matching evaluate()', () => {
     const t = compileTable([], policies, 'and')
     const nonMatching = req([], 'comment:create', 'thing')
     const got = lookup(t, 0, 'comment:create', 'thing', nonMatching, 'deny')
-    expect(got).toBe(evaluateFast(policies, nonMatching, 'deny', 'and'))
+    expect(got).toBe(evaluate(policies, nonMatching, 'deny', 'and').allowed)
   })
 
   it('resource prefix pattern (org.*) also routes to residual; matching request agrees with evaluate()', () => {
@@ -85,11 +77,9 @@ describe('differential: isWildcard fix - action/resource prefix patterns are not
       evaluate(resPolicies, matching, 'deny', 'and').allowed,
     )
 
-    // Same pre-existing evaluatePolicyFast quirk as above, this time for a resource pattern -
-    // oracle is evaluateFast(), not evaluate().
     const nonMatching = req([], 'read', 'billing')
     const got = lookup(t, 0, 'read', 'billing', nonMatching, 'deny')
-    expect(got).toBe(evaluateFast(resPolicies, nonMatching, 'deny', 'and'))
+    expect(got).toBe(evaluate(resPolicies, nonMatching, 'deny', 'and').allowed)
   })
 })
 
@@ -330,13 +320,11 @@ describe('differential: residual policies (targets + wildcard rules) agree with 
     expect(got).toBe(evaluate([wildcardRule], request, 'deny', 'and').allowed)
   })
 
-  // Same pre-existing evaluatePolicyFast wildcard-action quirk documented above - oracle is
-  // evaluateFast(), which is what the residual path is actually built on.
-  it('wildcard-rule policy: non-matching action, agrees with evaluateFast()', () => {
+  it('wildcard-rule policy: non-matching action, agrees with evaluate()', () => {
     const t = compileTable([], [wildcardRule], 'and')
     const request = req([], 'edit:summary', 'report')
     const got = lookup(t, 0, 'edit:summary', 'report', request, 'deny')
-    expect(got).toBe(evaluateFast([wildcardRule], request, 'deny', 'and'))
+    expect(got).toBe(evaluate([wildcardRule], request, 'deny', 'and').allowed)
   })
 })
 

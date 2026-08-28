@@ -439,6 +439,59 @@ describe('fast path: expansive action/resource patterns route via wildcardAny', 
   })
 })
 
+describe('fast path: expansive patterns reject non-matching requests (regression)', () => {
+  // matchCandidate() used to skip the match check entirely whenever the rule's
+  // own pattern was expansive, so 'posts:*' matched *any* action - a false-ALLOW.
+  it('"posts:*" does not match "comments:read"', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'colon-action',
+      name: 'Colon Action',
+      algorithm: 'deny-overrides',
+      rules: [
+        { id: 'r1', effect: 'allow', priority: 10, actions: ['posts:*'], resources: ['post'], conditions: { all: [] } },
+      ],
+    }
+    const req = makeReq({ action: 'comments:read' })
+    expect(evaluatePolicyFast(policy, req)).toBe(false)
+    expect(evaluatePolicy(policy, req).allowed).toBe(false)
+  })
+
+  it('"dashboard.*" resource does not match "reports.summary"', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'dot-resource',
+      name: 'Dot IamRequest.IResource',
+      algorithm: 'deny-overrides',
+      rules: [
+        {
+          id: 'r1',
+          effect: 'allow',
+          priority: 10,
+          actions: ['read'],
+          resources: ['dashboard.*'],
+          conditions: { all: [] },
+        },
+      ],
+    }
+    const req = makeReq({ resource: { type: 'reports.summary', attributes: {} } })
+    expect(evaluatePolicyFast(policy, req)).toBe(false)
+    expect(evaluatePolicy(policy, req).allowed).toBe(false)
+  })
+
+  it('"org:*" resource does not match "team:project"', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'colon-resource',
+      name: 'Colon IamRequest.IResource',
+      algorithm: 'deny-overrides',
+      rules: [
+        { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org:*'], conditions: { all: [] } },
+      ],
+    }
+    const req = makeReq({ resource: { type: 'team:project', attributes: {} } })
+    expect(evaluatePolicyFast(policy, req)).toBe(false)
+    expect(evaluatePolicy(policy, req).allowed).toBe(false)
+  })
+})
+
 describe('NotApplicable semantics', () => {
   // A policy whose targets don't match the request is NotApplicable
   // (`applicable: false`) and must be skipped by the combiner, not folded as

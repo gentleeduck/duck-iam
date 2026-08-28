@@ -22,8 +22,9 @@ function matchCandidate(
   req: IamRequest.IAccessRequest,
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
-  // Action - already narrowed by index, but handle prefix patterns
-  if (!entry.hasWildcardAction && !entry.actions.has(action)) {
+  // Action - `entry.actions.has(action)` is a fast path for an exact literal
+  // match; a wildcard entry never skips the `matchesAction` prefix check.
+  if (!entry.actions.has(action)) {
     let ok = false
     for (const a of entry.rule.actions) {
       if (matchesAction(a, action)) {
@@ -34,8 +35,8 @@ function matchCandidate(
     if (!ok) return false
   }
 
-  // Resource
-  if (!entry.hasWildcardResource) {
+  // Resource - always verified; a wildcard entry never skips this check.
+  {
     let ok = false
     for (const r of entry.rule.resources) {
       if (resHasDot || r.includes('.')) {
