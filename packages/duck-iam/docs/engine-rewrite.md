@@ -1302,6 +1302,68 @@ final whole-branch review:
 
 ---
 
+### Known limits: role cap and scope
+
+Two design-level limits came up during review and are worth a fixed
+reference instead of re-deriving them from source each time.
+
+**The 32-role cap is a JS semantics wall, not a tuning knob.** `roleId`
+maps each role name to a bit position; `compileTable` bakes inheritance
+into `table.allow[idx]` once at compile time (`mask |= 1 << holder` for
+every holder of a permission), so a request-time check is one
+`mask & allow[idx]`. That scheme lives inside a `Uint32Array`, and JS's
+bitwise operators coerce to 32-bit ints and wrap shift amounts mod 32
+(`1 << 32 === 1 << 0`) — a 33rd role would silently alias role 0's bit,
+handing role 0's grants to anyone holding only role 33. `compileTable`
+throws past `MAX_ROLES` (`compiled.compile.ts`) rather than risk that.
+The cap is on the *role catalog* size, not users, orgs, or resources —
+GitHub/Slack-shaped systems keep their role catalog to a handful and push
+real granularity into permissions/scope, so 32 covers them comfortably.
+If a deployment genuinely needs more than 32 roles today, `mode:
+'development'` has no cap (same correctness, interpreter speed). Un-built
+options if the fast path ever needs it: a multi-word mask
+(`Uint32Array` per cell instead of one `Uint32`), a `BigInt` mask, or
+capping the fast path at the top-N roles and routing overflow roles
+through the existing `rbacResidual` mechanism below instead of a new one.
+
+**Scope has two independent mechanisms — only one of them is slow.**
+Easy to conflate; they answer different questions.
+
+1. *Subject-level scoped role grants* (`subject.scopedRoles`, e.g. "this
+   user holds `editor` within `org-1`") are resolved by
+   `enrichSubjectWithScopedRoles` (`engine.libs.ts`) **before** the
+   compiled lookup ever runs — a matching grant is merged into
+   `subject.roles` as a plain role name. The compiled bitmask path then
+   sees an ordinary unscoped role: full bit speed, zero residual cost,
+   the table itself never learns scope was involved. This is why scope
+   is not a table dimension for the common tenant-scoped-role case — it's
+   already collapsed into a bit before the table is consulted.
+2. *Permission-level scope restriction* (`IPermission.scope` /
+   `role.scope`, e.g. "this permission only applies within scope X,
+   regardless of who holds the role") is checked by `isSimplePermission`
+   (`compiled.compile.ts`): any effective scope other than `undefined` or
+   `'*'` disqualifies the permission from the bitmask, and it's compiled
+   into `rbacResidual` instead — evaluated per-request through the
+   interpreter path. This one can't be pre-resolved at enrichment time
+   because it depends on the *request's* scope, not on which roles the
+   subject holds.
+
+Case 2 is the one that stays slow, and it stays slow on purpose rather
+than by omission: `TScope` is a consumer-defined generic with no
+engine-enforced cardinality limit, unlike roles (hard 32-bit cap) or
+action/resource (small closed vocabulary in practice). Real scope usually
+means tenant/org ID, which can be high-cardinality in production —
+bit-packing it would either blow past 32 bits immediately or silently cap
+org count, a worse failure mode than capping roles. The overlay/trie
+design sketched earlier in this doc ("Scope and multi-tenancy",
+"Hierarchical scope," "Phase 3 — scope") was aimed at exactly this case,
+but per "What actually shipped" above, `lookupScoped()` and the scope
+trie were deleted, not shipped — there is no `compiled.scope.ts`. Case 2
+scope restrictions route through `rbacResidual` unconditionally today,
+regardless of cardinality.
+
+---
+
 ## Verdict
 
 | Option | Speed | Effort | Risk | Do it? |
