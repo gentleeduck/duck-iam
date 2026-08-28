@@ -435,7 +435,7 @@ describe('differential: untouched/unknown-cell constant-vote behavior', () => {
   })
 
   it('a table with no flat source at all (only residual policies) still answers definitively', () => {
-    const targetedOnly: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['read'] } }]
+    const targetedOnly: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['*'] } }]
     const t = compileTable([], targetedOnly, 'and')
     expect(t.hasFlatSource).toBe(false)
     const request = req([], 'read', 'doc')

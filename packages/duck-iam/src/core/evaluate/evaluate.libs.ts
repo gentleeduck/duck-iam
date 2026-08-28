@@ -47,6 +47,21 @@ export function ruleApplies(
 }
 
 /**
+ * `targets.actions`/`targets.resources` only, no roles. Unlike the role dimension, these two
+ * don't depend on who's asking - only on the (action, resource) pair - so `compileTable` can
+ * call this at compile time with two literal strings (no `req` yet) to decide which cells a
+ * target-restricted policy's rules belong in. `policyApplies` below is this plus the
+ * (request-only) role check.
+ */
+export function policyTargetsActionResource(policy: AccessControl.IPolicy, action: string, resource: string): boolean {
+  const targets = policy.targets
+  if (!targets) return true
+  if (targets.actions?.length && !targets.actions.some((a) => matchesAction(a, action))) return false
+  if (targets.resources?.length && !targets.resources.some((r) => matchesResource(r, resource))) return false
+  return true
+}
+
+/**
  * Checks whether a policy's target constraints match the given access request.
  *
  * If the policy has no targets defined, it applies to all requests.
@@ -58,18 +73,9 @@ export function ruleApplies(
  * @returns `true` if the policy should be evaluated for this request
  */
 export function policyApplies(policy: AccessControl.IPolicy, req: IamRequest.IAccessRequest): boolean {
-  if (!policy.targets) return true
+  if (!policyTargetsActionResource(policy, req.action, req.resource.type)) return false
 
-  const { actions, resources, roles } = policy.targets
-
-  if (actions?.length && !actions.some((a) => matchesAction(a, req.action))) {
-    return false
-  }
-
-  if (resources?.length && !resources.some((r) => matchesResource(r, req.resource.type))) {
-    return false
-  }
-
+  const roles = policy.targets?.roles
   if (roles?.length) {
     const subjectRoles = Array.isArray(req.subject.roles) ? req.subject.roles : []
     if (!roles.some((role) => subjectRoles.includes(role))) {

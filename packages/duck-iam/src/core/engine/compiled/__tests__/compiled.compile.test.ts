@@ -84,11 +84,37 @@ describe('compileTable: basic classification', () => {
     expect(groups[0]!.rules.map((r) => r.id).sort()).toEqual(['r1', 'r2'])
   })
 
-  it('a policy with targets is fully residual (excluded from the action/resource universe)', () => {
-    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['update'] } }]
+  it('a policy with a wildcarded target is fully residual (excluded from the action/resource universe)', () => {
+    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['*'] } }]
     const t = compileTable([], targeted, 'and')
     expect(t.actionId.has('read')).toBe(false)
     expect(t.residualPolicies.map((p) => p.id)).toContain('targeted')
+  })
+
+  it('a literal action target that permits the rule compiles in as flat, not residual', () => {
+    // policies[0]'s rule is actions:['read'], resources:['comment'] - the target permits 'read'.
+    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['read'] } }]
+    const t = compileTable([], targeted, 'and')
+    expect(t.residualPolicies.map((p) => p.id)).not.toContain('targeted')
+    const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('comment')!
+    expect(t.kind[idx]).toBe(CellKind.CONST_ALLOW)
+  })
+
+  it("a literal target that excludes the rule's own action compiles in but leaves that cell untouched", () => {
+    // policies[0]'s rule action is 'read' - a target of only 'update' permits none of it.
+    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['update'] } }]
+    const t = compileTable([], targeted, 'and')
+    expect(t.residualPolicies.map((p) => p.id)).not.toContain('targeted')
+    const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('comment')!
+    expect(t.touched[idx]).toBe(0)
+  })
+
+  it('a literal resource target that permits the rule compiles in as flat, not residual', () => {
+    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { resources: ['comment'] } }]
+    const t = compileTable([], targeted, 'and')
+    expect(t.residualPolicies.map((p) => p.id)).not.toContain('targeted')
+    const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('comment')!
+    expect(t.kind[idx]).toBe(CellKind.CONST_ALLOW)
   })
 
   it('a rule with a wildcard action (post:*) makes the whole policy residual, not silently inert', () => {
@@ -230,7 +256,7 @@ describe('compileTable: role count limit', () => {
 
 describe('compileTable: hasFlatSource / hasRbacSource bookkeeping', () => {
   it('a table with only residual policies has no ABAC flat source', () => {
-    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['read'] } }]
+    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['*'] } }]
     const t = compileTable([], targeted, 'and')
     expect(t.hasFlatSource).toBe(false)
   })

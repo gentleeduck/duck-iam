@@ -39,10 +39,16 @@ describe('compileTable: DYNAMIC cells', () => {
     expect(groups[0]!.rules[0]!.id).toBe('owner-update')
   })
 
-  it('a policy with targets is fully residual (never enters the action universe)', () => {
-    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['update'] } }]
+  it('a policy with a wildcarded target is fully residual (never enters the action universe)', () => {
+    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['*'] } }]
     const t = compileTable([], targeted, 'and')
     expect(t.actionId.has('update')).toBe(false)
+  })
+
+  it('a policy with a literal target compiles in instead (see compiled.compile.test.ts for the dedicated coverage)', () => {
+    const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['update'] } }]
+    const t = compileTable([], targeted, 'and')
+    expect(t.actionId.has('update')).toBe(true)
   })
 
   it('differential: DYNAMIC classification agrees with evaluate() for both a matching and non-matching request', () => {

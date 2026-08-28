@@ -1108,6 +1108,27 @@ What changed from every phase above:
   regression test. (`forceAndDynamic` itself was deleted outright in the
   follow-up below — this bug was a symptom of the mechanism, not just of
   missing `targetRoles`.)
+- **Literal action/resource targets compile in too, same idea as roles
+  above.** `isResidualPolicy()` still forced residual on *any*
+  `targets.actions`/`targets.resources` at all, even a plain literal value
+  with no wildcard. Unlike `targets.roles` (which depends on
+  `req.subject.roles` and so can only be resolved per-request), an action
+  or resource target depends only on the (action, resource) pair — which
+  is already the cell's own index — so it can be resolved once, at compile
+  time, with zero runtime cost. `policyApplies()`'s action/resource half
+  was extracted into `policyTargetsActionResource(policy, action,
+  resource)` in `evaluate.libs.ts` so `compileTable()` can call it with two
+  literal strings while building each rule's cells, skipping any
+  (action, resource) pair the policy's own target excludes — the same
+  filter `policyApplies()` applies per-request in the interpreter, just
+  resolved once. `isResidualPolicy()` now only forces residual on a
+  *wildcarded* `targets.actions`/`targets.resources` value (`isWildcard()`,
+  the same check already used for rule-level actions/resources) — it could
+  match an (action, resource) pair no rule was ever literally indexed for,
+  so it can't be reduced to fixed cells. A literal target that permits its
+  policy's own rule(s) compiles to `CONST_ALLOW`/`CONST_DENY`/`DYNAMIC` same
+  as an untargeted policy would; one that excludes them compiles in too,
+  just leaves those cells untouched.
 - `evaluateFast`/`evaluatePolicyFast`/`evaluate`/`evaluatePolicy` remain
   public exports — nothing was deleted from the API. What's retired is
   `engine.ts` ever calling `evaluateFast` in production mode.

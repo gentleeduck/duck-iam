@@ -1,4 +1,5 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
+import { policyTargetsActionResource } from '../../evaluate/evaluate.libs'
 import { rolesToPolicy } from '../../rbac'
 import type { AccessControl } from '../../types'
 import { CellKind, type CompiledTable, type DynamicPolicyGroup } from './compiled.types'
@@ -27,12 +28,17 @@ function targetRolesOf(policy: AccessControl.IPolicy): readonly string[] | undef
 }
 
 /**
- * Action/resource-targeted, or any rule uses a non-literal action/resource - stays out of
- * the flat model. A role-only `targets` restriction IS compilable - see `targetRoles` on
+ * A rule with a non-literal (wildcard/prefix) action or resource, or a `targets.actions`/
+ * `targets.resources` value that is itself a wildcard, stays out of the flat model - it could
+ * match requests no rule was ever literally indexed for, so it can't be reduced to fixed
+ * cells. A LITERAL `targets.actions`/`targets.resources` restriction IS compilable: unlike
+ * roles, it doesn't depend on who's asking - only on the (action, resource) pair, which is
+ * already the cell's own key - see `policyTargetsActionResource`, applied per-rule below. A
+ * role-only `targets` restriction is compilable too, regardless - see `targetRoles` on
  * `DynamicPolicyGroup`.
  */
 function isResidualPolicy(policy: AccessControl.IPolicy): boolean {
-  if (policy.targets?.actions?.length || policy.targets?.resources?.length) return true
+  if (policy.targets?.actions?.some(isWildcard) || policy.targets?.resources?.some(isWildcard)) return true
   for (const rule of policy.rules) {
     for (const a of rule.actions) if (isWildcard(a)) return true
     for (const r of rule.resources) if (isWildcard(r)) return true
@@ -56,9 +62,10 @@ function isSimplePermission(perm: AccessControl.IPermission, role: AccessControl
  * Compiles roles + policies into a flat lookup table. RBAC and ABAC are kept as two
  * independently-computed votes combined at request time in `lookup()` - see
  * `compiled.types.ts`'s `rbacResidual` doc for why the two RBAC halves (mask bits +
- * residual policy) must never be treated as separate voters. Wildcard rules and
- * action/resource-targeted policies become residual, evaluated per-request via
- * `evaluatePolicyFast`; role-only-targeted policies compile in (see `isResidualPolicy`).
+ * residual policy) must never be treated as separate voters. A wildcard rule, or a
+ * wildcarded `targets.actions`/`targets.resources` value, keeps a policy residual, evaluated
+ * per-request via `evaluatePolicyFast`; a literal target restriction (action, resource,
+ * and/or role) compiles in instead (see `isResidualPolicy`).
  */
 export function compileTable(
   roles: readonly AccessControl.IRole[],
@@ -175,6 +182,10 @@ export function compileTable(
       const conditional = hasConditions(rule.conditions) || targetRoles !== undefined
       for (const act of rule.actions) {
         for (const res of rule.resources) {
+          // A literal targets.actions/targets.resources restriction filters which cells this
+          // rule reaches - same as policyApplies()'s action/resource check in the interpreter,
+          // just resolved once here instead of on every request.
+          if (!policyTargetsActionResource(policy, act, res)) continue
           const a = actionId.get(act)
           const r = resourceId.get(res)
           if (a === undefined || r === undefined) continue
