@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateFast } from '../../../evaluate'
+import { evaluate } from '../../../evaluate'
 import type { AccessControl, IamRequest } from '../../../types'
 import { CellKind, compileTable } from '../compiled.compile'
 import { lookup } from '../compiled.lookup'
@@ -24,13 +24,13 @@ const policies: AccessControl.IPolicy[] = [
 
 describe('compileTable: DYNAMIC cells', () => {
   it('a conditional rule compiles to a DYNAMIC cell, not CONST_ALLOW', () => {
-    const t = compileTable([], policies)
+    const t = compileTable([], policies, 'and')
     const idx = t.actionId.get('update')! * t.nResources + t.resourceId.get('post')!
     expect(t.kind[idx]).toBe(CellKind.DYNAMIC)
   })
 
   it('groups the candidate rule under its owning policy, with the policy algorithm', () => {
-    const t = compileTable([], policies)
+    const t = compileTable([], policies, 'and')
     const idx = t.actionId.get('update')! * t.nResources + t.resourceId.get('post')!
     const groups = t.dynamic[idx]!
     expect(groups).toHaveLength(1)
@@ -39,14 +39,14 @@ describe('compileTable: DYNAMIC cells', () => {
     expect(groups[0]!.rules[0]!.id).toBe('owner-update')
   })
 
-  it('a policy with targets is excluded entirely (falls through)', () => {
+  it('a policy with targets is fully residual (never enters the action universe)', () => {
     const targeted: AccessControl.IPolicy[] = [{ ...policies[0]!, id: 'targeted', targets: { actions: ['update'] } }]
-    const t = compileTable([], targeted)
-    expect(t.actionId.has('update')).toBe(false) // never entered the action universe
+    const t = compileTable([], targeted, 'and')
+    expect(t.actionId.has('update')).toBe(false)
   })
 
-  it('differential: DYNAMIC classification is not short-circuited to always-allow by evaluateFast', () => {
-    const t = compileTable([], policies)
+  it('differential: DYNAMIC classification agrees with evaluate() for both a matching and non-matching request', () => {
+    const t = compileTable([], policies, 'and')
     const idx = t.actionId.get('update')! * t.nResources + t.resourceId.get('post')!
     expect(t.kind[idx]).toBe(CellKind.DYNAMIC)
 
@@ -54,11 +54,17 @@ describe('compileTable: DYNAMIC cells', () => {
 
     const denyingResource: IamRequest.IResource = { type: 'post', attributes: { ownerId: 'someone-else' } }
     const denyingRequest: IamRequest.IAccessRequest = { subject, action: 'update', resource: denyingResource }
-    expect(evaluateFast(policies, denyingRequest)).toBe(false)
+    expect(lookup(t, 0, 'update', 'post', denyingRequest, 'deny')).toBe(false)
+    expect(lookup(t, 0, 'update', 'post', denyingRequest, 'deny')).toBe(
+      evaluate(policies, denyingRequest, 'deny', 'and').allowed,
+    )
 
     const allowingResource: IamRequest.IResource = { type: 'post', attributes: { ownerId: 'user1' } }
     const allowingRequest: IamRequest.IAccessRequest = { subject, action: 'update', resource: allowingResource }
-    expect(evaluateFast(policies, allowingRequest)).toBe(true)
+    expect(lookup(t, 0, 'update', 'post', allowingRequest, 'deny')).toBe(true)
+    expect(lookup(t, 0, 'update', 'post', allowingRequest, 'deny')).toBe(
+      evaluate(policies, allowingRequest, 'deny', 'and').allowed,
+    )
   })
 })
 
@@ -84,10 +90,10 @@ const OPERATORS: Array<[AccessControl.Operator, unknown, unknown, boolean]> = [
   ['before', 1000, 2000, true],
 ]
 
-describe('DYNAMIC cell evaluation: every operator, differential vs evaluateFast', () => {
+describe('DYNAMIC cell evaluation: every operator, differential vs evaluate()', () => {
   for (const [operator, fieldVal, condVal, expected] of OPERATORS) {
     it(`${operator} -> ${expected}`, () => {
-      const policies: AccessControl.IPolicy[] = [
+      const opPolicies: AccessControl.IPolicy[] = [
         {
           id: 'p',
           name: 'p',
@@ -104,16 +110,16 @@ describe('DYNAMIC cell evaluation: every operator, differential vs evaluateFast'
           ],
         },
       ]
-      const t = compileTable([], policies)
-      const req: IamRequest.IAccessRequest = {
+      const t = compileTable([], opPolicies, 'and')
+      const request: IamRequest.IAccessRequest = {
         subject: { id: 'u1', roles: [], attributes: {} },
         action: 'act',
         resource: { type: 'res', attributes: { v: fieldVal as never } },
         environment: { now: 1 },
       }
-      const got = lookup(t, 0, 'act', 'res', req)
+      const got = lookup(t, 0, 'act', 'res', request, 'deny')
       expect(got).toBe(expected)
-      expect(got).toBe(evaluateFast(policies, req))
+      expect(got).toBe(evaluate(opPolicies, request, 'deny', 'and').allowed)
     })
   }
 
@@ -148,16 +154,16 @@ describe('DYNAMIC cell evaluation: every operator, differential vs evaluateFast'
         },
       ],
     }
-    const t = compileTable([], [allowPolicy, denyPolicy])
-    const req: IamRequest.IAccessRequest = {
+    const t = compileTable([], [allowPolicy, denyPolicy], 'and')
+    const request: IamRequest.IAccessRequest = {
       subject: { id: 'u1', roles: [], attributes: {} },
       action: 'act',
       resource: { type: 'res', attributes: { v: 1 } },
       environment: { now: 1 },
     }
-    expect(lookup(t, 0, 'act', 'res', req, 'deny', 'and')).toBe(false)
-    expect(lookup(t, 0, 'act', 'res', req, 'deny', 'and')).toBe(
-      evaluateFast([allowPolicy, denyPolicy], req, 'deny', 'and'),
+    expect(lookup(t, 0, 'act', 'res', request, 'deny')).toBe(false)
+    expect(lookup(t, 0, 'act', 'res', request, 'deny')).toBe(
+      evaluate([allowPolicy, denyPolicy], request, 'deny', 'and').allowed,
     )
   })
 
@@ -192,24 +198,24 @@ describe('DYNAMIC cell evaluation: every operator, differential vs evaluateFast'
         },
       ],
     }
-    const t = compileTable([], [allowPolicy, denyPolicy])
-    const req: IamRequest.IAccessRequest = {
+    const t = compileTable([], [allowPolicy, denyPolicy], 'allow-overrides')
+    const request: IamRequest.IAccessRequest = {
       subject: { id: 'u1', roles: [], attributes: {} },
       action: 'act',
       resource: { type: 'res', attributes: { v: 1 } },
       environment: { now: 1 },
     }
-    expect(lookup(t, 0, 'act', 'res', req, 'deny', 'allow-overrides')).toBe(true)
-    expect(lookup(t, 0, 'act', 'res', req, 'deny', 'allow-overrides')).toBe(
-      evaluateFast([allowPolicy, denyPolicy], req, 'deny', 'allow-overrides'),
+    expect(lookup(t, 0, 'act', 'res', request, 'deny')).toBe(true)
+    expect(lookup(t, 0, 'act', 'res', request, 'deny')).toBe(
+      evaluate([allowPolicy, denyPolicy], request, 'deny', 'allow-overrides').allowed,
     )
   })
 
-  it('role-bypass fast path: matching role mask skips condition closures entirely', () => {
+  it('role-bypass fast path: matching role mask skips condition closures entirely (allow-overrides, unforced)', () => {
     const roles: AccessControl.IRole[] = [
       { id: 'admin', name: 'Admin', permissions: [{ action: 'act', resource: 'res' }] },
     ]
-    const policies: AccessControl.IPolicy[] = [
+    const rolePolicies: AccessControl.IPolicy[] = [
       {
         id: 'p',
         name: 'p',
@@ -226,7 +232,7 @@ describe('DYNAMIC cell evaluation: every operator, differential vs evaluateFast'
         ],
       },
     ]
-    const t = compileTable(roles, policies)
+    const t = compileTable(roles, rolePolicies, 'allow-overrides')
     const adminMask = 1 << t.roleId.get('admin')!
     expect(
       lookup(t, adminMask, 'act', 'res', {

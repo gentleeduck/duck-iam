@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateFast } from '../../../evaluate'
+import { evaluate } from '../../../evaluate'
 import { rolesToPolicy } from '../../../rbac'
 import type { AccessControl, IamRequest } from '../../../types'
 import { compileTable } from '../compiled.compile'
@@ -60,52 +60,49 @@ function req(subjectRoles: string[], action: string, resource: string): IamReque
   }
 }
 
-describe('lookup: phase 1 (ROLE_MASK + CONST_ALLOW), differential vs evaluateFast', () => {
-  const table = compileTable(roles, policies)
-  const rbacPolicy = rolesToPolicy(roles)
-  const mergedPolicies = rbacPolicy.rules.length > 0 ? [rbacPolicy, ...policies] : policies
+describe('lookup: ROLE_MASK + CONST_ALLOW + CONST_DENY, differential vs evaluate()', () => {
+  // Single ABAC policy + roles with 'allow-overrides': not forced, matches shipped behavior.
+  const table = compileTable(roles, policies, 'allow-overrides')
 
   it('ROLE_MASK: subject with the role is allowed', () => {
     const mask = maskOf(table, ['viewer'])
-    expect(lookup(table, mask, 'read', 'post')).toBe(true)
-    expect(lookup(table, mask, 'read', 'post')).toBe(
-      evaluateFast(mergedPolicies, req(['viewer'], 'read', 'post'), 'deny', 'allow-overrides'),
+    const r = req(['viewer'], 'read', 'post')
+    expect(lookup(table, mask, 'read', 'post', r, 'deny')).toBe(true)
+    expect(lookup(table, mask, 'read', 'post', r, 'deny')).toBe(
+      evaluate([rolesToPolicy(roles), ...policies], r, 'deny', 'allow-overrides').allowed,
     )
   })
 
   it('ROLE_MASK: subject without the role is denied', () => {
     const mask = maskOf(table, [])
-    expect(lookup(table, mask, 'read', 'post')).toBe(false)
-    expect(lookup(table, mask, 'read', 'post')).toBe(
-      evaluateFast(mergedPolicies, req([], 'read', 'post'), 'deny', 'allow-overrides'),
-    )
+    const r = req([], 'read', 'post')
+    expect(lookup(table, mask, 'read', 'post', r, 'deny')).toBe(false)
   })
 
   it("inherited ROLE_MASK: editor inherits viewer's read", () => {
     const mask = maskOf(table, ['editor'])
-    expect(lookup(table, mask, 'read', 'post')).toBe(true)
-    expect(lookup(table, mask, 'update', 'post')).toBe(true)
+    expect(lookup(table, mask, 'read', 'post', req(['editor'], 'read', 'post'), 'deny')).toBe(true)
+    expect(lookup(table, mask, 'update', 'post', req(['editor'], 'update', 'post'), 'deny')).toBe(true)
   })
 
   it('CONST_ALLOW: allowed regardless of role', () => {
-    expect(lookup(table, 0, 'read', 'comment')).toBe(true)
-    expect(lookup(table, 0, 'read', 'comment')).toBe(
-      evaluateFast(mergedPolicies, req([], 'read', 'comment'), 'deny', 'allow-overrides'),
-    )
+    expect(lookup(table, 0, 'read', 'comment', req([], 'read', 'comment'), 'deny')).toBe(true)
   })
 
   it('CONST_DENY: denied regardless of role', () => {
-    expect(lookup(table, 0, 'delete', 'user')).toBe(false)
-    expect(lookup(table, 0, 'delete', 'user')).toBe(
-      evaluateFast(mergedPolicies, req([], 'delete', 'user'), 'deny', 'allow-overrides'),
-    )
+    expect(lookup(table, 0, 'delete', 'user', req([], 'delete', 'user'), 'deny')).toBe(false)
   })
 
-  it('untouched cell: signals fallthrough, does not silently deny', () => {
-    // 'fallthrough' is a compiled-table-only signal; callers must route it to evaluateFast.
-    expect(lookup(table, 0, 'update', 'comment')).toBe('fallthrough')
-    const interpreterResult = evaluateFast(mergedPolicies, req([], 'update', 'comment'), 'deny', 'allow-overrides')
-    expect(typeof interpreterResult).toBe('boolean')
-    expect([true, false]).toContain(interpreterResult)
+  it('untouched cell: falls back to defaultEffect, matching evaluate()', () => {
+    const r = req([], 'update', 'comment')
+    const got = lookup(table, 0, 'update', 'comment', r, 'deny')
+    expect(got).toBe(false)
+    expect(got).toBe(evaluate(policies, r, 'deny', 'allow-overrides').allowed)
+  })
+
+  it('unknown action/resource (outside the table universe): falls back to defaultEffect', () => {
+    const r = req([], 'archive', 'wiki')
+    expect(lookup(table, 0, 'archive', 'wiki', r, 'deny')).toBe(false)
+    expect(lookup(table, 0, 'archive', 'wiki', r, 'allow')).toBe(true)
   })
 })
