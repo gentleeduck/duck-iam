@@ -2,6 +2,7 @@
 import { evalConditionGroup } from '../../conditions'
 import { combiners } from '../../evaluate/evaluate.libs'
 import type { AccessControl, IamRequest } from '../../types'
+import { resolveScopeMask, type ScopeMask } from './compiled.scope'
 import { CellKind, type CompiledTable, type DynamicPolicyGroup } from './compiled.types'
 
 function evaluateDynamicCell(
@@ -57,4 +58,32 @@ export function lookup(
   const groups = table.dynamic[idx]
   if (!groups || req === undefined) return 'fallthrough'
   return evaluateDynamicCell(groups, req, defaultEffect, policyCombine)
+}
+
+/**
+ * Resolves the scope overlay `(base | scopeAllow) & ~scopeDeny` before
+ * calling `lookup()`, so ROLE_MASK and DYNAMIC cells both get scope for
+ * free without their own scope-aware branch. `scopeDeny` gates the whole
+ * cell outright, including DYNAMIC's role-bypass fast path and its rule
+ * closures - scope narrows what role-bits reach a cell, it never bypasses
+ * a real ABAC condition. See engine-rewrite.md, "Hierarchical scope."
+ */
+export function lookupScoped(
+  table: CompiledTable,
+  baseMask: number,
+  scopeTrie: ReadonlyMap<string, ScopeMask> | null | undefined,
+  scope: string | undefined,
+  scopeCombine: 'union' | 'override',
+  action: string,
+  resource: string,
+  req?: IamRequest.IAccessRequest,
+  defaultEffect: AccessControl.Effect = 'deny',
+  policyCombine: AccessControl.PolicyCombine = 'and',
+): boolean | 'fallthrough' {
+  let mask = baseMask
+  if (scopeTrie && scope != null) {
+    const { allow: scopeAllow, deny: scopeDeny } = resolveScopeMask(scopeTrie, scope, scopeCombine)
+    mask = (mask | scopeAllow) & ~scopeDeny
+  }
+  return lookup(table, mask, action, resource, req, defaultEffect, policyCombine)
 }
