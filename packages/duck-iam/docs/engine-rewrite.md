@@ -1087,6 +1087,22 @@ What changed from every phase above:
   doc called "the interpreter," now reused as the residual-policy
   evaluator, not as a fallback). `lookup()` combines the flat vote with one
   vote per residual policy and always returns a definitive `boolean`.
+- **Role-only-targeted policies compile in too — the bullet above
+  undersold it.** `isResidualPolicy()` originally forced *any*
+  `policy.targets` to residual, so `targets: { roles: [...] }` on an
+  otherwise literal, unconditional policy still paid the per-request
+  interpreter cost. Narrowed to only force residual status on
+  `targets.actions`/`targets.resources` or a wildcard rule; a role-only
+  restriction now compiles into a `DYNAMIC` cell, gated by a new
+  `targetRoles` field on `DynamicPolicyGroup` the same way
+  `policyApplies()` gates it in the interpreter — a subject missing the
+  role isn't a voter, not a deny. Caught one bug before it shipped:
+  `forceAndDynamic`'s phantom-group fallback (`policyCombine: 'and'`, 2+
+  flat policies, a cell one policy doesn't touch) built its placeholder
+  group without `targetRoles`, so a role-targeted policy's phantom vote
+  would cast `defaultEffect` for every subject regardless of role,
+  vetoing unrelated grants under `'and'`. Fixed, with a stash-verified
+  regression test.
 - `evaluateFast`/`evaluatePolicyFast`/`evaluate`/`evaluatePolicy` remain
   public exports — nothing was deleted from the API. What's retired is
   `engine.ts` ever calling `evaluateFast` in production mode.
