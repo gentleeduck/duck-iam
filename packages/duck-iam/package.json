@@ -284,6 +284,7 @@
   "scripts": {
     "bench": "vitest bench",
     "benchmark": "bun run scripts/benchmark.ts",
+    "debug": "bun run scripts/debug.ts",
     "build": "tsdown",
     "dev": "tsdown --watch",
     "test": "vitest run",
