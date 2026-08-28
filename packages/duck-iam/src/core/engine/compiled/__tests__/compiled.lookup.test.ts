@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { IamMemoryAdapter } from '../../../../adapters/memory'
 import { evaluateFast } from '../../../evaluate'
 import { rolesToPolicy } from '../../../rbac'
 import type { AccessControl, IamRequest } from '../../../types'
@@ -22,6 +21,21 @@ const policies: AccessControl.IPolicy[] = [
         priority: 0,
         actions: ['read'],
         resources: ['comment'],
+        conditions: { all: [] },
+      },
+    ],
+  },
+  {
+    id: 'deny-dangerous',
+    name: 'Deny Dangerous',
+    algorithm: 'deny-overrides',
+    rules: [
+      {
+        id: 'deny-delete-user',
+        effect: 'deny',
+        priority: 0,
+        actions: ['delete'],
+        resources: ['user'],
         conditions: { all: [] },
       },
     ],
@@ -76,9 +90,25 @@ describe('lookup: phase 1 (ROLE_MASK + CONST_ALLOW), differential vs evaluateFas
 
   it('CONST_ALLOW: allowed regardless of role', () => {
     expect(lookup(table, 0, 'read', 'comment')).toBe(true)
+    expect(lookup(table, 0, 'read', 'comment')).toBe(
+      evaluateFast(mergedPolicies, req([], 'read', 'comment'), 'deny', 'allow-overrides'),
+    )
+  })
+
+  it('CONST_DENY: denied regardless of role', () => {
+    expect(lookup(table, 0, 'delete', 'user')).toBe(false)
+    expect(lookup(table, 0, 'delete', 'user')).toBe(
+      evaluateFast(mergedPolicies, req([], 'delete', 'user'), 'deny', 'allow-overrides'),
+    )
   })
 
   it('untouched cell: signals fallthrough, does not silently deny', () => {
+    // lookup() returns 'fallthrough' for untouched cells (compiled-table-only signal).
+    // evaluateFast has no 'fallthrough' concept — it always returns a real verdict.
+    // Callers must route lookup's 'fallthrough' to evaluateFast to get the true answer.
     expect(lookup(table, 0, 'update', 'comment')).toBe('fallthrough')
+    const interpreterResult = evaluateFast(mergedPolicies, req([], 'update', 'comment'), 'deny', 'allow-overrides')
+    expect(typeof interpreterResult).toBe('boolean')
+    expect([true, false]).toContain(interpreterResult)
   })
 })
