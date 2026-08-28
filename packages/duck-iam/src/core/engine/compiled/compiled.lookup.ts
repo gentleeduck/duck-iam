@@ -8,7 +8,12 @@ import { CellKind, type CompiledTable, type DynamicPolicyGroup } from './compile
 type Caches = { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> }
 type OnPolicyError = (err: Error, policy: AccessControl.IPolicy) => void
 
-/** Folds one DYNAMIC cell's per-policy votes into a single boolean (ABAC flatPolicies only - RBAC is a separate top-level vote, see `rbacVote`). */
+/**
+ * Folds one DYNAMIC cell's per-policy votes into a single boolean (ABAC flatPolicies only -
+ * RBAC is a separate top-level vote, see `rbacVote`). Returns `null` only when every group at
+ * this cell threw - same fail-skip contract as `evaluatePolicyFast`'s residual-policy loop: a
+ * cell with zero surviving votes must abstain, not fail-closed the whole request.
+ */
 function evaluateDynamicCell(
   groups: readonly DynamicPolicyGroup[],
   req: IamRequest.IAccessRequest,
@@ -16,7 +21,7 @@ function evaluateDynamicCell(
   combine: AccessControl.PolicyCombine,
   caches?: Caches,
   onPolicyError?: OnPolicyError,
-): boolean {
+): boolean | null {
   const perPolicy: boolean[] = []
   for (const group of groups) {
     try {
@@ -31,15 +36,16 @@ function evaluateDynamicCell(
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), group.policy)
     }
   }
-  if (perPolicy.length === 0) return defaultEffect === 'allow'
+  if (perPolicy.length === 0) return null
   return combine === 'allow-overrides' ? perPolicy.some(Boolean) : perPolicy.every(Boolean)
 }
 
 /**
- * The ABAC flat layer's vote at one cell: `null` only when the table has no ABAC flat
- * source at all. An unknown or untouched cell votes the constant `defaultEffect` - every
- * flatPolicies entry is applicable-but-absent there, which trivially reduces to that
- * constant under both `'and'` and `'allow-overrides'`. Does not know about RBAC.
+ * The ABAC flat layer's vote at one cell: `null` when the table has no ABAC flat source at
+ * all, or when a DYNAMIC cell's every policy group threw (abstain, don't fail-closed). An
+ * unknown or untouched cell votes the constant `defaultEffect` - every flatPolicies entry is
+ * applicable-but-absent there, which trivially reduces to that constant under both `'and'`
+ * and `'allow-overrides'`. Does not know about RBAC.
  */
 function abacFlatVote(
   table: CompiledTable,
@@ -71,8 +77,11 @@ function abacFlatVote(
 /**
  * RBAC's single vote: the fast mask-bit check (`allow`), OR'd with the residual policy's
  * vote when the mask misses, falling back to `defaultEffect` when neither source has a
- * matching grant. `null` only when the table has no RBAC source at all (no role has any
- * permission). See compiled.types.ts's `rbacResidual` doc for why this must stay ONE vote.
+ * matching grant. `null` when the table has no RBAC source at all (no role has any
+ * permission), or when the residual policy throws (abstain, same fail-skip contract as
+ * `evaluatePolicyFast`'s residual-policy loop below - a rotten `__rbac__` policy must not
+ * fail-closed the whole request). See compiled.types.ts's `rbacResidual` doc for why this
+ * must stay ONE vote.
  */
 function rbacVote(
   table: CompiledTable,
@@ -96,7 +105,7 @@ function rbacVote(
     return evaluatePolicyFast(table.rbacResidual, req, defaultEffect, caches)
   } catch (err) {
     onPolicyError?.(err instanceof Error ? err : new Error(String(err)), table.rbacResidual)
-    return defaultEffect === 'allow'
+    return null
   }
 }
 

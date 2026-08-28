@@ -297,6 +297,8 @@ export class IamEngine<
 
   /** In-flight rebuild, so concurrent cold callers await the same compile instead of racing/duplicating it. */
   private _compiledTableBuild: Promise<CompiledTable> | null = null
+  /** The generation `_compiledTableBuild` was started under - see `_rebuildCompiledTable`. */
+  private _compiledTableBuildGen = -1
   /** Bumped by every invalidation; a build that started under an older generation must not overwrite a newer invalidation's null with stale data. */
   private _compiledTableGen = 0
 
@@ -306,9 +308,17 @@ export class IamEngine<
    * own RBAC representation from `roles` and would double-count a pre-merged `__rbac__`
    * policy). Returns the table directly so a caller never has to re-read `_compiledTable`
    * after an `await` a concurrent invalidation could have raced.
+   *
+   * Single-flighting is scoped to one generation: an in-flight build is only reused while
+   * `_compiledTableGen` hasn't moved since it started. A caller arriving after an
+   * invalidation bumps the generation must never be handed a promise that resolves to
+   * pre-invalidation data - it starts (or joins) a fresh build against the post-invalidation
+   * generation instead, matching what a caller would get with no single-flighting at all.
    */
   private _rebuildCompiledTable(): Promise<CompiledTable> {
-    if (this._compiledTableBuild) return this._compiledTableBuild
+    if (this._compiledTableBuild && this._compiledTableBuildGen === this._compiledTableGen) {
+      return this._compiledTableBuild
+    }
     const gen = this._compiledTableGen
     const build = (async () => {
       const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(this._loaderDeps())])
@@ -320,6 +330,7 @@ export class IamEngine<
       return table
     })()
     this._compiledTableBuild = build
+    this._compiledTableBuildGen = gen
     // A separate .finally() chain that nobody awaits still reports the original
     // rejection as "unhandled" to Node/V8 even though the real caller below
     // properly awaits `build` itself - swallow that side-chain explicitly.

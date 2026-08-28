@@ -227,4 +227,119 @@ describe('production mode: invalidation rebuilds the compiled table', () => {
     engine.cache.invalidatePolicies()
     expect(await engine.can('user-1', 'read', owned)).toBe(false)
   })
+
+  it('a caller arriving after an invalidation that lands mid-rebuild never gets the stale in-flight table (regression)', async () => {
+    // Gate the adapter's listPolicies so a compiled-table rebuild started by the first
+    // `can()` call stays in flight until we explicitly release it - long enough to land
+    // a role revocation + invalidation while that rebuild is still pending.
+    let releaseGate!: () => void
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve
+    })
+    const inner = new IamMemoryAdapter({ roles, policies: [], assignments, attributes })
+    const gatedAdapter = new Proxy(inner, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver)
+        if (prop === 'listPolicies' && typeof value === 'function') {
+          return async (...args: unknown[]) => {
+            await gate
+            return (value as (...a: unknown[]) => unknown).apply(target, args)
+          }
+        }
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    const engine = new IamEngine({ adapter: gatedAdapter, defaultEffect: 'deny', mode: 'production' })
+    const resource = { type: 'post', attributes: {} }
+    // A full subject object (not a subjectId) so `authorize()` skips `_resolveSubject`'s
+    // own adapter round-trip - the compiled-table rebuild starts synchronously on the
+    // call, so `listRoles` snapshots deterministically before any test code resumes.
+    const subject = { id: 'user-1', roles: ['editor'], attributes: {} }
+
+    // R1: starts the rebuild; blocks on the gated listPolicies call. `listRoles` (no
+    // gate) resolves and snapshots the pre-revocation role data synchronously, within
+    // this same call, before the `await` below ever yields control.
+    const r1 = engine.authorize({ subject, action: 'update', resource })
+
+    // Revoke the permission and invalidate strictly BEFORE R1's rebuild has resolved.
+    await inner.saveRole({ id: 'editor', name: 'Editor', permissions: [] })
+    engine.cache.invalidateRoles('editor')
+
+    // R2: starts strictly AFTER the invalidation, while R1's rebuild is still pending.
+    // Must not be handed R1's in-flight promise (which resolves from the stale,
+    // pre-revocation role snapshot) - it must observe the revocation.
+    const r2 = engine.authorize({ subject, action: 'update', resource })
+
+    releaseGate()
+    expect(await r2).toBe(false)
+    // R1 raced the invalidation and started before it landed - its result is not
+    // asserted either way, but it must not corrupt the engine's cached table for
+    // subsequent callers (checked by R3 below).
+    await r1
+
+    // R3: after everything has settled, the table must reflect the revocation.
+    expect(await engine.authorize({ subject, action: 'update', resource })).toBe(false)
+  })
+})
+
+describe('production mode: rotten RBAC residual policy abstains instead of fail-closed vetoing (regression)', () => {
+  it("an oversized subject attribute that makes the residual policy's condition throw does not veto an unrelated ABAC allow under 'and'", async () => {
+    const conditionalRoles = [
+      {
+        id: 'editor',
+        name: 'Editor',
+        permissions: [
+          {
+            action: 'read',
+            resource: 'post',
+            conditions: {
+              all: [{ field: 'subject.attributes.blob', operator: 'matches' as const, value: '^a+$' }],
+            },
+          },
+        ],
+      },
+    ]
+    const abacPolicies = [
+      {
+        id: 'abac-allow',
+        name: 'ABAC allow',
+        algorithm: 'deny-overrides' as const,
+        rules: [
+          {
+            id: 'r',
+            effect: 'allow' as const,
+            priority: 0,
+            actions: ['read'],
+            resources: ['post'],
+            conditions: { all: [] },
+          },
+        ],
+      },
+    ]
+    // Long enough to trip the regex-matching engine's input-length guard and throw.
+    const oversizedBlob = 'a'.repeat(4096)
+    const adapter = new IamMemoryAdapter({
+      roles: conditionalRoles,
+      policies: abacPolicies,
+      assignments: { 'user-1': ['editor'] },
+      attributes: { 'user-1': { blob: oversizedBlob } },
+    })
+    const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' }) // 'and' default
+    const development = new IamEngine({
+      adapter: new IamMemoryAdapter({
+        roles: conditionalRoles,
+        policies: abacPolicies,
+        assignments: { 'user-1': ['editor'] },
+        attributes: { 'user-1': { blob: oversizedBlob } },
+      }),
+      defaultEffect: 'deny',
+    })
+    const resource = { type: 'post', attributes: {} }
+    // The rotten RBAC residual policy must abstain (not vote deny), so the unrelated
+    // ABAC allow still carries the request under 'and'.
+    expect(await production.can('user-1', 'read', resource)).toBe(true)
+    expect(await production.can('user-1', 'read', resource)).toBe(
+      (await development.check('user-1', 'read', resource)).allowed,
+    )
+  })
 })
