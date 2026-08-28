@@ -997,14 +997,59 @@ requests take the slow path until a later phase widens it.
   cell is real information (an implicit deny vote) the compiled table has no
   way to represent per-cell. Confirmed empirically: a role granting a cell
   alongside a co-located DYNAMIC policy whose condition fails diverges
-  (compiled says allow, `evaluateFast('and')` says deny). Resolution: the
-  engine wiring gates the entire compiled path behind
-  `policyCombine === 'allow-overrides'` — for `'and'`/`'first-applicable'`,
-  always fall through to `evaluateFast`, no compiled table involvement at
-  all. This is a scope restriction, not a workaround: it costs the compiled
-  path zero speedup under the production default combine mode until a future
-  phase makes the compiler itself `'and'`-aware (tracking, per touched cell,
-  whether every non-targeted policy's coverage is represented).
+  (compiled says allow, `evaluateFast('and')` says deny). **Superseded** by
+  "What actually shipped" below — the gate-behind-`allow-overrides`/
+  fall-through resolution described here was never built; the compiler was
+  made `'and'`-aware instead, closing the gap directly.
+
+### What actually shipped
+
+Phase 4 as written above (`lookupScoped()` first, fall through to
+`evaluateFast` on any uncovered cell, gated to `allow-overrides` only) was
+implemented, then explicitly rejected: production mode replaces the
+interpreter fully, unconditionally, for every `policyCombine` mode — no
+flag, no per-request fallthrough.
+
+What changed from every phase above:
+
+- **No `experimentalCompiledTable` flag.** `mode: 'production'` always
+  builds and uses the compiled table. There is no non-compiled production
+  path left to fall through to.
+- **`'and'`-mode soundness solved at compile time, not deferred.** Every
+  touched cell where more than one flat (RBAC + policy) source applies gets
+  classified `DYNAMIC` with one phantom zero-rule vote group per
+  flat-eligible policy absent at that cell — `combiners[algorithm]([],
+  defaultEffect)` already resolves an empty rule list correctly, so this
+  needed only compile-time bookkeeping, not new runtime combining logic.
+  `'and'` is now as sound as `'allow-overrides'`, at full compiled speed.
+  `'first-applicable'` remains excluded (`mode: 'production'` rejects it at
+  construction, unrelated to this design).
+- **`lookupScoped()` and the scope trie (Phase 3) were deleted, not
+  shipped.** They assumed a raw per-scope bitmask-grant data model that
+  doesn't exist in this engine — real scoped-role grants are merged into
+  `subject.roles` as plain role names by `enrichSubjectWithScopedRoles`
+  before any compiled lookup runs, so scope needed no dedicated compiled
+  representation at all.
+- **Residual policies replace "fall through to the interpreter."** A
+  policy with `targets`, a non-literal action/resource pattern, or a role
+  permission with `scope`/`conditions` is excluded from the flat model and
+  evaluated per-request via `evaluatePolicyFast` (the same function this
+  doc called "the interpreter," now reused as the residual-policy
+  evaluator, not as a fallback). `lookup()` combines the flat vote with one
+  vote per residual policy and always returns a definitive `boolean`.
+- `evaluateFast`/`evaluatePolicyFast`/`evaluate`/`evaluatePolicy` remain
+  public exports — nothing was deleted from the API. What's retired is
+  `engine.ts` ever calling `evaluateFast` in production mode.
+
+Two pre-existing correctness bugs, unrelated to any phase above, surfaced
+and were fixed during this work: `isWildcard()` only recognized bare `'*'`,
+not `':*'`/`'.*'` prefix patterns (rules using those silently compiled as
+inert literal cells); and the role-permission compiler ignored
+`IPermission.scope`/`conditions`, granting an unconditional bit regardless
+of restriction. A third, in the interpreter itself
+(`evaluate.ts`'s `matchCandidate` skipping match verification for any
+wildcard-shaped rule, a false-ALLOW bug reachable from the public
+`evaluateFast`/`evaluatePolicyFast`) was also found and fixed.
 
 ---
 
