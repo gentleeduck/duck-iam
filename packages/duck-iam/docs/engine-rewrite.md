@@ -1057,6 +1057,23 @@ What changed from every phase above:
   fix) enough on its own to force every ROLE_MASK-eligible cell into the
   slower DYNAMIC path even with zero real ABAC policies configured. Fixed
   by switching to the raw `loadPolicies()`.
+- **A scoped re-review of the fix above (before declaring the branch
+  done) found two more real bugs.** First: `_rebuildCompiledTable`'s
+  single-flight reused an in-flight build promise keyed only on "one
+  exists," not on which generation it started under - a caller arriving
+  strictly after an invalidation (which bumps the generation and nulls
+  the cached table) while a pre-invalidation build was still in flight
+  got handed that stale promise, serving revoked grants for one adapter
+  round-trip. Fixed by tracking the generation a build started under
+  alongside the build promise itself, and only reusing it while that
+  still matches current. Second: `rbacVote`'s catch cast a real
+  `defaultEffect` ballot instead of abstaining when the RBAC residual
+  policy threw (e.g. an oversized regex input) - unlike every other
+  fail-skip path in this engine, letting one rotten RBAC policy veto an
+  unrelated ABAC allow under `'and'`. Fixed by returning `null` (abstain)
+  from that catch, and from `evaluateDynamicCell`'s equivalent
+  all-groups-threw case. Both reproduced with regression tests confirmed
+  failing against the pre-fix code before the fix landed.
 - **`lookupScoped()` and the scope trie (Phase 3) were deleted, not
   shipped.** They assumed a raw per-scope bitmask-grant data model that
   doesn't exist in this engine — real scoped-role grants are merged into
