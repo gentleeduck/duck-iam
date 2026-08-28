@@ -25,6 +25,13 @@ function mulberry32(seed: number): () => number {
 
 const ACTIONS = ['read', 'write', 'delete', 'posts:read', 'posts:write']
 const RESOURCES = ['post', 'comment', 'user', 'org', 'org:project', 'dashboard.users']
+// Rule-only wildcard patterns (never used for a request's own action/resource -
+// a request is always literal, only a rule pattern can be expansive). Mixed into
+// makeRule below so it exercises indexPolicy's wildcard buckets: two independent
+// picks per rule naturally produce pure-literal, pure-wildcard, single-dimension-
+// wildcard, and mixed literal+wildcard-in-one-list rules, all from one knob.
+const WILDCARD_ACTIONS = ['posts:*', 'admin:*']
+const WILDCARD_RESOURCES = ['comment:*', 'dashboard.*']
 const ROLES = ['viewer', 'editor', 'admin', 'guest']
 const SCOPES = ['org-1', 'org-2']
 const STATUSES = ['active', 'suspended', 'pending']
@@ -67,11 +74,19 @@ function makeConditionGroup(rng: () => number): AccessControl.IConditionGroup {
   return { none: conds }
 }
 
+// 20% of picks are a wildcard pattern instead of a literal value.
+function pickAction(rng: () => number): string {
+  return rng() < 0.2 ? pick(rng, WILDCARD_ACTIONS) : pick(rng, ACTIONS)
+}
+function pickResource(rng: () => number): string {
+  return rng() < 0.2 ? pick(rng, WILDCARD_RESOURCES) : pick(rng, RESOURCES)
+}
+
 function makeRule(rng: () => number, idx: number): AccessControl.IRule {
   const numActions = 1 + Math.floor(rng() * 2)
   const numResources = 1 + Math.floor(rng() * 2)
-  const actions = Array.from({ length: numActions }, () => pick(rng, ACTIONS))
-  const resources = Array.from({ length: numResources }, () => pick(rng, RESOURCES))
+  const actions = Array.from({ length: numActions }, () => pickAction(rng))
+  const resources = Array.from({ length: numResources }, () => pickResource(rng))
   // 30% of rules carry conditions - exercises condition evaluation in both paths.
   const withConditions = rng() < 0.3
   return {

@@ -168,7 +168,9 @@ export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combin
 /**
  * True when a pattern matches more than its own literal value (`'*'`, `'foo:*'`,
  * `'foo.*'`). Such patterns can't be served by the literal-keyed `byActionResource`
- * map and must be checked via the wildcardAny scan.
+ * map - they go into whichever wildcard bucket still has a literal side to key on
+ * (`byActionWildcardResource` / `byResourceWildcardAction`), or `wildcardBoth` if
+ * neither side is literal.
  */
 function isExpansivePattern(p: string): boolean {
   return p.includes('*')
@@ -176,6 +178,16 @@ function isExpansivePattern(p: string): boolean {
 
 /** WeakMap so indexes are GC'd when the policy is no longer referenced. */
 const indexCache = new WeakMap<AccessControl.IPolicy, Evaluate.IPolicyRuleIndex>()
+
+/** Push `entry` onto `map.get(key)`, creating the bucket on first use. */
+function addToBucket(map: Map<string, Evaluate.IIndexedRule[]>, key: string, entry: Evaluate.IIndexedRule): void {
+  let bucket = map.get(key)
+  if (!bucket) {
+    bucket = []
+    map.set(key, bucket)
+  }
+  bucket.push(entry)
+}
 
 /**
  * Build (or retrieve from cache) a rule index for a policy.
@@ -188,7 +200,9 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
   if (cached) return cached
 
   const byActionResource = new Map<string, Evaluate.IIndexedRule[]>()
-  const wildcardAny: Evaluate.IIndexedRule[] = []
+  const byActionWildcardResource = new Map<string, Evaluate.IIndexedRule[]>()
+  const byResourceWildcardAction = new Map<string, Evaluate.IIndexedRule[]>()
+  const wildcardBoth: Evaluate.IIndexedRule[] = []
 
   for (const rule of policy.rules) {
     const actions = new Set(rule.actions as string[])
@@ -218,21 +232,19 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
       hasConditions,
     }
 
-    if (hasWildcardAction || hasWildcardResource) wildcardAny.push(entry)
-
-    // Only rules with literal actions AND resources go into the exact-key index;
-    // expansive patterns (`*`, `foo:*`, `foo.*`) are handled by the wildcardAny scan.
-    if (!hasWildcardAction && !hasWildcardResource) {
+    if (hasWildcardAction && hasWildcardResource) {
+      // Neither side is literal - nothing to key on, stays a linear scan.
+      wildcardBoth.push(entry)
+    } else if (hasWildcardResource) {
+      // Action is guaranteed all-literal (hasWildcardAction is false) - key on every
+      // literal action so a request only finds this entry via its own exact action.
+      for (const a of actions) addToBucket(byActionWildcardResource, a, entry)
+    } else if (hasWildcardAction) {
+      // Mirror of the above: resource is guaranteed all-literal here.
+      for (const r of resources) addToBucket(byResourceWildcardAction, r, entry)
+    } else {
       for (const a of actions) {
-        for (const r of resources) {
-          const key = `${a}\0${r}`
-          let bucket = byActionResource.get(key)
-          if (!bucket) {
-            bucket = []
-            byActionResource.set(key, bucket)
-          }
-          bucket.push(entry)
-        }
+        for (const r of resources) addToBucket(byActionResource, `${a}\0${r}`, entry)
       }
     }
   }
@@ -241,8 +253,10 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
   // Only when no wildcard rules exist (they could override the result).
   const precomputed = new Map<string, Map<string, boolean>>()
   const algo = policy.algorithm
+  const hasNoWildcards =
+    wildcardBoth.length === 0 && byActionWildcardResource.size === 0 && byResourceWildcardAction.size === 0
 
-  if (wildcardAny.length === 0 && (algo === 'deny-overrides' || algo === 'allow-overrides' || algo === 'first-match')) {
+  if (hasNoWildcards && (algo === 'deny-overrides' || algo === 'allow-overrides' || algo === 'first-match')) {
     for (const rule of policy.rules) {
       const c = rule.conditions
       if ('all' in c || 'any' in c || 'none' in c) continue
@@ -310,7 +324,13 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
     }
   }
 
-  const idx: Evaluate.IPolicyRuleIndex = { byActionResource, wildcardAny, precomputed }
+  const idx: Evaluate.IPolicyRuleIndex = {
+    byActionResource,
+    byActionWildcardResource,
+    byResourceWildcardAction,
+    wildcardBoth,
+    precomputed,
+  }
   indexCache.set(policy, idx)
   return idx
 }

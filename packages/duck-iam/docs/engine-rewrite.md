@@ -1172,9 +1172,10 @@ and "a rule matched, condition said no":
 - `candidateShapeMatches(...)` (`evaluate.ts`, local) — the same check
   inlined for `evaluatePolicyFast`'s indexed hot path. Each of the three
   algorithm branches now tracks `hasCandidate` (seeded `true` from a
-  literal-bucket hit, updated by the wildcardAny scan) and returns `null`
-  (abstain) instead of `defaultEffect === 'allow'` when nothing shaped for
-  the request was ever found.
+  literal-bucket hit, updated by the wildcard-bucket scan - see "Wildcard
+  rules are now bucketed" below) and returns `null` (abstain) instead of
+  `defaultEffect === 'allow'` when nothing shaped for the request was ever
+  found.
 - `abacFlatVote()` (`compiled.lookup.ts`) — its three `defaultEffect`
   fallbacks (unknown dimension, untouched cell, defensive no-groups case)
   all became `null`, matching the interpreter's NotApplicable semantics.
@@ -1201,6 +1202,54 @@ from an ABAC policy's: `rolesToPolicy()`'s synthesized `__rbac__` policy is
 evaluated by the exact same `evaluatePolicy()` as any other policy in
 development mode, with no special cases, so `rbacVote()` must replicate
 that uniformly for the compiled/interpreted parity guarantee to hold.
+
+### Wildcard rules are now bucketed, not scanned flat
+
+`indexPolicy()` (`evaluate.libs.ts`) used to put every rule with an
+expansive (`*` / `foo:*` / `foo.*`) action or resource into one flat
+`wildcardAny` array, scanned linearly - and re-checked from scratch on
+every dimension - on every request that missed the literal
+`byActionResource` map, regardless of how many of those rules could
+possibly apply. This is on the hot path twice over: directly for any
+policy with wildcard rules, and indirectly for the compiled engine, since
+`lookup()`'s `residualPolicies` loop and `rbacVote()`'s `rbacResidual`
+both evaluate via this same function.
+
+Replaced `wildcardAny` with three buckets, split on which side of the rule
+is still literal:
+
+- `byActionWildcardResource: Map<action, entries>` - action is
+  all-literal (a rule fans out across every literal action it has),
+  resource is expansive.
+- `byResourceWildcardAction: Map<resource, entries>` - the mirror: resource
+  all-literal, action expansive.
+- `wildcardBoth: entries[]` - both sides expansive; genuinely unindexable,
+  stays a linear scan (this bucket is usually tiny in practice).
+
+At request time, `evaluatePolicyFast` looks up `byActionWildcardResource.get(action)`
+and `byResourceWildcardAction.get(resType)` (each O(1)) instead of scanning
+every wildcard rule in the policy, then runs the existing
+`candidateShapeMatches` check only over that narrowed set (plus
+`wildcardBoth`) - the per-entry match logic is unchanged, only the
+candidate set size is. A rule whose own action or resource list mixes a
+literal value with a wildcard one (e.g. `actions: ['read', 'admin:*']`)
+still gets bucketed under its literal alternative(s); `candidateShapeMatches`
+still checks the whole list, so the literal alternative keeps matching
+directly and the wildcard alternative still matches by prefix - the bucket
+only narrows which entries get visited, never which patterns they're allowed
+to match.
+
+`oracle.test.ts`'s `evaluate` vs `evaluateFast` differential fuzzer never
+generated a wildcard action or resource before this change (its `ACTIONS`/
+`RESOURCES` pools were all literal), so it gave zero incidental coverage of
+this path. Fixed by adding a `WILDCARD_ACTIONS`/`WILDCARD_RESOURCES` pool
+that each rule-side pick has a 20% chance of drawing from instead of the
+literal pool - since a rule can carry 1-2 independently-rolled actions and
+1-2 resources, this alone generates pure-literal, pure-wildcard,
+single-dimension-wildcard, and mixed-literal-and-wildcard rules across its
+1000-iteration x 6-parameter-combo sweep, with no other change to the
+generator. (Requests still only ever draw from the literal pools -
+a request's own action/resource is never itself a pattern.)
 
 ### Measured: the actual wired path
 

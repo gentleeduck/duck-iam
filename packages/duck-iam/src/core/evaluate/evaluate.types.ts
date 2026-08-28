@@ -26,15 +26,22 @@ export namespace Evaluate {
   }
 
   /**
-   * Pre-computed index over a policy's rules. Lookup is O(1) on the exact key,
-   * O(wildcardAny) on the expansive fallback. Built once per policy reference
-   * and cached in a {@link WeakMap}.
+   * Pre-computed index over a policy's rules. Lookup is O(1) on the exact key;
+   * a rule with an expansive (`*` / `foo:*` / `foo.*`) action or resource is
+   * bucketed by whichever side of it is still literal, so a request only
+   * scans the (usually small) set of rules whose literal side already
+   * matches - not every expansive rule in the policy. Built once per policy
+   * reference and cached in a {@link WeakMap}.
    */
   export interface IPolicyRuleIndex {
     /** Literal `action\0resource` keys; covers rules with no expansive patterns. */
     readonly byActionResource: Map<string, IIndexedRule[]>
-    /** Rules with `*` / `foo:*` / `foo.*` in actions or resources; matched by scan. */
-    readonly wildcardAny: IIndexedRule[]
+    /** Literal action -> rules whose resource is expansive; resource still needs a match check. */
+    readonly byActionWildcardResource: Map<string, IIndexedRule[]>
+    /** Literal resource -> rules whose action is expansive; action still needs a match check. */
+    readonly byResourceWildcardAction: Map<string, IIndexedRule[]>
+    /** Rules with an expansive action AND an expansive resource - neither side is indexable; matched by scan. */
+    readonly wildcardBoth: IIndexedRule[]
     /**
      * `action -> resource -> effect` for unconditional rules in a wildcardless
      * policy. Lets the fast path return without scanning. Empty otherwise.
