@@ -1264,6 +1264,23 @@ machine as "How the numbers were made" above.
 | RBAC mask-covered (`update`/`post`) | 2.39M ops/s | 0.44M ops/s | **5.40x** |
 | DYNAMIC-covered (`read`/`post`, condition-gated) | 1.62M ops/s | 0.96M ops/s | **1.69x** |
 
+Re-run 2026-08-29, after the wildcard-bucket rewrite (`indexPolicy` above),
+two runs for stability:
+
+| Request shape | production (compiled) | development (interpreter) | Speedup |
+|---|---|---|---|
+| RBAC mask-covered (`update`/`post`) | 2.62-2.92M ops/s | 0.89-0.91M ops/s | **~2.9-3.2x** |
+| DYNAMIC-covered (`read`/`post`, condition-gated) | 1.83-1.93M ops/s | 0.90-0.93M ops/s | **~2.0-2.1x** |
+
+Production got faster on both shapes, not slower — the ratio dropped
+because development did too. `evaluate()` (the interpreter function
+`mode: 'development'` calls) uses the same `indexPolicy` the wildcard-
+bucket rewrite changed, so that optimization sped up both paths, not just
+the compiled one's residual-policy evaluation. Net: the compiled table is
+still a real, unconditional win on every shape measured, just by a smaller
+multiplier than the number above because the baseline it's compared
+against moved too.
+
 Numbers are post the RBAC-vote redesign below (`rbacVote()` computed as
 its own top-level vote, mask-hit-first). That redesign was a correctness
 fix, not a perf pass, but it measurably *beat* the already-fixed
