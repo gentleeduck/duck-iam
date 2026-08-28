@@ -1051,6 +1051,35 @@ of restriction. A third, in the interpreter itself
 wildcard-shaped rule, a false-ALLOW bug reachable from the public
 `evaluateFast`/`evaluatePolicyFast`) was also found and fixed.
 
+### Measured: the actual wired path
+
+`tmp/compiled-full.bench.ts` benches the real integration point —
+`engine.can()` in `mode: 'production'` (compiled table) against
+`mode: 'development'` (interpreter) — through the full stack: subject
+resolution, hooks, scope enrichment, everything. vitest 4.1.9, same
+machine as "How the numbers were made" above.
+
+| Request shape | production (compiled) | development (interpreter) | Speedup |
+|---|---|---|---|
+| ROLE_MASK-covered (`update`/`post`) | 1.92M ops/s | 0.90M ops/s | **2.12x** |
+| DYNAMIC-covered (`read`/`post`, condition-gated) | 1.66M ops/s | 1.25M ops/s | **1.33x** |
+
+Well short of the standalone prototype's 10-20x — expected, since this
+number includes everything the prototype benchmarks factored out (subject
+resolution, hooks, scope enrichment, cache lookups). It's still a real,
+unconditional win on every production request, and it closes out all three
+"still unproven" bullets above: Phases 1-2 hold in the real integration,
+`lookupScoped` is moot (deleted), and `'and'`-mode is sound and fast.
+
+One regression surfaced and was fixed by this benchmark: the first wired
+version of `engine.ts` used `await import('./compiled/compiled.lookup')`
+inside the hot `authorize()`/`permissions()` paths — a dynamic import
+*per request*, intended for code-splitting but paid on every call, not
+just the first. That made production measurably *slower* than the
+interpreter it was replacing (0.70M vs 0.93M ops/s on the ROLE_MASK case).
+Fixed by making `lookup` a static top-level import; `compileTable` stays a
+dynamic import since it only runs on table (re)build, not per request.
+
 ---
 
 ## Verdict

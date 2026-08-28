@@ -5,6 +5,7 @@ import { evaluate } from '../evaluate'
 import type { Explain } from '../explain'
 import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamClient, IamRequest } from '../types'
+import { lookup } from './compiled/compiled.lookup'
 import type { CompiledTable } from './compiled/compiled.types'
 import { emitMetrics, safeHookCall } from './engine.hooks'
 import {
@@ -363,7 +364,6 @@ export class IamEngine<
           throw new Error('[@gentleduck/iam:engine] compiled table failed to build')
         }
         const mask = maskFromRoles(table, req.subject.roles)
-        const { lookup } = await import('./compiled/compiled.lookup')
         const allowed = lookup(
           table,
           mask,
@@ -741,7 +741,6 @@ export class IamEngine<
             throw new Error('[@gentleduck/iam:engine] compiled table failed to build')
           }
           const mask = maskFromRoles(table, req.subject.roles)
-          const { lookup } = await import('./compiled/compiled.lookup')
           const allowed = lookup(
             table,
             mask,
