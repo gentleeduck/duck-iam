@@ -61,6 +61,8 @@ export class IamEngine<
   private _defaultEffect: AccessControl.Effect
   private _mode: AccessControl.Mode
   private _policyCombine: AccessControl.PolicyCombine
+  private _scopeMode: 'flat' | 'hierarchical'
+  private _scopeCombine: 'union' | 'override'
   private _hooks: IamEngineTypes.IHooks<TAction, TResource, TScope>
   private _maxPolicies: number
   private _maxRoles: number
@@ -139,6 +141,8 @@ export class IamEngine<
     this._defaultEffect = config.defaultEffect ?? 'deny'
     this._mode = config.mode ?? 'development'
     this._policyCombine = config.policyCombine ?? 'and'
+    this._scopeMode = config.scopeMode ?? 'flat'
+    this._scopeCombine = config.scopeCombine ?? 'union'
     this._hooks = config.hooks ?? {}
 
     // evaluateFast can't represent first-applicable; fail at construction.
@@ -305,7 +309,7 @@ export class IamEngine<
         req = { ...req, subject: { ...req.subject, roles: [] } }
       }
       if (req.scope && req.subject.scopedRoles?.length) {
-        const enriched = enrichSubjectWithScopedRoles(req.subject, req.scope)
+        const enriched = enrichSubjectWithScopedRoles(req.subject, req.scope, this._scopeMode, this._scopeCombine)
         if (enriched !== req.subject) req = { ...req, subject: enriched }
       }
 
@@ -449,6 +453,23 @@ export class IamEngine<
   }
 
   /**
+   * Resolve the roles a subject effectively holds: assigned roles closed over
+   * `inherits`, plus scoped role assignments matching `scope` when given —
+   * same merge `can`/`check` do internally. Uses the same subject cache, so
+   * repeated calls pay the cache TTL instead of a bare adapter round trip.
+   *
+   * @param subjectId - Subject ID to resolve via the adapter.
+   * @param scope     - Optional scope to merge matching scoped roles in.
+   * @returns The subject's effective roles. Empty array for an invalid `subjectId`.
+   */
+  async getEffectiveRoles(subjectId: string, scope?: TScope): Promise<readonly TRole[]> {
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
+    const subject = await this._resolveSubject(subjectId)
+    const enriched = enrichSubjectWithScopedRoles(subject, scope, this._scopeMode, this._scopeCombine)
+    return enriched.roles.map((r) => r as TRole)
+  }
+
+  /**
    * Same as `can` but returns the full {@link AccessControl.IDecision} in development mode,
    * or a plain boolean in production mode.
    *
@@ -534,7 +555,7 @@ export class IamEngine<
 
     let enrichedSubject = subject
     if (scope && subject.scopedRoles?.length) {
-      enrichedSubject = enrichSubjectWithScopedRoles(subject, scope)
+      enrichedSubject = enrichSubjectWithScopedRoles(subject, scope, this._scopeMode, this._scopeCombine)
     }
 
     const scopedRolesApplied = enrichedSubject.roles.filter((r) => !originalRoles.includes(r))
@@ -654,7 +675,7 @@ export class IamEngine<
           if (cached) {
             enrichedSubject = cached
           } else {
-            enrichedSubject = enrichSubjectWithScopedRoles(subject, c.scope)
+            enrichedSubject = enrichSubjectWithScopedRoles(subject, c.scope, this._scopeMode, this._scopeCombine)
             enrichedByScope.set(c.scope, enrichedSubject)
           }
         }

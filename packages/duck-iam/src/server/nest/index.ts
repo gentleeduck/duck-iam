@@ -85,14 +85,13 @@ export namespace IamNest {
     getScope?: (request: NestRequest) => TScope | undefined
     /** Extracts extra attributes to attach to `resource.attributes` for this check
      *  (e.g. an owning user id, a computed flag) -- merged in before `engine.can()`.
-     *  Receives the resolved action/resource alongside the request, since the
-     *  right attributes to compute is usually resource-specific (a `users` row
-     *  IS its own subject; an `iamAssignments` row's subject lives in a column
-     *  on that row, not in its own id -- callers need to know which case
-     *  they're in without re-deriving it from the raw request themselves). */
+     *  Receives the resolved action/resource/scope, since the right attributes
+     *  depend on which resource and scope this check runs against (a `users` row
+     *  IS its own subject; an `iamAssignments` row's subject lives in a column).
+     *  Values must be `AttributeValue` -- use `null` for "absent", not `undefined`. */
     getResourceAttributes?: (
       request: NestRequest,
-      ctx: { action: string; resource: string },
+      ctx: { action: string; resource: string; scope: TScope | undefined },
     ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles thrown errors during evaluation; return `true` to allow, `false` to deny. */
     onError?: (err: Error, request: NestRequest) => boolean
@@ -223,7 +222,7 @@ export function iamNestAccessGuard<
     const scope = (meta.scope as TScope | undefined) ?? getScope?.(request)
 
     try {
-      const attributes = getResourceAttributes ? await getResourceAttributes(request, { action, resource }) : {}
+      const attributes = getResourceAttributes ? await getResourceAttributes(request, { action, resource, scope }) : {}
       return await engine.can(
         userId,
         action as TAction,

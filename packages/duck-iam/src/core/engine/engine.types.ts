@@ -271,6 +271,29 @@ export namespace IamEngineTypes {
      * when any node mutates a policy / role / subject.
      */
     readonly invalidator?: IInvalidator<TRole>
+    /**
+     * How scoped role assignments match a request's `scope`. Defaults to
+     * `'flat'`: exact match (`scopedRole.scope === request.scope`), as always.
+     *
+     * `'hierarchical'` treats a dot-delimited scope as a path and matches a
+     * grant at any ancestor -- `'org-1'` applies to `'org-1.team-2.repo-3'`,
+     * GitHub/Slack-shaped. Grants at every matching level are unioned in
+     * (additive, no per-level revoke). Safe to enable even for apps that
+     * don't use dotted scopes -- a plain scope degrades to exact match.
+     */
+    readonly scopeMode?: 'flat' | 'hierarchical'
+    /**
+     * How grants from multiple matching ancestor levels combine under
+     * `scopeMode: 'hierarchical'`. Ignored under `'flat'` (at most one level
+     * ever matches there).
+     *
+     * `'union'` (default): every matching level's roles are OR'd in - an
+     * org-level grant and a team-level grant both apply.
+     *
+     * `'override'`: only the most specific matching level applies - a
+     * narrower grant shadows a broader one instead of adding to it.
+     */
+    readonly scopeCombine?: 'union' | 'override'
   }
 
   /**
