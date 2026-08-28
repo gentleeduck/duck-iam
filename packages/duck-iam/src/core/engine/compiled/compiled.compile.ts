@@ -99,8 +99,10 @@ export function compileTable(
 
   for (const policy of policies) {
     if (policy.targets) continue
+    // Pre-group this policy's own DYNAMIC candidates per cell before merging into `dynamic`.
+    const policyDynamic = new Map<number, AccessControl.IRule[]>()
     for (const rule of policy.rules) {
-      if (hasConditions(rule.conditions)) continue // DYNAMIC cells: Task 3
+      const conditional = hasConditions(rule.conditions)
       for (const act of rule.actions) {
         if (isWildcard(act)) continue
         for (const res of rule.resources) {
@@ -110,7 +112,12 @@ export function compileTable(
           if (a === undefined || r === undefined) continue
           const idx = a * nR + r
           touched[idx] = 1
-          if (rule.effect === 'allow') {
+          if (conditional) {
+            kind[idx] = CellKind.DYNAMIC
+            const bucket = policyDynamic.get(idx)
+            if (bucket) bucket.push(rule)
+            else policyDynamic.set(idx, [rule])
+          } else if (rule.effect === 'allow') {
             allowIndices.add(idx)
             if (kind[idx] !== CellKind.DYNAMIC) kind[idx] = CellKind.CONST_ALLOW
           } else if (rule.effect === 'deny') {
@@ -118,6 +125,11 @@ export function compileTable(
           }
         }
       }
+    }
+    for (const [idx, rules] of policyDynamic) {
+      const group: DynamicPolicyGroup = { policyId: policy.id, algorithm: policy.algorithm, rules }
+      const existing = dynamic[idx]
+      dynamic[idx] = existing ? [...existing, group] : [group]
     }
   }
 
