@@ -208,7 +208,7 @@ function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | Acce
  * `'org-1.team-2.repo-3'` -> `['org-1.team-2.repo-3', 'org-1.team-2', 'org-1']`.
  * No `.` -> one entry (itself).
  */
-function scopeAncestors(scope: string): string[] {
+export function scopeAncestors(scope: string): string[] {
   const out: string[] = [scope]
   let path = scope
   let dot = path.lastIndexOf('.')
