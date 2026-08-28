@@ -21,6 +21,11 @@ function hasConditions(group: AccessControl.IConditionGroup): boolean {
         : false
 }
 
+/** `targets.roles`, or `undefined` when the policy applies regardless of role. */
+function targetRolesOf(policy: AccessControl.IPolicy): readonly string[] | undefined {
+  return policy.targets?.roles?.length ? policy.targets.roles : undefined
+}
+
 /**
  * Action/resource-targeted, or any rule uses a non-literal action/resource - stays out of
  * the flat model. A role-only `targets` restriction IS compilable - see `targetRoles` on
@@ -168,7 +173,7 @@ export function compileTable(
 
   for (const policy of flatPolicies) {
     // Role-targeted: answer depends on the subject's roles, so it can never be a CONST cell.
-    const targetRoles = policy.targets?.roles?.length ? policy.targets.roles : undefined
+    const targetRoles = targetRolesOf(policy)
     const policyRules = new Map<number, AccessControl.IRule[]>()
     for (const rule of policy.rules) {
       const conditional = hasConditions(rule.conditions) || targetRoles !== undefined
@@ -221,7 +226,7 @@ export function compileTable(
         if (match) return match
         // Phantom group still needs targetRoles - otherwise a role-targeted policy with no
         // rule at this cell would wrongly vote defaultEffect for every subject under 'and'.
-        const targetRoles = policy.targets?.roles?.length ? policy.targets.roles : undefined
+        const targetRoles = targetRolesOf(policy)
         return { policyId: policy.id, algorithm: policy.algorithm, rules: [], policy, targetRoles }
       })
     }
