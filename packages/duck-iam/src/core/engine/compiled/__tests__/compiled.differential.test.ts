@@ -136,10 +136,11 @@ describe('differential: role scope/conditions fix - not unconditionally granted'
   })
 })
 
-describe("differential: 'and'-mode soundness - a co-located but irrelevant policy no longer wrongly grants", () => {
+describe("differential: 'and'-mode soundness - an irrelevant co-located policy abstains instead of vetoing", () => {
   // Two untargeted ABAC policies: 'grantable' has a rule at this cell, 'irrelevant' has none
-  // at all. Under 'and', an absent-but-applicable policy votes defaultEffect (deny here) - so
-  // the request must be denied, even though 'grantable' alone would allow it.
+  // at all. Under 'and', a policy with no rule shaped for this action/resource has nothing to
+  // say about it and abstains (NotApplicable) instead of forcing a defaultEffect vote - so
+  // 'irrelevant' does not veto 'grantable's allow.
   const grantable: AccessControl.IPolicy = {
     id: 'grantable',
     name: 'Grantable',
@@ -155,11 +156,11 @@ describe("differential: 'and'-mode soundness - a co-located but irrelevant polic
     ],
   }
 
-  it("lookup() agrees with evaluate(..., 'and') - both deny, where the old flat model would have wrongly allowed", () => {
+  it("lookup() agrees with evaluate(..., 'and') - both allow, since 'irrelevant' abstains instead of vetoing", () => {
     const t = compileTable([], [grantable, irrelevant], 'and')
     const request = req([], 'read', 'doc')
     const oracle = evaluate([grantable, irrelevant], request, 'deny', 'and')
-    expect(oracle.allowed).toBe(false)
+    expect(oracle.allowed).toBe(true)
     expect(lookup(t, 0, 'read', 'doc', request, 'deny')).toBe(oracle.allowed)
   })
 
@@ -171,7 +172,7 @@ describe("differential: 'and'-mode soundness - a co-located but irrelevant polic
     expect(lookup(t, 0, 'read', 'doc', request, 'deny')).toBe(oracle.allowed)
   })
 
-  it('RBAC-plus-one-ABAC-policy variant: role grant alone no longer bypasses the irrelevant policy', () => {
+  it('RBAC-plus-one-ABAC-policy variant: the role grant stands alone when the co-located policy is truly irrelevant', () => {
     const roles: AccessControl.IRole[] = [
       { id: 'editor', name: 'Editor', permissions: [{ action: 'update', resource: 'post' }] },
     ]
@@ -180,9 +181,10 @@ describe("differential: 'and'-mode soundness - a co-located but irrelevant polic
     const mask = maskOf(t, ['editor'])
     const request = req(['editor'], 'update', 'post')
     const oracle = evaluate([rolesToPolicy(roles), irrelevant], request, 'deny', 'and')
-    // Ground truth: the RBAC-equivalent grant is mandatory-voted alongside 'irrelevant', which
-    // has zero rules at this cell and votes defaultEffect ('deny') under 'and'.
-    expect(oracle.allowed).toBe(false)
+    // Ground truth: 'irrelevant' has no rule shaped for update/post, so it abstains
+    // (NotApplicable) instead of voting defaultEffect - the RBAC-equivalent grant is the only
+    // applicable vote, and 'and' over a single applicable vote is just that vote.
+    expect(oracle.allowed).toBe(true)
     expect(lookup(t, mask, 'update', 'post', request, 'deny')).toBe(oracle.allowed)
   })
 

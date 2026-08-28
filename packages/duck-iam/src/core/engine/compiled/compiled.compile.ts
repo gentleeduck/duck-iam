@@ -92,10 +92,6 @@ export function compileTable(
   const hasSimpleRoles = roles.some((role) => role.permissions.some((perm) => isSimplePermission(perm, role)))
   const hasRbacSource = hasSimpleRoles || rbacResidual !== null
 
-  // RBAC is a single voter (folded in `lookup()`'s rbacVote()) - it does not enter the
-  // ABAC-only phantom-vote 'and'-soundness bookkeeping below, which only ever needs to
-  // reconcile multiple *flatPolicies* touching (or not touching) the same cell.
-  const forceAndDynamic = policyCombine === 'and' && flatPolicies.length > 1
   const hasFlatSource = flatPolicies.length > 0
 
   const actionSet = new Set<string>()
@@ -213,27 +209,11 @@ export function compileTable(
     if (denyIndices.has(idx)) kind[idx] = CellKind.DYNAMIC
   }
 
-  if (forceAndDynamic) {
-    // Every cell touched by any flatPolicies entry becomes a mandatory-voter DYNAMIC
-    // cell: one group per flatPolicies entry, phantom (`rules: []`) when that policy
-    // has none here.
-    for (let idx = 0; idx < n; idx++) {
-      if (touched[idx] === 0) continue
-      kind[idx] = CellKind.DYNAMIC
-      const real = groupsByIdx.get(idx)
-      dynamic[idx] = flatPolicies.map((policy) => {
-        const match = real?.find((g) => g.policyId === policy.id)
-        if (match) return match
-        // Phantom group still needs targetRoles - otherwise a role-targeted policy with no
-        // rule at this cell would wrongly vote defaultEffect for every subject under 'and'.
-        const targetRoles = targetRolesOf(policy)
-        return { policyId: policy.id, algorithm: policy.algorithm, rules: [], policy, targetRoles }
-      })
-    }
-  } else {
-    for (const [idx, groups] of groupsByIdx) {
-      if (kind[idx] === CellKind.DYNAMIC) dynamic[idx] = groups
-    }
+  // A policy that doesn't touch this cell has no rule shaped for it and must not
+  // vote here at all (see abacFlatVote's touched===0 -> null) - so only the groups
+  // that actually touch a given idx ever combine there. No phantom/forced voters.
+  for (const [idx, groups] of groupsByIdx) {
+    if (kind[idx] === CellKind.DYNAMIC) dynamic[idx] = groups
   }
 
   return {

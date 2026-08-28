@@ -46,10 +46,10 @@ function evaluateDynamicCell(
 
 /**
  * The ABAC flat layer's vote at one cell: `null` when the table has no ABAC flat source at
- * all, or when a DYNAMIC cell's every policy group threw (abstain, don't fail-closed). An
- * unknown or untouched cell votes the constant `defaultEffect` - every flatPolicies entry is
- * applicable-but-absent there, which trivially reduces to that constant under both `'and'`
- * and `'allow-overrides'`. Does not know about RBAC.
+ * all, when no flat policy has any rule shaped for this action/resource (unknown dimension
+ * or an untouched cell - no policy has anything to say here, same as `evaluatePolicy`'s
+ * rule-shape NotApplicable check), or when a DYNAMIC cell's every policy group threw
+ * (abstain, don't fail-closed). Does not know about RBAC.
  */
 function abacFlatVote(
   table: CompiledTable,
@@ -64,9 +64,9 @@ function abacFlatVote(
 
   const a = table.actionId.get(action)
   const r = table.resourceId.get(resource)
-  if (a === undefined || r === undefined) return defaultEffect === 'allow'
+  if (a === undefined || r === undefined) return null
   const idx = a * table.nResources + r
-  if (table.touched[idx] === 0) return defaultEffect === 'allow'
+  if (table.touched[idx] === 0) return null
 
   const k = table.kind[idx]
   if (k === CellKind.CONST_ALLOW) return true
@@ -74,15 +74,17 @@ function abacFlatVote(
 
   // DYNAMIC
   const groups = table.dynamic[idx]
-  if (!groups) return defaultEffect === 'allow'
+  if (!groups) return null
   return evaluateDynamicCell(groups, req, defaultEffect, table.policyCombine, caches, onPolicyError)
 }
 
 /**
  * RBAC's single vote: the fast mask-bit check (`allow`), OR'd with the residual policy's
- * vote when the mask misses, falling back to `defaultEffect` when neither source has a
- * matching grant. `null` when the table has no RBAC source at all (no role has any
- * permission), or when the residual policy throws (abstain, same fail-skip contract as
+ * vote when the mask misses, falling back to `defaultEffect` only when some role
+ * elsewhere in the system DOES grant this exact action+resource (so the miss is a real
+ * "not this subject's roles", not "nobody's talking about this"). `null` when the table
+ * has no RBAC source at all, when neither half has anything shaped for this action/
+ * resource, or when the residual policy throws (abstain, same fail-skip contract as
  * `evaluatePolicyFast`'s residual-policy loop below - a rotten `__rbac__` policy must not
  * fail-closed the whole request). See compiled.types.ts's `rbacResidual` doc for why this
  * must stay ONE vote.
@@ -99,18 +101,30 @@ function rbacVote(
 ): boolean | null {
   if (!table.hasRbacSource) return null
 
+  // `actionId`/`resourceId` are shared with the ABAC flat layer - a dimension can exist
+  // solely because some ABAC policy uses it, with no role ever granting it. So "does the
+  // grant mask cell exist" is not "is this a known dimension"; it's "is this cell's raw
+  // grant value (any role, not just this subject's) nonzero" - that's RBAC-specific.
   const a = table.actionId.get(action)
   const r = table.resourceId.get(resource)
-  const maskHit = a !== undefined && r !== undefined && (mask & table.allow[a * table.nResources + r]!) !== 0
-  if (maskHit) return true
+  const cellAllow = a !== undefined && r !== undefined ? table.allow[a * table.nResources + r]! : 0
+  if ((mask & cellAllow) !== 0) return true
 
-  if (!table.rbacResidual) return defaultEffect === 'allow'
-  try {
-    return evaluatePolicyFast(table.rbacResidual, req, defaultEffect, caches)
-  } catch (err) {
-    onPolicyError?.(err instanceof Error ? err : new Error(String(err)), table.rbacResidual)
-    return null
+  if (table.rbacResidual) {
+    try {
+      const vote = evaluatePolicyFast(table.rbacResidual, req, defaultEffect, caches)
+      if (vote !== null) return vote
+    } catch (err) {
+      onPolicyError?.(err instanceof Error ? err : new Error(String(err)), table.rbacResidual)
+      return null
+    }
   }
+
+  // Neither half has a rule shaped for this action/resource. A nonzero grant at this
+  // cell (from any role, not just this subject's) means some role's simple permission
+  // does grant this exact pair - just not one this subject holds - so that's still a
+  // real vote, not silence.
+  return cellAllow !== 0 ? defaultEffect === 'allow' : null
 }
 
 /**

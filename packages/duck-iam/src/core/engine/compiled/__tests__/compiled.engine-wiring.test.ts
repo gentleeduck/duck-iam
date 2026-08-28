@@ -101,8 +101,8 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
   })
 })
 
-describe("production mode: 'and'-mode soundness (the bug this design exists to fix)", () => {
-  it('an irrelevant second untargeted policy correctly vetoes an otherwise-granted role permission', async () => {
+describe("production mode: 'and'-mode soundness - an irrelevant untargeted policy no longer vetoes a role grant", () => {
+  it('an irrelevant second untargeted policy abstains, so the role permission still holds', async () => {
     const irrelevant = {
       id: 'irrelevant',
       name: 'Irrelevant',
@@ -125,9 +125,10 @@ describe("production mode: 'and'-mode soundness (the bug this design exists to f
       attributes,
     })
     const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' }) // policyCombine: 'and' default
-    // Under 'and', `irrelevant` is applicable (untargeted) but has zero rules
-    // at update/post, so it votes defaultEffect=false - must veto the role grant.
-    expect(await production.can('user-1', 'update', { type: 'post', attributes: {} })).toBe(false)
+    // Under 'and', `irrelevant` has no rule shaped for update/post, so it abstains
+    // (NotApplicable) instead of forcing a defaultEffect vote - the role grant is the only
+    // applicable vote and stands.
+    expect(await production.can('user-1', 'update', { type: 'post', attributes: {} })).toBe(true)
   })
 })
 

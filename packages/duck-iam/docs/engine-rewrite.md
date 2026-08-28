@@ -1015,13 +1015,16 @@ What changed from every phase above:
 - **No `experimentalCompiledTable` flag.** `mode: 'production'` always
   builds and uses the compiled table. There is no non-compiled production
   path left to fall through to.
-- **`'and'`-mode soundness solved at compile time, not deferred.** Every
-  touched cell where more than one *ABAC* flat policy applies gets
-  classified `DYNAMIC` with one phantom zero-rule vote group per
-  flat-eligible policy absent at that cell — `combiners[algorithm]([],
-  defaultEffect)` already resolves an empty rule list correctly, so this
-  needed only compile-time bookkeeping, not new runtime combining logic.
-  `'and'` is now as sound as `'allow-overrides'`, at full compiled speed.
+- **`'and'`-mode soundness fixed at the rule-shape level, not by forcing
+  phantom voters.** The first cut of this design classified every cell
+  touched by 2+ flat ABAC policies as `DYNAMIC` and synthesized a
+  zero-rule vote group (`forceAndDynamic`) for every flat policy absent at
+  that cell, so `combiners[algorithm]([], defaultEffect)` would cast a real
+  vote on its behalf. That turned out to institutionalize the same bug it
+  was meant to fix: a policy with no rule shaped for the request's
+  action/resource has nothing to say and must abstain, not vote
+  `defaultEffect`. See "Follow-up: the abstain-vs-vote bug" below for the
+  real fix and why `forceAndDynamic` was deleted rather than kept.
   `'first-applicable'` remains excluded (`mode: 'production'` rejects it at
   construction, unrelated to this design).
 - **RBAC is one independently-computed vote, never folded into the ABAC
@@ -1102,7 +1105,9 @@ What changed from every phase above:
   group without `targetRoles`, so a role-targeted policy's phantom vote
   would cast `defaultEffect` for every subject regardless of role,
   vetoing unrelated grants under `'and'`. Fixed, with a stash-verified
-  regression test.
+  regression test. (`forceAndDynamic` itself was deleted outright in the
+  follow-up below — this bug was a symptom of the mechanism, not just of
+  missing `targetRoles`.)
 - `evaluateFast`/`evaluatePolicyFast`/`evaluate`/`evaluatePolicy` remain
   public exports — nothing was deleted from the API. What's retired is
   `engine.ts` ever calling `evaluateFast` in production mode.
@@ -1116,6 +1121,65 @@ of restriction. A third, in the interpreter itself
 (`evaluate.ts`'s `matchCandidate` skipping match verification for any
 wildcard-shaped rule, a false-ALLOW bug reachable from the public
 `evaluateFast`/`evaluatePolicyFast`) was also found and fixed.
+(`matchCandidate` itself was later deleted outright as dead code once the
+follow-up below rewrote every algorithm branch around `hasCandidate`.)
+
+### Follow-up: the abstain-vs-vote bug, and why `forceAndDynamic` was deleted
+
+`policyApplies()`'s `targets`-level mismatch was always treated as
+NotApplicable/abstain, but a *rule*-level shape mismatch was not: a policy
+with silent `targets` whose every rule's action/resource pattern misses the
+request still fell through to `combiners[algorithm]([], defaultEffect)` in
+both `evaluatePolicy` and `evaluatePolicyFast`, casting a real
+`defaultEffect` vote for a policy that has nothing to do with the request.
+Under the default `policyCombine: 'and'` (and `'allow-overrides'`), that
+silently vetoed — or granted — requests based on completely unrelated
+policies and RBAC residuals sharing the same table. This bug predates the
+compiled-table rewrite; `forceAndDynamic` happened to make the phantom vote
+look intentional for the specific case of 2+ co-touched flat policies,
+which is why removing it was the right call once the real fix landed
+instead of patching it to match.
+
+Fixed by adding one rule-shape check, factored so the interpreter and the
+compiled hot path share the identical distinction between "no rule here"
+and "a rule matched, condition said no":
+
+- `ruleTargetsMatch(rule, req)` (`evaluate.libs.ts`) — action+resource
+  shape only, no conditions. `evaluatePolicy()` now returns NotApplicable
+  (`applicable: false`) when no rule's shape matches at all, before ever
+  reaching the combiner.
+- `candidateShapeMatches(...)` (`evaluate.ts`, local) — the same check
+  inlined for `evaluatePolicyFast`'s indexed hot path. Each of the three
+  algorithm branches now tracks `hasCandidate` (seeded `true` from a
+  literal-bucket hit, updated by the wildcardAny scan) and returns `null`
+  (abstain) instead of `defaultEffect === 'allow'` when nothing shaped for
+  the request was ever found.
+- `abacFlatVote()` (`compiled.lookup.ts`) — its three `defaultEffect`
+  fallbacks (unknown dimension, untouched cell, defensive no-groups case)
+  all became `null`, matching the interpreter's NotApplicable semantics.
+- `forceAndDynamic` was deleted from `compiled.compile.ts` entirely — a
+  policy that doesn't touch a cell no longer gets a phantom vote group
+  there, `DYNAMIC` cells hold only the groups that actually touch them.
+  This also restores the `CONST_ALLOW`/`CONST_DENY` fast path for cells
+  where every touching policy agrees, which `forceAndDynamic` had forced
+  to `DYNAMIC` unconditionally under `'and'` with 2+ flat policies.
+- `rbacVote()` needed the same treatment for its own residual half, but a
+  first attempt introduced a real bug caught only by
+  `compiled.property-fuzz.test.ts`'s prod/dev agreement sweep — manual
+  reasoning missed it: `table.actionId`/`table.resourceId` are shared
+  between the RBAC mask dimensions and the ABAC flat dimensions (built
+  together in `compileTable`), so "is this a known (action, resource)
+  pair" is not "does some role grant it" — an ABAC-only pair with no role
+  ever granting it was wrongly treated as RBAC-known, so a mask miss fell
+  back to `defaultEffect` instead of abstaining. Fixed by checking
+  `table.allow[idx] !== 0` (the actual raw grant-mask value at that cell,
+  any role) instead of map membership.
+
+No special-casing was added to make RBAC's residual abstain differently
+from an ABAC policy's: `rolesToPolicy()`'s synthesized `__rbac__` policy is
+evaluated by the exact same `evaluatePolicy()` as any other policy in
+development mode, with no special cases, so `rbacVote()` must replicate
+that uniformly for the compiled/interpreted parity guarantee to hold.
 
 ### Measured: the actual wired path
 

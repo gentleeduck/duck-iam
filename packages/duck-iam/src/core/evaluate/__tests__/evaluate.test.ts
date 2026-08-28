@@ -452,7 +452,9 @@ describe('fast path: expansive patterns reject non-matching requests (regression
       ],
     }
     const req = makeReq({ action: 'comments:read' })
-    expect(evaluatePolicyFast(policy, req)).toBe(false)
+    // No rule's shape matches 'comments:read' at all -> NotApplicable (null), not a
+    // real deny vote. `.allowed` still reflects defaultEffect ('deny') either way.
+    expect(evaluatePolicyFast(policy, req)).toBe(null)
     expect(evaluatePolicy(policy, req).allowed).toBe(false)
   })
 
@@ -473,7 +475,7 @@ describe('fast path: expansive patterns reject non-matching requests (regression
       ],
     }
     const req = makeReq({ resource: { type: 'reports.summary', attributes: {} } })
-    expect(evaluatePolicyFast(policy, req)).toBe(false)
+    expect(evaluatePolicyFast(policy, req)).toBe(null)
     expect(evaluatePolicy(policy, req).allowed).toBe(false)
   })
 
@@ -487,7 +489,7 @@ describe('fast path: expansive patterns reject non-matching requests (regression
       ],
     }
     const req = makeReq({ resource: { type: 'team:project', attributes: {} } })
-    expect(evaluatePolicyFast(policy, req)).toBe(false)
+    expect(evaluatePolicyFast(policy, req)).toBe(null)
     expect(evaluatePolicy(policy, req).allowed).toBe(false)
   })
 })
@@ -610,10 +612,12 @@ describe('fast path: literal-only resource patterns', () => {
         { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org'], conditions: { all: [] } },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(false)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(false)
+    // The rule's shape is exactly 'org' - a sub-resource or unrelated resource is
+    // outside that shape entirely (NotApplicable, null), not a real deny vote.
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(null)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(null)
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org', attributes: {} } }))).toBe(true)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(false)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(null)
   })
 
   it('colon: explicit "org:*" matches sub-resources', () => {
@@ -645,10 +649,10 @@ describe('fast path: literal-only resource patterns', () => {
         },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(false)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(null)
     expect(
       evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users.settings', attributes: {} } })),
-    ).toBe(false)
+    ).toBe(null)
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } }))).toBe(true)
   })
 })

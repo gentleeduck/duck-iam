@@ -25,7 +25,7 @@ const policies: AccessControl.IPolicy[] = [
   },
 ]
 
-describe('compileTable: basic classification (allow-overrides: unaffected by forceAndDynamic)', () => {
+describe('compileTable: basic classification', () => {
   it('compiles a role permission into the RBAC grant mask (kind stays untouched - RBAC is a separate vote)', () => {
     const t = compileTable(roles, policies, 'allow-overrides')
     const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('post')!

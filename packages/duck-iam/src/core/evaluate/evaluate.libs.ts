@@ -14,26 +14,35 @@ import type { Evaluate } from './evaluate.types'
  * @param req  - The incoming access request
  * @returns `true` if the rule matches the request
  */
-export function ruleApplies(
-  rule: AccessControl.IRule,
-  req: IamRequest.IAccessRequest,
-  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
-): boolean {
+/**
+ * Action+resource shape only, no conditions. Distinguishes "this rule has
+ * nothing to do with the request" (false) from "shape matches, condition
+ * decides" (true) - the top-level combine needs that distinction to tell a
+ * genuinely silent policy apart from one that considered this request and
+ * said no.
+ */
+export function ruleTargetsMatch(rule: AccessControl.IRule, req: IamRequest.IAccessRequest): boolean {
   const actionMatch = rule.actions.some((a) => matchesAction(a, req.action))
   if (!actionMatch) return false
 
   // Hoist the dot check - compute once before the .some() loop
   const resourceHasDot = req.resource.type.includes('.')
 
-  const resourceMatch = rule.resources.some((r) => {
+  return rule.resources.some((r) => {
     // Use dot-based matching if either pattern or resource type contains a dot
     if (resourceHasDot || r.includes('.')) {
       return matchesResourceHierarchical(r, req.resource.type)
     }
     return matchesResource(r, req.resource.type)
   })
-  if (!resourceMatch) return false
+}
 
+export function ruleApplies(
+  rule: AccessControl.IRule,
+  req: IamRequest.IAccessRequest,
+  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
+): boolean {
+  if (!ruleTargetsMatch(rule, req)) return false
   return evalConditionGroup(req, rule.conditions, 0, caches)
 }
 
