@@ -254,6 +254,8 @@ for per-profile measurements.
 ## Docs
 
 - Site: [gentleduck.org/duck-iam](https://gentleduck.org/duck-iam)
+- Compiled engine internals (wildcard buckets, role bitmasks, the compiled table, with diagrams): [`docs/compiled-engine-explained.md`](./docs/compiled-engine-explained.md)
+- Engine rewrite design history + known limits: [`docs/engine-rewrite.md`](./docs/engine-rewrite.md)
 - Devtools: import `@gentleduck/iam/dt` to inspect policy evaluation inside your app
 - Sibling repos: [`@gentleduck/auth`](https://www.npmjs.com/package/@gentleduck/auth), [`@gentleduck/ui`](https://github.com/gentleeduck/duck-ui), [`@gentleduck/upload`](https://github.com/gentleeduck/duck-upload), [`@gentleduck/md`](https://github.com/gentleeduck/duck-md)
 
