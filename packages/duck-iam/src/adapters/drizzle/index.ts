@@ -18,6 +18,14 @@ export namespace IamDrizzle {
       : SQLiteTableWithColumns<any>
 
   export interface IConfig<TDb extends AnyDrizzleDb, TType extends 'pg' | 'mysql' | 'sqlite'> {
+    /**
+     * Which SQL dialect `db` speaks. MySQL has no `ON CONFLICT` clause - its
+     * insert builder exposes `onDuplicateKeyUpdate()`/`ignore()` instead of
+     * `onConflictDoUpdate()`/`onConflictDoNothing()`, so upserts branch on
+     * this at runtime. Defaults to `'pg'`, which shares its conflict API
+     * with `'sqlite'`.
+     */
+    dialect?: TType
     /** Provides the IamDrizzle database instance with select/insert/delete builders. */
     db: TDb
     /** Provides references to the four IamDrizzle table schemas used by the adapter. */
@@ -112,6 +120,7 @@ export class IamDrizzleAdapter<
   private readonly _and: IamDrizzle.IConfig<TDb, TType>['ops']['and']
   private readonly _isNull?: IamDrizzle.IConfig<TDb, TType>['ops']['isNull']
   private readonly _json: 'native' | 'string'
+  private readonly _dialect: 'pg' | 'mysql' | 'sqlite'
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
 
   /**
@@ -126,7 +135,36 @@ export class IamDrizzleAdapter<
     this._and = config.ops.and
     this._isNull = config.ops.isNull
     this._json = config.json ?? 'native'
+    this._dialect = config.dialect ?? 'pg'
     this._onPolicyError = config.onPolicyError
+  }
+
+  /**
+   * Insert-or-update on `target`'s unique/PK column. MySQL has no `ON
+   * CONFLICT` clause: it infers the conflicting key from the table's own
+   * unique/PK index, so `target` only applies to the pg/sqlite branch -
+   * `onDuplicateKeyUpdate` is the only call MySQL's insert builder exposes.
+   */
+  private _upsert(
+    table: IamDrizzle.DrizzleTable,
+    values: Record<string, unknown>,
+    target: unknown,
+    set: Record<string, unknown>,
+  ) {
+    return this._dialect === 'mysql'
+      ? this._db.insert(table).values(values).onDuplicateKeyUpdate({ set })
+      : this._db.insert(table).values(values).onConflictDoUpdate({ target, set })
+  }
+
+  /**
+   * Insert, silently skipping a row that already exists. MySQL's
+   * insert-ignore is a builder-order modifier (`.ignore()` before
+   * `.values()`), not a trailing call like `onConflictDoNothing()`.
+   */
+  private _insertOrSkip(table: IamDrizzle.DrizzleTable, values: Record<string, unknown>) {
+    return this._dialect === 'mysql'
+      ? this._db.insert(table).ignore().values(values)
+      : this._db.insert(table).values(values).onConflictDoNothing()
   }
 
   /**
@@ -310,7 +348,7 @@ export class IamDrizzleAdapter<
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const data = serializePolicy(p, this._json)
-    await this._db.insert(this._t.policies).values(data).onConflictDoUpdate({ target: this._t.policies.id, set: data })
+    await this._upsert(this._t.policies, data, this._t.policies.id, data)
   }
 
   /**
@@ -362,7 +400,7 @@ export class IamDrizzleAdapter<
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = serializeRole(r, this._json)
-    await this._db.insert(this._t.roles).values(data).onConflictDoUpdate({ target: this._t.roles.id, set: data })
+    await this._upsert(this._t.roles, data, this._t.roles.id, data)
   }
 
   /**
@@ -434,17 +472,14 @@ export class IamDrizzleAdapter<
    * @returns Resolves once the insert completes.
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
-    await this._db
-      .insert(this._t.assignments)
-      .values({
-        subjectId,
-        roleId,
-        scope: scope ?? null,
-        startsAt: opts?.startsAt ?? null,
-        expiresAt: opts?.expiresAt ?? null,
-        attributes: opts?.attributes ? encodeJson(opts.attributes, this._json) : null,
-      })
-      .onConflictDoNothing()
+    await this._insertOrSkip(this._t.assignments, {
+      subjectId,
+      roleId,
+      scope: scope ?? null,
+      startsAt: opts?.startsAt ?? null,
+      expiresAt: opts?.expiresAt ?? null,
+      attributes: opts?.attributes ? encodeJson(opts.attributes, this._json) : null,
+    })
   }
 
   /**
@@ -563,10 +598,7 @@ export class IamDrizzleAdapter<
     }
     const mergedObj = { ...existing, ...attrs }
     const merged = this._json === 'string' ? JSON.stringify(mergedObj) : mergedObj
-    await this._db
-      .insert(this._t.attrs)
-      .values({ subjectId, data: merged })
-      .onConflictDoUpdate({ target: this._t.attrs.subjectId, set: { data: merged } })
+    await this._upsert(this._t.attrs, { subjectId, data: merged }, this._t.attrs.subjectId, { data: merged })
   }
 }
 

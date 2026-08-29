@@ -6,6 +6,8 @@ import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 
 /** `IConfig` gained <TDb, TType> in the rename these suites were disabled for. */
 type TestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>
+/** MySQL config shape: `dialect` narrows to `'mysql'`, branching the adapter's upsert chain. */
+type MysqlTestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'mysql'>
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
@@ -530,6 +532,98 @@ describe('IamDrizzleAdapter', () => {
       })
       expect(await adapter.getPolicy('bad')).toBeNull()
       expect(errors[0]?.rowId).toBe('bad')
+    })
+  })
+
+  describe('mysql dialect', () => {
+    // MySQL has no `ON CONFLICT` clause: this mock implements only
+    // `ignore()` + `onDuplicateKeyUpdate()` (its real insert-builder chain),
+    // not `onConflictDoUpdate()`/`onConflictDoNothing()`. If the adapter
+    // ever regresses to calling the pg/sqlite chain unconditionally, these
+    // tests fail with "is not a function" instead of silently passing.
+    function makeMysqlMock() {
+      const tables = { policies: [] as Row[], roles: [] as Row[], assignments: [] as Row[], attrs: [] as Row[] }
+      const tableRefs = {
+        policies: { id: { name: 'id' } },
+        roles: { id: { name: 'id' } },
+        assignments: { subjectId: { name: 'subjectId' }, roleId: { name: 'roleId' } },
+        attrs: { subjectId: { name: 'subjectId' } },
+      }
+      const tableForRef = (ref: unknown): Row[] => {
+        for (const [key, val] of Object.entries(tableRefs)) {
+          if (val === ref) return tables[key as keyof typeof tables]
+        }
+        throw new Error('unknown table ref')
+      }
+      const config: MysqlTestConfig = {
+        dialect: 'mysql',
+        db: {
+          insert: vi.fn((tableRef: unknown) => {
+            const table = tableForRef(tableRef)
+            return {
+              // `.ignore().values(...)` - MySQL's insert-or-skip chain.
+              ignore() {
+                return {
+                  values(data: Record<string, unknown>) {
+                    table.push({ ...data })
+                    return Promise.resolve(undefined)
+                  },
+                }
+              },
+              // `.values(...).onDuplicateKeyUpdate(...)` - MySQL's upsert chain.
+              values(data: Record<string, unknown>) {
+                return {
+                  onDuplicateKeyUpdate({ set }: { set: Record<string, unknown> }) {
+                    const idKey = 'id' in data ? 'id' : 'subjectId'
+                    const idx = table.findIndex((r) => r[idKey] === data[idKey])
+                    if (idx >= 0) table[idx] = { ...table[idx], ...set }
+                    else table.push({ ...data })
+                    return Promise.resolve(undefined)
+                  },
+                }
+              },
+            }
+          }) as unknown as MysqlTestConfig['db']['insert'],
+          select: vi.fn(() => ({
+            from: () => ({ where: () => ({ limit: () => [] }) }),
+          })) as unknown as MysqlTestConfig['db']['select'],
+          update: vi.fn() as unknown as MysqlTestConfig['db']['update'],
+          delete: vi.fn() as unknown as MysqlTestConfig['db']['delete'],
+        },
+        tables: tableRefs as unknown as MysqlTestConfig['tables'],
+        ops: {
+          eq: (col, val) => ({ type: 'eq', args: [col, val] }),
+          and: (...c) => ({ type: 'and', args: c }) as unknown as SQL,
+        },
+      }
+      return { config, tables }
+    }
+
+    it('savePolicy upserts via onDuplicateKeyUpdate, not onConflictDoUpdate', async () => {
+      const mock = makeMysqlMock()
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+      await adapter.savePolicy({
+        id: 'p1',
+        name: 'p1',
+        version: 1,
+        algorithm: 'deny-overrides',
+        rules: [],
+      } as unknown as AccessControl.IPolicy<A, R, Ro>)
+      expect(mock.tables.policies).toHaveLength(1)
+    })
+
+    it('assignRole inserts via ignore(), not onConflictDoNothing', async () => {
+      const mock = makeMysqlMock()
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+      await adapter.assignRole('u1', 'editor' as Ro)
+      expect(mock.tables.assignments).toHaveLength(1)
+    })
+
+    it('setSubjectAttributes upserts on subjectId via onDuplicateKeyUpdate', async () => {
+      const mock = makeMysqlMock()
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+      await adapter.setSubjectAttributes('u1', { tier: 'gold' })
+      expect(mock.tables.attrs).toHaveLength(1)
     })
   })
 })
