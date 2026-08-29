@@ -7,7 +7,17 @@ export function randomToken(bytes = 32): string {
 
 export { v7 as authUlid } from 'uuid'
 
-/** SHA-256 hash of input, hex-encoded. Used for at-rest token storage. */
+/**
+ * SHA-256 hash of input, hex-encoded. Used for at-rest token storage:
+ * session ids, CSRF tokens, API keys, OAuth/OIDC refresh tokens, MFA codes.
+ * Every caller passes a high-entropy value already produced by `randomToken()`
+ * or an equivalent generator - never a human-chosen password, which goes
+ * through `Argon2idHasher`/`ScryptHasher` in providers/passwords instead. A
+ * fast hash is correct here: these values can't be brute-forced by guessing
+ * regardless of hash speed, and a slow KDF would make every lookup (e.g. one
+ * per API request) needlessly expensive.
+ */
+// codeql[js/insufficient-password-hash]: false positive - hashes random tokens/API keys, not passwords; see doc comment above.
 export function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex')
 }

@@ -9,6 +9,7 @@ import { createSign, createVerify } from 'node:crypto'
 
 export function signEs256(key: string, signingInput: string): string {
   const signer = createSign('SHA256')
+  // codeql[js/insufficient-password-hash]: false positive - ECDSA-SHA256 JWT signing (RFC 7518 ES256), not password hashing; `key` is an EC private key, `signingInput` is the token payload.
   signer.update(signingInput)
   signer.end()
   return derToJoseEs256(signer.sign(key)).toString('base64url')

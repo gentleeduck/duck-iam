@@ -3,6 +3,7 @@ import { createSign, createVerify } from 'node:crypto'
 
 export function signRs256(key: string, signingInput: string): string {
   const signer = createSign('RSA-SHA256')
+  // codeql[js/insufficient-password-hash]: false positive - RSA-SHA256 JWT signing (RFC 7518 RS256), not password hashing; `key` is an RSA private key, `signingInput` is the token payload.
   signer.update(signingInput)
   signer.end()
   return signer.sign(key).toString('base64url')
