@@ -536,11 +536,19 @@ describe('IamDrizzleAdapter', () => {
   })
 
   describe('mysql dialect', () => {
-    // MySQL has no `ON CONFLICT` clause: this mock implements only
-    // `ignore()` + `onDuplicateKeyUpdate()` (its real insert-builder chain),
-    // not `onConflictDoUpdate()`/`onConflictDoNothing()`. If the adapter
-    // ever regresses to calling the pg/sqlite chain unconditionally, these
-    // tests fail with "is not a function" instead of silently passing.
+    // MySQL has no `ON CONFLICT` clause. `assignRole` uses `.ignore()` +
+    // `.values(...)` (its real insert-or-skip chain). `savePolicy`/
+    // `saveRole`/`setSubjectAttributes` upsert via select-then-branch
+    // instead of a blanket `.onDuplicateKeyUpdate(...)`: that fires on
+    // *any* unique-index violation, not just the target column, so a fresh
+    // id colliding with an unrelated row's `name` (`iamPolicies`) or
+    // `name`+`scope` (`iamRoles`) would silently overwrite that row - id
+    // included - instead of erroring like pg/sqlite's target-scoped
+    // `onConflictDoUpdate`. This mock implements only mysql's real
+    // `ignore()`/plain-`values()`/`select().from().where().limit()`/
+    // `update().set().where()` chains, not `onConflictDoUpdate()`/
+    // `onConflictDoNothing()` - a regression back to those fails loudly
+    // instead of silently passing.
     function makeMysqlMock() {
       const tables = { policies: [] as Row[], roles: [] as Row[], assignments: [] as Row[], attrs: [] as Row[] }
       const tableRefs = {
@@ -555,13 +563,14 @@ describe('IamDrizzleAdapter', () => {
         }
         throw new Error('unknown table ref')
       }
+      type EqCond = { type: 'eq'; args: [{ name: string }, unknown] }
       const config: MysqlTestConfig = {
         dialect: 'mysql',
         db: {
           insert: vi.fn((tableRef: unknown) => {
             const table = tableForRef(tableRef)
             return {
-              // `.ignore().values(...)` - MySQL's insert-or-skip chain.
+              // `.ignore().values(...)` - MySQL's insert-or-skip chain (assignRole).
               ignore() {
                 return {
                   values(data: Record<string, unknown>) {
@@ -570,24 +579,39 @@ describe('IamDrizzleAdapter', () => {
                   },
                 }
               },
-              // `.values(...).onDuplicateKeyUpdate(...)` - MySQL's upsert chain.
+              // Plain `.values(...)` - the insert half of the select-then-branch upsert.
               values(data: Record<string, unknown>) {
-                return {
-                  onDuplicateKeyUpdate({ set }: { set: Record<string, unknown> }) {
-                    const idKey = 'id' in data ? 'id' : 'subjectId'
-                    const idx = table.findIndex((r) => r[idKey] === data[idKey])
-                    if (idx >= 0) table[idx] = { ...table[idx], ...set }
-                    else table.push({ ...data })
-                    return Promise.resolve(undefined)
-                  },
-                }
+                table.push({ ...data })
+                return Promise.resolve(undefined)
               },
             }
           }) as unknown as MysqlTestConfig['db']['insert'],
           select: vi.fn(() => ({
-            from: () => ({ where: () => ({ limit: () => [] }) }),
+            from: (tableRef: unknown) => {
+              const table = tableForRef(tableRef)
+              return {
+                where: (cond: EqCond) => ({
+                  limit: (_n: number) => {
+                    const [col, val] = cond.args
+                    return table.filter((r) => r[col.name] === val)
+                  },
+                }),
+              }
+            },
           })) as unknown as MysqlTestConfig['db']['select'],
-          update: vi.fn() as unknown as MysqlTestConfig['db']['update'],
+          update: vi.fn((tableRef: unknown) => {
+            const table = tableForRef(tableRef)
+            return {
+              set: (set: Record<string, unknown>) => ({
+                where: (cond: EqCond) => {
+                  const [col, val] = cond.args
+                  const idx = table.findIndex((r) => r[col.name] === val)
+                  if (idx >= 0) table[idx] = { ...table[idx], ...set }
+                  return Promise.resolve(undefined)
+                },
+              }),
+            }
+          }) as unknown as MysqlTestConfig['db']['update'],
           delete: vi.fn() as unknown as MysqlTestConfig['db']['delete'],
         },
         tables: tableRefs as unknown as MysqlTestConfig['tables'],
@@ -599,7 +623,7 @@ describe('IamDrizzleAdapter', () => {
       return { config, tables }
     }
 
-    it('savePolicy upserts via onDuplicateKeyUpdate, not onConflictDoUpdate', async () => {
+    it('savePolicy inserts a new row via select-then-insert, not onConflictDoUpdate', async () => {
       const mock = makeMysqlMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
       await adapter.savePolicy({
@@ -612,6 +636,31 @@ describe('IamDrizzleAdapter', () => {
       expect(mock.tables.policies).toHaveLength(1)
     })
 
+    it('saveRole with a new id inserts a new row, even if an existing row shares its name', async () => {
+      const mock = makeMysqlMock()
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+      await adapter.saveRole({ id: 'r1' as Ro, name: 'editor', permissions: [] })
+      await adapter.saveRole({ id: 'r2' as Ro, name: 'editor', permissions: [] })
+
+      // Two distinct rows, not one overwritten via a name match. Real
+      // MySQL's `ON DUPLICATE KEY UPDATE` would instead collide on the
+      // `name`+`scope` unique index and silently rewrite r1's row (id
+      // included) with r2's data; the adapter never reaches that path
+      // because it keys strictly on `id`.
+      expect(mock.tables.roles).toHaveLength(2)
+      expect(mock.tables.roles.map((r) => r.id)).toEqual(['r1', 'r2'])
+    })
+
+    it('saveRole with an existing id updates that row in place', async () => {
+      const mock = makeMysqlMock()
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+      await adapter.saveRole({ id: 'r1' as Ro, name: 'editor', permissions: [] })
+      await adapter.saveRole({ id: 'r1' as Ro, name: 'editor-v2', permissions: [] })
+
+      expect(mock.tables.roles).toHaveLength(1)
+      expect(mock.tables.roles[0]?.name).toBe('editor-v2')
+    })
+
     it('assignRole inserts via ignore(), not onConflictDoNothing', async () => {
       const mock = makeMysqlMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
@@ -619,7 +668,7 @@ describe('IamDrizzleAdapter', () => {
       expect(mock.tables.assignments).toHaveLength(1)
     })
 
-    it('setSubjectAttributes upserts on subjectId via onDuplicateKeyUpdate', async () => {
+    it('setSubjectAttributes upserts on subjectId via select-then-branch', async () => {
       const mock = makeMysqlMock()
       const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
       await adapter.setSubjectAttributes('u1', { tier: 'gold' })

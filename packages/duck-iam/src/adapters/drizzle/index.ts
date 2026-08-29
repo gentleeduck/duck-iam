@@ -140,20 +140,39 @@ export class IamDrizzleAdapter<
   }
 
   /**
-   * Insert-or-update on `target`'s unique/PK column. MySQL has no `ON
-   * CONFLICT` clause: it infers the conflicting key from the table's own
-   * unique/PK index, so `target` only applies to the pg/sqlite branch -
-   * `onDuplicateKeyUpdate` is the only call MySQL's insert builder exposes.
+   * Insert-or-update keyed on `target`'s unique/PK column, currently
+   * `targetValue`. MySQL has no `ON CONFLICT` clause, and its
+   * `onDuplicateKeyUpdate` fires on *any* unique-index violation, not only
+   * `target`'s - `iamPolicies` also has a unique `name`, `iamRoles` a unique
+   * `(name, scope)`. Saving a policy/role with a fresh id but a name (or
+   * name+scope) that already belongs to a *different* row would silently
+   * overwrite that unrelated row's data - including its id - instead of
+   * erroring, where pg/sqlite's `target`-scoped `onConflictDoUpdate` throws
+   * because the conflict isn't on the column it was told to expect.
+   *
+   * So on MySQL this checks for the row by `target` first and issues a
+   * plain update or insert accordingly, rather than a blanket
+   * `onDuplicateKeyUpdate`: a genuine secondary-unique-index collision then
+   * surfaces as a thrown duplicate-entry error from the insert, matching
+   * pg/sqlite's fail-closed behaviour instead of corrupting the other row.
    */
-  private _upsert(
+  private async _upsert(
     table: IamDrizzle.DrizzleTable,
     values: Record<string, unknown>,
     target: unknown,
+    targetValue: unknown,
     set: Record<string, unknown>,
   ) {
-    return this._dialect === 'mysql'
-      ? this._db.insert(table).values(values).onDuplicateKeyUpdate({ set })
-      : this._db.insert(table).values(values).onConflictDoUpdate({ target, set })
+    if (this._dialect !== 'mysql') {
+      await this._db.insert(table).values(values).onConflictDoUpdate({ target, set })
+      return
+    }
+    const existing = await this._db.select().from(table).where(this._eq(target, targetValue)).limit(1)
+    if (existing.length > 0) {
+      await this._db.update(table).set(set).where(this._eq(target, targetValue))
+    } else {
+      await this._db.insert(table).values(values)
+    }
   }
 
   /**
@@ -348,7 +367,7 @@ export class IamDrizzleAdapter<
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const data = serializePolicy(p, this._json)
-    await this._upsert(this._t.policies, data, this._t.policies.id, data)
+    await this._upsert(this._t.policies, data, this._t.policies.id, p.id, data)
   }
 
   /**
@@ -400,7 +419,7 @@ export class IamDrizzleAdapter<
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = serializeRole(r, this._json)
-    await this._upsert(this._t.roles, data, this._t.roles.id, data)
+    await this._upsert(this._t.roles, data, this._t.roles.id, r.id, data)
   }
 
   /**
@@ -598,7 +617,7 @@ export class IamDrizzleAdapter<
     }
     const mergedObj = { ...existing, ...attrs }
     const merged = this._json === 'string' ? JSON.stringify(mergedObj) : mergedObj
-    await this._upsert(this._t.attrs, { subjectId, data: merged }, this._t.attrs.subjectId, { data: merged })
+    await this._upsert(this._t.attrs, { subjectId, data: merged }, this._t.attrs.subjectId, subjectId, { data: merged })
   }
 }
 
