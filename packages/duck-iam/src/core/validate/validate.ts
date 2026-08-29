@@ -126,12 +126,6 @@ function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessCon
 }
 
 /**
- * Deep-validate an untrusted policy (id, name, algorithm, rules, conditions).
- *
- * @param input - The candidate policy object (typically parsed JSON or an admin form payload).
- * @returns A {@link IamValidate.IResult} with `valid: false` when any error issue was emitted.
- */
-/**
  * A matched target with no matching rule folds `defaultEffect`, which is `deny` - so a
  * target widens what a policy refuses, not only what it inspects. Denying everything it
  * targets is the point of a restrictive policy, so this only fires once the author has
@@ -159,6 +153,19 @@ function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.
   const resources = targets.resources?.length ? targets.resources : null
   if (!actions && !resources) return
 
+  // Same worst-case-cartesian budget used for rules: an oversized target would
+  // otherwise push one issue per (action, resource) pair with no cap.
+  const pairCount = (actions?.length ?? 1) * (resources?.length ?? 1)
+  if (pairCount > POLICY_LIMITS.cartesianPerRule) {
+    issues.push({
+      type: 'warning',
+      code: 'UNREACHABLE_TARGET',
+      message: `Target has ${pairCount} (action, resource) pairs, over the ${POLICY_LIMITS.cartesianPerRule} checked for unreachable coverage - skipping the check. Narrow the target to validate it.`,
+      path: 'targets',
+    })
+    return
+  }
+
   for (const action of actions ?? [null]) {
     for (const resource of resources ?? [null]) {
       const reachable = allows.some(
@@ -168,6 +175,12 @@ function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.
 
       const pair = resource === null ? `"${action}"` : `"${action ?? '*'}" on "${resource}"`
       issues.push({
+        // An error, not a warning, so `PolicyBuilder.build()` throws where the policy is
+        // written. A warning read as the permission system working - the visible symptom
+        // is a denial - and it cost five separate incidents to recognise. Promoted in
+        // 196f52db; see that commit and CHANGELOG's newer "reject a policy whose target
+        // names a pair no allow rule covers" entry, not the older "Warning rather than
+        // error" entry above it, which documents the since-superseded original behavior.
         type: 'error',
         code: 'UNREACHABLE_TARGET',
         message:
@@ -180,6 +193,12 @@ function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.
   }
 }
 
+/**
+ * Deep-validate an untrusted policy (id, name, algorithm, rules, conditions).
+ *
+ * @param input - The candidate policy object (typically parsed JSON or an admin form payload).
+ * @returns A {@link IamValidate.IResult} with `valid: false` when any error issue was emitted.
+ */
 export function validatePolicy(input: unknown): IamValidate.IResult {
   const issues: IamValidate.IIssue[] = []
 

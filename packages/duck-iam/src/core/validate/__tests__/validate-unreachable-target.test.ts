@@ -158,4 +158,24 @@ describe('validatePolicy() - unreachable targets', () => {
       }),
     ).toEqual([])
   })
+
+  /**
+   * Same worst-case-cartesian budget used for rules: an oversized target would otherwise
+   * push one issue per (action, resource) pair with no cap.
+   */
+  it('skips the check and warns once a target exceeds the cartesian budget, instead of one error per pair', () => {
+    const actions = Array.from({ length: 50 }, (_, i) => `action${i}`)
+    const resources = Array.from({ length: 21 }, (_, i) => `resource${i}`)
+    const issues = unreachable({
+      id: 'p',
+      name: 'p',
+      algorithm: 'deny-overrides',
+      targets: { actions, resources },
+      rules: [rule('r1', 'allow', ['action0'], ['resource0'])],
+    })
+
+    expect(issues).toHaveLength(1)
+    expect(issues[0]?.type).toBe('warning')
+    expect(issues[0]?.message).toContain('1050')
+  })
 })
