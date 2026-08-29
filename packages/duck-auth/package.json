@@ -648,7 +648,7 @@
   },
   "dependencies": {
     "@types/node": "^26.1.0",
-    "uuid": "^11.0.0"
+    "uuid": "^14.0.2"
   },
   "peerDependencies": {
     "@aws-sdk/client-kms": ">=3 <4",
