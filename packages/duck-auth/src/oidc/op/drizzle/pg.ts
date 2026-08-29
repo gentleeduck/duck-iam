@@ -8,7 +8,7 @@
 
 import { and, eq, isNull, lt, or, sql } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
-import { bigint, index, pgTable, text } from 'drizzle-orm/pg-core'
+import { bigint, index, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core'
 import type { OidcOP } from '../types'
 
 // ---------------------------------------------------------------------
@@ -83,7 +83,11 @@ export const authOidcConsentsTable = pgTable(
     scope: text('scope').notNull(),
     grantedAt: bigint('granted_at', { mode: 'number' }).notNull(),
   },
-  (t) => [index('oidc_consents_id_client').on(t.identityId, t.clientId)],
+  // Unique, not a plain index: `upsert` issues ON CONFLICT (identity_id, client_id),
+  // and Postgres needs a unique constraint to infer an arbiter or it raises 42P10.
+  // A non-unique index also allowed a second consent row for the same pair, leaving
+  // `find` to return whichever one it happened to reach first.
+  (t) => [uniqueIndex('oidc_consents_id_client').on(t.identityId, t.clientId)],
 )
 
 // ---------------------------------------------------------------------

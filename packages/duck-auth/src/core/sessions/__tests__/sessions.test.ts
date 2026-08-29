@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
 import { sha256 } from '~/core/crypto'
 import { InMemoryEvents } from '~/core/events'
-import { identityInput } from '~/test/store-inputs'
+import { identityInput, makeIdentity } from '~/test/store-inputs'
 import { resolveBySid, SessionsImpl } from '../sessions'
 import { DEFAULT_SESSION_CONFIG } from '../sessions.constants'
+import { Sessions } from '../sessions.types'
 
 describe('SessionsFacet', () => {
   let adapter: MemoryAdapter
@@ -55,9 +56,233 @@ describe('SessionsFacet', () => {
       expect(session.aal).toBe(1)
       expect(session.factors).toEqual([])
     })
+
+    it('session.created carries the identity when the caller supplies one', async () => {
+      const handler = vi.fn()
+      events.on('session.created', handler)
+      const identity = makeIdentity({ id: 'user-1' })
+
+      await facet.create({ aal: 1, factors: [], identity, identityId: identity.id, kind: 'user' })
+
+      expect(handler.mock.calls[0]?.[0].identity).toBe(identity)
+    })
+
+    it('session.created emits identity: null when the caller supplies none', async () => {
+      const handler = vi.fn()
+      events.on('session.created', handler)
+
+      await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+
+      expect(handler.mock.calls[0]?.[0].identity).toBeNull()
+    })
+
+    it('truncates fingerprint like ip and userAgent', async () => {
+      const { session } = await facet.create({
+        aal: 1,
+        factors: [],
+        fingerprint: 'x'.repeat(1000),
+        identityId: 'u',
+        ip: 'x'.repeat(1000),
+        kind: 'user',
+        userAgent: 'x'.repeat(1000),
+      })
+      expect(session.ip?.length).toBe(64)
+      expect(session.userAgent?.length).toBe(512)
+      expect(session.fingerprint?.length).toBe(256)
+    })
+  })
+
+  describe('create() validates factor contents', () => {
+    it('rejects an unrecognised factor method', async () => {
+      await expect(
+        facet.create({
+          aal: 1,
+          // @ts-expect-error: SEC test intentionally violates the typed shape
+          factors: [{ completedAt: new Date(), method: 'telepathy' }],
+          identityId: 'u',
+          kind: 'user',
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    })
+
+    it('rejects a non-Date completedAt', async () => {
+      await expect(
+        facet.create({
+          aal: 1,
+          // @ts-expect-error: SEC test intentionally violates the typed shape
+          factors: [{ completedAt: 'nope', method: 'password' }],
+          identityId: 'u',
+          kind: 'user',
+        }),
+      ).rejects.toMatchObject({ code: 'AUTH_MISCONFIGURED' })
+    })
+
+    it('still accepts a well-formed factor', async () => {
+      const { session } = await facet.create({
+        aal: 1,
+        factors: [{ completedAt: new Date(), method: 'password' }],
+        identityId: 'u',
+        kind: 'user',
+      })
+      expect(session.factors).toHaveLength(1)
+    })
+  })
+
+  describe('guest sessions expose their CSRF token', () => {
+    it('createGuest returns csrfToken and it matches the hash on the row', async () => {
+      const { session, csrfToken } = await facet.createGuest()
+      const token: string = csrfToken
+      expect(token.length).toBeGreaterThan(0)
+      expect(session.csrfHash).toBe(sha256(token))
+    })
+
+    it('promoteGuest returns csrfToken', async () => {
+      const guest = await facet.createGuest()
+      const { csrfToken } = await facet.promoteGuest({
+        aal: 1,
+        factors: [],
+        guestSid: guest.sid,
+        identityId: 'user-1',
+      })
+      const token: string = csrfToken
+      expect(token.length).toBeGreaterThan(0)
+    })
+
+    it('promoteGuest carries fingerprint through to the promoted session', async () => {
+      const guest = await facet.createGuest()
+      const { session } = await facet.promoteGuest({
+        aal: 1,
+        factors: [],
+        fingerprint: 'fp-1',
+        guestSid: guest.sid,
+        identityId: 'user-1',
+      })
+      expect(session.fingerprint).toBe('fp-1')
+    })
   })
 
   describe('rotateOrCreate() - DESIGN section 37 rotation matrix', () => {
+    it('credential-change revokes all other sessions even when previousSid is omitted', async () => {
+      const { sid: aSid } = await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      const { sid: bSid } = await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      const { sid: keepSid } = await facet.create({ aal: 1, factors: [], identityId: 'other', kind: 'user' })
+
+      await facet.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: 'user-1',
+        kind: 'user',
+        purpose: 'credential-change',
+      })
+
+      expect(await adapter.sessions.getByHash(sha256(aSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(bSid))).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(keepSid))).not.toBeNull()
+    })
+
+    it('credential-change revokes BEFORE minting the replacement session', async () => {
+      const order: string[] = []
+      const base = adapter.sessions
+      const recording: Sessions.Store = {
+        ...base,
+        create: async (session) => {
+          order.push('create')
+          return base.create(session)
+        },
+        deleteAllForIdentity: async (id) => {
+          order.push('revoke')
+          return base.deleteAllForIdentity(id)
+        },
+      }
+      const impl = new SessionsImpl(recording, events, DEFAULT_SESSION_CONFIG)
+
+      await impl.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: 'user-1',
+        kind: 'user',
+        purpose: 'credential-change',
+      })
+
+      expect(order).toEqual(['revoke', 'create'])
+    })
+
+    it('credential-change uses deleteAllForIdentity, not an N-delete loop', async () => {
+      await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      const sweep = vi.spyOn(adapter.sessions, 'deleteAllForIdentity')
+      const single = vi.spyOn(adapter.sessions, 'delete')
+
+      await facet.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: 'user-1',
+        kind: 'user',
+        purpose: 'credential-change',
+      })
+
+      expect(sweep).toHaveBeenCalledTimes(1)
+      expect(single).not.toHaveBeenCalled()
+    })
+
+    it('credential-change emits session.revoked once per previously-live session', async () => {
+      await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      const handler = vi.fn()
+      events.on('session.revoked', handler)
+
+      await facet.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: 'user-1',
+        kind: 'user',
+        purpose: 'credential-change',
+      })
+
+      expect(handler).toHaveBeenCalledTimes(2)
+    })
+
+    it('credential-change is a no-op revocation when identityId is null (guest)', async () => {
+      const sweep = vi.spyOn(adapter.sessions, 'deleteAllForIdentity')
+
+      await facet.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: null,
+        kind: 'guest',
+        purpose: 'credential-change',
+      })
+
+      expect(sweep).not.toHaveBeenCalled()
+    })
+
+    it('session.rotated carries previousSessionId when previousSid was supplied', async () => {
+      const { sid: prevSid } = await facet.create({ aal: 1, factors: [], identityId: 'user-1', kind: 'user' })
+      const handler = vi.fn()
+      events.on('session.rotated', handler)
+
+      await facet.rotateOrCreate({
+        aal: 1,
+        factors: [],
+        identityId: 'user-1',
+        kind: 'user',
+        previousSid: prevSid,
+        purpose: 'signin',
+      })
+
+      expect(handler.mock.calls[0]?.[0].previousSessionId).toBe(sha256(prevSid))
+    })
+
+    it('session.rotated omits previousSessionId when there was no previous session', async () => {
+      const handler = vi.fn()
+      events.on('session.rotated', handler)
+
+      await facet.rotateOrCreate({ aal: 1, factors: [], identityId: 'user-1', kind: 'user', purpose: 'signin' })
+
+      expect(handler.mock.calls[0]?.[0].previousSessionId).toBeUndefined()
+    })
+
     it('signin purpose revokes the previous SID', async () => {
       const { sid: guestSid } = await facet.createGuest()
       const handler = vi.fn()
@@ -192,11 +417,41 @@ describe('SessionsFacet', () => {
       expect(await facet.touch('does-not-exist')).toBeNull()
     })
 
+    it('hard-deletes a session past its sliding expiresAt and returns null', async () => {
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'u', kind: 'user' })
+      await adapter.sessions.update(sha256(sid), {
+        absoluteExpiresAt: new Date(Date.now() + 86_400_000),
+        expiresAt: new Date(Date.now() - 1000),
+      })
+      expect(await facet.touch(sid)).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
+    })
+
+    it('still slides a session that is within its expiresAt window', async () => {
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'u', kind: 'user' })
+      expect(await facet.touch(sid)).not.toBeNull()
+    })
+
     it('hard-deletes a session past its absoluteExpiresAt and returns null', async () => {
       const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
       await adapter.sessions.update(sha256(sid), { absoluteExpiresAt: new Date(Date.now() - 1) })
       expect(await facet.touch(sid)).toBeNull()
       expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
+    })
+
+    it('hard-deletes a session past its sliding expiresAt and returns null', async () => {
+      const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
+      await adapter.sessions.update(sha256(sid), {
+        expiresAt: new Date(Date.now() - 1000), // already expired
+        absoluteExpiresAt: new Date(Date.now() + 86_400_000), // absolute cap still far away
+      })
+      expect(await facet.touch(sid)).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
+    })
+
+    it('still slides a session that is within its expiresAt window', async () => {
+      const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
+      expect(await facet.touch(sid)).not.toBeNull()
     })
   })
 
@@ -310,6 +565,13 @@ describe('resolveBySid()', () => {
     it('touch() treats NaN absoluteExpiresAt as expired and hard-deletes', async () => {
       const { adapter, facet, hash, sid } = await setupLiveSession()
       await adapter.sessions.update(hash, { absoluteExpiresAt: new Date(Number.NaN) })
+      expect(await facet.touch(sid)).toBeNull()
+      expect(await adapter.sessions.getByHash(hash)).toBeNull()
+    })
+
+    it('touch() treats NaN expiresAt as expired and hard-deletes', async () => {
+      const { adapter, facet, hash, sid } = await setupLiveSession()
+      await adapter.sessions.update(hash, { expiresAt: new Date(Number.NaN) })
       expect(await facet.touch(sid)).toBeNull()
       expect(await adapter.sessions.getByHash(hash)).toBeNull()
     })

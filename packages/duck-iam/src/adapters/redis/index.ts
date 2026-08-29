@@ -527,3 +527,8 @@ export class IamRedisAdapter<
     await this._client.set(this._attrsKey(subjectId), JSON.stringify(merged))
   }
 }
+
+/** Factory around {@link IamRedisAdapter}, for callers who prefer functions to `new`. */
+export function iamRedisAdapter(...args: ConstructorParameters<typeof IamRedisAdapter>): IamRedisAdapter {
+  return new IamRedisAdapter(...args)
+}

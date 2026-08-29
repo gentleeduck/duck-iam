@@ -266,11 +266,29 @@ export async function iamWithAdminAudit<T>(
  * Result of {@link iamRunAdminAuthz}. Discriminated union so the framework
  * adapter can branch on the phase and produce its own response.
  */
+export interface IamIAdminAuthzForbidden {
+  phase: 'forbidden'
+}
+
+export interface IamIAdminAuthzUnauthorized {
+  phase: 'unauthorized'
+}
+
+export interface IamIAdminAuthzError {
+  phase: 'error'
+  error: Error
+}
+
+export interface IamIAdminAuthzOk {
+  phase: 'ok'
+  actor: unknown
+}
+
 export type IamIAdminAuthzResult =
-  | { phase: 'forbidden' }
-  | { phase: 'unauthorized' }
-  | { phase: 'error'; error: Error }
-  | { phase: 'ok'; actor: unknown }
+  | IamIAdminAuthzForbidden
+  | IamIAdminAuthzUnauthorized
+  | IamIAdminAuthzError
+  | IamIAdminAuthzOk
 
 /**
  * Run the CSRF + authorize phases shared by every admin route.

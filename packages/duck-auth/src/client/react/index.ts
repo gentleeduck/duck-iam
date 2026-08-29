@@ -1,5 +1,5 @@
 /**
- * React client — hooks + provider wrapping the vanilla AuthClient. Keeps React
+ * React client: hooks + provider wrapping the vanilla AuthClient. Keeps React
  * as a peerDep so the auth core has no React in its graph. Types live in
  * `./types`.
  *
@@ -31,11 +31,11 @@ const AuthContext = createContext<ReactClient.ContextValue<Identities.ProfileMet
 
 /** `Provider`. */
 export function Provider<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
-  props: ReactClient.IProviderProps,
+  props: ReactClient.IProviderProps<Profile>,
 ): ReturnType<typeof createElement> {
   const { children, client: externalClient, noInitialFetch, ...cfg } = props
   // biome-ignore lint/correctness/useExhaustiveDependencies: cfg is a destructured spread; only baseUrl matters for client identity.
-  const client = useMemo(() => externalClient ?? createAuthClient(cfg), [externalClient, cfg.baseUrl])
+  const client = useMemo(() => externalClient ?? createAuthClient<Profile>(cfg), [externalClient, cfg.baseUrl])
   const [state, setState] = useState<VanillaClient.SessionResult<Profile>>({ session: null, identity: null })
   const [status, setStatus] = useState<'loading' | 'authed' | 'guest'>(noInitialFetch ? 'guest' : 'loading')
   const subscribed = useRef(false)

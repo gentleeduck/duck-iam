@@ -113,6 +113,12 @@ export namespace Mfa {
   // core → provider dependency direction.
   export type TotpMetadata = {
     confirmed?: boolean
+    /**
+     * Highest time step already spent on this enrollment. A code matching this
+     * step or an earlier one is a replay and is refused, which is what makes a
+     * TOTP single-use within its validity window.
+     */
+    lastTotpStep?: number
   }
   export type PasskeyMetadata = {
     deviceType?: string

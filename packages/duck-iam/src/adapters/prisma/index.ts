@@ -67,6 +67,10 @@ export namespace IamPrisma {
       findMany: (args: { where: { subjectId: string; scope?: string | null } }) => Promise<IAssignmentRow[]>
       create: (args: { data: Record<string, unknown> }) => Promise<IAssignmentRow>
       deleteMany: (args: { where: Record<string, unknown> }) => Promise<{ count: number }>
+      updateMany: (args: {
+        where: Record<string, unknown>
+        data: Record<string, unknown>
+      }) => Promise<{ count: number }>
     }
     accessSubjectAttr: {
       findUnique: (args: { where: { subjectId: string } }) => Promise<IAttrRow | null>
@@ -281,6 +285,34 @@ export class IamPrismaAdapter<
   }
 
   /**
+   * Moves an existing assignment to a different scope in place, preserving its row
+   * (`id`, `createdAt`) instead of a delete + create.
+   *
+   * @param subjectId - Identifies the subject whose assignment is moving.
+   * @param roleId - Specifies the role of the assignment being moved.
+   * @param fromScope - The assignment's current scope.
+   * @param toScope - The scope to move it to.
+   * @returns `false` when no `(subjectId, roleId, fromScope)` row exists.
+   */
+  async updateAssignmentScope(
+    subjectId: string,
+    roleId: TRole,
+    fromScope?: TScope,
+    toScope?: TScope,
+  ): Promise<boolean> {
+    // The target scope may already have its own row (unique on subjectId+roleId+scope);
+    // drop the source rather than let the update violate that constraint.
+    await this._prisma.accessAssignment.deleteMany({
+      where: { subjectId, roleId, scope: toScope ?? null, NOT: { scope: fromScope ?? null } },
+    })
+    const result = await this._prisma.accessAssignment.updateMany({
+      where: { subjectId, roleId, scope: fromScope ?? null },
+      data: { scope: toScope ?? null },
+    })
+    return result.count > 0
+  }
+
+  /**
    * Fetches the attribute bag stored for a subject.
    *
    * @param subjectId - Identifies the subject whose attributes are read.
@@ -382,4 +414,9 @@ function fromRole(r: AccessControl.IRole): Record<string, unknown> {
     scope: r.scope ?? null,
     metadata: r.metadata ?? null,
   }
+}
+
+/** Factory around {@link IamPrismaAdapter}, for callers who prefer functions to `new`. */
+export function iamPrismaAdapter(...args: ConstructorParameters<typeof IamPrismaAdapter>): IamPrismaAdapter {
+  return new IamPrismaAdapter(...args)
 }

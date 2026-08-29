@@ -33,7 +33,7 @@ Every integration is a thin adapter over `engine.can()`. There is no runtime fra
 All server integrations share a default method-to-action map:
 
 ```typescript
-const METHOD_ACTION_MAP = {
+const IAM_METHOD_ACTION_MAP = {
   GET: 'read',
   HEAD: 'read',
   OPTIONS: 'read',
@@ -50,31 +50,31 @@ Override this per-route or globally through the `getAction` option.
 
 ```typescript
 import {
-  METHOD_ACTION_MAP,
-  createSubjectCan,
-  extractEnvironment,
-  generatePermissionMap,
+  IAM_METHOD_ACTION_MAP,
+  createIamSubjectCan,
+  iamExtractEnvironment,
+  generateIamPermissionMap,
 } from '@gentleduck/iam/server/generic'
 ```
 
 Use the generic helpers when the built-in framework wrappers are too opinionated, or when you want the same access-control logic across several runtimes.
 
-- `generatePermissionMap(engine, subjectId, checks, environment?)` is a small wrapper around
+- `generateIamPermissionMap(engine, subjectId, checks, environment?)` is a small wrapper around
   `engine.permissions()` for server-to-client hydration.
-- `createSubjectCan(engine, subjectId, environment?)` returns a subject-bound
+- `createIamSubjectCan(engine, subjectId, environment?)` returns a subject-bound
   `can(action, resource, resourceId?, scope?)` function convenient in handlers, jobs, and service objects.
-- `extractEnvironment(req)` builds the default `{ ip, userAgent, timestamp }` environment
+- `iamExtractEnvironment(req)` builds the default `{ ip, userAgent, timestamp }` environment
   object from common request shapes.
-- `METHOD_ACTION_MAP` is the same CRUD-oriented map the built-in integrations use by default.
+- `IAM_METHOD_ACTION_MAP` is the same CRUD-oriented map the built-in integrations use by default.
 
 ```typescript
-const can = createSubjectCan(engine, userId, extractEnvironment(req))
+const can = createIamSubjectCan(engine, userId, iamExtractEnvironment(req))
 
 if (await can('delete', 'post', req.params.postId)) {
   await deletePost(req.params.postId)
 }
 
-const permissions = await generatePermissionMap(engine, userId, [
+const permissions = await generateIamPermissionMap(engine, userId, [
   { action: 'create', resource: 'post' },
   { action: 'manage', resource: 'team', scope: 'org-1' },
 ])
@@ -85,7 +85,7 @@ const permissions = await generatePermissionMap(engine, userId, [
 ## Express
 
 ```
-import { accessMiddleware, guard, adminRouter } from '@gentleduck/iam/server/express'
+import { iamAccessMiddleware, iamGuard, iamAdminRouter } from '@gentleduck/iam/server/express'
 ```
 
 ### Global middleware
@@ -93,14 +93,14 @@ import { accessMiddleware, guard, adminRouter } from '@gentleduck/iam/server/exp
 Apply access control to every route under a path prefix.
 
 ```typescript
-import { accessMiddleware } from '@gentleduck/iam/server/express'
+import { iamAccessMiddleware } from '@gentleduck/iam/server/express'
 
-const middleware = accessMiddleware(engine, {
+const middleware = iamAccessMiddleware(engine, {
   // Extract user ID from your auth layer (passport, jwt, etc.)
   getUserId: (req) => req.user?.id,
 
-  // Map HTTP method to action (defaults to METHOD_ACTION_MAP)
-  getAction: (req) => METHOD_ACTION_MAP[req.method],
+  // Map HTTP method to action (defaults to IAM_METHOD_ACTION_MAP)
+  getAction: (req) => IAM_METHOD_ACTION_MAP[req.method],
 
   // Infer resource from the URL path
   getResource: (req) => {
@@ -130,40 +130,40 @@ app.use('/api', middleware)
 
 ### Per-route guard
 
-Use `guard` on individual routes when the action and resource are known at definition time.
+Use `iamGuard` on individual routes when the action and resource are known at definition time.
 
 ```typescript
-import { guard } from '@gentleduck/iam/server/express'
+import { iamGuard } from '@gentleduck/iam/server/express'
 
 // Basic guard -- action and resource are fixed
-app.delete('/posts/:id', guard(engine, 'delete', 'post'), (req, res) => {
+app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), (req, res) => {
   // Only reached if engine.can() returns true
   res.json({ deleted: true })
 })
 
 // Scoped guard -- restrict to a specific scope
-app.post('/admin/users', guard(engine, 'manage', 'user', { scope: 'admin' }), (req, res) => {
+app.post('/admin/users', iamGuard(engine, 'manage', 'user', { scope: 'admin' }), (req, res) => {
   res.json({ created: true })
 })
 
 // With custom environment
-app.patch('/posts/:id', guard(engine, 'update', 'post', {
+app.patch('/posts/:id', iamGuard(engine, 'update', 'post', {
   getEnvironment: (req) => ({ ip: req.ip, timestamp: Date.now() }),
 }), handler)
 
 // Custom user ID extraction
-app.get('/reports', guard(engine, 'read', 'report', {
+app.get('/reports', iamGuard(engine, 'read', 'report', {
   getUserId: (req) => req.headers['x-api-key'] as string,
 }), handler)
 ```
 
-The `guard` function catches errors and passes them to Express's `next(err)`, so they
-reach your error-handling middleware. The `accessMiddleware` catches errors and calls
+The `iamGuard` function catches errors and passes them to Express's `next(err)`, so they
+reach your error-handling middleware. The `iamAccessMiddleware` catches errors and calls
 the `onError` option.
 
 <Callout type="info">
-The Express `guard()` helper reads the resource instance ID from `req.params.id`. If your
-route uses a different param name such as `:postId`, either use `accessMiddleware()` with a
+The Express `iamGuard()` helper reads the resource instance ID from `req.params.id`. If your
+route uses a different param name such as `:postId`, either use `iamAccessMiddleware()` with a
 custom `getResource`, or run `engine.can()` / `engine.check()` yourself inside the handler
 once you have the real resource ID and attributes.
 </Callout>
@@ -174,9 +174,9 @@ Mount a pre-built admin API for managing policies, roles, and assignments.
 
 ```typescript
 import express from 'express'
-import { adminRouter } from '@gentleduck/iam/server/express'
+import { iamAdminRouter } from '@gentleduck/iam/server/express'
 
-const createRouter = adminRouter(engine)
+const createRouter = iamAdminRouter(engine)
 app.use('/api/access-admin', createRouter(() => express.Router()))
 ```
 
@@ -214,17 +214,17 @@ This exposes:
 ## NestJS
 
 ```
-import { nestAccessGuard, Authorize, createTypedAuthorize, createEngineProvider } from '@gentleduck/iam/server/nest'
+import { iamNestAccessGuard, IamAuthorize, createIamEngineProvider } from '@gentleduck/iam/server/nest'
 ```
 
 ### Guard factory
 
-Create a NestJS-compatible guard function. It reads metadata from the `@Authorize` decorator on each handler.
+Create a NestJS-compatible guard function. It reads metadata from the `@IamAuthorize` decorator on each handler.
 
 ```typescript
-import { nestAccessGuard } from '@gentleduck/iam/server/nest'
+import { iamNestAccessGuard } from '@gentleduck/iam/server/nest'
 
-const canAccess = nestAccessGuard(engine, {
+const canAccess = iamNestAccessGuard(engine, {
   getUserId: (req) => req.user?.id ?? req.user?.sub,
   getScope: (req) => req.headers['x-org-id'] as string | undefined,
   getResourceId: (req) => req.params?.id,
@@ -235,32 +235,32 @@ const canAccess = nestAccessGuard(engine, {
 // APP_GUARD -> { provide: APP_GUARD, useValue: { canActivate: canAccess } }
 ```
 
-Handlers without an `@Authorize` decorator are allowed by default -- the guard only activates when metadata is present.
+Handlers without an `@IamAuthorize` decorator are allowed by default -- the guard only activates when metadata is present.
 
-### The Authorize decorator
+### The IamAuthorize decorator
 
 Annotate controller methods with their required permissions.
 
 ```typescript
-import { Authorize } from '@gentleduck/iam/server/nest'
+import { IamAuthorize } from '@gentleduck/iam/server/nest'
 
 @Controller('posts')
 export class PostsController {
   @Delete(':id')
-  @Authorize({ action: 'delete', resource: 'post' })
+  @IamAuthorize({ action: 'delete', resource: 'post' })
   async deletePost(@Param('id') id: string) {
     return this.postsService.delete(id)
   }
 
   @Post()
-  @Authorize({ action: 'create', resource: 'post' })
+  @IamAuthorize({ action: 'create', resource: 'post' })
   async createPost(@Body() dto: CreatePostDto) {
     return this.postsService.create(dto)
   }
 
   // Infer action from HTTP method, resource from route path
   @Get()
-  @Authorize({ infer: true })
+  @IamAuthorize({ infer: true })
   async listPosts() {
     return this.postsService.list()
   }
@@ -272,46 +272,26 @@ export class PostsController {
 Attach a scope to restrict access to a specific context.
 
 ```typescript
-@Authorize({ action: 'manage', resource: 'billing', scope: 'admin' })
+@IamAuthorize({ action: 'manage', resource: 'billing', scope: 'admin' })
 async updateBilling() { ... }
 ```
 
 If no scope is set on the decorator, the guard falls back to the `getScope` option from the guard factory.
-
-### Type-safe decorator
-
-`createTypedAuthorize` constrains the decorator to your application's exact action, resource, and scope types. Typos become compile-time errors.
-
-```typescript
-import { createTypedAuthorize } from '@gentleduck/iam/server/nest'
-
-type Action = 'create' | 'read' | 'update' | 'delete' | 'manage'
-type Resource = 'post' | 'user' | 'billing' | 'report'
-type Scope = 'admin' | 'member'
-
-const Auth = createTypedAuthorize<Action, Resource, Scope>()
-
-// This compiles:
-@Auth({ action: 'delete', resource: 'post' })
-
-// This is a compile error -- "craete" is not in Action:
-@Auth({ action: 'craete', resource: 'post' })
-```
 
 ### Engine provider
 
 Register the engine as a NestJS provider.
 
 ```typescript
-import { createEngineProvider, ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
+import { createIamEngineProvider, IAM_ACCESS_ENGINE_TOKEN } from '@gentleduck/iam/server/nest'
 
 @Module({
   providers: [
-    createEngineProvider(() => new Engine({ adapter })),
+    createIamEngineProvider(() => new IamEngine({ adapter })),
     {
       provide: APP_GUARD,
-      useFactory: (engine) => ({ canActivate: nestAccessGuard(engine) }),
-      inject: [ACCESS_ENGINE_TOKEN],
+      useFactory: (engine) => ({ canActivate: iamNestAccessGuard(engine) }),
+      inject: [IAM_ACCESS_ENGINE_TOKEN],
     },
   ],
 })
@@ -333,7 +313,7 @@ export class AppModule {}
 ## Hono
 
 ```
-import { accessMiddleware, guard } from '@gentleduck/iam/server/hono'
+import { iamAccessMiddleware, iamGuard } from '@gentleduck/iam/server/hono'
 ```
 
 ### Global middleware
@@ -341,9 +321,9 @@ import { accessMiddleware, guard } from '@gentleduck/iam/server/hono'
 Apply access control to all routes under a path pattern. If no user ID is found, the middleware returns 401 immediately.
 
 ```typescript
-import { accessMiddleware } from '@gentleduck/iam/server/hono'
+import { iamAccessMiddleware } from '@gentleduck/iam/server/hono'
 
-app.use('/api/*', accessMiddleware(engine, {
+app.use('/api/*', iamAccessMiddleware(engine, {
   getUserId: (c) => c.get('userId') as string ?? c.req.header('x-user-id'),
   getScope: (c) => c.req.header('x-org-id'),
   onDenied: (c) => c.json({ error: 'Forbidden' }, 403),
@@ -357,11 +337,11 @@ app.use('/api/*', accessMiddleware(engine, {
 Guard individual Hono routes with fixed action and resource types.
 
 ```typescript
-import { guard } from '@gentleduck/iam/server/hono'
+import { iamGuard } from '@gentleduck/iam/server/hono'
 
 app.delete(
   '/posts/:id',
-  guard(engine, 'delete', 'post'),
+  iamGuard(engine, 'delete', 'post'),
   async (c) => {
     // Only reached if the user can delete posts
     return c.json({ deleted: true })
@@ -370,7 +350,7 @@ app.delete(
 
 app.post(
   '/admin/users',
-  guard(engine, 'manage', 'user', { scope: 'admin' }),
+  iamGuard(engine, 'manage', 'user', { scope: 'admin' }),
   async (c) => {
     return c.json({ created: true })
   }
@@ -380,8 +360,8 @@ app.post(
 The guard automatically reads `c.req.param('id')` as the resource ID when available.
 
 <Callout type="info">
-Like the Express guard, the Hono `guard()` helper assumes the route param is named `id`.
-For nested resources or different param names, prefer `accessMiddleware()` with a custom
+Like the Express guard, the Hono `iamGuard()` helper assumes the route param is named `id`.
+For nested resources or different param names, prefer `iamAccessMiddleware()` with a custom
 `getResource` function or a manual `engine.can()` call in the handler.
 </Callout>
 
@@ -412,7 +392,7 @@ Override with `getEnvironment` to add custom fields.
 ## Next.js App Router
 
 ```
-import { withAccess, checkAccess, getPermissions, createNextMiddleware } from '@gentleduck/iam/server/next'
+import { withIamAccess, checkIamAccess, getIamPermissions, createIamNextMiddleware } from '@gentleduck/iam/server/next'
 ```
 
 Covers route handler protection, server component checks, permission map generation for client hydration, and edge middleware.
@@ -422,7 +402,7 @@ Covers route handler protection, server component checks, permission map generat
 Wrap App Router route handlers (GET, POST, DELETE, etc.).
 
 ```typescript
-import { withAccess } from '@gentleduck/iam/server/next'
+import { withIamAccess } from '@gentleduck/iam/server/next'
 import { engine } from '@/lib/engine'
 import { auth } from '@/lib/auth'
 
@@ -433,7 +413,7 @@ async function handler(req: Request, ctx: { params: Promise<{ id: string }> }) {
   return Response.json({ deleted: true })
 }
 
-export const DELETE = withAccess(engine, 'delete', 'post', handler, {
+export const DELETE = withIamAccess(engine, 'delete', 'post', handler, {
   getUserId: async (req) => {
     const session = await auth()
     return session?.user?.id ?? null
@@ -444,7 +424,7 @@ export const DELETE = withAccess(engine, 'delete', 'post', handler, {
 The wrapper automatically reads `params.id` as the resource instance ID.
 
 <Callout type="info">
-`withAccess()` only auto-binds `params.id`. If your route uses `params.postId` or another
+`withIamAccess()` only auto-binds `params.id`. If your route uses `params.postId` or another
 name, keep the wrapper for coarse route gating and run a deeper `engine.can()` /
 `engine.check()` inside the handler once you have the real instance identifier.
 </Callout>
@@ -454,13 +434,13 @@ name, keep the wrapper for coarse route gating and run a deeper `engine.can()` /
 Check a permission inside a React Server Component or server action.
 
 ```typescript
-import { checkAccess } from '@gentleduck/iam/server/next'
+import { checkIamAccess } from '@gentleduck/iam/server/next'
 import { engine } from '@/lib/engine'
 
 export default async function PostPage({ params }: { params: { id: string } }) {
   const { id } = params
-  const canDelete = await checkAccess(engine, userId, 'delete', 'post', id)
-  const canEdit = await checkAccess(engine, userId, 'update', 'post', id)
+  const canDelete = await checkIamAccess(engine, userId, 'delete', 'post', id)
+  const canEdit = await checkIamAccess(engine, userId, 'update', 'post', id)
 
   return (
     <article>
@@ -477,7 +457,7 @@ export default async function PostPage({ params }: { params: { id: string } }) {
 Generate a `PermissionMap` on the server and pass it to the client.
 
 ```typescript
-import { getPermissions } from '@gentleduck/iam/server/next'
+import { getIamPermissions } from '@gentleduck/iam/server/next'
 import { engine } from '@/lib/engine'
 import { AccessProvider } from '@/lib/access-client'
 
@@ -486,7 +466,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const userId = session?.user?.id
 
   const permissions = userId
-    ? await getPermissions(engine, userId, [
+    ? await getIamPermissions(engine, userId, [
         { action: 'create', resource: 'post' },
         { action: 'delete', resource: 'post' },
         { action: 'manage', resource: 'team' },
@@ -512,11 +492,11 @@ Protect routes at the edge before they reach application code.
 
 ```typescript
 // middleware.ts
-import { createNextMiddleware } from '@gentleduck/iam/server/next'
+import { createIamNextMiddleware } from '@gentleduck/iam/server/next'
 import { engine } from '@/lib/engine'
 import { NextResponse } from 'next/server'
 
-const checkAccess = createNextMiddleware(engine, {
+const checkIamAccess = createIamNextMiddleware(engine, {
   getUserId: async (req) => {
     // Extract user ID from cookie/token at the edge
     const token = req.headers.get('authorization')?.replace('Bearer ', '')
@@ -530,7 +510,7 @@ const checkAccess = createNextMiddleware(engine, {
 })
 
 export async function middleware(req: Request) {
-  const denied = await checkAccess(req)
+  const denied = await checkIamAccess(req)
   if (denied) return denied  // 401 or 403 Response
   return NextResponse.next()
 }
@@ -544,7 +524,7 @@ When no rule matches a request path, the middleware returns `null` and the reque
 
 ### Options reference
 
-**withAccess options:**
+**withIamAccess options:**
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -553,7 +533,7 @@ When no rule matches a request path, the middleware returns `null` and the reque
 | `scope` | `string` | `undefined` | Fixed scope for this handler |
 | `onError` | `(err, req) -> Response` | 500 JSON | Custom error handler |
 
-**createNextMiddleware options:**
+**createIamNextMiddleware options:**
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -580,11 +560,11 @@ Use global middleware for broad protection, then layer per-route guards for endp
 
 ```typescript
 // Express example
-app.use('/api', accessMiddleware(engine, { getUserId: (req) => req.user?.id }))
+app.use('/api', iamAccessMiddleware(engine, { getUserId: (req) => req.user?.id }))
 
 // Override for a specific route that needs a different scope
 app.delete('/api/admin/users/:id',
-  guard(engine, 'manage', 'user', { scope: 'admin' }),
+  iamGuard(engine, 'manage', 'user', { scope: 'admin' }),
   deleteUserHandler
 )
 ```
@@ -594,14 +574,14 @@ app.delete('/api/admin/users/:id',
 Override the default HTTP method mapping for non-standard action patterns.
 
 ```typescript
-const middleware = accessMiddleware(engine, {
+const middleware = iamAccessMiddleware(engine, {
   getUserId: (req) => req.user?.id,
   getAction: (req) => {
     // POST /api/posts/:id/publish -> "publish" action
     if (req.method === 'POST' && req.path.endsWith('/publish')) {
       return 'publish'
     }
-    return METHOD_ACTION_MAP[req.method] ?? 'read'
+    return IAM_METHOD_ACTION_MAP[req.method] ?? 'read'
   },
 })
 ```
@@ -623,9 +603,9 @@ safety net for edge cases like adapter connection failures during subject resolu
 
 ### Server-driven client permissions
 
-1. Generate a `PermissionMap` on the server using `getPermissions` or `engine.permissions()`
+1. Generate a `PermissionMap` on the server using `getIamPermissions` or `engine.permissions()`
 2. Pass the map to the client via props, response body, or server-rendered HTML
-3. Hydrate an `AccessProvider` (React), plugin (Vue), or `AccessClient` (vanilla) on the client
+3. Hydrate an `AccessProvider` (React), plugin (Vue), or `IamAccessClient` (vanilla) on the client
 4. Client-side checks are instant lookups -- no additional network requests
 
 ```typescript
@@ -683,10 +663,10 @@ const permissions = await engine.permissions(userId, checks)
   </AccordionItem>
 
   <AccordionItem value="next-wrapper-vs-middleware">
-    <AccordionTrigger>What is the difference between withAccess() and createNextMiddleware()?</AccordionTrigger>
+    <AccordionTrigger>What is the difference between withIamAccess() and createIamNextMiddleware()?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      <code className="rounded bg-muted px-2 py-1">withAccess()</code> wraps an App Router route handler and can work with
-      route params such as <code className="rounded bg-muted px-2 py-1">params.id</code>. <code className="rounded bg-muted px-2 py-1">createNextMiddleware()</code>
+      <code className="rounded bg-muted px-2 py-1">withIamAccess()</code> wraps an App Router route handler and can work with
+      route params such as <code className="rounded bg-muted px-2 py-1">params.id</code>. <code className="rounded bg-muted px-2 py-1">createIamNextMiddleware()</code>
       is route-level filtering based on path rules, resource type, and scope. It is not a substitute for record-level checks.
     </AccordionContent>
   </AccordionItem>
@@ -730,7 +710,7 @@ const permissions = await engine.permissions(userId, checks)
   </AccordionItem>
 
   <AccordionItem value="next-pattern-prefix">
-    <AccordionTrigger>Do string patterns in createNextMiddleware() behave like globs?</AccordionTrigger>
+    <AccordionTrigger>Do string patterns in createIamNextMiddleware() behave like globs?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       No. String patterns use simple prefix matching. For stricter matching, optional segments, or glob-like behavior,
       use a <code className="rounded bg-muted px-2 py-1">RegExp</code> instead.

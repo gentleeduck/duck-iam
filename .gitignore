@@ -101,8 +101,6 @@ node_modules/
 # Task files
 # tasks.json
 # tasks/
-**/.claude/settings.local.json
-.claude/worktrees/
 audit-iam/
 audit-auth/
 
@@ -112,6 +110,22 @@ packages/duck-auth/**/*.md
 !packages/duck-auth/README.md
 .stryker-tmp/
 
-# local Claude Code state (not shared)
-/.claude/settings.json
-/.claude/scheduled_tasks.lock
+# Claude Code: everything under .claude is local state, at any depth.
+# Skills are the exception, they are shared so contributors get them from the
+# repo instead of needing them installed globally. Glob the contents rather
+# than the directory itself, git cannot re-include a path whose parent is
+# excluded.
+**/.claude/*
+!**/.claude/skills/
+# The duck-auth personal-docs rule above would otherwise swallow its SKILL.md.
+!packages/duck-auth/.claude/skills/**
+
+# Superpowers plans/specs - local working docs, never committed (all packages)
+**/docs/superpowers/
+
+# local test credentials (never committed)
+.env.test
+**/.env.test
+
+# Syncthing conflict artifacts
+*.sync-conflict-*

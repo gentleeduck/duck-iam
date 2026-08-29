@@ -154,3 +154,8 @@ export class BackupCodesFacet {
     return upper
   }
 }
+
+/** Factory around {@link BackupCodesFacet}, for callers who prefer functions to `new`. */
+export function backupCodesFacet(...args: ConstructorParameters<typeof BackupCodesFacet>): BackupCodesFacet {
+  return new BackupCodesFacet(...args)
+}

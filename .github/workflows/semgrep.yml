@@ -2,20 +2,22 @@ name: Semgrep SAST
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
   push:
-    branches: [master]
+    branches: [main]
   schedule:
     - cron: "45 6 * * 1"
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   semgrep:
     name: scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     container:
       image: semgrep/semgrep
     if: (github.actor != 'dependabot[bot]')

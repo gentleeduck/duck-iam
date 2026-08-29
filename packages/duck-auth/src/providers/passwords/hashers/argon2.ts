@@ -118,3 +118,8 @@ export class Argon2idHasher implements Hasher.Me {
     return m < this._params.memoryCost || t < this._params.timeCost || p < this._params.parallelism
   }
 }
+
+/** Factory around {@link Argon2idHasher}, for callers who prefer functions to `new`. */
+export function argon2idHasher(...args: ConstructorParameters<typeof Argon2idHasher>): Argon2idHasher {
+  return new Argon2idHasher(...args)
+}

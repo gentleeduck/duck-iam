@@ -185,3 +185,8 @@ export function magicLink<Profile extends Identities.ProfileMetadataBase = Ident
 ): Provider.Me<MagicLink.BeginInput, MagicLink.CompleteInput, Profile> {
   return new MagicLinkImpl(opts)
 }
+
+/** Factory around {@link MagicLinkImpl}, for callers who prefer functions to `new`. */
+export function magicLinkImpl(...args: ConstructorParameters<typeof MagicLinkImpl>): MagicLinkImpl {
+  return new MagicLinkImpl(...args)
+}

@@ -6,8 +6,8 @@ const meta: Meta<typeof SignOutButton> = {
   component: SignOutButton,
   decorators: [
     authWithStorybook({
-      identity: { id: 'identity-1', profile: {} },
-      session: { aal: 1, factors: [{ method: 'password', completedAt: Date.now() }], id: 'sess-1' },
+      identity: { id: 'identity-1', profile: { email: 'duck@example.com', username: 'duck' } },
+      session: { aal: 1, factors: [{ method: 'password', completedAt: new Date() }], id: 'sess-1' },
     }),
   ],
   title: 'Auth / SignOutButton',

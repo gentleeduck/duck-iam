@@ -33,6 +33,18 @@ export namespace IamEngineTypes {
     assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
     /** Invalidates the subject's cache entry. */
     revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
+    /**
+     * Moves a subject's role assignment from `fromScope` to `toScope` in place when the
+     * adapter supports it (one write); falls back to revoke + assign otherwise. Invalidates
+     * the subject's cache entry either way.
+     */
+    updateAssignmentScope(
+      subjectId: string,
+      roleId: TRole,
+      fromScope: TScope | undefined,
+      toScope: TScope | undefined,
+      actor?: string,
+    ): Promise<void>
     /** Merges into the subject's attribute bag; invalidates the subject's cache entry. */
     setAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
     getAttributes(subjectId: string): Promise<IamPrimitives.Attributes>
@@ -253,12 +265,48 @@ export namespace IamEngineTypes {
      */
     readonly adapterTimeoutMs?: number
     /**
+     * Hard ceiling on concurrent distinct-subject adapter loads. Defaults to
+     * `0` (unbounded). A cold-flat thundering herd - a burst of never-before-
+     * cached subjects arriving faster than the adapter resolves them - grows
+     * `inFlight.subjects` (and the promise closures it holds) without limit;
+     * setting this caps that growth. Once the cap is reached, a *new* subject
+     * load rejects immediately with a `subject load shed` error instead of
+     * calling the adapter; a call that hits the subject cache, or joins an
+     * already-in-flight load for the same subject, never counts against it.
+     * The rejection surfaces through `can`/`check`/`authorize`'s existing
+     * fail-closed error handling - no separate wiring needed.
+     */
+    readonly maxConcurrentSubjectLoads?: number
+    /**
      * Cross-instance cache invalidation broadcaster. Wire a pub/sub helper
      * (e.g. `createRedisInvalidator(redis, channel)`) here and every engine
      * instance subscribed to the same channel will drop its local caches
      * when any node mutates a policy / role / subject.
      */
     readonly invalidator?: IInvalidator<TRole>
+    /**
+     * How scoped role assignments match a request's `scope`. Defaults to
+     * `'flat'`: exact match (`scopedRole.scope === request.scope`), as always.
+     *
+     * `'hierarchical'` treats a dot-delimited scope as a path and matches a
+     * grant at any ancestor -- `'org-1'` applies to `'org-1.team-2.repo-3'`,
+     * GitHub/Slack-shaped. Grants at every matching level are unioned in
+     * (additive, no per-level revoke). Safe to enable even for apps that
+     * don't use dotted scopes -- a plain scope degrades to exact match.
+     */
+    readonly scopeMode?: 'flat' | 'hierarchical'
+    /**
+     * How grants from multiple matching ancestor levels combine under
+     * `scopeMode: 'hierarchical'`. Ignored under `'flat'` (at most one level
+     * ever matches there).
+     *
+     * `'union'` (default): every matching level's roles are OR'd in - an
+     * org-level grant and a team-level grant both apply.
+     *
+     * `'override'`: only the most specific matching level applies - a
+     * narrower grant shadows a broader one instead of adding to it.
+     */
+    readonly scopeCombine?: 'union' | 'override'
   }
 
   /**
@@ -284,11 +332,29 @@ export namespace IamEngineTypes {
    *
    * @template TRole - Union of valid role IDs.
    */
+  export interface IInvalidateAll {
+    readonly kind: 'all'
+  }
+
+  export interface IInvalidatePolicies {
+    readonly kind: 'policies'
+  }
+
+  export interface IInvalidateRoles<TRole extends string = string> {
+    readonly kind: 'roles'
+    readonly roleId?: TRole
+  }
+
+  export interface IInvalidateSubject {
+    readonly kind: 'subject'
+    readonly subjectId: string
+  }
+
   export type IInvalidateEvent<TRole extends string = string> =
-    | { readonly kind: 'all' }
-    | { readonly kind: 'policies' }
-    | { readonly kind: 'roles'; readonly roleId?: TRole }
-    | { readonly kind: 'subject'; readonly subjectId: string }
+    | IInvalidateAll
+    | IInvalidatePolicies
+    | IInvalidateRoles<TRole>
+    | IInvalidateSubject
 
   /** Output of `engine.healthCheck()`. Wire to your `/healthz` route. */
   export interface IHealth {

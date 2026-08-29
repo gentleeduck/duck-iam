@@ -3,10 +3,10 @@
  * @gentleduck/auth pg adapter tables so the bridge resolves them
  * 1:1 — no field divergence between adapter and migrations.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export {
-  authCredentialsTable,
-  authIdentitiesTable,
-  authSessionsTable,
+  authCredentials as authCredentialsTable,
+  authIdentities as authIdentitiesTable,
+  authSessions as authSessionsTable,
 } from '@gentleduck/auth/adapters/drizzle/pg'

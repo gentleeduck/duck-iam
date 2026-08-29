@@ -1,6 +1,14 @@
+import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
-import { errorToHttp, executeIntents, isValidProviderId, parseProviderBeginBody, parseSignInBody } from '../generic'
+import {
+  callerContext,
+  errorToHttp,
+  executeIntents,
+  isValidProviderId,
+  parseProviderBeginBody,
+  parseSignInBody,
+} from '../generic'
 
 /** `nextSignIn`. CSRF-guarded. */
 export function nextSignIn(auth: AuthEngine): NextAdapter.Handler {
@@ -11,7 +19,10 @@ export function nextSignIn(auth: AuthEngine): NextAdapter.Handler {
       if (!parsed) {
         return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
-      const result = await auth.flows.signIn(parsed)
+      const result = await auth.flows.signIn({
+        ...parsed,
+        ...callerContext({ userAgent: req.headers.get('user-agent') ?? undefined }),
+      })
       return executeIntents(result.intents)
     } catch (err) {
       return handleError(err)
@@ -124,6 +135,26 @@ export function mountNext(
 function handleError(err: unknown): Response {
   const { status, body } = errorToHttp(err)
   return Response.json(body, { status })
+}
+
+/**
+ * CSRF guard for your own routes. A wrapper rather than middleware because the
+ * App Router gives the adapter no chain to hook:
+ * `export const POST = withNextCsrf(auth, handler)`.
+ */
+export function withNextCsrf(
+  auth: AuthEngine,
+  handler: NextAdapter.Handler,
+  opts: Csrf.GuardOptions = {},
+): NextAdapter.Handler {
+  return async (req) => {
+    try {
+      await csrfGuard(auth, { headers: req.headers, method: req.method }, opts)
+    } catch (err) {
+      return handleError(err)
+    }
+    return handler(req)
+  }
 }
 
 export namespace NextAdapter {

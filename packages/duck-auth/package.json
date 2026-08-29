@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/auth",
-  "version": "5.0.0",
+  "version": "5.3.4",
   "publishConfig": {
     "access": "public"
   },
@@ -42,6 +42,16 @@
         "default": "./dist/core/transport/index.cjs"
       }
     },
+    "./core/idempotency": {
+      "import": {
+        "types": "./dist/core/idempotency/index.d.ts",
+        "default": "./dist/core/idempotency/index.js"
+      },
+      "require": {
+        "types": "./dist/core/idempotency/index.d.cts",
+        "default": "./dist/core/idempotency/index.cjs"
+      }
+    },
     "./core/errors": {
       "import": {
         "types": "./dist/core/errors.d.ts",
@@ -60,6 +70,16 @@
       "require": {
         "types": "./dist/core/dataAtRest/index.d.cts",
         "default": "./dist/core/dataAtRest/index.cjs"
+      }
+    },
+    "./core/events": {
+      "import": {
+        "types": "./dist/core/events/index.d.ts",
+        "default": "./dist/core/events/index.js"
+      },
+      "require": {
+        "types": "./dist/core/events/index.d.cts",
+        "default": "./dist/core/events/index.cjs"
       }
     },
     "./adapters/memory": {
@@ -190,6 +210,46 @@
       "require": {
         "types": "./dist/limiters/memory/index.d.cts",
         "default": "./dist/limiters/memory/index.cjs"
+      }
+    },
+    "./limiters/mock": {
+      "import": {
+        "types": "./dist/limiters/mock/index.d.ts",
+        "default": "./dist/limiters/mock/index.js"
+      },
+      "require": {
+        "types": "./dist/limiters/mock/index.d.cts",
+        "default": "./dist/limiters/mock/index.cjs"
+      }
+    },
+    "./limiters/redis": {
+      "import": {
+        "types": "./dist/limiters/redis/index.d.ts",
+        "default": "./dist/limiters/redis/index.js"
+      },
+      "require": {
+        "types": "./dist/limiters/redis/index.d.cts",
+        "default": "./dist/limiters/redis/index.cjs"
+      }
+    },
+    "./limiters/valkey": {
+      "import": {
+        "types": "./dist/limiters/valkey/index.d.ts",
+        "default": "./dist/limiters/valkey/index.js"
+      },
+      "require": {
+        "types": "./dist/limiters/valkey/index.d.cts",
+        "default": "./dist/limiters/valkey/index.cjs"
+      }
+    },
+    "./adapters/valkey": {
+      "import": {
+        "types": "./dist/adapters/valkey/index.d.ts",
+        "default": "./dist/adapters/valkey/index.js"
+      },
+      "require": {
+        "types": "./dist/adapters/valkey/index.d.cts",
+        "default": "./dist/adapters/valkey/index.cjs"
       }
     },
     "./providers/passwords": {
@@ -578,10 +638,13 @@
     "dev": "tsdown --watch",
     "test": "vitest run",
     "benchmark": "bun run scripts/benchmark.ts",
+    "findings": "bun run scripts/collect-findings.ts",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
     "format": "biome format --write ./",
-    "clean": "rimraf dist .cache .turbo node_modules"
+    "clean": "rimraf dist .cache .turbo node_modules",
+    "test:e2e": "vitest run e2e",
+    "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && node src/test/oidc-e2e-schema.mjs"
   },
   "dependencies": {
     "@types/node": "^26.1.0",
@@ -589,7 +652,7 @@
   },
   "peerDependencies": {
     "@aws-sdk/client-kms": ">=3 <4",
-    "@gentleduck/iam": "workspace:*",
+    "@gentleduck/iam": "workspace:^",
     "@nestjs/common": ">=10 <12",
     "@node-rs/argon2": ">=2 <3",
     "@simplewebauthn/server": "^13.3.1",
@@ -636,7 +699,13 @@
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",
     "@node-rs/argon2": "2.0.2",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/pg": "^8.21.0",
     "@types/react": "^19.2.17",
+    "better-sqlite3": "^13.0.3",
+    "ioredis": "^6.0.0",
+    "mysql2": "^3.23.4",
+    "pg": "^8.23.0",
     "react": "^19.2.7",
     "tsdown": "^0.22.3",
     "typescript": "^6.0.3",

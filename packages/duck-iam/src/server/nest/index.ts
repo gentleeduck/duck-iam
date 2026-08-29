@@ -1,5 +1,5 @@
 import type { IamEngine } from '../../core'
-import type { AccessControl, IamRequest } from '../../core/types'
+import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import {
   IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
@@ -83,6 +83,16 @@ export namespace IamNest {
     getResourceId?: (request: NestRequest) => string | undefined
     /** Determines the scope used for the access check. */
     getScope?: (request: NestRequest) => TScope | undefined
+    /** Extracts extra attributes to attach to `resource.attributes` for this check
+     *  (e.g. an owning user id, a computed flag) -- merged in before `engine.can()`.
+     *  Receives the resolved action/resource/scope, since the right attributes
+     *  depend on which resource and scope this check runs against (a `users` row
+     *  IS its own subject; an `iamAssignments` row's subject lives in a column).
+     *  Values must be `AttributeValue` -- use `null` for "absent", not `undefined`. */
+    getResourceAttributes?: (
+      request: NestRequest,
+      ctx: { action: string; resource: string; scope: TScope | undefined },
+    ) => Readonly<IamPrimitives.Attributes> | Promise<Readonly<IamPrimitives.Attributes>>
     /** Handles thrown errors during evaluation; return `true` to allow, `false` to deny. */
     onError?: (err: Error, request: NestRequest) => boolean
   }
@@ -189,6 +199,7 @@ export function iamNestAccessGuard<
     getUserId = (req: NestRequest) => (req.user?.id as string) ?? (req.user?.sub as string) ?? null,
     getEnvironment = (req: NestRequest) => iamExtractEnvironment(req),
     getResourceId = (req: NestRequest) => req.params?.id,
+    getResourceAttributes,
     getScope,
     onError = () => false,
   } = opts
@@ -211,10 +222,11 @@ export function iamNestAccessGuard<
     const scope = (meta.scope as TScope | undefined) ?? getScope?.(request)
 
     try {
+      const attributes = getResourceAttributes ? await getResourceAttributes(request, { action, resource, scope }) : {}
       return await engine.can(
         userId,
         action as TAction,
-        { type: resource as TResource, id: getResourceId(request), attributes: {} },
+        { type: resource as TResource, id: getResourceId(request), attributes },
         getEnvironment(request),
         scope,
       )

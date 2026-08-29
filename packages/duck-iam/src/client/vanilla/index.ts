@@ -239,3 +239,8 @@ function extractAction(key: string, resource: string): string | null {
       return null
   }
 }
+
+/** Factory around {@link IamAccessClient}, for callers who prefer functions to `new`. */
+export function iamAccessClient(...args: ConstructorParameters<typeof IamAccessClient>): IamAccessClient {
+  return new IamAccessClient(...args)
+}

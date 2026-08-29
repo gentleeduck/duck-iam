@@ -125,7 +125,7 @@ export async function csrfGuard(
     } | null>
   },
   req: { method: string; headers: Headers },
-  opts: { isBearer?: boolean; cfg?: Csrf.Cfg; expectedTenantId?: string } = {},
+  opts: Csrf.GuardOptions = {},
 ): Promise<void> {
   if (SAFE_METHODS.has(req.method.toUpperCase())) return
   // Bearer / JWT transports carry auth in the Authorization header,
@@ -158,5 +158,13 @@ export namespace Csrf {
     mode?: 'double-submit' | 'origin-only'
     /** Allowed Origin headers for cross-site checks. */
     allowedOrigins?: string[]
+  }
+
+  /** Options every server adapter's CSRF middleware forwards to {@link csrfGuard}. */
+  export type GuardOptions = {
+    /** Force the bearer bypass on. Auto-detected from the Authorization header otherwise. */
+    isBearer?: boolean
+    cfg?: Csrf.Cfg
+    expectedTenantId?: string
   }
 }

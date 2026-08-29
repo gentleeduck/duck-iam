@@ -144,3 +144,8 @@ export function saml<Profile extends Identities.ProfileMetadataBase = Identities
 ): Provider.Me<Saml.BeginInput, Saml.CompleteInput, Profile> {
   return new SamlImpl(opts)
 }
+
+/** Factory around {@link SamlImpl}, for callers who prefer functions to `new`. */
+export function samlImpl(...args: ConstructorParameters<typeof SamlImpl>): SamlImpl {
+  return new SamlImpl(...args)
+}

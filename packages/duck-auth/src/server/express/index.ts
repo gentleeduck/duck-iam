@@ -1,7 +1,9 @@
+import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import type { Provider } from '~/core/provider/provider.types'
 import {
+  callerContext,
   errorToHttp,
   isSafeRedirectUrl,
   isValidProviderId,
@@ -77,7 +79,10 @@ export function mountSignIn(auth: AuthEngine): ExpressAdapter.Handler {
         applyIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }], res)
         return
       }
-      const result = await auth.flows.signIn(parsed)
+      const result = await auth.flows.signIn({
+        ...parsed,
+        ...callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] }),
+      })
       applyIntents(result.intents, res, 200)
     } catch (err) {
       handleError(err, res)
@@ -155,6 +160,23 @@ function providerIdFromUrl(url: string, suffix: string): string | null {
   if (parts.length < 4) return null
   if (parts[parts.length - 1] !== suffix) return null
   return parts[parts.length - 2] ?? null
+}
+
+/**
+ * CSRF guard for your own routes: `app.use(expressCsrf(auth))`. Writes the 403
+ * itself rather than passing the error to `next`, so protection doesn't depend
+ * on the app having an AuthError-aware error handler.
+ */
+export function expressCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): ExpressAdapter.Middleware {
+  return async (req, res, next) => {
+    try {
+      await csrfGuard(auth, { headers: toHeaders(req.headers), method: req.method ?? 'POST' }, opts)
+    } catch (err) {
+      handleError(err, res)
+      return
+    }
+    next()
+  }
 }
 
 export type { ExpressAdapter } from './express.types'

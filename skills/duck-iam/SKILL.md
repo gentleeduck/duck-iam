@@ -284,10 +284,10 @@ const checkMiddleware = createNextMiddleware(engine, {
 
 ```tsx
 import React from 'react'
-import { createAccessControl } from '@gentleduck/iam/client/react'
+import { createIamAccessControl } from '@gentleduck/iam/client/react'
 
 // Create once at app init
-export const { AccessProvider, useAccess, usePermissions, Can, Cannot } = createAccessControl(React)
+export const { AccessProvider, useAccess, usePermissions, Can, Cannot } = createIamAccessControl(React)
 
 // In layout (pass server-generated permissions)
 <AccessProvider permissions={perms}>
@@ -307,7 +307,7 @@ if (can('delete', 'post')) { /* show delete button */ }
 </Cannot>
 ```
 
-**Also exported by `createAccessControl`:**
+**Also exported by `createIamAccessControl`:**
 - `usePermissions(fetchFn, deps?)` -- hook to async-fetch permissions from a server endpoint; returns `{ permissions, can, loading, error }`
 - `AccessContext` -- raw React context (rarely needed directly)
 

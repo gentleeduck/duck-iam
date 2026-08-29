@@ -14,8 +14,8 @@ export const Guest: Story = { decorators: [authWithStorybook({})] }
 export const Authed: Story = {
   decorators: [
     authWithStorybook({
-      identity: { id: 'identity-7', profile: { email: 'duck@example.com' } },
-      session: { aal: 2, factors: [{ method: 'passkey', completedAt: Date.now() }], id: 'sess-7' },
+      identity: { id: 'identity-7', profile: { email: 'duck@example.com', username: 'duck' } },
+      session: { aal: 2, factors: [{ method: 'passkey', completedAt: new Date() }], id: 'sess-7' },
     }),
   ],
 }
@@ -24,8 +24,8 @@ export const FormattedIdentity: Story = {
   args: { formatIdentity: (i) => (i.profile as { email?: string })?.email ?? i.id },
   decorators: [
     authWithStorybook({
-      identity: { id: 'identity-9', profile: { email: 'duck@example.com' } },
-      session: { aal: 2, factors: [{ method: 'passkey', completedAt: Date.now() }], id: 'sess-9' },
+      identity: { id: 'identity-9', profile: { email: 'duck@example.com', username: 'duck' } },
+      session: { aal: 2, factors: [{ method: 'passkey', completedAt: new Date() }], id: 'sess-9' },
     }),
   ],
 }

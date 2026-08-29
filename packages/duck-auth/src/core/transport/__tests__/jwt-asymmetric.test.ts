@@ -278,4 +278,46 @@ describe('AuthJwtTransport.rotateSignKey - live JWKS rotation', () => {
     const jwt = findAccessToken(t.issue('x', fakeSession(), { fresh: true, absolute: false }))
     expect((await t.verify(jwt))?.identityId).toBe('user-1')
   })
+
+  it('refuses to rotate to an asymmetric kid with no matching public key in the ring', () => {
+    const a = generateKeyPairSync('ed25519')
+    const b = generateKeyPairSync('ed25519')
+    const aPriv = a.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    const aPub = a.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+    const bPriv = b.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+
+    const t = new JwtTransport({
+      signKey: { kid: 'a', alg: 'EdDSA', key: aPriv },
+      verifyKeys: [{ kid: 'a', alg: 'EdDSA', key: aPub }],
+      issuer: 'https://app.example.com',
+    })
+
+    // No verifyKey passed, and 'b' isn't in the ring - every token minted
+    // under this rotation would fail verification.
+    expect(() => t.rotateSignKey({ signKey: { kid: 'b', alg: 'EdDSA', key: bPriv } })).toThrow('AUTH_MISCONFIGURED')
+  })
+
+  it('rotates without a verifyKey when signKey.kid is already in the ring under a matching alg', async () => {
+    const a = generateKeyPairSync('ed25519')
+    const b = generateKeyPairSync('ed25519')
+    const aPriv = a.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    const aPub = a.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+    const bPriv = b.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    const bPub = b.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+
+    const t = new JwtTransport({
+      signKey: { kid: 'a', alg: 'EdDSA', key: aPriv },
+      verifyKeys: [
+        { kid: 'a', alg: 'EdDSA', key: aPub },
+        { kid: 'b', alg: 'EdDSA', key: bPub },
+      ],
+      issuer: 'https://app.example.com',
+    })
+
+    // 'b' is already a known verify kid, so rotating the sign key back to it
+    // needs no verifyKey argument.
+    t.rotateSignKey({ signKey: { kid: 'b', alg: 'EdDSA', key: bPriv } })
+    const jwt = findAccessToken(t.issue('x', fakeSession(), { fresh: true, absolute: false }))
+    expect((await t.verify(jwt))?.identityId).toBe('user-1')
+  })
 })

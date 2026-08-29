@@ -5,7 +5,6 @@ import type { AccessControl } from '../../../core/types'
 import {
   createIamAdminOperations,
   createIamEngineProvider,
-  createIamTypedAuthorize,
   IAM_ACCESS_ENGINE_TOKEN,
   IAM_ACCESS_METADATA_KEY,
   IamAuthorize,
@@ -91,10 +90,6 @@ describe('@IamAuthorize decorator', () => {
     const desc = { value: fn, configurable: true, writable: true } as PropertyDescriptor
     IamAuthorize()({} as never, 'method', desc)
     expect((fn as unknown as { __accessMeta: { infer: boolean } }).__accessMeta.infer).toBe(true)
-  })
-
-  it('createIamTypedAuthorize returns IamAuthorize itself', () => {
-    expect(createIamTypedAuthorize<Action, ResourceType, Scope>()).toBe(IamAuthorize)
   })
 
   it('exports stable metadata key', () => {
@@ -484,5 +479,34 @@ describe('createIamAdminOperations onAdminMutation', () => {
     await flushMicrotasks()
     engine.admin.savePolicy = original
     expect(events[0]!.error).toBe('full-detailed-message')
+  })
+
+  it('merges getResourceAttributes into the resource passed to engine.can', async () => {
+    const canSpy = vi.fn().mockResolvedValue(true)
+    const engine = { can: canSpy } as unknown as IamEngine<string, string, string, string>
+
+    const guard = iamNestAccessGuard(engine, {
+      getUserId: () => 'user-1',
+      // `undefined` is not an AttributeValue; an absent owner is expressed as null.
+      getResourceAttributes: (req) => ({ ownerId: (req as { ownerId?: string }).ownerId ?? null }),
+    })
+
+    const handler = (): void => {}
+    Object.defineProperty(handler, '__accessMeta', { value: { action: 'read', resource: 'widgets' } })
+
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => ({ ownerId: 'user-1', method: 'GET' }) }),
+      getHandler: () => handler,
+    }
+
+    await guard(ctx as never)
+
+    expect(canSpy).toHaveBeenCalledWith(
+      'user-1',
+      'read',
+      { type: 'widgets', id: undefined, attributes: { ownerId: 'user-1' } },
+      expect.anything(),
+      undefined,
+    )
   })
 })

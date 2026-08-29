@@ -102,3 +102,36 @@ export class AuthMemoryConsentStore implements OidcOP.ConsentStore {
     this.rows.set(this.key(c.identity_id, c.client_id), c)
   }
 }
+
+/** Factory around {@link AuthMemoryClientStore}, for callers who prefer functions to `new`. */
+export function authMemoryClientStore(
+  ...args: ConstructorParameters<typeof AuthMemoryClientStore>
+): AuthMemoryClientStore {
+  return new AuthMemoryClientStore(...args)
+}
+
+/** Factory around {@link AuthMemoryCodeStore}, for callers who prefer functions to `new`. */
+export function authMemoryCodeStore(...args: ConstructorParameters<typeof AuthMemoryCodeStore>): AuthMemoryCodeStore {
+  return new AuthMemoryCodeStore(...args)
+}
+
+/** Factory around {@link AuthMemoryAccessTokenStore}, for callers who prefer functions to `new`. */
+export function authMemoryAccessTokenStore(
+  ...args: ConstructorParameters<typeof AuthMemoryAccessTokenStore>
+): AuthMemoryAccessTokenStore {
+  return new AuthMemoryAccessTokenStore(...args)
+}
+
+/** Factory around {@link AuthMemoryRefreshTokenStore}, for callers who prefer functions to `new`. */
+export function authMemoryRefreshTokenStore(
+  ...args: ConstructorParameters<typeof AuthMemoryRefreshTokenStore>
+): AuthMemoryRefreshTokenStore {
+  return new AuthMemoryRefreshTokenStore(...args)
+}
+
+/** Factory around {@link AuthMemoryConsentStore}, for callers who prefer functions to `new`. */
+export function authMemoryConsentStore(
+  ...args: ConstructorParameters<typeof AuthMemoryConsentStore>
+): AuthMemoryConsentStore {
+  return new AuthMemoryConsentStore(...args)
+}

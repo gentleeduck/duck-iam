@@ -1,11 +1,11 @@
 /**
  * @packageDocumentation
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 
 import { useSignIn } from '@gentleduck/auth/client/react'
 import type { VanillaClient } from '@gentleduck/auth/client/vanilla'
-import type { Envelope } from '@gentleduck/auth/core'
+import type { Envelope, Identity } from '@gentleduck/auth/core'
 import { cn } from '@gentleduck/libs/cn'
 import { Alert, AlertDescription, AlertTitle } from '@gentleduck/registry-ui/alert'
 import { Button } from '@gentleduck/registry-ui/button'
@@ -20,9 +20,11 @@ import { type FormEvent, useState } from 'react'
  * Button. Surfaces inline error state via `<Alert />`. Composable —
  * drop into a route as-is, or pass `onSuccess` to redirect.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function SignInForm<Profile = unknown>(props: SignInForm.IProps<Profile>): React.JSX.Element {
+export function SignInForm<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+  props: SignInForm.IProps<Profile>,
+): React.JSX.Element {
   const { className, onSuccess, providerId = 'password', title = 'Sign in', description } = props
   const signIn = useSignIn<Profile>()
   const [email, setEmail] = useState('')
@@ -100,10 +102,10 @@ function describeError(err: unknown): string {
 /**
  * Namespace merge for SignInForm.
  *
- * @author wildduck2 <https://authGithub.com/gentleeduck/duck-iam>
+ * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace SignInForm {
-  export interface IProps<Profile = unknown> {
+  export interface IProps<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
     className?: string
     title?: string
     description?: string

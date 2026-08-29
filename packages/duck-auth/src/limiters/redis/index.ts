@@ -1,3 +1,7 @@
+// Re-exported so a consumer can type the limiter they supply. `strict()` refuses to
+// boot production without one, so the interface has to be reachable.
+export type { Limiter } from '../limiters.types'
+
 import type { RedisLike } from '~/adapters/redis/redis-like'
 import type { Limiter } from '../limiters.types'
 
@@ -70,4 +74,11 @@ export class RedisLimiter<TRedis extends RedisLike.Client = RedisLike.Client> im
   async reset(key: string): Promise<void> {
     await this._redis.del(this._k(key))
   }
+}
+
+/** Factory around {@link RedisLimiter} for functional-style config. */
+export function redisLimiter<TRedis extends RedisLike.Client = RedisLike.Client>(
+  cfg: RedisLimiter.Cfg<TRedis>,
+): RedisLimiter<TRedis> {
+  return new RedisLimiter(cfg)
 }

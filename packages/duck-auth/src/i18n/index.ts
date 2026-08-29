@@ -125,3 +125,15 @@ export namespace AuthI18n {
     readonly locale?: string
   }
 }
+
+/** Factory around {@link AuthI18nMessageCatalog}, for callers who prefer functions to `new`. */
+export function authI18nMessageCatalog(
+  ...args: ConstructorParameters<typeof AuthI18nMessageCatalog>
+): AuthI18nMessageCatalog {
+  return new AuthI18nMessageCatalog(...args)
+}
+
+/** Factory around {@link AuthLinguiResolver}, for callers who prefer functions to `new`. */
+export function authLinguiResolver(...args: ConstructorParameters<typeof AuthLinguiResolver>): AuthLinguiResolver {
+  return new AuthLinguiResolver(...args)
+}

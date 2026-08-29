@@ -1,0 +1,1238 @@
+[
+  {
+    "file": "src/__tests__/hostile-input.e2e.test.ts",
+    "line": 167,
+    "title": "a NUL byte in a username surfaces as a raw driver error",
+    "why": "Postgres cannot store U+0000 in text or jsonb. The write is correctly refused, but it comes back as `Failed query: insert into ...` from the driver rather than a typed AuthError, so a username field that meets one produces a 500 with SQL in the message instead of a validation failure. Same class as the 22P02 leak on non-uuid ids. Recorded, not repaired."
+  },
+  {
+    "file": "src/__tests__/hostile-input.e2e.test.ts",
+    "line": 203,
+    "title": "NFC and NFD spellings of one address make two accounts",
+    "why": "`lower()` case-folds but does not normalise, so the partial unique index sees two different byte strings. Two accounts that look identical to a human can both exist. Pinned as the current behaviour."
+  },
+  {
+    "file": "src/__tests__/hostile-input.e2e.test.ts",
+    "line": 262,
+    "title": "an empty email is accepted",
+    "why": "`chk_auth_identities_profile_shape` asks only whether the keys exist, so a blank address is a valid account. The second such account collides on the unique index, meaning the first one to register blank owns it."
+  },
+  {
+    "file": "src/__tests__/hostile-input.e2e.test.ts",
+    "line": 270,
+    "title": "a numeric email is accepted and becomes findable as its digits",
+    "why": "The check tests key presence, not type. `lower(profile->>'email')` stringifies whatever is there, so 12345 registers and then answers to the string \"12345\"."
+  },
+  {
+    "file": "src/__tests__/hostile-input.e2e.test.ts",
+    "line": 279,
+    "title": "an array email is accepted",
+    "why": ""
+  },
+  {
+    "file": "src/__tests__/hostile-input.e2e.test.ts",
+    "line": 284,
+    "title": "an object email is accepted",
+    "why": ""
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 104,
+    "title": "a javascript: URI is accepted as a redirect target",
+    "why": "`assertValidRedirect` parses the URL, refuses a fragment, and refuses non-loopback http. Every other scheme passes, because there is no allowlist. An authorization server that will send a browser to `javascript:...` with the code in scope is an XSS sink wearing a redirect's clothes."
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 112,
+    "title": "a data: URI is accepted as a redirect target",
+    "why": ""
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 116,
+    "title": "a file: URI is accepted as a redirect target",
+    "why": ""
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 120,
+    "title": "userinfo in the redirect is accepted",
+    "why": "`https://user:pass@app.test/cb` reads as app.test to a parser and as something else to a human skimming the address bar."
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 165,
+    "title": "an out-of-range aal reaches the database as a raw driver error",
+    "why": "`create` validates factors item by item but never looks at `aal`. The column CHECK catches it, so nothing corrupt is stored, but the caller gets `Failed query: insert into \"auth_sessions\"...` rather than a typed error."
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 174,
+    "title": "aal zero is refused the same undignified way",
+    "why": ""
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 180,
+    "title": "a NaN aal is refused the same undignified way",
+    "why": ""
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 186,
+    "title": "an unrecognised session kind is refused the same undignified way",
+    "why": ""
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 192,
+    "title": "an impersonation window that has already closed is accepted",
+    "why": "The row is written and then refused by `resolveBySid` on the very next read, so it is dead on arrival rather than dangerous. Still nothing checks it at the point where it could be reported."
+  },
+  {
+    "file": "src/__tests__/hostile-values.e2e.test.ts",
+    "line": 242,
+    "title": "weight is spent as one round trip each, so a large weight is a flood",
+    "why": "`consume` loops `weight` times issuing one INCR per iteration, with no early exit once the budget is already gone. A caller passing 1_000_000 makes the limiter send a million sequential commands to Redis; the same call with real Redis exceeded a five second test timeout. Counted here at a small scale so the finding is deterministic rather than slow."
+  },
+  {
+    "file": "src/__tests__/token-quality.e2e.test.ts",
+    "line": 266,
+    "title": "issuing a new reset token leaves every earlier one live",
+    "why": "Ten requests, ten working keys to the account, sitting in ten inboxes. Each is single use and time limited, so this is not unbounded, but the usual expectation is that a fresh request retires the ones before it: an old message forwarded, archived or leaked should stop being a way in."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 130,
+    "title": "the ses channel needs its sdk installed even when a client is injected",
+    "why": "Every other adapter lets a caller supply a pre-built client and skip the peer dependency, which is what makes them testable and what the `client` option is for. SES also reaches for `SendEmailCommand` from the sdk to build the request, so an injected client is not enough and the send fails at delivery time rather than at construction."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 140,
+    "title": "an AuthError caught on the send path is flattened to its code, losing the detail",
+    "why": "`err.message` on an AuthError is the code, and everything an operator needs, here the name of the package to install, lives in `meta.detail`. The catch keeps the message, so the result says AUTH_MISCONFIGURED and nothing about what is misconfigured."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 161,
+    "title": "send never throws, so a delivery failure is only visible if the caller reads the result",
+    "why": "Every adapter catches its own transport error and returns `ok: false`. A flow that awaits the send without inspecting it, which is what an `await channel.send(...)` statement looks like, proceeds as though the code or link reached the user."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 178,
+    "title": "the provider’s own error text is returned verbatim to the caller",
+    "why": "Whatever the SDK put in the message is what the result carries, and SDK errors routinely include the request URL, the account identifier, and occasionally the credential that was rejected."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 195,
+    "title": "a template resolver that throws is reported as a delivery failure, not a bug",
+    "why": "A broken template is a programming error on the app's side, and it lands in the same `ok: false` shape as a network outage, so retry logic keyed on the result retries something that will never succeed."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 209,
+    "title": "no channel applies a timeout to the transport it calls",
+    "why": "A provider that accepts the connection and never answers parks the send. These sit inside password reset and MFA delivery, so the request holding them open is a user waiting on a login."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 225,
+    "title": "no channel retries, so one transient failure drops the message",
+    "why": ""
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 252,
+    "title": "the recipient is any non-empty string, with no address or number validation",
+    "why": "`getProfileString` checks the type and that it is not empty. Nothing checks that an email looks like an address or that a phone is E.164, so whatever the profile holds is handed to the provider as the destination."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 264,
+    "title": "a recipient carrying CR LF reaches the transport unfiltered",
+    "why": "The SMTP transporter is handed `to` as a header value. Nodemailer rejects this itself, but the channel is the layer that knows the value came from a user-editable profile field, and it passes it straight through."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 273,
+    "title": "there is no length cap on the recipient",
+    "why": "SMTP caps a path at 256 octets and a domain at 255. A profile field ten thousand characters long is sent as the destination address."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 282,
+    "title": "a comma-separated list in one profile field is one recipient string to the channel",
+    "why": "Resend's own client accepts `to` as an array, and the channel passes a string. Which of those a given provider splits on is the provider's decision, not something this layer settles."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 300,
+    "title": "nothing caps the rendered body, and sms is billed per segment",
+    "why": "A resolver that interpolates an attacker-influenced variable into an SMS turns one send into thousands of billed segments. The channel forwards whatever it is given."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 320,
+    "title": "nothing caps an email subject either, so it reaches the header unfolded",
+    "why": ""
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 336,
+    "title": "a subject containing CR LF is passed to the transport as-is",
+    "why": "Header injection is the transport's to refuse, but the channel is what knows the string came out of a template fed with request data."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 354,
+    "title": "a resolver returning the wrong shape is forwarded rather than refused",
+    "why": "Nothing validates that `subject` is a string or that a body is present. An undefined subject reaches the provider, which is where the failure surfaces, one network round trip later."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 373,
+    "title": "no channel rate limits, so a send loop is bounded only by the provider",
+    "why": "The library throttles sign-in attempts and not the messages a flow emits. Toll fraud against an SMS route is a loop over this call."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 383,
+    "title": "the console channel writes the full vars, which is where the secret lives",
+    "why": "Its doc says \"PII is redacted before logging: the identity's profile is stringified to `<identityId>` only\". That is true of the profile and not of the payload: `vars` carries the signed magic link or the one-time code, and the whole object is serialised into the log line. Anyone reading stdout, or the aggregator it ships to, can sign in as that user."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 406,
+    "title": "nothing stops either development channel being wired in production",
+    "why": "Same shape as the null captcha verifier: both are exported from the package, both satisfy the channel interface, and neither consults the environment. The noop one reports every send as delivered."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 417,
+    "title": "the noop channel reports a message id for a message that was never sent",
+    "why": "A caller storing the id for support diagnostics records a delivery that did not happen."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 462,
+    "title": "nothing checks the payload against the four kilobyte ceiling",
+    "why": "RFC 8291 caps an encrypted push payload at 4096 octets, and push services reject anything larger. The channel builds the JSON and hands it over, so an over-long template fails at the push service rather than here."
+  },
+  {
+    "file": "src/channels/__tests__/channels-contract.test.ts",
+    "line": 484,
+    "title": "the subscription endpoint is taken from the profile and never checked",
+    "why": "The endpoint is a URL the library will POST to, stored on a user-editable profile field. There is no https requirement and no host check, which is the same shape the webhook deliverer guards against for its own outbound calls."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 49,
+    "title": "a negative score from one detector cancels a real signal from another",
+    "why": "`isValidSignal` accepts any finite number, and `sumScores` adds it as-is. A detector that returns a negative score, whether buggy or hostile, is a veto over every other detector: it subtracts from the aggregate until the ladder reads `allow`. Scores are documented as 0..1 and never clamped."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 64,
+    "title": "many weak signals add up to a deny no single detector asked for",
+    "why": "Five detectors each reporting a mild 0.2 cross `denyAt` together. Summing unbounded scores means the ladder is calibrated against the number of registered detectors, not against their severity."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 73,
+    "title": "registering the same detector twice counts it twice",
+    "why": "`register` appends without checking the id, so a module loaded twice, or a plugin re-registering on reload, silently doubles that detector's weight."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 85,
+    "title": "unregister removes only the first detector holding an id",
+    "why": ""
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 125,
+    "title": "a NaN score denies the request but emits no suspicious event",
+    "why": "`decide` fails closed on a non-finite score, which is right. But `sumScores` skips the same signal, so the aggregate is 0, the threshold is never crossed, and the strongest decision the facet can return is taken with nothing written to the audit trail."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 139,
+    "title": "a threshold above stepUpAt makes step-up decisions invisible to audit",
+    "why": "`threshold` gates the event and `stepUpAt` gates the decision, with no relation enforced between them. An operator who raises the event threshold to cut noise also blinds the log to every step-up it caused."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 150,
+    "title": "a reaction override denies without ever emitting an event",
+    "why": "The per-kind override bypasses the score entirely, so the loudest possible outcome, deny on a single low-scoring signal, leaves no record at all."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 167,
+    "title": "an empty identity id drops the identity from the event entirely",
+    "why": "The spread is guarded on truthiness, so an empty-string id produces a suspicious record with no subject rather than one naming the empty id."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 178,
+    "title": "an explicit allow override cannot hold back a score-driven step-up",
+    "why": "`severity[kindDecision] > 0` means an `allow` override is indistinguishable from no override, so an operator who writes `{ 'new-device': 'allow' }` to stop a noisy detector forcing step-up gets step-up anyway."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 211,
+    "title": "a plugin can name its own kind and claim any reaction key",
+    "why": "`isValidSignal` deliberately accepts kinds outside the union so plugins can extend it. Combined with reactions being keyed by that same free string, a detector chooses which configured reaction applies to it by picking a kind, including one the operator wrote for a different detector."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 245,
+    "title": "detectors run one after another with no timeout, so one slow plugin stalls every sign-in",
+    "why": "The loop awaits each detector in turn. A detector that hangs on a network call holds the request open indefinitely, and even well-behaved ones add their latencies rather than overlapping."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 266,
+    "title": "a detector can mutate the request snapshot the later detectors read",
+    "why": "The same object is handed to every detector, so the first one registered decides what the rest see. A plugin can blank the ip and disable the fingerprint detector that runs after it."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 323,
+    "title": "the same hop inside the minimum window is exempt entirely",
+    "why": "`minElapsedMs` defaults to 60s to forgive NAT mobility, but it is applied before any distance check. Two sign-ins from opposite sides of the planet fifty seconds apart, the least plausible pattern there is, produce no signal at all, while the same pair seventy seconds apart scores 1."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 335,
+    "title": "a last-seen timestamp in the future silences the detector",
+    "why": "Elapsed time is absolute to tolerate clock skew, so a future stamp reads as a long gap and the speed comes out plausible. Wherever last-seen is written from a client-supplied clock, writing tomorrow's date turns detection off."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 343,
+    "title": "coordinates outside the valid range are scored rather than rejected",
+    "why": "Only `Number.isFinite` is checked. A latitude of 900 is not a place, but haversine returns a number for it, so the detector reports a distance and a speed derived from nonsense."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 353,
+    "title": "the score is near zero for anything under twice the speed limit",
+    "why": "The score is `(speed / max) - 1`, so crossing the limit is worth almost nothing and only a 2x overshoot reaches 1. With the default ladder a sustained 1500 km/h, impossible for a person, still decides `allow`."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 415,
+    "title": "a zero minimum elapsed time makes any gap divide by an interval of zero",
+    "why": "`minElapsedMs: 0` is accepted with no validation. Two samples at the same instant give an infinite speed, which the finite check then discards, so the most extreme possible teleport is the one case that reports nothing."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 441,
+    "title": "omitting the user agent turns the detector off instead of flagging it",
+    "why": "A request with no `User-Agent` cannot be fingerprinted, so the composer returns null and no signal is emitted. Sending no header is entirely under an attacker's control, and it is also the one thing no real browser does, so the evasion is both free and the opposite of the signal it suppresses."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 452,
+    "title": "an over-long user agent also silences the detector",
+    "why": "The 1024-character guard exists to bound the hash input, but it returns null rather than truncating, so padding the header past the limit is a second way to opt out of being fingerprinted."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 461,
+    "title": "a flagged device is remembered, so the second attempt from it is silent",
+    "why": "`checkAndRemember` inserts on first sight regardless of what the caller decides afterwards. A sign-in that the application denied on a `new-device` signal has already whitelisted that fingerprint, and the retry passes unremarked. There is no way to record a sighting conditionally."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 471,
+    "title": "the memory store keeps every fingerprint forever, with no cap and no expiry",
+    "why": "One request per rotated user agent grows the set without bound. It is the reference implementation, but it is exported and it is what the default wiring reaches for."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 495,
+    "title": "a zero-padded ipv4 is a different device from the same address unpadded",
+    "why": "The subnet is taken by splitting on dots with no normalisation, so `203.000.113.009` and `203.0.113.9` hash differently. A proxy that normalises differently from the origin re-flags a known device."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 516,
+    "title": "an unparseable address is fingerprinted as-is rather than refused",
+    "why": "`expandIpv6` returns its input when the shape is wrong, so junk in the ip position becomes part of the key. Two different junk values are two different devices, which is a way to force a `new-device` signal on demand wherever the ip is taken from a header."
+  },
+  {
+    "file": "src/core/anomaly/__tests__/anomaly-scoring.test.ts",
+    "line": 537,
+    "title": "the evidence carries the raw ip and user agent into the event",
+    "why": "The fingerprint is a hash, but the values it was built from ride alongside it, so a `suspicious` record contains the address and header verbatim wherever the bus is persisted."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 38,
+    "title": "the status code is never consulted, so an error page carrying a success body passes",
+    "why": "`readJsonSafe` reads the body and nothing reads `res.ok`. A five hundred, a four twenty-nine, or a captive-portal response that happens to serialise `{\"success\":true}` verifies as a solved challenge."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 77,
+    "title": "there is no timeout, so a hung siteverify holds the sign-in open forever",
+    "why": "Every other outbound call in this library carries an AbortController. This one does not, so a provider that accepts the connection and never answers parks the request until something upstream gives up. Captcha sits in front of sign-in, so that is the whole login path."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 103,
+    "title": "the hostname the challenge was solved on is ignored",
+    "why": "Turnstile and reCAPTCHA both return the hostname the widget ran on, and both sets of docs tell the integrator to compare it. A token solved on an attacker's page under a leaked or shared sitekey verifies here."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 111,
+    "title": "challenge_ts is ignored, so age is left entirely to the provider",
+    "why": ""
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 116,
+    "title": "the result drops every field except success and error codes",
+    "why": "Even a caller who wants to check the hostname itself cannot: the parsed response is narrowed to two fields before it is returned."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 159,
+    "title": "a token of any size is forwarded, so the verifier amplifies a request",
+    "why": "The empty check is the only check. A client can post a ten megabyte token and the verifier relays all of it to the provider, once per attempt."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 167,
+    "title": "the endpoint is caller-configurable with no scheme or host check",
+    "why": "The secret is posted to whatever this points at. Every other outbound URL in the library is validated for https and for private hosts; this one takes a plaintext loopback address without comment."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 207,
+    "title": "a zero threshold accepts a response with no score at all",
+    "why": "`(parsed.score ?? 0) >= 0` is always true, so configuring `minScore: 0`, which reads as \"accept any score\", also accepts a response that reported none. The distinction between a low score and an absent one disappears."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 216,
+    "title": "a negative threshold is accepted and passes everything",
+    "why": ""
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 220,
+    "title": "a NaN threshold is accepted and refuses everything",
+    "why": "No validation on either side of the comparison, so a threshold read from a mis-parsed environment variable silently turns captcha into a wall."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 228,
+    "title": "a threshold above one refuses every possible score",
+    "why": ""
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 259,
+    "title": "an action is only checked when the caller remembers to ask",
+    "why": "`expectedAction` is optional and there is no default, so the common integration, verify the token and move on, accepts a token minted for any action on the site. That is the reuse reCAPTCHA v3 actions exist to stop."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 273,
+    "title": "it is exported from the package and always succeeds, with nothing to stop it shipping",
+    "why": "It is documented as a test helper, and it is the reference the other verifiers are compared against in wiring examples. There is no environment guard and no warning, so wiring it in production silently removes captcha from every path it fronts."
+  },
+  {
+    "file": "src/core/captcha/__tests__/captcha-verifiers.test.ts",
+    "line": 298,
+    "title": "it ignores the status code too",
+    "why": ""
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 34,
+    "title": "nothing in the library reads the preset a config was branded with",
+    "why": "`readCompliancePreset` is documented as the hook `AuthEngine.strict()` uses to \"auto-invoke authAssertComplianceStrict so operators do not have to remember the second call\". No caller exists. An operator who follows the doc, brands the config and calls `strict()`, gets none of the compliance assertions and no warning that they were skipped."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 50,
+    "title": "minAal is resolved by every preset and consumed by nothing",
+    "why": "`hipaa` and `fips` both declare `minAal: 2`, which reads as \"every session this deployment creates must be at least AAL 2\". The field is computed, merged and returned, and no code path anywhere compares a session's aal against it, so a single-factor password sign-in under hipaa produces an AAL 1 session exactly as it would with no preset at all."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 60,
+    "title": "most of requiredStrictChecks is a list of strings nothing asserts",
+    "why": "`assertComplianceStrict` knows four requirements. The presets between them name nine. Everything outside the four is declared and never checked, so `soc2` promises a lockout listener and a limiter, `gdpr` promises export and soft delete, and none of those is looked at."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 84,
+    "title": "soc2 passes the strict assertion with nothing wired but an audit listener",
+    "why": "Its other two requirements are among the unchecked names, so a deployment that satisfies one of three is told it satisfies soc2."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 95,
+    "title": "gdpr passes without export or soft delete, the two things it names",
+    "why": ""
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 134,
+    "title": "resolving with no preset hands back the module’s own default object",
+    "why": "The no-preset branch returns `DEFAULT_OVERRIDES` by reference. A caller that adjusts what it believes is its own copy edits the module singleton, and every later resolution in the process sees the change."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 144,
+    "title": "that same object is aliased inside the gdpr and soc2 presets",
+    "why": "Both spread `DEFAULT_OVERRIDES`, which copies the top level but shares every nested object. Mutating the default therefore rewrites two presets, and the ratchet a provider applies moves with it."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 175,
+    "title": "layering is order independent for every field except the check list",
+    "why": "The numeric fields all come from a min or a max, so order cannot matter. `requiredStrictChecks` is a set built by concatenation, so it comes back in whichever order the presets were listed. Anything that fingerprints a resolved policy, a config hash or a snapshot, sees two different values for the same deployment."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 192,
+    "title": "an unknown preset name crashes with a TypeError instead of a misconfiguration error",
+    "why": "The preset union is enforced only by TypeScript. A name arriving from a config file or an environment variable indexes `PRESETS` to undefined, and the merge dereferences it. Every other misconfiguration in this library is an AUTH_MISCONFIGURED with a detail an operator can read."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 226,
+    "title": "the password, mfa and api-key floors a preset resolves are not applied here",
+    "why": "`applyCompliancePreset(cfg, 'fips')` reads as \"this config is now fips\". The fourteen-character minimum, the forty-eight byte key and the backup-code count are provider-level, so a deployment that applies the preset to the engine and registers `passwords()` without repeating the preset gets the eight-character default."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 238,
+    "title": "the brand is non-enumerable, so spreading the returned config loses it",
+    "why": "Spreading a config to add one more field is the most ordinary thing a caller does, and it silently strips the marker that says which preset applies."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 248,
+    "title": "applying a second preset replaces the first rather than layering it",
+    "why": "Each call spreads the config, which drops the non-enumerable brand, then stamps its own. Calling the helper twice, the obvious way to add a preset to an existing one, keeps only the last. The session windows do stay ratcheted from both, so the config and the brand end up describing different policies."
+  },
+  {
+    "file": "src/core/compliance/__tests__/compliance-presets.test.ts",
+    "line": 267,
+    "title": "one bad entry in a branded array disables every preset in it rather than failing",
+    "why": "`readCompliancePreset` returns null for the whole array when a single entry is not a known preset. A typo in a two-preset list therefore silently turns compliance off instead of narrowing it."
+  },
+  {
+    "file": "src/core/config/__tests__/create-auth.test.ts",
+    "line": 155,
+    "title": "no key outside the two the engine knows is reported as unrecognised",
+    "why": "There is no strict-key check anywhere in the path, so a typo in a config key is accepted in silence. `sessions` instead of `session` is the one a caller is most likely to write, and it disables the window they meant to shorten."
+  },
+  {
+    "file": "src/core/config/__tests__/create-auth.test.ts",
+    "line": 178,
+    "title": "with no limiter configured the engine builds and only strict complains",
+    "why": "Rate limiting is optional at construction, so the ordinary path, build an engine and mount it, has no throttle in front of sign-in unless the operator remembers `strict`."
+  },
+  {
+    "file": "src/core/config/__tests__/create-auth.test.ts",
+    "line": 198,
+    "title": "omitting strict is the default, so nothing is checked unless asked",
+    "why": "The same config that throws with `strict: 'production'` builds silently without it, and the flag has to be remembered rather than opted out of."
+  },
+  {
+    "file": "src/core/config/__tests__/create-auth.test.ts",
+    "line": 204,
+    "title": "an unknown env string is accepted and read as truthy",
+    "why": "`if (config.strict)` is a truthiness test and the value is handed straight to `strict({ env })`. A misspelled environment does not fall back to the strictest reading."
+  },
+  {
+    "file": "src/core/config/__tests__/create-auth.test.ts",
+    "line": 211,
+    "title": "the string \"false\" enables strict, because only falsiness is checked",
+    "why": "A flag threaded from an environment variable arrives as a string. `'false'` is truthy, so an operator turning strict off turns it on."
+  },
+  {
+    "file": "src/core/config/__tests__/create-auth.test.ts",
+    "line": 227,
+    "title": "a missing store surfaces as a TypeError at construction, not a misconfiguration",
+    "why": "The three stores are required by the type only. A config assembled at runtime that is missing one dereferences undefined rather than reporting which store was absent."
+  },
+  {
+    "file": "src/core/config/__tests__/create-auth.test.ts",
+    "line": 234,
+    "title": "the base url is taken verbatim, with no scheme or shape check",
+    "why": "It is the origin every redirect and cookie decision is measured against. Nothing here parses it, so a trailing slash, a bare host or an empty string all reach the facets that compare against it."
+  },
+  {
+    "file": "src/core/dataAtRest/__tests__/aes-gcm-nonce.test.ts",
+    "line": 129,
+    "title": "the context is concatenated, so a boundary can be shifted",
+    "why": "The DEK is sha256(key || identityId || field) with no separator, so ('ab', 'c') and ('a', 'bc') hash the same bytes and derive the same key. Reaching it needs an identityId and a field an attacker controls together, and field names come from the library rather than a request, so this is a property of the construction rather than a live hole. Pinned because a future caller passing a user-supplied field name would make it one."
+  },
+  {
+    "file": "src/core/dataAtRest/__tests__/aes-gcm-nonce.test.ts",
+    "line": 241,
+    "title": "a value between about 786KB and 1MiB encrypts and can never be decrypted",
+    "why": "`encrypt` caps the PLAINTEXT at 1 MiB. `decrypt` caps the CIPHERTEXT ENVELOPE at the same 1 MiB. Base64 expands by about a third, so a 1 MiB plaintext produces a 1,398,157 character envelope that `decrypt` refuses as oversize. The write succeeds and the row is stored; the read throws. Measured break point: 786,000 bytes round-trips, 800,000 does not."
+  },
+  {
+    "file": "src/core/errors/__tests__/errors.test.ts",
+    "line": 105,
+    "title": "a secret buried deeper than the depth cap is not reached",
+    "why": "The cap protects against a cycle, but it also means the walker stops looking. Below the cap the value is replaced wholesale by '[depth-cap]', so the secret does not appear, and the string is what a reader sees instead. Pinned to record that depth is a truncation, not a scrub."
+  },
+  {
+    "file": "src/core/errors/__tests__/errors.test.ts",
+    "line": 139,
+    "title": "the sensitive list matches whole keys only",
+    "why": "Membership is exact, so a key that merely contains a sensitive word is kept. Deliberate and defensible, since a substring rule would strip innocent keys like `tokenCount`, but it means a caller inventing its own key name gets no protection. Recorded so the constraint is known rather than assumed."
+  },
+  {
+    "file": "src/core/hijack/__tests__/hijack-policy.test.ts",
+    "line": 204,
+    "title": "a stripped header softens a revoke even when the other signal is a real mismatch",
+    "why": "The asymmetric downgrade is per-signal. An attacker on a different address who also omits the User-Agent turns a `revoke` on user-agent-change into a `rotate`, and the surviving reaction is whatever the ip policy says. With the default policy (ip: rotate, ua: mfa) the result is `rotate` rather than the `mfa` an operator configured for a changed browser. Sending no header is entirely within an attacker's control."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 75,
+    "title": "a key with no tenant mints a token for whatever tenant the caller names",
+    "why": "The cross-tenant guard only fires when the credential itself carries a tenant. A global key leaves `verified.tenantId` undefined, so the check is skipped and `effectiveTenantId` falls through to the caller's value. The `tid` claim on the resulting JWT is then chosen by the request body, which is the one thing a client_credentials grant must never let a client pick."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 98,
+    "title": "an empty-string tenant is a distinct tenant, not an absent one",
+    "why": "`!== undefined` is the only absence test, so `tenantId: ''` reaches the session and the claim as a real value."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 107,
+    "title": "asking for scopes the key does not have yields a token with no scope at all",
+    "why": "In the default intersect mode an empty intersection is not an error. RFC 6749 section 3.3 says the server must either fail or issue the scopes it is willing to grant; issuing a token with an empty scope claim leaves the resource server to decide what a scopeless bearer token means, which is exactly the ambiguity that turns into an allow."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 129,
+    "title": "the strict-mode refusal reports the key’s full scope set back to the caller",
+    "why": "The error meta carries `have`, so a caller probing with one scope learns every scope the key holds. The caller already has the secret, but an error body forwarded to a client, or written to a shared log, spreads it."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 152,
+    "title": "an empty scope string is read as omitted, so it grants everything",
+    "why": "`if (input.scope)` is a truthiness test, so a client sending `scope=` asking for nothing receives the full set instead of none."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 159,
+    "title": "a whitespace-only scope also grants everything",
+    "why": "The split filters out empties, leaving a zero-length request, which `_resolveScopes` treats the same as no request at all."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 166,
+    "title": "duplicates survive into the granted scope claim and count against the cap",
+    "why": "Nothing deduplicates, so a client can pad the scope string. Sixty-four copies of one scope exhausts the token budget and pushes out the scopes that follow it in the same request."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 179,
+    "title": "a scope token may contain any character that is not whitespace",
+    "why": "RFC 6749 section 3.3 restricts a scope token to a printable subset that excludes the quote and the backslash. Neither the grant nor the key creation path checks, so a quote or a brace rides into the `scope` claim and back out to whatever parses the response."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 216,
+    "title": "a key holding no scopes still mints a token rather than being refused",
+    "why": ""
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 248,
+    "title": "a token minted before revocation keeps verifying afterwards",
+    "why": "Documented on the facet, pinned here because it is the grant's sharpest edge: revoking a leaked key stops new exchanges and does nothing about the tokens already issued, for up to the configured ttl. The default ttl is an hour."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 272,
+    "title": "every exchange persists a session row that nothing ever cleans up",
+    "why": "The grant is stateless from the client's point of view, but each call writes a session. A service polling for a token, or an attacker holding a valid key, grows the session store one row per request, and the rows are never revoked because no client ever signs out of them."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 281,
+    "title": "the persisted session outlives the token whose lifetime was capped",
+    "why": "`issue` receives a copy with the expiry clamped to the m2m ttl, but the row written a moment earlier keeps the sessions facet's own, longer expiry. The token expires in a minute; the record stays live far past it."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 320,
+    "title": "a negative ttl is accepted and mints a token that is already expired",
+    "why": "Nothing validates `ttlMs`. The clamped expiry lands in the past, so the grant returns a two hundred with a token no resource server will accept, and a negative `expires_in` for the client to reason about."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 335,
+    "title": "a ttl longer than the session lifetime is silently ignored",
+    "why": "The clamp is a `Math.min`, so asking for a twenty-four hour token against a shorter session policy quietly yields the shorter one while `expires_in` is computed from the configured ttl and overstates it."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 392,
+    "title": "a transport reporting its own expires_in overrides the m2m policy in the response",
+    "why": "The envelope prefers whatever the transport put in the body, so the number the client is told can disagree with the ttl the operator configured, and with the token's actual exp."
+  },
+  {
+    "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
+    "line": 409,
+    "title": "the session is written before the transport is checked, so a misconfiguration still leaves rows",
+    "why": "The AUTH_MISCONFIGURED throw happens after `sessions.create`. Every rejected exchange against a wrongly wired transport persists a session that no token was ever issued for."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 28,
+    "title": "an exempt route skips read-only as well as maintenance, whatever its method",
+    "why": "The two flags are named `healthz` and `session`, and the guard returns before either mode is consulted. A route marked exempt so it can answer during maintenance, which is the point of the flag, is also the route that keeps accepting writes during a read-only freeze."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 39,
+    "title": "either flag exempts, so passing both by mistake is indistinguishable from either",
+    "why": ""
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 82,
+    "title": "any method outside the four is treated as a read",
+    "why": "The classifier is an allow-list of writes rather than a deny-list of reads, so anything it has not heard of passes. WebDAV and the newer HTTP methods all mutate."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 93,
+    "title": "read-only classifies by method, so a mutating GET callback is let through",
+    "why": "Magic-link redemption and an OAuth callback are both GETs that consume a one-time credential and create a session. During a migration freeze they keep writing."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 102,
+    "title": "a missing method throws a TypeError rather than failing closed",
+    "why": "`method.toUpperCase()` is reached whenever read-only is on. An adapter that does not supply the method produces a raw TypeError, which no error handler in this library maps to a status, so a freeze turns into a five hundred."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 128,
+    "title": "a negative or non-finite retry hint is stored and handed to the client",
+    "why": "Nothing validates the value. `Retry-After` is defined as a non-negative number of seconds, so a negative one, or a NaN that serialises to null, is a header a client cannot act on."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 147,
+    "title": "the operator message is unbounded and reaches the client verbatim",
+    "why": "It is an operator-authored string, but it is copied into the error meta with no length cap and no filtering, and an adapter that puts it in a header rather than a body carries whatever it contains."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 180,
+    "title": "read-only emits nothing, so it never leaves the instance it was set on",
+    "why": "Maintenance propagates through the bus and read-only does not. An operator who freezes writes on one node of a fleet has frozen one node, and the snapshot on every other node still reads `off`."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 190,
+    "title": "a subscriber that applies the event re-emits it, so a shared bus loops",
+    "why": "The natural way to consume `maintenance.on` is to call `maintenance(true)` on the local instance, and that call emits again. On an in-process bus this recurses immediately; on a shared bus it is a broadcast storm between nodes."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 204,
+    "title": "toggling to the state it is already in emits anyway",
+    "why": ""
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 211,
+    "title": "re-asserting maintenance resets the since stamp of the ongoing window",
+    "why": "Two nodes reporting the same maintenance window disagree about when it started, and a repeated deploy hook rewrites it each time."
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 222,
+    "title": "turning maintenance off drops the message and the retry hint with no way to read them back",
+    "why": ""
+  },
+  {
+    "file": "src/core/operations/__tests__/operations-gating.test.ts",
+    "line": 251,
+    "title": "the state lives only in this process, so a restart clears both switches",
+    "why": "Nothing is persisted. A node that restarts during a maintenance window comes back serving traffic, and a rolling deploy is exactly when the window is most likely to be open."
+  },
+  {
+    "file": "src/core/orgs/__tests__/orgs-boundary.test.ts",
+    "line": 202,
+    "title": "duplicates are kept, and count against the sixty-four cap",
+    "why": "`sanitizeRoles` filters by type and length but does not deduplicate, so a caller can pad a list with one role repeated. Harmless for an `includes` check, but sixty-four copies of `viewer` fill the budget and silently push out the roles that follow, so a padded list can drop a real grant."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 31,
+    "title": "an empty id is a valid id",
+    "why": "Nothing validates the string. An empty id registers, answers `has('')`, and is dispatchable, so a capability built from a config where the id was never filled in is silently reachable rather than refused at boot."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 40,
+    "title": "a prototype-shaped id registers and dispatches like any other",
+    "why": "Safe here because the store is a Map rather than an object literal, but the id reaches the caller's own routing and logging untouched."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 48,
+    "title": "ids are matched exactly, so a differing case is an unknown provider",
+    "why": ""
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 54,
+    "title": "an unknown id is echoed back inside the error it raises",
+    "why": "The id comes from the request. It lands in `meta.providerId` and survives the wire-safe envelope, so whatever a client sends is reflected in the error body."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 69,
+    "title": "a constructor that throws mid-list leaves a half-built registry",
+    "why": "The constructor registers in order, so the duplicate that raises is the fourth call and the first three are already in the map. Nothing unwinds them, and the exception is what a caller sees rather than the state."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 94,
+    "title": "a capability with complete but no begin is advertised and then refused",
+    "why": "`list()` filters on `complete` alone while dispatch requires both. The sign-in grid a client renders therefore offers a provider whose first call fails, and the failure reads as AUTH_PROVIDER_FAILED, which is the same code an unknown id produces."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 110,
+    "title": "an unknown provider and a non-sign-in provider raise the same code",
+    "why": "A caller cannot tell \"there is no such provider\" from \"that provider cannot sign anyone in\", so an id-probing client learns the same thing either way. The distinguishing text is in `detail`, which is not a stable contract."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 140,
+    "title": "the input is handed to the provider unexamined",
+    "why": "Deliberate, since only the provider knows its own shape, but it means the registry is not a validation boundary: whatever the request body deserialised to arrives as-is."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 178,
+    "title": "a subclass answers a resolve for its base, so registration order decides the winner",
+    "why": "`resolve` returns the first instanceof match in insertion order. A plugin that subclasses a shipped facet and registers before it becomes what `auth.passwords`, `auth.mfa` and `auth.apiKeys` return, without ever colliding on an id. Nothing warns that two capabilities answered."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 190,
+    "title": "resolve reports the first match rather than refusing an ambiguous one",
+    "why": "Two independent instances of the same facet class is a configuration error that resolves silently to whichever came first."
+  },
+  {
+    "file": "src/core/provider/__tests__/provider-dispatch.test.ts",
+    "line": 204,
+    "title": "an object spread from a facet loses its prototype and stops resolving",
+    "why": "Spreading a capability to override one field is an ordinary thing to do, and it produces a plain object. The id map still holds it and dispatch still works, so it looks registered, but `auth.passwords` and its siblings return null because the instanceof scan no longer matches."
+  },
+  {
+    "file": "src/core/sessions/__tests__/sessions.redis-parser.e2e.test.ts",
+    "line": 127,
+    "title": "a partial actingAs envelope is dropped rather than refused",
+    "why": "Losing the envelope loses both halves of what it is for: the audit trail saying who the real actor was, and the expiry that bounds the session. The row then reads as an ordinary session belonging to the impersonated user."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 48,
+    "title": "it throws a bare Error rather than the library’s misconfiguration code",
+    "why": "Every other wiring mistake in this library raises AUTH_MISCONFIGURED with a detail and a status. A server adapter's error handler recognises that and not this, so an empty list surfaces as an unhandled five hundred."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 62,
+    "title": "the same transport can be listed twice, and everything it emits is doubled",
+    "why": "Nothing deduplicates. A config assembled from two partial lists issues two identical cookies and two identical bodies."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 88,
+    "title": "a request presenting two different credentials is silently resolved, not refused",
+    "why": "RFC 6750 section 2 says a client must not send a token by more than one method, and that a request doing so must be rejected. Here the array order picks a winner and the other credential is discarded without a word. An attacker who can plant a cookie, which a sibling subdomain can do, chooses which identity the request runs as whenever cookie is listed first."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 102,
+    "title": "reordering the array changes which credential authenticates the request",
+    "why": "The order is the whole policy, and nothing in the type or the constructor signals that. Two deployments with the same transports in different orders resolve the same request to different sessions."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 112,
+    "title": "a transport that throws on extract takes the whole chain with it",
+    "why": "The loop has no guard, so one adapter raising on a malformed header stops the later transports from ever being asked, and the request fails rather than falling back to the credential it also carried."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 165,
+    "title": "composing a strict transport with a lenient one yields the lenient one",
+    "why": "This is the important one. Verification is a disjunction: a token only has to satisfy one member of the array. Adding a proof-of-possession transport such as DPoP alongside a plain bearer or JWT transport therefore adds no security at all, because the unbound path is still there and answers first-come. The strict transport's refusal is not a veto, it is a pass."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 177,
+    "title": "a transport that throws during verify blocks the ones after it",
+    "why": "A JWKS fetch failure or a decode crash in one transport prevents the rest from being tried, so a recoverable fault in the optional transport takes down the primary one."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 190,
+    "title": "verification is sequential, so its latency is the sum of every miss",
+    "why": ""
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 205,
+    "title": "the shared cap is hard-coded rather than asked of the transports",
+    "why": "The comment says 4096 \"is the largest any shipped transport accepts\". It is a constant in the composite, so a custom transport with a larger ceiling silently cannot be reached through a composite, and a shipped one whose ceiling is later raised is silently clamped here."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 239,
+    "title": "composing two body-emitting transports produces two json intents for one response",
+    "why": "A response has one body. Bearer and JWT both answer `issue` with a json intent, so composing them hands the server adapter two, and which one the client receives is decided by whatever the adapter does with a list it was never told could contain duplicates. One of the two tokens is lost."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 249,
+    "title": "revoke has the same shape, so a sign-out emits several conflicting bodies",
+    "why": ""
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 264,
+    "title": "issue is not transactional, so a throwing transport loses the intents already built",
+    "why": "`flatMap` has no guard. If the third transport raises, the cookie the first one produced never reaches the response, and the session row it was issued for has already been written by the caller."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 277,
+    "title": "revoke drops a transport whose revocation is server-side without saying so",
+    "why": "Bearer's own revoke is a note that the client should forget the token; the real revocation is the store delete the caller must perform. Composing it in makes the response look like a complete sign-out."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 304,
+    "title": "an empty scheme silently disables the transport instead of being refused",
+    "why": "The prefix becomes a single space, and `Headers` strips leading whitespace from a value, so nothing can ever match it. Nothing validates the scheme at construction, so a config that blanks it produces a transport that extracts nothing, forever, with no error. In a composite that reads as \"this credential was not presented\"."
+  },
+  {
+    "file": "src/core/transport/__tests__/composite.test.ts",
+    "line": 321,
+    "title": "the issued body carries the plaintext session id, so any body logger records it",
+    "why": "Documented, and unavoidable for a bearer flow, but worth pinning next to the composite: this is the value that authenticates the client, and it is in a response body rather than a cookie the browser hides."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 80,
+    "title": "a trailing dot turns localhost into an accepted host",
+    "why": "`/^localhost$/` is anchored, and `localhost.` is the fully qualified form of the same name. Every resolver treats it as 127.0.0.1, and the parser keeps the dot, so the one host the guard names by name is one keystroke away from passing."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 88,
+    "title": "unique-local ipv6 passes because the pattern never accounts for the brackets",
+    "why": "`URL.hostname` returns an ipv6 literal wrapped in brackets. The loopback and fe80:: patterns allow for that with `\\[?`, but the fc00::/7 pair does not, so the entire private ipv6 range is reachable."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 96,
+    "title": "link-local ipv6 outside the exact fe80:: prefix passes",
+    "why": "fe80::/10 spans fe80: through febf:. The bracket-aware pattern matches only a literal `fe80::`, so an address in the same range written any other way is accepted."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 104,
+    "title": "any dns name that resolves inward is accepted, because only the spelling is checked",
+    "why": "The guard runs once, at construction, against a string. A name pointing at 127.0.0.1, or one that answers differently on the second lookup, is exactly what the deny-list cannot see."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 112,
+    "title": "the patterns match a hostname textually, so ordinary domains are refused",
+    "why": "`/^127\\./` and friends are tested against the whole hostname, not against a parsed address. A perfectly public name beginning with one of those labels is rejected as loopback."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 132,
+    "title": "credentials embedded in the endpoint url are accepted and sent",
+    "why": "Nothing strips the userinfo, so a configured endpoint can carry a basic-auth pair that then rides in every outbound request and in the dead-letter record."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 162,
+    "title": "a failing endpoint holds the emitting flow open for the whole retry ladder",
+    "why": "`attach` subscribes an async handler and `InMemoryEvents.emit` awaits each handler in turn. Every backoff the deliverer sleeps is time the sign-in that emitted the event is still waiting. With the shipped defaults, five attempts at 500ms backoff plus five 5s timeouts, a dead consumer adds up to half a minute to an authentication."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 185,
+    "title": "the caller is released only after the dead-letter sink has been written",
+    "why": ""
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 215,
+    "title": "attaching the same deliverer twice sends every event twice",
+    "why": "`attach` keeps no record of a previous subscription, so a reload path that re-attaches without calling the returned cleanup silently doubles the load on the consumer and the number of retries the caller waits through."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 227,
+    "title": "a wildcard endpoint does not receive authz.revoked",
+    "why": "`'*'` is materialised from a hand-written array of event names, and `authz.revoked` is absent from it. The name is documented as inbound from the IAM side, but a consumer asking for every event still gets a set that silently differs from the event map."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 264,
+    "title": "a 400 is retried the full ladder even though it will never succeed",
+    "why": "Only `res.ok` is consulted. A consumer rejecting the body, or a wrong signature header name, produces the same five attempts as a timeout."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 272,
+    "title": "a 410 Gone is retried rather than treated as an unsubscribe",
+    "why": ""
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 278,
+    "title": "an oversize payload is retried, even though the size cannot change between attempts",
+    "why": "The 1 MiB check happens inside `_dispatch` and returns false, which the retry loop reads as a failed delivery. Nothing is ever sent, but the caller still waits through every backoff before the entry is dead-lettered."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 305,
+    "title": "the payload cap counts utf-16 code units, not the bytes actually sent",
+    "why": "`body.length` on a string of astral characters is half the byte count the request carries, so a body just under the cap can be two megabytes on the wire."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 365,
+    "title": "with no dead-letter sink a permanently failed event is dropped in silence",
+    "why": "No sink, no log, no return value. The delivery simply did not happen."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 380,
+    "title": "a negative backoff is accepted and retries land back to back",
+    "why": "Only `maxAttempts` is clamped. A negative base makes every computed wait negative, which `setTimeout` floors to zero, so the ladder that exists to spare a struggling consumer hammers it instead."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 395,
+    "title": "a backoff large enough to overflow the timer also retries immediately",
+    "why": "The attempt cap was chosen so `backoffMs * 2 ** (attempt - 1)` stays inside the timer range, but that only holds for the default base. A base past 2^31 overflows on the first retry and `setTimeout` fires it at once, so the longest configured delay behaves as the shortest."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 411,
+    "title": "retries carry no jitter, so a fleet retries in lockstep",
+    "why": "Every instance that saw the same failure sleeps exactly the same interval."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 489,
+    "title": "the payload is forwarded verbatim, including whatever a session object carries",
+    "why": "Nothing redacts before signing. A `session.created` payload holds the session record and the identity, so every field either of them carries is posted to a third party by default."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 503,
+    "title": "a payload that cannot be serialised is retried the whole ladder",
+    "why": "`JSON.stringify` runs inside the try that guards the transport, so a circular payload reads as a failed attempt rather than as a permanent error. Nothing is ever sent, and the caller waits through every backoff before the entry is dead-lettered with a TypeError as its last error."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 526,
+    "title": "a bigint in the payload is dead-lettered the same way, with nothing sent",
+    "why": ""
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 549,
+    "title": "an invalid signature header name fails every attempt and dead-letters the event",
+    "why": "The header name is caller-supplied and reaches `fetch` unvalidated, so a typo containing a space or a colon turns into a thrown request for every event, forever."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 569,
+    "title": "the dead-letter record stores the endpoint url, credentials included",
+    "why": ""
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 601,
+    "title": "the prefix is authSha256=, not the sha256= the doc comment promises",
+    "why": "The comment says the format matches \"the convention most webhook tooling uses\". It does not, so a consumer written against that sentence, or against a GitHub or Stripe style verifier, rejects every delivery."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 644,
+    "title": "a negative tolerance rejects every signature, including a fresh one",
+    "why": "Nothing validates the window, and `Math.abs(...) > negative` is true for any gap at all, so a sign error in a consumer's config silently refuses every delivery it receives."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 654,
+    "title": "nothing binds a delivery to a single use inside the window",
+    "why": "The timestamp bounds replay but does not prevent it: the same body and signature verify as many times as they are presented for five minutes."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 662,
+    "title": "the freshness window is checked against the caller-supplied timestamp, not the signed one",
+    "why": "The helper takes the timestamp as an argument and signs with it, so a consumer that reads the value out of the body rather than the header is trusting a number the sender controls. Only the header form is bound."
+  },
+  {
+    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
+    "line": 682,
+    "title": "an empty secret signs and verifies without complaint",
+    "why": "Construction refuses an empty secret on an endpoint, but the exported helpers are what a consumer calls, and they accept one."
+  },
+  {
+    "file": "src/providers/oauth/core/__tests__/state.test.ts",
+    "line": 224,
+    "title": "a state stamped in the future never ages out",
+    "why": "The check is `now - iat > maxAge`, so a future `iat` yields a negative age and passes forever. `iat` is set by `authBuildState` from the local clock, so this is not attacker-controllable, and forging one needs the signing secret. It matters only if the clock jumps backwards, which would make every state minted before the jump immortal. Pinned as a property of the comparison rather than a live hole."
+  },
+  {
+    "file": "src/providers/oauth/core/__tests__/state.test.ts",
+    "line": 252,
+    "title": "the state is stateless, so it verifies as many times as it is presented",
+    "why": ""
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 73,
+    "title": "complete takes no relay state, so the value begin calls a CSRF guard is never checked",
+    "why": "`BeginInput.relayState` is documented as \"Caller-supplied relay state (CSRF guard); echoed back by IdP\". `CompleteInput` has one field, the SAMLResponse, so nothing in this provider ever compares the echoed value against the one it sent. The guard exists on the way out and has no counterpart on the way back."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 89,
+    "title": "complete succeeds with no preceding begin at all",
+    "why": "Unsolicited responses are a supported flow, so this is by design, but it means every response is accepted on its own merits. An assertion an attacker obtained for their own account, POSTed into a victim's browser, is indistinguishable here from one the victim asked for. That is SAML login CSRF, and the defence is exactly the relay state binding above."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 101,
+    "title": "the same response body can be replayed indefinitely",
+    "why": "Replay protection lives in the node-saml client's InResponseTo cache, which this wrapper neither configures nor requires. With a client that does not have one, the provider mints a fresh session for every repeat of one captured POST body."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 112,
+    "title": "callbackUrl is required at construction and then never read",
+    "why": "It is documented as \"Must exactly match the AssertionConsumerService URL registered with the IdP\", which reads as a check. It is a presence test: nothing compares it against the response's Destination or the assertion's Recipient, so a response minted for a different ACS is accepted here."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 122,
+    "title": "nothing binds an assertion to the tenant it is being consumed under",
+    "why": "The tenant from the context is passed to `onSignIn` as context, not as a constraint. One provider instance serving several tenants accepts the same assertion under any of them, and which tenant a session lands in is decided by the request rather than by the assertion."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 137,
+    "title": "every SAML sign-in is stamped aal 2 regardless of what the IdP did",
+    "why": "The level is a literal in the intent. The response's AuthnContextClassRef, which is where an IdP states whether it actually performed a second factor, is not inspected and is not even carried on `Saml.Profile`. A password-only IdP therefore produces a session that satisfies every step-up requirement in this library."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 158,
+    "title": "the factor is recorded as oauth, so audit cannot tell SAML from an oauth sign-in",
+    "why": ""
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 189,
+    "title": "a whitespace-only nameID passes the blank check",
+    "why": "The guard is a length test, so a space is a name. It reaches the just in time provisioning hook as the identifier the account is keyed on, which is the collapse the guard was written to prevent."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 199,
+    "title": "the nameID format is never checked against the one the SP requires",
+    "why": "The default config asks for emailAddress and the metadata builder writes that into the SP descriptor, but the response is accepted whatever format it carries. A transient nameID changes on every login, so just in time provisioning keyed on it creates a new account each time."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 213,
+    "title": "profileToIdentityProfile is offered on the options and never called",
+    "why": "The oauth providers read this hook and refuse the sign-in when it rejects the profile. The SAML provider declares the identical option and hands the raw profile straight to `onSignIn`, so a consumer who wrote a projection to sanitise IdP attributes has written dead code."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 227,
+    "title": "every attribute the IdP sends reaches the provisioning hook unfiltered",
+    "why": "Only `nameID` is validated. Whatever else the assertion carried, including an attribute named like one of the app's own claims, is what `onSignIn` receives, and the consumer is the first code to look at it."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 243,
+    "title": "an email asserted by the IdP is not checked against the nameID it arrived with",
+    "why": "Provisioning that looks the account up by `email`, which the hook's own documentation suggests, keys on a field no guard covers. Two nameIDs asserting the same address resolve to the same account."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 277,
+    "title": "complete never touches the limiter, so signature verification is unthrottled",
+    "why": "Password sign-in is rate limited. This path hands a megabyte of XML to a signature verifier with no per-ip or per-identity budget, so an unauthenticated client can spend the process's CPU at will."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 290,
+    "title": "begin is unthrottled too, so the IdP redirect is a free amplifier",
+    "why": ""
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 300,
+    "title": "the size cap counts utf-16 code units, so the byte ceiling is twice what it says",
+    "why": "A body just under the one mebibyte cap can be two megabytes of UTF-8 on the wire and in the parser."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 347,
+    "title": "the detail string still distinguishes why an attempt failed",
+    "why": "Three failures produce three different strings: a malformed body, a rejected signature, and an unusable profile. That is a usable oracle for an attacker probing which part of a forged assertion the verifier objected to, even though none of the strings carries the XML."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 381,
+    "title": "a failure inside the provisioning hook escapes untyped",
+    "why": "`onSignIn` is consumer code called after every other guard has passed. It is not wrapped, so a store outage surfaces as whatever the consumer threw rather than as an AuthError an adapter knows how to render."
+  },
+  {
+    "file": "src/providers/saml/__tests__/saml-binding.test.ts",
+    "line": 396,
+    "title": "begin reports a caller mistake as a misconfiguration, not a bad request",
+    "why": "`relayState` and `host` come from the request, so a missing one is a four hundred. AUTH_MISCONFIGURED is the code this library uses for boot-time wiring errors, and it carries a five hundred status."
+  }
+]

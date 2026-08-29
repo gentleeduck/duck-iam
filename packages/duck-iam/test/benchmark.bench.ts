@@ -1,14 +1,13 @@
 /**
  * Benchmark: @gentleduck/iam vs every JS authorization library
  *
- * Libraries tested (7 total):
+ * Libraries tested (6 total):
  *   1. @gentleduck/iam  - policy engine (ABAC+RBAC)
  *   2. @casl/ability     - ability-based (ABAC)
  *   3. casbin            - model-file (PERM DSL)
  *   4. accesscontrol     - fluent grants (RBAC)
- *   5. role-acl          - role + conditions (RBAC+ABAC)
- *   6. @rbac/rbac        - hierarchical RBAC
- *   7. easy-rbac         - simple hierarchical RBAC
+ *   5. @rbac/rbac        - hierarchical RBAC
+ *   6. easy-rbac         - simple hierarchical RBAC
  *
  * METHODOLOGY:
  * - Each library solves the SAME authorization problem
@@ -22,14 +21,13 @@ import RBAC from '@rbac/rbac'
 import { AccessControl } from 'accesscontrol'
 import { newEnforcer, newModel, StringAdapter } from 'casbin'
 import EasyRBAC from 'easy-rbac'
-import * as RoleAcl from 'role-acl'
 import { bench, describe } from 'vitest'
-import { MemoryAdapter } from '../src/adapters/memory'
+import { IamMemoryAdapter } from '../src/adapters/memory'
 import { IamEngine } from '../src/core/engine/engine'
 import { evaluate, evaluateFast, evaluatePolicy, evaluatePolicyFast } from '../src/core/evaluate'
-import type { AccessRequest, Policy } from '../src/core/types'
+import type { AccessControl as DuckAccessControl, IamRequest } from '../src/core/types'
 
-const simplePolicy: Policy = {
+const simplePolicy: DuckAccessControl.IPolicy = {
   id: 'simple',
   algorithm: 'deny-overrides',
   rules: [
@@ -45,7 +43,7 @@ const simplePolicy: Policy = {
   ],
 }
 
-const conditionPolicy: Policy = {
+const conditionPolicy: DuckAccessControl.IPolicy = {
   id: 'condition',
   algorithm: 'deny-overrides',
   rules: [
@@ -65,7 +63,7 @@ const conditionPolicy: Policy = {
   ],
 }
 
-const policyWithTargets: Policy = {
+const policyWithTargets: DuckAccessControl.IPolicy = {
   id: 'targeted',
   algorithm: 'deny-overrides',
   targets: { actions: ['read'], resources: ['post'] },
@@ -74,25 +72,25 @@ const policyWithTargets: Policy = {
   ],
 }
 
-const simpleRequest: AccessRequest = {
+const simpleRequest: IamRequest.IAccessRequest = {
   subject: { id: 'user-1', roles: ['viewer'], attributes: {} },
   action: 'read',
   resource: { type: 'post', attributes: {} },
 }
 
-const conditionRequest: AccessRequest = {
+const conditionRequest: IamRequest.IAccessRequest = {
   subject: { id: 'user-1', roles: ['editor'], attributes: { role: 'editor' } },
   action: 'update',
   resource: { type: 'post', id: 'post-1', attributes: { ownerId: 'user-1', status: 'draft' } },
 }
 
-const adminRequest: AccessRequest = {
+const adminRequest: IamRequest.IAccessRequest = {
   subject: { id: 'admin-1', roles: ['admin'], attributes: { role: 'admin' } },
   action: 'delete',
   resource: { type: 'post', attributes: { role: 'admin' } },
 }
 
-const adapter = new MemoryAdapter({
+const adapter = new IamMemoryAdapter({
   policies: [simplePolicy, conditionPolicy],
   roles: [
     { id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] },
@@ -111,9 +109,16 @@ const adapter = new MemoryAdapter({
   assignments: { 'user-1': ['viewer'], 'editor-1': ['editor'], 'admin-1': ['admin'] },
   attributes: { 'user-1': { role: 'viewer' }, 'editor-1': { role: 'editor' }, 'admin-1': { role: 'admin' } },
 })
-const engine = new IamEngine({ adapter, defaultEffect: 'deny' })
-await engine.can('user-1', 'read', { type: 'post', attributes: {} })
-await engine.can('admin-1', 'delete', { type: 'post', attributes: {} })
+// Both modes: 'development' is the interpreter, 'production' is the compiled
+// table - the real shipped fast path (see docs/engine-rewrite.md). Omitting
+// `mode: 'production'` here previously meant every `engine.can()` bench below
+// silently measured the interpreter, not what actually ships.
+const engineDev = new IamEngine({ adapter, defaultEffect: 'deny' })
+const engineProd = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' })
+await engineDev.can('user-1', 'read', { type: 'post', attributes: {} })
+await engineDev.can('admin-1', 'delete', { type: 'post', attributes: {} })
+await engineProd.can('user-1', 'read', { type: 'post', attributes: {} })
+await engineProd.can('admin-1', 'delete', { type: 'post', attributes: {} })
 
 function buildCaslAbility() {
   const { can, build } = new AbilityBuilder(createMongoAbility)
@@ -142,11 +147,6 @@ ac.grant('viewer').readAny('post')
 ac.grant('editor').extend('viewer').updateOwn('post')
 ac.grant('admin').extend('editor').deleteAny('post').createAny('post')
 
-const roleAcl = new RoleAcl.AccessControl()
-roleAcl.grant('viewer').execute('read').on('post')
-roleAcl.grant('editor').extend('viewer').execute('update').on('post')
-roleAcl.grant('admin').extend('editor').execute('delete').on('post').execute('write').on('post')
-
 const rbacRbac = RBAC({ enableLogger: false })({
   viewer: { can: ['post:read'] },
   editor: { can: ['post:read', 'post:update'], inherits: ['viewer'] },
@@ -162,11 +162,11 @@ const easyRbac = new EasyRBAC({
 const N = 3
 
 describe('Simple RBAC: can viewer read post?', () => {
-  bench('@gentleduck/iam - evaluateFast() [PROD]', () => {
+  bench('@gentleduck/iam - evaluateFast() [fast-path fn, not engine.can()]', () => {
     for (let i = 0; i < N; i++) evaluateFast([simplePolicy], simpleRequest)
   })
 
-  bench('@gentleduck/iam - evaluatePolicyFast() [PROD]', () => {
+  bench('@gentleduck/iam - evaluatePolicyFast() [fast-path fn, not engine.can()]', () => {
     for (let i = 0; i < N; i++) evaluatePolicyFast(simplePolicy, simpleRequest)
   })
 
@@ -190,10 +190,6 @@ describe('Simple RBAC: can viewer read post?', () => {
     for (let i = 0; i < N; i++) ac.can('viewer').readAny('post')
   })
 
-  bench('role-acl', async () => {
-    for (let i = 0; i < N; i++) await roleAcl.can('viewer').execute('read').on('post')
-  })
-
   bench('@rbac/rbac', async () => {
     for (let i = 0; i < N; i++) await rbacRbac.can('viewer', 'post:read')
   })
@@ -204,7 +200,7 @@ describe('Simple RBAC: can viewer read post?', () => {
 })
 
 describe('ABAC condition: can owner update own draft?', () => {
-  bench('@gentleduck/iam - evaluateFast() [PROD]', () => {
+  bench('@gentleduck/iam - evaluateFast() [fast-path fn, not engine.can()]', () => {
     for (let i = 0; i < N; i++) evaluateFast([conditionPolicy], conditionRequest)
   })
 
@@ -236,10 +232,6 @@ describe('Role + condition: can admin delete post?', () => {
     for (let i = 0; i < N; i++) ac.can('admin').deleteAny('post')
   })
 
-  bench('role-acl', async () => {
-    for (let i = 0; i < N; i++) await roleAcl.can('admin').execute('delete').on('post')
-  })
-
   bench('@rbac/rbac', async () => {
     for (let i = 0; i < N; i++) await rbacRbac.can('admin', 'post:delete')
   })
@@ -250,7 +242,7 @@ describe('Role + condition: can admin delete post?', () => {
 })
 
 describe('Deny path: viewer cannot delete', () => {
-  const denyRequest: AccessRequest = { ...simpleRequest, action: 'delete' }
+  const denyRequest: IamRequest.IAccessRequest = { ...simpleRequest, action: 'delete' }
 
   bench('@gentleduck/iam', () => {
     for (let i = 0; i < N; i++) evaluate([simplePolicy], denyRequest)
@@ -262,10 +254,6 @@ describe('Deny path: viewer cannot delete', () => {
 
   bench('casbin', async () => {
     for (let i = 0; i < N; i++) await casbinEnforcer.enforce('viewer', 'post', 'delete')
-  })
-
-  bench('role-acl', async () => {
-    for (let i = 0; i < N; i++) await roleAcl.can('viewer').execute('delete').on('post')
   })
 
   bench('@rbac/rbac', async () => {
@@ -296,7 +284,7 @@ describe('Batch: 20 permission checks', () => {
     action,
   }))
 
-  bench('@gentleduck/iam - evaluateFast() x20 [PROD]', () => {
+  bench('@gentleduck/iam - evaluateFast() x20 [fast-path fn, not engine.can()]', () => {
     for (const req of batchRequests) evaluateFast([simplePolicy], req)
   })
 
@@ -321,10 +309,6 @@ describe('Batch: 20 permission checks', () => {
     }
   })
 
-  bench('role-acl x20', async () => {
-    for (const action of checks) await roleAcl.can('viewer').execute(action).on('post')
-  })
-
   bench('@rbac/rbac x20', async () => {
     for (const action of checks) await rbacRbac.can('viewer', `post:${action}`)
   })
@@ -340,15 +324,34 @@ describe('Batch: 20 permission checks', () => {
   })
 })
 
-describe('Engine.can() - cached (duck-iam only)', () => {
-  bench('@gentleduck/iam - engine.can()', async () => {
-    for (let i = 0; i < N; i++) await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+describe('Engine.can() - cached, full stack (adapter + hooks + engine)', () => {
+  bench('@gentleduck/iam - engine.can() [mode: production]', async () => {
+    for (let i = 0; i < N; i++) await engineProd.can('user-1', 'read', { type: 'post', attributes: {} })
+  })
+  bench('@gentleduck/iam - engine.can() [mode: development]', async () => {
+    for (let i = 0; i < N; i++) await engineDev.can('user-1', 'read', { type: 'post', attributes: {} })
+  })
+  bench('@casl/ability', () => {
+    for (let i = 0; i < N; i++) caslAbility.can('read', 'Post')
   })
 })
 
 describe('Cold start: build + first check', () => {
-  bench('@gentleduck/iam', async () => {
-    const a = new MemoryAdapter({
+  // Production pays a compileTable() cost here that development doesn't -
+  // real tradeoff, not an oversight, so both are shown rather than picking one.
+  bench('@gentleduck/iam [mode: production]', async () => {
+    const a = new IamMemoryAdapter({
+      policies: [simplePolicy],
+      roles: [{ id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] }],
+      assignments: { 'user-1': ['viewer'] },
+      attributes: { 'user-1': {} },
+    })
+    const e = new IamEngine({ adapter: a, defaultEffect: 'deny', mode: 'production' })
+    await e.can('user-1', 'read', { type: 'post', attributes: {} })
+  })
+
+  bench('@gentleduck/iam [mode: development]', async () => {
+    const a = new IamMemoryAdapter({
       policies: [simplePolicy],
       roles: [{ id: 'viewer', name: 'Viewer', permissions: [{ action: 'read', resource: 'post' }] }],
       assignments: { 'user-1': ['viewer'] },
@@ -381,12 +384,6 @@ describe('Cold start: build + first check', () => {
     const a = new AccessControl()
     a.grant('viewer').readAny('post')
     a.can('viewer').readAny('post')
-  })
-
-  bench('role-acl', async () => {
-    const a = new RoleAcl.AccessControl()
-    a.grant('viewer').execute('read').on('post')
-    await a.can('viewer').execute('read').on('post')
   })
 
   bench('@rbac/rbac', async () => {

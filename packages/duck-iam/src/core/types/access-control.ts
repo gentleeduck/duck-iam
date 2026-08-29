@@ -62,14 +62,31 @@ export namespace AccessControl {
     readonly value?: IamPrimitives.AttributeValue
   }
 
+  /** Every child must hold. */
+  export interface IConditionAll {
+    readonly all: ReadonlyArray<ICondition | IConditionGroup>
+  }
+
+  /** At least one child must hold. */
+  export interface IConditionAny {
+    readonly any: ReadonlyArray<ICondition | IConditionGroup>
+  }
+
+  /** No child may hold. */
+  export interface IConditionNone {
+    readonly none: ReadonlyArray<ICondition | IConditionGroup>
+  }
+
   /**
-   * Recursive tree of conditions combined with boolean logic. Exactly one key
-   * must be present: `all` (AND), `any` (OR), or `none` (NOT / NOR).
+   * Recursive tree of conditions combined with boolean logic. Exactly one key must be
+   * present: `all` (AND), `any` (OR), or `none` (NOT / NOR).
+   *
+   * Named arms rather than anonymous object literals. Structurally identical, but a
+   * generator that emits a schema per named type can reference this one and stop;
+   * given anonymous arms it inlines the tree into itself until the stack goes. typia
+   * does exactly that - `nestia sdk` died with SIGSEGV and no message.
    */
-  export type IConditionGroup =
-    | { readonly all: ReadonlyArray<ICondition | IConditionGroup> }
-    | { readonly any: ReadonlyArray<ICondition | IConditionGroup> }
-    | { readonly none: ReadonlyArray<ICondition | IConditionGroup> }
+  export type IConditionGroup = IConditionAll | IConditionAny | IConditionNone
 
   /**
    * Atomic unit of an ABAC policy. Declares an {@link Effect}, the actions /

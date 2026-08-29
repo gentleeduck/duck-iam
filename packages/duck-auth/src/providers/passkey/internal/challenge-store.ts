@@ -30,3 +30,10 @@ export class MemoryPasskeyChallengeStore implements Passkey.ChallengeStore {
     return entry.challenge
   }
 }
+
+/** Factory around {@link MemoryPasskeyChallengeStore}, for callers who prefer functions to `new`. */
+export function memoryPasskeyChallengeStore(
+  ...args: ConstructorParameters<typeof MemoryPasskeyChallengeStore>
+): MemoryPasskeyChallengeStore {
+  return new MemoryPasskeyChallengeStore(...args)
+}

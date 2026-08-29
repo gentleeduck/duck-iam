@@ -89,7 +89,8 @@ describe('FlowsImpl - step-up', () => {
     const { auth } = buildAuth()
     const identity = await auth.identities.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
     const challenge = await auth.mfa.beginTotpEnrollment(identity.id, 'a@x.com')
-    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30)))
+    const enrolledStep = Math.floor(Date.now() / 1000 / 30)
+    await auth.mfa.confirmTotpEnrollment(identity.id, totpAt(challenge.secret, enrolledStep))
 
     const { session: aal1, sid: aal1Sid } = await auth.sessions.create({
       identityId: identity.id,
@@ -99,7 +100,9 @@ describe('FlowsImpl - step-up', () => {
     })
     expect(aal1.aal).toBe(1)
 
-    const code = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
+    // A later step than the one enrollment spent: a TOTP is single-use, so a
+    // step-up inside the same thirty-second window has to wait for the next code.
+    const code = totpAt(challenge.secret, enrolledStep + 1)
     const stepped = await auth.flows.completeStepUp({
       currentSid: aal1Sid,
       method: 'totp',

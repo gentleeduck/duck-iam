@@ -387,9 +387,9 @@ describe('first-match priority order', () => {
   })
 })
 
-describe('fast path: expansive action/resource patterns route via wildcardAny', () => {
-  // Colon-prefix actions like 'posts:*' must route through wildcardAny so the
-  // fast path matches a request like { action: 'posts:read', resource: 'post' }.
+describe('fast path: expansive action/resource patterns route via the wildcard buckets', () => {
+  // Colon-prefix actions like 'posts:*' must route through byResourceWildcardAction
+  // so the fast path matches a request like { action: 'posts:read', resource: 'post' }.
   const colonActionPolicy: AccessControl.IPolicy = {
     id: 'colon-action',
     name: 'Colon Action',
@@ -436,6 +436,183 @@ describe('fast path: expansive action/resource patterns route via wildcardAny', 
       ],
     }
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(true)
+  })
+})
+
+describe('fast path: wildcard bucket indexing (indexPolicy)', () => {
+  // A rule's own action/resource list can mix a literal alternative with a wildcard
+  // one - the rule still has hasWildcardAction/hasWildcardResource=true (so it's
+  // bucketed under its literal side, e.g. byResourceWildcardAction), but
+  // candidateShapeMatches must still recognize the literal alternative too, not
+  // just the wildcard one.
+  it('a rule with mixed literal + wildcard actions matches via either alternative', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'mixed-actions',
+      name: 'Mixed Actions',
+      algorithm: 'deny-overrides',
+      rules: [
+        {
+          id: 'r1',
+          effect: 'allow',
+          priority: 10,
+          actions: ['read', 'admin:*'],
+          resources: ['post'],
+          conditions: { all: [] },
+        },
+      ],
+    }
+    // Literal alternative.
+    expect(evaluatePolicyFast(policy, makeReq({ action: 'read' }))).toBe(true)
+    expect(evaluatePolicyFast(policy, makeReq({ action: 'read' }))).toBe(
+      evaluatePolicy(policy, makeReq({ action: 'read' })).allowed,
+    )
+    // Wildcard alternative.
+    const wildReq = makeReq({ action: 'admin:delete' })
+    expect(evaluatePolicyFast(policy, wildReq)).toBe(true)
+    expect(evaluatePolicyFast(policy, wildReq)).toBe(evaluatePolicy(policy, wildReq).allowed)
+    // Neither alternative.
+    const missReq = makeReq({ action: 'write' })
+    expect(evaluatePolicyFast(policy, missReq)).toBe(null)
+    expect(evaluatePolicy(policy, missReq).allowed).toBe(false)
+  })
+
+  it('a rule with mixed literal + wildcard resources matches via either alternative', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'mixed-resources',
+      name: 'Mixed Resources',
+      algorithm: 'deny-overrides',
+      rules: [
+        {
+          id: 'r1',
+          effect: 'allow',
+          priority: 10,
+          actions: ['read'],
+          resources: ['comment', 'report:*'],
+          conditions: { all: [] },
+        },
+      ],
+    }
+    const literalReq = makeReq({ resource: { type: 'comment', attributes: {} } })
+    expect(evaluatePolicyFast(policy, literalReq)).toBe(true)
+    expect(evaluatePolicyFast(policy, literalReq)).toBe(evaluatePolicy(policy, literalReq).allowed)
+    const wildReq = makeReq({ resource: { type: 'report:q3', attributes: {} } })
+    expect(evaluatePolicyFast(policy, wildReq)).toBe(true)
+    expect(evaluatePolicyFast(policy, wildReq)).toBe(evaluatePolicy(policy, wildReq).allowed)
+  })
+
+  it('wildcard-on-both-sides rules (wildcardBoth) still combine correctly with literal and single-wildcard rules in the same policy', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'all-shapes',
+      name: 'All Shapes',
+      algorithm: 'deny-overrides',
+      rules: [
+        {
+          id: 'literal',
+          effect: 'allow',
+          priority: 10,
+          actions: ['read'],
+          resources: ['post'],
+          conditions: { all: [] },
+        },
+        {
+          id: 'action-wild',
+          effect: 'allow',
+          priority: 10,
+          actions: ['admin:*'],
+          resources: ['comment'],
+          conditions: { all: [] },
+        },
+        {
+          id: 'resource-wild',
+          effect: 'allow',
+          priority: 10,
+          actions: ['write'],
+          resources: ['report:*'],
+          conditions: { all: [] },
+        },
+        {
+          id: 'both-wild',
+          effect: 'deny',
+          priority: 10,
+          actions: ['danger:*'],
+          resources: ['secret:*'],
+          conditions: { all: [] },
+        },
+      ],
+    }
+    // Each case's shape matches exactly one rule (or none) - hand-derived expectation,
+    // cross-checked against evaluatePolicy for every case.
+    const cases: Array<[IamRequest.IAccessRequest, boolean | null]> = [
+      [makeReq({ action: 'read', resource: { type: 'post', attributes: {} } }), true], // literal
+      [makeReq({ action: 'admin:ban', resource: { type: 'comment', attributes: {} } }), true], // action-wild
+      [makeReq({ action: 'write', resource: { type: 'report:q3', attributes: {} } }), true], // resource-wild
+      [makeReq({ action: 'danger:launch', resource: { type: 'secret:codes', attributes: {} } }), false], // both-wild, deny
+      [makeReq({ action: 'unrelated', resource: { type: 'unrelated', attributes: {} } }), null], // no rule's shape matches at all
+    ]
+    for (const [req, expected] of cases) {
+      expect(evaluatePolicyFast(policy, req)).toBe(expected)
+      const full = evaluatePolicy(policy, req)
+      if (expected === null) {
+        expect(full.applicable).toBe(false)
+      } else {
+        expect(full.allowed).toBe(expected)
+      }
+    }
+  })
+})
+
+describe('fast path: expansive patterns reject non-matching requests (regression)', () => {
+  // matchCandidate() used to skip the match check entirely whenever the rule's
+  // own pattern was expansive, so 'posts:*' matched *any* action - a false-ALLOW.
+  it('"posts:*" does not match "comments:read"', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'colon-action',
+      name: 'Colon Action',
+      algorithm: 'deny-overrides',
+      rules: [
+        { id: 'r1', effect: 'allow', priority: 10, actions: ['posts:*'], resources: ['post'], conditions: { all: [] } },
+      ],
+    }
+    const req = makeReq({ action: 'comments:read' })
+    // No rule's shape matches 'comments:read' at all -> NotApplicable (null), not a
+    // real deny vote. `.allowed` still reflects defaultEffect ('deny') either way.
+    expect(evaluatePolicyFast(policy, req)).toBe(null)
+    expect(evaluatePolicy(policy, req).allowed).toBe(false)
+  })
+
+  it('"dashboard.*" resource does not match "reports.summary"', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'dot-resource',
+      name: 'Dot IamRequest.IResource',
+      algorithm: 'deny-overrides',
+      rules: [
+        {
+          id: 'r1',
+          effect: 'allow',
+          priority: 10,
+          actions: ['read'],
+          resources: ['dashboard.*'],
+          conditions: { all: [] },
+        },
+      ],
+    }
+    const req = makeReq({ resource: { type: 'reports.summary', attributes: {} } })
+    expect(evaluatePolicyFast(policy, req)).toBe(null)
+    expect(evaluatePolicy(policy, req).allowed).toBe(false)
+  })
+
+  it('"org:*" resource does not match "team:project"', () => {
+    const policy: AccessControl.IPolicy = {
+      id: 'colon-resource',
+      name: 'Colon IamRequest.IResource',
+      algorithm: 'deny-overrides',
+      rules: [
+        { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org:*'], conditions: { all: [] } },
+      ],
+    }
+    const req = makeReq({ resource: { type: 'team:project', attributes: {} } })
+    expect(evaluatePolicyFast(policy, req)).toBe(null)
+    expect(evaluatePolicy(policy, req).allowed).toBe(false)
   })
 })
 
@@ -557,10 +734,12 @@ describe('fast path: literal-only resource patterns', () => {
         { id: 'r1', effect: 'allow', priority: 10, actions: ['read'], resources: ['org'], conditions: { all: [] } },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(false)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(false)
+    // The rule's shape is exactly 'org' - a sub-resource or unrelated resource is
+    // outside that shape entirely (NotApplicable, null), not a real deny vote.
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project', attributes: {} } }))).toBe(null)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org:project:doc', attributes: {} } }))).toBe(null)
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'org', attributes: {} } }))).toBe(true)
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(false)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'other', attributes: {} } }))).toBe(null)
   })
 
   it('colon: explicit "org:*" matches sub-resources', () => {
@@ -592,10 +771,10 @@ describe('fast path: literal-only resource patterns', () => {
         },
       ],
     }
-    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(false)
+    expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users', attributes: {} } }))).toBe(null)
     expect(
       evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard.users.settings', attributes: {} } })),
-    ).toBe(false)
+    ).toBe(null)
     expect(evaluatePolicyFast(policy, makeReq({ resource: { type: 'dashboard', attributes: {} } }))).toBe(true)
   })
 })

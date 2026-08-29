@@ -1,7 +1,12 @@
 export namespace HonoAdapter {
   export type Handler = (ctx: HonoAdapter.Context) => Promise<Response>
 
+  /** Hono middleware. Returning a `Response` short-circuits the chain. */
+  export type Middleware = (ctx: HonoAdapter.Context, next: () => Promise<void>) => Promise<Response | undefined>
+
   export type Context = {
+    /** Hono resolves no address itself; an app that knows its proxies sets this. */
+    ip?: string
     req: {
       method: string
       url: string

@@ -156,3 +156,8 @@ function clipForDiagnostic(s: string): string {
   if (s.length <= DIAGNOSTIC_MAX_LEN) return s
   return `${s.slice(0, DIAGNOSTIC_MAX_LEN)}...(truncated)`
 }
+
+/** Factory around {@link HijackFacet}, for callers who prefer functions to `new`. */
+export function hijackFacet(events: Events.IBus, cfg: Partial<Hijack.Cfg> = {}): HijackFacet {
+  return new HijackFacet(events, cfg)
+}

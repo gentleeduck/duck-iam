@@ -17,31 +17,29 @@ import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
 /**
- * @title auth identities table (MySQL / MariaDB)
- * @description Auth identities table. Used to store the identities of users.
- * @note MySQL has native `JSON`, `BOOLEAN` (TINYINT(1)), and `DATETIME(3)`. Drizzle's
- * `json()`/`boolean()`/`datetime({ fsp: 3 })` give the same JS-side ergonomics as pg's
- * jsonb/boolean/timestamptz — `$inferSelect` yields parsed objects, `boolean`, and `Date`.
- * Timestamps are timezone-naive; store UTC and convert at the edges.
- * @note pg's expression unique indexes on `lower(profile->>'email' | 'username')` are
- * omitted here — MySQL cannot index a JSON path without a stored generated column, so
- * email/username uniqueness is enforced at the application layer for this dialect.
+ * Timestamps are timezone-naive DATETIME(3); store UTC and convert at the edges. MySQL
+ * can't index a JSON path without a generated column, so email/username uniqueness
+ * (unlike pg's expression indexes) is enforced at the application layer for this dialect.
  */
-export const identitiesTable = mysqlTable(
+const nowMs = sql`CURRENT_TIMESTAMP(3)`
+
+export const authIdentities = mysqlTable(
   'auth_identities',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
-    /**
-     * Origin/home tenant this identity was created under. Scoping only —
-     * never used to gate access. Real membership always lives in the host app.
-     */
+    /** Origin/home tenant this identity was created under. Scoping only. */
     tenantId: varchar('tenant_id', { length: 64 }),
     profile: json('profile').notNull().$type<SqlBridge.ProfileMetadataBase>(),
     providers: json('providers').notNull().default([]).$type<Identities.ProviderLink[]>(),
     version: int('version').notNull().default(1),
     emailVerified: boolean('email_verified').notNull().default(false),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull(),
-    updatedAt: datetime('updated_at', { fsp: 3 }).notNull(),
+    createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
     deletedAt: datetime('deleted_at', { fsp: 3 }),
   },
   (t) => [
@@ -51,7 +49,7 @@ export const identitiesTable = mysqlTable(
   ],
 )
 
-export const credentialsTable = mysqlTable(
+export const authCredentials = mysqlTable(
   'auth_credentials',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
@@ -63,7 +61,13 @@ export const credentialsTable = mysqlTable(
     secret: varchar('secret', { length: 512 }).notNull(),
     metadata: json('metadata').$type<Record<string, unknown> | null>(),
     version: int('version').notNull().default(1),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull(),
+    createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
     lastUsedAt: datetime('last_used_at', { fsp: 3 }),
     expiresAt: datetime('expires_at', { fsp: 3 }),
     revokedAt: datetime('revoked_at', { fsp: 3 }),
@@ -76,25 +80,25 @@ export const credentialsTable = mysqlTable(
     index('auth_credentials_expires_at').on(t.expiresAt),
     check('chk_auth_credentials_kind', sql.raw(`kind IN (${AUTH_CREDENTIAL_KINDS.map((k) => `'${k}'`).join(', ')})`)),
     check('chk_auth_credentials_version', sql`version >= 1`),
-    check('chk_auth_credentials_secret_not_blank', sql`length(trim(secret)) > 0`),
+    check('chk_auth_credentials_secret_not_blank', sql`secret REGEXP '[^[:space:]]'`),
     check('chk_auth_credentials_expires_after_created', sql`expires_at IS NULL OR expires_at >= created_at`),
     check('chk_auth_credentials_revoked_after_created', sql`revoked_at IS NULL OR revoked_at >= created_at`),
     check('chk_auth_credentials_last_used_after_created', sql`last_used_at IS NULL OR last_used_at >= created_at`),
     foreignKey({
       name: 'fk_auth_credentials_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('cascade'),
   ],
 )
 
-export const sessionsTable = mysqlTable(
+export const authSessions = mysqlTable(
   'auth_sessions',
   {
-    // SHA-256 hash of the raw session token — text, not the raw token.
+    // SHA-256 hash of the raw session token, text, not the raw token.
     id: varchar('id', { length: 64 }).primaryKey(),
     identityId: varchar('identity_id', { length: 64 }),
-    /** Tenant this session is acting under — drives tenant security policy. Scoping only. */
+    /** Tenant this session is acting under, drives tenant security policy. Scoping only. */
     tenantId: varchar('tenant_id', { length: 64 }),
     kind: varchar('kind', { length: 32 }).notNull().$type<Sessions.Kind>(),
     aal: int('aal').notNull().$type<Sessions.AAL>(),
@@ -103,7 +107,13 @@ export const sessionsTable = mysqlTable(
     ip: varchar('ip', { length: 45 }),
     userAgent: text('user_agent'),
     fingerprint: varchar('fingerprint', { length: 128 }),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull(),
+    createdBy: varchar('created_by', { length: 191 }),
+    updatedBy: varchar('updated_by', { length: 191 }),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(nowMs)
+      .$onUpdate(() => new Date()),
     rotatedAt: datetime('rotated_at', { fsp: 3 }).notNull(),
     expiresAt: datetime('expires_at', { fsp: 3 }).notNull(),
     absoluteExpiresAt: datetime('absolute_expires_at', { fsp: 3 }).notNull(),
@@ -125,19 +135,13 @@ export const sessionsTable = mysqlTable(
     foreignKey({
       name: 'fk_auth_sessions_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('cascade'),
   ],
 )
 
-/**
- * Append-only audit log. Never UPDATE or DELETE rows (except compliance-driven
- * purge). Identity FK is SET NULL on hard-delete so the event record survives
- * erasure. Schema-parity with pg — not yet wired into the bridge (same open
- * gap as the pg adapter; wire both together once `SqlBridge.Me` defines
- * an `events` section).
- */
-export const eventsTable = mysqlTable(
+/** Append-only audit log. Identity FK is SET NULL on hard-delete so the record survives erasure. */
+export const authEvents = mysqlTable(
   'auth_events',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
@@ -153,7 +157,7 @@ export const eventsTable = mysqlTable(
     userAgent: text('user_agent'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: json('metadata').$type<Record<string, unknown> | null>(),
-    createdAt: datetime('created_at', { fsp: 3 }).notNull(),
+    createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
   },
   (t) => [
     index('auth_events_identity_created').on(t.identityId, t.createdAt),
@@ -166,7 +170,7 @@ export const eventsTable = mysqlTable(
     foreignKey({
       name: 'fk_auth_events_identity',
       columns: [t.identityId],
-      foreignColumns: [identitiesTable.id],
+      foreignColumns: [authIdentities.id],
     }).onDelete('set null'),
   ],
 )

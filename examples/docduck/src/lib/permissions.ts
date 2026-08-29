@@ -1,4 +1,4 @@
-import { buildPermissionKey } from '@gentleduck/iam'
+import { iamBuildPermissionKey } from '@gentleduck/iam'
 import { type AppAction, type AppResource, engine } from './access'
 
 /**
@@ -24,7 +24,7 @@ export async function getScopedPermissions(userId: string, workspaceId: string) 
 
   for (const { action, resource } of checks) {
     const allowed = await engine.can(userId, action, { type: resource, attributes: {} }, undefined, workspaceId)
-    const key = buildPermissionKey(action, resource)
+    const key = iamBuildPermissionKey(action, resource)
     map[key] = allowed
   }
 

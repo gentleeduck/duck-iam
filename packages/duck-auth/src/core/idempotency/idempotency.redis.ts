@@ -2,6 +2,7 @@ import type { RedisLike } from '~/adapters/redis/redis-like'
 import { isFiniteNumber } from '~/core/credentials/credentials'
 import type { Idempotency } from '~/core/idempotency/idempotency.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
+import { IdempotencyImpl } from './idempotency'
 
 export namespace RedisIdempotency {
   /** Cfg knobs for {@link RedisIdempotency}. */
@@ -118,9 +119,16 @@ function parseStoredIdempotencyEntry(raw: string): Idempotency.CachedResponse | 
   return out
 }
 
-/** Factory around {@link RedisIdempotency} for functional-style config. */
+/**
+ * Build a redis-backed idempotency facet in one call, the way `redisLimiter`
+ * builds a limiter. Store knobs (`redis`, `prefix`) and facet knobs (`ttlMs`,
+ * `headerName`, `pollTimeoutMs`) share the one object, so the config key reads
+ * `idempotency: redisIdempotency({ prefix: 'auth:idem', redis })`.
+ *
+ * Reach for `new RedisIdempotency(...)` when you want the bare store.
+ */
 export function redisIdempotency<TRedis extends RedisLike.Client = RedisLike.Client>(
-  cfg: RedisIdempotency.Cfg<TRedis>,
-): RedisIdempotency<TRedis> {
-  return new RedisIdempotency(cfg)
+  cfg: RedisIdempotency.Cfg<TRedis> & Partial<Idempotency.Cfg>,
+): IdempotencyImpl {
+  return new IdempotencyImpl(new RedisIdempotency(cfg), cfg)
 }

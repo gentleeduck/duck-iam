@@ -1,5 +1,7 @@
+import { env } from 'node:process'
 import { isExpiredAt } from '../credentials/credentials'
 import type { TenantContext } from '../tenant/tenant.types'
+import { IdempotencyImpl } from './idempotency'
 import type { Idempotency } from './idempotency.types'
 
 /**
@@ -15,6 +17,19 @@ export class MemoryIdempotency implements Idempotency.Store {
     string,
     { response: Idempotency.CachedResponse; expiresAt: number; claimedAt: number }
   >()
+
+  constructor(
+    private readonly cfg?: {
+      /** Escape hatch to allow this store under `NODE_ENV=production`. */
+      development?: boolean
+    },
+  ) {
+    // Only production is refused. Requiring `development: true` everywhere made the
+    // no-arg constructor unusable, including the engine's own fallback.
+    if (env.NODE_ENV === 'production' && !this.cfg?.development) {
+      throw new Error('MemoryIdempotency is not production ready')
+    }
+  }
 
   /** Compose a tenant-scoped storage key. */
   private _k(key: string, ctx: TenantContext): string {
@@ -66,7 +81,12 @@ export class MemoryIdempotency implements Idempotency.Store {
   }
 }
 
-/** Factory around {@link MemoryIdempotency} for functional-style config. */
-export function memoryIdempotency(): MemoryIdempotency {
-  return new MemoryIdempotency()
+/**
+ * Build an in-memory idempotency facet in one call. Same shape as
+ * {@link redisIdempotency}: store knobs and facet knobs in one object.
+ *
+ * Reach for `new MemoryIdempotency(...)` when you want the bare store.
+ */
+export function memoryIdempotency(cfg?: { development?: boolean } & Partial<Idempotency.Cfg>): IdempotencyImpl {
+  return new IdempotencyImpl(new MemoryIdempotency(cfg), cfg)
 }

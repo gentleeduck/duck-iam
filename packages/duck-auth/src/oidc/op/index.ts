@@ -12,7 +12,7 @@
  */
 
 import type { Identity } from '~/core'
-import { getProfileString, isFiniteNumber, isProfileBooleanTrue } from '~/core/credentials/credentials'
+import { getProfileString, isFiniteNumber } from '~/core/credentials/credentials'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
 import {
@@ -22,6 +22,17 @@ import {
   AuthMemoryConsentStore,
   AuthMemoryRefreshTokenStore,
 } from './stores'
+
+// The classes reach the entry point through the module graph; the factories need
+// naming, or they build into the chunk and no caller can import them.
+export {
+  authMemoryAccessTokenStore,
+  authMemoryClientStore,
+  authMemoryCodeStore,
+  authMemoryConsentStore,
+  authMemoryRefreshTokenStore,
+} from './stores'
+
 import type { OidcOP } from './types'
 
 export type { OidcOP as AuthOidcOP } from './types'
@@ -620,7 +631,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
     if (ctx.tenantId !== undefined && row.tenant_id !== ctx.tenantId) {
       return { error: 'invalid_token', error_description: 'cross-tenant token' }
     }
-    const identity = await this.deps.auth.identities.getById(row.identity_id, {})
+    const identity = await this.deps.auth.identities.getById(row.identity_id)
     if (!identity) return { error: 'invalid_token', error_description: 'subject not found' }
     const claims: OidcOP.UserinfoClaims = { sub: identity.id }
     if (row.scope.includes('profile')) {
@@ -633,7 +644,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
       const email = getProfileString(identity.profile, 'email')
       if (email !== undefined) {
         claims.email = email
-        claims.email_verified = isProfileBooleanTrue(identity.profile, 'email_verified')
+        claims.email_verified = identity.emailVerified
       }
     }
     return claims
@@ -843,4 +854,9 @@ function parseBasicAuth(header: string | null): { user: string; pass: string } |
   const idx = decoded.indexOf(':')
   if (idx < 0) return null
   return { user: decoded.slice(0, idx), pass: decoded.slice(idx + 1) }
+}
+
+/** Factory around {@link OidcOpRoot}, for callers who prefer functions to `new`. */
+export function oidcOpRoot(...args: ConstructorParameters<typeof OidcOpRoot>): OidcOpRoot {
+  return new OidcOpRoot(...args)
 }

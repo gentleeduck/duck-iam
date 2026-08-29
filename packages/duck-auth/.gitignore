@@ -3,3 +3,9 @@ tmp/
 .turbo/
 dist/
 node_modules/
+
+# drizzle-kit scratch output for `bun run e2e:schema`
+.drizzle-e2e-out/
+.drizzle-e2e-out-mysql/
+.drizzle-e2e-out-oidc-pg/
+.drizzle-e2e-out-oidc-mysql/

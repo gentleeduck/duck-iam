@@ -204,25 +204,57 @@ function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | Acce
   Object.freeze(arr)
 }
 /**
- * Enrich a subject's roles with scoped role assignments matching the request scope.
- *
- * If a user has role `'editor'` scoped to `'org-1'` and the request scope is `'org-1'`,
- * `'editor'` is added to `subject.roles` for this evaluation. Returns the original
- * subject unchanged when no scoped roles match.
- *
- * @template TScope - Union of valid scope strings.
- *
- * @param subject - The resolved subject with potential scoped role assignments
- * @param scope   - The scope to match against scoped role assignments
- * @returns A new subject with merged roles, or the original subject if no matches
+ * Scope plus every ancestor prefix, specific first:
+ * `'org-1.team-2.repo-3'` -> `['org-1.team-2.repo-3', 'org-1.team-2', 'org-1']`.
+ * No `.` -> one entry (itself).
+ */
+export function scopeAncestors(scope: string): string[] {
+  const out: string[] = [scope]
+  let path = scope
+  let dot = path.lastIndexOf('.')
+  while (dot !== -1) {
+    path = path.slice(0, dot)
+    out.push(path)
+    dot = path.lastIndexOf('.')
+  }
+  return out
+}
+
+/**
+ * Merge scoped role assignments matching `scope` into `subject.roles`.
+ * `scopeMode: 'flat'` (default) requires an exact scope match;
+ * `'hierarchical'` also matches grants at any ancestor scope, combined per
+ * `scopeCombine` (see `IConfig.scopeMode` / `IConfig.scopeCombine`).
+ * Returns the original subject unchanged if nothing matches.
  */
 export function enrichSubjectWithScopedRoles<TScope extends string = string>(
   subject: IamRequest.ISubject,
   scope: TScope | undefined,
+  scopeMode: 'flat' | 'hierarchical' = 'flat',
+  scopeCombine: 'union' | 'override' = 'union',
 ): IamRequest.ISubject {
   if (scope == null || !subject.scopedRoles?.length) return subject
 
-  const extraRoles = subject.scopedRoles.filter((sr) => sr.scope === scope).map((sr) => sr.role)
+  let extraRoles: string[]
+  if (scopeMode === 'hierarchical') {
+    if (scopeCombine === 'override') {
+      // Most specific matching level wins - stop at the first hit.
+      let matched: IamRequest.IScopedRole[] | null = null
+      for (const level of scopeAncestors(scope)) {
+        const atLevel = subject.scopedRoles.filter((sr) => sr.scope === level)
+        if (atLevel.length > 0) {
+          matched = atLevel
+          break
+        }
+      }
+      extraRoles = matched?.map((sr) => sr.role) ?? []
+    } else {
+      const ancestors = new Set(scopeAncestors(scope))
+      extraRoles = subject.scopedRoles.filter((sr) => sr.scope != null && ancestors.has(sr.scope)).map((sr) => sr.role)
+    }
+  } else {
+    extraRoles = subject.scopedRoles.filter((sr) => sr.scope === scope).map((sr) => sr.role)
+  }
 
   if (extraRoles.length === 0) return subject
 
@@ -307,6 +339,28 @@ export function createAdmin<
       assertNonEmptyStringParam('roleId', roleId)
       assertOptionalNonEmptyStringParam('scope', scope)
       await adapter.revokeRole(subjectId, roleId, scope)
+      engine.cache.invalidateSubject(subjectId)
+    },
+    async updateAssignmentScope(
+      subjectId: string,
+      roleId: TRole,
+      fromScope?: TScope,
+      toScope?: TScope,
+      actor?: string,
+    ) {
+      assertNonEmptyStringParam('subjectId', subjectId)
+      assertNonEmptyStringParam('roleId', roleId)
+      assertOptionalNonEmptyStringParam('fromScope', fromScope)
+      assertOptionalNonEmptyStringParam('toScope', toScope)
+      const moved = adapter.updateAssignmentScope
+        ? await adapter.updateAssignmentScope(subjectId, roleId, fromScope, toScope, actor)
+        : false
+      if (!moved) {
+        // Adapter has no in-place update, or nothing matched fromScope: fall back to
+        // revoke + assign so the call still succeeds (assignRole is idempotent).
+        await adapter.revokeRole(subjectId, roleId, fromScope)
+        await adapter.assignRole(subjectId, roleId, toScope)
+      }
       engine.cache.invalidateSubject(subjectId)
     },
     async setAttributes(subjectId: string, attrs: IamPrimitives.Attributes) {

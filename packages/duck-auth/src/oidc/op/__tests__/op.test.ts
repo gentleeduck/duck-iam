@@ -352,7 +352,8 @@ describe('AuthOidcOpRoot end-to-end code flow', () => {
       scope: ['openid', 'profile', 'email', 'offline_access'],
     })
     const identity = await auth.identities.create({
-      profile: { email: 'u@x.com', name: 'Ursula', email_verified: true, username: 'u' },
+      emailVerified: true,
+      profile: { email: 'u@x.com', name: 'Ursula', username: 'u' },
     })
     const { verifier, challenge } = pkceVerifierAndChallenge()
     const completed = await op.completeConsent({

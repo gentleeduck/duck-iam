@@ -45,3 +45,8 @@ export class InMemoryEvents implements Events.IBus {
     return this._handlers.get(event)?.size ?? 0
   }
 }
+
+/** Factory around {@link InMemoryEvents}, for callers who prefer functions to `new`. */
+export function inMemoryEvents(...args: ConstructorParameters<typeof InMemoryEvents>): InMemoryEvents {
+  return new InMemoryEvents(...args)
+}

@@ -51,7 +51,7 @@ describe('FlowsImpl - signup state machine', () => {
 
     const identity = await adapter.identities.findById(flow.identityId)
     expect(identity?.profile?.email).toBe('new@x.com')
-    expect(identity?.profile?.emailVerified).toBe(false)
+    expect(identity?.emailVerified).toBe(false)
   })
 
   it('getSignUpFlow returns the stored state for a valid token', async () => {

@@ -16,9 +16,9 @@ export default createTsdownConfig({
     'adapters/file/index': 'src/adapters/file/index.ts',
     'adapters/prisma/index': 'src/adapters/prisma/index.ts',
     'adapters/drizzle/index': 'src/adapters/drizzle/index.ts',
-    'adapters/drizzle/schema/pg': 'src/adapters/drizzle/schema/pg.ts',
-    'adapters/drizzle/schema/mysql': 'src/adapters/drizzle/schema/mysql.ts',
-    'adapters/drizzle/schema/sqlite': 'src/adapters/drizzle/schema/sqlite.ts',
+    'adapters/drizzle/pg/index': 'src/adapters/drizzle/pg/index.ts',
+    'adapters/drizzle/mysql/index': 'src/adapters/drizzle/mysql/index.ts',
+    'adapters/drizzle/sqlite/index': 'src/adapters/drizzle/sqlite/index.ts',
     'adapters/http/index': 'src/adapters/http/index.ts',
     'adapters/redis/index': 'src/adapters/redis/index.ts',
 

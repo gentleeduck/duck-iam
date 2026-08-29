@@ -132,3 +132,18 @@ export namespace AuthTestChannel {
     vars: Record<string, unknown>
   }
 }
+
+/** Factory around {@link AuthConsoleChannel}, for callers who prefer functions to `new`. */
+export function authConsoleChannel(...args: ConstructorParameters<typeof AuthConsoleChannel>): AuthConsoleChannel {
+  return new AuthConsoleChannel(...args)
+}
+
+/** Factory around {@link AuthNoopChannel}, for callers who prefer functions to `new`. */
+export function authNoopChannel(...args: ConstructorParameters<typeof AuthNoopChannel>): AuthNoopChannel {
+  return new AuthNoopChannel(...args)
+}
+
+/** Factory around {@link AuthTestChannel}, for callers who prefer functions to `new`. */
+export function authTestChannel(...args: ConstructorParameters<typeof AuthTestChannel>): AuthTestChannel {
+  return new AuthTestChannel(...args)
+}

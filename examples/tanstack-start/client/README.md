@@ -54,7 +54,7 @@ src/
 │   ├── roles.ts               # RBAC tree
 │   ├── policies.ts            # ABAC rules + bundle
 │   ├── mock-backend.ts        # in-memory store w/ simulated latency
-│   ├── engine.ts              # MemoryAdapter + metrics + Engine
+│   ├── engine.ts              # IamMemoryAdapter + metrics + Engine
 │   ├── auth-context.tsx       # current subject + user switcher state
 │   ├── hooks.tsx              # useCan, useExplain, <Authorize>
 │   └── queries.ts             # TanStack Query hooks for posts/comments/users
@@ -78,7 +78,7 @@ src/
 
 ## Swap the mock backend
 
-Replace `MemoryAdapter` in `src/iam/engine.ts` with any other adapter
+Replace `IamMemoryAdapter` in `src/iam/engine.ts` with any other adapter
 shipped by `@gentleduck/iam`:
 
 - `@gentleduck/iam/adapters/http` for a network-backed policy/role store

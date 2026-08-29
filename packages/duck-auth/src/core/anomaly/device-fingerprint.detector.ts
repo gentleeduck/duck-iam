@@ -144,3 +144,8 @@ export namespace AuthDeviceFingerprint {
     forgetAll(identityId: string): Promise<void>
   }
 }
+
+/** Factory around {@link AuthMemoryDeviceFingerprintStore}, for callers who prefer functions to `new`. */
+export function authMemoryDeviceFingerprintStore(): AuthMemoryDeviceFingerprintStore {
+  return new AuthMemoryDeviceFingerprintStore()
+}

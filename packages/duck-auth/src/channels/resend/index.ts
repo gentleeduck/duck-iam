@@ -137,3 +137,8 @@ export class AuthResendChannel implements Channel.Channel {
     }
   }
 }
+
+/** Factory around {@link AuthResendChannel}, for callers who prefer functions to `new`. */
+export function authResendChannel(...args: ConstructorParameters<typeof AuthResendChannel>): AuthResendChannel {
+  return new AuthResendChannel(...args)
+}

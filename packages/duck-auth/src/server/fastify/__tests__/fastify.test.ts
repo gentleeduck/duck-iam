@@ -7,6 +7,7 @@ import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
 import {
   type FastifyAdapter,
+  fastifyCsrf,
   fastifyProviderBegin,
   fastifySession,
   fastifySignIn,
@@ -161,5 +162,46 @@ describe('Fastify adapter', () => {
     registerFastify({ post, get }, auth, { prefix: '/api/v2/auth' })
     expect(post).toHaveBeenCalledWith('/api/v2/auth/signin', expect.any(Function))
     expect(get).toHaveBeenCalledWith('/api/v2/auth/session', expect.any(Function))
+  })
+})
+
+describe('fastifyCsrf', () => {
+  async function run(method: string, headers: Record<string, string>) {
+    const { auth } = buildAuth()
+    const reply = makeReply()
+    await fastifyCsrf(auth)({ body: {}, headers, method, url: '/orders' }, reply)
+    return reply
+  }
+
+  it('lets a safe method through even from a cross-site context', async () => {
+    expect((await run('GET', { 'sec-fetch-site': 'cross-site' }))._status).toBeUndefined()
+  })
+
+  it('rejects a cross-site mutation with 403', async () => {
+    const reply = await run('POST', { 'sec-fetch-site': 'cross-site' })
+    expect(reply._status).toBe(403)
+    expect(reply._body).toContain('AUTH_CSRF')
+  })
+
+  it('lets a Bearer request through: no ambient cookie to forge', async () => {
+    const reply = await run('POST', { authorization: 'Bearer tok', 'sec-fetch-site': 'cross-site' })
+    expect(reply._status).toBeUndefined()
+  })
+
+  it('lets an ordinary same-origin mutation through', async () => {
+    expect((await run('POST', { 'sec-fetch-site': 'same-origin' }))._status).toBeUndefined()
+  })
+})
+
+describe('Fastify adapter - route CSRF', () => {
+  it('fastifySignIn rejects a cross-site POST before touching the provider', async () => {
+    const { auth } = buildAuth()
+    const reply = makeReply()
+    await fastifySignIn(auth)(
+      { body: {}, headers: { 'sec-fetch-site': 'cross-site' }, method: 'POST', url: '/AUTH/signin' },
+      reply,
+    )
+    expect(reply._status).toBe(403)
+    expect(reply._body).toContain('AUTH_CSRF')
   })
 })

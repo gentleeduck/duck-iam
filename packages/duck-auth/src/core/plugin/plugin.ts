@@ -31,27 +31,38 @@ export class PluginRegistry<Profile extends Identities.ProfileMetadataBase, Tena
     if (this._plugins.has(plugin.id)) {
       throw new Error(`@gentleduck/auth: plugin "${plugin.id}" already installed`)
     }
-    this._plugins.set(plugin.id, plugin)
 
+    // Providers first: a duplicate provider id throws here, before the plugin id is
+    // committed, so the author can fix the collision and install under the same id.
+    // `Providers` has no unregister, so anything registered by a plugin that fails
+    // later stays; the rollback below covers what can be undone.
     if (plugin.providers) {
       for (const p of plugin.providers) auth.providers.register(p)
     }
 
-    if (plugin.events) {
-      for (const [event, handler] of Object.entries(plugin.events)) {
-        if (handler === undefined) continue
-        const unsub = auth.events.on(event as keyof Events.EventMap, handler as (p: unknown) => void | Promise<void>)
-        this._eventUnsubs.push(unsub)
+    const unsubs: Array<() => void> = []
+    try {
+      if (plugin.events) {
+        for (const [event, handler] of Object.entries(plugin.events)) {
+          if (handler === undefined) continue
+          unsubs.push(auth.events.on(event as keyof Events.EventMap, handler as (p: unknown) => void | Promise<void>))
+        }
       }
+      if (plugin.facet !== undefined) {
+        this.facets[plugin.id] = plugin.facet
+      }
+      // Last, so the hook observes the finished wiring.
+      if (plugin.install) {
+        await plugin.install(auth)
+      }
+    } catch (err) {
+      for (const unsub of unsubs) unsub()
+      delete this.facets[plugin.id]
+      throw err
     }
 
-    if (plugin.facet !== undefined) {
-      this.facets[plugin.id] = plugin.facet
-    }
-
-    if (plugin.install) {
-      await plugin.install(auth)
-    }
+    this._eventUnsubs.push(...unsubs)
+    this._plugins.set(plugin.id, plugin)
   }
 
   /** Tear down every event subscription wired by installed plugins. */

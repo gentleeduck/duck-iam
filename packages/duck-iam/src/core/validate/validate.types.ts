@@ -20,6 +20,7 @@ export namespace IamValidate {
     | 'INVALID_TYPE'
     | 'LIMIT_EXCEEDED'
     | 'MISSING_FIELD'
+    | 'UNREACHABLE_TARGET'
     | 'UNRESOLVABLE_FIELD'
     | 'UNRESOLVABLE_VALUE'
 
