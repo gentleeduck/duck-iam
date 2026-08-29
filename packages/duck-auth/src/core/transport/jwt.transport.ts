@@ -546,6 +546,25 @@ export class JwtTransport implements Transport.ITransport {
   rotateSignKey(opts: JwtTransport.IRotateOpts): void {
     const newSign = opts.signKey
     const newAlg: JwtTransport.IJwtAlg = newSign.alg ?? 'HS256'
+    // Asymmetric algs sign with a private key but verify with its public
+    // counterpart. Omitting verifyKey is fine when signKey.kid is already in
+    // the ring under a matching alg (e.g. rotating back to a previously-added
+    // key) - otherwise no verifier holds this kid's public key, so every
+    // token minted under this rotation fails verification the moment it's
+    // checked.
+    if (newAlg !== 'HS256' && !opts.verifyKey) {
+      const known = this._verifyKeys.get(newSign.kid)
+      if (!known || (known.alg ?? 'HS256') !== newAlg) {
+        throw new AuthError('AUTH_MISCONFIGURED', {
+          detail: `rotateSignKey: ${newAlg} requires a public verifyKey`,
+        })
+      }
+    }
+    if (opts.verifyKey && opts.verifyKey.kid !== newSign.kid) {
+      throw new AuthError('AUTH_MISCONFIGURED', {
+        detail: 'rotateSignKey: verifyKey.kid must match signKey.kid',
+      })
+    }
     if (opts.verifyKey) {
       const existing = this._verifyKeys.get(opts.verifyKey.kid)
       if (existing && (existing.alg ?? 'HS256') !== (opts.verifyKey.alg ?? 'HS256')) {
