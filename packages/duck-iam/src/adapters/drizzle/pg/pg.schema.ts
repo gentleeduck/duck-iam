@@ -11,7 +11,6 @@ import {
   text,
   timestamp,
   unique,
-  uuid,
 } from 'drizzle-orm/pg-core'
 import { v7 as uuidv7 } from 'uuid'
 import type { AccessControl, IamPrimitives } from '../../../core/types'
@@ -28,7 +27,7 @@ import type { AccessControl, IamPrimitives } from '../../../core/types'
  */
 
 /** Mirrors {@link AccessControl.CombiningAlgorithm}; `satisfies` catches drift at compile time. */
-export const combineAlgorithm = pgEnum('access_combine_algorithm', [
+export const combineAlgorithm = pgEnum('iam_combine_algorithm', [
   'deny-overrides',
   'allow-overrides',
   'first-match',
@@ -102,7 +101,7 @@ export const iamRoles = pgTable(
 export const iamAssignments = pgTable(
   'iam_assignments',
   {
-    id: uuid('id')
+    id: text('id')
       .notNull()
       .$defaultFn(() => uuidv7()),
     subjectId: text('subject_id').notNull(),

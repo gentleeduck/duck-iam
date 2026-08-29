@@ -97,7 +97,9 @@ export const iamRoles = mysqlTable(
 export const iamAssignments = mysqlTable(
   'iam_assignments',
   {
-    id: varchar('id', { length: 191 }).$defaultFn(() => uuidv7()),
+    id: varchar('id', { length: 191 })
+      .notNull()
+      .$defaultFn(() => uuidv7()),
     subjectId: varchar('subject_id', { length: 191 }).notNull(),
     roleId: varchar('role_id', { length: 191 }).notNull(),
     scope: varchar('scope', { length: 191 }),
