@@ -698,7 +698,7 @@
     "@gentleduck/tsdown-config": "workspace:*",
     "@gentleduck/typescript-config": "workspace:*",
     "@gentleduck/vitest-config": "workspace:*",
-    "@node-rs/argon2": "2.0.2",
+    "@node-rs/argon2": "2.1.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/pg": "^8.21.0",
     "@types/react": "^19.2.17",
