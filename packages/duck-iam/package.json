@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@gentleduck/iam",
-  "version": "5.1.0",
+  "version": "5.7.0",
   "publishConfig": {
     "access": "public"
   },
@@ -112,34 +112,34 @@
         "default": "./dist/adapters/drizzle/index.cjs"
       }
     },
-    "./adapters/drizzle/schema/pg": {
+    "./adapters/drizzle/pg": {
       "import": {
-        "types": "./dist/adapters/drizzle/schema/pg.d.ts",
-        "default": "./dist/adapters/drizzle/schema/pg.js"
+        "types": "./dist/adapters/drizzle/pg/index.d.ts",
+        "default": "./dist/adapters/drizzle/pg/index.js"
       },
       "require": {
-        "types": "./dist/adapters/drizzle/schema/pg.d.cts",
-        "default": "./dist/adapters/drizzle/schema/pg.cjs"
+        "types": "./dist/adapters/drizzle/pg/index.d.cts",
+        "default": "./dist/adapters/drizzle/pg/index.cjs"
       }
     },
-    "./adapters/drizzle/schema/mysql": {
+    "./adapters/drizzle/mysql": {
       "import": {
-        "types": "./dist/adapters/drizzle/schema/mysql.d.ts",
-        "default": "./dist/adapters/drizzle/schema/mysql.js"
+        "types": "./dist/adapters/drizzle/mysql/index.d.ts",
+        "default": "./dist/adapters/drizzle/mysql/index.js"
       },
       "require": {
-        "types": "./dist/adapters/drizzle/schema/mysql.d.cts",
-        "default": "./dist/adapters/drizzle/schema/mysql.cjs"
+        "types": "./dist/adapters/drizzle/mysql/index.d.cts",
+        "default": "./dist/adapters/drizzle/mysql/index.cjs"
       }
     },
-    "./adapters/drizzle/schema/sqlite": {
+    "./adapters/drizzle/sqlite": {
       "import": {
-        "types": "./dist/adapters/drizzle/schema/sqlite.d.ts",
-        "default": "./dist/adapters/drizzle/schema/sqlite.js"
+        "types": "./dist/adapters/drizzle/sqlite/index.d.ts",
+        "default": "./dist/adapters/drizzle/sqlite/index.js"
       },
       "require": {
-        "types": "./dist/adapters/drizzle/schema/sqlite.d.cts",
-        "default": "./dist/adapters/drizzle/schema/sqlite.cjs"
+        "types": "./dist/adapters/drizzle/sqlite/index.d.cts",
+        "default": "./dist/adapters/drizzle/sqlite/index.cjs"
       }
     },
     "./adapters/redis": {
@@ -284,6 +284,7 @@
   "scripts": {
     "bench": "vitest bench",
     "benchmark": "bun run scripts/benchmark.ts",
+    "debug": "bun run scripts/debug.ts",
     "build": "tsdown",
     "dev": "tsdown --watch",
     "test": "vitest run",
@@ -294,7 +295,7 @@
     "clean": "rimraf dist .cache .turbo node_modules"
   },
   "dependencies": {
-    "uuid": "^11.0.0"
+    "uuid": "^14.0.2"
   },
   "peerDependencies": {
     "@gentleduck/libs": "^1.0.0",
@@ -333,17 +334,16 @@
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
-    "accesscontrol": "^2.2.1",
+    "accesscontrol": "^3.1.0",
     "casbin": "^5.50.0",
     "drizzle-orm": "^0.45.2",
     "easy-rbac": "^4.0.0",
     "motion": "^12.40.0",
-    "pg": "^8.22.0",
+    "pg": "^8.23.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "role-acl": "^4.5.4",
     "tsdown": "^0.22.3",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "unrun": "^0.3.1",
     "vitest": "^4.1.9"
   },

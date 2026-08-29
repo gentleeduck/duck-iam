@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type IamDrizzle, IamDrizzleAdapter } from '../index'
 
+/** `IConfig` gained <TDb, TType> in the rename these suites were disabled for. */
+type TestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>
+
 type A = 'read'
 type R = 'post'
 type Ro = 'viewer'
@@ -11,7 +14,7 @@ interface Row {
 }
 
 function makeMock(initialAttrs: Row[]) {
-  const tableRefs: IamDrizzle.IConfig['tables'] = {
+  const tableRefs = {
     policies: { id: { name: 'id' } },
     roles: { id: { name: 'id' } },
     assignments: {
@@ -21,7 +24,7 @@ function makeMock(initialAttrs: Row[]) {
       scope: { name: 'scope' },
     },
     attrs: { id: { name: 'id' }, subjectId: { name: 'subjectId' } },
-  }
+  } as unknown as TestConfig['tables']
 
   const buildSelect = (table: Row[]) => {
     let lim: number | null = null
@@ -56,21 +59,22 @@ function makeMock(initialAttrs: Row[]) {
     return chain
   }
 
-  const config: IamDrizzle.IConfig = {
+  const config: TestConfig = {
     db: {
       select: vi.fn(
         () =>
           ({
             from: () => buildSelect(initialAttrs),
-          }) as unknown as ReturnType<IamDrizzle.IConfig['db']['select']>,
-      ) as unknown as IamDrizzle.IConfig['db']['select'],
+          }) as unknown as ReturnType<TestConfig['db']['select']>,
+      ) as unknown as TestConfig['db']['select'],
       insert: vi.fn(),
+      update: vi.fn(),
       delete: vi.fn(),
     },
     tables: tableRefs,
     ops: {
-      eq: (col, val) => ({ type: 'eq', args: [col, val] }) as never,
-      and: (...conditions) => ({ type: 'and', args: conditions }) as never,
+      eq: (col: unknown, val: unknown) => ({ type: 'eq', args: [col, val] }) as never,
+      and: (...conditions: unknown[]) => ({ type: 'and', args: conditions }) as never,
     },
   }
   return config

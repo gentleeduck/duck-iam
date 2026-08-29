@@ -5,7 +5,14 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
-import { type ElysiaAdapter, elysiaProviderBegin, elysiaSession, elysiaSignIn, elysiaSignOut } from '../index'
+import {
+  type ElysiaAdapter,
+  elysiaCsrf,
+  elysiaProviderBegin,
+  elysiaSession,
+  elysiaSignIn,
+  elysiaSignOut,
+} from '../index'
 
 type MyProfile = {
   username: string
@@ -90,5 +97,40 @@ describe('Elysia adapter', () => {
     const res = await elysiaProviderBegin(auth)(ctx({}, {}))
     expect(res.status).toBe(400)
     expect(await res.text()).toContain('AUTH_PROVIDER_FAILED')
+  })
+})
+
+describe('elysiaCsrf', () => {
+  async function run(method: string, headers: Record<string, string>) {
+    const { auth } = buildAuth()
+    const request = new Request('https://app/orders', { headers, method })
+    return elysiaCsrf(auth)({ request })
+  }
+
+  it('lets a safe method through even from a cross-site context', async () => {
+    expect(await run('GET', { 'sec-fetch-site': 'cross-site' })).toBeUndefined()
+  })
+
+  it('short-circuits a cross-site mutation with a 403 Response', async () => {
+    const res = await run('POST', { 'sec-fetch-site': 'cross-site' })
+    expect(res?.status).toBe(403)
+    expect(await res?.text()).toContain('AUTH_CSRF')
+  })
+
+  it('lets a Bearer request through: no ambient cookie to forge', async () => {
+    expect(await run('POST', { authorization: 'Bearer tok', 'sec-fetch-site': 'cross-site' })).toBeUndefined()
+  })
+
+  it('lets an ordinary same-origin mutation through', async () => {
+    expect(await run('POST', { 'sec-fetch-site': 'same-origin' })).toBeUndefined()
+  })
+})
+
+describe('Elysia adapter - route CSRF', () => {
+  it('elysiaSignIn rejects a cross-site POST before touching the provider', async () => {
+    const { auth } = buildAuth()
+    const res = await elysiaSignIn(auth)(ctx({}, {}, { 'sec-fetch-site': 'cross-site' }))
+    expect(res.status).toBe(403)
+    expect(await res.text()).toContain('AUTH_CSRF')
   })
 })

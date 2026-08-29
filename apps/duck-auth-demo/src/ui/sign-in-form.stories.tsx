@@ -22,8 +22,8 @@ export const WithDescription: Story = {
 export const AuthedAlready: Story = {
   decorators: [
     authWithStorybook({
-      identity: { id: 'identity-1', profile: { email: 'demo@gentleduck.org' } },
-      session: { aal: 2, factors: [{ method: 'password', completedAt: Date.now() }], id: 'sess-1' },
+      identity: { id: 'identity-1', profile: { email: 'demo@gentleduck.org', username: 'demo' } },
+      session: { aal: 2, factors: [{ method: 'password', completedAt: new Date() }], id: 'sess-1' },
     }),
   ],
 }

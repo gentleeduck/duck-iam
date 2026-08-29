@@ -4,16 +4,10 @@
  */
 export namespace RedisLike {
   /**
-   * Minimal Redis interface the auth adapters consume. Both `ioredis`
-   * and `@upstash/redis` already implement this surface; consumers
-   * wire their existing client without an extra peerDep cost.
-   *
-   * Methods follow Redis semantics:
-   *   - `get` returns the value (string) or null
-   *   - `set` with `EX ttlSec` writes with TTL; `NX` makes it conditional
-   *   - `del` returns 1 when a key was removed, 0 otherwise
-   *   - `expire` (re)sets TTL on an existing key
-   *   - `scan` matches keys by pattern (cursor-based)
+   * Minimal Redis interface the auth adapters consume, shaped after `@upstash/redis`.
+   * `ioredis`/`iovalkey` take `set` options variadically instead, so passing one
+   * straight through silently drops every TTL and NX guard; wrap those with
+   * `adapters/valkey` first.
    */
   export type Client = {
     /** GET key -> value | null */
@@ -62,10 +56,7 @@ export class FakeRedis implements RedisLike.Client {
     return this._data.get(key)?.value ?? null
   }
 
-  /**
-   * `RedisLike.set` with optional `EX` (TTL seconds) + `NX` (only-if-absent).
-   * Returns 'OK' on success, null when NX condition fails.
-   */
+  /** `RedisLike.set` with optional `EX`/`NX`. Returns null when the NX condition fails. */
   async set(key: string, value: string, opts: { ex?: number; nx?: boolean } = {}): Promise<'OK' | null> {
     this._maybeExpire(key)
     if (opts.nx && this._data.has(key)) return null
@@ -85,10 +76,7 @@ export class FakeRedis implements RedisLike.Client {
     return deleted
   }
 
-  /**
-   * `RedisLike.expire` (re)sets TTL on a live key. Returns 1 on success,
-   * 0 when the key does not exist.
-   */
+  /** `RedisLike.expire`. Returns 0 when the key does not exist. */
   async expire(key: string, seconds: number): Promise<number> {
     this._maybeExpire(key)
     const entry = this._data.get(key)
@@ -97,10 +85,7 @@ export class FakeRedis implements RedisLike.Client {
     return 1
   }
 
-  /**
-   * `RedisLike.scan` cursor pagination. Match patterns honor `*` wildcard.
-   * Walks both string keys and set keys (real Redis SCAN is type-agnostic).
-   */
+  /** `RedisLike.scan`. Walks both string and set keys, since real Redis SCAN is type-agnostic. */
   async scan(cursor: string, opts: { match?: string; count?: number } = {}): Promise<[string, string[]]> {
     const all = [...new Set<string>([...this._data.keys(), ...this._sets.keys()])]
     const start = Number(cursor) || 0
@@ -168,11 +153,7 @@ export class FakeRedis implements RedisLike.Client {
     return [...(this._sets.get(key) ?? [])]
   }
 
-  /**
-   * Pub/sub stub matching `RedisPubSubClient.publish`. Fans out the
-   * payload to every subscriber on `channel`. Returns the number of
-   * subscribers that received it.
-   */
+  /** `RedisPubSubClient.publish` stub. Fans the payload out to every subscriber on `channel`. */
   async publish(channel: string, message: string): Promise<number> {
     const set = this._channels.get(channel)
     if (!set) return 0
@@ -182,10 +163,7 @@ export class FakeRedis implements RedisLike.Client {
     return set.size
   }
 
-  /**
-   * Pub/sub stub matching `RedisPubSubClient.subscribe`. Registers the
-   * handler against `channel`; returns an async unsubscribe.
-   */
+  /** `RedisPubSubClient.subscribe` stub. Returns an async unsubscribe. */
   async subscribe(
     channel: string,
     onMessage: (channel: string, message: string) => void | Promise<void>,
@@ -204,24 +182,10 @@ export class FakeRedis implements RedisLike.Client {
 }
 
 /**
- * linear-time glob matcher for Redis MATCH semantics (only `*`
- * supported; the legacy regex-construction approach was vulnerable to
- *
- *  (1) ReDoS - multiple `*`s in a pattern compile to multiple `.*`
- *      segments. A pattern like `a*a*a*a*a*X` matched against
- *      `aaaaaaaaaaY` (no terminal `X`) drives JS's backtracking
- *      regex engine into super-linear time. Defense in depth even
- *      though MATCH patterns are normally operator-controlled.
- *
- *  (2) Crashes - the escape only covered `[.+^${}()|[]\\]`, leaving
- *      `?` unescaped. A pattern containing `?` (e.g. `?$`) compiled
- *      to an INVALID regex and threw SyntaxError on `new RegExp(...)`,
- *      crashing the scan() loop.
- *
- * Both go away with a textbook two-pointer iterative matcher: O(n*m)
- * worst case (vs. exponential for the regex), and unknown characters
- * in the pattern are treated as literals (no parser to crash). Length
- * caps add a final ceiling.
+ * Linear-time glob matcher for Redis MATCH semantics (`*` only). Replaces a prior
+ * regex-construction approach that was both ReDoS-prone (`a*a*a*a*a*X` against a
+ * near-match input) and crash-prone (unescaped `?` produced an invalid regex). This
+ * two-pointer matcher is O(n*m) worst case and treats unknown characters as literals.
  */
 const MATCH_GLOB_INPUT_MAX = 4096
 const MATCH_GLOB_PATTERN_MAX = 256
@@ -250,4 +214,9 @@ function matchGlob(input: string, pattern: string): boolean {
   }
   while (p < pattern.length && pattern[p] === '*') p++
   return p === pattern.length
+}
+
+/** Factory around {@link FakeRedis}, for callers who prefer functions to `new`. */
+export function fakeRedis(...args: ConstructorParameters<typeof FakeRedis>): FakeRedis {
+  return new FakeRedis(...args)
 }

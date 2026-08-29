@@ -140,7 +140,11 @@ function EditorContent({
 
   const editor = useCreateBlockNote({
     collaboration: {
-      provider,
+      // BlockNote's CollaborationOptions only reads `provider.awareness` (see
+      // @blocknote/core YCursorPlugin.ts). HocuspocusProvider types `awareness`
+      // as `Awareness | null`, while BlockNote expects `Awareness | undefined`,
+      // so pass a narrowed view instead of the provider instance itself.
+      provider: { awareness: provider.awareness ?? undefined },
       fragment: ydoc.getXmlFragment('document-store'),
       user: {
         name: user.name,

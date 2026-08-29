@@ -1,4 +1,4 @@
-export { AuthAesGcmDataAtRest } from './aes-gcm'
-export { AuthAwsKmsProvider } from './aws-kms'
+export { AuthAesGcmDataAtRest, authAesGcmDataAtRest } from './aes-gcm'
+export { AuthAwsKmsProvider, authAwsKmsProvider } from './aws-kms'
 export type { DataAtRest, Kms } from './dataAtRest.types'
-export { AuthKmsEnvelopeDataAtRest } from './kms-envelope'
+export { AuthKmsEnvelopeDataAtRest, authKmsEnvelopeDataAtRest } from './kms-envelope'

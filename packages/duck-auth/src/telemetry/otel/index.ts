@@ -219,3 +219,10 @@ export namespace AuthOtelInstrumentation {
     record(value: number, attributes?: Record<string, string | number | boolean>): void
   }
 }
+
+/** Factory around {@link AuthOtelInstrumentation}, for callers who prefer functions to `new`. */
+export function authOtelInstrumentation(
+  ...args: ConstructorParameters<typeof AuthOtelInstrumentation>
+): AuthOtelInstrumentation {
+  return new AuthOtelInstrumentation(...args)
+}

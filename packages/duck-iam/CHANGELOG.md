@@ -1,5 +1,275 @@
 # @gentleduck/iam
 
+## 5.7.0
+
+### Minor Changes
+
+- 62e3d0b: Add an optional `IConfig.maxConcurrentSubjectLoads` cap (default `0` = unbounded,
+  matching `adapterTimeoutMs`'s 0-disables convention) to bound the cold-flat herd
+  described in `SCALING.md` §8. `resolveSubject` rejects a _new_ subject load once
+  `inFlight.subjects.size` hits the cap, before touching the adapter - fail-closed
+  load-shed, not a bounded queue, consistent with the engine's existing fail-closed
+  posture. The rejection is a plain `Error` whose message contains `"subject load
+shed"`, so it surfaces through `can`/`check`/`authorize`'s existing fail-closed
+  `catch -> onError` path with no new wiring.
+
+  A call that hits the subject cache or joins an already-in-flight load for the same
+  subject never counts against the cap.
+
+## 5.6.0
+
+### Minor Changes
+
+- `iam_assignments` gains `starts_at`, `expires_at`, and `attributes` columns across
+  the pg, mysql, and sqlite drizzle schemas. `getSubjectRoles`/`getSubjectScopedRoles`
+  now filter out assignments outside their `[startsAt, expiresAt)` window; a row with
+  both NULL behaves exactly as before these columns existed.
+
+  `IScopedRole` gains an optional `attributes` field, populated from the new column so
+  a policy condition can read per-grant data (department, region, whatever the caller
+  stores) as `subject.scopedRoles[].attributes`, distinct from the subject's own global
+  attributes. A corrupted `attributes` value drops just that field and reports through
+  `onPolicyError`, it does not fail the whole role.
+
+  `ISubjectStore.assignRole` gains an optional fourth `opts: IamAdapter.IAssignOptions`
+  parameter (`startsAt`/`expiresAt`/`attributes`), implemented by the drizzle adapter.
+  Purely additive - every other adapter (memory, file, redis, prisma, http) still
+  satisfies the interface unchanged.
+
+## 5.5.1
+
+### Patch Changes
+
+- 86b6775: Drop `deletedAt` from `iamPolicies`, `iamRoles`, `iamAssignments`, and
+  `iamSubjectAttrs`, added in 5.5.0, along with `IamDrizzleAdapter`'s opt-in
+  `deletedAt IS NULL` read filtering. `deletePolicy`/`deleteRole`/`revokeRole` are
+  hard-delete by explicit design (a soft-deleted policy/role name couldn't be reused,
+  and a revoked assignment has no reason to be retained), and subject attributes have
+  no delete operation at all - none of these columns would ever have been set by
+  anything in this codebase.
+
+  `ops.isNull` stays on `IamDrizzleAdapter`'s config: `updateAssignmentScope` still
+  needs it to match a global (unscoped) assignment correctly, independent of the
+  removed soft-delete filtering.
+
+## 5.5.0
+
+### Minor Changes
+
+- 2853214: Add `engine.admin.updateAssignmentScope(subjectId, roleId, fromScope, toScope, actor?)`
+  to move a role assignment to a different scope in one write instead of
+  revoke + assign.
+
+  `IamAdapter.ISubjectStore` gains an optional `updateAssignmentScope`. When an adapter
+  implements it, the engine uses it directly; when it doesn't (or it returns `false`
+  because nothing matched `fromScope`), the engine transparently falls back to
+  revoke + assign, so the call always succeeds either way.
+
+  Implemented for `memory`, `file`, `prisma`, and `drizzle`. `drizzle` additionally needs
+  `ops.isNull` configured (matching `deletedAt` filtering) to match the global/unscoped
+  case correctly; without it, `updateAssignmentScope` returns `false` and the engine falls
+  back automatically. Not implemented for `redis` (scope is encoded into the Set member
+  itself, so there's no cheaper path than remove + add) or `http` (would need a new
+  endpoint on the operator's server) - both already work correctly via the fallback.
+
+  `iamAssignments` gains `updatedAt`/`updatedBy` in the drizzle schema (pg/mysql/sqlite)
+  to support this - the only table getting them in this release, since it's now the only
+  one with a real update path that didn't already have them.
+
+### Patch Changes
+
+- 2853214: Round out audit columns on the drizzle schema (pg/mysql/sqlite): `iamPolicies` and
+  `iamRoles` gain `deletedAt`; `iamSubjectAttrs` gains the `createdBy` it was missing
+  (it already had `updatedBy`) plus `deletedAt`. `iamAssignments`' own audit columns
+  are covered separately, alongside the new `updateAssignmentScope` feature that needs
+  them.
+
+  `IamDrizzleAdapter`'s `ops` config gains an optional `isNull` operator. When
+  provided, `listPolicies`/`getPolicy`/`listRoles`/`getRole`/`getSubjectRoles`/
+  `getSubjectScopedRoles`/`getSubjectAttributes` exclude rows with `deletedAt` set;
+  omitted (the default, matching every version before this column existed), reads are
+  unchanged. `deletePolicy`/`deleteRole`/`revokeRole` still hard-delete on purpose -
+  turning them into soft-deletes would break the unique-name constraint on policies/
+  roles (a "deleted" name couldn't be reused) and orphan the FK cascade from
+  `iamAssignments`. The column is a hook for something outside the adapter to set
+  (an admin tool, a trigger), not something this adapter writes itself.
+
+- 2853214: Fix scoped role assignments not resolving inherited roles. `resolveSubject` closed
+  `subject.roles` over `inherits` but passed `subject.scopedRoles` through unresolved,
+  so a condition reading `subject.scopedRoles` saw only the directly assigned role and
+  not what it inherits, while the exact same role assigned without a scope resolved
+  correctly. Scoped roles now go through the same inheritance closure.
+
+  `IamClient` also gains `PartialPermissionMap`, the type `engine.permissions()`
+  actually returns (only the checked keys, not every possible combination). The React
+  client's `usePermissions`/`createIamPermissionChecker`/`IContextValue.permissions`
+  now use it instead of the full `PermissionMap`, matching what callers really have.
+  `iamBuildPermissionKey` is also re-exported from the React entry so a consumer
+  building a key by hand doesn't need a second import from core.
+
+## 5.4.2
+
+### Patch Changes
+
+- 4d956c8: No functional change. Version bump to resync with the registry after 5.4.1 was
+  published without its git history being committed.
+
+## 5.4.1
+
+### Patch Changes
+
+- 959a8a4: Restructure the drizzle adapter's schema exports into per-dialect folders, matching
+  `@gentleduck/auth`'s layout.
+
+  `@gentleduck/iam/adapters/drizzle/schema/{pg,mysql,sqlite}` is now
+  `@gentleduck/iam/adapters/drizzle/{pg,mysql,sqlite}`. Each folder also exports a
+  `{Pg,Mysql,Sqlite}` types namespace (`PolicyRow`, `RoleRow`, `AssignmentRow`, `AttrRow`)
+  inferred from that dialect's schema, so a consumer pinned to one dialect no longer needs
+  to import the adapter's cross-dialect union types to get a concrete row shape.
+
+  Update imports from `@gentleduck/iam/adapters/drizzle/schema/pg` (etc.) to
+  `@gentleduck/iam/adapters/drizzle/pg` (etc.).
+
+## 5.4.0
+
+### Minor Changes
+
+- 39aaa82: Export the factories, and finish the barrels.
+
+  The previous release gave every publicly constructed class a factory function, but
+  several were never exported, so `new` remained the only reachable spelling for
+  `AnomalyFacet`, `HijackFacet`, `WebhookDeliverer`, `MemoryPasskeyChallengeStore`,
+  `AuthMemoryDeviceFingerprintStore`, `DPoPVerifier`, the data-at-rest providers, the
+  password hashers, and the api-key / magic-link / passkey / saml / passwords impls.
+
+  The channels barrel exported one type and nothing else, so every channel had to be
+  imported by deep path. All six ship from `@gentleduck/auth/channels` now. The anomaly
+  barrel likewise omitted both detectors and the fingerprint store, which meant the
+  detectors could not be registered without reaching past it.
+
+  On the IAM side, `iamEngine` and `iamLRUCache` are exported alongside their classes.
+
+  BREAKING: three aliases in the `@gentleduck/auth` root now name the factory rather than
+  the class, so `new` on them stops compiling.
+
+  - `AuthBackupCodesFacet` is now `backupCodesFacet`; the class is `BackupCodesFacet`.
+  - `AuthInMemoryEvents` is now `inMemoryEvents`; the class is `InMemoryEvents`.
+
+  Both classes are exported under their own names, so `new BackupCodesFacet(...)` and
+  `new InMemoryEvents()` are the mechanical fix.
+
+- 196f52d: Reject a policy whose target names a pair no allow rule covers, instead of warning.
+
+  `UNREACHABLE_TARGET` was a warning, so `PolicyBuilder.build()` accepted the policy and
+  the only symptom was a denial at request time. A denial reads as the permission system
+  working, which is why this cost five separate incidents to recognise: widening a target
+  is one line and widening the rules is another, nothing couples them, and the drift is
+  silent.
+
+  It is now an error, so `build()` throws where the policy is written.
+
+  Two supporting fixes:
+
+  - The check treated a dimension the target omits as a literal `*`, which demanded that
+    every rule be a wildcard. A target naming only `impersonate` was reported unreachable
+    because its allow rule named `.of('users')`. An omitted dimension is one the target
+    does not constrain, so only the dimensions it names are checked.
+  - `PolicyBuilder.build()` dropped the validator's message and reported only the code and
+    path, so every build failure was cryptic. It now includes the message and the policy id.
+
+  Also re-enables the two drizzle adapter suites, commented out wholesale in f3f57cb8
+  "pending rename follow-up" that never landed. `IamDrizzle.IConfig` had gained
+  `<TDb, TType>` in that rename and the suites still referenced it bare. 62 tests back,
+  and they are not decorative: removing the JSONB shape guard, silencing `onPolicyError`,
+  and dropping the WHERE from the single-row lookup are each caught.
+
+  BREAKING: a policy with an unreachable target now throws at build time rather than
+  loading with a silent denial.
+
+### Patch Changes
+
+- Make the not-blank check constraints reject whitespace.
+
+  `length(trim(x)) > 0` only strips ordinary spaces, so a name, subject id, scope or
+  credential secret consisting of a tab, a newline or a form feed passed the check that
+  exists to refuse exactly that. Seven constraints were affected:
+  `auth_credentials.secret`, `iam_assignments.subject_id` and `.scope`, `iam_policies.name`,
+  `iam_roles.name` and `.scope`, `iam_subject_attrs.subject_id`.
+
+  Each dialect gets the strongest form it has. Postgres and MySQL match a non-whitespace
+  character (`~ '[^[:space:]]'` and `REGEXP '[^[:space:]]'`); SQLite has no regexp operator
+  built in, so it trims the whitespace set explicitly and compares against the empty string.
+  All three were verified against a real server for a tab, a newline, a carriage return, a
+  vertical tab, a form feed and a plain space.
+
+  Existing databases need a migration: drop each constraint and add it back in the new form.
+  Any row already holding a whitespace-only value has to be repaired first, or the
+  `ALTER TABLE` is refused.
+
+- Close scoped role assignments over `inherits`, the way direct assignments already were.
+
+  `resolveSubject` ran `resolveEffectiveRoles` over the roles returned by `getSubjectRoles`
+  and passed `getSubjectScopedRoles` through untouched. A deployment that scopes every
+  assignment therefore had an empty `subject.roles` and a flat scoped set, so a condition
+  reading `subject.roles` saw the assigned role and none of the roles it inherits.
+
+  The effect was silent and direction-dependent: RBAC permission resolution walks `inherits`
+  separately, so a superadmin still had every permission its parents grant, while
+  `w.role(...)`, `w.roles(...)` and `w.contains('subject.roles', ...)` behaved as if the
+  hierarchy did not exist. The same policy then decided differently depending on whether the
+  assignment carried a scope, which is not something the API hints at.
+
+  Scoped roles now expand through the same closure, each inherited role keeping the scope of
+  the assignment it came from.
+
+## 5.3.0
+
+### Minor Changes
+
+- Warn when a policy target names an action/resource pair no rule can allow.
+
+  `evaluatePolicy` folds `defaultEffect` when a policy's target matches and none of its
+  rules do, and that default is `deny`. A target therefore widens what a policy refuses,
+  not only what it inspects: adding a resource to `.target({ resources: [...] })` without
+  an allow rule covering it denies every caller for that resource, and the refusal
+  surfaces far from the policy that caused it.
+
+  `validatePolicy` now emits an `UNREACHABLE_TARGET` warning per uncovered pair. It fires
+  only once the policy contains at least one allow rule, so a purely restrictive policy -
+  where denying everything the target names is the whole point - is untouched.
+
+  Warning rather than error: the behaviour is correct deny-by-default and existing
+  policies that rely on it keep validating.
+
+## 5.2.0
+
+### Minor Changes
+
+- bc8a9ea: Prefix the drizzle tables and constraints with `iam_`, and let the Nest access
+  guard contribute resource attributes.
+
+  **Renamed tables and constraints.** The physical tables move from the
+  `access_*` prefix to `iam_*` (`access_policies` → `iam_policies`,
+  `access_roles` → `iam_roles`), along with every derived `pk_`, `uq_`, `idx_`
+  and `ch_` identifier, in the `mysql`, `pg` and `sqlite` schema builders. This
+  makes the schema attributable to this package once merged into a host
+  application's database.
+
+  Existing databases need a migration renaming those tables and their
+  constraints. New installations are unaffected.
+
+  **`getResourceAttributes` on `iamNestAccessGuard`.** An optional hook that
+  computes the attributes attached to `resource.attributes` before
+  `engine.can()` runs. It receives the resolved `{ action, resource }` alongside
+  the request, because the correct attributes are resource-specific: a `users`
+  row is its own subject, whereas an `iamAssignments` row carries its subject in
+  a column. Passing the resolved pair means callers do not have to re-derive
+  which case they are in from the raw request.
+
+  **Known gap:** the drizzle adapter and native-attr-shape test suites (47 cases)
+  are temporarily disabled while their mock table references are reworked for the
+  rename.
+
 ## 5.1.0
 
 ### Minor Changes

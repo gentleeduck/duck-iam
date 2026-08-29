@@ -42,6 +42,8 @@ export async function impersonate<Profile extends Identities.ProfileMetadataBase
     purpose: 'impersonate-start',
     previousSid: opts.realSid,
     identityId: opts.targetIdentityId,
+    // Subject is the target; `actingAs` below records the real admin.
+    identity: target,
     kind: 'user',
     aal: real.aal,
     factors: real.factors,

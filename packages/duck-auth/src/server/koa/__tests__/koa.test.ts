@@ -5,7 +5,7 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
-import { type KoaAdapter, koaProviderBegin, koaSession, koaSignIn, koaSignOut } from '../index'
+import { type KoaAdapter, koaCsrf, koaProviderBegin, koaSession, koaSignIn, koaSignOut } from '../index'
 
 function makeCtx(
   overrides: Partial<KoaAdapter.Context['request']> & { params?: Record<string, string> } = {},
@@ -118,5 +118,46 @@ describe('Koa adapter', () => {
     await koaProviderBegin(auth)(ctx)
     expect(ctx.status).toBe(400)
     expect(String(ctx.body)).toContain('AUTH_PROVIDER_FAILED')
+  })
+})
+
+describe('koaCsrf', () => {
+  async function run(method: string, headers: Record<string, string>) {
+    const { auth } = buildAuth()
+    const ctx = makeCtx({ headers, method })
+    let nexted = false
+    await koaCsrf(auth)(ctx, async () => {
+      nexted = true
+    })
+    return { ctx, nexted }
+  }
+
+  it('lets a safe method through even from a cross-site context', async () => {
+    expect((await run('GET', { 'sec-fetch-site': 'cross-site' })).nexted).toBe(true)
+  })
+
+  it('rejects a cross-site mutation with 403 and never calls next', async () => {
+    const { ctx, nexted } = await run('POST', { 'sec-fetch-site': 'cross-site' })
+    expect(nexted).toBe(false)
+    expect(ctx.status).toBe(403)
+    expect(String(ctx.body)).toContain('AUTH_CSRF')
+  })
+
+  it('lets a Bearer request through: no ambient cookie to forge', async () => {
+    expect((await run('POST', { authorization: 'Bearer tok', 'sec-fetch-site': 'cross-site' })).nexted).toBe(true)
+  })
+
+  it('lets an ordinary same-origin mutation through', async () => {
+    expect((await run('POST', { 'sec-fetch-site': 'same-origin' })).nexted).toBe(true)
+  })
+})
+
+describe('Koa adapter - route CSRF', () => {
+  it('koaSignIn rejects a cross-site POST before touching the provider', async () => {
+    const { auth } = buildAuth()
+    const ctx = makeCtx({ body: {}, headers: { 'sec-fetch-site': 'cross-site' }, method: 'POST' })
+    await koaSignIn(auth)(ctx)
+    expect(ctx.status).toBe(403)
+    expect(String(ctx.body)).toContain('AUTH_CSRF')
   })
 })

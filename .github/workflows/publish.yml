@@ -21,8 +21,7 @@ on:
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 env:
   BUN_VERSION: "1.3.10"
@@ -37,9 +36,13 @@ jobs:
     name: Open / refresh version PR
     if: "!startsWith(github.event.head_commit.message, 'chore: version packages')"
     runs-on: ubuntu-latest
+    # changesets/action commits the version bump and opens the PR.
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
@@ -92,9 +95,12 @@ jobs:
     if: "startsWith(github.event.head_commit.message, 'chore: version packages') || github.event_name == 'workflow_dispatch'"
     runs-on: ubuntu-latest
     environment: npm
+    # `changeset publish` pushes the release tags.
+    permissions:
+      contents: write
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6

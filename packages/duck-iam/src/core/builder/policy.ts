@@ -222,11 +222,13 @@ export class PolicyBuilder<
     // failure where the bug was introduced.
     const result = validatePolicy(policy)
     if (!result.valid) {
+      // The message carries the fix; the code alone does not. Policies are built in a
+      // barrel, so the id says which one without reading the stack.
       const errs = result.issues
         .filter((i) => i.type === 'error')
-        .map((i) => (i.path ? `${i.code} at "${i.path}"` : i.code))
+        .map((i) => `${i.code}${i.path ? ` at "${i.path}"` : ''}: ${i.message}`)
       throw new Error(
-        `[@gentleduck/iam:builder] PolicyBuilder.build(): policy rejected by validator - ${errs.join('; ')}`,
+        `[@gentleduck/iam:builder] PolicyBuilder.build("${this._id}") rejected by validator - ${errs.join('; ')}`,
       )
     }
     return policy

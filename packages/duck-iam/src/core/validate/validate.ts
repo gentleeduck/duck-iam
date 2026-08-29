@@ -126,6 +126,74 @@ function longestInheritanceDepth(roleId: string, rolesMap: Map<string, AccessCon
 }
 
 /**
+ * A matched target with no matching rule folds `defaultEffect`, which is `deny` - so a
+ * target widens what a policy refuses, not only what it inspects. Denying everything it
+ * targets is the point of a restrictive policy, so this only fires once the author has
+ * written an allow rule and left a pair it can never reach.
+ */
+function checkTargetIsReachable(p: Record<string, unknown>, issues: IamValidate.IIssue[]): void {
+  const targets = p.targets as { actions?: string[]; resources?: string[] } | undefined
+  const rules = (Array.isArray(p.rules) ? p.rules : []) as Array<{
+    effect?: string
+    actions?: string[]
+    resources?: string[]
+  }>
+
+  if (!targets) return
+  const allows = rules.filter((r) => r.effect === 'allow')
+  if (allows.length === 0) return
+
+  const covers = (list: string[] | undefined, value: string) =>
+    !list || list.length === 0 || list.includes('*') || list.includes(value)
+
+  // A dimension the target omits is one it does not constrain, so the rules decide it.
+  // Expanding it to a literal '*' would instead demand every rule be a wildcard: a target
+  // naming only `impersonate` was called unreachable because its rule allowed `.of('users')`.
+  const actions = targets.actions?.length ? targets.actions : null
+  const resources = targets.resources?.length ? targets.resources : null
+  if (!actions && !resources) return
+
+  // Same worst-case-cartesian budget used for rules: an oversized target would
+  // otherwise push one issue per (action, resource) pair with no cap.
+  const pairCount = (actions?.length ?? 1) * (resources?.length ?? 1)
+  if (pairCount > POLICY_LIMITS.cartesianPerRule) {
+    issues.push({
+      type: 'warning',
+      code: 'UNREACHABLE_TARGET',
+      message: `Target has ${pairCount} (action, resource) pairs, over the ${POLICY_LIMITS.cartesianPerRule} checked for unreachable coverage - skipping the check. Narrow the target to validate it.`,
+      path: 'targets',
+    })
+    return
+  }
+
+  for (const action of actions ?? [null]) {
+    for (const resource of resources ?? [null]) {
+      const reachable = allows.some(
+        (r) => (action === null || covers(r.actions, action)) && (resource === null || covers(r.resources, resource)),
+      )
+      if (reachable) continue
+
+      const pair = resource === null ? `"${action}"` : `"${action ?? '*'}" on "${resource}"`
+      issues.push({
+        // An error, not a warning, so `PolicyBuilder.build()` throws where the policy is
+        // written. A warning read as the permission system working - the visible symptom
+        // is a denial - and it cost five separate incidents to recognise. Promoted in
+        // 196f52db; see that commit and CHANGELOG's newer "reject a policy whose target
+        // names a pair no allow rule covers" entry, not the older "Warning rather than
+        // error" entry above it, which documents the since-superseded original behavior.
+        type: 'error',
+        code: 'UNREACHABLE_TARGET',
+        message:
+          `Target admits ${pair} but no allow rule covers it, ` +
+          'so every request matching it is denied by this policy. Add a rule that allows it, ' +
+          'or narrow the target.',
+        path: 'targets',
+      })
+    }
+  }
+}
+
+/**
  * Deep-validate an untrusted policy (id, name, algorithm, rules, conditions).
  *
  * @param input - The candidate policy object (typically parsed JSON or an admin form payload).
@@ -234,6 +302,8 @@ export function validatePolicy(input: unknown): IamValidate.IResult {
       }
     }
   }
+
+  checkTargetIsReachable(p, issues)
 
   return { valid: issues.every((i) => i.type !== 'error'), issues }
 }

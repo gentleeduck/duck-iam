@@ -5,7 +5,15 @@ import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { identityInput } from '~/test/store-inputs'
-import { makeGuard, type NestAdapter, nestProviderBegin, nestSession, nestSignIn, nestSignOut } from '../index'
+import {
+  makeCsrfGuard,
+  makeGuard,
+  type NestAdapter,
+  nestProviderBegin,
+  nestSession,
+  nestSignIn,
+  nestSignOut,
+} from '../index'
 
 function makeReply(): NestAdapter.Response & {
   _status?: number
@@ -145,5 +153,63 @@ describe('NestJS adapter - makeGuard', () => {
     const ok = await guard.canActivate({ switchToHttp: () => ({ getRequest: <T>(): T => req as T }) })
     expect(ok).toBe(true)
     expect(req.session).toBeNull()
+  })
+})
+
+describe('NestJS adapter - CSRF', () => {
+  function ctxFor(req: NestAdapter.Request) {
+    return { switchToHttp: () => ({ getRequest: <T>(): T => req as T }) }
+  }
+
+  function req(method: string, headers: Record<string, string>): NestAdapter.Request {
+    return { headers, identity: null, method, session: null }
+  }
+
+  it('makeGuard verifies CSRF by default: a cross-site mutation is rejected', async () => {
+    const { auth } = buildAuth()
+    await expect(
+      makeGuard(auth, { required: false }).canActivate(ctxFor(req('POST', { 'sec-fetch-site': 'cross-site' }))),
+    ).rejects.toMatchObject({ code: 'AUTH_CSRF' })
+  })
+
+  it('makeGuard with csrf:false skips the check', async () => {
+    const { auth } = buildAuth()
+    const ok = await makeGuard(auth, { csrf: false, required: false }).canActivate(
+      ctxFor(req('POST', { 'sec-fetch-site': 'cross-site' })),
+    )
+    expect(ok).toBe(true)
+  })
+
+  it('makeCsrfGuard rejects a cross-site mutation and allows a safe method', async () => {
+    const { auth } = buildAuth()
+    const guard = makeCsrfGuard(auth)
+    await expect(guard.canActivate(ctxFor(req('POST', { 'sec-fetch-site': 'cross-site' })))).rejects.toMatchObject({
+      code: 'AUTH_CSRF',
+    })
+    expect(await guard.canActivate(ctxFor(req('GET', { 'sec-fetch-site': 'cross-site' })))).toBe(true)
+  })
+
+  it('makeCsrfGuard lets a Bearer request through', async () => {
+    const { auth } = buildAuth()
+    const allowed = await makeCsrfGuard(auth).canActivate(
+      ctxFor(req('POST', { authorization: 'Bearer tok', 'sec-fetch-site': 'cross-site' })),
+    )
+    expect(allowed).toBe(true)
+  })
+})
+
+describe('NestJS adapter - route CSRF', () => {
+  it('nestSignIn rejects a cross-site POST before touching the provider', async () => {
+    const { auth } = buildAuth()
+    const reply = makeReply()
+    const req: NestAdapter.Request = {
+      body: {},
+      headers: { 'sec-fetch-site': 'cross-site' },
+      identity: null,
+      method: 'POST',
+      session: null,
+    }
+    await expect(nestSignIn(auth)(req, reply)).rejects.toMatchObject({ code: 'AUTH_CSRF' })
+    expect(reply._status).toBe(403)
   })
 })

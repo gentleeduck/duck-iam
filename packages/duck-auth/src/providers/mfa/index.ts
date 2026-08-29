@@ -4,8 +4,8 @@
  * and all types under the `Mfa` namespace.
  */
 
-export { BackupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from './internal/backup-codes'
-export { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet } from './internal/remember-me'
+export { BackupCodesFacet, backupCodesFacet, DEFAULT_BACKUP_CODES_CONFIG } from './internal/backup-codes'
+export { DEFAULT_REMEMBER_ME_CONFIG, RememberMeFacet, rememberMeFacet } from './internal/remember-me'
 export type { Totp } from './internal/totp'
 export {
   base32Decode,

@@ -108,3 +108,8 @@ export class ScryptHasher implements Hasher.Me {
     )
   }
 }
+
+/** Factory around {@link ScryptHasher}, for callers who prefer functions to `new`. */
+export function scryptHasher(...args: ConstructorParameters<typeof ScryptHasher>): ScryptHasher {
+  return new ScryptHasher(...args)
+}

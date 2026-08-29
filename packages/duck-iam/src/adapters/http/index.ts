@@ -785,3 +785,8 @@ function parseHttpSubjectScopedRoles<TRole extends string, TScope extends string
   }
   return out
 }
+
+/** Factory around {@link IamHttpAdapter}, for callers who prefer functions to `new`. */
+export function iamHttpAdapter(...args: ConstructorParameters<typeof IamHttpAdapter>): IamHttpAdapter {
+  return new IamHttpAdapter(...args)
+}

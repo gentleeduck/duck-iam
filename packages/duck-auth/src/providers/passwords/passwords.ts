@@ -212,3 +212,8 @@ export function passwords<Profile extends Identities.ProfileMetadataBase = Ident
 ): Provider.Me<Passwords.BeginInput, Passwords.CompleteInput, Profile> {
   return new PasswordsImpl(cfg)
 }
+
+/** Factory around {@link PasswordsImpl}, for callers who prefer functions to `new`. */
+export function passwordsImpl(...args: ConstructorParameters<typeof PasswordsImpl>): PasswordsImpl {
+  return new PasswordsImpl(...args)
+}

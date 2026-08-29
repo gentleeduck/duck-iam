@@ -22,38 +22,57 @@ import { createDrizzleSqliteBridge } from '../sqlite'
 
 const IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
 // describe.skip when not bun, so vitest under Node never resolves bun:sqlite.
-const onlyBun = IS_BUN ? describe : describe.skip
 
 const DDL = `
 CREATE TABLE auth_identities (
   id TEXT PRIMARY KEY, tenant_id TEXT, profile TEXT NOT NULL,
   providers TEXT NOT NULL DEFAULT '[]', version INTEGER NOT NULL DEFAULT 1,
-  email_verified INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL, deleted_at INTEGER);
+  email_verified INTEGER NOT NULL DEFAULT 0, created_by TEXT, updated_by TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER);
 CREATE TABLE auth_credentials (
   id TEXT PRIMARY KEY, identity_id TEXT NOT NULL, tenant_id TEXT, kind TEXT NOT NULL,
-  secret TEXT NOT NULL, metadata TEXT, version INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL, last_used_at INTEGER, expires_at INTEGER, revoked_at INTEGER);
+  secret TEXT NOT NULL, metadata TEXT, version INTEGER NOT NULL DEFAULT 1, created_by TEXT,
+  updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  last_used_at INTEGER, expires_at INTEGER, revoked_at INTEGER);
 CREATE TABLE auth_sessions (
   id TEXT PRIMARY KEY, identity_id TEXT, tenant_id TEXT, kind TEXT NOT NULL, aal INTEGER NOT NULL,
   factors TEXT NOT NULL DEFAULT '[]', csrf_hash TEXT, ip TEXT, user_agent TEXT, fingerprint TEXT,
-  created_at INTEGER NOT NULL, rotated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  created_by TEXT, updated_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  rotated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
   absolute_expires_at INTEGER NOT NULL, fresh INTEGER NOT NULL, acting_as TEXT);
 `
 
-onlyBun('DrizzleSqlite compliance matrix', () => {
+describe('DrizzleSqlite compliance matrix', () => {
   // Fresh in-memory DB (+ tables) per store instance the compliance kit requests.
   let make: () => ReturnType<typeof createSqlStores<{ username: string; email: string }>>
 
   beforeAll(async () => {
-    const { Database } = (await import('bun:sqlite' as string)) as {
-      Database: new (path: string) => { exec(sql: string): void }
+    // Runs on BOTH runtimes: this suite used to be skipped under vitest, which
+    // meant the SQL bridge (shared by pg + mysql + sqlite) was never verified by
+    // the project's own `bun run test`.
+    //   Bun  -> bun:sqlite     via drizzle-orm/bun-sqlite
+    //   Node -> node:sqlite    via drizzle-orm/better-sqlite3 (same prepare/exec
+    //           shape, so the driver adapter accepts it structurally)
+    if (IS_BUN) {
+      const { Database } = (await import('bun:sqlite' as string)) as {
+        Database: new (path: string) => { exec(sql: string): void }
+      }
+      const { drizzle } = await import('drizzle-orm/bun-sqlite')
+      make = () => {
+        const sqlite = new Database(':memory:')
+        sqlite.exec(DDL)
+        // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database is structurally the drizzle client.
+        return createSqlStores<{ username: string; email: string }>(createDrizzleSqliteBridge(drizzle(sqlite as any)))
+      }
+      return
     }
-    const { drizzle } = await import('drizzle-orm/bun-sqlite')
+
+    const { default: Database } = await import('better-sqlite3')
+    const { drizzle } = await import('drizzle-orm/better-sqlite3')
     make = () => {
       const sqlite = new Database(':memory:')
       sqlite.exec(DDL)
-      // biome-ignore lint/suspicious/noExplicitAny: bun:sqlite Database is structurally the drizzle client.
+      // biome-ignore lint/suspicious/noExplicitAny: better-sqlite3 Database is structurally the drizzle client.
       return createSqlStores<{ username: string; email: string }>(createDrizzleSqliteBridge(drizzle(sqlite as any)))
     }
   })

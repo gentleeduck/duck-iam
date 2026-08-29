@@ -274,3 +274,31 @@ export namespace AuthCaptcha {
     errorCodes?: string[]
   }
 }
+
+/** Factory around {@link AuthTurnstileVerifier}, for callers who prefer functions to `new`. */
+export function authTurnstileVerifier(
+  ...args: ConstructorParameters<typeof AuthTurnstileVerifier>
+): AuthTurnstileVerifier {
+  return new AuthTurnstileVerifier(...args)
+}
+
+/** Factory around {@link AuthHCaptchaVerifier}, for callers who prefer functions to `new`. */
+export function authHCaptchaVerifier(
+  ...args: ConstructorParameters<typeof AuthHCaptchaVerifier>
+): AuthHCaptchaVerifier {
+  return new AuthHCaptchaVerifier(...args)
+}
+
+/** Factory around {@link AuthRecaptchaV3Verifier}, for callers who prefer functions to `new`. */
+export function authRecaptchaV3Verifier(
+  ...args: ConstructorParameters<typeof AuthRecaptchaV3Verifier>
+): AuthRecaptchaV3Verifier {
+  return new AuthRecaptchaV3Verifier(...args)
+}
+
+/** Factory around {@link AuthNullCaptchaVerifier}, for callers who prefer functions to `new`. */
+export function authNullCaptchaVerifier(
+  ...args: ConstructorParameters<typeof AuthNullCaptchaVerifier>
+): AuthNullCaptchaVerifier {
+  return new AuthNullCaptchaVerifier(...args)
+}

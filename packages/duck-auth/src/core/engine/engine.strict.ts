@@ -29,10 +29,19 @@ export function assertStrict<
     { obj: engine.cfg.stores.credentials, label: 'credentials' },
   ]
   for (const { obj, label } of stores) {
-    const name = (obj as { constructor?: { name?: string } }).constructor?.name ?? ''
-    if (name === 'Object' || /Memory/i.test(name)) {
+    // By brand, not by constructor name. A name check calls every plain-object store
+    // a memory adapter, and `createSqlStores` returns exactly that, so drizzle and
+    // prisma deployments could never pass strict().
+    if ((obj as { __isMemoryStore?: boolean }).__isMemoryStore === true) {
       errors.push(`Memory adapter (${label}) rejected in production; use redis/drizzle/prisma`)
     }
+  }
+
+  // An omitted idempotency store falls back to the in-process one, which cannot
+  // dedupe across instances. The constructor only refuses when NODE_ENV says
+  // production; this catches the deploy where it is unset.
+  if (!engine.cfg.idempotency) {
+    errors.push('Idempotency store required; the in-memory fallback cannot dedupe across instances')
   }
 
   // Transport secure-cookie check via the public `secure` getter so

@@ -1,15 +1,10 @@
 import type { Anomaly } from '../anomaly/anomaly.types'
+import { AuthError } from '../errors'
 import type { Identities } from '../identities'
 import type { Sessions } from '../sessions'
 import { resolveBySid } from '../sessions'
 import type { AuthEngine } from './engine'
-
-/** Result shape of {@link resolveSession}; `anomaly` present only when detectors ran. */
-type ResolveResult<Profile extends Identities.ProfileMetadataBase> = {
-  session: Sessions.Me
-  identity: Identities.Me<Profile> | null
-  anomaly?: Anomaly.Result
-}
+import type { Engine } from './engine.types'
 
 /**
  * Implementation of {@link AuthEngine.resolveSession}, extracted verbatim.
@@ -21,14 +16,20 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
   engine: AuthEngine<Profile, Tenant, OrgMeta>,
   req: { headers: Headers },
   opts: { expectedTenantId?: string; requestSnapshot?: Anomaly.RequestSnapshot } = {},
-): Promise<ResolveResult<Profile> | null> {
+): Promise<Engine.ResolveResult<Profile> | null> {
   const token = engine.transport.extract(req)
   if (!token) return null
 
   const finalize = async (
     session: Sessions.Me,
     identity: Identities.Me<Profile> | null,
-  ): Promise<ResolveResult<Profile>> => {
+  ): Promise<Engine.ResolveResult<Profile>> => {
+    // Both branches end here, so none can skip it. `resolveBySid` throws too; that copy
+    // stays because it is exported and called directly.
+    if (session.identityId && !identity) {
+      throw new AuthError('AUTH_SESSION_REVOKED', { reason: 'identity-erased' })
+    }
+
     // Auto-evaluate anomaly detectors so routes branch on a single field.
     if (opts.requestSnapshot && identity && engine.anomaly.list().length > 0) {
       try {
@@ -56,12 +57,9 @@ export async function resolveSession<Profile extends Identities.ProfileMetadataB
     }
   }
 
-  const resolved = await resolveBySid(token, engine.cfg.stores.sessions, engine.cfg.stores.identities)
+  const resolved = await resolveBySid(token, engine.cfg.stores.sessions, engine.cfg.stores.identities, {
+    ...(opts.expectedTenantId !== undefined && { expectedTenantId: opts.expectedTenantId }),
+  })
   if (!resolved) return null
-  // same cross-tenant guard as the JWT branch. Reject mismatches
-  // AND undefined-vs-expected - see the JWT branch comment above.
-  if (opts.expectedTenantId !== undefined && resolved.session.tenantId !== opts.expectedTenantId) {
-    return null
-  }
   return finalize(resolved.session, resolved.identity)
 }

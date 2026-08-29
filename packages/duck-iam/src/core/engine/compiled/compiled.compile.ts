@@ -1,0 +1,286 @@
+/** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
+import { policyTargetsActionResource } from '../../evaluate/evaluate.libs'
+import { rolesToPolicy } from '../../rbac'
+import type { AccessControl } from '../../types'
+import { CellKind, type CompiledTable, type DynamicPolicyGroup, type RbacRuleGroup } from './compiled.types'
+
+/** `roleId`'s bit position is `1 << index`; a 32-bit mask can't address a 33rd role without aliasing an earlier one. */
+const MAX_ROLES = 32
+
+/** Not a literal string: `'*'`, or an action/resource prefix pattern (`'foo:*'`, `'foo.*'`). */
+function isWildcard(v: string): boolean {
+  return v === '*' || v.endsWith(':*') || v.endsWith('.*')
+}
+
+function hasConditions(group: AccessControl.IConditionGroup): boolean {
+  return 'all' in group
+    ? group.all.length > 0
+    : 'any' in group
+      ? group.any.length > 0
+      : 'none' in group
+        ? group.none.length > 0
+        : false
+}
+
+/** `targets.roles`, or `undefined` when the policy applies regardless of role. */
+function targetRolesOf(policy: AccessControl.IPolicy): readonly string[] | undefined {
+  return policy.targets?.roles?.length ? policy.targets.roles : undefined
+}
+
+/**
+ * A rule with a non-literal (wildcard/prefix) action or resource, or a `targets.actions`/
+ * `targets.resources` value that is itself a wildcard, stays out of the flat model - it could
+ * match requests no rule was ever literally indexed for, so it can't be reduced to fixed
+ * cells. A LITERAL `targets.actions`/`targets.resources` restriction IS compilable: unlike
+ * roles, it doesn't depend on who's asking - only on the (action, resource) pair, which is
+ * already the cell's own key - see `policyTargetsActionResource`, applied per-rule below. A
+ * role-only `targets` restriction is compilable too, regardless - see `targetRoles` on
+ * `DynamicPolicyGroup`.
+ */
+function isResidualPolicy(policy: AccessControl.IPolicy): boolean {
+  if (policy.targets?.actions?.some(isWildcard) || policy.targets?.resources?.some(isWildcard)) return true
+  for (const rule of policy.rules) {
+    for (const a of rule.actions) if (isWildcard(a)) return true
+    for (const r of rule.resources) if (isWildcard(r)) return true
+  }
+  return false
+}
+
+/** A wildcarded action or resource can't be reduced to fixed cells - stays fully in `rbacResidual` regardless of scope/conditions. */
+function isWildcardPermission(perm: AccessControl.IPermission): boolean {
+  return isWildcard(perm.action) || isWildcard(perm.resource)
+}
+
+/** `perm.scope ?? role.scope`, excluding the global markers (`undefined`/`'*'`). Matches `rolesToPolicy`'s own effective-scope rule. */
+function effectiveScopeOf(perm: AccessControl.IPermission, role: AccessControl.IRole): string | undefined {
+  const effectiveScope = perm.scope ?? role.scope
+  return effectiveScope === undefined || effectiveScope === '*' ? undefined : effectiveScope
+}
+
+/**
+ * Eligible for the fast ROLE_MASK bit path: literal action+resource, no conditions, and no
+ * scope restriction (permission-level or inherited from the role's default scope).
+ */
+function isSimplePermission(perm: AccessControl.IPermission, role: AccessControl.IRole): boolean {
+  if (isWildcardPermission(perm)) return false
+  if (perm.conditions && hasConditions(perm.conditions)) return false
+  return effectiveScopeOf(perm, role) === undefined
+}
+
+/**
+ * Compiles roles + policies into a flat lookup table. RBAC and ABAC are kept as two
+ * independently-computed votes combined at request time in `lookup()` - see
+ * `compiled.types.ts`'s `rbacResidual` doc for why the two RBAC halves (mask bits +
+ * residual policy) must never be treated as separate voters. A wildcard rule, or a
+ * wildcarded `targets.actions`/`targets.resources` value, keeps a policy residual, evaluated
+ * per-request via `evaluatePolicyFast`; a literal target restriction (action, resource,
+ * and/or role) compiles in instead (see `isResidualPolicy`).
+ */
+export function compileTable(
+  roles: readonly AccessControl.IRole[],
+  policies: readonly AccessControl.IPolicy[],
+  policyCombine: AccessControl.PolicyCombine,
+): CompiledTable {
+  if (roles.length > MAX_ROLES) {
+    throw new Error(
+      `[@gentleduck/iam:compiled] compileTable(): ${roles.length} roles exceeds the ${MAX_ROLES}-role limit the compiled table's 32-bit grant mask can address without bit-index aliasing (role N and role N+32 would silently share a bit). Reduce the role count, or route this deployment through mode: 'development' instead.`,
+    )
+  }
+
+  const flatPolicies: AccessControl.IPolicy[] = []
+  const residualPolicies: AccessControl.IPolicy[] = []
+  for (const policy of policies) {
+    if (isResidualPolicy(policy)) residualPolicies.push(policy)
+    else flatPolicies.push(policy)
+  }
+
+  // RBAC's residual source: same id/inherits/scope so inheritance still resolves,
+  // permissions filtered to the ones that can't be reduced to fixed cells at all
+  // (wildcarded action/resource). This is NOT pushed into `residualPolicies` - it is one
+  // of three sources of the same logical RBAC vote (see compiled.types.ts).
+  const filteredRoles: AccessControl.IRole[] = roles.map((role) => ({
+    ...role,
+    permissions: role.permissions.filter((perm) => isWildcardPermission(perm)),
+  }))
+  const rbacResidualPolicy = rolesToPolicy(filteredRoles)
+  const rbacResidual = rbacResidualPolicy.rules.length > 0 ? rbacResidualPolicy : null
+
+  // RBAC's cell-dynamic source: literal action+resource, but scope and/or conditions. This
+  // synthetic policy is never evaluated directly - it exists only so a rotten condition can
+  // be reported via onPolicyError (mirrors DynamicPolicyGroup.policy), shared by every group.
+  const dynamicSourceRoles: AccessControl.IRole[] = roles.map((role) => ({
+    ...role,
+    permissions: role.permissions.filter((perm) => !isWildcardPermission(perm) && !isSimplePermission(perm, role)),
+  }))
+  const rbacDynamicSourcePolicy = rolesToPolicy(dynamicSourceRoles)
+  const hasRbacDynamic = rbacDynamicSourcePolicy.rules.length > 0
+
+  const hasSimpleRoles = roles.some((role) => role.permissions.some((perm) => isSimplePermission(perm, role)))
+  const hasRbacSource = hasSimpleRoles || hasRbacDynamic || rbacResidual !== null
+
+  const hasFlatSource = flatPolicies.length > 0
+
+  const actionSet = new Set<string>()
+  const resourceSet = new Set<string>()
+  for (const role of roles) {
+    for (const perm of role.permissions) {
+      if (isWildcardPermission(perm)) continue
+      actionSet.add(perm.action)
+      resourceSet.add(perm.resource)
+    }
+  }
+  for (const policy of flatPolicies) {
+    for (const rule of policy.rules) {
+      for (const a of rule.actions) actionSet.add(a)
+      for (const r of rule.resources) resourceSet.add(r)
+    }
+  }
+
+  const actions = [...actionSet]
+  const resources = [...resourceSet]
+  const nR = resources.length
+  const actionId = new Map(actions.map((a, i) => [a, i]))
+  const resourceId = new Map(resources.map((r, i) => [r, i]))
+  const roleId = new Map(roles.map((r, i) => [r.id, i]))
+
+  const n = actions.length * nR
+  const kind = new Uint8Array(n)
+  const touched = new Uint8Array(n)
+  const allow = new Uint32Array(n)
+  const dynamic: (readonly DynamicPolicyGroup[] | undefined)[] = new Array(n)
+
+  // holders[roleIdx] = every role whose effective (inherited) set includes roleIdx.
+  const byId = new Map(roles.map((r) => [r.id, r]))
+  const effective: number[][] = roles.map((r) => {
+    const out: number[] = []
+    const seen = new Set<string>()
+    const walk = (id: string, depth: number): void => {
+      if (depth > 32 || seen.has(id)) return
+      seen.add(id)
+      const idx = roleId.get(id)
+      if (idx !== undefined) out.push(idx)
+      for (const parent of byId.get(id)?.inherits ?? []) walk(parent, depth + 1)
+    }
+    walk(r.id, 0)
+    return out
+  })
+  const holders: number[][] = roles.map(() => [])
+  for (let i = 0; i < effective.length; i++) {
+    for (const a of effective[i]!) {
+      holders[a]!.push(i)
+    }
+  }
+
+  // Populates `allow` (the RBAC grant mask) and `rbacDynamic` (scope/condition-restricted
+  // permissions) only - `kind`/`touched` stay purely ABAC territory below; RBAC's vote is
+  // computed independently in `lookup()`.
+  const rbacDynamicGroupsByIdx = new Map<number, RbacRuleGroup[]>()
+  for (let i = 0; i < roles.length; i++) {
+    const role = roles[i]!
+    for (const perm of role.permissions) {
+      if (isWildcardPermission(perm)) continue // stays fully in rbacResidual, no cell
+      const a = actionId.get(perm.action)
+      const r = resourceId.get(perm.resource)
+      if (a === undefined || r === undefined) continue
+      const idx = a * nR + r
+      let mask = 0
+      for (const holder of holders[i]!) mask |= 1 << holder
+
+      if (isSimplePermission(perm, role)) {
+        allow[idx]! |= mask
+        continue
+      }
+
+      const group: RbacRuleGroup = {
+        roleMask: mask,
+        scope: effectiveScopeOf(perm, role),
+        conditions: perm.conditions,
+        policy: rbacDynamicSourcePolicy,
+      }
+      const bucket = rbacDynamicGroupsByIdx.get(idx)
+      if (bucket) bucket.push(group)
+      else rbacDynamicGroupsByIdx.set(idx, [group])
+    }
+  }
+  const rbacDynamic: (readonly RbacRuleGroup[] | undefined)[] = new Array(n)
+  for (const [idx, groups] of rbacDynamicGroupsByIdx) rbacDynamic[idx] = groups
+
+  const allowIndices = new Set<number>()
+  const denyIndices = new Set<number>()
+  // Every rule (conditional or not) touching a cell, grouped per policy - built for every
+  // cell so conflicted and forced-'and' cells have real group data to fall back to, not
+  // just the conditional ones.
+  const groupsByIdx = new Map<number, DynamicPolicyGroup[]>()
+
+  for (const policy of flatPolicies) {
+    // Role-targeted: answer depends on the subject's roles, so it can never be a CONST cell.
+    const targetRoles = targetRolesOf(policy)
+    const policyRules = new Map<number, AccessControl.IRule[]>()
+    for (const rule of policy.rules) {
+      const conditional = hasConditions(rule.conditions) || targetRoles !== undefined
+      for (const act of rule.actions) {
+        for (const res of rule.resources) {
+          // A literal targets.actions/targets.resources restriction filters which cells this
+          // rule reaches - same as policyApplies()'s action/resource check in the interpreter,
+          // just resolved once here instead of on every request.
+          if (!policyTargetsActionResource(policy, act, res)) continue
+          const a = actionId.get(act)
+          const r = resourceId.get(res)
+          if (a === undefined || r === undefined) continue
+          const idx = a * nR + r
+          touched[idx] = 1
+          if (conditional) {
+            kind[idx] = CellKind.DYNAMIC
+          } else if (rule.effect === 'allow') {
+            allowIndices.add(idx)
+            if (kind[idx] !== CellKind.DYNAMIC) kind[idx] = CellKind.CONST_ALLOW
+          } else {
+            denyIndices.add(idx)
+          }
+          const bucket = policyRules.get(idx)
+          if (bucket) bucket.push(rule)
+          else policyRules.set(idx, [rule])
+        }
+      }
+    }
+    for (const [idx, rules] of policyRules) {
+      const group: DynamicPolicyGroup = { policyId: policy.id, algorithm: policy.algorithm, rules, policy, targetRoles }
+      const existing = groupsByIdx.get(idx)
+      if (existing) existing.push(group)
+      else groupsByIdx.set(idx, [group])
+    }
+  }
+
+  // Conflicting allow+deny on the same cell: becomes DYNAMIC (each policy's own combiner
+  // resolves its own rules; cross-policy combine at lookup time resolves the rest) instead
+  // of falling through.
+  for (const idx of allowIndices) {
+    if (denyIndices.has(idx)) kind[idx] = CellKind.DYNAMIC
+  }
+
+  // A policy that doesn't touch this cell has no rule shaped for it and must not
+  // vote here at all (see abacFlatVote's touched===0 -> null) - so only the groups
+  // that actually touch a given idx ever combine there. No phantom/forced voters.
+  for (const [idx, groups] of groupsByIdx) {
+    if (kind[idx] === CellKind.DYNAMIC) dynamic[idx] = groups
+  }
+
+  return {
+    nResources: nR,
+    actionId,
+    resourceId,
+    roleId,
+    policyCombine,
+    kind,
+    touched,
+    allow,
+    dynamic,
+    rbacDynamic,
+    hasFlatSource,
+    hasRbacSource,
+    rbacResidual,
+    residualPolicies,
+  }
+}
+
+export { CellKind }

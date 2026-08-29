@@ -119,6 +119,33 @@ describe('IamMemoryAdapter', () => {
       expect(scoped).toEqual([{ role: 'editor', scope: 'org-1' }])
     })
 
+    describe('updateAssignmentScope', () => {
+      // Local adapter with a second scope, kept separate from the shared `S` type above.
+      type S2 = 'org-1' | 'org-2'
+      let a: IamMemoryAdapter<A, R, Ro, S2>
+
+      beforeEach(() => {
+        a = new IamMemoryAdapter<A, R, Ro, S2>()
+      })
+
+      it('moves the assignment to the new scope in place', async () => {
+        await a.assignRole('user-1', 'editor', 'org-1')
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(true)
+        expect(await a.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-2' }])
+      })
+
+      it('drops the source instead of duplicating when the target scope is already granted', async () => {
+        await a.assignRole('user-1', 'editor', 'org-1')
+        await a.assignRole('user-1', 'editor', 'org-2')
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(true)
+        expect(await a.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-2' }])
+      })
+
+      it('returns false when no assignment matches the source scope', async () => {
+        expect(await a.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(false)
+      })
+    })
+
     it('getSubjectAttributes returns empty for unknown subject', async () => {
       expect(await adapter.getSubjectAttributes('unknown')).toEqual({})
     })

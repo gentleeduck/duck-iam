@@ -1,4 +1,5 @@
-import { createIam, type DefaultContext, MemoryAdapter } from '@gentleduck/iam'
+import { createIam, type DefaultContext } from '@gentleduck/iam'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 export interface AppContext extends DefaultContext {
   subject: {
@@ -327,7 +328,7 @@ const policies = [
 
 // --- Engine ---
 
-const adapter = new MemoryAdapter({
+const adapter = new IamMemoryAdapter({
   roles,
   policies,
   assignments: {

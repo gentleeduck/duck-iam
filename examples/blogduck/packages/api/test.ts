@@ -1,4 +1,5 @@
-import { createIam, defineRole, IamEngine, MemoryAdapter, validateRoles } from '@gentleduck/iam'
+import { createIam, defineRole, IamEngine, validateRoles } from '@gentleduck/iam'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 export const access = createIam({
   actions: ['create', 'read', 'update', 'delete', 'list', 'manage'] as const,
@@ -65,7 +66,7 @@ if (!validation.valid) {
 
 /* --------------------------------------------------------------------------------------------- */
 
-const adapter = new MemoryAdapter({
+const adapter = new IamMemoryAdapter({
   roles: [guest, member, moderator, admin, superAdmin],
   assignments: {
     'user-alice': ['member'],

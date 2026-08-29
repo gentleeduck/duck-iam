@@ -95,3 +95,8 @@ export namespace AuthAwsKmsProvider {
     KeyId?: string
   }
 }
+
+/** Factory around {@link AuthAwsKmsProvider}, for callers who prefer functions to `new`. */
+export function authAwsKmsProvider(...args: ConstructorParameters<typeof AuthAwsKmsProvider>): AuthAwsKmsProvider {
+  return new AuthAwsKmsProvider(...args)
+}

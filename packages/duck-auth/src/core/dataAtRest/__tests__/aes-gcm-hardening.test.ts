@@ -44,9 +44,11 @@ describe('AuthAesGcmDataAtRest - decrypt hardening', () => {
     const a = makeAdapter()
     const ct = await a.encrypt('original', ctx)
     const parts = ct.split('$')
-    // Flip the last char of the ct payload.
-    const tamperedCt = parts[4]!.slice(0, -1) + (parts[4]!.slice(-1) === 'A' ? 'B' : 'A')
-    const tampered = `${parts[0]}$${parts[1]}$${parts[2]}$${parts[3]}$${tamperedCt}`
+    // Flip a byte, not a base64url char: the final char carries padding bits that a
+    // char swap can leave decoding to the identical bytes, so tampering may not land.
+    const ctBytes = Buffer.from(parts[4]!, 'base64url')
+    ctBytes[0] = ctBytes[0]! ^ 0xff
+    const tampered = `${parts[0]}$${parts[1]}$${parts[2]}$${parts[3]}$${ctBytes.toString('base64url')}`
     await expect(a.decrypt(tampered, ctx)).rejects.toMatchObject({
       code: 'AUTH_MISCONFIGURED',
       meta: { detail: 'aes-256-gcm: auth-tag mismatch' },

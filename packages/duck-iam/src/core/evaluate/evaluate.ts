@@ -3,27 +3,26 @@
 import { evalConditionGroup } from '../conditions'
 import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
-import { combiners, indexPolicy, policyApplies, ruleApplies } from './evaluate.libs'
+import { combiners, indexPolicy, policyApplies, ruleApplies, ruleTargetsMatch } from './evaluate.libs'
 import type { Evaluate } from './evaluate.types'
 
 // Literal resource patterns match only the exact resource type; recursive
-// grants require the explicit `:*` / `.*` suffix and are handled by
-// `wildcardAny`.
+// grants require the explicit `:*` / `.*` suffix and are handled by the
+// wildcard buckets (see `indexPolicy` in evaluate.libs.ts).
 
 /**
- * Inline candidate matching - checks resource + conditions without allocating.
- * Action is already narrowed by the index lookup.
+ * Action+resource shape only, no conditions - same distinction as
+ * `ruleTargetsMatch`, inlined for the indexed hot path.
  */
-function matchCandidate(
+function candidateShapeMatches(
   entry: Evaluate.IIndexedRule,
   action: string,
   resType: string,
   resHasDot: boolean,
-  req: IamRequest.IAccessRequest,
-  caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
 ): boolean {
-  // Action - already narrowed by index, but handle prefix patterns
-  if (!entry.hasWildcardAction && !entry.actions.has(action)) {
+  // Action - `entry.actions.has(action)` is a fast path for an exact literal
+  // match; a wildcard entry never skips the `matchesAction` prefix check.
+  if (!entry.actions.has(action)) {
     let ok = false
     for (const a of entry.rule.actions) {
       if (matchesAction(a, action)) {
@@ -34,27 +33,15 @@ function matchCandidate(
     if (!ok) return false
   }
 
-  // Resource
-  if (!entry.hasWildcardResource) {
-    let ok = false
-    for (const r of entry.rule.resources) {
-      if (resHasDot || r.includes('.')) {
-        if (matchesResourceHierarchical(r, resType)) {
-          ok = true
-          break
-        }
-      } else {
-        if (matchesResource(r, resType)) {
-          ok = true
-          break
-        }
-      }
+  // Resource - always verified; a wildcard entry never skips this check.
+  for (const r of entry.rule.resources) {
+    if (resHasDot || r.includes('.')) {
+      if (matchesResourceHierarchical(r, resType)) return true
+    } else {
+      if (matchesResource(r, resType)) return true
     }
-    if (!ok) return false
   }
-
-  if (!entry.hasConditions) return true
-  return evalConditionGroup(req, entry.rule.conditions, 0, caches)
+  return false
 }
 
 /**
@@ -84,6 +71,21 @@ export function evaluatePolicy(
       effect: defaultEffect,
       policy: policy.id,
       reason: `Policy "${policy.id}" targets do not match. Not applicable.`,
+      duration: performance.now() - start,
+      timestamp: Date.now(),
+      applicable: false,
+    }
+  }
+
+  // Also NotApplicable when no rule's action/resource shape matches at all -
+  // a policy about `update` has nothing to say about `read` and must not
+  // fold in as a defaultEffect vote just because its `targets` were silent.
+  if (!policy.rules.some((rule) => ruleTargetsMatch(rule, request))) {
+    return {
+      allowed: defaultEffect === 'allow',
+      effect: defaultEffect,
+      policy: policy.id,
+      reason: `Policy "${policy.id}" has no rule for this action/resource. Not applicable.`,
       duration: performance.now() - start,
       timestamp: Date.now(),
       applicable: false,
@@ -263,17 +265,34 @@ export function evaluatePolicyFast(
   }
 
   // Literal buckets are matched by exact key only. Rules with `:*` / `.*`
-  // suffixes live in `wildcardAny` and are checked there via `matchCandidate`
-  // -> `matchesResource(Hierarchical)`.
+  // suffixes are bucketed by whichever side of them is still literal and
+  // checked there via `candidateShapeMatches` -> `matchesResource(Hierarchical)`.
   const literalBuckets: Evaluate.IIndexedRule[][] = []
   const exactAR = idx.byActionResource.get(`${action}\0${resType}`)
   if (exactAR) literalBuckets.push(exactAR)
-  const wildcardAny = idx.wildcardAny
   const resHasDot = resType.includes('.')
   const algo = policy.algorithm
 
+  // Narrow the "every expansive rule" scan down to the (usually small, often
+  // empty) subset whose literal side already matches this request - entries
+  // keyed by this exact action still need a resource check, entries keyed by
+  // this exact resource still need an action check, wildcardBoth needs both.
+  const wildcardBuckets: Evaluate.IIndexedRule[][] = []
+  const byAction = idx.byActionWildcardResource.get(action)
+  if (byAction) wildcardBuckets.push(byAction)
+  const byResource = idx.byResourceWildcardAction.get(resType)
+  if (byResource) wildcardBuckets.push(byResource)
+  if (idx.wildcardBoth.length > 0) wildcardBuckets.push(idx.wildcardBoth)
+
+  // hasCandidate: at least one rule's action/resource shape matches, regardless
+  // of whether its condition ultimately holds. A literal bucket is an exact-key
+  // hit, so its mere presence already is a shape match. Distinguishes "this
+  // policy has nothing to do with the request" (null, abstain) from "it does,
+  // and here's its answer" (a real vote, possibly the defaultEffect fallback).
+
   if (algo === 'deny-overrides') {
     let hasAllow = false
+    let hasCandidate = literalBuckets.length > 0
     for (let bi = 0; bi < literalBuckets.length; bi++) {
       const bucket = literalBuckets[bi]!
       for (let i = 0; i < bucket.length; i++) {
@@ -283,17 +302,24 @@ export function evaluatePolicyFast(
         hasAllow = true
       }
     }
-    for (let i = 0; i < wildcardAny.length; i++) {
-      const entry = wildcardAny[i]!
-      if (!matchCandidate(entry, action, resType, resHasDot, request, caches)) continue
-      if (entry.rule.effect === 'deny') return false
-      hasAllow = true
+    for (let bi = 0; bi < wildcardBuckets.length; bi++) {
+      const bucket = wildcardBuckets[bi]!
+      for (let i = 0; i < bucket.length; i++) {
+        const entry = bucket[i]!
+        if (!candidateShapeMatches(entry, action, resType, resHasDot)) continue
+        hasCandidate = true
+        if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
+        if (entry.rule.effect === 'deny') return false
+        hasAllow = true
+      }
     }
-    return hasAllow ? true : defaultEffect === 'allow'
+    if (hasAllow) return true
+    return hasCandidate ? defaultEffect === 'allow' : null
   }
 
   if (algo === 'allow-overrides') {
     let hasDeny = false
+    let hasCandidate = literalBuckets.length > 0
     for (let bi = 0; bi < literalBuckets.length; bi++) {
       const bucket = literalBuckets[bi]!
       for (let i = 0; i < bucket.length; i++) {
@@ -303,18 +329,25 @@ export function evaluatePolicyFast(
         hasDeny = true
       }
     }
-    for (let i = 0; i < wildcardAny.length; i++) {
-      const entry = wildcardAny[i]!
-      if (!matchCandidate(entry, action, resType, resHasDot, request, caches)) continue
-      if (entry.rule.effect === 'allow') return true
-      hasDeny = true
+    for (let bi = 0; bi < wildcardBuckets.length; bi++) {
+      const bucket = wildcardBuckets[bi]!
+      for (let i = 0; i < bucket.length; i++) {
+        const entry = bucket[i]!
+        if (!candidateShapeMatches(entry, action, resType, resHasDot)) continue
+        hasCandidate = true
+        if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
+        if (entry.rule.effect === 'allow') return true
+        hasDeny = true
+      }
     }
-    return hasDeny ? false : defaultEffect === 'allow'
+    if (hasDeny) return false
+    return hasCandidate ? defaultEffect === 'allow' : null
   }
 
   // first-match (priority-aware) + highest-priority share the scan loop.
   let bestPriority = -Infinity
   let bestEffect: AccessControl.Effect | null = null
+  let hasCandidate = literalBuckets.length > 0
   for (let bi = 0; bi < literalBuckets.length; bi++) {
     const bucket = literalBuckets[bi]!
     for (let i = 0; i < bucket.length; i++) {
@@ -326,15 +359,21 @@ export function evaluatePolicyFast(
       }
     }
   }
-  for (let i = 0; i < wildcardAny.length; i++) {
-    const entry = wildcardAny[i]!
-    if (!matchCandidate(entry, action, resType, resHasDot, request)) continue
-    if (entry.rule.priority > bestPriority) {
-      bestPriority = entry.rule.priority
-      bestEffect = entry.rule.effect
+  for (let bi = 0; bi < wildcardBuckets.length; bi++) {
+    const bucket = wildcardBuckets[bi]!
+    for (let i = 0; i < bucket.length; i++) {
+      const entry = bucket[i]!
+      if (!candidateShapeMatches(entry, action, resType, resHasDot)) continue
+      hasCandidate = true
+      if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions)) continue
+      if (entry.rule.priority > bestPriority) {
+        bestPriority = entry.rule.priority
+        bestEffect = entry.rule.effect
+      }
     }
   }
-  return bestEffect !== null ? bestEffect === 'allow' : defaultEffect === 'allow'
+  if (bestEffect !== null) return bestEffect === 'allow'
+  return hasCandidate ? defaultEffect === 'allow' : null
 }
 
 /**

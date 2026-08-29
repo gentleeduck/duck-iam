@@ -1,6 +1,8 @@
+import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  callerContext,
   errorToHttp,
   executeIntents,
   isValidProviderId,
@@ -8,6 +10,15 @@ import {
   parseProviderBeginBody,
   parseSignInBody,
 } from '../generic'
+
+/** Hono exposes no resolved address, so `ctx.ip` is whatever the app chose to put there. */
+function honoCaller(ctx: { ip?: string; req: { header: (n?: string) => unknown } }): {
+  ip?: string
+  userAgent?: string
+} {
+  const ua = ctx.req.header('user-agent')
+  return callerContext({ ip: ctx.ip, userAgent: typeof ua === 'string' ? ua : undefined })
+}
 
 import type { HonoAdapter, MountHono } from './hono.types'
 
@@ -28,7 +39,7 @@ export function honoSignIn(auth: AuthEngine): HonoAdapter.Handler {
       if (!parsed) {
         return executeIntents([{ type: 'error', code: 'AUTH_INVALID_CREDENTIALS', status: 400 }])
       }
-      const result = await auth.flows.signIn(parsed)
+      const result = await auth.flows.signIn({ ...parsed, ...honoCaller(ctx) })
       return executeIntents(result.intents)
     } catch (err) {
       return handleError(err)
@@ -150,7 +161,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
       const code = url.searchParams.get('code') ?? ''
       const state = url.searchParams.get('state') ?? ''
       try {
-        const result = await auth.flows.signIn({ input: { code, state }, providerId: provider })
+        const result = await auth.flows.signIn({ input: { code, state }, providerId: provider, ...honoCaller(c) })
         return executeIntents(result.intents)
       } catch (err) {
         return handleError(err)
@@ -163,7 +174,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
       const url = new URL(c.req.url)
       const token = url.searchParams.get('token') ?? ''
       try {
-        const result = await auth.flows.signIn({ input: { token }, providerId: 'magic-link' })
+        const result = await auth.flows.signIn({ input: { token }, providerId: 'magic-link', ...honoCaller(c) })
         return executeIntents(result.intents)
       } catch (err) {
         return handleError(err)
@@ -187,7 +198,7 @@ export function mountHono(app: MountHono.App, auth: AuthEngine, opts: MountHono.
     app.post(`${prefix}/passkey/complete`, async (c) => {
       try {
         const body: unknown = await c.req.json().catch(() => ({}))
-        const result = await auth.flows.signIn({ input: body, providerId: 'passkey' })
+        const result = await auth.flows.signIn({ input: body, providerId: 'passkey', ...honoCaller(c) })
         return executeIntents(result.intents)
       } catch (err) {
         return handleError(err)
@@ -282,6 +293,19 @@ function jsonResponse(status: number, body: unknown): Response {
     headers: { 'content-type': 'application/json; charset=utf-8' },
     status,
   })
+}
+
+/** CSRF guard for your own routes: `app.use('*', honoCsrf(auth))`. */
+export function honoCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): HonoAdapter.Middleware {
+  return async (ctx, next) => {
+    try {
+      await csrfGuard(auth, { headers: reqHeaders(ctx), method: reqMethod(ctx) }, opts)
+    } catch (err) {
+      return handleError(err)
+    }
+    await next()
+    return undefined
+  }
 }
 
 export type { HonoAdapter, MountHono } from './hono.types'

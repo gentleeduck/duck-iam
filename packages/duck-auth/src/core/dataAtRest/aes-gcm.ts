@@ -144,3 +144,10 @@ export namespace AuthAesGcmDataAtRest {
     previousKeys?: Array<{ kid: string; masterKey: Buffer | string }>
   }
 }
+
+/** Factory around {@link AuthAesGcmDataAtRest}, for callers who prefer functions to `new`. */
+export function authAesGcmDataAtRest(
+  ...args: ConstructorParameters<typeof AuthAesGcmDataAtRest>
+): AuthAesGcmDataAtRest {
+  return new AuthAesGcmDataAtRest(...args)
+}

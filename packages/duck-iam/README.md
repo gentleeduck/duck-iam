@@ -25,7 +25,7 @@
 
 Type-safe authorization engine for TypeScript. RBAC + ABAC with a policy engine, condition evaluation, scoped roles, and integrations for Express, NestJS, Hono, Next.js, React, Vue, and vanilla JS.
 
-Zero runtime dependencies. Tree-shakeable. 23 KB full, under 1 KB per module.
+Zero runtime dependencies. Tree-shakeable - see [Module sizes](#module-sizes-gzipped) below for real per-module numbers.
 
 ## Install
 
@@ -39,7 +39,7 @@ bun add @gentleduck/iam
 
 ```typescript
 import { createIam } from '@gentleduck/iam/core'
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 const access = createIam({
   actions: ['create', 'read', 'update', 'delete'] as const,
@@ -52,11 +52,11 @@ const editor = access.defineRole('editor').inherits('viewer').grant('update', 'p
 const admin = access.defineRole('admin').inherits('editor').grantCRUD('post').grantCRUD('comment').build()
 
 const policy = access
-  .policy('blog')
+  .definePolicy('blog')
   .rule('owner-edit', (r) => r.allow().on('update').of('post').when((w) => w.isOwner()))
   .build()
 
-const adapter = new MemoryAdapter({
+const adapter = new IamMemoryAdapter({
   policies: [policy],
   roles: [viewer, editor, admin],
   assignments: { 'user-1': ['editor'] },
@@ -69,19 +69,44 @@ const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {
 
 ## Performance
 
-Benchmarked against 7 JS authorization libraries using vitest bench. Simple RBAC check, ops/sec (higher is better):
+Benchmarked against 6 JS authorization libraries using vitest bench
+(`bun run bench`). Two different things get measured - keep them
+separate.
+
+**Rule-matching only** (no adapter, no engine wrapper), ops/sec:
 
 | Library | ops/sec | vs CASL |
 |---------|---------|---------|
-| @casl/ability | 16,857,000 | baseline |
-| **@gentleduck/iam** [PROD] | 8,233,000 | 2x slower |
-| easy-rbac | 5,003,000 | 3.4x slower |
-| @rbac/rbac | 2,884,000 | 5.8x slower |
-| accesscontrol | 674,000 | 25x slower |
-| casbin | 143,000 | 118x slower |
-| role-acl | 140,000 | 120x slower |
+| @casl/ability | ~17.0M | baseline |
+| easy-rbac | ~5.0M | 3.4x slower |
+| @rbac/rbac | ~3.3M | 5.2x slower |
+| **@gentleduck/iam** `evaluateFast()` | ~7.6M | 2.2x slower |
+| accesscontrol | ~1.3M | 12.8x slower |
+| casbin | ~208K | 82x slower |
 
-CASL is faster on raw lookups because it pre-compiles rules into a hash table at build time. duck-iam supports dynamic policies that can change at runtime, which costs an extra Map lookup per check.
+**`engine.can()`** - the real entry point, full stack (adapter + hooks +
+subject resolution + the compiled table):
+
+| Mode | ops/sec | vs CASL |
+|------|---------|---------|
+| `mode: 'production'` (compiled table) | ~1.15M | ~14x slower |
+| `mode: 'development'` (interpreter) | ~155K | ~110x slower |
+| @casl/ability (ability pre-built, `.can()`) | ~17.0M | baseline |
+
+CASL is a narrower tool: one flat rule set, fully sync, no persistence
+layer. `engine.can()` also runs a policy engine (4 combining algorithms
+across N named policies), RBAC role inheritance, an adapter/cache/
+invalidation layer, and lifecycle hooks - and it's `async`. That gap is
+the cost of that surface, not inefficiency to chase down.
+
+In practice it isn't the bottleneck: ~1.15M ops/sec is ~0.87µs per check
+on one core - network, DB, and serialization around it cost more than
+the check itself in any real request. Throughput doesn't degrade with
+catalog size either; the compiled table is an O(1) index lookup
+regardless of how many roles or policies exist. What actually
+constrains scale is catalog *shape* - role count (hard cap: 32 per
+table), very wide action x resource grids, and deeply nested
+hierarchical resource types - not raw request throughput.
 
 For the smallest bundle, import only what you use via subpaths:
 
@@ -90,16 +115,16 @@ For the smallest bundle, import only what you use via subpaths:
 import { IamEngine, evaluatePolicyFast } from '@gentleduck/iam/core'
 
 // Each adapter, server adapter, and client wrapper is a separate entry
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
-import { adminRouter } from '@gentleduck/iam/server/express'
-import { useAccess } from '@gentleduck/iam/client/react'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { iamAdminRouter } from '@gentleduck/iam/server/express'
+import { createIamAccessControl } from '@gentleduck/iam/client/react'
 
 // Validator (12 KB) - lazy-loaded by engine.admin.savePolicy on first
 // call, or imported directly for standalone validation tooling
 import { validatePolicy } from '@gentleduck/iam/core/validate'
 
 // Fluent builder (9 KB) - config-time only, separate subpath
-import { policy, defineRole } from '@gentleduck/iam/core/builder'
+import { definePolicy, defineRole } from '@gentleduck/iam/core/builder'
 ```
 
 `import * from '@gentleduck/iam'` pulls the everything-barrel (~41 KB
@@ -110,7 +135,7 @@ at 15-25 KB.
 
 - **RBAC + ABAC** combined in one engine
 - **Policy engine** with 4 intra-policy algorithms (deny-overrides, allow-overrides, first-match, highest-priority) and 3 cross-policy combine modes (and / allow-overrides / first-applicable)
-- **18 condition operators** (eq, neq, gt, lt, in, contains, starts_with, matches, exists, subset_of, and more)
+- **19 condition operators** (eq, neq, gt, lt, in, contains, starts_with, matches, exists, subset_of, before, after, and more)
 - **Scoped roles** for multi-tenant systems
 - **Dev/prod mode**: rich Decision objects in development, plain booleans in production
 - **Explain API**: full evaluation trace showing exactly why a permission was granted or denied
@@ -140,50 +165,50 @@ at 15-25 KB.
 
 ```typescript
 // Express
-import { guard, adminRouter } from '@gentleduck/iam/server/express'
-app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
-app.use('/admin', adminRouter(engine, { authorize: (req) => isAdmin(req) })(() => express.Router()))
+import { iamGuard, iamAdminRouter } from '@gentleduck/iam/server/express'
+app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
+app.use('/admin', iamAdminRouter(engine, { authorize: (req) => isAdmin(req) })(() => express.Router()))
 
 // Hono
-import { guard, bindAdminRouter } from '@gentleduck/iam/server/hono'
-app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
-bindAdminRouter(adminApp, engine, { authorize: (c) => isAdmin(c) })
+import { iamGuard, iamBindAdminRouter } from '@gentleduck/iam/server/hono'
+app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
+iamBindAdminRouter(adminApp, engine, { authorize: (c) => isAdmin(c) })
 
 // NestJS
-import { nestAccessGuard, Authorize, createAdminOperations } from '@gentleduck/iam/server/nest'
-@Authorize({ action: 'delete', resource: 'post' })
+import { iamNestAccessGuard, IamAuthorize, createIamAdminOperations } from '@gentleduck/iam/server/nest'
+@IamAuthorize({ action: 'delete', resource: 'post' })
 
 // Next.js
-import { withAccess, createAdminHandlers } from '@gentleduck/iam/server/next'
-export const DELETE = withAccess(engine, 'delete', 'post', handler)
+import { withIamAccess, createIamAdminHandlers } from '@gentleduck/iam/server/next'
+export const DELETE = withIamAccess(engine, 'delete', 'post', handler)
 ```
 
 ### Client libraries
 
 ```typescript
 // React
-import { createAccessControl } from '@gentleduck/iam/client/react'
-const { AccessProvider, useAccess, Can, Cannot } = createAccessControl(React)
+import { createIamAccessControl } from '@gentleduck/iam/client/react'
+const { AccessProvider, useAccess, Can, Cannot } = createIamAccessControl(React)
 
 // Vue
-import { createVueAccess } from '@gentleduck/iam/client/vue'
-const { useAccess, Can, Cannot } = createVueAccess(vue)
+import { createIamVueAccess } from '@gentleduck/iam/client/vue'
+const { useAccess, Can, Cannot } = createIamVueAccess(vue)
 
 // Vanilla JS
-import { AccessClient } from '@gentleduck/iam/client/vanilla'
-const client = await AccessClient.fromServer('/api/permissions')
+import { IamAccessClient } from '@gentleduck/iam/client/vanilla'
+const client = await IamAccessClient.fromServer('/api/permissions')
 client.can('read', 'post') // boolean
 ```
 
 ### Database adapters
 
 ```typescript
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
-import { FileAdapter } from '@gentleduck/iam/adapters/file'
-import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
-import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
-import { RedisAdapter } from '@gentleduck/iam/adapters/redis'
-import { HttpAdapter } from '@gentleduck/iam/adapters/http'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { IamFileAdapter } from '@gentleduck/iam/adapters/file'
+import { IamPrismaAdapter } from '@gentleduck/iam/adapters/prisma'
+import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+import { IamRedisAdapter } from '@gentleduck/iam/adapters/redis'
+import { IamHttpAdapter } from '@gentleduck/iam/adapters/http'
 ```
 
 ### Operability
@@ -229,6 +254,8 @@ for per-profile measurements.
 ## Docs
 
 - Site: [gentleduck.org/duck-iam](https://gentleduck.org/duck-iam)
+- Compiled engine internals (wildcard buckets, role bitmasks, the compiled table, with diagrams): [`docs/compiled-engine-explained.md`](./docs/compiled-engine-explained.md)
+- Engine rewrite design history + known limits: [`docs/engine-rewrite.md`](./docs/engine-rewrite.md)
 - Devtools: import `@gentleduck/iam/dt` to inspect policy evaluation inside your app
 - Sibling repos: [`@gentleduck/auth`](https://www.npmjs.com/package/@gentleduck/auth), [`@gentleduck/ui`](https://github.com/gentleeduck/duck-ui), [`@gentleduck/upload`](https://github.com/gentleeduck/duck-upload), [`@gentleduck/md`](https://github.com/gentleeduck/duck-md)
 

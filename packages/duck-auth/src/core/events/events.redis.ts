@@ -135,3 +135,8 @@ function parseEnvelope(message: string): { from: string; payload: unknown } | nu
   if (!('payload' in raw)) return null
   return { from: raw.from, payload: raw.payload }
 }
+
+/** Factory around {@link RedisEvents}, for callers who prefer functions to `new`. */
+export function redisEvents(...args: ConstructorParameters<typeof RedisEvents>): RedisEvents {
+  return new RedisEvents(...args)
+}

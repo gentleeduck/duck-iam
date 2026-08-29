@@ -4,7 +4,7 @@ import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
-import { applyIntents, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
+import { applyIntents, expressCsrf, mountSession, mountSignIn, mountSignOut, toHeaders } from '../index'
 
 type MyProfile = {
   username: string
@@ -247,5 +247,41 @@ describe('mounted handlers - end-to-end', () => {
     expect(outR.headers['set-cookie']?.[0]).toContain('Max-Age=0')
     const sessionsAfter = await adapter.sessions.listByIdentity(identity.id)
     expect(sessionsAfter).toHaveLength(0)
+  })
+})
+
+describe('expressCsrf', () => {
+  function run(method: string, headers: Record<string, string>) {
+    const { auth } = buildAuth()
+    const rec = mockRes()
+    const next = vi.fn()
+    const req = { body: {}, headers, method, url: '/orders' }
+    return { next, rec, run: expressCsrf(auth)(req, rec.res, next) }
+  }
+
+  it('lets a safe method through even from a cross-site context', async () => {
+    const t = run('GET', { 'sec-fetch-site': 'cross-site' })
+    await t.run
+    expect(t.next).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a cross-site mutation with 403 and never calls next', async () => {
+    const t = run('POST', { 'sec-fetch-site': 'cross-site' })
+    await t.run
+    expect(t.next).not.toHaveBeenCalled()
+    expect(t.rec.status).toBe(403)
+    expect(t.rec.body).toMatchObject({ error: { code: 'AUTH_CSRF' } })
+  })
+
+  it('lets a Bearer request through: no ambient cookie to forge', async () => {
+    const t = run('POST', { authorization: 'Bearer tok', 'sec-fetch-site': 'cross-site' })
+    await t.run
+    expect(t.next).toHaveBeenCalledOnce()
+  })
+
+  it('lets an ordinary same-origin mutation through', async () => {
+    const t = run('POST', { 'sec-fetch-site': 'same-origin' })
+    await t.run
+    expect(t.next).toHaveBeenCalledOnce()
   })
 })

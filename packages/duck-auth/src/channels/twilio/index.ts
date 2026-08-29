@@ -140,3 +140,8 @@ export class AuthTwilioChannel implements Channel.Channel {
     }
   }
 }
+
+/** Factory around {@link AuthTwilioChannel}, for callers who prefer functions to `new`. */
+export function authTwilioChannel(...args: ConstructorParameters<typeof AuthTwilioChannel>): AuthTwilioChannel {
+  return new AuthTwilioChannel(...args)
+}

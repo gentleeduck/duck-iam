@@ -1,5 +1,5 @@
 import { IamEngine } from "@gentleduck/iam";
-import { MemoryAdapter } from "@gentleduck/iam/adapters/memory";
+import { IamMemoryAdapter } from "@gentleduck/iam/adapters/memory";
 import { iamCreateFlowRecorder } from "@gentleduck/iam/dt";
 import { iamCreateMetricsAggregator } from "@gentleduck/iam/observability/metrics";
 import { mockBackend } from "./mock-backend";
@@ -17,7 +17,7 @@ const ASSIGNMENTS: Record<string, AppRole[]> = {
 	"u-dan": ["reader"],
 };
 
-export const adapter = new MemoryAdapter<
+export const adapter = new IamMemoryAdapter<
 	AppAction,
 	AppResource,
 	AppRole,

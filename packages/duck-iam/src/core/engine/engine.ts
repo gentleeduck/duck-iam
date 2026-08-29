@@ -1,10 +1,12 @@
 import { IamLRUCache } from '../../shared/cache'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { clearRegexCache } from '../conditions/conditions.libs'
-import { evaluate, evaluateFast } from '../evaluate'
+import { evaluate } from '../evaluate'
 import type { Explain } from '../explain'
 import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamClient, IamRequest } from '../types'
+import { lookup } from './compiled/compiled.lookup'
+import type { CompiledTable } from './compiled/compiled.types'
 import { emitMetrics, safeHookCall } from './engine.hooks'
 import {
   applyInvalidateEvent,
@@ -16,7 +18,7 @@ import {
 } from './engine.invalidation'
 import { createAdmin, enrichSubjectWithScopedRoles, ensureEnvNow } from './engine.libs'
 import { disposeInvalidator, preloadEngine, runHealthCheck } from './engine.lifecycle'
-import { type IIamLoaderDeps, loadAllPolicies, resolveSubject } from './engine.loaders'
+import { type IIamLoaderDeps, loadAllPolicies, loadPolicies, loadRoles, resolveSubject } from './engine.loaders'
 import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
 import type { IamEngineTypes } from './engine.types'
 
@@ -24,6 +26,16 @@ import type { IamEngineTypes } from './engine.types'
 export function iamFlushSharedCaches(): void {
   clearRegexCache()
   clearPathCache()
+}
+
+/** Bit per directly-held role name; `compileTable`'s inheritance closure already bakes inherited grants into `table.allow`, so no re-expansion is needed here. */
+function maskFromRoles(table: CompiledTable, roles: readonly string[]): number {
+  let mask = 0
+  for (const roleName of roles) {
+    const idx = table.roleId.get(roleName)
+    if (idx !== undefined) mask |= 1 << idx
+  }
+  return mask
 }
 /**
  * Central runtime that evaluates access requests against RBAC roles and ABAC
@@ -61,10 +73,15 @@ export class IamEngine<
   private _defaultEffect: AccessControl.Effect
   private _mode: AccessControl.Mode
   private _policyCombine: AccessControl.PolicyCombine
+  private _scopeMode: 'flat' | 'hierarchical'
+  private _scopeCombine: 'union' | 'override'
+  /** Production mode's evaluator. Lazily built on first `authorize()`/`permissions()` call, rebuilt after any policy/role invalidation. */
+  private _compiledTable: CompiledTable | null = null
   private _hooks: IamEngineTypes.IHooks<TAction, TResource, TScope>
   private _maxPolicies: number
   private _maxRoles: number
   private _adapterTimeoutMs: number
+  private _maxConcurrentSubjectLoads: number
   private _invalidator?: IamEngineTypes.IInvalidator<TRole>
   private _invalidatorUnsub: (() => void) | null = null
   private _policyCache: IamLRUCache<AccessControl.IPolicy[]>
@@ -139,6 +156,8 @@ export class IamEngine<
     this._defaultEffect = config.defaultEffect ?? 'deny'
     this._mode = config.mode ?? 'development'
     this._policyCombine = config.policyCombine ?? 'and'
+    this._scopeMode = config.scopeMode ?? 'flat'
+    this._scopeCombine = config.scopeCombine ?? 'union'
     this._hooks = config.hooks ?? {}
 
     // evaluateFast can't represent first-applicable; fail at construction.
@@ -166,6 +185,7 @@ export class IamEngine<
     this._maxPolicies = config.maxPolicies ?? 10_000
     this._maxRoles = config.maxRoles ?? 10_000
     this._adapterTimeoutMs = config.adapterTimeoutMs ?? 5_000
+    this._maxConcurrentSubjectLoads = config.maxConcurrentSubjectLoads ?? 0
 
     // Reject non-finite caps; `NaN > x` is always false so a NaN limit
     // silently disables the bound.
@@ -177,6 +197,15 @@ export class IamEngine<
     }
     if (!Number.isFinite(this._adapterTimeoutMs) || this._adapterTimeoutMs < 0) {
       throw new RangeError('[@gentleduck/iam:engine] adapterTimeoutMs must be a finite number >= 0')
+    }
+    // 0 means unbounded (same convention as adapterTimeoutMs); anything else must be a real cap.
+    if (
+      !Number.isFinite(this._maxConcurrentSubjectLoads) ||
+      (this._maxConcurrentSubjectLoads !== 0 && this._maxConcurrentSubjectLoads < 1)
+    ) {
+      throw new RangeError(
+        '[@gentleduck/iam:engine] maxConcurrentSubjectLoads must be 0 (unbounded) or a finite number >= 1',
+      )
     }
 
     const ttl = (config.cacheTTL ?? 60) * 1000
@@ -237,6 +266,10 @@ export class IamEngine<
   /** Apply a cross-instance invalidate event to local caches. */
   private _applyInvalidateEvent(event: IamEngineTypes.IInvalidateEvent<TRole>): void {
     applyInvalidateEvent(this._cacheBag(), event)
+    if (event.kind === 'all' || event.kind === 'policies' || event.kind === 'roles') {
+      this._compiledTable = null
+      this._compiledTableGen++
+    }
   }
 
   /** Release the invalidator subscription. Call when discarding the engine. */
@@ -257,6 +290,7 @@ export class IamEngine<
       inFlight: this._inFlight,
       maxPolicies: this._maxPolicies,
       maxRoles: this._maxRoles,
+      maxConcurrentSubjectLoads: this._maxConcurrentSubjectLoads,
       withTimeout: (fn, label) => this._withTimeout(fn, label),
     }
   }
@@ -267,6 +301,57 @@ export class IamEngine<
 
   private _loadAllPolicies(): Promise<AccessControl.IPolicy[]> {
     return loadAllPolicies(this._loaderDeps())
+  }
+
+  private _loadRoles(): Promise<AccessControl.IRole[]> {
+    return loadRoles(this._loaderDeps())
+  }
+
+  /** In-flight rebuild, so concurrent cold callers await the same compile instead of racing/duplicating it. */
+  private _compiledTableBuild: Promise<CompiledTable> | null = null
+  /** The generation `_compiledTableBuild` was started under - see `_rebuildCompiledTable`. */
+  private _compiledTableBuildGen = -1
+  /** Bumped by every invalidation; a build that started under an older generation must not overwrite a newer invalidation's null with stale data. */
+  private _compiledTableGen = 0
+
+  /**
+   * Rebuilds production mode's compiled table from the current roles + raw adapter
+   * policies (NOT `_loadAllPolicies()`'s RBAC-merged view - `compileTable` derives its
+   * own RBAC representation from `roles` and would double-count a pre-merged `__rbac__`
+   * policy). Returns the table directly so a caller never has to re-read `_compiledTable`
+   * after an `await` a concurrent invalidation could have raced.
+   *
+   * Single-flighting is scoped to one generation: an in-flight build is only reused while
+   * `_compiledTableGen` hasn't moved since it started. A caller arriving after an
+   * invalidation bumps the generation must never be handed a promise that resolves to
+   * pre-invalidation data - it starts (or joins) a fresh build against the post-invalidation
+   * generation instead, matching what a caller would get with no single-flighting at all.
+   */
+  private _rebuildCompiledTable(): Promise<CompiledTable> {
+    if (this._compiledTableBuild && this._compiledTableBuildGen === this._compiledTableGen) {
+      return this._compiledTableBuild
+    }
+    const gen = this._compiledTableGen
+    const build = (async () => {
+      const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(this._loaderDeps())])
+      const { compileTable } = await import('./compiled/compiled.compile')
+      const table = compileTable(roles, policies, this._policyCombine)
+      // An invalidation that landed mid-build must win: don't resurrect a table
+      // built from data that invalidation has already superseded.
+      if (this._compiledTableGen === gen) this._compiledTable = table
+      return table
+    })()
+    this._compiledTableBuild = build
+    this._compiledTableBuildGen = gen
+    // A separate .finally() chain that nobody awaits still reports the original
+    // rejection as "unhandled" to Node/V8 even though the real caller below
+    // properly awaits `build` itself - swallow that side-chain explicitly.
+    build
+      .finally(() => {
+        if (this._compiledTableBuild === build) this._compiledTableBuild = null
+      })
+      .catch(() => {})
+    return build
   }
 
   /**
@@ -305,7 +390,7 @@ export class IamEngine<
         req = { ...req, subject: { ...req.subject, roles: [] } }
       }
       if (req.scope && req.subject.scopedRoles?.length) {
-        const enriched = enrichSubjectWithScopedRoles(req.subject, req.scope)
+        const enriched = enrichSubjectWithScopedRoles(req.subject, req.scope, this._scopeMode, this._scopeCombine)
         if (enriched !== req.subject) req = { ...req, subject: enriched }
       }
 
@@ -317,8 +402,6 @@ export class IamEngine<
       // (tests, replay) is preserved and a normal request still gets one.
       req = ensureEnvNow(req)
 
-      const allPolicies = await this._loadAllPolicies()
-
       const onPolicyErrorHook = this._hooks.onPolicyError
       const onPolicyError = onPolicyErrorHook
         ? (err: Error, policy: AccessControl.IPolicy) => onPolicyErrorHook(err, policy.id)
@@ -326,11 +409,15 @@ export class IamEngine<
 
       const signals: { failOpen?: boolean } = {}
       if (this._mode === 'production') {
-        const allowed = evaluateFast(
-          allPolicies,
+        const table = this._compiledTable ?? (await this._rebuildCompiledTable())
+        const mask = maskFromRoles(table, req.subject.roles)
+        const allowed = lookup(
+          table,
+          mask,
+          req.action,
+          req.resource.type,
           req,
           this._defaultEffect,
-          this._policyCombine,
           onPolicyError,
           signals,
           this._caches,
@@ -339,6 +426,7 @@ export class IamEngine<
         failOpenForMetrics = signals.failOpen === true
         result = this._asResult(allowed)
       } else {
+        const allPolicies = await this._loadAllPolicies()
         const decision = evaluate(
           allPolicies,
           req,
@@ -449,6 +537,23 @@ export class IamEngine<
   }
 
   /**
+   * Resolve the roles a subject effectively holds: assigned roles closed over
+   * `inherits`, plus scoped role assignments matching `scope` when given —
+   * same merge `can`/`check` do internally. Uses the same subject cache, so
+   * repeated calls pay the cache TTL instead of a bare adapter round trip.
+   *
+   * @param subjectId - Subject ID to resolve via the adapter.
+   * @param scope     - Optional scope to merge matching scoped roles in.
+   * @returns The subject's effective roles. Empty array for an invalid `subjectId`.
+   */
+  async getEffectiveRoles(subjectId: string, scope?: TScope): Promise<readonly TRole[]> {
+    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
+    const subject = await this._resolveSubject(subjectId)
+    const enriched = enrichSubjectWithScopedRoles(subject, scope, this._scopeMode, this._scopeCombine)
+    return enriched.roles.map((r) => r as TRole)
+  }
+
+  /**
    * Same as `can` but returns the full {@link AccessControl.IDecision} in development mode,
    * or a plain boolean in production mode.
    *
@@ -534,7 +639,7 @@ export class IamEngine<
 
     let enrichedSubject = subject
     if (scope && subject.scopedRoles?.length) {
-      enrichedSubject = enrichSubjectWithScopedRoles(subject, scope)
+      enrichedSubject = enrichSubjectWithScopedRoles(subject, scope, this._scopeMode, this._scopeCombine)
     }
 
     const scopedRolesApplied = enrichedSubject.roles.filter((r) => !originalRoles.includes(r))
@@ -654,7 +759,7 @@ export class IamEngine<
           if (cached) {
             enrichedSubject = cached
           } else {
-            enrichedSubject = enrichSubjectWithScopedRoles(subject, c.scope)
+            enrichedSubject = enrichSubjectWithScopedRoles(subject, c.scope, this._scopeMode, this._scopeCombine)
             enrichedByScope.set(c.scope, enrichedSubject)
           }
         }
@@ -677,11 +782,15 @@ export class IamEngine<
         const signals: { failOpen?: boolean } = {}
 
         if (this._mode === 'production') {
-          const allowed = evaluateFast(
-            allPolicies,
+          const table = this._compiledTable ?? (await this._rebuildCompiledTable())
+          const mask = maskFromRoles(table, req.subject.roles)
+          const allowed = lookup(
+            table,
+            mask,
+            req.action,
+            req.resource.type,
             req,
             this._defaultEffect,
-            this._policyCombine,
             onPolicyError,
             signals,
             this._caches,
@@ -775,6 +884,8 @@ export class IamEngine<
   /** @internal Clear all caches + in-flight resolvers. Reached via {@link cache.invalidate}. */
   private _invalidateAll(opts: { broadcast?: boolean } = {}): void {
     invalidateAll(this._cacheBag(), opts)
+    this._compiledTable = null
+    this._compiledTableGen++
   }
 
   /** @internal Clear one subject's cached data. Reached via {@link cache.invalidateSubject}. */
@@ -785,11 +896,15 @@ export class IamEngine<
   /** @internal Clear cached policies. Reached via {@link cache.invalidatePolicies}. */
   private _invalidatePolicies(opts: { broadcast?: boolean } = {}): void {
     invalidatePolicies(this._cacheBag(), opts)
+    this._compiledTable = null
+    this._compiledTableGen++
   }
 
   /** @internal Clear cached roles + selectively drop affected subjects. Reached via {@link cache.invalidateRoles}. */
   private _invalidateRoles(roleId?: TRole, opts: { broadcast?: boolean } = {}): void {
     invalidateRoles(this._cacheBag(), roleId, opts)
+    this._compiledTable = null
+    this._compiledTableGen++
   }
 
   /**
@@ -823,4 +938,9 @@ export class IamEngine<
       await this._withTimeout((opts) => this._adapter.listPolicies(opts), 'healthCheck.listPolicies')
     })
   }
+}
+
+/** Factory around {@link IamEngine}, for callers who prefer functions to `new`. */
+export function iamEngine(...args: ConstructorParameters<typeof IamEngine>): IamEngine {
+  return new IamEngine(...args)
 }

@@ -110,3 +110,8 @@ export class AuthSmtpChannel<TTransporter extends AuthSmtpChannel.ITransporter =
     }
   }
 }
+
+/** Factory around {@link AuthSmtpChannel}, for callers who prefer functions to `new`. */
+export function authSmtpChannel(...args: ConstructorParameters<typeof AuthSmtpChannel>): AuthSmtpChannel {
+  return new AuthSmtpChannel(...args)
+}

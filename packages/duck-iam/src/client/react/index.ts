@@ -34,6 +34,9 @@ import type { ReactNode } from 'react'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
 
+/** Re-exported: a consumer building a key by hand must use the same escaping. */
+export { iamBuildPermissionKey }
+
 // React is a peer dep; consumers inject their own React via createIamAccessControl(React).
 
 /** Minimal React context type. */
@@ -61,6 +64,43 @@ interface ReactLike {
  */
 export namespace IamReactClient {
   /**
+   * The core types a React consumer actually needs, surfaced here.
+   *
+   * Without these an app using only the React entry still has to import from
+   * `@gentleduck/iam/core` to name the map it just received, which puts the core
+   * in its dependency list for a type alias.
+   */
+  export type PermissionMap<
+    TAction extends string = string,
+    TResource extends string = string,
+    TScope extends string = string,
+  > = IamClient.PartialPermissionMap<TAction, TResource, TScope>
+
+  export type PermissionKey<
+    TAction extends string = string,
+    TResource extends string = string,
+    TScope extends string = string,
+  > = IamClient.PermissionKey<TAction, TResource, TScope>
+
+  /** One entry of the batch handed to `engine.permissions()`. */
+  export type PermissionCheck<
+    TAction extends string = string,
+    TResource extends string = string,
+    TScope extends string = string,
+  > = IamClient.IPermissionCheck<TAction, TResource, TScope>
+
+  /** What `createIamPermissionChecker` returns, for a consumer holding one. */
+  export interface IChecker<
+    TAction extends string = string,
+    TResource extends string = string,
+    TScope extends string = string,
+  > {
+    can: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
+    cannot: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
+    permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>
+  }
+
+  /**
    * Describes the value exposed by the {@link createIamAccessControl} React context.
    *
    * @template TAction - Constrains valid action strings.
@@ -73,7 +113,7 @@ export namespace IamReactClient {
     TScope extends string = string,
   > {
     /** The resolved permission map. */
-    permissions: IamClient.PermissionMap<TAction, TResource, TScope>
+    permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>
     /** Returns `true` if the action/resource combination is allowed. */
     can: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
     /** Returns `true` if the action/resource combination is denied. */
@@ -108,7 +148,7 @@ export function createIamAccessControl<
   const { createContext, useContext, useMemo, useCallback } = React
 
   const AccessContext = createContext<IamReactClient.IContextValue<TAction, TResource, TScope>>({
-    permissions: {} as IamClient.PermissionMap<TAction, TResource, TScope>,
+    permissions: {} as IamClient.PartialPermissionMap<TAction, TResource, TScope>,
     can: () => false,
     cannot: () => true,
   })
@@ -118,7 +158,7 @@ export function createIamAccessControl<
     permissions,
     children,
   }: {
-    permissions: IamClient.PermissionMap<TAction, TResource, TScope>
+    permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>
     children: ReactNode
   }): ReactNode {
     const value = useMemo(() => {
@@ -182,10 +222,12 @@ export function createIamAccessControl<
 
   /** Hook to asynchronously fetch permissions from a server endpoint. */
   function usePermissions(
-    fetchFn: () => Promise<IamClient.PermissionMap<TAction, TResource, TScope>>,
+    fetchFn: () => Promise<IamClient.PartialPermissionMap<TAction, TResource, TScope>>,
     deps: readonly unknown[] = [],
   ) {
-    const [permissions, setPermissions] = React.useState({} as IamClient.PermissionMap<TAction, TResource, TScope>)
+    const [permissions, setPermissions] = React.useState(
+      {} as IamClient.PartialPermissionMap<TAction, TResource, TScope>,
+    )
     const [loading, setLoading] = React.useState(true)
     const [error, setError] = React.useState<Error | null>(null)
 
@@ -193,7 +235,7 @@ export function createIamAccessControl<
       let cancelled = false
       setLoading(true)
       fetchFn()
-        .then((perms: IamClient.PermissionMap<TAction, TResource, TScope>) => {
+        .then((perms: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => {
           if (!cancelled) {
             setPermissions(perms)
             setLoading(false)
@@ -246,7 +288,7 @@ export function createIamPermissionChecker<
   TAction extends string = string,
   TResource extends string = string,
   TScope extends string = string,
->(permissions: IamClient.PermissionMap<TAction, TResource, TScope>) {
+>(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
   const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
     const key = iamBuildPermissionKey(action, resource, resourceId, scope)
     return (permissions as Record<string, boolean>)[key] ?? false

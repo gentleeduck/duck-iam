@@ -1,3 +1,7 @@
+// Re-exported so a consumer can type the limiter they supply. `strict()` refuses to
+// boot production without one, so the interface has to be reachable.
+export type { Limiter } from '../limiters.types'
+
 import type { Limiter } from '../limiters.types'
 
 export namespace MemoryLimiter {

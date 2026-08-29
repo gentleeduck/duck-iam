@@ -5,24 +5,9 @@ import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
 import type { IamConfig } from '../../core/config'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
-import type {
-  iamAssignments as AssignmentMysql,
-  iamSubjectAttrs as AttrMysql,
-  iamPolicies as PolicyMysql,
-  iamRoles as RoleMysql,
-} from './schema/mysql'
-import type {
-  iamAssignments as AssignmentPg,
-  iamSubjectAttrs as AttrPg,
-  iamPolicies as PolicyPg,
-  iamRoles as RolePg,
-} from './schema/pg'
-import type {
-  iamAssignments as AssignmentSqlite,
-  iamSubjectAttrs as AttrSqlite,
-  iamPolicies as PolicySqlite,
-  iamRoles as RoleSqlite,
-} from './schema/sqlite'
+import type { Mysql } from './mysql/mysql.types'
+import type { Pg } from './pg/pg.types'
+import type { Sqlite } from './sqlite/sqlite.types'
 
 /** IamDrizzle adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamDrizzle {
@@ -33,6 +18,14 @@ export namespace IamDrizzle {
       : SQLiteTableWithColumns<any>
 
   export interface IConfig<TDb extends AnyDrizzleDb, TType extends 'pg' | 'mysql' | 'sqlite'> {
+    /**
+     * Which SQL dialect `db` speaks. MySQL has no `ON CONFLICT` clause - its
+     * insert builder exposes `onDuplicateKeyUpdate()`/`ignore()` instead of
+     * `onConflictDoUpdate()`/`onConflictDoNothing()`, so upserts branch on
+     * this at runtime. Defaults to `'pg'`, which shares its conflict API
+     * with `'sqlite'`.
+     */
+    dialect?: TType
     /** Provides the IamDrizzle database instance with select/insert/delete builders. */
     db: TDb
     /** Provides references to the four IamDrizzle table schemas used by the adapter. */
@@ -43,6 +36,8 @@ export namespace IamDrizzle {
     ops: {
       eq: (col: unknown, val: unknown) => unknown
       and: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
+      /** Builds an `IS NULL` condition. Optional - required only for `updateAssignmentScope` to match a global (unscoped) assignment. */
+      isNull?: (col: unknown) => SQLWrapper
     }
     /**
      * JSON column encoding strategy.
@@ -66,26 +61,20 @@ export namespace IamDrizzle {
   }
 
   /** Row shapes returned by IamDrizzle queries. */
-  export type PolicyRow =
-    | typeof PolicyPg.$inferSelect
-    | typeof PolicyMysql.$inferSelect
-    | typeof PolicySqlite.$inferSelect
+  export type PolicyRow = Pg.PolicyRow | Mysql.PolicyRow | Sqlite.PolicyRow
   /** Database row shape for the roles table. */
-  export type RoleRow = typeof RolePg.$inferSelect | typeof RoleMysql.$inferSelect | typeof RoleSqlite.$inferSelect
+  export type RoleRow = Pg.RoleRow | Mysql.RoleRow | Sqlite.RoleRow
 
   /** Database row shape for the role-to-subject assignments table. */
-  export type AssignmentRow =
-    | typeof AssignmentPg.$inferSelect
-    | typeof AssignmentMysql.$inferSelect
-    | typeof AssignmentSqlite.$inferSelect
+  export type AssignmentRow = Pg.AssignmentRow | Mysql.AssignmentRow | Sqlite.AssignmentRow
 
   /** Database row shape for the subject attributes table. */
-  export type AttrRow = typeof AttrPg.$inferSelect | typeof AttrMysql.$inferSelect | typeof AttrSqlite.$inferSelect
+  export type AttrRow = Pg.AttrRow | Mysql.AttrRow | Sqlite.AttrRow
 
   export type DrizzleTable = PgTableWithColumns<any> | MySqlTableWithColumns<any> | SQLiteTableWithColumns<any>
 
   /**
-   * Structural db interface — all supported Drizzle instances satisfy this.
+   * Structural db interface: all supported Drizzle instances satisfy this.
    * Using a structural interface (not a union) lets TypeScript call
    * `db.select()` on a generic `TDb extends AnyDrizzleDb` without the
    * "each member of the union has incompatible signatures" error.
@@ -93,6 +82,7 @@ export namespace IamDrizzle {
   export interface AnyDrizzleDb {
     select(...args: any[]): any
     insert(table: any): any
+    update(table: any): any
     delete(table: any): any
   }
 }
@@ -128,7 +118,9 @@ export class IamDrizzleAdapter<
   private readonly _t: IamDrizzle.IConfig<TDb, TType>['tables']
   private readonly _eq: IamDrizzle.IConfig<TDb, TType>['ops']['eq']
   private readonly _and: IamDrizzle.IConfig<TDb, TType>['ops']['and']
+  private readonly _isNull?: IamDrizzle.IConfig<TDb, TType>['ops']['isNull']
   private readonly _json: 'native' | 'string'
+  private readonly _dialect: 'pg' | 'mysql' | 'sqlite'
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
 
   /**
@@ -141,8 +133,57 @@ export class IamDrizzleAdapter<
     this._t = config.tables
     this._eq = config.ops.eq
     this._and = config.ops.and
+    this._isNull = config.ops.isNull
     this._json = config.json ?? 'native'
+    this._dialect = config.dialect ?? 'pg'
     this._onPolicyError = config.onPolicyError
+  }
+
+  /**
+   * Insert-or-update keyed on `target`'s unique/PK column, currently
+   * `targetValue`. MySQL has no `ON CONFLICT` clause, and its
+   * `onDuplicateKeyUpdate` fires on *any* unique-index violation, not only
+   * `target`'s - `iamPolicies` also has a unique `name`, `iamRoles` a unique
+   * `(name, scope)`. Saving a policy/role with a fresh id but a name (or
+   * name+scope) that already belongs to a *different* row would silently
+   * overwrite that unrelated row's data - including its id - instead of
+   * erroring, where pg/sqlite's `target`-scoped `onConflictDoUpdate` throws
+   * because the conflict isn't on the column it was told to expect.
+   *
+   * So on MySQL this checks for the row by `target` first and issues a
+   * plain update or insert accordingly, rather than a blanket
+   * `onDuplicateKeyUpdate`: a genuine secondary-unique-index collision then
+   * surfaces as a thrown duplicate-entry error from the insert, matching
+   * pg/sqlite's fail-closed behaviour instead of corrupting the other row.
+   */
+  private async _upsert(
+    table: IamDrizzle.DrizzleTable,
+    values: Record<string, unknown>,
+    target: unknown,
+    targetValue: unknown,
+    set: Record<string, unknown>,
+  ) {
+    if (this._dialect !== 'mysql') {
+      await this._db.insert(table).values(values).onConflictDoUpdate({ target, set })
+      return
+    }
+    const existing = await this._db.select().from(table).where(this._eq(target, targetValue)).limit(1)
+    if (existing.length > 0) {
+      await this._db.update(table).set(set).where(this._eq(target, targetValue))
+    } else {
+      await this._db.insert(table).values(values)
+    }
+  }
+
+  /**
+   * Insert, silently skipping a row that already exists. MySQL's
+   * insert-ignore is a builder-order modifier (`.ignore()` before
+   * `.values()`), not a trailing call like `onConflictDoNothing()`.
+   */
+  private _insertOrSkip(table: IamDrizzle.DrizzleTable, values: Record<string, unknown>) {
+    return this._dialect === 'mysql'
+      ? this._db.insert(table).ignore().values(values)
+      : this._db.insert(table).values(values).onConflictDoNothing()
   }
 
   /**
@@ -254,6 +295,39 @@ export class IamDrizzleAdapter<
     return role
   }
 
+  /** True unless `now` falls outside `[startsAt, expiresAt)`. Both bounds are optional. */
+  private _isActive(row: IamDrizzle.AssignmentRow, now: number): boolean {
+    const startsAt = row.startsAt ? new Date(row.startsAt).getTime() : null
+    const expiresAt = row.expiresAt ? new Date(row.expiresAt).getTime() : null
+    if (startsAt !== null && now < startsAt) return false
+    if (expiresAt !== null && now >= expiresAt) return false
+    return true
+  }
+
+  /**
+   * Parses an assignment's `attributes` column. Corruption drops just this field
+   * (reported, not thrown) - unlike subject attributes, a bad value here shouldn't
+   * fail the whole role list.
+   */
+  private _parseAssignmentAttributes(row: IamDrizzle.AssignmentRow): IamPrimitives.Attributes | undefined {
+    const raw = row.attributes
+    if (raw === null || raw === undefined) return undefined
+    // mysql's id has no adapter-side default, so AssignmentRow.id is nullable there.
+    const rowId = row.id ?? row.subjectId
+    let value: unknown
+    try {
+      value = typeof raw === 'string' ? JSON.parse(raw) : raw
+    } catch (err) {
+      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), rowId)
+      return undefined
+    }
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      this._reportPolicyError(new Error(`Assignment attributes for "${rowId}" must be a JSON object`), rowId)
+      return undefined
+    }
+    return value as IamPrimitives.Attributes
+  }
+
   /**
    * Lists every policy in the database.
    *
@@ -293,7 +367,7 @@ export class IamDrizzleAdapter<
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
     const data = serializePolicy(p, this._json)
-    await this._db.insert(this._t.policies).values(data).onConflictDoUpdate({ target: this._t.policies.id, set: data })
+    await this._upsert(this._t.policies, data, this._t.policies.id, p.id, data)
   }
 
   /**
@@ -345,7 +419,7 @@ export class IamDrizzleAdapter<
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
     const data = serializeRole(r, this._json)
-    await this._db.insert(this._t.roles).values(data).onConflictDoUpdate({ target: this._t.roles.id, set: data })
+    await this._upsert(this._t.roles, data, this._t.roles.id, r.id, data)
   }
 
   /**
@@ -372,7 +446,8 @@ export class IamDrizzleAdapter<
       subjectId,
     )
     // Unscoped (global) roles only - mirrors file/memory/redis adapters.
-    return [...new Set(rows.filter((r) => r.scope == null).map((r) => r.roleId as TRole))]
+    const now = Date.now()
+    return [...new Set(rows.filter((r) => r.scope == null && this._isActive(r, now)).map((r) => r.roleId as TRole))]
   }
 
   /**
@@ -391,7 +466,17 @@ export class IamDrizzleAdapter<
       this._t.assignments.subjectId,
       subjectId,
     )
-    return rows.filter((r) => r.scope != null).map((r) => ({ role: r.roleId as TRole, scope: r.scope as TScope }))
+    const now = Date.now()
+    return rows
+      .filter((r) => r.scope != null && this._isActive(r, now))
+      .map((r) => {
+        const attributes = this._parseAssignmentAttributes(r)
+        return {
+          role: r.roleId as TRole,
+          scope: r.scope as TScope,
+          ...(attributes !== undefined && { attributes }),
+        }
+      })
   }
 
   /**
@@ -402,13 +487,18 @@ export class IamDrizzleAdapter<
    * @param subjectId - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
+   * @param opts - Optional temporal bounds and per-grant attributes.
    * @returns Resolves once the insert completes.
    */
-  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    await this._db
-      .insert(this._t.assignments)
-      .values({ subjectId, roleId, scope: scope ?? null })
-      .onConflictDoNothing()
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    await this._insertOrSkip(this._t.assignments, {
+      subjectId,
+      roleId,
+      scope: scope ?? null,
+      startsAt: opts?.startsAt ?? null,
+      expiresAt: opts?.expiresAt ?? null,
+      attributes: opts?.attributes ? encodeJson(opts.attributes, this._json) : null,
+    })
   }
 
   /**
@@ -426,6 +516,51 @@ export class IamDrizzleAdapter<
     ]
     if (scope) conditions.push(this._eq(this._t.assignments.scope, scope))
     await this._db.delete(this._t.assignments).where(this._and(...(conditions as (SQLWrapper | undefined)[])))
+  }
+
+  /**
+   * Moves `(subjectId, roleId, fromScope)` to `toScope` with one `UPDATE`. Requires
+   * `ops.isNull` (the global/unscoped case needs `IS NULL`, not `eq(col, null)`);
+   * without it, or when nothing matches `fromScope`, returns `false` so the engine
+   * falls back to revoke + assign.
+   */
+  async updateAssignmentScope(
+    subjectId: string,
+    roleId: TRole,
+    fromScope: TScope | undefined,
+    toScope: TScope | undefined,
+    actor?: string,
+  ): Promise<boolean> {
+    if (!this._isNull) return false
+    const table = this._t.assignments as unknown as { subjectId: unknown; roleId: unknown; scope: unknown }
+    const scopeCondition = (scope: TScope | undefined) =>
+      scope === undefined ? (this._isNull as (col: unknown) => SQLWrapper)(table.scope) : this._eq(table.scope, scope)
+
+    const fromCondition = this._and(
+      this._eq(table.subjectId, subjectId) as SQLWrapper,
+      this._eq(table.roleId, roleId) as SQLWrapper,
+      scopeCondition(fromScope) as SQLWrapper,
+    )
+    const existing = await this._db.select().from(this._t.assignments).where(fromCondition).limit(1)
+    if (!existing[0]) return false
+
+    const toCondition = this._and(
+      this._eq(table.subjectId, subjectId) as SQLWrapper,
+      this._eq(table.roleId, roleId) as SQLWrapper,
+      scopeCondition(toScope) as SQLWrapper,
+    )
+    const conflict = await this._db.select().from(this._t.assignments).where(toCondition).limit(1)
+    if (conflict[0]) {
+      // Target scope is already granted; drop the source row rather than collide with it.
+      await this._db.delete(this._t.assignments).where(fromCondition)
+      return true
+    }
+
+    await this._db
+      .update(this._t.assignments)
+      .set({ scope: toScope ?? null, ...(actor !== undefined && { updatedBy: actor }) })
+      .where(fromCondition)
+    return true
   }
 
   /**
@@ -482,10 +617,7 @@ export class IamDrizzleAdapter<
     }
     const mergedObj = { ...existing, ...attrs }
     const merged = this._json === 'string' ? JSON.stringify(mergedObj) : mergedObj
-    await this._db
-      .insert(this._t.attrs)
-      .values({ subjectId, data: merged })
-      .onConflictDoUpdate({ target: this._t.attrs.subjectId, set: { data: merged } })
+    await this._upsert(this._t.attrs, { subjectId, data: merged }, this._t.attrs.subjectId, subjectId, { data: merged })
   }
 }
 
@@ -550,4 +682,18 @@ export function createIamDrizzleAdapter<
     : never,
 >(config: IamDrizzle.IConfig<TDb, TType>): IamDrizzleAdapter<Params[0], Params[1], Params[2], Params[3], TDb, TType> {
   return new IamDrizzleAdapter(config)
+}
+
+/** Factory around {@link IamDrizzleAdapter}, for callers who prefer functions to `new`. */
+export function iamDrizzleAdapter<
+  TAction extends string,
+  TResource extends string,
+  TRole extends string,
+  TScope extends string,
+  TDb extends IamDrizzle.AnyDrizzleDb = IamDrizzle.AnyDrizzleDb,
+  TType extends 'pg' | 'mysql' | 'sqlite' = 'pg',
+>(
+  ...args: ConstructorParameters<typeof IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType>>
+): IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType> {
+  return new IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType>(...args)
 }

@@ -1,3 +1,7 @@
+// Re-exported so a consumer can type the limiter they supply. `strict()` refuses to
+// boot production without one, so the interface has to be reachable.
+export type { Limiter } from '../limiters.types'
+
 import type { Limiter } from '../limiters.types'
 
 /**
@@ -15,4 +19,9 @@ export class NoopLimiter implements Limiter.Me {
     return { ok: true, remaining: Number.POSITIVE_INFINITY, resetAt: new Date(Date.now() + 60_000) }
   }
   async reset(_key: string): Promise<void> {}
+}
+
+/** Factory around {@link NoopLimiter} for functional-style config. */
+export function noopLimiter(): NoopLimiter {
+  return new NoopLimiter()
 }

@@ -29,10 +29,13 @@ export class MemoryAdapter<
   private _memberships = new Map<string, Org.Membership>()
 
   constructor() {
-    this.identities = this._buildIdentityStore()
-    this.sessions = this._buildSessionStore()
-    this.credentials = this._buildCredentialStore()
-    this.orgs = this._buildOrgStore()
+    // Brand here, not just in the factory below: `new MemoryAdapter()` is how every
+    // example/test builds one, and strict() recognises a memory store by this flag.
+    const brand = { __isMemoryStore: true as const }
+    this.identities = Object.assign(this._buildIdentityStore(), brand)
+    this.sessions = Object.assign(this._buildSessionStore(), brand)
+    this.credentials = Object.assign(this._buildCredentialStore(), brand)
+    this.orgs = Object.assign(this._buildOrgStore(), brand)
   }
 
   // --- Identity ---------------------------------------------------------
@@ -64,8 +67,7 @@ export class MemoryAdapter<
         return null
       },
       create: async (input) => {
-        // Atomic provider-sub uniqueness scan to close the race between
-        // two concurrent first-oauth-callbacks on the same (providerId, sub).
+        // Atomic scan closes the race between two concurrent first-oauth-callbacks.
         const providers = input.providers ?? []
         for (const link of providers) {
           if (link.providerSub === null) continue
@@ -125,8 +127,7 @@ export class MemoryAdapter<
         if (!deletedAtMs || deletedAtMs < Date.now()) {
           throw new AuthError('AUTH_GRACE_EXPIRED')
         }
-        // Clear the soft-delete marker back to the `null` sentinel; `Me.deletedAt`
-        // is non-optional (`Date | null`), so we reset rather than omit the key.
+        // `Me.deletedAt` is non-optional (`Date | null`), so reset rather than omit.
         const next: Identities.Me<Profile> = { ...cur, deletedAt: null }
         store.set(id, next)
         return next
@@ -137,9 +138,7 @@ export class MemoryAdapter<
       link: async (identityId, link) => {
         const cur = store.get(identityId)
         if (!cur) return
-        // Atomic uniqueness check under JS single-threading; closes the
-        // TOCTOU window in `findByProviderSub` -> `link`. SQL adapters
-        // enforce the equivalent via UNIQUE(providerId, providerSub).
+        // Closes the TOCTOU window in `findByProviderSub` -> `link` under JS single-threading.
         if (link.providerSub !== null) {
           for (const [otherId, other] of store) {
             if (otherId === identityId) continue
@@ -192,8 +191,7 @@ export class MemoryAdapter<
     const store = this._sessions
     return {
       create: async (s) => {
-        // Fill the nullable columns the caller may have omitted, so the store
-        // always holds a complete `Session.Me` row (SQL adapter parity).
+        // Fill nullable columns the caller omitted, so the store holds a complete row.
         const row: Sessions.Me = {
           id: s.id,
           identityId: s.identityId,
@@ -217,8 +215,10 @@ export class MemoryAdapter<
       getByHash: async (sidHash) => store.get(sidHash) ?? null,
       update: async (id, patch) => {
         const cur = store.get(id)
-        if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
-        const next = { ...cur, ...patch, rotatedAt: new Date() }
+        // Redis and SQL both surface a missing row as AUTH_SESSION_REVOKED; keep memory in step.
+        if (!cur) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
+        // No implicit `rotatedAt` stamp: moving it on every patch would mask an expired gate.
+        const next = { ...cur, ...patch }
         store.set(id, next)
         return next
       },
@@ -265,10 +265,8 @@ export class MemoryAdapter<
         return null
       },
       findByHashedSecret: async (secretHash, kind, ctx) => {
-        // Prefer freshest live; fall back to revoked so callers can disambiguate.
-        // timingSafeEqual defeats byte-by-byte hash oracles. Tenant filter
-        // matches SQL adapter semantics: undefined ctx tenant = global match;
-        // set ctx tenant = exact match (or global rows when row.tenantId is unset).
+        // Prefer freshest live, fall back to revoked. timingSafeEqual defeats hash oracles.
+        // Tenant filter: undefined ctx.tenantId matches globally; set matches exactly.
         let live: Credential.Me | null = null
         let revokedRow: Credential.Me | null = null
         for (const c of store.values()) {
@@ -286,8 +284,7 @@ export class MemoryAdapter<
       },
       upsert: async (input, ctx) => {
         const id = randomToken(16)
-        // SQL adapter parity: inherit tenantId from ctx when input doesn't set it,
-        // and default every nullable column to `null` when omitted.
+        // Inherit tenantId from ctx when input doesn't set it.
         const c: Credential.Me = {
           id,
           identityId: input.identityId,
@@ -412,9 +409,17 @@ export const memoryStorage = <Profile extends Identities.ProfileMetadataBase = I
   credentials: MemoryAdapter<Profile>['credentials']
 } => {
   const adapter = new MemoryAdapter<Profile>()
+  // Branded so strict() can recognise these without reading `constructor.name`, which
+  // every sql/drizzle/prisma store shares as a plain object literal.
+  const brand = { __isMemoryStore: true as const }
   return {
-    credentials: adapter.credentials,
-    identities: adapter.identities,
-    sessions: adapter.sessions,
+    credentials: Object.assign(adapter.credentials, brand),
+    identities: Object.assign(adapter.identities, brand),
+    sessions: Object.assign(adapter.sessions, brand),
   }
+}
+
+/** Factory around {@link MemoryAdapter}, for callers who prefer functions to `new`. */
+export function memoryAdapter(...args: ConstructorParameters<typeof MemoryAdapter>): MemoryAdapter {
+  return new MemoryAdapter(...args)
 }

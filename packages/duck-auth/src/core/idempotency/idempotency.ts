@@ -83,7 +83,37 @@ export class IdempotencyImpl {
   }
 }
 
-/** Factory around {@link IdempotencyImpl} for functional-style config. */
-export function idempotency(store: Idempotency.Store, cfg?: Partial<Idempotency.Cfg>): IdempotencyImpl {
-  return new IdempotencyImpl(store, cfg)
+/**
+ * Anything the `idempotency` config key accepts: the facet itself, or a bare
+ * store to wrap in one. Mirrors how `limiter` takes a ready-made `Limiter.Me`,
+ * so `idempotency: redisIdempotency({ redis })` reads like
+ * `limiter: redisLimiter({ redis, max, windowMs })`.
+ */
+export type IdempotencyInput = IdempotencyImpl | Idempotency.Store
+
+/** True for the facet rather than a store; the two share no method names. */
+function isFacet(value: IdempotencyInput): value is IdempotencyImpl {
+  return value instanceof IdempotencyImpl
+}
+
+/**
+ * Normalise whatever the config supplied into a facet. Used by the engine so a
+ * caller can pass either spelling, and by {@link idempotency} so wrapping twice
+ * is a no-op rather than an error.
+ */
+export function resolveIdempotency(value: IdempotencyInput, cfg?: Partial<Idempotency.Cfg>): IdempotencyImpl {
+  return isFacet(value) ? value : new IdempotencyImpl(value, cfg)
+}
+
+/**
+ * Wrap a store in the facet. Accepts a facet too, so composing with the
+ * store-specific factories below stays valid.
+ */
+export function idempotency(store: IdempotencyInput, cfg?: Partial<Idempotency.Cfg>): IdempotencyImpl {
+  return resolveIdempotency(store, cfg)
+}
+
+/** Factory around {@link IdempotencyImpl}, for callers who prefer functions to `new`. */
+export function idempotencyImpl(...args: ConstructorParameters<typeof IdempotencyImpl>): IdempotencyImpl {
+  return new IdempotencyImpl(...args)
 }

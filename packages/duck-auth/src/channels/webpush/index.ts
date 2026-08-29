@@ -133,3 +133,8 @@ export class AuthWebPushChannel implements Channel.Channel {
     }
   }
 }
+
+/** Factory around {@link AuthWebPushChannel}, for callers who prefer functions to `new`. */
+export function authWebPushChannel(...args: ConstructorParameters<typeof AuthWebPushChannel>): AuthWebPushChannel {
+  return new AuthWebPushChannel(...args)
+}
