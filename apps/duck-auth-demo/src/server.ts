@@ -31,8 +31,8 @@ app.use(
 // Bootstrap a fresh user for the demo (production uses flows.beginSignUp).
 app.post('/auth/signup', async (c) => {
   const { email, password: pw } = (await c.req.json()) as { email: string; password: string }
-  const identity = await auth.identities.create({ profile: { email, emailVerified: false } })
-  await auth.passwords.set(identity.id, pw)
+  const identity = await auth.identities.create({ profile: { username: email, email, emailVerified: false } })
+  await auth.passwords.set(identity.id, pw, auth.cfg.stores.credentials)
   return c.json({ identityId: identity.id, ok: true })
 })
 
