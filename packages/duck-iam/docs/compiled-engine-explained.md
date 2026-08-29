@@ -22,7 +22,7 @@ flowchart TD
     C -->|production| E["maskFromRoles(table, subject.roles) — one bit per held role"]
     E --> F["lookup(table, mask, action, resource, req)"]
     F --> G["abacFlatVote — one cell in the table"]
-    F --> H["rbacVote — mask bits OR rbacResidual"]
+    F --> H["rbacVote — mask bits OR rbacDynamic OR rbacResidual"]
     F --> I["residualPolicies loop — evaluatePolicyFast per policy"]
     G --> J["combine per table.policyCombine"]
     H --> J
@@ -45,9 +45,11 @@ mode too, not just production).
 
 ```mermaid
 flowchart TD
-    R["roles[]"] --> RP{"isSimplePermission(perm, role)?<br/>literal action+resource, no conditions, no scope"}
+    R["roles[]"] --> RW{"isWildcardPermission(perm)?<br/>wildcard action or resource"}
+    RW -->|yes| FILT["filtered into rbacResidual<br/>(rolesToPolicy on the leftovers)"]
+    RW -->|no| RP{"isSimplePermission(perm, role)?<br/>no conditions, no scope"}
     RP -->|yes| BAKE["allow[a*nR+r] gets OR'd with mask(holders)"]
-    RP -->|no: wildcard / conditions / scope| FILT["filtered into rbacResidual<br/>(rolesToPolicy on the leftovers)"]
+    RP -->|no: conditions and/or scope| RDYN["rbacDynamic[a*nR+r] gets a {roleMask, scope?, conditions?} group"]
 
     P["policies[]"] --> PC{"isResidualPolicy(policy)?<br/>any wildcard rule, or a wildcarded target"}
     PC -->|no| FLAT["flatPolicies"]
@@ -60,16 +62,18 @@ flowchart TD
     CA -. "same cell also gets a deny" .-> DYN
 
     BAKE --> TABLE["CompiledTable"]
+    RDYN --> TABLE
     FILT --> TABLE
     CD --> TABLE
     DYN --> TABLE
     RESID --> TABLE
 ```
 
-`kind`/`touched`/`allow`/`dynamic` are 4 parallel arrays, all indexed by
-the same `idx = actionId(a) * nResources + resourceId(r)` — ABAC owns
-`kind`+`dynamic`, RBAC owns `allow`, `touched` is shared bookkeeping.
-Real code, [`compiled.compile.ts:157-228`](../src/core/engine/compiled/compiled.compile.ts#L157-L228).
+`kind`/`touched`/`allow`/`dynamic`/`rbacDynamic` are 5 parallel arrays,
+all indexed by the same `idx = actionId(a) * nResources + resourceId(r)`
+— ABAC owns `kind`+`dynamic`, RBAC owns `allow`+`rbacDynamic`, `touched`
+is shared bookkeeping (ABAC-only, RBAC-only cells stay `touched=0`).
+Real code, [`compiled.compile.ts`](../src/core/engine/compiled/compiled.compile.ts).
 
 ## 3. File map
 
@@ -82,7 +86,7 @@ graph LR
     subgraph "engine/compiled/"
         COMPILE["compiled.compile.ts<br/>compileTable() — build time"]
         LOOKUP["compiled.lookup.ts<br/>lookup(), abacFlatVote, rbacVote — request time"]
-        CTYPES["compiled.types.ts<br/>CompiledTable, CellKind, DynamicPolicyGroup"]
+        CTYPES["compiled.types.ts<br/>CompiledTable, CellKind, DynamicPolicyGroup, RbacRuleGroup"]
     end
     subgraph "evaluate/"
         EVAL["evaluate.ts<br/>evaluate, evaluatePolicy (trace)<br/>evaluateFast, evaluatePolicyFast (no trace)"]
@@ -98,6 +102,7 @@ graph LR
     ENGINE -->|mode development| EVAL
     LOOKUP --> CTYPES
     LOOKUP -->|residual policies + rbacResidual| EVAL
+    LOOKUP -->|ABAC DYNAMIC cells + rbacDynamic groups| COND
     COMPILE --> CTYPES
     COMPILE --> RBAC
     COMPILE --> ELIBS2
@@ -337,9 +342,55 @@ folded into `7` when the table was built.
 `1 << 32 === 1 << 0`. A 33rd role would silently alias role 0's bit.
 `compileTable` throws past `MAX_ROLES = 32` rather than risk that. Full
 rationale, alternatives, and the two separate scope mechanisms (subject-
-scoped-role enrichment vs permission-level scope, only one of which is
-slow) are in [`engine-rewrite.md` § Known limits](./engine-rewrite.md#known-limits-role-cap-and-scope) -
+scoped-role enrichment vs permission-level scope) are in
+[`engine-rewrite.md` § Known limits](./engine-rewrite.md#known-limits-role-cap-and-scope) -
 not repeated here.
+
+### Scoped/conditioned grants: `rbacDynamic`
+
+A permission with a literal action+resource but a scope and/or
+conditions restriction (`{ role: 'org-admin', action: 'update', resource:
+'org', scope: 'org-1' }`) can't take the plain bitmask path — the answer
+depends on the *request's* scope/attributes, not just which roles the
+subject holds. It still gets a cell though, same `roleMask` math as the
+bitmask bake:
+
+```ts
+// Baking, extended: non-simple-but-literal permissions get a group instead of a mask bit
+const group: RbacRuleGroup = {
+  roleMask: mask,                          // same holders-expanded mask as BAKE above
+  scope: effectiveScopeOf(perm, role),      // undefined unless a literal, non-'*' scope
+  conditions: perm.conditions,
+  policy: rbacDynamicSourcePolicy,          // for onPolicyError attribution only
+}
+```
+
+Request time, inside `rbacVote()`, after the plain mask misses:
+
+```ts
+for (const g of groups) {
+  if ((mask & g.roleMask) === 0) continue
+  if (g.scope !== undefined && g.scope !== req.scope) continue
+  if (g.conditions && !evalConditionGroup(req, g.conditions, 0, caches)) continue
+  return true // role permissions are allow-only - first match wins
+}
+```
+
+Two `org-admin`-style roles granting the same `update`/`org` cell under
+different scopes end up as two small groups at one cell:
+
+| group | `roleMask` | `scope` |
+|---|---|---|
+| org1-admin's grant | bit 0 | `'org-1'` |
+| org2-admin's grant | bit 1 | `'org-2'` |
+
+A request from a subject holding `org1-admin` with `req.scope === 'org-1'`
+matches the first group and returns `true` before ever reaching the
+second. This is `O(groups at that cell)`, not a re-interpretation of
+every scoped/conditioned permission in the system — the interpreter path
+(`rbacResidual`) is now reserved for the one case that's genuinely
+irreducible: a wildcarded action or resource. All three sources still OR
+into one RBAC vote (see §7).
 
 ## 6. Deep dive: `CompiledTable`, field by field
 
@@ -354,15 +405,16 @@ export interface CompiledTable {
   readonly touched: Uint8Array        // 1 if any flat policy has a rule shaped for this cell
   readonly allow: Uint32Array         // RBAC grant bitmask per cell
   readonly dynamic: (readonly DynamicPolicyGroup[] | undefined)[]
+  readonly rbacDynamic: (readonly RbacRuleGroup[] | undefined)[]  // scoped/conditioned role permissions per cell
   readonly hasFlatSource: boolean     // any flat ABAC policy at all?
-  readonly hasRbacSource: boolean     // any role grants at all?
-  readonly rbacResidual: AccessControl.IPolicy | null   // RBAC's "can't bitmask this" leftovers
+  readonly hasRbacSource: boolean     // any role grants at all (simple, dynamic, or residual)?
+  readonly rbacResidual: AccessControl.IPolicy | null   // RBAC's wildcard-only leftovers
   readonly residualPolicies: readonly AccessControl.IPolicy[]  // ABAC's wildcard/targeted policies
 }
 ```
 
-`kind`/`touched`/`allow`/`dynamic` are 4 parallel arrays, all keyed by
-`idx = actionId.get(action)! * nResources + resourceId.get(resource)!`.
+`kind`/`touched`/`allow`/`dynamic`/`rbacDynamic` are 5 parallel arrays,
+all keyed by `idx = actionId.get(action)! * nResources + resourceId.get(resource)!`.
 
 This is real, captured output — one role (`editor`, permission
 `update`/`post`), one ABAC policy (`ownership`: allow `read`/`post` when
@@ -375,10 +427,11 @@ This is real, captured output — one role (`editor`, permission
   resourceId: Map(1) { 'post' => 0 },
   roleId: Map(1) { 'editor' => 0 },
   policyCombine: 'and',
-  kind: Uint8Array(2) [ 0, 3 ],
+  kind: Uint8Array(2) [ 0, 2 ],
   touched: Uint8Array(2) [ 0, 1 ],
   allow: Uint32Array(2) [ 1, 0 ],
   dynamic: [ <1 empty item>, [ { policyId: 'ownership', algorithm: 'deny-overrides', ... } ] ],
+  rbacDynamic: [ <2 empty items> ],
   hasFlatSource: true,
   hasRbacSource: true,
   rbacResidual: null,
@@ -391,13 +444,15 @@ Reading it cell by cell — `nResources = 1`, so `idx = action * 1 + 0 = action`
 | `idx` | action, resource | `touched` | `kind` | `allow` | `dynamic` | why |
 |---|---|---|---|---|---|---|
 | 0 | update, post | 0 | 0 (`CONST_DENY`) | **1** (`0b1`, bit 0 = editor) | `<empty>` | No ABAC policy touches `update`/`post` at all → `touched=0`. `kind=0` is only the array's zero-default; `abacFlatVote` checks `touched[idx]===0` **before** ever reading `kind`, so this "looks like CONST_DENY" value is never actually consulted. The real answer for this cell comes from `allow=1`: editor (bit 0) is directly granted. |
-| 1 | read, post | **1** | **3** (`DYNAMIC`) | 0 | `[{ ownership, deny-overrides, rules: [...] }]` | `ownership`'s rule has a condition (`subject.id === resource.attributes.ownerId`), so this cell can't be a fixed constant — it's `DYNAMIC`, and `dynamic[1]` holds the policy group `evaluateDynamicCell` runs per request. No role grants `read`/`post` directly, so `allow=0` — RBAC has nothing to say here; the vote is 100% ABAC. |
+| 1 | read, post | **1** | **2** (`DYNAMIC`) | 0 | `[{ ownership, deny-overrides, rules: [...] }]` | `ownership`'s rule has a condition (`subject.id === resource.attributes.ownerId`), so this cell can't be a fixed constant — it's `DYNAMIC`, and `dynamic[1]` holds the policy group `evaluateDynamicCell` runs per request. No role grants `read`/`post` directly, so `allow=0` — RBAC has nothing to say here; the vote is 100% ABAC. |
 
 `hasFlatSource: true` (the `ownership` policy exists), `hasRbacSource: true`
 (editor's permission exists), `rbacResidual: null` (editor's permission
-is fully "simple" — literal, unconditional, no scope — nothing left
-over for the residual half), `residualPolicies: []` (no wildcard/target
-policies in this example).
+is fully "simple" — literal, unconditional, no scope/conditions —
+nothing left over for either non-bitmask source), `rbacDynamic` is all
+empty (no scoped/conditioned role permissions in this example — see §5's
+`rbacDynamic` subsection for one that populates it), `residualPolicies: []`
+(no wildcard/target policies in this example).
 
 `CellKind` itself, for reference (`compiled.types.ts`):
 
@@ -405,7 +460,7 @@ policies in this example).
 export enum CellKind {
   CONST_DENY = 0,
   CONST_ALLOW = 1,
-  DYNAMIC = 3,
+  DYNAMIC = 2,
 }
 ```
 
@@ -434,15 +489,16 @@ policy (`combiners`, `evaluate.libs.ts`); `table.policyCombine`
 (`'and'` / `'allow-overrides'` / `'first-applicable'`) decides *across*
 policies, in `lookup()`'s final `applicable.some/every(Boolean)`.
 
-**RBAC is one vote, not two.** `rbacVote` (`compiled.lookup.ts:92-128`)
-checks the mask bit first; only on a miss does it fall through to
-`rbacResidual` (the synthetic policy built from permissions
-`isSimplePermission` rejected — wildcards, conditions, scope). The two
-halves are never both counted — `rbacResidual`'s vote only runs, and
-only matters, when the mask bit didn't already grant it. A `null`
-result (abstain) happens when neither half has anything shaped for this
-action/resource — not "no", just "not applicable," same distinction
-`evaluatePolicy`'s NotApplicable makes in the interpreter.
+**RBAC is one vote, not three.** `rbacVote` (`compiled.lookup.ts`) checks
+the mask bit first; on a miss it scans `rbacDynamic` (scoped/conditioned
+permissions, literal action+resource); only when neither has an answer
+does it fall through to `rbacResidual` (wildcarded action/resource
+permissions only, now the narrowest of the three). None of the three are
+ever counted as separate voters — each later source's vote only runs,
+and only matters, when the earlier ones didn't already decide it. A
+`null` result (abstain) happens when none of the three has anything
+shaped for this action/resource — not "no", just "not applicable," same
+distinction `evaluatePolicy`'s NotApplicable makes in the interpreter.
 
 **Speed, honestly.** `engine.can()` in `mode: 'production'` measures
 ~1.15M ops/sec full-stack (adapter + hooks + compiled table), ~14x

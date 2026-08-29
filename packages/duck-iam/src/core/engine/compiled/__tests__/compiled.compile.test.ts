@@ -150,8 +150,8 @@ describe('compileTable: basic classification', () => {
   })
 })
 
-describe('compileTable: role scope/conditions routing to the residual RBAC policy', () => {
-  it('a permission with conditions does not get an unconditional RBAC mask bit', () => {
+describe('compileTable: role scope/conditions compile into rbacDynamic (literal action+resource, not wildcarded)', () => {
+  it('a permission with conditions gets a cell and lands in rbacDynamic, not rbacResidual', () => {
     const conditionalRoles: AccessControl.IRole[] = [
       {
         id: 'owner',
@@ -166,71 +166,89 @@ describe('compileTable: role scope/conditions routing to the residual RBAC polic
       },
     ]
     const t = compileTable(conditionalRoles, [], 'and')
-    // Never entered the fast-bit universe: no policy/role produced a simple grant here.
-    expect(t.actionId.has('update')).toBe(false)
-    expect(t.rbacResidual).not.toBeNull()
-    expect(t.rbacResidual!.rules).toHaveLength(1)
+    expect(t.actionId.has('update')).toBe(true)
+    expect(t.rbacResidual).toBeNull()
+    const idx = t.actionId.get('update')! * t.nResources + t.resourceId.get('post')!
+    expect(t.rbacDynamic[idx]).toHaveLength(1)
+    expect(t.rbacDynamic[idx]![0]!.conditions).toBeDefined()
+    expect(t.rbacDynamic[idx]![0]!.scope).toBeUndefined()
   })
 
-  it('a permission with a scope does not get an unconditional RBAC mask bit', () => {
+  it('a permission with a scope gets a cell and lands in rbacDynamic, not rbacResidual', () => {
     const scopedRoles: AccessControl.IRole[] = [
       { id: 'org-admin', name: 'Org Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-1' }] },
     ]
     const t = compileTable(scopedRoles, [], 'and')
-    expect(t.actionId.has('update')).toBe(false)
-    expect(t.rbacResidual).not.toBeNull()
-    expect(t.rbacResidual!.rules).toHaveLength(1)
+    expect(t.actionId.has('update')).toBe(true)
+    expect(t.rbacResidual).toBeNull()
+    const idx = t.actionId.get('update')! * t.nResources + t.resourceId.get('org')!
+    expect(t.rbacDynamic[idx]).toHaveLength(1)
+    expect(t.rbacDynamic[idx]![0]!.scope).toBe('org-1')
+    expect(t.rbacDynamic[idx]![0]!.conditions).toBeUndefined()
   })
 
-  it('a plain permission (no scope/conditions) still takes the fast mask path', () => {
+  it('a plain permission (no scope/conditions) still takes the fast mask path, not rbacDynamic', () => {
     const t = compileTable(roles, [], 'and')
     expect(t.actionId.has('read')).toBe(true)
     expect(t.rbacResidual).toBeNull()
+    const idx = t.actionId.get('read')! * t.nResources + t.resourceId.get('post')!
+    expect(t.rbacDynamic[idx]).toBeUndefined()
   })
 
-  it('inheritance through a role with only complex permissions still resolves for the residual RBAC policy', () => {
+  it('a wildcarded permission (action: *) is excluded from the cell universe and stays in rbacResidual', () => {
+    const wildRoles: AccessControl.IRole[] = [
+      { id: 'super', name: 'Super', permissions: [{ action: '*', resource: 'post' }] },
+    ]
+    const t = compileTable(wildRoles, [], 'and')
+    expect(t.actionId.has('*')).toBe(false)
+    expect(t.rbacResidual).not.toBeNull()
+  })
+
+  it('rbacDynamic group carries the inheritance-expanded role mask (same math as the allow bake)', () => {
     const inheritedRoles: AccessControl.IRole[] = [
-      {
-        id: 'base',
-        name: 'Base',
-        permissions: [
-          {
-            action: 'delete',
-            resource: 'post',
-            conditions: { all: [{ field: 'subject.id', operator: 'eq', value: '$resource.attributes.ownerId' }] },
-          },
-        ],
-      },
+      { id: 'base', name: 'Base', permissions: [{ action: 'update', resource: 'org', scope: 'org-1' }] },
       { id: 'child', name: 'Child', inherits: ['base'], permissions: [] },
     ]
     const t = compileTable(inheritedRoles, [], 'and')
-    expect(t.rbacResidual).not.toBeNull()
-    // The permission is reachable both directly (holding 'base') and via inheritance
-    // (holding 'child', which inherits 'base') - rolesToPolicy emits one rule per path.
-    expect(t.rbacResidual!.rules.some((r) => JSON.stringify(r.conditions).includes('base'))).toBe(true)
-    expect(t.rbacResidual!.rules.some((r) => JSON.stringify(r.conditions).includes('child'))).toBe(true)
+    const idx = t.actionId.get('update')! * t.nResources + t.resourceId.get('org')!
+    const group = t.rbacDynamic[idx]![0]!
+    const baseBit = 1 << t.roleId.get('base')!
+    const childBit = 1 << t.roleId.get('child')!
+    expect(group.roleMask & baseBit).not.toBe(0)
+    expect(group.roleMask & childBit).not.toBe(0)
+  })
+
+  it('rbacDynamic groups from different roles at the same cell each carry their own scope', () => {
+    const multiRoles: AccessControl.IRole[] = [
+      { id: 'org1-admin', name: 'Org1 Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-1' }] },
+      { id: 'org2-admin', name: 'Org2 Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-2' }] },
+    ]
+    const t = compileTable(multiRoles, [], 'and')
+    const idx = t.actionId.get('update')! * t.nResources + t.resourceId.get('org')!
+    const scopes = t.rbacDynamic[idx]!.map((g) => g.scope).sort()
+    expect(scopes).toEqual(['org-1', 'org-2'])
   })
 })
 
 describe('compileTable: rbacResidual is never a member of residualPolicies (it is a separate vote, see compiled.lookup)', () => {
-  it('a table with only complex role permissions keeps rbacResidual out of residualPolicies', () => {
-    const conditionalRoles: AccessControl.IRole[] = [
-      {
-        id: 'owner',
-        name: 'Owner',
-        permissions: [
-          {
-            action: 'update',
-            resource: 'post',
-            conditions: { all: [{ field: 'subject.id', operator: 'eq', value: '$resource.attributes.ownerId' }] },
-          },
-        ],
-      },
+  it('a table with only wildcarded role permissions keeps rbacResidual out of residualPolicies', () => {
+    const wildRoles: AccessControl.IRole[] = [
+      { id: 'super', name: 'Super', permissions: [{ action: '*', resource: 'post' }] },
     ]
-    const t = compileTable(conditionalRoles, [], 'and')
+    const t = compileTable(wildRoles, [], 'and')
     expect(t.rbacResidual).not.toBeNull()
     expect(t.residualPolicies.map((p) => p.id)).not.toContain('__rbac__')
     expect(t.residualPolicies).toHaveLength(0)
+  })
+})
+
+describe('compileTable: hasRbacSource is true from rbacDynamic-only permissions (no simple, no wildcard-residual)', () => {
+  it('a role with only a scoped permission still reports hasRbacSource', () => {
+    const scopedRoles: AccessControl.IRole[] = [
+      { id: 'org-admin', name: 'Org Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-1' }] },
+    ]
+    const t = compileTable(scopedRoles, [], 'and')
+    expect(t.hasRbacSource).toBe(true)
   })
 })
 
@@ -276,7 +294,7 @@ describe('compileTable: hasFlatSource / hasRbacSource bookkeeping', () => {
     expect(t.hasRbacSource).toBe(true)
   })
 
-  it('hasRbacSource is true from a residual-only (complex) permission alone', () => {
+  it('hasRbacSource is true from a conditioned (rbacDynamic-only) permission alone', () => {
     const conditionalRoles: AccessControl.IRole[] = [
       {
         id: 'owner',

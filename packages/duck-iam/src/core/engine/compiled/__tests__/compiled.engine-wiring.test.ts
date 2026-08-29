@@ -140,7 +140,7 @@ describe('production mode: mixed simple+residual RBAC on one role (regression)',
         name: 'Editor',
         permissions: [
           { action: 'read', resource: 'post' }, // simple
-          { action: 'update', resource: 'post', scope: 'org-1' }, // residual, unrelated cell
+          { action: 'update', resource: 'post', scope: 'org-1' }, // rbacDynamic, unrelated cell
         ],
       },
     ]

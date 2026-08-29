@@ -209,13 +209,15 @@ describe("differential: 'and'-mode soundness - an irrelevant co-located policy a
   })
 })
 
-describe('differential: mixed simple+residual RBAC (regression - the two halves of one role must OR, not become two AND voters)', () => {
+describe('differential: mixed simple+dynamic RBAC (regression - all sources of one role must OR, not become independent AND voters)', () => {
   // A role with BOTH a simple (mask-eligible) permission AND a complex (scope/condition
-  // -restricted, residual) one used to split RBAC across `residualPolicies` (the residual
-  // half) and the flat mask (the simple half), and `lookup()` treated them as two
-  // independent 'and' voters instead of one OR'd RBAC vote - so a mask hit at the simple
-  // cell could still get vetoed by the residual half voting its own "no rule here"
-  // fallback. See docs/engine-rewrite.md's final-review findings.
+  // -restricted) one used to split RBAC across `residualPolicies` (the residual half) and
+  // the flat mask (the simple half), and `lookup()` treated them as two independent 'and'
+  // voters instead of one OR'd RBAC vote - so a mask hit at the simple cell could still get
+  // vetoed by the residual half voting its own "no rule here" fallback. See
+  // docs/engine-rewrite.md's final-review findings. The scoped permission itself now
+  // compiles into `rbacDynamic` rather than `rbacResidual` (see the RBAC scope/condition
+  // fast-path design doc), but the same OR-not-AND invariant applies to all three sources.
   const roles: AccessControl.IRole[] = [
     {
       id: 'editor',
@@ -225,15 +227,17 @@ describe('differential: mixed simple+residual RBAC (regression - the two halves 
         {
           action: 'update',
           resource: 'post',
-          scope: 'org-1', // scoped -> residual, unrelated cell
+          scope: 'org-1', // scoped -> rbacDynamic, unrelated cell
         },
       ],
     },
   ]
 
-  it("under 'and', the simple grant is not vetoed by the unrelated residual permission", () => {
+  it("under 'and', the simple grant is not vetoed by the unrelated rbacDynamic permission", () => {
     const t = compileTable(roles, [], 'and')
-    expect(t.rbacResidual).not.toBeNull()
+    expect(t.rbacResidual).toBeNull()
+    const idx = t.actionId.get('update')! * t.nResources + t.resourceId.get('post')!
+    expect(t.rbacDynamic[idx]).toHaveLength(1)
     const mask = maskOf(t, ['editor'])
     const request = req(['editor'], 'read', 'post')
     const oracle = evaluate([rolesToPolicy(roles)], request, 'deny', 'and')
@@ -449,6 +453,6 @@ describe('CellKind sanity', () => {
   it('re-exports CellKind for direct kind assertions', () => {
     expect(CellKind.CONST_DENY).toBe(0)
     expect(CellKind.CONST_ALLOW).toBe(1)
-    expect(CellKind.DYNAMIC).toBe(3)
+    expect(CellKind.DYNAMIC).toBe(2)
   })
 })

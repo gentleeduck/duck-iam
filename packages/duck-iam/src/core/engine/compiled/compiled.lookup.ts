@@ -79,15 +79,15 @@ function abacFlatVote(
 }
 
 /**
- * RBAC's single vote: the fast mask-bit check (`allow`), OR'd with the residual policy's
- * vote when the mask misses, falling back to `defaultEffect` only when some role
- * elsewhere in the system DOES grant this exact action+resource (so the miss is a real
- * "not this subject's roles", not "nobody's talking about this"). `null` when the table
- * has no RBAC source at all, when neither half has anything shaped for this action/
- * resource, or when the residual policy throws (abstain, same fail-skip contract as
- * `evaluatePolicyFast`'s residual-policy loop below - a rotten `__rbac__` policy must not
- * fail-closed the whole request). See compiled.types.ts's `rbacResidual` doc for why this
- * must stay ONE vote.
+ * RBAC's single vote, OR'd across three sources - the fast mask-bit check (`allow`), the
+ * per-cell scope/condition groups (`rbacDynamic`), and the wildcarded-permission residual
+ * policy (`rbacResidual`) - falling back to `defaultEffect` only when some role elsewhere
+ * in the system DOES grant this exact action+resource (so the miss is a real "not this
+ * subject's roles", not "nobody's talking about this"). `null` when the table has no RBAC
+ * source at all, when nothing is shaped for this action/resource, or when a source throws
+ * (abstain, same fail-skip contract as `evaluatePolicyFast`'s residual-policy loop below -
+ * a rotten permission must not fail-closed the whole request). See compiled.types.ts's
+ * `rbacResidual` doc for why all three must stay ONE vote.
  */
 function rbacVote(
   table: CompiledTable,
@@ -107,8 +107,27 @@ function rbacVote(
   // grant value (any role, not just this subject's) nonzero" - that's RBAC-specific.
   const a = table.actionId.get(action)
   const r = table.resourceId.get(resource)
-  const cellAllow = a !== undefined && r !== undefined ? table.allow[a * table.nResources + r]! : 0
+  const idx = a !== undefined && r !== undefined ? a * table.nResources + r : undefined
+  const cellAllow = idx !== undefined ? table.allow[idx]! : 0
   if ((mask & cellAllow) !== 0) return true
+
+  // Scoped/conditioned grants: one throw anywhere in this cell's groups poisons the whole
+  // scan (same all-or-nothing granularity as `rbacResidual`'s catch below, not ABAC's
+  // per-policy-group fail-skip) - abstain rather than risk a partial, order-dependent vote.
+  const groups = idx !== undefined ? table.rbacDynamic[idx] : undefined
+  if (groups) {
+    try {
+      for (const g of groups) {
+        if ((mask & g.roleMask) === 0) continue
+        if (g.scope !== undefined && g.scope !== req.scope) continue
+        if (g.conditions && !evalConditionGroup(req, g.conditions, 0, caches)) continue
+        return true // role permissions are allow-only - first match wins
+      }
+    } catch (err) {
+      onPolicyError?.(err instanceof Error ? err : new Error(String(err)), groups[0]!.policy)
+      return null
+    }
+  }
 
   if (table.rbacResidual) {
     try {
@@ -120,11 +139,13 @@ function rbacVote(
     }
   }
 
-  // Neither half has a rule shaped for this action/resource. A nonzero grant at this
-  // cell (from any role, not just this subject's) means some role's simple permission
-  // does grant this exact pair - just not one this subject holds - so that's still a
-  // real vote, not silence.
-  return cellAllow !== 0 ? defaultEffect === 'allow' : null
+  // No source has a rule shaped for this action/resource. A nonzero grant at this cell
+  // (from any role, not just this subject's, via the plain mask or a scoped/conditioned
+  // group) means some role's permission does grant this exact pair - just not one this
+  // subject holds (or its scope/condition doesn't match) - so that's still a real vote,
+  // not silence.
+  const hasAnyGrant = cellAllow !== 0 || (groups !== undefined && groups.length > 0)
+  return hasAnyGrant ? defaultEffect === 'allow' : null
 }
 
 /**

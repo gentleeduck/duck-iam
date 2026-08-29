@@ -1359,25 +1359,44 @@ Easy to conflate; they answer different questions.
    `role.scope`, e.g. "this permission only applies within scope X,
    regardless of who holds the role") is checked by `isSimplePermission`
    (`compiled.compile.ts`): any effective scope other than `undefined` or
-   `'*'` disqualifies the permission from the bitmask, and it's compiled
-   into `rbacResidual` instead — evaluated per-request through the
-   interpreter path. This one can't be pre-resolved at enrichment time
-   because it depends on the *request's* scope, not on which roles the
-   subject holds.
+   `'*'` disqualifies the permission from the bitmask. This one can't be
+   pre-resolved at enrichment time because it depends on the *request's*
+   scope, not on which roles the subject holds — but as of the RBAC
+   scope/condition fast path (below), it no longer needs the interpreter
+   either.
 
-Case 2 is the one that stays slow, and it stays slow on purpose rather
-than by omission: `TScope` is a consumer-defined generic with no
-engine-enforced cardinality limit, unlike roles (hard 32-bit cap) or
-action/resource (small closed vocabulary in practice). Real scope usually
-means tenant/org ID, which can be high-cardinality in production —
-bit-packing it would either blow past 32 bits immediately or silently cap
-org count, a worse failure mode than capping roles. The overlay/trie
-design sketched earlier in this doc ("Scope and multi-tenancy",
-"Hierarchical scope," "Phase 3 — scope") was aimed at exactly this case,
-but per "What actually shipped" above, `lookupScoped()` and the scope
-trie were deleted, not shipped — there is no `compiled.scope.ts`. Case 2
-scope restrictions route through `rbacResidual` unconditionally today,
-regardless of cardinality.
+**Update — case 2 is fast now too, for the common shape.** `matchesScope`
+is a literal-vs-literal (or `'*'`) comparison — there is no scope
+wildcard/prefix concept anywhere in the codebase — so a scoped grant is
+compilable exactly the way action/resource already are, it just needs one
+more static key. `compileTable` now splits non-simple role permissions
+into two buckets instead of one:
+
+- **Literal action+resource, scope and/or conditions** → `rbacDynamic`, a
+  per-cell array of `{ roleMask, scope?, conditions? }` groups (same idx
+  scheme as `allow`/`kind`/`dynamic`). `rbacVote()` checks these after the
+  plain bitmask misses: `mask & roleMask`, then scope equality, then
+  `evalConditionGroup` — O(groups at that cell), not a re-interpretation
+  of every role permission in the system.
+- **Wildcarded action or resource** → still `rbacResidual`, genuinely
+  irreducible (could match requests no cell was ever indexed for). This is
+  now the *only* reason a role permission stays fully residual.
+
+All three sources (`allow`, `rbacDynamic`, `rbacResidual`) are OR'd inside
+one `rbacVote()` call and still count as exactly one vote in `lookup()` —
+the "must stay one vote" invariant from "What actually shipped" above is
+unchanged, just resolved from three sources instead of two. See
+`docs/superpowers/specs/2026-08-29-rbac-scope-condition-fastpath-design.md`
+for the full design.
+
+The overlay/trie design sketched earlier in this doc ("Scope and
+multi-tenancy", "Hierarchical scope," "Phase 3 — scope") aimed at a
+different, harder case — a *table axis* for scope, keyed like action/
+resource. That was deleted, not shipped (`lookupScoped()`, no
+`compiled.scope.ts`), and remains un-built: it would matter for scope
+*wildcards or hierarchies* (`org.*`-style), which don't exist today. The
+fast path above only needed literal-vs-literal matching, which is a much
+smaller problem than the trie was solving.
 
 ---
 

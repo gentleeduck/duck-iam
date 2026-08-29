@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { evaluate } from '../../../evaluate'
 import { rolesToPolicy } from '../../../rbac'
-import type { AccessControl, IamRequest } from '../../../types'
+import type { AccessControl, IamPrimitives, IamRequest } from '../../../types'
 import { compileTable } from '../compiled.compile'
 import { lookup } from '../compiled.lookup'
 
@@ -51,11 +51,16 @@ function maskOf(table: ReturnType<typeof compileTable>, roleIds: string[]): numb
   return m
 }
 
-function req(subjectRoles: string[], action: string, resource: string): IamRequest.IAccessRequest {
+function req(
+  subjectRoles: string[],
+  action: string,
+  resource: string,
+  attributes: IamPrimitives.Attributes = {},
+): IamRequest.IAccessRequest {
   return {
     subject: { id: 'u1', roles: subjectRoles, attributes: {} },
     action,
-    resource: { type: resource, attributes: {} },
+    resource: { type: resource, attributes },
     environment: { now: 1 },
   }
 }
@@ -104,5 +109,99 @@ describe('lookup: RBAC mask (fast path) + CONST_ALLOW + CONST_DENY, differential
     const r = req([], 'archive', 'wiki')
     expect(lookup(table, 0, 'archive', 'wiki', r, 'deny')).toBe(false)
     expect(lookup(table, 0, 'archive', 'wiki', r, 'allow')).toBe(true)
+  })
+})
+
+describe('lookup: rbacDynamic (scoped/conditioned role permissions), differential vs evaluate()', () => {
+  it('scoped grant: allowed when request scope matches, denied when it differs', () => {
+    const scopedRoles: AccessControl.IRole[] = [
+      { id: 'org-admin', name: 'Org Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-1' }] },
+    ]
+    const t = compileTable(scopedRoles, [], 'and')
+    const mask = maskOf(t, ['org-admin'])
+    const oracle = [rolesToPolicy(scopedRoles)]
+
+    const right = { ...req(['org-admin'], 'update', 'org'), scope: 'org-1' }
+    expect(lookup(t, mask, 'update', 'org', right, 'deny')).toBe(true)
+    expect(lookup(t, mask, 'update', 'org', right, 'deny')).toBe(evaluate(oracle, right, 'deny', 'and').allowed)
+
+    const wrong = { ...req(['org-admin'], 'update', 'org'), scope: 'org-2' }
+    expect(lookup(t, mask, 'update', 'org', wrong, 'deny')).toBe(false)
+    expect(lookup(t, mask, 'update', 'org', wrong, 'deny')).toBe(evaluate(oracle, wrong, 'deny', 'and').allowed)
+  })
+
+  it('scoped grant: a subject without the role gets nothing, even with a matching scope', () => {
+    const scopedRoles: AccessControl.IRole[] = [
+      { id: 'org-admin', name: 'Org Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-1' }] },
+    ]
+    const t = compileTable(scopedRoles, [], 'and')
+    const r = { ...req([], 'update', 'org'), scope: 'org-1' }
+    expect(lookup(t, 0, 'update', 'org', r, 'deny')).toBe(false)
+  })
+
+  it('conditioned grant: allowed when the condition passes, denied when it fails', () => {
+    const conditionalRoles: AccessControl.IRole[] = [
+      {
+        id: 'owner',
+        name: 'Owner',
+        permissions: [
+          {
+            action: 'update',
+            resource: 'post',
+            conditions: { all: [{ field: 'subject.id', operator: 'eq', value: '$resource.attributes.ownerId' }] },
+          },
+        ],
+      },
+    ]
+    const t = compileTable(conditionalRoles, [], 'and')
+    const mask = maskOf(t, ['owner'])
+    const oracle = [rolesToPolicy(conditionalRoles)]
+
+    const passing = req(['owner'], 'update', 'post', { ownerId: 'u1' })
+    expect(lookup(t, mask, 'update', 'post', passing, 'deny')).toBe(true)
+    expect(lookup(t, mask, 'update', 'post', passing, 'deny')).toBe(evaluate(oracle, passing, 'deny', 'and').allowed)
+
+    const failing = req(['owner'], 'update', 'post', { ownerId: 'someone-else' })
+    expect(lookup(t, mask, 'update', 'post', failing, 'deny')).toBe(false)
+    expect(lookup(t, mask, 'update', 'post', failing, 'deny')).toBe(evaluate(oracle, failing, 'deny', 'and').allowed)
+  })
+
+  it('two roles at the same cell with different scopes: each grants only its own scope', () => {
+    const multiRoles: AccessControl.IRole[] = [
+      { id: 'org1-admin', name: 'Org1 Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-1' }] },
+      { id: 'org2-admin', name: 'Org2 Admin', permissions: [{ action: 'update', resource: 'org', scope: 'org-2' }] },
+    ]
+    const t = compileTable(multiRoles, [], 'and')
+
+    const mask1 = maskOf(t, ['org1-admin'])
+    expect(lookup(t, mask1, 'update', 'org', { ...req(['org1-admin'], 'update', 'org'), scope: 'org-1' }, 'deny')).toBe(
+      true,
+    )
+    expect(lookup(t, mask1, 'update', 'org', { ...req(['org1-admin'], 'update', 'org'), scope: 'org-2' }, 'deny')).toBe(
+      false,
+    )
+
+    const mask2 = maskOf(t, ['org2-admin'])
+    expect(lookup(t, mask2, 'update', 'org', { ...req(['org2-admin'], 'update', 'org'), scope: 'org-2' }, 'deny')).toBe(
+      true,
+    )
+  })
+
+  it('a plain mask hit still short-circuits before rbacDynamic is even consulted', () => {
+    // Regression: a role with a simple grant at a DIFFERENT cell than its own scoped grant
+    // must not have the simple grant affected by the scoped one existing at all.
+    const roles: AccessControl.IRole[] = [
+      {
+        id: 'editor',
+        name: 'Editor',
+        permissions: [
+          { action: 'read', resource: 'post' },
+          { action: 'update', resource: 'post', scope: 'org-1' },
+        ],
+      },
+    ]
+    const t = compileTable(roles, [], 'and')
+    const mask = maskOf(t, ['editor'])
+    expect(lookup(t, mask, 'read', 'post', req(['editor'], 'read', 'post'), 'deny')).toBe(true)
   })
 })
