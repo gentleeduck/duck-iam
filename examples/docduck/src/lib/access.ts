@@ -1,5 +1,5 @@
 import { createIam } from '@gentleduck/iam'
-import { type IamDrizzle, IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 import { and, eq } from 'drizzle-orm'
 import { db } from './db'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from './db/schema'
@@ -107,7 +107,7 @@ export const allPolicies: (typeof docOwnershipPolicy)[] = []
 
 // IamDrizzleAdapter.getSubjectRoles already filters to unscoped (scope IS NULL) only.
 // IamDrizzleAdapter.getSubjectScopedRoles returns scoped assignments for scope-aware checks.
-const adapter = new IamDrizzleAdapter({
+const adapter = new IamDrizzleAdapter<AppAction, AppResource, string, string>({
   db,
   tables: {
     policies: iamPolicies,
@@ -116,7 +116,7 @@ const adapter = new IamDrizzleAdapter({
     attrs: iamSubjectAttrs,
   },
   ops: { eq, and },
-} as unknown as IamDrizzle.IConfig)
+})
 
 // ── Engine ─────────────────────────────────────────────────────────
 
