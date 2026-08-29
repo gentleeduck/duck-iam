@@ -7,8 +7,8 @@ Older versions may not receive patches.
 
 | Version | Supported |
 | ------- | --------- |
-| 2.x     | Yes       |
-| 1.x     | No        |
+| 5.x     | Yes       |
+| < 5.0   | No        |
 
 ## Reporting a Vulnerability
 

@@ -25,7 +25,7 @@
 
 Type-safe authorization engine for TypeScript. RBAC + ABAC with a policy engine, condition evaluation, scoped roles, and integrations for Express, NestJS, Hono, Next.js, React, Vue, and vanilla JS.
 
-Zero runtime dependencies. Tree-shakeable. 23 KB full, under 1 KB per module.
+Zero runtime dependencies. Tree-shakeable - see [Module sizes](#module-sizes-gzipped) below for real per-module numbers.
 
 ## Install
 
@@ -135,7 +135,7 @@ at 15-25 KB.
 
 - **RBAC + ABAC** combined in one engine
 - **Policy engine** with 4 intra-policy algorithms (deny-overrides, allow-overrides, first-match, highest-priority) and 3 cross-policy combine modes (and / allow-overrides / first-applicable)
-- **18 condition operators** (eq, neq, gt, lt, in, contains, starts_with, matches, exists, subset_of, and more)
+- **19 condition operators** (eq, neq, gt, lt, in, contains, starts_with, matches, exists, subset_of, before, after, and more)
 - **Scoped roles** for multi-tenant systems
 - **Dev/prod mode**: rich Decision objects in development, plain booleans in production
 - **Explain API**: full evaluation trace showing exactly why a permission was granted or denied
