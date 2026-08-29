@@ -78,21 +78,21 @@ responsibility.
 
 ### Identity sourcing
 
-`accessMiddleware` / `withAccess` / `guard` derive a `subjectId` from a
-`getUserId(req)` callback. Always derive identity from a server-verified
+`iamAccessMiddleware` / `withIamAccess` / `iamGuard` derive a `subjectId` from
+a `getUserId(req)` callback. Always derive identity from a server-verified
 source: a cookie session, a JWT verified by upstream middleware, an mTLS
 client certificate, or a session token your auth layer already validated.
 
 ```ts
 // Cookie session verified by app middleware
 app.use(sessionMiddleware)
-const guard = accessMiddleware(engine, {
+const guard = iamAccessMiddleware(engine, {
   getUserId: (req) => req.session?.userId ?? null,
 })
 
 // JWT verified by app middleware
 app.use(jwtMiddleware)
-const guard = accessMiddleware(engine, {
+const guard = iamAccessMiddleware(engine, {
   getUserId: (req) => req.user?.sub ?? null,
 })
 ```
@@ -100,26 +100,26 @@ const guard = accessMiddleware(engine, {
 Do not derive identity from a client-supplied header or request body.
 
 The Express and Nest defaults read from `req.user?.id`. The Hono default
-reads `c.get('userId')` only. The Next `withAccess` requires `getUserId`
+reads `c.get('userId')` only. The Next `withIamAccess` requires `getUserId`
 to be supplied explicitly.
 
 ### Admin router CSRF
 
-`adminRouter` / `bindAdminRouter` / `createAdminHandlers` /
-`createAdminOperations` accept `csrfCheck`. The built-in default rejects
+`iamAdminRouter` / `iamBindAdminRouter` / `createIamAdminHandlers` /
+`createIamAdminOperations` accept `csrfCheck`. The built-in default rejects
 browser requests whose `Sec-Fetch-Site` header is `cross-site` or
 `cross-origin`.
 
 ```ts
 // Default
-adminRouter(engine, { authorize: (req) => req.user?.role === 'admin' })
+iamAdminRouter(engine, { authorize: (req) => req.user?.role === 'admin' })
 
 // Bearer-token or mTLS API (no browser)
-adminRouter(engine, { authorize, csrfCheck: false })
+iamAdminRouter(engine, { authorize, csrfCheck: false })
 
 // Origin allowlist
 const ADMIN_ORIGINS = new Set(['https://admin.example.com'])
-adminRouter(engine, {
+iamAdminRouter(engine, {
   authorize,
   csrfCheck: (req) => ADMIN_ORIGINS.has(req.headers.origin),
 })
@@ -152,10 +152,13 @@ process-globals. A hostile tenant flooding distinct patterns can evict
 another tenant's hot entries. Two mitigations:
 
 - One Node process per tenant.
-- Periodic flush via `engine.flushSharedCaches()`.
+- Periodic flush via `iamFlushSharedCaches()` (module-level, not an
+  `IamEngine` instance method - it clears the process-global regex/path
+  caches shared by every engine in the process).
 
 ```ts
-setInterval(() => engine.flushSharedCaches(), 5 * 60 * 1000)
+import { iamFlushSharedCaches } from '@gentleduck/iam/core'
+setInterval(() => iamFlushSharedCaches(), 5 * 60 * 1000)
 ```
 
 ### `defaultEffect: 'allow'`

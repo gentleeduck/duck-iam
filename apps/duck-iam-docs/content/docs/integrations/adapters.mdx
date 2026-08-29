@@ -34,10 +34,10 @@ Adapters are the storage layer for duck-iam. They implement the `Adapter` interf
 
     subgraph Implementations["Built-in Implementations"]
         direction LR
-        MEM["MemoryAdapter\nIn-process Maps\nDev / Testing"]
-        PRI["PrismaAdapter\nPrisma Client\nProduction DB"]
-        DRI["DrizzleAdapter\nDrizzle ORM\nProduction DB"]
-        HTT["HttpAdapter\nfetch() calls\nRemote service"]
+        MEM["IamMemoryAdapter\nIn-process Maps\nDev / Testing"]
+        PRI["IamPrismaAdapter\nPrisma Client\nProduction DB"]
+        DRI["IamDrizzleAdapter\nDrizzle ORM\nProduction DB"]
+        HTT["IamHttpAdapter\nfetch() calls\nRemote service"]
     end
 
     Adapter_Interface --> Implementations`} />
@@ -49,9 +49,9 @@ Adapters are the storage layer for duck-iam. They implement the `Adapter` interf
 Every adapter is fully typed with your application's action, resource, role, and scope types.
 
 ```typescript
-import { Engine } from '@gentleduck/iam'
+import { IamEngine } from '@gentleduck/iam'
 
-const engine = new Engine({
+const engine = new IamEngine({
   adapter: yourAdapter,
   defaultEffect: 'deny',
   cacheTTL: 60,
@@ -63,7 +63,7 @@ const engine = new Engine({
 ## Memory adapter
 
 ```
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 ```
 
 Stores everything in `Map` instances. Designed for development, testing, and prototyping. Data does not survive process restarts.
@@ -71,9 +71,9 @@ Stores everything in `Map` instances. Designed for development, testing, and pro
 ### Basic usage
 
 ```typescript
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
-const adapter = new MemoryAdapter({
+const adapter = new IamMemoryAdapter({
   roles: [
     {
       id: 'admin',
@@ -142,7 +142,7 @@ const adapter = new MemoryAdapter({
 Pass initial attributes for ABAC-style conditions.
 
 ```typescript
-const adapter = new MemoryAdapter({
+const adapter = new IamMemoryAdapter({
   roles: [...],
   assignments: { 'user-1': ['editor'] },
   attributes: {
@@ -185,7 +185,7 @@ const adapter = new MemoryAdapter({
 ## Prisma adapter
 
 ```
-import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
+import { IamPrismaAdapter } from '@gentleduck/iam/adapters/prisma'
 ```
 
 Stores policies, roles, assignments, and subject attributes in your database through Prisma Client. It expects four models in your Prisma schema.
@@ -254,13 +254,13 @@ Run `prisma migrate dev` after adding these models.
 
 ```typescript
 import { PrismaClient } from '@prisma/client'
-import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
-import { Engine } from '@gentleduck/iam'
+import { IamPrismaAdapter } from '@gentleduck/iam/adapters/prisma'
+import { IamEngine } from '@gentleduck/iam'
 
 const prisma = new PrismaClient()
-const adapter = new PrismaAdapter(prisma)
+const adapter = new IamPrismaAdapter(prisma)
 
-const engine = new Engine({ adapter })
+const engine = new IamEngine({ adapter })
 ```
 
 The adapter uses `upsert` for save operations, so calling `savePolicy` or `saveRole` with an existing ID updates the record rather than throwing a conflict error.
@@ -289,7 +289,7 @@ The adapter uses `upsert` for save operations, so calling `savePolicy` or `saveR
 ## Drizzle adapter
 
 ```
-import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
 ```
 
 Works with any Drizzle ORM database driver (PostgreSQL, MySQL, SQLite). You provide your table definitions and Drizzle's operator functions.
@@ -342,13 +342,13 @@ export const accessSubjectAttrs = pgTable('access_subject_attrs', {
 ```typescript
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, and } from 'drizzle-orm'
-import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
-import { Engine } from '@gentleduck/iam'
+import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+import { IamEngine } from '@gentleduck/iam'
 import * as tables from './db/schema/access'
 
 const db = drizzle(pool)
 
-const adapter = new DrizzleAdapter({
+const adapter = new IamDrizzleAdapter({
   db,
   tables: {
     policies: tables.accessPolicies,
@@ -359,7 +359,7 @@ const adapter = new DrizzleAdapter({
   ops: { eq, and },
 })
 
-const engine = new Engine({ adapter })
+const engine = new IamEngine({ adapter })
 ```
 
 ### Constructor config
@@ -383,7 +383,7 @@ The Drizzle adapter handles JSON serialization automatically. If your database d
 ## HTTP adapter
 
 ```
-import { HttpAdapter } from '@gentleduck/iam/adapters/http'
+import { IamHttpAdapter } from '@gentleduck/iam/adapters/http'
 ```
 
 Delegates all storage operations to a remote API. Use it when:
@@ -395,17 +395,17 @@ Delegates all storage operations to a remote API. Use it when:
 ### Usage
 
 ```typescript
-import { HttpAdapter } from '@gentleduck/iam/adapters/http'
-import { Engine } from '@gentleduck/iam'
+import { IamHttpAdapter } from '@gentleduck/iam/adapters/http'
+import { IamEngine } from '@gentleduck/iam'
 
-const adapter = new HttpAdapter({
+const adapter = new IamHttpAdapter({
   baseUrl: 'https://api.example.com/access',
   headers: {
     Authorization: 'Bearer ' + serviceToken,
   },
 })
 
-const engine = new Engine({ adapter })
+const engine = new IamEngine({ adapter })
 ```
 
 ### Dynamic headers
@@ -413,7 +413,7 @@ const engine = new Engine({ adapter })
 Pass a function to compute headers per-request. Useful for rotating tokens or per-request context.
 
 ```typescript
-const adapter = new HttpAdapter({
+const adapter = new IamHttpAdapter({
   baseUrl: 'https://api.example.com/access',
   headers: async () => ({
     Authorization: 'Bearer ' + await getServiceToken(),
@@ -427,9 +427,9 @@ const adapter = new HttpAdapter({
 Provide your own fetch implementation for environments without a global `fetch`, or to add middleware like logging or retries.
 
 ```typescript
-import { HttpAdapter } from '@gentleduck/iam/adapters/http'
+import { IamHttpAdapter } from '@gentleduck/iam/adapters/http'
 
-const adapter = new HttpAdapter({
+const adapter = new IamHttpAdapter({
   baseUrl: 'https://api.example.com/access',
   fetch: async (url, init) => {
     console.log('Access API request:', url)
@@ -461,8 +461,8 @@ The HTTP adapter expects these REST endpoints on your server:
 | GET | /subjects/:id/attributes | Get subject attributes |
 | PATCH | /subjects/:id/attributes | Update subject attributes (body: attribute object) |
 
-The built-in Express `adminRouter` covers part of this admin surface, but it does **not**
-implement the full HTTP adapter contract. If you want to use `HttpAdapter`, either implement
+The built-in Express `iamAdminRouter` covers part of this admin surface, but it does **not**
+implement the full HTTP adapter contract. If you want to use `IamHttpAdapter`, either implement
 the complete endpoint set manually or extend the admin router with the missing item lookups,
 scoped-role reads, and subject-attribute endpoints.
 
@@ -487,33 +487,41 @@ function, it is awaited before each request.
 
 ## Custom adapters
 
-Implement the `Adapter` interface to connect duck-iam to any storage backend.
+Implement the `IamAdapter.IAdapter` interface to connect duck-iam to any storage backend.
+
+<Callout type="info">
+duck-iam already ships a Redis adapter (`IamRedisAdapter` from `@gentleduck/iam/adapters/redis`) --
+it is not documented on this page yet. The example below builds a Redis-backed adapter from
+scratch purely to illustrate the `IamAdapter.IAdapter` shape; reach for the shipped `IamRedisAdapter`
+in real projects instead of writing this one.
+</Callout>
 
 ### The Adapter interface
 
 ```typescript
-import type { Adapter, Policy, Role, Attributes, ScopedRole } from '@gentleduck/iam'
+import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '@gentleduck/iam'
 
-interface Adapter<TAction, TResource, TRole, TScope> {
+interface CustomAdapter<TAction extends string, TResource extends string, TRole extends string, TScope extends string>
+  extends IamAdapter.IAdapter<TAction, TResource, TRole, TScope> {
   // PolicyStore
-  listPolicies(): Promise<Policy<TAction, TResource, TRole>[]>
-  getPolicy(id: string): Promise<Policy<TAction, TResource, TRole> | null>
-  savePolicy(policy: Policy<TAction, TResource, TRole>): Promise<void>
+  listPolicies(): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
+  getPolicy(id: string): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
+  savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
   deletePolicy(id: string): Promise<void>
 
   // RoleStore
-  listRoles(): Promise<Role<TAction, TResource, TRole, TScope>[]>
-  getRole(id: string): Promise<Role<TAction, TResource, TRole, TScope> | null>
-  saveRole(role: Role<TAction, TResource, TRole, TScope>): Promise<void>
+  listRoles(): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]>
+  getRole(id: string): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
+  saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
   deleteRole(id: string): Promise<void>
 
   // SubjectStore
   getSubjectRoles(subjectId: string): Promise<TRole[]>
-  getSubjectScopedRoles?(subjectId: string): Promise<ScopedRole<TRole, TScope>[]>
+  getSubjectScopedRoles?(subjectId: string): Promise<IamRequest.IScopedRole<TRole, TScope>[]>
   assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
   revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
-  getSubjectAttributes(subjectId: string): Promise<Attributes>
-  setSubjectAttributes(subjectId: string, attrs: Attributes): Promise<void>
+  getSubjectAttributes(subjectId: string): Promise<IamPrimitives.Attributes>
+  setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
 }
 ```
 
@@ -521,31 +529,31 @@ interface Adapter<TAction, TResource, TRole, TScope> {
 When absent, the engine treats scoped assignments as empty and continues with global role
 evaluation only.
 
-### Example: Redis adapter
+### Example: a from-scratch Redis-backed adapter
 
 ```typescript
-import type { Adapter, Policy, Role, Attributes, ScopedRole } from '@gentleduck/iam'
+import type { AccessControl, IamAdapter } from '@gentleduck/iam'
 import type { Redis } from 'ioredis'
 
-export class RedisAdapter implements Adapter {
+export class MyRedisAdapter implements IamAdapter.IAdapter {
   constructor(private redis: Redis, private prefix = 'iam:') {}
 
   private key(type: string, id?: string) {
     return id ? `${this.prefix}${type}:${id}` : `${this.prefix}${type}`
   }
 
-  async listPolicies(): Promise<Policy[]> {
+  async listPolicies(): Promise<AccessControl.IPolicy[]> {
     const keys = await this.redis.keys(this.key('policy', '*'))
     const results = await Promise.all(keys.map(k => this.redis.get(k)))
     return results.filter(Boolean).map(r => JSON.parse(r!))
   }
 
-  async getPolicy(id: string): Promise<Policy | null> {
+  async getPolicy(id: string): Promise<AccessControl.IPolicy | null> {
     const raw = await this.redis.get(this.key('policy', id))
     return raw ? JSON.parse(raw) : null
   }
 
-  async savePolicy(p: Policy): Promise<void> {
+  async savePolicy(p: AccessControl.IPolicy): Promise<void> {
     await this.redis.set(this.key('policy', p.id), JSON.stringify(p))
   }
 
@@ -559,7 +567,7 @@ export class RedisAdapter implements Adapter {
 
 ### Testing custom adapters
 
-Use `MemoryAdapter` as a reference implementation. Your adapter should behave identically for the same inputs.
+Use `IamMemoryAdapter` as a reference implementation. Your adapter should behave identically for the same inputs.
 
 1. Seed your adapter with known roles, policies, and assignments
 2. Create an engine with your adapter
@@ -567,7 +575,7 @@ Use `MemoryAdapter` as a reference implementation. Your adapter should behave id
 4. Test edge cases: missing subjects, empty roles, scoped vs unscoped assignments
 
 ```typescript
-import { Engine } from '@gentleduck/iam'
+import { IamEngine } from '@gentleduck/iam'
 import { YourAdapter } from './your-adapter'
 
 const adapter = new YourAdapter(/* config */)
@@ -584,7 +592,7 @@ await adapter.saveRole({
 await adapter.assignRole('user-1', 'editor')
 
 // Test
-const engine = new Engine({ adapter })
+const engine = new IamEngine({ adapter })
 const canUpdate = await engine.can('user-1', 'update', { type: 'post', attributes: {} })
 const canDelete = await engine.can('user-1', 'delete', { type: 'post', attributes: {} })
 
@@ -602,9 +610,17 @@ assert(canDelete === false)
 | **Prisma** | Production apps using Prisma | Database (any Prisma-supported) | `@prisma/client` |
 | **Drizzle** | Production apps using Drizzle | Database (PG, MySQL, SQLite) | `drizzle-orm` |
 | **HTTP** | Microservices, client-server split | Remote API | None (uses `fetch`) |
+| **Redis** | Shared cache-speed storage across instances | Redis | `ioredis` (or compatible) |
+| **File** | Single-node deployments, local JSON persistence | Local filesystem | None |
 | **Custom** | Any other storage backend | Your choice | Your choice |
 
 All adapters are interchangeable. Start with the memory adapter during development and switch to Prisma or Drizzle in production without changing any engine or middleware code.
+
+<Callout type="info">
+`IamRedisAdapter` (`@gentleduck/iam/adapters/redis`) and `IamFileAdapter` (`@gentleduck/iam/adapters/file`)
+ship with the package but don't have a dedicated section on this page yet -- see their source
+under `packages/duck-iam/src/adapters/{redis,file}` for constructor options in the meantime.
+</Callout>
 
 ---
 
@@ -620,7 +636,7 @@ All adapters are interchangeable. Start with the memory adapter during developme
   </AccordionItem>
 
   <AccordionItem value="memory-persistence">
-    <AccordionTrigger>Does MemoryAdapter persist anything?</AccordionTrigger>
+    <AccordionTrigger>Does IamMemoryAdapter persist anything?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       No. It stores everything in process memory. Restarting the process resets policies, roles, assignments, and
       attributes, which is why it is best for tests, demos, and local development.
@@ -628,7 +644,7 @@ All adapters are interchangeable. Start with the memory adapter during developme
   </AccordionItem>
 
   <AccordionItem value="memory-scoped-seed">
-    <AccordionTrigger>Can I seed scoped assignments in MemoryAdapter constructor input?</AccordionTrigger>
+    <AccordionTrigger>Can I seed scoped assignments in IamMemoryAdapter constructor input?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Not directly. Constructor assignment seeding is unscoped. For scoped assignments, create the adapter first and then
       call <code className="rounded bg-muted px-2 py-1">assignRole(subjectId, roleId, scope)</code>.
@@ -644,7 +660,7 @@ All adapters are interchangeable. Start with the memory adapter during developme
   </AccordionItem>
 
   <AccordionItem value="prisma-vs-drizzle">
-    <AccordionTrigger>How do PrismaAdapter and DrizzleAdapter differ in practice?</AccordionTrigger>
+    <AccordionTrigger>How do IamPrismaAdapter and IamDrizzleAdapter differ in practice?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Prisma expects named models and lets Prisma handle JSON columns natively. Drizzle expects you to wire the tables and
       query operators explicitly, and the adapter serializes or parses JSON fields for you.
@@ -668,15 +684,15 @@ All adapters are interchangeable. Start with the memory adapter during developme
   </AccordionItem>
 
   <AccordionItem value="http-adapter-local-eval">
-    <AccordionTrigger>Does HttpAdapter move policy evaluation to the server?</AccordionTrigger>
+    <AccordionTrigger>Does IamHttpAdapter move policy evaluation to the server?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
-      No. HttpAdapter fetches authorization data over HTTP, but the consuming engine still evaluates permissions locally.
+      No. IamHttpAdapter fetches authorization data over HTTP, but the consuming engine still evaluates permissions locally.
       Use it when you want shared storage behind a service boundary, not when you want to outsource evaluation entirely.
     </AccordionContent>
   </AccordionItem>
 
   <AccordionItem value="http-dynamic-headers">
-    <AccordionTrigger>Can HttpAdapter attach auth headers dynamically?</AccordionTrigger>
+    <AccordionTrigger>Can IamHttpAdapter attach auth headers dynamically?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Yes. The <code className="rounded bg-muted px-2 py-1">headers</code> option can be a static object or an async
       function, which makes it suitable for short-lived bearer tokens and per-request auth state.
@@ -684,7 +700,7 @@ All adapters are interchangeable. Start with the memory adapter during developme
   </AccordionItem>
 
   <AccordionItem value="memory-to-db-migration">
-    <AccordionTrigger>Can I start with MemoryAdapter and move to Prisma, Drizzle, or HTTP later?</AccordionTrigger>
+    <AccordionTrigger>Can I start with IamMemoryAdapter and move to Prisma, Drizzle, or HTTP later?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Yes. That is one of the intended adoption paths. The engine and builder APIs stay the same; the main migration work
       is moving your persisted roles, policies, assignments, and subject attributes into the new adapter's storage shape.
@@ -720,7 +736,7 @@ All adapters are interchangeable. Start with the memory adapter during developme
   </AccordionItem>
 
   <AccordionItem value="httphandler-surface">
-    <AccordionTrigger>Does the Express admin router fully satisfy HttpAdapter?</AccordionTrigger>
+    <AccordionTrigger>Does the Express admin router fully satisfy IamHttpAdapter?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       No. It is a useful management surface, but the HTTP adapter expects additional read endpoints and subject surfaces
       beyond the stock router. Treat the router as a starting point, not a drop-in backend for the full adapter contract.

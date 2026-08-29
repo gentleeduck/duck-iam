@@ -121,16 +121,6 @@ const attributes: Record<string, IamPrimitives.Attributes> = {
 }
 
 async function main() {
-  // NOTE: policyCombine is 'allow-overrides', not 'and'. 'and' has an open bug
-  // (see bottom of this file / ask the session about it): under 'and', ANY
-  // policy without an explicit `target` whose *rules* don't match the current
-  // action/resource still casts a real "deny" vote instead of abstaining —
-  // only a policy-level `target` mismatch sets `applicable: false` and gets
-  // skipped; a rule-level mismatch does not. Since 'and' is this engine's
-  // default combine mode, that means one policy targeting an unrelated
-  // resource silently vetoes every other policy's allow, in BOTH
-  // mode: 'development' and mode: 'production'. Reproduced directly against
-  // evaluate.ts, so it's not compiled-table-specific.
   const engine = new IamEngine<TAction, TResource, TRole, TScope, 'production'>({
     adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
     defaultEffect: 'deny',

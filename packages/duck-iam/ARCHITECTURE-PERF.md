@@ -15,24 +15,15 @@ machine specific. The ratios are what matter.
 
 ---
 
-## 0. Read this first: the published numbers cannot currently be reproduced
+## 0. Resolved: the published numbers are reproducible again
 
-`test/benchmark.bench.ts` does not run. It fails at import:
-
-```
-TypeError: MemoryAdapter is not a constructor
-  test/benchmark.bench.ts:93
-```
-
-The class is now `IamMemoryAdapter`. The benchmark still imports `MemoryAdapter`,
-and so do `README.md` (4 places) and `apps/duck-iam-docs/content/docs/integrations/adapters.mdx`
-(5 places). Every published example of the first thing a user types is wrong,
-and the benchmark backing the README's performance table has not executed since
-the rename.
-
-Fix this before anything else in this document. It is a one line import change
-in the benchmark plus a find and replace in the docs, and until it is done there
-is no baseline to measure improvements against.
+This section originally reported that `test/benchmark.bench.ts` failed at
+import (`MemoryAdapter is not a constructor` - the class had been renamed to
+`IamMemoryAdapter` but the benchmark and the docs still imported the old
+name). That has since been fixed: `test/benchmark.bench.ts` imports
+`IamMemoryAdapter` (commit `c9216515`), and `README.md`'s performance table
+was regenerated from a real run against `mode: 'production'` (commit
+`03ba56f4`). Run `bun run bench` to reproduce.
 
 ---
 
@@ -394,7 +385,9 @@ Do it after findings 1, 2, and 4.
 
 ### Finding 6: `mode` defaults to `'development'`
 
-**Impact: 13x, on anyone who forgets.**
+**Impact: ~2.5x, on anyone who forgets.** (The 13x/34x figures in section 1
+are `evaluateFast` raw vs. `engine.can()`; the number that matters for *this*
+footgun is prod vs. dev, directly below.)
 
 ```ts
 this._mode = config.mode ?? 'development'
@@ -540,10 +533,10 @@ represents.
 
 | # | Change | Expected | Risk | Scope |
 |---|--------|----------|------|-------|
-| 0 | Fix `MemoryAdapter` in the benchmark and docs | unblocks measurement | none | 30 minutes |
+| 0 | ~~Fix `MemoryAdapter` in the benchmark and docs~~ | unblocks measurement | none | **done** - see §0 |
 | 1 | Stop Map churn on `IamLRUCache.get` (finding 1) | ~40% off a warm check | low | one class |
 | 2 | `SingleSlot` for the four 1-entry caches (finding 2) | ~5% more | very low | one class |
-| 3 | Default `mode` from `NODE_ENV`, or warn (finding 6) | 13x for anyone who forgot | low | a few lines |
+| 3 | Default `mode` from `NODE_ENV`, or warn (finding 6) | ~2.5x for anyone who forgot | low | a few lines |
 | 4 | Cross-policy target index (finding 4) | 2.7x at 10, 38x at 200 policies | low-med | loaders plus evaluator |
 | 5 | Hoist request building in `permissions()` (finding 8) | ~7% of batched checks | very low | one loop |
 | 6 | Direct RBAC role index (finding 5) | 8.2x on RBAC, kills the quadratic | medium | rbac plus evaluator |

@@ -139,20 +139,16 @@ request then runs at steady-state speed instead of paying load plus index cost.
 
 ### How fast is it, really?
 
-Benchmarked with vitest bench against 5 other JS authorization libraries, simple
-RBAC check, higher is better:
+See [`README.md`'s performance section](./README.md#performance) for the
+current numbers against 5 other JS authorization libraries - both the bare
+rule-matching benchmark and the real `engine.can()` entry point (adapter +
+hooks + subject resolution + compiled table), which are two different things
+worth keeping separate. Kept in one place here instead of duplicated, since a
+second copy is a second thing to go stale when the benchmark is re-run.
 
-| Library | ops/sec |
-|---------|---------|
-| @casl/ability | 16,857,000 |
-| **@gentleduck/iam** (production mode) | 8,233,000 |
-| easy-rbac | 5,003,000 |
-| @rbac/rbac | 2,884,000 |
-| accesscontrol | 674,000 |
-| casbin | 143,000 |
-
-8 million checks per second means a check costs roughly 120 nanoseconds. In any
-real request, that is invisible next to a single database round trip.
+The short version: `engine.can()` in `mode: 'production'` runs at roughly
+1M+ ops/sec - sub-microsecond per check, invisible next to a single database
+round trip in any real request.
 
 Run it yourself: `bun run bench` in `packages/duck-iam`.
 
@@ -196,7 +192,7 @@ and pull the whole barrel. Use subpath imports and real deployments land at
 
 The core engine has zero runtime dependencies. The only entry in `dependencies`
 is `uuid`, and it is imported solely by the Drizzle schema helpers
-(`src/adapters/drizzle/schema/*.ts`). If you do not use Drizzle, it never loads.
+(`src/adapters/drizzle/{pg,mysql,sqlite}/*.schema.ts`). If you do not use Drizzle, it never loads.
 React, Vue, and Drizzle are optional peer dependencies.
 
 ### Is it RBAC or ABAC?
@@ -279,7 +275,7 @@ Being straight about the slow paths:
 
 ### How well tested is it?
 
-1,056 test cases across 51 test files, plus mutation testing via Stryker,
+1,368 test cases across 64 test files, plus mutation testing via Stryker,
 adapter compliance suites shared across all six adapters, and benchmarks against
 five competing libraries.
 

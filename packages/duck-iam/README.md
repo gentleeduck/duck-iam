@@ -39,7 +39,7 @@ bun add @gentleduck/iam
 
 ```typescript
 import { createIam } from '@gentleduck/iam/core'
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
 
 const access = createIam({
   actions: ['create', 'read', 'update', 'delete'] as const,
@@ -52,11 +52,11 @@ const editor = access.defineRole('editor').inherits('viewer').grant('update', 'p
 const admin = access.defineRole('admin').inherits('editor').grantCRUD('post').grantCRUD('comment').build()
 
 const policy = access
-  .policy('blog')
+  .definePolicy('blog')
   .rule('owner-edit', (r) => r.allow().on('update').of('post').when((w) => w.isOwner()))
   .build()
 
-const adapter = new MemoryAdapter({
+const adapter = new IamMemoryAdapter({
   policies: [policy],
   roles: [viewer, editor, admin],
   assignments: { 'user-1': ['editor'] },
@@ -115,16 +115,16 @@ For the smallest bundle, import only what you use via subpaths:
 import { IamEngine, evaluatePolicyFast } from '@gentleduck/iam/core'
 
 // Each adapter, server adapter, and client wrapper is a separate entry
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
-import { adminRouter } from '@gentleduck/iam/server/express'
-import { useAccess } from '@gentleduck/iam/client/react'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { iamAdminRouter } from '@gentleduck/iam/server/express'
+import { createIamAccessControl } from '@gentleduck/iam/client/react'
 
 // Validator (12 KB) - lazy-loaded by engine.admin.savePolicy on first
 // call, or imported directly for standalone validation tooling
 import { validatePolicy } from '@gentleduck/iam/core/validate'
 
 // Fluent builder (9 KB) - config-time only, separate subpath
-import { policy, defineRole } from '@gentleduck/iam/core/builder'
+import { definePolicy, defineRole } from '@gentleduck/iam/core/builder'
 ```
 
 `import * from '@gentleduck/iam'` pulls the everything-barrel (~41 KB
@@ -165,50 +165,50 @@ at 15-25 KB.
 
 ```typescript
 // Express
-import { guard, adminRouter } from '@gentleduck/iam/server/express'
-app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
-app.use('/admin', adminRouter(engine, { authorize: (req) => isAdmin(req) })(() => express.Router()))
+import { iamGuard, iamAdminRouter } from '@gentleduck/iam/server/express'
+app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
+app.use('/admin', iamAdminRouter(engine, { authorize: (req) => isAdmin(req) })(() => express.Router()))
 
 // Hono
-import { guard, bindAdminRouter } from '@gentleduck/iam/server/hono'
-app.delete('/posts/:id', guard(engine, 'delete', 'post'), handler)
-bindAdminRouter(adminApp, engine, { authorize: (c) => isAdmin(c) })
+import { iamGuard, iamBindAdminRouter } from '@gentleduck/iam/server/hono'
+app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
+iamBindAdminRouter(adminApp, engine, { authorize: (c) => isAdmin(c) })
 
 // NestJS
-import { nestAccessGuard, Authorize, createAdminOperations } from '@gentleduck/iam/server/nest'
-@Authorize({ action: 'delete', resource: 'post' })
+import { iamNestAccessGuard, IamAuthorize, createIamAdminOperations } from '@gentleduck/iam/server/nest'
+@IamAuthorize({ action: 'delete', resource: 'post' })
 
 // Next.js
-import { withAccess, createAdminHandlers } from '@gentleduck/iam/server/next'
-export const DELETE = withAccess(engine, 'delete', 'post', handler)
+import { withIamAccess, createIamAdminHandlers } from '@gentleduck/iam/server/next'
+export const DELETE = withIamAccess(engine, 'delete', 'post', handler)
 ```
 
 ### Client libraries
 
 ```typescript
 // React
-import { createAccessControl } from '@gentleduck/iam/client/react'
-const { AccessProvider, useAccess, Can, Cannot } = createAccessControl(React)
+import { createIamAccessControl } from '@gentleduck/iam/client/react'
+const { AccessProvider, useAccess, Can, Cannot } = createIamAccessControl(React)
 
 // Vue
-import { createVueAccess } from '@gentleduck/iam/client/vue'
-const { useAccess, Can, Cannot } = createVueAccess(vue)
+import { createIamVueAccess } from '@gentleduck/iam/client/vue'
+const { useAccess, Can, Cannot } = createIamVueAccess(vue)
 
 // Vanilla JS
-import { AccessClient } from '@gentleduck/iam/client/vanilla'
-const client = await AccessClient.fromServer('/api/permissions')
+import { IamAccessClient } from '@gentleduck/iam/client/vanilla'
+const client = await IamAccessClient.fromServer('/api/permissions')
 client.can('read', 'post') // boolean
 ```
 
 ### Database adapters
 
 ```typescript
-import { MemoryAdapter } from '@gentleduck/iam/adapters/memory'
-import { FileAdapter } from '@gentleduck/iam/adapters/file'
-import { PrismaAdapter } from '@gentleduck/iam/adapters/prisma'
-import { DrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
-import { RedisAdapter } from '@gentleduck/iam/adapters/redis'
-import { HttpAdapter } from '@gentleduck/iam/adapters/http'
+import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
+import { IamFileAdapter } from '@gentleduck/iam/adapters/file'
+import { IamPrismaAdapter } from '@gentleduck/iam/adapters/prisma'
+import { IamDrizzleAdapter } from '@gentleduck/iam/adapters/drizzle'
+import { IamRedisAdapter } from '@gentleduck/iam/adapters/redis'
+import { IamHttpAdapter } from '@gentleduck/iam/adapters/http'
 ```
 
 ### Operability
