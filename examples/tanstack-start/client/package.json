@@ -22,7 +22,7 @@
     "@tanstack/react-form": "latest",
     "@tanstack/react-query": "latest",
     "@tanstack/react-query-devtools": "latest",
-    "@tanstack/react-router": "latest",
+    "@tanstack/react-router": "1.170.31",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-router-ssr-query": "latest",
     "@tanstack/react-start": "latest",
