@@ -25,6 +25,16 @@ export interface IIamLoaderDeps<
   inFlight: IEngineInFlightBag
   maxPolicies: number
   maxRoles: number
+  /**
+   * Hard ceiling on concurrent distinct-subject adapter loads. `0` (default)
+   * is unbounded. Guards a cold-flat thundering herd: without a cap, a burst
+   * of never-before-seen subjects issues one adapter call each with no
+   * back-pressure, growing `inFlight.subjects` (and the promise closures it
+   * holds) without limit. Only new loads are gated - a call that hits the
+   * subject cache or joins an already-in-flight load for the same key never
+   * counts against the cap.
+   */
+  maxConcurrentSubjectLoads: number
   withTimeout: <T>(fn: (opts: { signal: AbortSignal }) => Promise<T>, label: string) => Promise<T>
 }
 
@@ -96,6 +106,11 @@ export async function resolveSubject<
   if (cached) return cached
   const inFlight = deps.inFlight.subjects.get(subjectId)
   if (inFlight) return inFlight
+  if (deps.maxConcurrentSubjectLoads > 0 && deps.inFlight.subjects.size >= deps.maxConcurrentSubjectLoads) {
+    throw new Error(
+      `[@gentleduck/iam:engine] subject load shed: ${deps.inFlight.subjects.size} concurrent subject loads already in flight (cap ${deps.maxConcurrentSubjectLoads}); rejecting new load for "${subjectId}"`,
+    )
+  }
   return runSingleFlightKeyed(
     deps.inFlight.subjects,
     subjectId,

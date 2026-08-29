@@ -265,6 +265,19 @@ export namespace IamEngineTypes {
      */
     readonly adapterTimeoutMs?: number
     /**
+     * Hard ceiling on concurrent distinct-subject adapter loads. Defaults to
+     * `0` (unbounded). A cold-flat thundering herd - a burst of never-before-
+     * cached subjects arriving faster than the adapter resolves them - grows
+     * `inFlight.subjects` (and the promise closures it holds) without limit;
+     * setting this caps that growth. Once the cap is reached, a *new* subject
+     * load rejects immediately with a `subject load shed` error instead of
+     * calling the adapter; a call that hits the subject cache, or joins an
+     * already-in-flight load for the same subject, never counts against it.
+     * The rejection surfaces through `can`/`check`/`authorize`'s existing
+     * fail-closed error handling - no separate wiring needed.
+     */
+    readonly maxConcurrentSubjectLoads?: number
+    /**
      * Cross-instance cache invalidation broadcaster. Wire a pub/sub helper
      * (e.g. `createRedisInvalidator(redis, channel)`) here and every engine
      * instance subscribed to the same channel will drop its local caches

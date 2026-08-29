@@ -81,6 +81,7 @@ export class IamEngine<
   private _maxPolicies: number
   private _maxRoles: number
   private _adapterTimeoutMs: number
+  private _maxConcurrentSubjectLoads: number
   private _invalidator?: IamEngineTypes.IInvalidator<TRole>
   private _invalidatorUnsub: (() => void) | null = null
   private _policyCache: IamLRUCache<AccessControl.IPolicy[]>
@@ -184,6 +185,7 @@ export class IamEngine<
     this._maxPolicies = config.maxPolicies ?? 10_000
     this._maxRoles = config.maxRoles ?? 10_000
     this._adapterTimeoutMs = config.adapterTimeoutMs ?? 5_000
+    this._maxConcurrentSubjectLoads = config.maxConcurrentSubjectLoads ?? 0
 
     // Reject non-finite caps; `NaN > x` is always false so a NaN limit
     // silently disables the bound.
@@ -195,6 +197,15 @@ export class IamEngine<
     }
     if (!Number.isFinite(this._adapterTimeoutMs) || this._adapterTimeoutMs < 0) {
       throw new RangeError('[@gentleduck/iam:engine] adapterTimeoutMs must be a finite number >= 0')
+    }
+    // 0 means unbounded (same convention as adapterTimeoutMs); anything else must be a real cap.
+    if (
+      !Number.isFinite(this._maxConcurrentSubjectLoads) ||
+      (this._maxConcurrentSubjectLoads !== 0 && this._maxConcurrentSubjectLoads < 1)
+    ) {
+      throw new RangeError(
+        '[@gentleduck/iam:engine] maxConcurrentSubjectLoads must be 0 (unbounded) or a finite number >= 1',
+      )
     }
 
     const ttl = (config.cacheTTL ?? 60) * 1000
@@ -279,6 +290,7 @@ export class IamEngine<
       inFlight: this._inFlight,
       maxPolicies: this._maxPolicies,
       maxRoles: this._maxRoles,
+      maxConcurrentSubjectLoads: this._maxConcurrentSubjectLoads,
       withTimeout: (fn, label) => this._withTimeout(fn, label),
     }
   }

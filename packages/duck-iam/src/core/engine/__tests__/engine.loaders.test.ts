@@ -51,9 +51,19 @@ function makeDeps(overrides: Partial<IIamLoaderDeps<A, R, Ro, S>> = {}): IIamLoa
     },
     maxPolicies: 1000,
     maxRoles: 1000,
+    maxConcurrentSubjectLoads: 0,
     withTimeout: (fn) => fn({ signal: new AbortController().signal }),
     ...overrides,
   }
+}
+
+/** A promise plus its externally-callable resolver, for controlling adapter-call timing in tests. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
 }
 
 describe('loadPolicies', () => {
@@ -225,5 +235,57 @@ describe('resolveSubject', () => {
     deps.adapter.getSubjectScopedRoles = async () => [{ scope: 'org-1', role: 'admin' }]
     const subject = await resolveSubject(deps, 's-1')
     expect(subject.scopedRoles).toEqual([{ scope: 'org-1', role: 'admin' }])
+  })
+})
+
+describe('resolveSubject: maxConcurrentSubjectLoads cap', () => {
+  it('rejects a new subject load once the cap of in-flight loads is reached, without calling the adapter', async () => {
+    const deps = makeDeps({ maxConcurrentSubjectLoads: 2 })
+    const gate1 = deferred<string[]>()
+    const gate2 = deferred<string[]>()
+    const getRoles = vi.fn().mockReturnValueOnce(gate1.promise).mockReturnValueOnce(gate2.promise)
+    deps.adapter.getSubjectRoles = getRoles
+
+    // Two loads in flight, neither settled yet - fills the cap.
+    const p1 = resolveSubject(deps, 's-1')
+    const p2 = resolveSubject(deps, 's-2')
+
+    await expect(resolveSubject(deps, 's-3')).rejects.toThrow(/load shed/i)
+    expect(getRoles).toHaveBeenCalledTimes(2) // s-3 never reached the adapter
+
+    gate1.resolve([])
+    gate2.resolve([])
+    await Promise.all([p1, p2])
+  })
+
+  it('does not count a call for an already in-flight key against the cap', async () => {
+    const deps = makeDeps({ maxConcurrentSubjectLoads: 1 })
+    const gate = deferred<string[]>()
+    deps.adapter.getSubjectRoles = vi.fn(() => gate.promise)
+
+    const p1 = resolveSubject(deps, 's-1')
+    const p2 = resolveSubject(deps, 's-1') // same key, shares the single-flight slot
+
+    gate.resolve(['admin'])
+    const [s1, s2] = await Promise.all([p1, p2])
+    expect(s1).toEqual(s2)
+  })
+
+  it('does not gate a subject already served from cache', async () => {
+    const deps = makeDeps({ maxConcurrentSubjectLoads: 1 })
+    await resolveSubject(deps, 's-1') // populates the cache, settles immediately
+    // Cap is full only while a load is in flight; nothing is in flight here.
+    await expect(resolveSubject(deps, 's-1')).resolves.toBeDefined()
+  })
+
+  it('0 (default) leaves subject loading unbounded', async () => {
+    const deps = makeDeps({ maxConcurrentSubjectLoads: 0 })
+    const gates = [deferred<string[]>(), deferred<string[]>(), deferred<string[]>()]
+    let call = 0
+    deps.adapter.getSubjectRoles = vi.fn(() => gates[call++]!.promise)
+
+    const loads = [resolveSubject(deps, 's-1'), resolveSubject(deps, 's-2'), resolveSubject(deps, 's-3')]
+    for (const g of gates) g.resolve([])
+    await expect(Promise.all(loads)).resolves.toHaveLength(3)
   })
 })
