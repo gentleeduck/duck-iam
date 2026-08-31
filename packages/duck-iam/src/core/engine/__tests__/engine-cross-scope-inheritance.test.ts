@@ -73,6 +73,18 @@ describe('Engine.can() - cross-scope role inheritance', () => {
     )
   })
 
+  it("does not drift a direct assignment into the role's own default scope when it was explicitly assigned elsewhere", async () => {
+    const { adapter, engine } = createEngine()
+
+    // marketplace-guest declares scope: 'marketplace', but is assigned directly at 'company'.
+    // Retagging the assignment with the role's own scope would silently grant authority at
+    // 'marketplace' - a scope this assignment never recorded.
+    await adapter.assignRole('user-5', 'marketplace-guest', 'company')
+
+    expect(await engine.can('user-5', 'read', { type: 'post', attributes: {} }, undefined, 'marketplace')).toBe(false)
+    expect(await engine.can('user-5', 'read', { type: 'post', attributes: {} }, undefined, 'company')).toBe(false)
+  })
+
   it('does not regress a same-scope check with no cross-scope inheritance involved', async () => {
     const { adapter, engine } = createEngine()
 

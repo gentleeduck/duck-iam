@@ -267,6 +267,18 @@ describe('resolveSubject', () => {
     expect(subject.scopedRoles).toContainEqual({ role: 'org:admin', scope: 'org-1' })
     expect(subject.scopedRoles).toContainEqual({ role: 'legacy:base', scope: 'org-1' })
   })
+
+  it('preserves the assignment row scope for the directly assigned role, even when that role declares a different default scope', async () => {
+    const deps = makeDeps()
+    deps.adapter.listRoles = async () => [
+      // Declares 'marketplace' as its default scope, but is being assigned at a concrete
+      // scope instance ('store-42') - exactly what IScopedRole.scope exists for.
+      { id: 'store:manager', name: 'store manager', permissions: [], scope: 'marketplace' },
+    ]
+    deps.adapter.getSubjectScopedRoles = async () => [{ role: 'store:manager', scope: 'store-42' }]
+    const subject = await resolveSubject(deps, 's-1')
+    expect(subject.scopedRoles).toContainEqual({ role: 'store:manager', scope: 'store-42' })
+  })
 })
 
 describe('resolveSubject: maxConcurrentSubjectLoads cap', () => {
