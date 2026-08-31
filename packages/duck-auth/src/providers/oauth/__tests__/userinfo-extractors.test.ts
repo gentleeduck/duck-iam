@@ -6,16 +6,12 @@ describe('getUserinfoString', () => {
     expect(getUserinfoString({ sub: 'abc' }, 'sub')).toBe('abc')
   })
 
-  it.each<[unknown]>([
-    [null],
-    [undefined],
-    ['oops'],
-    [42],
-    [true],
-    [[{ sub: 'abc' }]],
-  ])('returns undefined when info is not a plain object: %p', (info) => {
-    expect(getUserinfoString(info, 'sub')).toBeUndefined()
-  })
+  it.each<[unknown]>([[null], [undefined], ['oops'], [42], [true], [[{ sub: 'abc' }]]])(
+    'returns undefined when info is not a plain object: %p',
+    (info) => {
+      expect(getUserinfoString(info, 'sub')).toBeUndefined()
+    },
+  )
 
   it.each<[unknown]>([
     [null],
