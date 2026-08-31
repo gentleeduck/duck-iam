@@ -4,17 +4,6 @@ import { matchesAction, matchesResource, matchesResourceHierarchical } from '../
 import type { AccessControl, IamRequest } from '../types'
 import type { Evaluate } from './evaluate.types'
 /**
- * Checks whether a single rule applies to the given access request.
- *
- * A rule applies when its action patterns match the requested action,
- * its resource patterns match the requested resource type, and all
- * conditions (if any) evaluate to true.
- *
- * @param rule - The rule to test
- * @param req  - The incoming access request
- * @returns `true` if the rule matches the request
- */
-/**
  * Action+resource shape only, no conditions. Distinguishes "this rule has
  * nothing to do with the request" (false) from "shape matches, condition
  * decides" (true) - the top-level combine needs that distinction to tell a
@@ -37,6 +26,7 @@ export function ruleTargetsMatch(rule: AccessControl.IRule, req: IamRequest.IAcc
   })
 }
 
+/** `ruleTargetsMatch` plus its conditions - `true` only if the rule shape-matches AND all conditions evaluate to true. */
 export function ruleApplies(
   rule: AccessControl.IRule,
   req: IamRequest.IAccessRequest,

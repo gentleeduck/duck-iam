@@ -116,14 +116,6 @@ export namespace IamFile {
 }
 
 /**
- * Persists the access store as a single JSON file; single-writer model (no external locking).
- *
- * @template TAction - Constrains valid action strings.
- * @template TResource - Constrains valid resource strings.
- * @template TRole - Constrains valid role strings.
- * @template TScope - Constrains valid scope strings.
- */
-/**
  * Process-wide latch for the missing-rootDir warning. The warning text is the
  * same regardless of which adapter triggered it, and the resolved path is
  * deliberately omitted so log scrapers cannot use it as a path-existence
@@ -131,6 +123,20 @@ export namespace IamFile {
  */
 let _ROOTDIR_WARNED_FIRED = false
 
+/**
+ * Persists the access store as a single JSON file; single-writer model (no external locking).
+ *
+ * @template TAction - Constrains valid action strings.
+ * @template TResource - Constrains valid resource strings.
+ * @template TRole - Constrains valid role strings.
+ * @template TScope - Constrains valid scope strings.
+ *
+ * @example
+ * ```ts
+ * const adapter = new IamFileAdapter({ path: path.resolve(__dirname, 'iam-store.json') })
+ * const engine = new IamEngine({ adapter })
+ * ```
+ */
 export class IamFileAdapter<
   TAction extends string = string,
   TResource extends string = string,

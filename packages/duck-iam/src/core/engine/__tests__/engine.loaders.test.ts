@@ -236,6 +236,49 @@ describe('resolveSubject', () => {
     const subject = await resolveSubject(deps, 's-1')
     expect(subject.scopedRoles).toEqual([{ scope: 'org-1', role: 'admin' }])
   })
+
+  it('tags a role reached through cross-scope inheritance with its OWN scope, not the source assignment scope', async () => {
+    const deps = makeDeps()
+    deps.adapter.listRoles = async () => [
+      {
+        id: 'company:superadmin',
+        name: 'company superadmin',
+        permissions: [],
+        scope: 'company',
+        inherits: ['marketplace:owner'],
+      },
+      { id: 'marketplace:owner', name: 'marketplace owner', permissions: [], scope: 'marketplace' },
+    ]
+    deps.adapter.getSubjectScopedRoles = async () => [{ role: 'company:superadmin', scope: 'company' }]
+    const subject = await resolveSubject(deps, 's-1')
+    expect(subject.scopedRoles).toContainEqual({ role: 'company:superadmin', scope: 'company' })
+    expect(subject.scopedRoles).toContainEqual({ role: 'marketplace:owner', scope: 'marketplace' })
+  })
+
+  it('falls back to the assignment row scope for an inherited role with no scope of its own', async () => {
+    const deps = makeDeps()
+    deps.adapter.listRoles = async () => [
+      { id: 'org:admin', name: 'org admin', permissions: [], scope: 'org-1', inherits: ['legacy:base'] },
+      // No `scope` field: a generic role with no declared home scope.
+      { id: 'legacy:base', name: 'legacy base', permissions: [] },
+    ]
+    deps.adapter.getSubjectScopedRoles = async () => [{ role: 'org:admin', scope: 'org-1' }]
+    const subject = await resolveSubject(deps, 's-1')
+    expect(subject.scopedRoles).toContainEqual({ role: 'org:admin', scope: 'org-1' })
+    expect(subject.scopedRoles).toContainEqual({ role: 'legacy:base', scope: 'org-1' })
+  })
+
+  it('preserves the assignment row scope for the directly assigned role, even when that role declares a different default scope', async () => {
+    const deps = makeDeps()
+    deps.adapter.listRoles = async () => [
+      // Declares 'marketplace' as its default scope, but is being assigned at a concrete
+      // scope instance ('store-42') - exactly what IScopedRole.scope exists for.
+      { id: 'store:manager', name: 'store manager', permissions: [], scope: 'marketplace' },
+    ]
+    deps.adapter.getSubjectScopedRoles = async () => [{ role: 'store:manager', scope: 'store-42' }]
+    const subject = await resolveSubject(deps, 's-1')
+    expect(subject.scopedRoles).toContainEqual({ role: 'store:manager', scope: 'store-42' })
+  })
 })
 
 describe('resolveSubject: maxConcurrentSubjectLoads cap', () => {
