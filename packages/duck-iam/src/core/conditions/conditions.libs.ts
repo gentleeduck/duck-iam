@@ -59,21 +59,6 @@ export const REGEX_CACHE_MAX = 256
 export const regexCache = new Map<string, RegExp>()
 
 /**
- * Retrieve a cached compiled regex, or compile and cache it.
- * Returns `null` if the pattern is invalid.
- *
- * On a cache hit the entry is re-inserted so iteration order becomes recency
- * order; eviction then drops the *least recently used* pattern instead of
- * the oldest-inserted one. Without this, a hot pattern compiled early gets
- * evicted as soon as REGEX_CACHE_MAX cold patterns roll through.
- *
- * @param pattern - Regex source string.
- * @param cache - Optional per-instance Map. Falls back to the module-global
- *   `regexCache` when omitted. Engine instances pass their own cache to
- *   prevent cross-tenant eviction.
- * @returns The compiled `RegExp`, or `null` when the pattern fails to compile.
- */
-/**
  * Drop every entry in the process-wide regex cache. Intended for multi-tenant
  * operators who flush periodically to bound any single tenant's eviction
  * influence. Per-instance caches passed via the optional `cache` argument to
@@ -90,6 +75,21 @@ export function clearRegexCache(): void {
 // `matches` keeps the residual risk bounded.
 const NESTED_QUANTIFIER_RE = /\([^)]*[*+?][^)]*\)[*+?{]/
 
+/**
+ * Retrieve a cached compiled regex, or compile and cache it.
+ * Returns `null` if the pattern is invalid.
+ *
+ * On a cache hit the entry is re-inserted so iteration order becomes recency
+ * order; eviction then drops the *least recently used* pattern instead of
+ * the oldest-inserted one. Without this, a hot pattern compiled early gets
+ * evicted as soon as REGEX_CACHE_MAX cold patterns roll through.
+ *
+ * @param pattern - Regex source string.
+ * @param cache - Optional per-instance Map. Falls back to the module-global
+ *   `regexCache` when omitted. Engine instances pass their own cache to
+ *   prevent cross-tenant eviction.
+ * @returns The compiled `RegExp`, or `null` when the pattern fails to compile.
+ */
 export function getCachedRegex(pattern: string, cache: Map<string, RegExp> = regexCache): RegExp | null {
   if (NESTED_QUANTIFIER_RE.test(pattern)) return null
   const cached = cache.get(pattern)
