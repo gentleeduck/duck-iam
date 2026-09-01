@@ -1,4 +1,5 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import { iamAssertAttributesParam } from '../../shared/attributes'
 
 export namespace IamMemory {
   /**
@@ -265,10 +266,7 @@ export class IamMemoryAdapter<
    * @returns Resolves once the merge completes.
    */
   async setSubjectAttributes(id: string, attrs: IamPrimitives.Attributes): Promise<void> {
-    if (typeof attrs !== 'object' || attrs === null || Array.isArray(attrs)) {
-      const got = attrs === null ? 'null' : Array.isArray(attrs) ? 'array' : typeof attrs
-      throw new Error(`[@gentleduck/iam:memory] attributes for "${id}" must be a plain object (got ${got})`)
-    }
+    iamAssertAttributesParam('memory', id, attrs)
     this._attributes.set(id, { ...(this._attributes.get(id) ?? {}), ...attrs })
   }
 }

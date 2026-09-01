@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { IamEngine } from '../../../core'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { type IamRedis, IamRedisAdapter } from '../index'
+import { type IamRedis, IamRedisAdapter, iamRedisAdapter } from '../index'
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
@@ -586,5 +586,14 @@ describe('IamRedisAdapter', () => {
       const members = Array.from(r.rawSet('assignments:user-1') ?? [])
       expect(members).toHaveLength(0)
     })
+  })
+})
+
+describe('iamRedisAdapter factory', () => {
+  it('returns a working IamRedisAdapter over the supplied client', async () => {
+    const adapter = iamRedisAdapter({ client: new AuthFakeRedis(), keyPrefix: 'iam:' })
+    expect(adapter).toBeInstanceOf(IamRedisAdapter)
+    await adapter.assignRole('user-1', 'viewer')
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })
 })

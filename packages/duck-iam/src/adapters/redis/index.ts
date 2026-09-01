@@ -1,10 +1,11 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import { iamAssertAttributesParam } from '../../shared/attributes'
 
-/** IamRedis adapter integration types. Type-only namespace - zero bundle cost. */
+/** Redis adapter integration types. Type-only namespace - zero bundle cost. */
 export namespace IamRedis {
   /**
-   * Describes the minimal IamRedis client surface used by {@link IamRedisAdapter}.
+   * Describes the minimal Redis client surface used by {@link IamRedisAdapter}.
    *
    * Both ioredis and node-redis (v4+) implement these methods, so consumers can
    * pass either without a hard dependency.
@@ -28,7 +29,7 @@ export namespace IamRedis {
 
   /** Describes the configuration required to construct a {@link IamRedisAdapter}. */
   export interface IConfig<TClient extends ILike = ILike> {
-    /** Provides the IamRedis client instance (ioredis, node-redis v4+, or compatible). */
+    /** Provides the Redis client instance (ioredis, node-redis v4+, or compatible). */
     client: TClient
     /** Optional key prefix that namespaces every duck-iam key. */
     keyPrefix?: string
@@ -43,7 +44,7 @@ export namespace IamRedis {
 }
 
 /**
- * IamRedis-backed adapter using hashes + sets. Layout (with `keyPrefix`):
+ * Redis-backed adapter using hashes + sets. Layout (with `keyPrefix`):
  * `${p}policies` (hash), `${p}roles` (hash), `${p}assignments:${id}` (set: `roleId\x00scope`), `${p}attrs:${id}` (JSON).
  *
  * @template TAction - Constrains valid action strings.
@@ -74,7 +75,7 @@ export class IamRedisAdapter<
   private _assignmentWriteLocks = new Map<string, Promise<unknown>>()
 
   /**
-   * Creates a new IamRedis-backed adapter.
+   * Creates a new Redis-backed adapter.
    *
    * @param config - Provides the client and optional key prefix.
    */
@@ -132,11 +133,8 @@ export class IamRedisAdapter<
       this._onPolicyError(err, { adapter: 'redis', rowId })
       return
     }
-    // eslint-disable-next-line no-console
     console.warn(`[@gentleduck/iam:redis] dropped malformed row "${rowId}": ${err.message}`)
   }
-
-  // -- key helpers --
 
   private _policiesKey(): string {
     return `${this._prefix}policies`
@@ -262,7 +260,7 @@ export class IamRedisAdapter<
     })
   }
 
-  /** Cross-process atomic legacy-assignment migration via IamRedis EVAL; ARGV pairs `[migrated, legacy]`. */
+  /** Cross-process atomic legacy-assignment migration via Redis EVAL; ARGV pairs `[migrated, legacy]`. */
   private static readonly _MIGRATE_LUA = `
     local key = KEYS[1]
     for i = 1, #ARGV, 2 do
@@ -291,7 +289,7 @@ export class IamRedisAdapter<
   }
 
   /**
-   * Lists every policy stored in the IamRedis hash.
+   * Lists every policy stored in the Redis hash.
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All policies decoded from the `policies` hash.
@@ -342,7 +340,7 @@ export class IamRedisAdapter<
   }
 
   /**
-   * Lists every role stored in the IamRedis hash.
+   * Lists every role stored in the Redis hash.
    *
    * @param _opts - Ignored read options accepted for interface compatibility.
    * @returns All roles decoded from the `roles` hash.
@@ -437,7 +435,7 @@ export class IamRedisAdapter<
   /**
    * Grants a role to a subject, optionally restricted to a scope.
    *
-   * Idempotent thanks to IamRedis set semantics.
+   * Idempotent thanks to Redis set semantics.
    *
    * @param subjectId - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.
@@ -513,6 +511,7 @@ export class IamRedisAdapter<
    * @returns Resolves once the SET completes.
    */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
+    iamAssertAttributesParam('redis', subjectId, attrs)
     // Admin write path is the one place a corrupt existing blob must NOT
     // lock the operator out of recovering. Treat corrupt as `{}` and log
     // through _reportPolicyError so the operator still sees the signal.
