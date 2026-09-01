@@ -77,7 +77,9 @@ const NESTED_QUANTIFIER_RE = /\([^)]*[*+?][^)]*\)[*+?{]/
 
 /**
  * Retrieve a cached compiled regex, or compile and cache it.
- * Returns `null` if the pattern is invalid.
+ * Returns `null` if the pattern fails to compile, or if {@link NESTED_QUANTIFIER_RE}
+ * rejects it as a ReDoS-shaped pattern (checked before compilation - a syntactically
+ * valid pattern like `(a+)+` still returns `null`).
  *
  * On a cache hit the entry is re-inserted so iteration order becomes recency
  * order; eviction then drops the *least recently used* pattern instead of
@@ -88,7 +90,7 @@ const NESTED_QUANTIFIER_RE = /\([^)]*[*+?][^)]*\)[*+?{]/
  * @param cache - Optional per-instance Map. Falls back to the module-global
  *   `regexCache` when omitted. Engine instances pass their own cache to
  *   prevent cross-tenant eviction.
- * @returns The compiled `RegExp`, or `null` when the pattern fails to compile.
+ * @returns The compiled `RegExp`, or `null` when the pattern is invalid or rejected.
  */
 export function getCachedRegex(pattern: string, cache: Map<string, RegExp> = regexCache): RegExp | null {
   if (NESTED_QUANTIFIER_RE.test(pattern)) return null

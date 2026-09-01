@@ -130,6 +130,12 @@ let _ROOTDIR_WARNED_FIRED = false
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
+ *
+ * @example
+ * ```ts
+ * const adapter = new IamFileAdapter({ path: path.resolve(__dirname, 'iam-store.json') })
+ * const engine = new IamEngine({ adapter })
+ * ```
  */
 export class IamFileAdapter<
   TAction extends string = string,
