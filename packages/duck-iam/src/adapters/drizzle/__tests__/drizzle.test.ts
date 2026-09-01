@@ -1,8 +1,9 @@
 import type { SQL } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { IamConfig } from '../../../core/config'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { type IamDrizzle, IamDrizzleAdapter } from '../index'
+import { createIamDrizzleAdapter, type IamDrizzle, IamDrizzleAdapter, iamDrizzleAdapter } from '../index'
 
 /** `IConfig` gained <TDb, TType> in the rename these suites were disabled for. */
 type TestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>
@@ -165,7 +166,7 @@ function makeDrizzleMock(): {
 }
 
 // IamAdapter compliance - fresh mock per call.
-runAdapterCompliance('IamDrizzleAdapter', () => new IamDrizzleAdapter(makeDrizzleMock().config) as never)
+runAdapterCompliance('IamDrizzleAdapter', () => new IamDrizzleAdapter(makeDrizzleMock().config))
 
 describe('IamDrizzleAdapter', () => {
   let mock: ReturnType<typeof makeDrizzleMock>
@@ -374,6 +375,14 @@ describe('IamDrizzleAdapter', () => {
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-2')
       await adapter.revokeRole('user-1', 'editor' as Ro)
       expect(await adapter.getSubjectRoles('user-1')).toEqual([])
+    })
+
+    it('revokeRole with an empty-string scope targets only that scope, never all', async () => {
+      await adapter.assignRole('user-1', 'editor' as Ro)
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
+      await adapter.revokeRole('user-1', 'editor' as Ro, '' as S)
+      expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
+      expect((await adapter.getSubjectScopedRoles('user-1')).map((r) => r.scope)).toEqual(['org-1'])
     })
 
     it('revokeRole with scope only clears scoped assignment', async () => {
@@ -673,6 +682,31 @@ describe('IamDrizzleAdapter', () => {
       const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
       await adapter.setSubjectAttributes('u1', { tier: 'gold' })
       expect(mock.tables.attrs).toHaveLength(1)
+    })
+  })
+
+  describe('factories', () => {
+    it('iamDrizzleAdapter builds an adapter equivalent to `new IamDrizzleAdapter(...)`', async () => {
+      const m = makeDrizzleMock()
+      const built = iamDrizzleAdapter<A, R, Ro, S>(m.config)
+      expect(built).toBeInstanceOf(IamDrizzleAdapter)
+      await built.savePolicy({ algorithm: 'deny-overrides', id: 'p1', name: 'P', rules: [] })
+      expect((await built.listPolicies()).map((p) => p.id)).toEqual(['p1'])
+    })
+
+    it('createIamDrizzleAdapter builds an adapter bound to the config it was handed', async () => {
+      const m = makeDrizzleMock()
+      const built = createIamDrizzleAdapter<IamConfig.IAccessConfig<A, R, Ro, S>, IamDrizzle.AnyDrizzleDb>(m.config)
+      expect(built).toBeInstanceOf(IamDrizzleAdapter)
+      await built.saveRole({ id: 'editor', name: 'Editor', permissions: [] })
+      expect(m.tables.roles.map((r) => r.id)).toEqual(['editor'])
+    })
+
+    it('each factory call gets its own db, not a shared one', async () => {
+      const a = iamDrizzleAdapter<A, R, Ro, S>(makeDrizzleMock().config)
+      const b = iamDrizzleAdapter<A, R, Ro, S>(makeDrizzleMock().config)
+      await a.savePolicy({ algorithm: 'deny-overrides', id: 'p1', name: 'P', rules: [] })
+      expect(await b.listPolicies()).toEqual([])
     })
   })
 })

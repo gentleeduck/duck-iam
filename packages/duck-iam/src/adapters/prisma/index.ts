@@ -64,7 +64,10 @@ export namespace IamPrisma {
       delete: (args: { where: { id: string } }) => Promise<IRoleRow>
     }
     accessAssignment: {
-      findMany: (args: { where: { subjectId: string; scope?: string | null } }) => Promise<IAssignmentRow[]>
+      findMany: (args: {
+        where: { subjectId: string; roleId?: string; scope?: string | null }
+        take?: number
+      }) => Promise<IAssignmentRow[]>
       create: (args: { data: Record<string, unknown> }) => Promise<IAssignmentRow>
       deleteMany: (args: { where: Record<string, unknown> }) => Promise<{ count: number }>
       updateMany: (args: {
@@ -280,7 +283,7 @@ export class IamPrismaAdapter<
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     await this._prisma.accessAssignment.deleteMany({
-      where: { subjectId, roleId, ...(scope ? { scope } : {}) },
+      where: { subjectId, roleId, ...(scope !== undefined ? { scope } : {}) },
     })
   }
 
@@ -299,9 +302,19 @@ export class IamPrismaAdapter<
     roleId: TRole,
     fromScope?: TScope,
     toScope?: TScope,
+    // Accepted for contract parity with the other adapters; the reference Prisma
+    // schema has no `updatedBy` column so there is nothing to persist it to.
+    _actor?: string,
   ): Promise<boolean> {
+    // Confirm the source row exists before touching the target scope, otherwise a
+    // stale `fromScope` would delete the grant the caller is moving onto.
+    const existing = await this._prisma.accessAssignment.findMany({
+      where: { subjectId, roleId, scope: fromScope ?? null },
+      take: 1,
+    })
+    if (existing.length === 0) return false
     // The target scope may already have its own row (unique on subjectId+roleId+scope);
-    // drop the source rather than let the update violate that constraint.
+    // drop it rather than let the update violate that constraint.
     await this._prisma.accessAssignment.deleteMany({
       where: { subjectId, roleId, scope: toScope ?? null, NOT: { scope: fromScope ?? null } },
     })

@@ -514,7 +514,7 @@ export class IamDrizzleAdapter<
       this._eq(this._t.assignments.subjectId, subjectId),
       this._eq(this._t.assignments.roleId, roleId),
     ]
-    if (scope) conditions.push(this._eq(this._t.assignments.scope, scope))
+    if (scope !== undefined) conditions.push(this._eq(this._t.assignments.scope, scope))
     await this._db.delete(this._t.assignments).where(this._and(...(conditions as (SQLWrapper | undefined)[])))
   }
 

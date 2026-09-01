@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { IamPrismaAdapter } from '../index'
+import { IamPrismaAdapter, iamPrismaAdapter } from '../index'
 
 type A = 'read' | 'write'
 type R = 'post' | 'comment'
@@ -136,7 +136,7 @@ function makePrismaMock() {
 }
 
 // IamAdapter compliance - fresh prisma mock per call.
-runAdapterCompliance('IamPrismaAdapter', () => new IamPrismaAdapter(makePrismaMock() as never) as never)
+runAdapterCompliance('IamPrismaAdapter', () => new IamPrismaAdapter(makePrismaMock()))
 
 describe('IamPrismaAdapter', () => {
   let prisma: ReturnType<typeof makePrismaMock>
@@ -310,6 +310,14 @@ describe('IamPrismaAdapter', () => {
       expect(await adapter.getSubjectRoles('user-1')).toEqual([])
     })
 
+    it('revokeRole with an empty-string scope targets only that scope, never all', async () => {
+      await adapter.assignRole('user-1', 'editor' as Ro)
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
+      await adapter.revokeRole('user-1', 'editor' as Ro, '' as S)
+      expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
+      expect((await adapter.getSubjectScopedRoles('user-1')).map((r) => r.scope)).toEqual(['org-1'])
+    })
+
     it('revokeRole with scope only clears matching scope', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
@@ -334,6 +342,22 @@ describe('IamPrismaAdapter', () => {
       await adapter.setSubjectAttributes('user-1', { team: 'A' })
       await adapter.setSubjectAttributes('user-1', { team: 'B' })
       expect((await adapter.getSubjectAttributes('user-1')).team).toBe('B')
+    })
+  })
+
+  describe('iamPrismaAdapter factory', () => {
+    it('builds an adapter equivalent to `new IamPrismaAdapter(...)`', async () => {
+      const built = iamPrismaAdapter(makePrismaMock())
+      expect(built).toBeInstanceOf(IamPrismaAdapter)
+      await built.savePolicy({ algorithm: 'deny-overrides', id: 'p1', name: 'P', rules: [] })
+      expect((await built.listPolicies()).map((p) => p.id)).toEqual(['p1'])
+    })
+
+    it('binds the client it was handed, not a shared one', async () => {
+      const a = iamPrismaAdapter(makePrismaMock())
+      const b = iamPrismaAdapter(makePrismaMock())
+      await a.savePolicy({ algorithm: 'deny-overrides', id: 'p1', name: 'P', rules: [] })
+      expect(await b.listPolicies()).toEqual([])
     })
   })
 })
