@@ -203,6 +203,7 @@ function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | Acce
   }
   Object.freeze(arr)
 }
+
 /**
  * Scope plus every ancestor prefix, specific first:
  * `'org-1.team-2.repo-3'` -> `['org-1.team-2.repo-3', 'org-1.team-2', 'org-1']`.

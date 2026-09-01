@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AccessControl } from '../../types'
-import type { MAX_INHERITANCE_DEPTH } from '../rbac'
-import { resolveEffectiveRoles, rolesToPolicy } from '../rbac'
+import { MAX_INHERITANCE_DEPTH, resolveEffectiveRoles, rolesToPolicy } from '../rbac'
 
 const viewer: AccessControl.IRole = {
   id: 'viewer',
@@ -189,6 +188,10 @@ describe('rule id stability', () => {
 })
 
 describe('inheritance-depth bound', () => {
+  it('pins MAX_INHERITANCE_DEPTH at 32', () => {
+    expect(MAX_INHERITANCE_DEPTH).toBe(32)
+  })
+
   it('resolveEffectiveRoles returns without throwing on a 1000-deep linear chain', () => {
     // Bound at 32 means traversal stops cleanly; we only assert no stack overflow / no hang.
     const roles: AccessControl.IRole[] = []
@@ -201,8 +204,45 @@ describe('inheritance-depth bound', () => {
       })
     }
     const effective = resolveEffectiveRoles(['r999'], roles)
-    // Walk stops at MAX_INHERITANCE_DEPTH=32 deep from the start role.
+    // Walk stops at MAX_INHERITANCE_DEPTH (32) deep from the start role.
     expect(effective.length).toBeLessThanOrEqual(34)
     expect(effective.length).toBeGreaterThan(1)
+  })
+
+  it('rolesToPolicy bounds permission collection on a deep linear chain', () => {
+    const depth = 200
+    const roles: AccessControl.IRole[] = []
+    for (let i = 0; i < depth; i++) {
+      roles.push({
+        id: `r${i}`,
+        name: `R${i}`,
+        permissions: [{ action: `act${i}`, resource: 'post' }],
+        ...(i > 0 ? { inherits: [`r${i - 1}`] } : {}),
+      })
+    }
+    // Rules emitted for the deepest role only: its own permission plus at most
+    // MAX_INHERITANCE_DEPTH inherited ones, never all 200.
+    const deepest = rolesToPolicy(roles).rules.filter((r) => r.description?.startsWith(`R${depth - 1}: `))
+    expect(deepest.length).toBeLessThanOrEqual(34)
+    expect(deepest.length).toBeGreaterThan(1)
+  })
+
+  it('rolesToPolicy terminates on a cyclic inherits graph without duplicating permissions', () => {
+    const a: AccessControl.IRole = {
+      id: 'a',
+      inherits: ['b'],
+      name: 'A',
+      permissions: [{ action: 'read', resource: 'post' }],
+    }
+    const b: AccessControl.IRole = {
+      id: 'b',
+      inherits: ['a'],
+      name: 'B',
+      permissions: [{ action: 'write', resource: 'post' }],
+    }
+    const rules = rolesToPolicy([a, b]).rules
+    // a: [b.write, a.read]; b: [a.read, b.write] - four rules, no runaway.
+    expect(rules).toHaveLength(4)
+    expect(new Set(rules.map((r) => r.id)).size).toBe(4)
   })
 })

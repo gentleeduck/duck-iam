@@ -1,6 +1,5 @@
 import type { IamPrimitives, IamRequest } from '../types'
-// Bare resource patterns (no `:*` / `.*` suffix) match ONLY the literal
-// resource; recursive matching requires the explicit `:*` / `.*` suffix.
+
 /** Top-level path prefixes accepted by {@link resolve}. */
 export const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
 
@@ -63,6 +62,7 @@ function getSegments(path: string, cache: Map<string, string[] | null> = pathCac
  *
  * @param request - The access request providing root data.
  * @param path    - Dot-path string starting with an allowed root or shorthand.
+ * @param caches  - Optional per-Engine path-segment cache; falls back to the module-global one.
  * @returns The resolved attribute value, or `null` when the path is invalid or missing.
  */
 export function resolve(

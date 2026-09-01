@@ -41,9 +41,8 @@ export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): Ia
       try {
         fn()
       } catch (err) {
-        // Surface listener errors via console.error. Devtools only, so no
+        // Devtools-only, so console is the whole error channel - no
         // operator-facing callback is needed.
-        // eslint-disable-next-line no-console
         console.error('[@gentleduck/iam:dt:flow] listener threw - continuing', err)
       }
     }

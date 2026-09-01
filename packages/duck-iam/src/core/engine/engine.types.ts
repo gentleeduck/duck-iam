@@ -237,9 +237,10 @@ export namespace IamEngineTypes {
     readonly policyCombine?: AccessControl.PolicyCombine
     /**
      * Hard ceiling on how many policies the engine will load from its adapter.
-     * Loads beyond the cap throw at construction-time of the cache, not
-     * per-request. Defaults to `10_000`; tune up if your fleet legitimately
-     * has more, tune down to fail loudly on adapter corruption.
+     * An over-cap load throws when the policy cache is filled, so the cost is
+     * paid once per cache fill, not per request. Defaults to `10_000`; tune up
+     * if your fleet legitimately has more, tune down to fail loudly on adapter
+     * corruption.
      */
     readonly maxPolicies?: number
     /** Hard ceiling on roles loaded from the adapter. Defaults to `10_000`. */
@@ -327,11 +328,6 @@ export namespace IamEngineTypes {
     subscribe(handler: (event: IInvalidateEvent<TRole>) => void): () => void
   }
 
-  /**
-   * Discriminated union of invalidation event kinds.
-   *
-   * @template TRole - Union of valid role IDs.
-   */
   export interface IInvalidateAll {
     readonly kind: 'all'
   }
@@ -350,6 +346,11 @@ export namespace IamEngineTypes {
     readonly subjectId: string
   }
 
+  /**
+   * Discriminated union of invalidation event kinds, keyed on `kind`.
+   *
+   * @template TRole - Union of valid role IDs.
+   */
   export type IInvalidateEvent<TRole extends string = string> =
     | IInvalidateAll
     | IInvalidatePolicies

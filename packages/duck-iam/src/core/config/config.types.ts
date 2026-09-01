@@ -11,8 +11,8 @@ export namespace IamConfig {
    *
    * @template TActions   - Tuple of action strings declared `as const`.
    * @template TResources - Tuple of resource strings declared `as const`.
-   * @template TScopes    - Tuple of scope strings declared `as const`.
    * @template TRoles     - Tuple of role ID strings declared `as const`.
+   * @template TScopes    - Tuple of scope strings declared `as const`.
    * @template TContext   - Shape of the evaluation context for typed dot-paths.
    * @example
    * ```ts
@@ -54,8 +54,8 @@ export namespace IamConfig {
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
-   * @template TScope    - Union of valid scope strings.
    * @template TRole     - Union of valid role ID strings.
+   * @template TScope    - Union of valid scope strings.
    * @template TContext  - Shape of the evaluation context for typed dot-paths.
    */
   export interface IAccessConfig<
@@ -99,7 +99,7 @@ export namespace IamConfig {
     validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, TRole, TScope>[]) => IamValidate.IResult
 
     /**
-     * IamValidate a policy object from an untrusted source (database, API, JSON).
+     * Validate a policy object from an untrusted source (database, API, JSON).
      * Deep shape + semantic checks.
      */
     validatePolicy: (input: unknown) => IamValidate.IResult

@@ -509,3 +509,108 @@ describe('matches operator ReDoS hardening (P1)', () => {
     expect(MAX_REGEX_LENGTH).toBe(128)
   })
 })
+
+describe('nesting depth fail-closed (MAX_CONDITION_DEPTH)', () => {
+  const truthy: AccessControl.ICondition = { field: 'subject.id', operator: 'eq', value: 'user-1' }
+
+  /** `{ all: [{ all: [ ... leaf ] }] }` nested `levels` groups deep. */
+  function nest(levels: number, leaf: AccessControl.ICondition): AccessControl.IConditionGroup {
+    let group: AccessControl.IConditionGroup = { all: [leaf] }
+    for (let i = 1; i < levels; i++) group = { all: [group] }
+    return group
+  }
+
+  it('evaluates a tree sitting exactly on the depth bound', async () => {
+    const { MAX_CONDITION_DEPTH } = await import('../conditions.libs')
+    expect(evalConditionGroup(makeReq(), nest(MAX_CONDITION_DEPTH, truthy))).toBe(true)
+  })
+
+  it('denies a tree deeper than the bound even though every leaf is true', async () => {
+    const { MAX_CONDITION_DEPTH } = await import('../conditions.libs')
+    expect(evalConditionGroup(makeReq(), nest(MAX_CONDITION_DEPTH + 1, truthy))).toBe(false)
+  })
+
+  it('an over-deep `none` group also fails closed rather than negating to true', async () => {
+    const { MAX_CONDITION_DEPTH } = await import('../conditions.libs')
+    let group: AccessControl.IConditionGroup = { none: [truthy] }
+    for (let i = 1; i < MAX_CONDITION_DEPTH + 1; i++) group = { none: [group] }
+    expect(evalConditionGroup(makeReq(), group)).toBe(false)
+  })
+})
+
+describe('condition helpers', () => {
+  it('evaluateOperator applies the named operator directly', async () => {
+    const { evaluateOperator } = await import('../conditions')
+    expect(evaluateOperator('eq', 'a', 'a')).toBe(true)
+    expect(evaluateOperator('gt', 5, 3)).toBe(true)
+    expect(evaluateOperator('gt', 3, 5)).toBe(false)
+    expect(evaluateOperator('not_exists', null, null)).toBe(true)
+  })
+
+  it('resolveConditionValue resolves $-references and passes literals through', async () => {
+    const { resolveConditionValue } = await import('../conditions')
+    const req = makeReq()
+    expect(resolveConditionValue(req, '$subject.id')).toBe('user-1')
+    expect(resolveConditionValue(req, '$resource.attributes.ownerId')).toBe('user-1')
+    expect(resolveConditionValue(req, 'user-1')).toBe('user-1')
+    expect(resolveConditionValue(req, 42)).toBe(42)
+    // Unknown root resolves to null, not to the literal string.
+    expect(resolveConditionValue(req, '$nope.nope')).toBeNull()
+  })
+
+  it('isCondition separates leaf conditions from groups', async () => {
+    const { isCondition } = await import('../conditions.libs')
+    expect(isCondition({ field: 'subject.id', operator: 'eq', value: 'x' })).toBe(true)
+    expect(isCondition({ all: [] })).toBe(false)
+    expect(isCondition({ any: [] })).toBe(false)
+    expect(isCondition({ none: [] })).toBe(false)
+  })
+
+  it('isUserSourcedValue flags only $-prefixed strings', async () => {
+    const { isUserSourcedValue } = await import('../conditions.libs')
+    expect(isUserSourcedValue('$subject.id')).toBe(true)
+    expect(isUserSourcedValue('subject.id')).toBe(false)
+    expect(isUserSourcedValue('')).toBe(false)
+    expect(isUserSourcedValue(null)).toBe(false)
+    expect(isUserSourcedValue(42)).toBe(false)
+  })
+})
+
+describe('per-instance regex cache isolation', () => {
+  it('evalMatchesOp compiles into the supplied cache and leaves the global one untouched', async () => {
+    const { evalMatchesOp, regexCache } = await import('../conditions.libs')
+    const pattern = `^tenant-${Math.random().toString(36).slice(2)}-`
+    const tenantCache = new Map<string, RegExp>()
+    expect(evalMatchesOp('abc', pattern, tenantCache)).toBe(false)
+    expect(tenantCache.has(pattern)).toBe(true)
+    expect(regexCache.has(pattern)).toBe(false)
+  })
+
+  it('evalMatchesOp rejects over-long patterns and non-string operands without compiling', async () => {
+    const { evalMatchesOp, MAX_REGEX_LENGTH } = await import('../conditions.libs')
+    const cache = new Map<string, RegExp>()
+    const longPattern = `^${'a'.repeat(MAX_REGEX_LENGTH)}`
+    expect(evalMatchesOp('aaa', longPattern, cache)).toBe(false)
+    expect(cache.size).toBe(0)
+    expect(evalMatchesOp(42, '^4', cache)).toBe(false)
+    expect(evalMatchesOp('42', 42, cache)).toBe(false)
+    expect(cache.size).toBe(0)
+  })
+
+  it('evalMatchesOp throws on over-length input instead of returning false', async () => {
+    const { evalMatchesOp, MAX_REGEX_INPUT_LENGTH, RegexInputTooLargeError } = await import('../conditions.libs')
+    const cache = new Map<string, RegExp>()
+    expect(() => evalMatchesOp('a'.repeat(MAX_REGEX_INPUT_LENGTH + 1), '^a', cache)).toThrow(RegexInputTooLargeError)
+  })
+
+  it('clearRegexCache empties the process-wide cache only', async () => {
+    const { clearRegexCache, evalMatchesOp, getCachedRegex, regexCache } = await import('../conditions.libs')
+    const tenantCache = new Map<string, RegExp>()
+    getCachedRegex('^global-')
+    evalMatchesOp('tenant-1', '^tenant-', tenantCache)
+    expect(regexCache.size).toBeGreaterThan(0)
+    clearRegexCache()
+    expect(regexCache.size).toBe(0)
+    expect(tenantCache.has('^tenant-')).toBe(true)
+  })
+})

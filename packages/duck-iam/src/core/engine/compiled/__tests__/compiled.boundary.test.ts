@@ -104,11 +104,12 @@ describe('boundary: exactly 32 roles - role index 31 (the sign-bit case, `1 << 3
 // ---------------------------------------------------------------------------------------
 // 2. The full fail-skip / abstain matrix.
 //
-// Three independent abstain paths, each must return `null` (abstain) - not vote - when a
+// Four independent abstain paths, each must return `null` (abstain) - not vote - when a
 // policy throws:
 //   A: abacFlatVote's evaluateDynamicCell, when every group at a DYNAMIC cell throws.
 //   B: rbacVote's catch, when the rbacResidual policy throws.
 //   C: lookup()'s own residual-policy loop, when a residual (targeted/wildcard) policy throws.
+//   D: rbacVote's rbacDynamic scan, when a scoped/conditioned role permission throws.
 //
 // For each: an "unrelated vote present" case (must decide the outcome, not get vetoed by
 // the throw, under policyCombine 'and') and a "no other vote" case (falls back to
@@ -375,6 +376,71 @@ describe("fail-skip matrix - path C: lookup()'s own residual-policy loop throws"
       mode: 'production',
     })
     expect(await production.can('user-1', 'read', { type: 'doc3', attributes: {} })).toBe(true)
+  })
+})
+
+// Path D's throwing source is a role permission, not a policy: literal action+resource plus
+// a condition puts it in `rbacDynamic`, and a throw there poisons the whole cell scan
+// (all-or-nothing, unlike ABAC's per-group fail-skip) - so rbacVote must abstain outright.
+function buildPathDAdapter(withAbac: boolean): IamMemoryAdapter {
+  const roles: AccessControl.IRole[] = [
+    {
+      id: 'reader4',
+      name: 'Reader4',
+      permissions: [
+        {
+          action: 'read',
+          resource: 'doc4',
+          conditions: { all: [{ field: 'subject.attributes.blob', operator: 'matches', value: '^a+$' }] },
+        },
+      ],
+    },
+  ]
+  const unrelatedAllow: AccessControl.IPolicy = {
+    id: 'unrelated-allow',
+    name: 'Unrelated Allow',
+    algorithm: 'allow-overrides',
+    rules: [{ id: 'r', effect: 'allow', priority: 0, actions: ['read'], resources: ['doc4'], conditions: { all: [] } }],
+  }
+  return new IamMemoryAdapter({
+    roles,
+    policies: withAbac ? [unrelatedAllow] : [],
+    assignments: { 'user-1': ['reader4'] },
+    attributes: { 'user-1': { blob: OVERSIZED } },
+  })
+}
+
+describe("fail-skip matrix - path D: rbacVote's rbacDynamic scan throws", () => {
+  it("unrelated-vote-present, defaultEffect 'deny': the ABAC allow decides, the throw does not veto it", async () => {
+    let reported: Error | undefined
+    const production = new IamEngine({
+      adapter: buildPathDAdapter(true),
+      defaultEffect: 'deny',
+      mode: 'production',
+      hooks: { onPolicyError: (err) => (reported = err) },
+    })
+    const development = new IamEngine({ adapter: buildPathDAdapter(true), defaultEffect: 'deny' })
+    const resource = { type: 'doc4', attributes: {} }
+    expect(await production.can('user-1', 'read', resource)).toBe(true)
+    expect(await production.can('user-1', 'read', resource)).toBe(
+      (await development.check('user-1', 'read', resource)).allowed,
+    )
+    expect(reported?.message).toMatch(/MAX_REGEX_INPUT_LENGTH/)
+  })
+
+  it("no-other-vote, defaultEffect 'deny': falls back to deny", async () => {
+    const production = new IamEngine({ adapter: buildPathDAdapter(false), defaultEffect: 'deny', mode: 'production' })
+    expect(await production.can('user-1', 'read', { type: 'doc4', attributes: {} })).toBe(false)
+  })
+
+  it("no-other-vote, defaultEffect 'allow': falls back to allow", async () => {
+    const production = new IamEngine({
+      adapter: buildPathDAdapter(false),
+      allowFailOpen: true,
+      defaultEffect: 'allow',
+      mode: 'production',
+    })
+    expect(await production.can('user-1', 'read', { type: 'doc4', attributes: {} })).toBe(true)
   })
 })
 

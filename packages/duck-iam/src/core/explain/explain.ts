@@ -74,7 +74,7 @@ function decideFinal(
   defaultEffect: AccessControl.Effect,
   combine: AccessControl.PolicyCombine,
 ): { effect: AccessControl.Effect; reason: string; policy?: string; rule?: AccessControl.IRule } {
-  // NotApplicable traces (targets didn't match) are skipped in every mode  -
+  // NotApplicable traces (targets didn't match) are skipped in every mode -
   // they contribute nothing to the cross-policy combine.
   const applicable = traces.filter((t) => t.targetMatch)
 
@@ -127,12 +127,10 @@ function buildSummary(
   const verb = decision.allowed ? 'ALLOWED' : 'DENIED'
   const parts: string[] = []
 
-  // Header
   parts.push(
     `${verb}: "${info.subjectId}" attempting ${req.action} on ${req.resource.type}${req.scope ? ` [scope: ${req.scope}]` : ''}`,
   )
 
-  // Roles
   const roles = [...info.originalRoles]
   if (info.scopedRolesApplied.length > 0) {
     parts.push(`  Roles: [${roles.join(', ')}] + scoped: [${info.scopedRolesApplied.join(', ')}]`)
@@ -140,7 +138,6 @@ function buildSummary(
     parts.push(`  Roles: [${roles.join(', ')}]`)
   }
 
-  // Per-policy summary
   for (const pt of policyTraces) {
     const matched = pt.rules.filter((r) => r.matched).length
     const total = pt.rules.length
@@ -156,7 +153,6 @@ function buildSummary(
     }
   }
 
-  // Final
   parts.push(`  Result: ${decision.reason}`)
 
   return parts.join('\n')

@@ -30,7 +30,7 @@ import { When } from './when'
  *
  * @template TAction   - Union of valid action strings (e.g. `'read' | 'write'`)
  * @template TResource - Union of valid resource strings (e.g. `'post' | 'comment'`)
- * @template TRole       - Literal string type of the role ID (inferred by {@link defineRole})
+ * @template TRole     - Literal string type of the role ID (inferred by {@link defineRole})
  * @template TScope    - Union of valid scope strings (e.g. `'org-1' | 'org-2'`)
  * @template TContext  - Shape of the full evaluation context for typed dot-paths
  */
@@ -320,7 +320,7 @@ export class RoleBuilder<
    * Finalises the builder and returns a plain {@link AccessControl.IRole} object.
    *
    * The returned object is a plain data record with no builder methods.
-   * Pass it to `engine.admin.saveRole()` or `access.()`.
+   * Pass it to `engine.admin.saveRole()` or an adapter's `saveRole()`.
    *
    * @returns A fully constructed {@link AccessControl.IRole}
    */
@@ -334,7 +334,7 @@ export class RoleBuilder<
       scope: this._scope,
       metadata: this._metadata,
     }
-    // IamValidate at build time so callers wiring the adapter directly
+    // Validate at build time so callers wiring the adapter directly
     // still see the failure where the bug was introduced.
     const result = validateRole(role)
     if (!result.valid) {
@@ -350,7 +350,7 @@ export class RoleBuilder<
 /**
  * Creates a new {@link RoleBuilder} for the given role ID.
  *
- * The role ID is preserved as a literal type (`TId`) so that references to
+ * The role ID is preserved as a literal type (`TRole`) so that references to
  * it in `.inherits()` calls and adapter lookups remain type-safe when using
  * `createIam`.
  *
@@ -372,7 +372,7 @@ export class RoleBuilder<
  * @param id - Unique identifier for this role
  * @returns A new {@link RoleBuilder} instance typed to the given ID
  *
- * @template TId       - Inferred literal type of the role ID
+ * @template TRole     - Inferred literal type of the role ID
  * @template TAction   - Union of valid action strings (defaults to `string`)
  * @template TResource - Union of valid resource strings (defaults to `string`)
  * @template TScope    - Union of valid scope strings (defaults to `string`)

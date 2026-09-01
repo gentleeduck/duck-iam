@@ -252,8 +252,8 @@ describe('PolicyBuilder', () => {
   })
 
   it('name() sets name', () => {
-    const p = new PolicyBuilder('p1').name('My AccessControl.IPolicy').build()
-    expect(p.name).toBe('My AccessControl.IPolicy')
+    const p = new PolicyBuilder('p1').name('My Policy').build()
+    expect(p.name).toBe('My Policy')
   })
 
   it('algorithm() sets combining algorithm', () => {
@@ -381,5 +381,162 @@ describe('factory functions', () => {
     const w = when()
     const group = w.eq('action', 'read').buildAll()
     expect(group.all).toHaveLength(1)
+  })
+})
+
+describe('When (uncovered helpers)', () => {
+  it('roles() adds an in-condition on subject.roles', () => {
+    const group = new When<string, string, string, string>().roles('admin', 'editor').buildAll()
+    expect(group.all[0]).toEqual({ field: 'subject.roles', operator: 'in', value: ['admin', 'editor'] })
+  })
+
+  it('scopes() adds an in-condition on scope', () => {
+    const group = new When<string, string, string, string>().scopes('org-1', 'org-2').buildAll()
+    expect(group.all[0]).toEqual({ field: 'scope', operator: 'in', value: ['org-1', 'org-2'] })
+  })
+
+  it('resourceType() adds an in-condition on resource.type', () => {
+    const group = new When<string, string, string, string>().resourceType('post', 'comment').buildAll()
+    expect(group.all[0]).toEqual({ field: 'resource.type', operator: 'in', value: ['post', 'comment'] })
+  })
+
+  it('and() nests an all-group as a single item', () => {
+    const group = new When<string, string, string, string, DotPath.IDefaultContext>()
+      .eq('action', 'read')
+      .and((a) => a.attr('tier', 'eq', 'premium').env('region', 'eq', 'us'))
+      .buildAll()
+
+    expect(group.all).toHaveLength(2)
+    expect(group.all[1]).toEqual({
+      all: [
+        { field: 'subject.attributes.tier', operator: 'eq', value: 'premium' },
+        { field: 'environment.region', operator: 'eq', value: 'us' },
+      ],
+    })
+  })
+
+  it('check() omits value for unary operators', () => {
+    const group = new When<string, string, string, string, DotPath.IDefaultContext>()
+      .check('subject.id', 'exists')
+      .buildAll()
+    expect(group.all[0]).toEqual({ field: 'subject.id', operator: 'exists', value: undefined })
+  })
+
+  it('emits an empty group when nothing was chained', () => {
+    expect(new When().buildAll()).toEqual({ all: [] })
+    expect(new When().buildAny()).toEqual({ any: [] })
+    expect(new When().buildNone()).toEqual({ none: [] })
+  })
+})
+
+describe('RuleBuilder (uncovered paths)', () => {
+  it('allow() overrides a previous deny()', () => {
+    expect(new RuleBuilder('r1').deny().allow().build().effect).toBe('allow')
+  })
+
+  it('forScope + whenAny wraps the any-group under the scope all-group', () => {
+    const rule = new RuleBuilder<string, string, string>('r1')
+      .forScope('org-1')
+      .whenAny((w) => w.eq('action', 'read').eq('action', 'update'))
+      .build()
+
+    expect(rule.conditions).toEqual({
+      all: [
+        { field: 'scope', operator: 'eq', value: 'org-1' },
+        {
+          any: [
+            { field: 'action', operator: 'eq', value: 'read' },
+            { field: 'action', operator: 'eq', value: 'update' },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('forScope is order-independent relative to when()', () => {
+    const before = new RuleBuilder<string, string, string>('r1')
+      .forScope('org-1')
+      .when((w) => w.eq('action', 'read'))
+      .build()
+    const after = new RuleBuilder<string, string, string>('r1')
+      .when((w) => w.eq('action', 'read'))
+      .forScope('org-1')
+      .build()
+    expect(after.conditions).toEqual(before.conditions)
+  })
+
+  it('forScope drops "*" but keeps concrete scopes from the same call', () => {
+    const rule = new RuleBuilder<string, string, string>('r1').forScope('*', 'org-1').build()
+    const conditions = 'all' in rule.conditions ? rule.conditions.all : []
+    expect(conditions).toEqual([{ field: 'scope', operator: 'eq', value: 'org-1' }])
+  })
+
+  it('defaults to an empty all-group when no conditions are set', () => {
+    expect(new RuleBuilder('r1').build().conditions).toEqual({ all: [] })
+  })
+})
+
+describe('PolicyBuilder (validator gate)', () => {
+  it('build() throws when the validator rejects the policy', () => {
+    expect(() => new PolicyBuilder('').build()).toThrow(/PolicyBuilder\.build\(""\) rejected by validator/)
+  })
+
+  it('the thrown message names the failing validator codes and paths', () => {
+    let message = ''
+    try {
+      new PolicyBuilder('').build()
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e)
+    }
+    expect(message).toContain('MISSING_FIELD')
+    expect(message).toContain('at "id"')
+  })
+
+  it('rule() preserves insertion order', () => {
+    const p = new PolicyBuilder('p1')
+      .rule('a', (r) => r.on('read').of('post'))
+      .rule('b', (r) => r.on('update').of('post'))
+      .build()
+    expect(p.rules.map((r) => r.id)).toEqual(['a', 'b'])
+  })
+})
+
+describe('RoleBuilder (uncovered paths)', () => {
+  it('build() throws when the validator rejects the role', () => {
+    expect(() => new RoleBuilder('').build()).toThrow(/RoleBuilder\.build\(\): role rejected by validator/)
+  })
+
+  it('grant() with a third argument records a scoped permission', () => {
+    const r = new RoleBuilder<string, string, string, string>('editor').grant('update', 'post', 'org-1').build()
+    expect(r.permissions).toEqual([{ action: 'update', resource: 'post', scope: 'org-1' }])
+  })
+
+  it('grant() omits the scope key entirely when no scope is given', () => {
+    const r = new RoleBuilder('viewer').grant('read', 'post').build()
+    expect(Object.hasOwn(r.permissions[0]!, 'scope')).toBe(false)
+  })
+
+  it('inherits() replaces rather than appends across calls', () => {
+    const r = new RoleBuilder('editor').inherits('viewer').inherits('commenter', 'reporter').build()
+    expect(r.inherits).toEqual(['commenter', 'reporter'])
+  })
+
+  it('grantAll("*") grants every action on every resource', () => {
+    const r = new RoleBuilder('super-admin').grantAll('*').build()
+    expect(r.permissions).toEqual([{ action: '*', resource: '*' }])
+  })
+
+  it('grantWhen() with a multi-condition callback keeps all conditions', () => {
+    const r = new RoleBuilder('lead')
+      .grantWhen('approve', 'expense', (w) =>
+        w.attr('department', 'eq', 'engineering').resourceAttr('amount', 'lte', 10000),
+      )
+      .build()
+    expect(r.permissions[0]!.conditions).toEqual({
+      all: [
+        { field: 'subject.attributes.department', operator: 'eq', value: 'engineering' },
+        { field: 'resource.attributes.amount', operator: 'lte', value: 10000 },
+      ],
+    })
   })
 })

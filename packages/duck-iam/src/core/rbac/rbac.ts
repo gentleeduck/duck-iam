@@ -54,7 +54,7 @@ export function rolesToPolicy(roles: AccessControl.IRole[]): AccessControl.IPoli
   for (const role of roles) {
     const allPerms = collectPermissions(role.id, rolesMap)
 
-    for (const [_i, perm] of allPerms.entries()) {
+    for (const perm of allPerms) {
       const baseConditions: (AccessControl.ICondition | AccessControl.IConditionGroup)[] = [
         { field: 'subject.roles', operator: 'contains' as const, value: role.id },
       ]

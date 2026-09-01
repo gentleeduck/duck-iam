@@ -7,7 +7,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 /**
- * IamValidate role defs: duplicate ids, dangling/circular inherits, empty roles.
+ * Validate role defs: duplicate ids, dangling/circular inherits, empty roles.
  *
  * @param roles - The role definitions to validate.
  * @returns A {@link IamValidate.IResult} listing any issues found.
@@ -260,7 +260,6 @@ export function validatePolicy(input: unknown): IamValidate.IResult {
       validateRuleShape(rule, `rules[${i}]`, issues)
     }
 
-    // Check for duplicate rule IDs
     const ruleIds = new Set<string>()
     for (const rule of p.rules) {
       if (typeof rule !== 'object' || rule === null) continue

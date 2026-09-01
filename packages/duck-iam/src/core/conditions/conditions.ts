@@ -50,6 +50,7 @@ function evalItem(
  * @param req   - The access request providing field values
  * @param group - The condition group to evaluate
  * @param depth - Current recursion depth (internal, do not set)
+ * @param caches - Optional per-Engine regex / path caches; falls back to the module-global ones.
  * @returns Whether the condition group is satisfied
  */
 export function evalConditionGroup(
