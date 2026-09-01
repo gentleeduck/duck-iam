@@ -9,12 +9,14 @@
  */
 export function iamBuildPermissionKey(action: string, resource: string, resourceId?: string, scope?: string): string {
   const e = escapeSegment
-  if (scope) {
-    return resourceId
+  // `!== undefined`, not truthiness: an empty-string scope or resourceId is a
+  // distinct segment, otherwise it silently collides with the unscoped key.
+  if (scope !== undefined) {
+    return resourceId !== undefined
       ? `${e(scope)}:${e(action)}:${e(resource)}:${e(resourceId)}`
       : `${e(scope)}:${e(action)}:${e(resource)}`
   }
-  return resourceId ? `${e(action)}:${e(resource)}:${e(resourceId)}` : `${e(action)}:${e(resource)}`
+  return resourceId !== undefined ? `${e(action)}:${e(resource)}:${e(resourceId)}` : `${e(action)}:${e(resource)}`
 }
 
 function escapeSegment(s: string): string {
