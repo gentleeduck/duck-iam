@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl, IamAdapter } from '../../../core/types'
-import { IamHttpAdapter } from '../index'
+import { IamHttpAdapter, iamHttpAdapter } from '../index'
 
 type A = 'read' | 'write'
 type R = 'post'
@@ -517,6 +517,13 @@ describe('IamHttpAdapter', () => {
       expect(calls[0]?.init?.method).toBe('DELETE')
     })
 
+    it('revokeRole DELETE with an empty-string scope still sends the scope query', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      await adapter.revokeRole('user-1', 'editor', '' as S)
+      expect(calls[0]?.url).toBe('https://x/subjects/user-1/roles/editor?scope=')
+    })
+
     it('revokeRole DELETE encodes scope query', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
@@ -619,5 +626,19 @@ describe('IamHttpAdapter', () => {
       const out2 = await adapter.listPolicies() // closed, normal traffic
       expect(out2).toEqual([])
     })
+  })
+})
+
+describe('iamHttpAdapter factory', () => {
+  it('returns a working IamHttpAdapter bound to the configured baseUrl', async () => {
+    const { fetch, calls } = makeFetch(() => jsonResponse([]))
+    const adapter = iamHttpAdapter({ allowedHosts: ['api.example.com'], baseUrl: 'https://api.example.com', fetch })
+    expect(adapter).toBeInstanceOf(IamHttpAdapter)
+    expect(await adapter.listPolicies()).toEqual([])
+    expect(calls[0]?.url).toBe('https://api.example.com/policies')
+  })
+
+  it('propagates constructor validation (bad scheme still rejected)', () => {
+    expect(() => iamHttpAdapter({ baseUrl: 'ftp://api.example.com' })).toThrow(/scheme must be http/)
   })
 })

@@ -1,4 +1,6 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
+import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import { iamAssertAttributesParam } from '../../shared/attributes'
 
 /** Brand symbol marking an error as retry-eligible. Internal to this adapter. */
 const TRANSIENT = Symbol('duck-iam.http.transient')
@@ -53,6 +55,12 @@ export namespace IamHttp {
   export interface IConfig {
     /** Specifies the base URL of the duck-iam API (e.g. `https://api.example.com/access`). */
     baseUrl: string
+    /**
+     * Called when a policy or role row from the API fails shape validation. The
+     * malformed row is dropped from the result; the rest are returned intact.
+     * Wire this to alerting so corrupt rows do not silently vanish from decisions.
+     */
+    onPolicyError?: (err: Error, ctx: { adapter: 'http'; rowId: string }) => void
     /** Overrides the default `globalThis.fetch` implementation. */
     fetch?: typeof globalThis.fetch
     /** Provides headers (e.g. auth tokens) merged into every request. */
@@ -263,6 +271,11 @@ function _normaliseHostForAllowlist(host: string): string {
  * })
  * ```
  */
+/** Best-effort row id for error context: the row's own string `id`, else the caller's fallback. */
+function rowIdOf(row: unknown, fallback: string): string {
+  return typeof row === 'object' && row !== null && 'id' in row && typeof row.id === 'string' ? row.id : fallback
+}
+
 export class IamHttpAdapter<
   TAction extends string = string,
   TResource extends string = string,
@@ -278,6 +291,7 @@ export class IamHttpAdapter<
   private _backoffMs: number
   private _cbThreshold: number
   private _cbCooldownMs: number
+  private _onPolicyError: IamHttp.IConfig['onPolicyError']
   // Circuit-breaker state. closed -> too many transients -> open -> cooldown
   // expires -> half-open -> success closes / failure re-opens.
   private _cbConsecutiveFailures = 0
@@ -298,6 +312,7 @@ export class IamHttpAdapter<
     this._backoffMs = config.backoffMs ?? 100
     this._cbThreshold = config.circuitBreakerThreshold ?? 5
     this._cbCooldownMs = config.circuitBreakerCooldownMs ?? 30_000
+    this._onPolicyError = config.onPolicyError
   }
 
   /**
@@ -401,6 +416,52 @@ export class IamHttpAdapter<
    * the previous throw-on-every-non-2xx behaviour broke that contract and
    * caused engine.resolve() to bubble up a hard error on every cold miss.
    */
+  private _reportPolicyError(err: Error, rowId: string): void {
+    if (this._onPolicyError) {
+      this._onPolicyError(err, { adapter: 'http', rowId })
+      return
+    }
+    console.warn(`[@gentleduck/iam:http] dropped malformed row "${rowId}": ${err.message}`)
+  }
+
+  /** Narrow one API row to a policy; a shape mismatch is reported and dropped, never returned. */
+  private _narrowPolicy(row: unknown, fallbackId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
+    const policy = parsePolicyRow<TAction, TResource, TRole>(row)
+    if (policy !== null) return policy
+    const rowId = rowIdOf(row, fallbackId)
+    const issues = validatePolicy(row)
+      .issues.map((i) => i.message)
+      .join('; ')
+    this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
+    return null
+  }
+
+  private _narrowRole(row: unknown, fallbackId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
+    const role = parseRoleRow<TAction, TResource, TRole, TScope>(row)
+    if (role !== null) return role
+    const rowId = rowIdOf(row, fallbackId)
+    const issues = validateRole(row)
+      .issues.map((i) => i.message)
+      .join('; ')
+    this._reportPolicyError(new Error(`Invalid role "${rowId}": ${issues}`), rowId)
+    return null
+  }
+
+  /** A list endpoint must return an array; anything else is dropped wholesale and reported once. */
+  private _narrowList<T>(body: unknown, path: string, narrow: (row: unknown, fallbackId: string) => T | null): T[] {
+    if (!Array.isArray(body)) {
+      const got = body === null ? 'null' : Array.isArray(body) ? 'array' : typeof body
+      this._reportPolicyError(new Error(`Expected an array from ${path}, got ${got}`), path)
+      return []
+    }
+    const out: T[] = []
+    for (const [i, row] of body.entries()) {
+      const v = narrow(row, `${path}[${i}]`)
+      if (v !== null) out.push(v)
+    }
+    return out
+  }
+
   private async _requestOrNull<T>(
     path: string,
     init?: RequestInit,
@@ -472,25 +533,31 @@ export class IamHttpAdapter<
       ...(typeof this._headers === 'function' ? await this._headers() : (this._headers ?? {})),
       ...((init?.headers as Record<string, string>) ?? {}),
     }
-    const controllers = [readOpts?.signal, this._timeoutSignal()].filter((s): s is AbortSignal => !!s)
+    const timeout = this._timeout()
+    const controllers = [readOpts?.signal, timeout.signal].filter((s): s is AbortSignal => !!s)
     const signal = anySignal(controllers)
-    // SSRF defence: `redirect: 'error'` keeps the validated base URL.
-    const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal, redirect: 'error' })
-    if (res.status >= 500) {
-      const body = await readBodyCapped(res)
-      throw makeTransient(new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${body}`))
+    try {
+      // SSRF defence: `redirect: 'error'` keeps the validated base URL.
+      const res = await this._fetch(`${this._baseUrl}${path}`, { ...init, headers, signal, redirect: 'error' })
+      if (res.status >= 500) {
+        const body = await readBodyCapped(res)
+        throw makeTransient(new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${body}`))
+      }
+      return res
+    } finally {
+      timeout.clear()
     }
-    return res
   }
 
-  private _timeoutSignal(): AbortSignal | undefined {
-    if (this._timeoutMs <= 0) return undefined
+  /** Per-request timeout signal; `clear` must run once the request settles so the timer cannot outlive it. */
+  private _timeout(): { signal?: AbortSignal; clear: () => void } {
+    if (this._timeoutMs <= 0) return { clear: () => {} }
     const ctrl = new AbortController()
-    setTimeout(
+    const timer = setTimeout(
       () => ctrl.abort(makeTransient(new Error(`IamHttpAdapter request timed out after ${this._timeoutMs}ms`))),
       this._timeoutMs,
     )
-    return ctrl.signal
+    return { signal: ctrl.signal, clear: () => clearTimeout(timer) }
   }
 
   /**
@@ -500,7 +567,8 @@ export class IamHttpAdapter<
    * @returns Array of policies returned by `GET /policies`.
    */
   async listPolicies(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    return this._request('/policies', undefined, opts)
+    const body = await this._request<unknown>('/policies', undefined, opts)
+    return this._narrowList(body, '/policies', (row, fallbackId) => this._narrowPolicy(row, fallbackId))
   }
   /**
    * Fetches a single policy by ID.
@@ -514,7 +582,8 @@ export class IamHttpAdapter<
     opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
-    return this._requestOrNull(`/policies/${encodeURIComponent(id)}`, undefined, opts)
+    const row = await this._requestOrNull<unknown>(`/policies/${encodeURIComponent(id)}`, undefined, opts)
+    return row === null ? null : this._narrowPolicy(row, id)
   }
   /**
    * Stores or overwrites a policy via PUT.
@@ -545,7 +614,8 @@ export class IamHttpAdapter<
    * @returns Array of roles returned by `GET /roles`.
    */
   async listRoles(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    return this._request('/roles', undefined, opts)
+    const body = await this._request<unknown>('/roles', undefined, opts)
+    return this._narrowList(body, '/roles', (row, fallbackId) => this._narrowRole(row, fallbackId))
   }
   /**
    * Fetches a single role by ID.
@@ -559,7 +629,8 @@ export class IamHttpAdapter<
     opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
-    return this._requestOrNull(`/roles/${encodeURIComponent(id)}`, undefined, opts)
+    const row = await this._requestOrNull<unknown>(`/roles/${encodeURIComponent(id)}`, undefined, opts)
+    return row === null ? null : this._narrowRole(row, id)
   }
   /**
    * Stores or overwrites a role via PUT.
@@ -640,7 +711,7 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the delete.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    const params = scope ? `?scope=${encodeURIComponent(scope)}` : ''
+    const params = scope !== undefined ? `?scope=${encodeURIComponent(scope)}` : ''
     await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles/${encodeURIComponent(roleId)}${params}`, {
       method: 'DELETE',
     })
@@ -665,6 +736,7 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the write.
    */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
+    iamAssertAttributesParam('http', subjectId, attrs)
     await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, {
       method: 'PATCH',
       body: JSON.stringify(attrs),
