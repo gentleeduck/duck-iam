@@ -34,13 +34,12 @@ describe('isSafeCallbackPath', () => {
   })
 
   describe('rejects protocol-relative URLs', () => {
-    it.each([
-      ['//evil.com'],
-      ['//evil.com/grab'],
-      ['///evil.com'],
-    ])('rejects %s (browser resolves under current scheme)', (value) => {
-      expect(isSafeCallbackPath(value)).toBe(false)
-    })
+    it.each([['//evil.com'], ['//evil.com/grab'], ['///evil.com']])(
+      'rejects %s (browser resolves under current scheme)',
+      (value) => {
+        expect(isSafeCallbackPath(value)).toBe(false)
+      },
+    )
   })
 
   describe('rejects backslash-escape forms', () => {
@@ -50,38 +49,28 @@ describe('isSafeCallbackPath', () => {
   })
 
   describe('rejects header / template-injection chars', () => {
-    it.each([
-      ['/path\r\nLocation: https://evil'],
-      ['/path\r'],
-      ['/path\n'],
-      ['/\rfoo'],
-      ['/\nfoo'],
-    ])('rejects %s (CR/LF)', (value) => {
-      expect(isSafeCallbackPath(value)).toBe(false)
-    })
+    it.each([['/path\r\nLocation: https://evil'], ['/path\r'], ['/path\n'], ['/\rfoo'], ['/\nfoo']])(
+      'rejects %s (CR/LF)',
+      (value) => {
+        expect(isSafeCallbackPath(value)).toBe(false)
+      },
+    )
 
-    it.each([
-      ['/path\tHost: evil'],
-      ['/path\x00trunc'],
-      ['/path\x1bescape'],
-      ['/path\x7fdel'],
-    ])('rejects %s (C0 control / DEL)', (value) => {
-      expect(isSafeCallbackPath(value)).toBe(false)
-    })
+    it.each([['/path\tHost: evil'], ['/path\x00trunc'], ['/path\x1bescape'], ['/path\x7fdel']])(
+      'rejects %s (C0 control / DEL)',
+      (value) => {
+        expect(isSafeCallbackPath(value)).toBe(false)
+      },
+    )
   })
 
   describe('rejects malformed inputs', () => {
-    it.each<[unknown]>([
-      [''],
-      [undefined],
-      [null],
-      [42],
-      [{ path: '/foo' }],
-      [['/foo']],
-      [true],
-    ])('rejects %p (non-string or empty)', (value) => {
-      expect(isSafeCallbackPath(value)).toBe(false)
-    })
+    it.each<[unknown]>([[''], [undefined], [null], [42], [{ path: '/foo' }], [['/foo']], [true]])(
+      'rejects %p (non-string or empty)',
+      (value) => {
+        expect(isSafeCallbackPath(value)).toBe(false)
+      },
+    )
   })
 
   describe('rejects oversize paths', () => {

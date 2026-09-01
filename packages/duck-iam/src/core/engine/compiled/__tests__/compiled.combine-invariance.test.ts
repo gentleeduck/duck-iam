@@ -105,44 +105,44 @@ const REQUESTS: readonly {
   { subjectId: 'u3', action: 'read', resource: { type: 'post', attributes: {} } },
 ]
 
-describe.each([
-  'and',
-  'allow-overrides',
-] as const)('combine-order invariance (policyCombine: %s) - declaration order must not change any decision', (policyCombine) => {
-  it('every policy-array permutation × role-array permutation agrees with the canonical order', async () => {
-    const canonical = new IamEngine({
-      adapter: new IamMemoryAdapter({ roles: baseRoles, policies: basePolicies, assignments, attributes }),
-      defaultEffect: 'deny',
-      mode: 'production',
-      policyCombine,
-    })
-    const canonicalResults = await Promise.all(REQUESTS.map((r) => canonical.can(r.subjectId, r.action, r.resource)))
+describe.each(['and', 'allow-overrides'] as const)(
+  'combine-order invariance (policyCombine: %s) - declaration order must not change any decision',
+  (policyCombine) => {
+    it('every policy-array permutation × role-array permutation agrees with the canonical order', async () => {
+      const canonical = new IamEngine({
+        adapter: new IamMemoryAdapter({ roles: baseRoles, policies: basePolicies, assignments, attributes }),
+        defaultEffect: 'deny',
+        mode: 'production',
+        policyCombine,
+      })
+      const canonicalResults = await Promise.all(REQUESTS.map((r) => canonical.can(r.subjectId, r.action, r.resource)))
 
-    for (const pperm of POLICY_PERMS) {
-      for (const rperm of ROLE_PERMS) {
-        const engine = new IamEngine({
-          adapter: new IamMemoryAdapter({
-            roles: permute(baseRoles, rperm),
-            policies: permute(basePolicies, pperm),
-            assignments,
-            attributes,
-          }),
-          defaultEffect: 'deny',
-          mode: 'production',
-          policyCombine,
-        })
-        for (let i = 0; i < REQUESTS.length; i++) {
-          const r = REQUESTS[i]!
-          const got = await engine.can(r.subjectId, r.action, r.resource)
-          expect(
-            got,
-            `policyCombine=${policyCombine} pperm=${pperm.join(',')} rperm=${rperm.join(',')} request#${i}=${JSON.stringify(r)}`,
-          ).toBe(canonicalResults[i])
+      for (const pperm of POLICY_PERMS) {
+        for (const rperm of ROLE_PERMS) {
+          const engine = new IamEngine({
+            adapter: new IamMemoryAdapter({
+              roles: permute(baseRoles, rperm),
+              policies: permute(basePolicies, pperm),
+              assignments,
+              attributes,
+            }),
+            defaultEffect: 'deny',
+            mode: 'production',
+            policyCombine,
+          })
+          for (let i = 0; i < REQUESTS.length; i++) {
+            const r = REQUESTS[i]!
+            const got = await engine.can(r.subjectId, r.action, r.resource)
+            expect(
+              got,
+              `policyCombine=${policyCombine} pperm=${pperm.join(',')} rperm=${rperm.join(',')} request#${i}=${JSON.stringify(r)}`,
+            ).toBe(canonicalResults[i])
+          }
         }
       }
-    }
-  })
-})
+    })
+  },
+)
 
 describe('wildcard action/resource patterns are separator-bound, not raw substring prefixes (confirmation)', () => {
   it("'admin:*' does not match an action that merely starts with the same letters without the separator", async () => {
