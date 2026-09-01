@@ -107,8 +107,15 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
       },
     })
     expect(await adapter.getSubjectAttributes('user-good')).toEqual({ tier: 'pro' })
-    expect(await adapter.getSubjectAttributes('user-bad')).toEqual({})
+    // Corruption != empty: `{}` would silently strip ABAC. Matches redis/http.
+    await expect(adapter.getSubjectAttributes('user-bad')).rejects.toThrow(/corrupted attributes for "user-bad"/)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
+  })
+
+  it('an admin write to a corrupt attributes row recovers it', async () => {
+    const { adapter } = await makeAdapter({ attributes: { 'user-bad': 'evil' } })
+    await adapter.setSubjectAttributes('user-bad', { tier: 'pro' })
+    expect(await adapter.getSubjectAttributes('user-bad')).toEqual({ tier: 'pro' })
   })
 
   it('accepts well-formed attributes rows', async () => {
@@ -133,8 +140,26 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
         'user-bad': ['tier', 'pro'],
       },
     })
-    expect(await adapter.getSubjectAttributes('user-bad')).toEqual({})
+    await expect(adapter.getSubjectAttributes('user-bad')).rejects.toThrow(/corrupted attributes for "user-bad"/)
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
+  })
+
+  it('reports a wrong-typed policies root instead of silently loading empty', async () => {
+    const { adapter, errors } = await makeAdapter({ policies: [] })
+    expect(await adapter.listPolicies()).toEqual([])
+    expect(errors.some((e) => e.includes('policies: expected object, got array'))).toBe(true)
+  })
+
+  it('reports a wrong-typed roles root instead of silently loading empty', async () => {
+    const { adapter, errors } = await makeAdapter({ roles: 'oops' })
+    expect(await adapter.listRoles()).toEqual([])
+    expect(errors.some((e) => e.includes('roles: expected object, got string'))).toBe(true)
+  })
+
+  it('refuses to load a store whose root is not an object', async () => {
+    const { adapter, errors } = await makeAdapter([])
+    await expect(adapter.listPolicies()).rejects.toThrow(/refusing to load/)
+    expect(errors).toHaveLength(1)
   })
 
   it('missing fields default to {} (forward-compat-friendly)', async () => {

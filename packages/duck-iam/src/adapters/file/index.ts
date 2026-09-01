@@ -1,11 +1,7 @@
 import * as nodePath from 'node:path'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
-import {
-  parsePolicyRow as parsePolicyRowShared,
-  parseRoleRow as parseRoleRowShared,
-  validatePolicy,
-  validateRole,
-} from '../../core/validate'
+import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import { iamAssertAttributesParam } from '../../shared/attributes'
 
 export namespace IamFile {
   /**
@@ -32,11 +28,12 @@ export namespace IamFile {
      */
     writeFile(path: string, data: string, encoding: 'utf8'): Promise<void>
     /**
-     * Creates a directory. **Not recursive** - the immediate parent must
-     * already exist, so a typo in `init.path` cannot silently build a deep
-     * tree.
+     * Creates a directory. The adapter always calls this **without options**,
+     * so the immediate parent must already exist and a typo in `init.path`
+     * cannot silently build a deep tree.
      *
      * @param path - Absolute directory to create.
+     * @param options - Accepted for `node:fs/promises` structural compatibility; never passed by the adapter.
      * @returns Resolves once the directory exists.
      */
     mkdir(path: string, options?: { recursive?: boolean }): Promise<unknown>
@@ -112,6 +109,8 @@ export namespace IamFile {
     roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>>
     assignments: Record<string, Array<{ role: TRole; scope?: TScope }>>
     attributes: Record<string, IamPrimitives.Attributes>
+    /** Subject ids whose attributes row was dropped as corrupt at load; reads throw until an admin write replaces it. */
+    corruptAttributes?: Set<string>
   }
 }
 
@@ -133,7 +132,11 @@ let _ROOTDIR_WARNED_FIRED = false
  *
  * @example
  * ```ts
- * const adapter = new IamFileAdapter({ path: path.resolve(__dirname, 'iam-store.json') })
+ * const adapter = new IamFileAdapter({
+ *   fs: await import('node:fs/promises'),
+ *   path: path.resolve(__dirname, 'iam-store.json'),
+ *   rootDir: __dirname,
+ * })
  * const engine = new IamEngine({ adapter })
  * ```
  */
@@ -187,7 +190,6 @@ export class IamFileAdapter<
     } else if (!_ROOTDIR_WARNED_FIRED) {
       // Once-per-process; do not echo the path (request-derived; log-oracle).
       _ROOTDIR_WARNED_FIRED = true
-      // eslint-disable-next-line no-console
       console.warn(
         '[@gentleduck/iam:file] IamFileAdapter constructed without rootDir. ' +
           'Any caller deriving the path from request data should set rootDir for defence in depth.',
@@ -241,12 +243,23 @@ export class IamFileAdapter<
     }
   }
 
+  /** Present-but-wrong-typed top-level field: report and treat as empty, like the assignments/attributes parsers do. */
+  private _rootField(parsed: Record<string, unknown>, name: 'policies' | 'roles'): Record<string, unknown> {
+    const v = parsed[name]
+    if (v === undefined || v === null) return {}
+    if (isPlainObject(v)) return v
+    this._reportPolicyError(
+      new Error(`${name}: expected object, got ${Array.isArray(v) ? 'array' : typeof v}`),
+      '__root__',
+    )
+    return {}
+  }
+
   private _reportPolicyError(err: Error, rowId: string): void {
     if (this._onPolicyError) {
       this._onPolicyError(err, { adapter: 'file', rowId })
       return
     }
-    // eslint-disable-next-line no-console
     console.warn(`[@gentleduck/iam:file] dropped malformed row "${rowId}": ${err.message}`)
   }
 
@@ -293,12 +306,19 @@ export class IamFileAdapter<
           )
         }
 
-        const parsed = isPlainObject(parsedRaw) ? parsedRaw : {}
+        if (!isPlainObject(parsedRaw)) {
+          const got = parsedRaw === null ? 'null' : Array.isArray(parsedRaw) ? 'array' : typeof parsedRaw
+          this._reportPolicyError(new Error(`store root: expected object, got ${got}`), this._path)
+          throw new Error(
+            `[@gentleduck/iam:file] store at "${this._path}" is corrupt (root is ${got}, not an object) - refusing to load; restore from backup before retrying`,
+          )
+        }
+        const parsed = parsedRaw
 
-        // IamValidate each row; drop malformed entries instead of returning them.
+        // Validate each row; drop malformed entries instead of returning them.
         // Null-proto so prototype-key reads/writes can't pollute the proto chain.
         const policies: Record<string, AccessControl.IPolicy<TAction, TResource, TRole>> = Object.create(null)
-        const policiesRaw = isPlainObject(parsed.policies) ? parsed.policies : {}
+        const policiesRaw = this._rootField(parsed, 'policies')
         for (const [rowId, p] of Object.entries(policiesRaw)) {
           const policy = parsePolicyRow<TAction, TResource, TRole>(p)
           if (policy !== null) {
@@ -311,7 +331,7 @@ export class IamFileAdapter<
           }
         }
         const roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>> = Object.create(null)
-        const rolesRaw = isPlainObject(parsed.roles) ? parsed.roles : {}
+        const rolesRaw = this._rootField(parsed, 'roles')
         for (const [rowId, r] of Object.entries(rolesRaw)) {
           const role = parseRoleRow<TAction, TResource, TRole, TScope>(r)
           if (role !== null) {
@@ -330,7 +350,7 @@ export class IamFileAdapter<
           assignments: parseFileAssignments<TRole, TScope>(parsed.assignments, (rowId, reason) =>
             this._reportPolicyError(new Error(`assignments[${rowId}]: ${reason}`), rowId),
           ),
-          attributes: parseFileAttributes(parsed.attributes, (rowId, reason) =>
+          ...parseFileAttributes(parsed.attributes, (rowId, reason) =>
             this._reportPolicyError(new Error(`attributes[${rowId}]: ${reason}`), rowId),
           ),
         }
@@ -576,6 +596,10 @@ export class IamFileAdapter<
    */
   async getSubjectAttributes(id: string, _opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     const s = await this._loadState()
+    if (s.corruptAttributes?.has(id)) {
+      // Corruption != empty; `{}` would silently strip ABAC. Matches redis/http.
+      throw new Error(`[@gentleduck/iam:file] corrupted attributes for "${id}" (not a JSON object)`)
+    }
     return s.attributes[id] ?? {}
   }
 
@@ -587,7 +611,9 @@ export class IamFileAdapter<
    * @returns Resolves once the file is rewritten.
    */
   async setSubjectAttributes(id: string, attrs: IamPrimitives.Attributes): Promise<void> {
+    iamAssertAttributesParam('file', id, attrs)
     const s = await this._loadState()
+    s.corruptAttributes?.delete(id)
     s.attributes[id] = Object.assign(Object.create(null), s.attributes[id] ?? {}, attrs)
     await this._flush()
   }
@@ -651,16 +677,18 @@ function parseFileAssignments<TRole extends string, TScope extends string>(
 function parseFileAttributes(
   raw: unknown,
   report: (rowId: string, reason: string) => void,
-): Record<string, IamPrimitives.Attributes> {
-  if (raw === undefined || raw === null) return Object.create(null)
+): { attributes: Record<string, IamPrimitives.Attributes>; corruptAttributes: Set<string> } {
+  const corruptAttributes = new Set<string>()
+  if (raw === undefined || raw === null) return { attributes: Object.create(null), corruptAttributes }
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     report('__root__', `expected object, got ${Array.isArray(raw) ? 'array' : typeof raw}`)
-    return Object.create(null)
+    return { attributes: Object.create(null), corruptAttributes }
   }
   const out: Record<string, IamPrimitives.Attributes> = Object.create(null)
   for (const [rowId, rowVal] of Object.entries(raw)) {
     if (typeof rowVal !== 'object' || rowVal === null || Array.isArray(rowVal)) {
       report(rowId, `expected attributes object, got ${rowVal === null ? 'null' : typeof rowVal}`)
+      corruptAttributes.add(rowId)
       continue
     }
     const attrs: IamPrimitives.Attributes = Object.create(null)
@@ -669,7 +697,7 @@ function parseFileAttributes(
     }
     out[rowId] = attrs
   }
-  return out
+  return { attributes: out, corruptAttributes }
 }
 
 /**
@@ -689,9 +717,6 @@ function scopeAs<TScope extends string>(s: string): TScope {
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
-
-const parsePolicyRow = parsePolicyRowShared
-const parseRoleRow = parseRoleRowShared
 
 /** Factory around {@link IamFileAdapter}, for callers who prefer functions to `new`. */
 export function iamFileAdapter(...args: ConstructorParameters<typeof IamFileAdapter>): IamFileAdapter {
