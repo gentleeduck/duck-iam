@@ -277,7 +277,6 @@ export class IamEngine<
     this._invalidatorUnsub = disposeInvalidator(this._invalidatorUnsub).unsub
   }
 
-  /** Load all policies from the adapter, using the cache if available. */
   /** @internal Build the loader deps. */
   private _loaderDeps(): IIamLoaderDeps<TAction, TResource, TRole, TScope> {
     return {
@@ -573,9 +572,14 @@ export class IamEngine<
   ): Promise<AccessControl.ModeResult<TMode>> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) {
       // Fail-closed: in production mode return false; otherwise a synthesized deny.
-      return (
-        this._mode === 'production' ? false : { allowed: false, reason: 'invalid subjectId' }
-      ) as AccessControl.ModeResult<TMode>
+      if (this._mode === 'production') return this._asResult(false)
+      return this._asResult({
+        allowed: false,
+        effect: 'deny',
+        reason: 'invalid subjectId',
+        duration: 0,
+        timestamp: Date.now(),
+      })
     }
     try {
       const subject = await this._resolveSubject(subjectId)
@@ -619,6 +623,8 @@ export class IamEngine<
    * @param environment - Optional request-time environment.
    * @param scope       - Optional scope for multi-tenant checks.
    * @returns A full {@link Explain.IResult} describing the evaluation.
+   * @throws When the engine is in production mode, or `subjectId` is not a
+   *   non-empty string of at most 1024 chars.
    */
   async explain(
     this: IamEngine<TAction, TResource, TRole, TScope, 'development'>,
@@ -652,7 +658,6 @@ export class IamEngine<
       scope,
     }
 
-    // Apply beforeEvaluate hook (it may modify the request)
     if (this._hooks.beforeEvaluate) {
       req = await this._hooks.beforeEvaluate(req)
     }
@@ -678,7 +683,7 @@ export class IamEngine<
 
   /**
    * Batch check: evaluate many permissions at once for a single subject.
-   * Returns a map keyed by "action:resource" or "scope:action:resource".
+   * Returns a map keyed by `[scope:]action:resource[:resourceId]` (see `iamBuildPermissionKey`).
    * Loads adapter data once, then evaluates each check.
    * Each check goes through scoped role enrichment and hooks, consistent with authorize().
    *
@@ -689,6 +694,9 @@ export class IamEngine<
    * @param checks      - Array of {@link IamClient.IPermissionCheck} descriptors.
    * @param environment - Optional request-time environment shared by all checks.
    * @returns Mode-dependent permission map.
+   * @throws When `subjectId` is not a non-empty string of at most 1024 chars,
+   *   or `checks` holds more than 1024 entries. Unlike `can`/`check`, an
+   *   invalid batch is a caller bug, not a fail-closed deny.
    */
   async permissions(
     subjectId: string,
