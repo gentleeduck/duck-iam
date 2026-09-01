@@ -133,7 +133,7 @@ export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combin
     let first = matched[0]!
     for (let i = 1; i < matched.length; i++) {
       const cur = matched[i]!
-      if (cur.rule.priority > first.rule.priority) first = cur
+      if (rulePriority(cur.rule) > rulePriority(first.rule)) first = cur
     }
     return {
       rule: first.rule,
@@ -144,7 +144,7 @@ export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combin
 
   'highest-priority': (matched, defaultEffect) => {
     if (matched.length > 0) {
-      const top = matched.reduce((best, cur) => (cur.rule.priority > best.rule.priority ? cur : best))
+      const top = matched.reduce((best, cur) => (rulePriority(cur.rule) > rulePriority(best.rule) ? cur : best))
       return {
         rule: top.rule,
         effect: top.effect,
@@ -185,6 +185,23 @@ function addToBucket(map: Map<string, Evaluate.IIndexedRule[]>, key: string, ent
  * @param policy - The policy whose rules should be indexed.
  * @returns The cached or freshly built {@link Evaluate.IPolicyRuleIndex}.
  */
+/**
+ * True when the group actually carries a condition clause. `conditions` is
+ * required by {@link AccessControl.IRule} and by the JSON schema, but rows
+ * loaded through an adapter can still omit it, so every read narrows first.
+ */
+/**
+ * Priority used for ranking. `NaN`/missing (a row that bypassed validation)
+ * ranks as 0 instead of silently losing every `>` comparison and vanishing.
+ */
+export function rulePriority(rule: { readonly priority: number }): number {
+  return Number.isFinite(rule.priority) ? rule.priority : 0
+}
+
+function hasConditionKeys(c: AccessControl.IConditionGroup | undefined): boolean {
+  return !!c && ('all' in c || 'any' in c || 'none' in c)
+}
+
 export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRuleIndex {
   const cached = indexCache.get(policy)
   if (cached) return cached
@@ -195,8 +212,8 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
   const wildcardBoth: Evaluate.IIndexedRule[] = []
 
   for (const rule of policy.rules) {
-    const actions = new Set(rule.actions as string[])
-    const resources = new Set(rule.resources as string[])
+    const actions = new Set<string>(rule.actions)
+    const resources = new Set<string>(rule.resources)
     let hasWildcardAction = false
     for (const a of actions) {
       if (isExpansivePattern(a)) {
@@ -212,7 +229,7 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
       }
     }
     const c = rule.conditions
-    const hasConditions = !!c && ('all' in c || 'any' in c || 'none' in c)
+    const hasConditions = hasConditionKeys(c)
     const entry: Evaluate.IIndexedRule = {
       rule,
       actions,
@@ -249,7 +266,7 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
   if (hasNoWildcards && (algo === 'deny-overrides' || algo === 'allow-overrides' || algo === 'first-match')) {
     for (const rule of policy.rules) {
       const c = rule.conditions
-      if ('all' in c || 'any' in c || 'none' in c) continue
+      if (hasConditionKeys(c)) continue
       if (rule.actions.some(isExpansivePattern) || rule.resources.some(isExpansivePattern)) continue
 
       for (const a of rule.actions) {
@@ -263,7 +280,7 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
           let allUnconditional = true
           for (const e of entries) {
             const ec = e.rule.conditions
-            if ('all' in ec || 'any' in ec || 'none' in ec) {
+            if (hasConditionKeys(ec)) {
               allUnconditional = false
               break
             }
@@ -296,7 +313,7 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
             let best = entries[0]!
             for (let i = 1; i < entries.length; i++) {
               const cur = entries[i]!
-              if (cur.rule.priority > best.rule.priority) best = cur
+              if (rulePriority(cur.rule) > rulePriority(best.rule)) best = cur
             }
             result = best.rule.effect === 'allow'
           }

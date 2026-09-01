@@ -189,7 +189,7 @@ export const VALID_ALGORITHMS = new Set(['deny-overrides', 'allow-overrides', 'f
 export const VALID_EFFECTS = new Set(['allow', 'deny'])
 
 /**
- * IamValidate-time policy size caps.
+ * Validate-time policy size caps.
  *
  * `indexPolicy()` builds an `actions x resources` cartesian per rule, so an
  * unbounded policy can stall the event loop. Limits also cap memory growth
@@ -243,7 +243,7 @@ export const VALID_OPERATORS = new Set([
 ])
 
 /**
- * IamValidate one condition item (leaf or group); groups delegate to {@link validateConditionGroup}.
+ * Validate one condition item (leaf or group); groups delegate to {@link validateConditionGroup}.
  *
  * @param input  - The condition item to validate.
  * @param path   - Dot-path prefix used in reported issues.
@@ -342,7 +342,7 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
 }
 
 /**
- * IamValidate a condition group `{ all | any | none: ConditionItem[] }`; depth-bounded.
+ * Validate a condition group `{ all | any | none: ConditionItem[] }`; depth-bounded.
  *
  * @param input  - The condition group to validate.
  * @param path   - Dot-path prefix used in reported issues.
@@ -398,7 +398,7 @@ export function validateConditionGroup(input: unknown, path: string, issues: Iam
 }
 
 /**
- * IamValidate a Rule's shape (id, effect, priority, actions, resources, optional conditions).
+ * Validate a Rule's shape (id, effect, priority, actions, resources, optional conditions).
  *
  * @param input  - The rule object to validate.
  * @param path   - Dot-path prefix used in reported issues.
@@ -493,6 +493,18 @@ export function validateRuleShape(input: unknown, path: string, issues: IamValid
         })
       }
     }
+  }
+
+  // Required by IRule and the JSON schema; evaluate narrows defensively too, but
+  // a row that omits it must fail here so it never reaches the engine. Present
+  // non-object values fall through to validateConditionGroup below.
+  if (rule.conditions === undefined) {
+    issues.push({
+      type: 'error',
+      code: 'MISSING_FIELD',
+      message: 'Rule must have a "conditions" object (use `{ all: [] }` for an unconditional rule)',
+      path: `${path}.conditions`,
+    })
   }
 
   // Warn on unconditional allow * * (super-admin vs. mistake ambiguity).

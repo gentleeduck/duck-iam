@@ -1,6 +1,7 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: index iteration guarded by length check. */
 
 import { evaluateOperator, resolveConditionValue } from '../conditions'
+import { rulePriority } from '../evaluate/evaluate.libs'
 import { matchesAction, matchesResource, matchesResourceHierarchical, resolve } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import type { Explain } from './explain.types'
@@ -111,7 +112,7 @@ function applyCombiner(
       let first = matched[0]!
       for (let i = 1; i < matched.length; i++) {
         const cur = matched[i]!
-        if (cur.priority > first.priority) first = cur
+        if (rulePriority(cur) > rulePriority(first)) first = cur
       }
       return {
         effect: first.effect,
@@ -122,7 +123,7 @@ function applyCombiner(
     case 'highest-priority': {
       let top: (typeof matched)[number] | undefined
       for (const cur of matched) {
-        if (top === undefined || cur.priority > top.priority) top = cur
+        if (top === undefined || rulePriority(cur) > rulePriority(top)) top = cur
       }
       if (top !== undefined) {
         return {
