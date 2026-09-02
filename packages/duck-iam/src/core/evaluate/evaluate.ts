@@ -3,12 +3,8 @@
 import { evalConditionGroup } from '../conditions'
 import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
-import { combiners, indexPolicy, policyApplies, ruleApplies, ruleTargetsMatch } from './evaluate.libs'
+import { combiners, indexPolicy, policyApplies, ruleApplies, rulePriority, ruleTargetsMatch } from './evaluate.libs'
 import type { Evaluate } from './evaluate.types'
-
-// Literal resource patterns match only the exact resource type; recursive
-// grants require the explicit `:*` / `.*` suffix and are handled by the
-// wildcard buckets (see `indexPolicy` in evaluate.libs.ts).
 
 /**
  * Action+resource shape only, no conditions - same distinction as
@@ -53,6 +49,7 @@ function candidateShapeMatches(
  * @param policy        - The policy to evaluate
  * @param request       - The access request to evaluate against
  * @param defaultEffect - Effect to use when no rules match (defaults to `'deny'`)
+ * @param caches        - Optional per-Engine regex / path caches; falls back to the module-global ones.
  * @returns An {@link AccessControl.IDecision} with the evaluation result
  */
 export function evaluatePolicy(
@@ -122,6 +119,8 @@ export function evaluatePolicy(
  * @param defaultEffect Effect when no rule fires within a policy.
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
  * @param onPolicyError Invoked when a single policy throws; offender treated as NotApplicable.
+ * @param signals       Optional {@link IEvalSignals} out-parameter; `failOpen` is set on a default-effect allow.
+ * @param caches        Optional per-Engine regex / path caches; falls back to the module-global ones.
  * @returns The merged {@link AccessControl.IDecision} across all policies.
  */
 export function evaluate(
@@ -230,6 +229,7 @@ export function evaluate(
  * @param policy        The policy to evaluate.
  * @param request       The access request.
  * @param defaultEffect Effect to use when no rules match (defaults to `'deny'`).
+ * @param caches        Optional per-Engine regex / path caches; falls back to the module-global ones.
  * @returns `true` / `false` for an applicable allow / deny, `null` when NotApplicable.
  */
 export function evaluatePolicyFast(
@@ -352,9 +352,10 @@ export function evaluatePolicyFast(
     const bucket = literalBuckets[bi]!
     for (let i = 0; i < bucket.length; i++) {
       const entry = bucket[i]!
-      if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions)) continue
-      if (entry.rule.priority > bestPriority) {
-        bestPriority = entry.rule.priority
+      if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
+      const p = rulePriority(entry.rule)
+      if (p > bestPriority) {
+        bestPriority = p
         bestEffect = entry.rule.effect
       }
     }
@@ -365,9 +366,10 @@ export function evaluatePolicyFast(
       const entry = bucket[i]!
       if (!candidateShapeMatches(entry, action, resType, resHasDot)) continue
       hasCandidate = true
-      if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions)) continue
-      if (entry.rule.priority > bestPriority) {
-        bestPriority = entry.rule.priority
+      if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
+      const p = rulePriority(entry.rule)
+      if (p > bestPriority) {
+        bestPriority = p
         bestEffect = entry.rule.effect
       }
     }
@@ -384,6 +386,8 @@ export function evaluatePolicyFast(
  * @param defaultEffect Effect to use when no rules fire (defaults to `'deny'`).
  * @param combine       Cross-policy combine strategy (defaults to `'and'`).
  * @param onPolicyError Invoked when a single policy throws; offender treated as NotApplicable.
+ * @param signals       Optional {@link IEvalSignals} out-parameter; `failOpen` is set on a default-effect allow.
+ * @param caches        Optional per-Engine regex / path caches; falls back to the module-global ones.
  * @returns `true` when the final verdict is allow, `false` otherwise.
  */
 export function evaluateFast(
@@ -402,9 +406,10 @@ export function evaluateFast(
   }
 
   /**
-   * A single rotten row (NaN priority, malformed condition, etc.) must not
-   * poison the whole evaluation - treat the offending policy as NotApplicable
-   * and route the error to `onPolicyError` so the operator can alert.
+   * A single rotten row (malformed condition, etc.) must not poison the whole
+   * evaluation - treat the offending policy as NotApplicable and route the
+   * error to `onPolicyError` so the operator can alert. (A non-finite
+   * `priority` does not throw; `rulePriority` ranks it as 0.)
    */
   const safeEval = (policy: AccessControl.IPolicy): boolean | null => {
     try {
