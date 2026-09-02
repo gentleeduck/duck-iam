@@ -6,7 +6,7 @@
  *
  * Usage:
  *
- *   import { IamAccessClient } from "duck-iam/client/vanilla";
+ *   import { IamAccessClient } from "@gentleduck/iam/client/vanilla";
  *
  *   // Initialize from server-provided permissions
  *   const access = new IamAccessClient(permissionsFromServer);
@@ -31,13 +31,13 @@ import { iamBuildPermissionKey, iamSplitPermissionKey } from '../../shared/keys'
 
 /** Callback invoked when permissions are updated via {@link IamAccessClient.update} or {@link IamAccessClient.merge}. */
 type Listener<TAction extends string = string, TResource extends string = string, TScope extends string = string> = (
-  permissions: IamClient.PermissionMap<TAction, TResource, TScope>,
+  permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>,
 ) => void
 
 /**
  * Provides framework-agnostic client-side access control.
  *
- * Wraps a {@link IamClient.PermissionMap} (typically fetched from the server) and
+ * Wraps a {@link IamClient.PartialPermissionMap} (typically fetched from the server) and
  * exposes `.can()` / `.cannot()` checks. Supports reactive updates via
  * `.subscribe()`.
  *
@@ -56,7 +56,7 @@ export class IamAccessClient<
   TResource extends string = string,
   TScope extends string = string,
 > {
-  private _permissions: IamClient.PermissionMap<TAction, TResource, TScope>
+  private _permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>
   private _listeners = new Set<Listener<TAction, TResource, TScope>>()
 
   /**
@@ -64,8 +64,8 @@ export class IamAccessClient<
    *
    * @param permissions - Optional initial permission map (set later via `update`).
    */
-  constructor(permissions?: IamClient.PermissionMap<TAction, TResource, TScope>) {
-    this._permissions = permissions ?? ({} as IamClient.PermissionMap<TAction, TResource, TScope>)
+  constructor(permissions?: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
+    this._permissions = permissions ?? {}
   }
 
   /**
@@ -88,7 +88,7 @@ export class IamAccessClient<
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
     })
     if (!res.ok) throw new Error(`Failed to fetch permissions: ${res.status}`)
-    const perms: IamClient.PermissionMap<TA, TR, TS> = await res.json()
+    const perms: IamClient.PartialPermissionMap<TA, TR, TS> = await res.json()
     return new IamAccessClient<TA, TR, TS>(perms)
   }
 
@@ -97,7 +97,7 @@ export class IamAccessClient<
    *
    * @returns Readonly map of action/resource keys to boolean grants.
    */
-  get permissions(): Readonly<IamClient.PermissionMap<TAction, TResource, TScope>> {
+  get permissions(): Readonly<IamClient.PartialPermissionMap<TAction, TResource, TScope>> {
     return this._permissions
   }
 
@@ -136,14 +136,13 @@ export class IamAccessClient<
    * @param permissions - Provides the new permission map.
    * @returns Nothing.
    */
-  update(permissions: IamClient.PermissionMap<TAction, TResource, TScope>): void {
+  update(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>): void {
     this._permissions = permissions
     for (const fn of this._listeners) {
       try {
         fn(permissions)
       } catch (err) {
-        // Surface the throw without aborting other listeners.
-        // eslint-disable-next-line no-console
+        // Surface the throw without aborting the remaining listeners.
         console.error('[@gentleduck/iam:client] listener threw - continuing to notify others', err)
       }
     }
@@ -155,7 +154,7 @@ export class IamAccessClient<
    * @param permissions - Provides the partial permission patch.
    * @returns Nothing.
    */
-  merge(permissions: IamClient.PermissionMap<TAction, TResource, TScope>): void {
+  merge(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>): void {
     this.update({ ...this._permissions, ...permissions })
   }
 
