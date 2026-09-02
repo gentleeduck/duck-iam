@@ -19,6 +19,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { createDrizzlePgBridge } from '~/adapters/drizzle/pg'
 import { createSqlStores } from '~/adapters/sql'
+import type { Batch } from '~/core/batch'
 import { sha256 } from '~/core/crypto'
 import { AuthEngine } from '~/core/engine'
 import type { Events } from '~/core/events'
@@ -224,6 +225,86 @@ suite('E2E withTransaction on real Postgres', () => {
     })
 
     expect(await count('auth_credentials', "WHERE kind = 'api-key'")).toBe(0)
+  })
+
+  it('one bad row rolls the whole batch back', async () => {
+    const a = await engine.identities.create({ profile: { email: 'ba@x', username: 'ba' } })
+    const b = await engine.identities.create({ profile: { email: 'bb@x', username: 'bb' } })
+    // The address the bad row will collide with. `auth_identities` carries a
+    // partial unique index on lower(profile->>'email'), so this is a hard
+    // constraint violation - the kind that must abort the caller's transaction
+    // rather than be reported as a per-row miss.
+    await engine.identities.create({ profile: { email: 'taken@x', username: 'taken' } })
+    published = []
+
+    const failure = await db
+      .transaction(async (tx) => {
+        const auth = engine.withTransaction(tx)
+        await auth.identities.updateProfileMany([
+          { expectedVersion: b.version, id: b.id, patch: { username: 'bb2' } },
+          { expectedVersion: a.version, id: a.id, patch: { email: 'taken@x' } },
+        ])
+      })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      )
+
+    // Pinned to the constraint, so the case cannot start passing on some
+    // unrelated throw - a cap check, a typo'd id - and quietly stop testing
+    // atomicity. drizzle reports the statement and hangs the driver's own
+    // message off `cause`, so both halves are searched.
+    expect(failure).toBeInstanceOf(Error)
+    const detail = failure instanceof Error ? `${failure.message} ${String(failure.cause)}` : String(failure)
+    expect(detail).toMatch(/duplicate key|unique/i)
+
+    // The good row from the same batch is gone too - that is what atomic means.
+    expect((await engine.identities.getById(b.id))?.profile.username).toBe('bb')
+    expect((await engine.identities.getById(a.id))?.profile.email).toBe('ba@x')
+    expect(published).toEqual([])
+  })
+
+  it('a soft failure does not roll the batch back', async () => {
+    const a = await engine.identities.create({ profile: { email: 'sa@x', username: 'sa' } })
+    const b = await engine.identities.create({ profile: { email: 'sb@x', username: 'sb' } })
+
+    let result: Batch.Result<Identities.Me<P>> | undefined
+    await db.transaction(async (tx) => {
+      const auth = engine.withTransaction(tx)
+      result = await auth.identities.updateProfileMany([
+        // Stale - a soft failure, reported per row.
+        { expectedVersion: 999, id: a.id, patch: { username: 'sa2' } },
+        { expectedVersion: b.version, id: b.id, patch: { username: 'sb2' } },
+      ])
+    })
+
+    expect(result?.outcomes[0]).toMatchObject({ ok: false, reason: 'stale-write' })
+    expect(result?.applied).toBe(1)
+    // The commit stood: b was updated, a was not.
+    expect((await engine.identities.getById(b.id))?.profile.username).toBe('sb2')
+    expect((await engine.identities.getById(a.id))?.profile.username).toBe('sa')
+  })
+
+  it('a bulk revoke reports which identities had no sessions', async () => {
+    const a = await engine.identities.create({ profile: { email: 'ra@x', username: 'ra' } })
+    const b = await engine.identities.create({ profile: { email: 'rb@x', username: 'rb' } })
+    await engine.sessions.create({ aal: 1, factors: [], identityId: a.id, kind: 'user' })
+    published = []
+
+    let result: Batch.Result | undefined
+    let pending: { flush(): Promise<void> } | undefined
+    await db.transaction(async (tx) => {
+      const auth = engine.withTransaction(tx)
+      result = await auth.sessions.revokeAllForIdentities([a.id, b.id])
+      pending = auth.pending
+    })
+    await pending?.flush()
+
+    expect(result?.applied).toBe(1)
+    expect(result?.failed).toBe(1)
+    // One session existed, so exactly one revocation event - not two, and not
+    // one per identity named.
+    expect(published.filter((e) => e === 'session.revoked')).toHaveLength(1)
   })
 
   it('the unbound engine still commits on its own and emits immediately', async () => {
