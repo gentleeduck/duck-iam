@@ -546,7 +546,7 @@ The change set is **mostly backward compatible** with two notable defaults:
 
 - `FileAdapter._loadState` swallowed every `readFile` error and silently fell back to an empty store. EACCES (permissions drift), EISDIR (path overwritten), EIO (disk corruption) became `{policies:{},roles:{},...}`. With `defaultEffect:'allow'+allowFailOpen` this is total silent fail-open; with `'deny'` it's total silent outage. Only `ENOENT` now recovers as empty; everything else throws a wrapped Error.
 
-#### HIGH (7)
+#### HIGH (8)
 
 - HTTP adapter followed fetch redirects without re-validation. A 302 to `169.254.169.254` or `10.0.0.5:6379` bypassed the construction-time `allowedHosts` / private-IP guard. `_fetchOnce` now passes `redirect: 'error'`.
 - `_emitMetrics` invoked `onMetrics` without a try/catch. A throwing operator hook escaped `authorize`'s catch arm and replaced the documented fail-closed deny with a raw error. Wrapped via `_safeHookCall`; double-wrapped around `console.error` itself.
@@ -571,7 +571,7 @@ The change set is **mostly backward compatible** with two notable defaults:
 - `_loadAllPolicies` merger had no in-flight sentinel; concurrent invalidate-mid-load repopulated stale data. Added `_mergedInFlight` sentinel.
 - `getSubjectRoles` semantic drift: file/memory returned unscoped-only; redis/drizzle/prisma returned all collapsed. Same subject resolved differently across backends. Aligned all to unscoped-only; documented in `Adapter.ISubjectStore`.
 
-#### Low (12)
+#### Low (15)
 
 - No way to chart fail-open rate. Added `failOpen: boolean` to `IMetricsEvent` + counter to `createMetricsAggregator`. Threaded through `evaluate`/`evaluateFast` via optional `IEvalSignals`.
 - Redis invalidator v:1 envelope was unwrapped without HMAC verification when `secret: null` - attacker chose `instanceId`, silenced legitimate cross-instance invalidates. v:1 in unsigned mode now dropped + warned.
@@ -596,7 +596,7 @@ The change set is **mostly backward compatible** with two notable defaults:
 - **INFO-A** `LRUCache` + Engine `maxPolicies/maxRoles/adapterTimeoutMs` accepted NaN (silently disabled bound). Now `Number.isFinite` required.
 - **INFO-B** `Explain.IResult.summary` is plain text with attacker-influenced values; consumers rendering as HTML must escape. JSDoc added.
 
-#### Deployment hardening (CAVEAT-1/2/3 + )
+#### Deployment hardening (CAVEAT-1/2/3)
 
 - **CAVEAT-1**: `createRedisInvalidator({ tenantId })` auto-prefixes the channel `'duck-iam:invalidate:tenant:${tenantId}'`. Validates `tenantId` against `/^[A-Za-z0-9_-]{1,64}$/` so attacker-controlled tenant slugs cannot inject pub/sub wildcards.
 - **CAVEAT-2**: Admin routers default-on CSRF via `defaultCsrfCheck` (Sec-Fetch-Site check). `csrfCheck: false` opts out for bearer/mTLS APIs.
@@ -737,9 +737,14 @@ Every new namespace is **type-only** (interfaces + type aliases only, no runtime
 
 `2.0.0` commits to SemVer. The type-API namespace rewrite is load-bearing; no further public-API renames until `3.0.0`. Patch + minor releases stay non-breaking.
 
-## Unreleased
+## 2.0.0 - detailed notes
 
 ### Major refactor: namespaced type API + correctness hardening
+
+> These are the working notes for the 2.0.0 release above. They were written
+> before the version was cut and kept their `Unreleased` heading afterwards,
+> which put an "unreleased" section in the middle of shipped history. Retitled;
+> content is unchanged.
 
 13-round audit-driven hardening pass plus a full type-API refactor matching the duck-\* monorepo convention.
 

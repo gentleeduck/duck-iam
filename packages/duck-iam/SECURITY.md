@@ -127,13 +127,13 @@ iamAdminRouter(engine, {
 
 ### Redis invalidator
 
-`createRedisInvalidator` defaults to an unsigned envelope on the
+`createIamRedisInvalidator` defaults to an unsigned envelope on the
 default channel `'duck-iam:invalidate'`. Production deployments must set
 `secret`, and multi-tenant deployments should pass `tenantId` so
 tenant A's revoke cannot wipe tenant B's cache.
 
 ```ts
-const invalidator = createRedisInvalidator({
+const invalidator = createIamRedisInvalidator({
   client: redisPubSub,
   secret: process.env.IAM_INVALIDATE_SECRET,
   tenantId: tenant.slug,
@@ -202,5 +202,5 @@ permissive `baseUrl` without `allowedHosts` warns once at construction.
 
 Wire `onPolicyError`, `onError`, and `onMetrics` on the engine.
 Silent failures in an authorization path either deny everything or
-allow everything. Use `createMetricsAggregator()` to chart `failOpen`
+allow everything. Use `iamCreateMetricsAggregator()` to chart `failOpen`
 rate as a silent-policy-breakage alarm.
