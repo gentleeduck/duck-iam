@@ -77,9 +77,11 @@ export namespace IamEngineTypes {
     /** Revoke many triples. See {@link assignRoles}. */
     revokeRoles(rows: readonly ITripleRow<TRole, TScope>[]): Promise<Batch.Result>
     /**
-     * Move many assignments between scopes, each row reporting whether it
-     * matched. Delegates to {@link updateAssignmentScope} per row, so the
-     * revoke + assign fallback applies here too.
+     * Move many assignments between scopes. Delegates to
+     * {@link updateAssignmentScope} per row, which falls back to revoke +
+     * assign when the adapter has no in-place update and when nothing matched
+     * `fromScope` - so a row only fails by throwing, and every row that
+     * returns is reported applied.
      */
     moveRoleScopes(rows: readonly IMoveRow<TRole, TScope>[]): Promise<Batch.Result>
     /** Invalidate several subjects at once. Duplicate ids are collapsed. */

@@ -156,7 +156,7 @@ import { MemoryAuthAdapter } from '@gentleduck/auth/adapters/memory'
 import { drizzlePgStorage }  from '@gentleduck/auth/adapters/drizzle/pg'
 import { drizzleMysqlStorage } from '@gentleduck/auth/adapters/drizzle/mysql'
 import { drizzleSqliteStorage } from '@gentleduck/auth/adapters/drizzle/sqlite'
-import { createSqlAuthStores } from '@gentleduck/auth/adapters/sql' // build your own bridge
+import { createSqlStores } from '@gentleduck/auth/adapters/sql' // build your own bridge
 import {
   RedisSessionStore,
   RedisIdempotencyStore,
@@ -166,6 +166,89 @@ import {
   FakeRedis, // in-tree, for tests
 } from '@gentleduck/auth/adapters/redis'
 ```
+
+## Transactions
+
+Every SQL-backed write and read can run on a transaction you own. `withTransaction(tx)`
+returns a view of the engine bound to your transaction handle; the handle is opaque to
+duck-auth and is handed straight back to your adapter.
+
+```typescript
+let pending
+await db.transaction(async (tx) => {
+  const auth = engine.withTransaction(tx)
+  await auth.identities.softDelete(identityId)
+  await auth.sessions.revokeAllForIdentity(identityId)
+  await tx.delete(users).where(eq(users.id, identityId))
+  pending = auth.pending
+})
+await pending.flush()   // publish the events only once the commit landed
+```
+
+Nested calls inherit it: `auth.flows.completeAccountDeletion()` reaches
+`identities.softDelete`, `sessions.revokeAllForIdentity` and `credentials.delete`, and all
+three land on your transaction. Reads are bound too, so a read inside the transaction sees
+that transaction's own uncommitted writes.
+
+**Events do not fire inside a transaction.** They buffer in `pending` and publish when you
+call `flush()`. A rolled-back delete therefore never appears in the audit trail as a
+completed one. Call `flush()` after your commit; call `pending.discard()` if you rolled
+back deliberately and want the buffer dropped. `pending.peek()` inspects the buffer without
+draining it.
+
+### What is and isn't transactional
+
+| Surface | In a transaction? | On rollback |
+|---|---|---|
+| `identities`, `sessions`, `credentials` - writes and reads | yes | undone |
+| `flows.*`, including nested facet calls | yes | undone |
+| `mfa`, `apiKeys`, `passwords` credential writes | yes | undone |
+| `orgs` | interface ready; no shipped SQL adapter | n/a |
+| events | buffered in `pending` | never published |
+| channel sends (verification / reset mail) | **no - sent immediately** | mail already delivered |
+| `limiter` counters | **no** | token stays consumed |
+| `idempotency` records | **no** | record stands |
+| `hijack` / `anomaly` scoring | **no** | scores stand |
+
+The last four are guards: they decide *whether* to do the work, they write nothing to SQL,
+and they are not reachable on the bound view at all - use `engine.limiter`,
+`engine.idempotency` and friends outside the transaction. A flow that sends mail should be
+called outside a transaction, or split so the send happens after the commit; no rollback
+can retract a delivered email.
+
+**An engine with no transaction supplied behaves exactly as before:** writes go to its own
+connection and events publish immediately.
+
+### Adapter support
+
+`withTransaction` needs a store whose adapter implements `withClient`. The drizzle pg,
+mysql and sqlite adapters do; so does any bridge built with `createSqlStores`. Memory,
+redis and valkey do not - they cannot join a SQL transaction - and `withTransaction` throws
+`AUTH_MISCONFIGURED` naming the store rather than silently leaving it outside your
+transaction.
+
+### Batch writes
+
+Batch forms take a list and report per-row outcomes instead of collapsing to `void`:
+
+```typescript
+const result = await auth.identities.updateProfileMany([
+  { id: a, patch: { displayName: 'A' }, expectedVersion: 3 },
+  { id: b, patch: { displayName: 'B' }, expectedVersion: 7 },
+])
+result.outcomes  // [{ id: a, ok: true, value: … }, { id: b, ok: false, reason: 'stale-write' }]
+result.applied   // 1
+```
+
+Available on `identities` (`softDeleteMany`, `restoreMany`, `eraseMany`, `updateProfileMany`,
+`linkMany`, `unlinkMany`), `sessions` (`revokeAllForIdentities`, `revokeByHashes`) and the
+credential store (`auth.stores.credentials.deleteByIdentities`). Each collapses to one
+statement per table where the adapter can express it and loops otherwise, so every adapter
+supports every batch form.
+
+A **hard** failure - a constraint violation - throws and aborts your transaction, so one
+bad row rolls the whole batch back. A **soft** failure - a lost optimistic-lock race, a
+missing row - is reported per row and does not throw.
 
 ## Server adapters
 

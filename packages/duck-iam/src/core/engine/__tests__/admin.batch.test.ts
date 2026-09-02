@@ -77,7 +77,7 @@ describe('IAdmin batch writes', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
-  it('moveRoleScopes reports whether each row matched', async () => {
+  it('moveRoleScopes moves every row, reporting each applied', async () => {
     await engine.admin.assignRole('u1', 'admin', 'org-1')
 
     const result = await engine.admin.moveRoleScopes([
