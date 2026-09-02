@@ -227,6 +227,46 @@ redis and valkey do not - they cannot join a SQL transaction - and `withTransact
 `AUTH_MISCONFIGURED` naming the store rather than silently leaving it outside your
 transaction.
 
+### Every mutating call answers with what it did
+
+A write that returns `void` cannot be told apart from one that matched nothing, and forces a
+second read for something the statement already had. Every mutating call returns the row,
+the rows, or the count it touched - `null` / `[]` / `0` when nothing matched. Where the
+dialect has `RETURNING` this is the same round trip.
+
+```typescript
+const identity = await auth.identities.softDelete(id)
+// `deletedAt` is when the grace window CLOSES, so the deadline you show the user
+// comes off the write itself rather than a second reading of the clock.
+identity?.deletedAt        // Date | null
+identity?.emailVerified    // false - the address is free to be claimed meanwhile
+
+const erased = await auth.identities.erase(id, { reason: 'gdpr' })
+// The row as it was: after the delete there is nothing left to read.
+
+const ended = await auth.sessions.revokeAllForIdentity(id)
+`Signed out of ${ended.length} devices`   // no second query; already read to emit events
+```
+
+| Surface | Calls | Answers with |
+|---|---|---|
+| `identities` | `softDelete`, `restore`, `erase`, `link`, `unlink`, `merge` | the row, `null` when nothing matched |
+| `sessions` | `revoke`, `revokeByHash` | the session ended, `null` when the sid matched nothing |
+| `sessions` | `revokeAllForIdentity` | the sessions ended |
+| `stores.credentials` | `revoke`, `delete` / `deleteByKind` | the row / the rows |
+| `apiKeys` | `revoke` | the key revoked |
+| `mfa` | `removeTotp`, `removeWebauthnMfa` | `{ removed }` - the count, not the rows, which carry the secret |
+| `orgs` | `removeMember`, `setRoles` | the membership, with the **sanitized** role set actually stored |
+| `flows` | `completeAccountDeletion`, `cancelAccountDeletion`, `completeEmailVerification`, `linkProvider`, `unlinkProvider` | `identity`, alongside the fields they already returned |
+| `operations` | `maintenance`, `readOnly` | the resulting `State` |
+| `webhooks` | `deliverOne` | one `Delivery` per eligible endpoint |
+| `pending` | `flush`, `discard` | `{ published }` / `{ discarded }` |
+| `anomaly` | `unregister` | whether it removed anything |
+
+Assertions (`apiKeys.requireScopes`, `operations.assertOperationsForRoute`,
+`hijack.applyReaction`), registrations (`anomaly.register`, `providers.register`) and
+`plugins.dispose` stay `void`: they throw or they do not, and a return value would be noise.
+
 ### Batch writes
 
 Batch forms take a list and report per-row outcomes instead of collapsing to `void`:
