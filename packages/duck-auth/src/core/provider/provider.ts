@@ -1,4 +1,5 @@
 import { AuthError } from '../errors'
+import type { Events } from '../events/events.types'
 import type { Identities } from '../identities'
 import type { Provider } from './provider.types'
 
@@ -29,6 +30,21 @@ export class Providers<Profile extends Identities.ProfileMetadataBase = Identiti
       })
     }
     this._byId.set(cap.id, cap)
+  }
+
+  /**
+   * Copy this registry, re-binding every capability that knows how and keeping
+   * the rest as they are. Preserves registration order and every id, so
+   * `resolve()` and `list()` behave identically on the copy.
+   */
+  withClient(client: unknown, events: Events.IBus): Providers<Profile> {
+    const rebound: Provider.Capability[] = []
+    for (const cap of this._byId.values()) {
+      rebound.push(cap.withClient?.(client, events) ?? cap)
+    }
+    // `register` throws on a duplicate id, so a withClient that returned a
+    // capability under a different id fails loudly instead of shadowing one.
+    return new Providers<Profile>(rebound)
   }
 
   /** The registered capability that is an instance of `ctor`, or null. */

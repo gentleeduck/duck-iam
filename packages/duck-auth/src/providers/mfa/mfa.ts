@@ -41,6 +41,21 @@ export class MfaImpl {
     }
   }
 
+  /**
+   * Re-bind to a caller's transaction: a credential store on `client` and a bus
+   * that buffers until commit. Returns `null` when the credential store cannot
+   * join a transaction, so the registry keeps the original instance.
+   *
+   * Lives here rather than in the engine because `_cfg` is derived in the
+   * constructor; handing back the raw `cfg` reproduces it, compliance floor
+   * included.
+   */
+  withClient(client: unknown, events: Events.IBus): MfaImpl | null {
+    const credentials = this._credentials.withClient?.(client)
+    if (!credentials) return null
+    return new MfaImpl(credentials, events, this.cfg)
+  }
+
   // --- TOTP ---------------------------------------------------------------
 
   /**

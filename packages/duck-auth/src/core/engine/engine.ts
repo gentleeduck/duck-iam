@@ -168,10 +168,7 @@ export class AuthEngine<
         freshnessMs: this.cfg.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
       },
       stores: this.cfg.stores,
-      // Task 4 replaces this with `this.providers.withClient(client, bus)`. Until
-      // then the registry is the engine's own, so provider-owned facets are the
-      // known remaining gap; nothing else in the facade depends on it.
-      buildProviders: () => this.providers,
+      buildProviders: (bus) => this.providers.withClient(client, bus),
       buildFlows: ({ sessions, identities, providers, events, stores }) =>
         new FlowsImpl<Profile>(
           sessions,
