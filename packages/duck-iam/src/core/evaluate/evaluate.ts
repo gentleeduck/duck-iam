@@ -3,7 +3,15 @@
 import { evalConditionGroup } from '../conditions'
 import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
-import { combiners, indexPolicy, policyApplies, ruleApplies, rulePriority, ruleTargetsMatch } from './evaluate.libs'
+import {
+  combiners,
+  indexPolicy,
+  policyApplies,
+  policyHasDenyRule,
+  ruleApplies,
+  rulePriority,
+  ruleTargetsMatch,
+} from './evaluate.libs'
 import type { Evaluate } from './evaluate.types'
 
 /**
@@ -146,15 +154,26 @@ export function evaluate(
   }
 
   /**
-   * Same fail-skip contract as {@link evaluateFast}: one rotten policy must
-   * not break the whole evaluation. Synthesise a NotApplicable decision so
-   * the combiner skips it cleanly.
+   * One rotten policy must not break the whole evaluation, but an error is
+   * Indeterminate rather than NotApplicable: skipping a policy that could have
+   * denied lets an attacker disable it by making evaluation throw (padding the
+   * field a `matches` rule reads). So a policy carrying any deny rule fails
+   * closed; an allow-only policy stays skippable.
    */
   const safeEval = (policy: AccessControl.IPolicy): AccessControl.IDecision => {
     try {
       return evaluatePolicy(policy, request, defaultEffect, caches)
     } catch (err) {
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
+      if (policyHasDenyRule(policy)) {
+        return {
+          allowed: false,
+          effect: 'deny',
+          reason: 'Policy evaluation error - denied (indeterminate)',
+          duration: 0,
+          timestamp: Date.now(),
+        }
+      }
       return {
         allowed: defaultEffect === 'allow',
         effect: defaultEffect,
@@ -345,7 +364,13 @@ export function evaluatePolicyFast(
   }
 
   // first-match (priority-aware) + highest-priority share the scan loop.
+  // Both resolve equal priorities by source order. This scan walks literal
+  // buckets before wildcard ones, which is not source order, so a plain
+  // `p > bestPriority` would let a later literal rule outrank an earlier
+  // wildcard one on a tie and disagree with the interpreter. Compare the
+  // recorded `order` whenever the priorities are equal.
   let bestPriority = -Infinity
+  let bestOrder = Infinity
   let bestEffect: AccessControl.Effect | null = null
   let hasCandidate = literalBuckets.length > 0
   for (let bi = 0; bi < literalBuckets.length; bi++) {
@@ -354,8 +379,9 @@ export function evaluatePolicyFast(
       const entry = bucket[i]!
       if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
       const p = rulePriority(entry.rule)
-      if (p > bestPriority) {
+      if (p > bestPriority || (p === bestPriority && entry.order < bestOrder)) {
         bestPriority = p
+        bestOrder = entry.order
         bestEffect = entry.rule.effect
       }
     }
@@ -368,8 +394,9 @@ export function evaluatePolicyFast(
       hasCandidate = true
       if (entry.hasConditions && !evalConditionGroup(request, entry.rule.conditions, 0, caches)) continue
       const p = rulePriority(entry.rule)
-      if (p > bestPriority) {
+      if (p > bestPriority || (p === bestPriority && entry.order < bestOrder)) {
         bestPriority = p
+        bestOrder = entry.order
         bestEffect = entry.rule.effect
       }
     }
@@ -407,16 +434,17 @@ export function evaluateFast(
 
   /**
    * A single rotten row (malformed condition, etc.) must not poison the whole
-   * evaluation - treat the offending policy as NotApplicable and route the
-   * error to `onPolicyError` so the operator can alert. (A non-finite
-   * `priority` does not throw; `rulePriority` ranks it as 0.)
+   * evaluation, but a policy that could have denied fails closed rather than
+   * being skipped; the error is routed to `onPolicyError` either way. (A
+   * non-finite `priority` does not throw; `rulePriority` ranks it as 0.)
    */
   const safeEval = (policy: AccessControl.IPolicy): boolean | null => {
     try {
       return evaluatePolicyFast(policy, request, defaultEffect, caches)
     } catch (err) {
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
-      return null
+      // Indeterminate, not NotApplicable - see the slow path's `safeEval`.
+      return policyHasDenyRule(policy) ? false : null
     }
   }
 

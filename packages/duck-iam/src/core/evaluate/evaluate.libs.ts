@@ -180,16 +180,14 @@ function addToBucket(map: Map<string, Evaluate.IIndexedRule[]>, key: string, ent
 }
 
 /**
- * Build (or retrieve from cache) a rule index for a policy.
- *
- * @param policy - The policy whose rules should be indexed.
- * @returns The cached or freshly built {@link Evaluate.IPolicyRuleIndex}.
+ * True when the policy carries at least one deny rule, i.e. failing to evaluate
+ * it could hide a deny. Used to fail closed on an evaluation error. A row that
+ * reached us without a `rules` array cannot hide anything, so it stays skippable.
  */
-/**
- * True when the group actually carries a condition clause. `conditions` is
- * required by {@link AccessControl.IRule} and by the JSON schema, but rows
- * loaded through an adapter can still omit it, so every read narrows first.
- */
+export function policyHasDenyRule(policy: AccessControl.IPolicy): boolean {
+  return Array.isArray(policy.rules) && policy.rules.some((r) => r.effect === 'deny')
+}
+
 /**
  * Priority used for ranking. `NaN`/missing (a row that bypassed validation)
  * ranks as 0 instead of silently losing every `>` comparison and vanishing.
@@ -198,10 +196,21 @@ export function rulePriority(rule: { readonly priority: number }): number {
   return Number.isFinite(rule.priority) ? rule.priority : 0
 }
 
+/**
+ * True when the group actually carries a condition clause. `conditions` is
+ * required by {@link AccessControl.IRule} and by the JSON schema, but rows
+ * loaded through an adapter can still omit it, so every read narrows first.
+ */
 function hasConditionKeys(c: AccessControl.IConditionGroup | undefined): boolean {
   return !!c && ('all' in c || 'any' in c || 'none' in c)
 }
 
+/**
+ * Build (or retrieve from cache) a rule index for a policy.
+ *
+ * @param policy - The policy whose rules should be indexed.
+ * @returns The cached or freshly built {@link Evaluate.IPolicyRuleIndex}.
+ */
 export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRuleIndex {
   const cached = indexCache.get(policy)
   if (cached) return cached
@@ -211,7 +220,7 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
   const byResourceWildcardAction = new Map<string, Evaluate.IIndexedRule[]>()
   const wildcardBoth: Evaluate.IIndexedRule[] = []
 
-  for (const rule of policy.rules) {
+  for (const [order, rule] of policy.rules.entries()) {
     const actions = new Set<string>(rule.actions)
     const resources = new Set<string>(rule.resources)
     let hasWildcardAction = false
@@ -237,6 +246,7 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
       hasWildcardAction,
       hasWildcardResource,
       hasConditions,
+      order,
     }
 
     if (hasWildcardAction && hasWildcardResource) {

@@ -23,6 +23,13 @@ export namespace Evaluate {
     readonly hasWildcardResource: boolean
     /** Pre-computed `('all' in cond || 'any' in cond || 'none' in cond)`. Avoids three `in` checks per hot-path entry. */
     readonly hasConditions: boolean
+    /**
+     * Position of this rule in `policy.rules`. `first-match` / `highest-priority`
+     * resolve equal priorities by source order, but the fast path visits literal
+     * buckets before wildcard ones, so bucket order is not source order. Carrying
+     * the index lets the tie-break stay faithful to the interpreter.
+     */
+    readonly order: number
   }
 
   /**
