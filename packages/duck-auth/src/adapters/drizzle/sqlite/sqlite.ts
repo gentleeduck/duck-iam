@@ -269,6 +269,15 @@ export function createDrizzleSqliteBridge<
         return result.length
       },
     },
+    /**
+     * Re-make this bridge against `client` - a drizzle transaction handle,
+     * which is structurally the same database surface for every query builder
+     * this bridge uses. The assertion is the boundary where an opaque client
+     * re-enters the driver's own type, and belongs here rather than in `core/`
+     * precisely because this file is the only one that knows the driver.
+     */
+    withClient: (client) =>
+      createDrizzleSqliteBridge<Profile, TSchema>(client as BaseSQLiteDatabase<'sync' | 'async', unknown, TSchema>),
   }
 
   // One assertion here instead of one at every call site: drizzle types `profile` as

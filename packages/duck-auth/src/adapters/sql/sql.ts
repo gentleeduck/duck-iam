@@ -30,11 +30,21 @@ export function createSqlStores<Profile extends Identities.ProfileMetadataBase>(
   credentials: Credential.Store
   sessions: Sessions.Store
 } {
-  return {
-    identities: buildIdentities<Profile>(bridge.identities),
-    credentials: buildCredentials(bridge.credentials),
-    sessions: buildSessions(bridge.sessions),
+  const identities = buildIdentities<Profile>(bridge.identities)
+  const credentials = buildCredentials(bridge.credentials)
+  const sessions = buildSessions(bridge.sessions)
+
+  // One bridge-level rebind covers all three stores: re-make the bridge against
+  // the caller's client, then rebuild the stores from it. Adapters therefore
+  // implement `withClient` once, not once per store.
+  const rebind = bridge.withClient
+  if (rebind) {
+    identities.withClient = (client) => createSqlStores<Profile>(rebind(client)).identities
+    credentials.withClient = (client) => createSqlStores<Profile>(rebind(client)).credentials
+    sessions.withClient = (client) => createSqlStores<Profile>(rebind(client)).sessions
   }
+
+  return { identities, credentials, sessions }
 }
 
 function buildIdentities<Profile extends Identities.ProfileMetadataBase>(

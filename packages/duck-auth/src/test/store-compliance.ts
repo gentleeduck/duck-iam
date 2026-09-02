@@ -30,6 +30,21 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       expect(i.createdAt).toBeInstanceOf(Date)
     })
 
+    it('withClient, when present, returns a distinct store and leaves the original intact', async () => {
+      const store = factory()
+      // Adapters with no transactional driver omit withClient by design.
+      if (!store.withClient) return
+      const i = await store.create(identityInput({ profile: { email: 'wc@x', username: 'wc' } as unknown as P }))
+
+      // Re-binding to the SAME client must still produce a new object, never
+      // `this` - a bound facade that shared identity with the engine's store
+      // could mutate it, which is the whole failure mode withClient prevents.
+      const rebound = store.withClient({})
+      expect(rebound).not.toBe(store)
+      expect(rebound.findById).toBeTypeOf('function')
+      expect(await store.findById(i.id)).not.toBeNull()
+    })
+
     it('findByEmail finds a created identity (identities are global)', async () => {
       const store = factory()
       await store.create(identityInput({ profile: { email: 'shared@x', username: 'shared' } as unknown as P }))
