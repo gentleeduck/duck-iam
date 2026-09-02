@@ -284,7 +284,9 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
    * Verify the supplied token, mark `identity.profile.emailVerified=true`,
    * consume the token. Returns `{ identityId }` on success.
    */
-  async completeEmailVerification(input: Flows.EmailVerificationCompleteInput): Promise<{ identityId: string }> {
+  async completeEmailVerification(
+    input: Flows.EmailVerificationCompleteInput,
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string }> {
     return completeEmailVerificationImpl(this._deps, input)
   }
 
@@ -305,11 +307,13 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
 
   async completeAccountDeletion(
     input: Flows.AccountDeletionCompleteInput,
-  ): Promise<{ identityId: string; restorableUntil: number }> {
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string; restorableUntil: number }> {
     return completeAccountDeletionImpl(this._deps, input)
   }
 
-  async cancelAccountDeletion(input: Flows.AccountDeletionCancelInput): Promise<{ identityId: string }> {
+  async cancelAccountDeletion(
+    input: Flows.AccountDeletionCancelInput,
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string }> {
     return cancelAccountDeletionImpl(this._deps, input)
   }
 
@@ -376,11 +380,15 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
     return impersonateImpl(this._deps, opts)
   }
 
-  async linkProvider(opts: Flows.LinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+  async linkProvider(
+    opts: Flows.LinkProviderInput,
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string; providerId: string }> {
     return linkProviderImpl(this._deps, opts)
   }
 
-  async unlinkProvider(opts: Flows.UnlinkProviderInput): Promise<{ identityId: string; providerId: string }> {
+  async unlinkProvider(
+    opts: Flows.UnlinkProviderInput,
+  ): Promise<{ identity: Identities.Me<Profile>; identityId: string; providerId: string }> {
     return unlinkProviderImpl(this._deps, opts)
   }
 

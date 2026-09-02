@@ -80,7 +80,7 @@ export async function requestAccountDeletion<Profile extends Identities.ProfileM
 export async function completeAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   input: Flows.AccountDeletionCompleteInput,
-): Promise<{ identityId: string; restorableUntil: number }> {
+): Promise<{ identity: Identities.Me<Profile>; identityId: string; restorableUntil: number }> {
   if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 256) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
@@ -104,20 +104,26 @@ export async function completeAccountDeletion<Profile extends Identities.Profile
     throw err
   }
   const identityId = row.identityId
-  await deps.identities.softDelete(identityId)
+  const identity = await deps.identities.softDelete(identityId)
+  // A valid token whose identity has since been erased has nothing left to
+  // delete. Reporting success would tell the caller a deletion happened.
+  if (!identity) throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   await deps.sessions.revokeAllForIdentity(identityId)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
-  const restorableUntil = Date.now() + deps.identities.softDeleteGracePeriodMs
-  return { identityId, restorableUntil }
+  // Read off the row the store actually wrote rather than taking a second
+  // clock reading: `deletedAt` IS the moment the grace window closes, so the
+  // deadline reported here is the one restore will be measured against.
+  const restorableUntil = identity.deletedAt?.getTime() ?? Date.now() + deps.identities.softDeleteGracePeriodMs
+  return { identity, identityId, restorableUntil }
 }
 
 export async function cancelAccountDeletion<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   input: Flows.AccountDeletionCancelInput,
-): Promise<{ identityId: string }> {
+): Promise<{ identity: Identities.Me<Profile>; identityId: string }> {
   if (typeof input.identityId !== 'string' || input.identityId.length === 0 || input.identityId.length > 256) {
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
-  await deps.identities.restore(input.identityId)
-  return { identityId: input.identityId }
+  const identity = await deps.identities.restore(input.identityId)
+  return { identity, identityId: input.identityId }
 }

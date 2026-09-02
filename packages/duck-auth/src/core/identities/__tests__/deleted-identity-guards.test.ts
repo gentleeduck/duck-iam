@@ -153,6 +153,36 @@ describe('a deleted identity cannot be authenticated', () => {
     })
   })
 
+  it('an account-deletion token no longer completes once the identity is erased', async () => {
+    const { adapter, auth, channel } = build()
+    const ident = await auth.identities.create({ profile: { email: 'del@x.com', username: 'del' } })
+
+    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: ident.id })
+    const token = new URL(channel.sent.at(-1)?.url ?? '').searchParams.get('token') ?? ''
+
+    await adapter.identities.erase(ident.id)
+
+    // The token is valid and its credential row still resolves, but there is
+    // no longer an account to delete. Reporting `{ ok }` with a restore
+    // deadline would promise a grace window over nothing.
+    await expect(auth.flows.completeAccountDeletion({ token })).rejects.toMatchObject({
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
+    })
+  })
+
+  it('an account-deletion token completes for a live identity (control)', async () => {
+    const { auth, channel } = build()
+    const ident = await auth.identities.create({ profile: { email: 'del2@x.com', username: 'del2' } })
+
+    await auth.flows.requestAccountDeletion({ channels: { email: channel }, identityId: ident.id })
+    const token = new URL(channel.sent.at(-1)?.url ?? '').searchParams.get('token') ?? ''
+
+    // Without this the refusal above would also pass against a deletion flow
+    // that was simply broken for everyone.
+    const done = await auth.flows.completeAccountDeletion({ token })
+    expect(done.identity.id).toBe(ident.id)
+  })
+
   it('a password reset still completes for a live identity (control)', async () => {
     const { auth, channel } = build()
     const ident = await auth.identities.create({ profile: { email: 'live@x.com', username: 'live' } })

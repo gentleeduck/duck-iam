@@ -52,7 +52,12 @@ describe('FlowsImpl - account linking', () => {
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
     })
-    expect(result).toEqual({ identityId: identityA, providerId: 'authGoogle' })
+    expect(result).toMatchObject({ identityId: identityA, providerId: 'authGoogle' })
+    // The identity comes back off the write itself, already carrying the link.
+    expect(result.identity.id).toBe(identityA)
+    expect(result.identity.providers).toContainEqual(
+      expect.objectContaining({ providerId: 'authGoogle', providerSub: 'authGoogle|111' }),
+    )
     expect(handler).toHaveBeenCalledOnce()
     const ident = await adapter.identities.findById(identityA)
     expect(ident?.providers).toEqual([
@@ -147,6 +152,10 @@ describe('FlowsImpl - account linking', () => {
       identityId: identityA,
       providerId: 'authGithub',
     })
-    expect(result).toEqual({ identityId: identityA, providerId: 'authGithub' })
+    expect(result).toMatchObject({ identityId: identityA, providerId: 'authGithub' })
+    // A no-op still answers with the identity, so a caller never has to branch
+    // on "did anything change" to know what it now holds.
+    expect(result.identity.id).toBe(identityA)
+    expect(result.identity.providers.some((p) => p.providerId === 'authGithub')).toBe(false)
   })
 })

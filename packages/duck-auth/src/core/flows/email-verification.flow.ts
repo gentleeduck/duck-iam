@@ -71,7 +71,7 @@ export async function requestEmailVerification<Profile extends Identities.Profil
 export async function completeEmailVerification<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   input: Flows.EmailVerificationCompleteInput,
-): Promise<{ identityId: string }> {
+): Promise<{ identity: Identities.Me<Profile>; identityId: string }> {
   if (typeof input.token !== 'string' || input.token.length === 0 || input.token.length > 256) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
@@ -100,7 +100,9 @@ export async function completeEmailVerification<Profile extends Identities.Profi
 
   // The column, never the profile. `updateProfile` merges a caller-supplied patch without
   // filtering keys, so a profile flag is something the account holder can set on themselves.
-  await ctx.stores.identities.update(identity.id, { emailVerified: true }, identity.version)
+  const verified = await ctx.stores.identities.update(identity.id, { emailVerified: true }, identity.version)
   await ctx.stores.credentials.delete(row.id, ctx.tenant)
-  return { identityId: row.identityId }
+  // The verified row, straight off the write that set the flag - a caller that
+  // renders the account after verification should not have to read it back.
+  return { identity: verified, identityId: row.identityId }
 }
