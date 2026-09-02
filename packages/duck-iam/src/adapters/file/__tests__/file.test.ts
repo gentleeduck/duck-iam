@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AccessControl } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { IamFile, IamFileAdapter } from '../index'
+import { IamFile, IamFileAdapter, iamFileAdapter } from '../index'
 
 type Action = 'read' | 'write'
 type Resource = 'post'
@@ -468,5 +468,18 @@ describe('IamFileAdapter', () => {
       // Parent was either pre-existing or EEXIST'd; either way the file is there.
       expect(fs.files.has('/srv/iam/store.json')).toBe(true)
     })
+  })
+})
+
+describe('iamFileAdapter factory', () => {
+  it('returns a working IamFileAdapter over the supplied FS', async () => {
+    const adapter = iamFileAdapter({ fs: makeFakeFS(), path: '/store.json' })
+    expect(adapter).toBeInstanceOf(IamFileAdapter)
+    await adapter.assignRole('user-1', 'viewer')
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
+  })
+
+  it('propagates constructor validation (relative path still rejected)', () => {
+    expect(() => iamFileAdapter({ fs: makeFakeFS(), path: 'relative.json' })).toThrow(/absolute path/)
   })
 })
