@@ -1,37 +1,37 @@
 [
   {
     "file": "src/__tests__/hostile-input.e2e.test.ts",
-    "line": 167,
+    "line": 172,
     "title": "a NUL byte in a username surfaces as a raw driver error",
     "why": "Postgres cannot store U+0000 in text or jsonb. The write is correctly refused, but it comes back as `Failed query: insert into ...` from the driver rather than a typed AuthError, so a username field that meets one produces a 500 with SQL in the message instead of a validation failure. Same class as the 22P02 leak on non-uuid ids. Recorded, not repaired."
   },
   {
     "file": "src/__tests__/hostile-input.e2e.test.ts",
-    "line": 203,
+    "line": 208,
     "title": "NFC and NFD spellings of one address make two accounts",
     "why": "`lower()` case-folds but does not normalise, so the partial unique index sees two different byte strings. Two accounts that look identical to a human can both exist. Pinned as the current behaviour."
   },
   {
     "file": "src/__tests__/hostile-input.e2e.test.ts",
-    "line": 262,
+    "line": 267,
     "title": "an empty email is accepted",
     "why": "`chk_auth_identities_profile_shape` asks only whether the keys exist, so a blank address is a valid account. The second such account collides on the unique index, meaning the first one to register blank owns it."
   },
   {
     "file": "src/__tests__/hostile-input.e2e.test.ts",
-    "line": 270,
+    "line": 275,
     "title": "a numeric email is accepted and becomes findable as its digits",
     "why": "The check tests key presence, not type. `lower(profile->>'email')` stringifies whatever is there, so 12345 registers and then answers to the string \"12345\"."
   },
   {
     "file": "src/__tests__/hostile-input.e2e.test.ts",
-    "line": 279,
+    "line": 284,
     "title": "an array email is accepted",
     "why": ""
   },
   {
     "file": "src/__tests__/hostile-input.e2e.test.ts",
-    "line": 284,
+    "line": 289,
     "title": "an object email is accepted",
     "why": ""
   },
@@ -91,13 +91,13 @@
   },
   {
     "file": "src/__tests__/hostile-values.e2e.test.ts",
-    "line": 242,
+    "line": 247,
     "title": "weight is spent as one round trip each, so a large weight is a flood",
     "why": "`consume` loops `weight` times issuing one INCR per iteration, with no early exit once the budget is already gone. A caller passing 1_000_000 makes the limiter send a million sequential commands to Redis; the same call with real Redis exceeded a five second test timeout. Counted here at a small scale so the finding is deterministic rather than slow."
   },
   {
     "file": "src/__tests__/token-quality.e2e.test.ts",
-    "line": 266,
+    "line": 271,
     "title": "issuing a new reset token leaves every earlier one live",
     "why": "Ten requests, ten working keys to the account, sitting in ten inboxes. Each is single use and time limited, so this is not unbounded, but the usual expectation is that a fresh request retires the ones before it: an old message forwarded, archived or leaked should stop being a way in."
   },
@@ -604,6 +604,12 @@
     "line": 204,
     "title": "a stripped header softens a revoke even when the other signal is a real mismatch",
     "why": "The asymmetric downgrade is per-signal. An attacker on a different address who also omits the User-Agent turns a `revoke` on user-agent-change into a `rotate`, and the surviving reaction is whatever the ip policy says. With the default policy (ip: rotate, ua: mfa) the result is `rotate` rather than the `mfa` an operator configured for a changed browser. Sending no header is entirely within an attacker's control."
+  },
+  {
+    "file": "src/core/identities/__tests__/deleted-identity-guards.test.ts",
+    "line": 139,
+    "title": "a password reset completes against a soft-deleted account",
+    "why": "`completePasswordReset` resolves the token to `row.identityId` and writes the new password without ever loading the identity, so a reset mail sent before the deletion still works afterwards. It cannot produce a login - `findByEmail` and `findById` both hide the row - so the new password is written to an account nobody can sign in to, and the flow emits `recovery.password.completed` for it. Recorded rather than repaired: the fix belongs with the same identity probe the api-key path now takes, and it changes the shape of `Flows.Deps`."
   },
   {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
