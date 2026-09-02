@@ -109,6 +109,66 @@ function linkKey(identityId: string, providerId: string): string {
   return `${identityId} ${providerId}`
 }
 
+/**
+ * A `Date` handed to a JSON column comes back as the ISO string
+ * `JSON.stringify` wrote. Three typed-`Date` fields live inside
+ * `jsonb`/`json`/`text` columns: `providers[].addedAt`, a session's
+ * `factors[].completedAt`, and both dates on `actingAs`. The memory and Redis
+ * stores hand back real `Date`s, so leaving these as strings made the SQL
+ * adapters the odd ones out - and the row types kept promising `Date`, so it
+ * surfaced in caller code as `addedAt.getTime is not a function` rather than
+ * here. `parseStoredDate` in the Redis session store does this same job.
+ */
+function storedDate(value: unknown): Date | null {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null
+  if (typeof value === 'string') {
+    const parsed = new Date(value)
+    return Number.isFinite(parsed.getTime()) ? parsed : null
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value)
+  return null
+}
+
+/**
+ * A link whose `addedAt` is unreadable keeps the link and falls back to the
+ * row's own `createdAt`: the date is informational, while dropping the entry
+ * would silently remove a way into the account.
+ */
+function reviveIdentity<Profile extends Identities.ProfileMetadataBase>(
+  row: Identities.Me<Profile>,
+): Identities.Me<Profile> {
+  if (row.providers.length === 0) return row
+  return {
+    ...row,
+    providers: row.providers.map((link) => ({ ...link, addedAt: storedDate(link.addedAt) ?? row.createdAt })),
+  }
+}
+
+const reviveIdentityOrNull = <Profile extends Identities.ProfileMetadataBase>(
+  row: Identities.Me<Profile> | null,
+): Identities.Me<Profile> | null => (row ? reviveIdentity(row) : null)
+
+/**
+ * `factors[].completedAt` falls back to the session's `createdAt` - a factor
+ * that was completed is still completed whether or not its timestamp survived.
+ * `actingAs` gets no such fallback: an impersonation window whose start or end
+ * cannot be read is not a window anyone should be inside, so it is dropped,
+ * matching the Redis store.
+ */
+function reviveSession(row: Sessions.Me): Sessions.Me {
+  const factors = row.factors.map((f) => ({ ...f, completedAt: storedDate(f.completedAt) ?? row.createdAt }))
+  if (!row.actingAs) return { ...row, factors }
+  const startedAt = storedDate(row.actingAs.startedAt)
+  const expiresAt = storedDate(row.actingAs.expiresAt)
+  return {
+    ...row,
+    actingAs: startedAt && expiresAt ? { ...row.actingAs, expiresAt, startedAt } : null,
+    factors,
+  }
+}
+
+const reviveSessionOrNull = (row: Sessions.Me | null): Sessions.Me | null => (row ? reviveSession(row) : null)
+
 function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
   bridge: SqlBridge.Identity<Identities.Me<Profile>>,
 ): Identities.Store<Profile> {
@@ -127,9 +187,9 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
   const insertProviderLinks = bridge.insertProviderLinks?.bind(bridge)
   const deleteProviderLinks = bridge.deleteProviderLinks?.bind(bridge)
   return {
-    findById: (id) => bridge.findById(id),
-    findByEmail: (email) => bridge.findByEmail(email),
-    findByProviderSub: (providerId, sub) => bridge.findByProviderSub(providerId, sub),
+    findById: async (id) => reviveIdentityOrNull(await bridge.findById(id)),
+    findByEmail: async (email) => reviveIdentityOrNull(await bridge.findByEmail(email)),
+    findByProviderSub: async (providerId, sub) => reviveIdentityOrNull(await bridge.findByProviderSub(providerId, sub)),
     create: async (input) => {
       const now = new Date()
       const row: Identities.Me<Profile> = {
@@ -153,18 +213,23 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
       }
       const next = await bridge.updateConditional(id, sqlPatch, expectedVersion)
       if (!next) throw new AuthError('AUTH_STALE_WRITE', { expected: expectedVersion, actual: -1 })
-      return next
+      return reviveIdentity(next)
     },
-    softDelete: (id, gracePeriodMs) => bridge.softDelete(id, new Date(Date.now() + gracePeriodMs)),
+    softDelete: async (id, gracePeriodMs) =>
+      reviveIdentityOrNull(await bridge.softDelete(id, new Date(Date.now() + gracePeriodMs))),
     restore: async (id) => {
       const row = await bridge.restore(id)
       if (!row) throw new AuthError('AUTH_UNAUTHENTICATED')
-      return row
+      return reviveIdentity(row)
     },
-    erase: (id) => bridge.erase(id),
-    link: (identityId, link) => bridge.insertProviderLink(identityId, link.providerId, link.providerSub, link.addedAt),
-    unlink: (identityId, providerId) => bridge.deleteProviderLink(identityId, providerId),
-    merge: (survivorId, dupId) => bridge.merge(survivorId, dupId),
+    erase: async (id) => reviveIdentityOrNull(await bridge.erase(id)),
+    link: async (identityId, link) =>
+      reviveIdentityOrNull(
+        await bridge.insertProviderLink(identityId, link.providerId, link.providerSub, link.addedAt),
+      ),
+    unlink: async (identityId, providerId) =>
+      reviveIdentityOrNull(await bridge.deleteProviderLink(identityId, providerId)),
+    merge: async (survivorId, dupId) => reviveIdentityOrNull(await bridge.merge(survivorId, dupId)),
 
     ...(softDeleteManyReturningIds && {
       softDeleteMany: async (ids: readonly string[], gracePeriodMs: number) =>
@@ -183,7 +248,7 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
           ids.map((id) => {
             const row = byId.get(id)
             return row
-              ? { id, ok: true as const, value: row }
+              ? { id, ok: true as const, value: reviveIdentity(row) }
               : { id, ok: false as const, reason: 'not-found' as const }
           }),
         )
@@ -207,7 +272,7 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
           rows.map((r) => {
             const row = byId.get(r.id)
             return row
-              ? { id: r.id, ok: true as const, value: row }
+              ? { id: r.id, ok: true as const, value: reviveIdentity(row) }
               : { id: r.id, ok: false as const, reason: 'stale-write' as const }
           }),
         )
@@ -325,14 +390,14 @@ function buildSessions(bridge: SqlBridge.Session<Sessions.Me>): Sessions.Store {
         actingAs: s.actingAs ?? null,
       })
     },
-    getByHash: (sidHash) => bridge.findByHash(sidHash),
+    getByHash: async (sidHash) => reviveSessionOrNull(await bridge.findByHash(sidHash)),
     update: async (id, patch) => {
       const next = await bridge.update(id, stripUndefined(patch))
       if (!next) throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
-      return next
+      return reviveSession(next)
     },
     delete: (id) => bridge.delete(id),
-    listByIdentity: (identityId) => bridge.listByIdentity(identityId),
+    listByIdentity: async (identityId) => (await bridge.listByIdentity(identityId)).map(reviveSession),
     deleteAllForIdentity: (identityId) => bridge.deleteAllForIdentity(identityId),
     gc: async (now) => ({ deleted: await bridge.deleteExpired(new Date(now)) }),
 
@@ -346,7 +411,8 @@ function buildSessions(bridge: SqlBridge.Session<Sessions.Me>): Sessions.Store {
     }),
 
     ...(listByIdentities && {
-      listByIdentities: (identityIds: readonly string[]) => listByIdentities(identityIds),
+      listByIdentities: async (identityIds: readonly string[]) =>
+        (await listByIdentities(identityIds)).map(reviveSession),
     }),
   }
 }
