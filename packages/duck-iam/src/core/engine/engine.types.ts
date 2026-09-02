@@ -1,5 +1,26 @@
+import type { Batch } from '../batch'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 export namespace IamEngineTypes {
+  /** Re-exported from {@link IamAdapter} so `engine.admin` callers need one import. */
+  export type ITripleRow<TRole extends string = string, TScope extends string = string> = IamAdapter.ITripleRow<
+    TRole,
+    TScope
+  >
+  /** Re-exported from {@link IamAdapter}. See {@link ITripleRow}. */
+  export type IAssignRow<TRole extends string = string, TScope extends string = string> = IamAdapter.IAssignRow<
+    TRole,
+    TScope
+  >
+
+  /** One scope move: where the assignment is now, and where it should end up. */
+  export interface IMoveRow<TRole extends string = string, TScope extends string = string> {
+    readonly subjectId: string
+    readonly roleId: TRole
+    readonly fromScope?: TScope
+    readonly toScope?: TScope
+    readonly actor?: string
+  }
+
   /**
    * Administrative interface for managing policies, roles, and subject data.
    * Accessed via `engine.admin`. Mutation methods invalidate the relevant caches.
@@ -45,6 +66,25 @@ export namespace IamEngineTypes {
       toScope: TScope | undefined,
       actor?: string,
     ): Promise<void>
+    /**
+     * Grant many `(subject, role, scope)` triples. One statement when the
+     * adapter offers {@link IamAdapter.ISubjectStore.assignRoleMany}, otherwise
+     * one call each. Every row is validated before any is written, so a
+     * malformed row aborts the batch rather than half-applying it. Invalidates
+     * each affected subject once, however many rows named it.
+     */
+    assignRoles(rows: readonly IAssignRow<TRole, TScope>[]): Promise<Batch.Result>
+    /** Revoke many triples. See {@link assignRoles}. */
+    revokeRoles(rows: readonly ITripleRow<TRole, TScope>[]): Promise<Batch.Result>
+    /**
+     * Move many assignments between scopes, each row reporting whether it
+     * matched. Delegates to {@link updateAssignmentScope} per row, so the
+     * revoke + assign fallback applies here too.
+     */
+    moveRoleScopes(rows: readonly IMoveRow<TRole, TScope>[]): Promise<Batch.Result>
+    /** Invalidate several subjects at once. Duplicate ids are collapsed. */
+    invalidateSubjects(subjectIds: readonly string[]): void
+
     /** Merges into the subject's attribute bag; invalidates the subject's cache entry. */
     setAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
     getAttributes(subjectId: string): Promise<IamPrimitives.Attributes>

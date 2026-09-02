@@ -1,3 +1,4 @@
+import { batchResult, loopFallback, outcomesFromAffected, tripleKey } from '../batch'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 import type { IamValidate } from '../validate/validate.types'
 import type { IamEngineTypes } from './engine.types'
@@ -291,6 +292,39 @@ export function createAdmin<
     }
   },
 ): IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
+  const assertTriple = (subjectId: string, roleId: TRole, scope?: TScope): void => {
+    assertNonEmptyStringParam('subjectId', subjectId)
+    assertNonEmptyStringParam('roleId', roleId)
+    assertOptionalNonEmptyStringParam('scope', scope)
+  }
+  const tripleOf = (r: IamEngineTypes.ITripleRow<TRole, TScope>): string => tripleKey(r.subjectId, r.roleId, r.scope)
+  /** One invalidation per subject, however many rows of the batch named it. */
+  const invalidateEach = (rows: readonly IamEngineTypes.ITripleRow<TRole, TScope>[]): void => {
+    for (const subjectId of new Set(rows.map((r) => r.subjectId))) engine.cache.invalidateSubject(subjectId)
+  }
+  /**
+   * The single-row scope move, hoisted so `moveRoleScopes` can reuse it without
+   * relying on `this` inside the object literal below.
+   */
+  const moveOne = async (
+    subjectId: string,
+    roleId: TRole,
+    fromScope?: TScope,
+    toScope?: TScope,
+    actor?: string,
+  ): Promise<void> => {
+    const moved = adapter.updateAssignmentScope
+      ? await adapter.updateAssignmentScope(subjectId, roleId, fromScope, toScope, actor)
+      : false
+    if (!moved) {
+      // Adapter has no in-place update, or nothing matched fromScope: fall back to
+      // revoke + assign so the call still succeeds (assignRole is idempotent).
+      await adapter.revokeRole(subjectId, roleId, fromScope)
+      await adapter.assignRole(subjectId, roleId, toScope)
+    }
+    engine.cache.invalidateSubject(subjectId)
+  }
+
   return {
     async listPolicies() {
       return adapter.listPolicies()
@@ -329,16 +363,12 @@ export function createAdmin<
       engine.cache.invalidateRoles(id as TRole)
     },
     async assignRole(subjectId: string, roleId: TRole, scope?: TScope) {
-      assertNonEmptyStringParam('subjectId', subjectId)
-      assertNonEmptyStringParam('roleId', roleId)
-      assertOptionalNonEmptyStringParam('scope', scope)
+      assertTriple(subjectId, roleId, scope)
       await adapter.assignRole(subjectId, roleId, scope)
       engine.cache.invalidateSubject(subjectId)
     },
     async revokeRole(subjectId: string, roleId: TRole, scope?: TScope) {
-      assertNonEmptyStringParam('subjectId', subjectId)
-      assertNonEmptyStringParam('roleId', roleId)
-      assertOptionalNonEmptyStringParam('scope', scope)
+      assertTriple(subjectId, roleId, scope)
       await adapter.revokeRole(subjectId, roleId, scope)
       engine.cache.invalidateSubject(subjectId)
     },
@@ -353,16 +383,51 @@ export function createAdmin<
       assertNonEmptyStringParam('roleId', roleId)
       assertOptionalNonEmptyStringParam('fromScope', fromScope)
       assertOptionalNonEmptyStringParam('toScope', toScope)
-      const moved = adapter.updateAssignmentScope
-        ? await adapter.updateAssignmentScope(subjectId, roleId, fromScope, toScope, actor)
-        : false
-      if (!moved) {
-        // Adapter has no in-place update, or nothing matched fromScope: fall back to
-        // revoke + assign so the call still succeeds (assignRole is idempotent).
-        await adapter.revokeRole(subjectId, roleId, fromScope)
-        await adapter.assignRole(subjectId, roleId, toScope)
+      await moveOne(subjectId, roleId, fromScope, toScope, actor)
+    },
+    async assignRoles(rows: readonly IamEngineTypes.IAssignRow<TRole, TScope>[]) {
+      if (rows.length === 0) return batchResult([])
+      // A pre-pass, not per-row: a caller who fixes a malformed row and retries
+      // would otherwise double-apply every row that had already landed.
+      for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope)
+      // Bound, not destructured: the adapter may be a class instance whose
+      // method needs its `this`.
+      const assignRoleMany = adapter.assignRoleMany?.bind(adapter)
+      const result = assignRoleMany
+        ? outcomesFromAffected(rows, await assignRoleMany(rows), tripleOf)
+        : await loopFallback(rows, tripleOf, (r) => adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts))
+      invalidateEach(rows)
+      return result
+    },
+    async revokeRoles(rows: readonly IamEngineTypes.ITripleRow<TRole, TScope>[]) {
+      if (rows.length === 0) return batchResult([])
+      for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope)
+      const revokeRoleMany = adapter.revokeRoleMany?.bind(adapter)
+      const result = revokeRoleMany
+        ? outcomesFromAffected(rows, await revokeRoleMany(rows), tripleOf)
+        : await loopFallback(rows, tripleOf, (r) => adapter.revokeRole(r.subjectId, r.roleId, r.scope))
+      invalidateEach(rows)
+      return result
+    },
+    async moveRoleScopes(rows: readonly IamEngineTypes.IMoveRow<TRole, TScope>[]) {
+      if (rows.length === 0) return batchResult([])
+      for (const r of rows) {
+        assertNonEmptyStringParam('subjectId', r.subjectId)
+        assertNonEmptyStringParam('roleId', r.roleId)
+        assertOptionalNonEmptyStringParam('fromScope', r.fromScope)
+        assertOptionalNonEmptyStringParam('toScope', r.toScope)
       }
-      engine.cache.invalidateSubject(subjectId)
+      // Delegates per row to the single-row move, which owns the revoke + assign
+      // fallback for adapters with no in-place update. There is no set-based
+      // form to fall back FROM, so this loop is the fast path, not a shim.
+      return loopFallback(
+        rows,
+        (r) => tripleKey(r.subjectId, r.roleId, r.fromScope),
+        (r) => moveOne(r.subjectId, r.roleId, r.fromScope, r.toScope, r.actor),
+      )
+    },
+    invalidateSubjects(subjectIds: readonly string[]) {
+      for (const id of new Set(subjectIds)) engine.cache.invalidateSubject(id)
     },
     async setAttributes(subjectId: string, attrs: IamPrimitives.Attributes) {
       assertNonEmptyStringParam('subjectId', subjectId)
