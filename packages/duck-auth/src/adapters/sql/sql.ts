@@ -79,8 +79,16 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
   // Reading `bridge.x` again inside the closure would be `x | undefined` all
   // over again, and the only way back would be a `!` the type system cannot
   // check.
-  const { softDeleteManyReturningIds, eraseManyReturningIds, restoreManyReturning } = bridge
-  const { updateProfileManyReturning, insertProviderLinks, deleteProviderLinks } = bridge
+  //
+  // Bound, not destructured: `SqlBridge.Identity` is an interface, so a caller
+  // may implement it as a class, and a bare `const { x } = bridge` would drop
+  // the `this` its methods need.
+  const softDeleteManyReturningIds = bridge.softDeleteManyReturningIds?.bind(bridge)
+  const eraseManyReturningIds = bridge.eraseManyReturningIds?.bind(bridge)
+  const restoreManyReturning = bridge.restoreManyReturning?.bind(bridge)
+  const updateProfileManyReturning = bridge.updateProfileManyReturning?.bind(bridge)
+  const insertProviderLinks = bridge.insertProviderLinks?.bind(bridge)
+  const deleteProviderLinks = bridge.deleteProviderLinks?.bind(bridge)
   return {
     findById: (id) => bridge.findById(id),
     findByEmail: (email) => bridge.findByEmail(email),
@@ -195,7 +203,8 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
 }
 
 function buildCredentials(bridge: SqlBridge.Credential<Credential.Me>): Credential.Store {
-  const { deleteByIdentitiesReturningIds } = bridge
+  // Bound, not destructured - see the note in `buildIdentities`.
+  const deleteByIdentitiesReturningIds = bridge.deleteByIdentitiesReturningIds?.bind(bridge)
   return {
     findById: (id, ctx) => bridge.findById(id, ctx.tenantId),
     listByIdentity: (identityId, kind, ctx) => bridge.listByIdentity(identityId, kind, ctx.tenantId),
@@ -254,7 +263,10 @@ function buildCredentials(bridge: SqlBridge.Credential<Credential.Me>): Credenti
 }
 
 function buildSessions(bridge: SqlBridge.Session<Sessions.Me>): Sessions.Store {
-  const { deleteAllForIdentitiesReturningIds, deleteManyReturningIds, listByIdentities } = bridge
+  // Bound, not destructured - see the note in `buildIdentities`.
+  const deleteAllForIdentitiesReturningIds = bridge.deleteAllForIdentitiesReturningIds?.bind(bridge)
+  const deleteManyReturningIds = bridge.deleteManyReturningIds?.bind(bridge)
+  const listByIdentities = bridge.listByIdentities?.bind(bridge)
   return {
     create: async (s) => {
       await bridge.insert({
