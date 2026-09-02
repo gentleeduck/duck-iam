@@ -34,9 +34,11 @@ export async function runHealthCheck(
 export async function preloadEngine(args: {
   loadAllPolicies: () => Promise<unknown>
   loadValidator: boolean
+  buildCompiledTable?: () => Promise<unknown>
 }): Promise<void> {
   const tasks: Array<Promise<unknown>> = [args.loadAllPolicies()]
   if (args.loadValidator) tasks.push(import('../validate'))
+  if (args.buildCompiledTable) tasks.push(args.buildCompiledTable())
   await Promise.all(tasks)
 }
 

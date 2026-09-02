@@ -1,7 +1,7 @@
 import type { IamPrimitives, IamRequest } from '../types'
 
 /** Top-level path prefixes accepted by {@link resolve}. */
-export const ALLOWED_ROOTS = new Set(['subject', 'resource', 'environment'])
+export const ALLOWED_ROOTS: ReadonlySet<string> = new Set(['subject', 'resource', 'environment'])
 
 /** Property names refused at any segment - blocks prototype-pollution lookups. */
 const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
@@ -154,14 +154,17 @@ export function matchesResourceHierarchical(pattern: string, resourceType: strin
  *
  * - undefined/null pattern or "*" matches any scope (global permission)
  * - If request has no scope, only global patterns match
- * - Otherwise exact match
+ * - Otherwise exact match; `''` is an ordinary scope value, never a wildcard
  *
  * @param pattern - Scope pattern from a rule (may be `undefined`, `null`, or `'*'`).
  * @param scope   - The request's scope (may be `undefined` or `null`).
  * @returns `true` when the request scope matches the pattern.
  */
 export function matchesScope(pattern: string | undefined | null, scope: string | undefined | null): boolean {
-  if (!pattern || pattern === '*') return true
-  if (!scope) return false
+  // Explicit checks, not truthiness: `''` is a scope value, not a missing one.
+  // Reading an empty pattern as "global" made a row with `scope: ''` grant
+  // across every scope, which is the opposite of what it looks like.
+  if (pattern === undefined || pattern === null || pattern === '*') return true
+  if (scope === undefined || scope === null) return false
   return pattern === scope
 }
