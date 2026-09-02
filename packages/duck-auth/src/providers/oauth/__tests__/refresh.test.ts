@@ -41,6 +41,58 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
     identityId = i.id
   })
 
+  it('refuses to refresh once the identity is soft-deleted, without calling the provider', async () => {
+    await seedRefresh('rt-old')
+    const exchange = vi.fn(async (): Promise<OAuth.TokenResponse> => {
+      throw new Error('exchange must not run for a deleted identity')
+    })
+
+    await adapter.identities.softDelete(identityId, 60_000)
+
+    await expect(
+      authRefreshoauthToken({
+        credentials: adapter.credentials,
+        events,
+        exchange,
+        identities: adapter.identities,
+        presentedRefreshToken: 'rt-old',
+        tenant: {},
+      }),
+    ).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+
+    // Checked before the CAS and before the network call, so a refresh for a
+    // dead account costs nothing and leaves the row intact for a later restore.
+    expect(exchange).not.toHaveBeenCalled()
+    const row = await adapter.credentials.findByHashedSecret(sha256('rt-old'), 'oauth', {})
+    expect(row?.revokedAt ?? null).toBeNull()
+  })
+
+  it('still refreshes for a live identity when the probe is supplied (control)', async () => {
+    await seedRefresh('rt-live')
+    const exchange = vi.fn(
+      async (): Promise<OAuth.TokenResponse> => ({
+        access_token: 'at-2',
+        expires_in: 3600,
+        refresh_token: 'rt-live-2',
+        token_type: 'Bearer',
+      }),
+    )
+
+    // Without this the guard above would also pass if the probe simply refused
+    // everything it was handed.
+    const r = await authRefreshoauthToken({
+      credentials: adapter.credentials,
+      events,
+      exchange,
+      identities: adapter.identities,
+      presentedRefreshToken: 'rt-live',
+      tenant: {},
+    })
+
+    expect(r.identityId).toBe(identityId)
+    expect(exchange).toHaveBeenCalledOnce()
+  })
+
   it('happy path rotates the refresh token + bumps generation', async () => {
     await seedRefresh('rt-old')
     const exchange = vi.fn(
