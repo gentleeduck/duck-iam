@@ -124,6 +124,17 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
     void ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
     throw new AuthError('AUTH_RECOVERY_TOKEN_EXPIRED')
   }
+  // The token resolves to an identity *id*, not to an identity. Without this the
+  // reset rotates the token, writes a new password and emits
+  // `recovery.password.completed` for an account that has since been deleted.
+  // It could never produce a login - `findByEmail` and `findById` both hide the
+  // row - but the write and the event both landed. Reported as an invalid token
+  // rather than a distinct code, so a reset link is not a way to ask whether an
+  // account still exists. `findById` filters soft-deleted rows, so a missing row
+  // is exactly "deleted or erased".
+  if (!(await ctx.stores.identities.findById(row.identityId))) {
+    throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
+  }
   if (await deps.requireMfa().hasTotp(row.identityId, ctx.tenant)) {
     if (!input.currentSid) {
       throw new AuthError('AUTH_RECOVERY_REQUIRES_MFA', { methods: ['totp'] })
