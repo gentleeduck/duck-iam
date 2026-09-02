@@ -4,10 +4,12 @@ export namespace IamClient {
    * as keys in {@link PermissionMap}; formats:
    *  - `action:resource`
    *  - `action:resource:resourceId`
-   *  - `scope:action:resource`
-   *  - `scope:action:resource:resourceId`
+   *  - `@scope:action:resource`
+   *  - `@scope:action:resource:resourceId`
    *
-   * Segments containing `:` are escaped (`:` -> `\:`); see `iamBuildPermissionKey`.
+   * The `@` marks a scope, so a three-segment key is never ambiguous between a
+   * scoped and an id-bearing check. Inside a segment `:` and a leading `@` are
+   * escaped (`:` -> `\:`); see `iamBuildPermissionKey`.
    *
    * @template TAction   - Union of valid action strings.
    * @template TResource - Union of valid resource strings.
