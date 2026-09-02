@@ -169,32 +169,48 @@ export class SessionsImpl {
     return fresh
   }
 
-  /** Revoke a single session by plaintext SID. */
-  async revoke(sid: string): Promise<void> {
-    if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return
+  /**
+   * Revoke a single session by plaintext SID. Answers with the session that was
+   * revoked - `null` when the SID matched nothing - so a caller can say whose
+   * device just went, and tell a real revocation from a no-op. The row is
+   * already read to find it; returning it costs nothing.
+   */
+  async revoke(sid: string): Promise<Sessions.Me | null> {
+    if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return null
     const hash = sha256(sid)
     const s = await this._store.getByHash(hash)
-    if (!s) return
+    if (!s) return null
     await this._store.delete(s.id)
     await this._events.emit('session.revoked', {
       sessionId: s.id,
       identityId: s.identityId,
     })
+    return s
   }
 
-  /** Revoke by session id (the stored hash). Use when you have ISession.id but not the plaintext SID. */
-  async revokeByHash(sessionId: string): Promise<void> {
+  /**
+   * Revoke by session id (the stored hash). Use when you have ISession.id but
+   * not the plaintext SID. See {@link revoke} for the return.
+   */
+  async revokeByHash(sessionId: string): Promise<Sessions.Me | null> {
     const s = await this._store.getByHash(sessionId)
-    if (!s) return
+    if (!s) return null
     await this._store.delete(s.id)
     await this._events.emit('session.revoked', { sessionId: s.id, identityId: s.identityId })
+    return s
   }
 
-  /** Revoke every session belonging to an identity (used by credential-change paths). */
-  async revokeAllForIdentity(identityId: string): Promise<void> {
+  /**
+   * Revoke every session belonging to an identity (used by credential-change
+   * paths). Answers with the sessions that were revoked - the list is already
+   * read to emit one event per session, so "you were signed out of 4 devices"
+   * needs no second query, and an empty array says there was nothing to end.
+   */
+  async revokeAllForIdentity(identityId: string): Promise<Sessions.Me[]> {
     const all = await this._store.listByIdentity(identityId)
     await this._store.deleteAllForIdentity(identityId)
     await Promise.all(all.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
+    return all
   }
 
   /** Resolve a plaintext SID to its session row (no identity join). */
