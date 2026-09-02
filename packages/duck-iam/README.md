@@ -265,6 +265,25 @@ The drizzle adapter collapses the writes into one `INSERT` and one `DELETE` - th
 needs `or` in the adapter's `ops`, and revokes row by row without it. Adapters with no
 set-based form loop, so every adapter supports every batch form.
 
+Both role writes are idempotent, so every row is `ok`: granting a role a subject already
+holds is success, not a miss, exactly as the single-row `assignRole` treats it. `changed`
+carries the finer answer:
+
+```typescript
+const again = await engine.admin.assignRoles([{ subjectId: 'u1', roleId: 'admin' }])
+again.applied                  // 1  - the grant is in place
+again.outcomes[0].value.changed // false - but this call is not what put it there
+```
+
+| `changed` | Meaning |
+|---|---|
+| `true` | this call wrote the row |
+| `false` | the row was already in the requested state |
+| absent | the adapter could not say, and did not guess |
+
+It is absent on MySQL, which has no `RETURNING`, and on every adapter that loops the
+single-row methods, which return `void`. Neither pays for an extra read to find out.
+
 ### Operability
 
 ```typescript

@@ -37,22 +37,28 @@ export async function loopFallback<Row, T>(
 }
 
 /**
- * Turn "rows I asked for" plus "rows the statement actually touched" into
- * per-row outcomes in input order. A row the statement did not touch is
- * `not-found`.
+ * Per-row outcomes for an idempotent batch write, in input order.
+ *
+ * Every row is `ok` - both role writes are idempotent, so the postcondition
+ * ("the subject does / does not hold this role here") is true whether or not
+ * this statement is what made it true. Reporting an already-granted row as a
+ * miss would contradict the single-row method, which treats it as success.
+ *
+ * `changed` carries the finer answer when the adapter supplied one: pass the
+ * rows the statement actually moved, or `null` when the driver could not say,
+ * in which case `changed` is left off entirely rather than guessed.
  */
-export function outcomesFromAffected<Row>(
+export function appliedRows<Row>(
   requested: readonly Row[],
-  affected: readonly Row[],
+  changed: readonly Row[] | null,
   key: (row: Row) => string,
-): Batch.Result {
-  const hit = new Set(affected.map(key))
+): Batch.Result<Batch.Change> {
+  const moved = changed === null ? null : new Set(changed.map(key))
   return batchResult(
-    requested.map((row) => {
-      const id = key(row)
-      return hit.has(id)
-        ? { id, ok: true as const, value: undefined }
-        : { id, ok: false as const, reason: 'not-found' as const }
-    }),
+    requested.map((row) => ({
+      id: key(row),
+      ok: true as const,
+      value: moved === null ? {} : { changed: moved.has(key(row)) },
+    })),
   )
 }

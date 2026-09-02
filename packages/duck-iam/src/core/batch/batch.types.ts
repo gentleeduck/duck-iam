@@ -17,6 +17,21 @@ export namespace Batch {
     | { id: string; ok: true; value: T }
     | { id: string; ok: false; reason: FailureReason; detail?: string }
 
+  /**
+   * What a role-write outcome carries. The write itself is idempotent, so the
+   * row is applied either way; `changed` says whether THIS call is what moved
+   * it - `true` when the statement wrote the row, `false` when it was already
+   * in the requested state.
+   *
+   * Absent when the driver could not say, which is not a failure and not a
+   * guess: MySQL has no `RETURNING`, and the per-row fallback's single-row
+   * methods return `void`. Asking those to answer would cost an extra read per
+   * batch, so they say nothing rather than pay for it or invent an answer.
+   */
+  export type Change = {
+    readonly changed?: boolean
+  }
+
   export type Result<T = void> = {
     /** One entry per input row, in input order. */
     outcomes: Outcome<T>[]

@@ -15,7 +15,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { IamDrizzleAdapter } from '../../../adapters/drizzle'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../../../adapters/drizzle/pg'
 import { applyPgSchema, isolatedDatabaseUrl } from '../../../test/e2e-env'
+import type { Batch } from '../../batch'
 import { IamEngine } from '../engine'
+
+/** The `changed` flag of every outcome, in input order. `null` marks a failed row. */
+function changedFlags(result: Batch.Result<Batch.Change>): (boolean | undefined | null)[] {
+  return result.outcomes.map((o) => (o.ok ? o.value.changed : null))
+}
 
 const URL = await isolatedDatabaseUrl('transaction')
 const suite = URL ? describe : describe.skip
@@ -159,13 +165,46 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
 
     it('assignRoles is idempotent, like the single-row grant', async () => {
       const rows = [{ roleId: 'admin' as const, subjectId: 'b3' }]
-      await engine.admin.assignRoles(rows)
+      const first = await engine.admin.assignRoles(rows)
       const again = await engine.admin.assignRoles(rows)
 
       // The duplicate is skipped by the conflict clause, not reported as a
-      // miss - the grant is in place either way.
+      // miss - the grant is in place either way. `changed` is what separates
+      // the two calls: the second wrote nothing.
       expect(again.applied).toBe(1)
+      expect(changedFlags(first)).toEqual([true])
+      expect(changedFlags(again)).toEqual([false])
       expect(await assignmentCount()).toBe(1)
+    })
+
+    it('a half-new batch reports changed per row, in input order', async () => {
+      await engine.admin.assignRoles([{ roleId: 'admin', subjectId: 'c1' }])
+
+      const result = await engine.admin.assignRoles([
+        { roleId: 'viewer', subjectId: 'c2' },
+        { roleId: 'admin', subjectId: 'c1' },
+        { roleId: 'admin', scope: 'org-1', subjectId: 'c1' },
+      ])
+
+      // Every row is applied - the grant is in place for all three - but only
+      // the first and third are grants this call made. The scoped row is new
+      // even though `(c1, admin)` already exists unscoped.
+      expect(result.applied).toBe(3)
+      expect(changedFlags(result)).toEqual([true, false, true])
+      expect(await assignmentCount()).toBe(3)
+    })
+
+    it('revokeRoles reports changed only for triples that were granted', async () => {
+      await engine.admin.assignRoles([{ roleId: 'admin', subjectId: 'c3' }])
+
+      const result = await engine.admin.revokeRoles([
+        { roleId: 'admin', subjectId: 'c3' },
+        { roleId: 'viewer', subjectId: 'c4' },
+      ])
+
+      expect(result.applied).toBe(2)
+      expect(changedFlags(result)).toEqual([true, false])
+      expect(await assignmentCount()).toBe(0)
     })
 
     it('revokeRoles removes every triple in the list and nothing else', async () => {
@@ -190,8 +229,11 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
         { roleId: 'admin', scope: 'org-2', subjectId: 'b7' },
       ])
 
-      await engine.admin.revokeRoles([{ roleId: 'admin', subjectId: 'b7' }])
+      const result = await engine.admin.revokeRoles([{ roleId: 'admin', subjectId: 'b7' }])
 
+      // One requested row removed two grants, so it matches on subject and
+      // role alone rather than on a scope it never named.
+      expect(changedFlags(result)).toEqual([true])
       expect(await assignmentCount()).toBe(0)
     })
 

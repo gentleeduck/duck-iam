@@ -97,6 +97,16 @@ function makeDrizzleMock(): {
     return chain
   }
 
+  /**
+   * A drizzle statement: awaitable on its own, and - where the dialect has
+   * `RETURNING` - able to name the rows it touched. Pass `null` for a builder
+   * that has no `returning()`, so calling it fails loudly rather than passing.
+   */
+  const statement = (returned: Row[] | null) => {
+    const base = { then: (onFulfilled: (v: undefined) => unknown) => Promise.resolve(undefined).then(onFulfilled) }
+    return returned === null ? base : { ...base, returning: () => Promise.resolve(returned) }
+  }
+
   const config: TestConfig = {
     db: {
       select: vi.fn(() => ({
@@ -109,10 +119,28 @@ function makeDrizzleMock(): {
       })) as unknown as TestConfig['db']['select'],
       insert: vi.fn((tableRef: unknown) => {
         const table = tableForRef(tableRef)
+        // What the unique index covers: `id` where the table has one, the
+        // assignment triple otherwise. `onConflictDoNothing` has to skip a
+        // duplicate rather than push it twice, or `RETURNING` would report a
+        // row the database never wrote.
+        const identity = (row: Row): string =>
+          'id' in row ? String(row.id) : `${String(row.subjectId)} ${String(row.roleId)} ${String(row.scope ?? '')}`
+        const insertNew = (data: Record<string, unknown> | Record<string, unknown>[]): Row[] => {
+          const held = new Set(table.map(identity))
+          const fresh: Row[] = []
+          for (const row of Array.isArray(data) ? data : [data]) {
+            if (held.has(identity(row))) continue
+            held.add(identity(row))
+            table.push({ ...row })
+            fresh.push({ ...row })
+          }
+          return fresh
+        }
         return {
-          values(data: Record<string, unknown>) {
+          values(data: Record<string, unknown> | Record<string, unknown>[]) {
             return {
               onConflictDoUpdate({ set }: { target: unknown; set: Record<string, unknown> }) {
+                if (Array.isArray(data)) throw new Error('the onConflictDoUpdate mock takes a single row')
                 const idCol = (data as { id?: string; subjectId?: string }).id ?? data.subjectId
                 const idKey = 'id' in data ? 'id' : 'subjectId'
                 const idx = table.findIndex((r) => r[idKey] === idCol)
@@ -121,8 +149,7 @@ function makeDrizzleMock(): {
                 return Promise.resolve(undefined)
               },
               onConflictDoNothing() {
-                table.push({ ...data })
-                return Promise.resolve(undefined)
+                return statement(insertNew(data))
               },
             }
           },
@@ -147,10 +174,11 @@ function makeDrizzleMock(): {
         const table = tableForRef(tableRef)
         return {
           where(c: unknown) {
+            const removed: Row[] = []
             for (let i = table.length - 1; i >= 0; i--) {
-              if (rowMatches(table[i]!, c)) table.splice(i, 1)
+              if (rowMatches(table[i]!, c)) removed.unshift(...table.splice(i, 1))
             }
-            return Promise.resolve(undefined)
+            return statement(removed)
           },
         }
       }) as unknown as TestConfig['db']['delete'],
@@ -393,6 +421,50 @@ describe('IamDrizzleAdapter', () => {
       expect(scoped).toEqual([])
     })
 
+    it('assignRoleMany reports only the grants it created', async () => {
+      await adapter.assignRole('user-1', 'editor' as Ro)
+
+      const changed = await adapter.assignRoleMany([
+        { roleId: 'editor' as Ro, subjectId: 'user-1' },
+        { roleId: 'viewer' as Ro, subjectId: 'user-1' },
+      ])
+
+      // Both grants are in place afterwards; only the second is one this call
+      // made. The conflict clause skipped the first, so `RETURNING` never
+      // named it.
+      expect(changed?.map((r) => r.roleId)).toEqual(['viewer'])
+      expect((await adapter.getSubjectRoles('user-1')).sort()).toEqual(['editor', 'viewer'])
+    })
+
+    it('revokeRoleMany reports nothing for a triple that was never granted', async () => {
+      await adapter.assignRole('user-1', 'editor' as Ro)
+
+      const changed = await adapter.revokeRoleMany([
+        { roleId: 'editor' as Ro, subjectId: 'user-1' },
+        { roleId: 'viewer' as Ro, subjectId: 'user-1' },
+      ])
+
+      expect(changed?.map((r) => r.roleId)).toEqual(['editor'])
+    })
+
+    it('revokeRoleMany keeps an unscoped row distinct from one scoped to the empty string', async () => {
+      // `scope` is NULL for this row, not `''` - the two are different rows,
+      // which `revokeRole` already distinguishes.
+      await adapter.assignRole('user-1', 'editor' as Ro)
+
+      const changed = await adapter.revokeRoleMany([
+        { roleId: 'editor' as Ro, scope: '' as S, subjectId: 'user-1' },
+        { roleId: 'editor' as Ro, subjectId: 'user-1' },
+      ])
+
+      // The second request is what removed the row. The first named a scope no
+      // row held, so it changed nothing - even though both requests name the
+      // same subject and role, and the engine's outcome id cannot tell them
+      // apart.
+      expect(changed?.map((r) => r.scope)).toEqual([undefined])
+      expect(await adapter.getSubjectRoles('user-1')).toEqual([])
+    })
+
     it('getSubjectAttributes returns {} when missing', async () => {
       expect(await adapter.getSubjectAttributes('nobody')).toEqual({})
     })
@@ -579,11 +651,14 @@ describe('IamDrizzleAdapter', () => {
           insert: vi.fn((tableRef: unknown) => {
             const table = tableForRef(tableRef)
             return {
-              // `.ignore().values(...)` - MySQL's insert-or-skip chain (assignRole).
+              // `.ignore().values(...)` - MySQL's insert-or-skip chain
+              // (assignRole, assignRoleMany). It returns a bare promise, with
+              // no `returning()`: MySQL has none, so an adapter that reached
+              // for one here would fail loudly.
               ignore() {
                 return {
-                  values(data: Record<string, unknown>) {
-                    table.push({ ...data })
+                  values(data: Record<string, unknown> | Record<string, unknown>[]) {
+                    for (const row of Array.isArray(data) ? data : [data]) table.push({ ...row })
                     return Promise.resolve(undefined)
                   },
                 }
@@ -621,7 +696,18 @@ describe('IamDrizzleAdapter', () => {
               }),
             }
           }) as unknown as MysqlTestConfig['db']['update'],
-          delete: vi.fn() as unknown as MysqlTestConfig['db']['delete'],
+          delete: vi.fn((tableRef: unknown) => {
+            const table = tableForRef(tableRef)
+            return {
+              // Also `returning()`-free, for the same reason as `ignore()`.
+              where: (cond: unknown) => {
+                for (let i = table.length - 1; i >= 0; i--) {
+                  if (rowMatches(table[i]!, cond)) table.splice(i, 1)
+                }
+                return Promise.resolve(undefined)
+              },
+            }
+          }) as unknown as MysqlTestConfig['db']['delete'],
         },
         tables: tableRefs as unknown as MysqlTestConfig['tables'],
         ops: {
@@ -675,6 +761,38 @@ describe('IamDrizzleAdapter', () => {
       const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
       await adapter.assignRole('u1', 'editor' as Ro)
       expect(mock.tables.assignments).toHaveLength(1)
+    })
+
+    it('assignRoleMany writes every row and answers null, having no RETURNING to read', async () => {
+      const mock = makeMysqlMock()
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+
+      const changed = await adapter.assignRoleMany([
+        { roleId: 'editor' as Ro, subjectId: 'u1' },
+        { roleId: 'viewer' as Ro, subjectId: 'u2' },
+      ])
+
+      // `null` is not "nothing was written" - both rows landed. It says the
+      // driver cannot name which of them were new, so the engine leaves
+      // `changed` off rather than guessing. The mock's `ignore()` chain has no
+      // `returning()`, so an adapter that reached for one here would throw.
+      expect(changed).toBeNull()
+      expect(mock.tables.assignments).toHaveLength(2)
+    })
+
+    it('revokeRoleMany removes every row and answers null', async () => {
+      const mock = makeMysqlMock()
+      const adapter = new IamDrizzleAdapter<A, R, Ro, S, IamDrizzle.AnyDrizzleDb, 'mysql'>(mock.config)
+      await adapter.assignRole('u1', 'editor' as Ro)
+      await adapter.assignRole('u2', 'viewer' as Ro)
+
+      const changed = await adapter.revokeRoleMany([
+        { roleId: 'editor' as Ro, subjectId: 'u1' },
+        { roleId: 'viewer' as Ro, subjectId: 'u2' },
+      ])
+
+      expect(changed).toBeNull()
+      expect(mock.tables.assignments).toHaveLength(0)
     })
 
     it('setSubjectAttributes upserts on subjectId via select-then-branch', async () => {

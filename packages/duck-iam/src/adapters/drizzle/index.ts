@@ -117,6 +117,43 @@ function epochMs(value: Date | string | number | null | undefined): number | nul
   return value instanceof Date ? value.getTime() : new Date(value).getTime()
 }
 
+/** One assignment row as read back from a `RETURNING` clause. `null` is the unscoped row, as the column stores it. */
+type ReturnedTriple = { roleId: string; scope: string | null; subjectId: string }
+
+/**
+ * Keys for matching returned rows back to requested ones.
+ *
+ * Deliberately not `tripleKey`, the engine's outcome id: that one folds an
+ * absent scope and an empty-string scope together, and these must not, because
+ * `iam_assignments.scope` stores them as `NULL` and `''` - two different rows,
+ * as {@link IamDrizzleAdapter.revokeRole} already distinguishes.
+ */
+const roleKey = (subjectId: string, roleId: string): string => `${subjectId} ${roleId}`
+const scopedKey = (subjectId: string, roleId: string, scope: string | null): string =>
+  `${roleKey(subjectId, roleId)} ${scope === null ? 'unscoped' : `scope ${scope}`}`
+
+/**
+ * Read the identifying columns out of untyped `RETURNING` rows.
+ *
+ * `AnyDrizzleDb` types every builder as `any`, so these rows arrive with no
+ * shape at all. Reading them defensively rather than asserting a type means a
+ * driver that answers with something unexpected loses the `changed` detail
+ * instead of corrupting the outcome list: a row that cannot supply string ids
+ * is dropped, and an unscoped row's `null` becomes the empty scope.
+ */
+function returnedTriples(returned: unknown): ReturnedTriple[] {
+  const rows: unknown[] = Array.isArray(returned) ? returned : []
+  const triples: ReturnedTriple[] = []
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null) continue
+    if (!('subjectId' in row) || !('roleId' in row)) continue
+    const { roleId, subjectId } = row
+    if (typeof subjectId !== 'string' || typeof roleId !== 'string') continue
+    triples.push({ roleId, scope: 'scope' in row && typeof row.scope === 'string' ? row.scope : null, subjectId })
+  }
+  return triples
+}
+
 export class IamDrizzleAdapter<
   TAction extends string,
   TResource extends string,
@@ -561,19 +598,21 @@ export class IamDrizzleAdapter<
    * Grants every triple with one multi-row insert, reusing the same
    * insert-or-skip conflict handling as {@link assignRole}.
    *
-   * Returns every requested row, because that is what "applied" means for an
-   * idempotent grant: afterwards the assignment is in place, whether this
-   * statement created it or found it already there. Reporting a duplicate as a
-   * miss would contradict the single-row method, which treats it as success.
+   * Reports the rows this statement actually created. `RETURNING` on the
+   * insert names them for free - the conflict clause has already skipped the
+   * duplicates, so the driver hands back exactly the new grants on the round
+   * trip the write was making anyway. A duplicate is still `ok` to the caller;
+   * it is reported as `changed: false`, matching {@link assignRole}, which
+   * treats an existing grant as success.
    *
    * @param rows - The triples to grant, each with its optional temporal bounds.
-   * @returns The rows whose grants are in place - all of them.
+   * @returns The rows this call granted, or `null` on MySQL - see below.
    */
   async assignRoleMany(
     rows: readonly IamAdapter.IAssignRow<TRole, TScope>[],
-  ): Promise<readonly IamAdapter.IAssignRow<TRole, TScope>[]> {
+  ): Promise<readonly IamAdapter.IAssignRow<TRole, TScope>[] | null> {
     if (rows.length === 0) return []
-    await this._insertOrSkip(
+    const statement = this._insertOrSkip(
       this._t.assignments,
       rows.map((r) => ({
         subjectId: r.subjectId,
@@ -584,7 +623,18 @@ export class IamDrizzleAdapter<
         attributes: r.opts?.attributes ? encodeJson(r.opts.attributes, this._json) : null,
       })),
     )
-    return rows
+    // MySQL's insert-ignore has no `RETURNING`. The grants land either way;
+    // `null` says the driver cannot name the new ones, and the engine leaves
+    // `changed` off rather than guessing. Finding out would cost a second
+    // round trip for an answer nobody asked for.
+    if (this._dialect === 'mysql') {
+      await statement
+      return null
+    }
+    const granted = new Set(
+      returnedTriples(await statement.returning()).map((t) => scopedKey(t.subjectId, t.roleId, t.scope)),
+    )
+    return rows.filter((r) => granted.has(scopedKey(r.subjectId, r.roleId, r.scope ?? null)))
   }
 
   /**
@@ -592,16 +642,17 @@ export class IamDrizzleAdapter<
    * per-triple conditions. Falls back to one delete per row when `ops.or` was
    * not supplied - same rows removed, more statements.
    *
-   * Returns every requested row, mirroring {@link revokeRole}: a triple that
-   * was never granted is not an error there either, and the postcondition
-   * ("this subject does not hold this role in this scope") holds regardless.
+   * Reports the rows this statement actually removed, read off the same
+   * `DELETE` via `RETURNING`. A triple that was never granted is still `ok`,
+   * mirroring {@link revokeRole}: the postcondition ("this subject does not
+   * hold this role here") holds either way. It is reported `changed: false`.
    *
    * @param rows - The triples to revoke. A row with no `scope` revokes the role in every scope.
-   * @returns The rows whose grants are gone - all of them.
+   * @returns The rows this call removed a grant for, or `null` on MySQL.
    */
   async revokeRoleMany(
     rows: readonly IamAdapter.ITripleRow<TRole, TScope>[],
-  ): Promise<readonly IamAdapter.ITripleRow<TRole, TScope>[]> {
+  ): Promise<readonly IamAdapter.ITripleRow<TRole, TScope>[] | null> {
     if (rows.length === 0) return []
     const rowCondition = (r: IamAdapter.ITripleRow<TRole, TScope>): SQLWrapper | undefined => {
       const conditions: (SQLWrapper | undefined)[] = [
@@ -612,12 +663,33 @@ export class IamDrizzleAdapter<
       return this._and(...conditions)
     }
     const or = this._or
-    if (or) {
-      await this._db.delete(this._t.assignments).where(or(...rows.map(rowCondition)))
-      return rows
+    const wheres = or ? [or(...rows.map(rowCondition))] : rows.map(rowCondition)
+
+    // MySQL has no `RETURNING` on `DELETE`; see {@link assignRoleMany}.
+    if (this._dialect === 'mysql') {
+      for (const where of wheres) await this._db.delete(this._t.assignments).where(where)
+      return null
     }
-    for (const r of rows) await this._db.delete(this._t.assignments).where(rowCondition(r))
-    return rows
+
+    const gone: ReturnedTriple[] = []
+    for (const where of wheres) {
+      gone.push(...returnedTriples(await this._db.delete(this._t.assignments).where(where).returning()))
+    }
+    // Keyed by subject and role only: a requested row with no `scope` revokes
+    // the role everywhere, so it must match a removed row whatever scope that
+    // row held. A scoped request matches only its own scope.
+    const scopesGone = new Map<string, Set<string | null>>()
+    for (const t of gone) {
+      const key = roleKey(t.subjectId, t.roleId)
+      const seen = scopesGone.get(key)
+      if (seen) seen.add(t.scope)
+      else scopesGone.set(key, new Set([t.scope]))
+    }
+    return rows.filter((r) => {
+      const scopes = scopesGone.get(roleKey(r.subjectId, r.roleId))
+      if (!scopes) return false
+      return r.scope === undefined || scopes.has(r.scope)
+    })
   }
 
   /**

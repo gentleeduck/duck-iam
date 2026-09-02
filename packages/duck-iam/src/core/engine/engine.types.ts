@@ -72,10 +72,14 @@ export namespace IamEngineTypes {
      * one call each. Every row is validated before any is written, so a
      * malformed row aborts the batch rather than half-applying it. Invalidates
      * each affected subject once, however many rows named it.
+     *
+     * Every row comes back `ok` - the grant is in place afterwards whether or
+     * not this call is what put it there. `outcome.value.changed` distinguishes
+     * the two where the adapter could say so; see {@link Batch.Change}.
      */
-    assignRoles(rows: readonly IAssignRow<TRole, TScope>[]): Promise<Batch.Result>
+    assignRoles(rows: readonly IAssignRow<TRole, TScope>[]): Promise<Batch.Result<Batch.Change>>
     /** Revoke many triples. See {@link assignRoles}. */
-    revokeRoles(rows: readonly ITripleRow<TRole, TScope>[]): Promise<Batch.Result>
+    revokeRoles(rows: readonly ITripleRow<TRole, TScope>[]): Promise<Batch.Result<Batch.Change>>
     /**
      * Move many assignments between scopes. Delegates to
      * {@link updateAssignmentScope} per row, which falls back to revoke +
