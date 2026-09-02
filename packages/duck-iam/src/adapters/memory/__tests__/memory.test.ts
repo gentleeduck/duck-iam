@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
-import { IamMemoryAdapter } from '../index'
+import { IamMemoryAdapter, iamMemoryAdapter } from '../index'
 
 // Shared adapter compliance suite - every adapter must pass.
 runAdapterCompliance('IamMemoryAdapter', () => new IamMemoryAdapter())
@@ -171,5 +171,13 @@ describe('IamMemoryAdapter', () => {
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
       expect(await adapter.getSubjectAttributes('user-1')).toEqual({ level: 5 })
     })
+  })
+})
+
+describe('iamMemoryAdapter factory', () => {
+  it('returns a working IamMemoryAdapter seeded from init', async () => {
+    const adapter = iamMemoryAdapter({ assignments: { 'user-1': ['viewer'] } })
+    expect(adapter).toBeInstanceOf(IamMemoryAdapter)
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })
 })
