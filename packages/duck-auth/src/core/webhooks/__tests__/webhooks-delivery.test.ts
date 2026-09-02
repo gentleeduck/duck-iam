@@ -359,16 +359,41 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
       },
       () => new Response('', { status: 500 }),
     )
-    await expect(deliverer.deliverOne('maintenance.on', {})).resolves.toBeUndefined()
+    // The sink's own failure stays swallowed - but the delivery failure it was
+    // handed does not: the caller is still told the event never landed.
+    const [outcome] = await deliverer.deliverOne('maintenance.on', {})
+    expect(outcome).toMatchObject({ delivered: false, lastError: 'non-2xx response' })
   })
 
-  it('FINDING: with no dead-letter sink a permanently failed event is dropped in silence', async () => {
-    // No sink, no log, no return value. The delivery simply did not happen.
+  it('reports a permanently failed event even with no dead-letter sink', async () => {
+    // Was pinned as a finding: with no sink there was no log and no return
+    // value, so a delivery that never happened was indistinguishable from one
+    // that did. `deliverOne` now answers per endpoint, so the operator running
+    // a manual re-delivery can see it failed without configuring a sink.
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const { deliverer } = makeDeliverer({ maxAttempts: 1 }, () => new Response('', { status: 500 }))
-    await expect(deliverer.deliverOne('maintenance.on', {})).resolves.toBeUndefined()
+
+    const outcomes = await deliverer.deliverOne('maintenance.on', {})
+
+    expect(outcomes).toEqual([
+      { attempts: 1, delivered: false, endpointId: expect.any(String), lastError: 'non-2xx response' },
+    ])
     expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()
+  })
+
+  it('reports a delivered event as delivered, with the attempts it took (control)', async () => {
+    // Without this the refusal above would also pass against a deliverer that
+    // reported every event as failed.
+    let calls = 0
+    const { deliverer } = makeDeliverer({ maxAttempts: 3 }, () => {
+      calls++
+      return new Response('', { status: calls === 1 ? 500 : 200 })
+    })
+
+    const outcomes = await deliverer.deliverOne('maintenance.on', {})
+
+    expect(outcomes).toEqual([{ attempts: 2, delivered: true, endpointId: expect.any(String) }])
   })
 
   it('clamps the attempt count into one through twenty', async () => {

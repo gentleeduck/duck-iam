@@ -715,73 +715,73 @@
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 82,
+    "line": 99,
     "title": "any method outside the four is treated as a read",
     "why": "The classifier is an allow-list of writes rather than a deny-list of reads, so anything it has not heard of passes. WebDAV and the newer HTTP methods all mutate."
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 93,
+    "line": 110,
     "title": "read-only classifies by method, so a mutating GET callback is let through",
     "why": "Magic-link redemption and an OAuth callback are both GETs that consume a one-time credential and create a session. During a migration freeze they keep writing."
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 102,
+    "line": 119,
     "title": "a missing method throws a TypeError rather than failing closed",
     "why": "`method.toUpperCase()` is reached whenever read-only is on. An adapter that does not supply the method produces a raw TypeError, which no error handler in this library maps to a status, so a freeze turns into a five hundred."
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 128,
+    "line": 145,
     "title": "a negative or non-finite retry hint is stored and handed to the client",
     "why": "Nothing validates the value. `Retry-After` is defined as a non-negative number of seconds, so a negative one, or a NaN that serialises to null, is a header a client cannot act on."
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 147,
+    "line": 164,
     "title": "the operator message is unbounded and reaches the client verbatim",
     "why": "It is an operator-authored string, but it is copied into the error meta with no length cap and no filtering, and an adapter that puts it in a header rather than a body carries whatever it contains."
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 180,
+    "line": 197,
     "title": "read-only emits nothing, so it never leaves the instance it was set on",
     "why": "Maintenance propagates through the bus and read-only does not. An operator who freezes writes on one node of a fleet has frozen one node, and the snapshot on every other node still reads `off`."
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 190,
+    "line": 207,
     "title": "a subscriber that applies the event re-emits it, so a shared bus loops",
     "why": "The natural way to consume `maintenance.on` is to call `maintenance(true)` on the local instance, and that call emits again. On an in-process bus this recurses immediately; on a shared bus it is a broadcast storm between nodes."
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 204,
+    "line": 221,
     "title": "toggling to the state it is already in emits anyway",
     "why": ""
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 211,
+    "line": 228,
     "title": "re-asserting maintenance resets the since stamp of the ongoing window",
     "why": "Two nodes reporting the same maintenance window disagree about when it started, and a repeated deploy hook rewrites it each time."
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 222,
+    "line": 239,
     "title": "turning maintenance off drops the message and the retry hint with no way to read them back",
     "why": ""
   },
   {
     "file": "src/core/operations/__tests__/operations-gating.test.ts",
-    "line": 251,
+    "line": 268,
     "title": "the state lives only in this process, so a restart clears both switches",
     "why": "Nothing is persisted. A node that restarts during a maintenance window comes back serving traffic, and a rolling deploy is exactly when the window is most likely to be open."
   },
   {
     "file": "src/core/orgs/__tests__/orgs-boundary.test.ts",
-    "line": 202,
+    "line": 222,
     "title": "duplicates are kept, and count against the sixty-four cap",
     "why": "`sanitizeRoles` filters by type and length but does not deduplicate, so a caller can pad a list with one role repeated. Harmless for an `includes` check, but sixty-four copies of `viewer` fill the budget and silently push out the roles that follow, so a padded list can drop a real grant."
   },
@@ -1033,85 +1033,79 @@
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 365,
-    "title": "with no dead-letter sink a permanently failed event is dropped in silence",
-    "why": "No sink, no log, no return value. The delivery simply did not happen."
-  },
-  {
-    "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 380,
+    "line": 405,
     "title": "a negative backoff is accepted and retries land back to back",
     "why": "Only `maxAttempts` is clamped. A negative base makes every computed wait negative, which `setTimeout` floors to zero, so the ladder that exists to spare a struggling consumer hammers it instead."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 395,
+    "line": 420,
     "title": "a backoff large enough to overflow the timer also retries immediately",
     "why": "The attempt cap was chosen so `backoffMs * 2 ** (attempt - 1)` stays inside the timer range, but that only holds for the default base. A base past 2^31 overflows on the first retry and `setTimeout` fires it at once, so the longest configured delay behaves as the shortest."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 411,
+    "line": 436,
     "title": "retries carry no jitter, so a fleet retries in lockstep",
     "why": "Every instance that saw the same failure sleeps exactly the same interval."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 489,
+    "line": 514,
     "title": "the payload is forwarded verbatim, including whatever a session object carries",
     "why": "Nothing redacts before signing. A `session.created` payload holds the session record and the identity, so every field either of them carries is posted to a third party by default."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 503,
+    "line": 528,
     "title": "a payload that cannot be serialised is retried the whole ladder",
     "why": "`JSON.stringify` runs inside the try that guards the transport, so a circular payload reads as a failed attempt rather than as a permanent error. Nothing is ever sent, and the caller waits through every backoff before the entry is dead-lettered with a TypeError as its last error."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 526,
+    "line": 551,
     "title": "a bigint in the payload is dead-lettered the same way, with nothing sent",
     "why": ""
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 549,
+    "line": 574,
     "title": "an invalid signature header name fails every attempt and dead-letters the event",
     "why": "The header name is caller-supplied and reaches `fetch` unvalidated, so a typo containing a space or a colon turns into a thrown request for every event, forever."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 569,
+    "line": 594,
     "title": "the dead-letter record stores the endpoint url, credentials included",
     "why": ""
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 601,
+    "line": 626,
     "title": "the prefix is authSha256=, not the sha256= the doc comment promises",
     "why": "The comment says the format matches \"the convention most webhook tooling uses\". It does not, so a consumer written against that sentence, or against a GitHub or Stripe style verifier, rejects every delivery."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 644,
+    "line": 669,
     "title": "a negative tolerance rejects every signature, including a fresh one",
     "why": "Nothing validates the window, and `Math.abs(...) > negative` is true for any gap at all, so a sign error in a consumer's config silently refuses every delivery it receives."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 654,
+    "line": 679,
     "title": "nothing binds a delivery to a single use inside the window",
     "why": "The timestamp bounds replay but does not prevent it: the same body and signature verify as many times as they are presented for five minutes."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 662,
+    "line": 687,
     "title": "the freshness window is checked against the caller-supplied timestamp, not the signed one",
     "why": "The helper takes the timestamp as an argument and signs with it, so a consumer that reads the value out of the body rather than the header is trusting a number the sender controls. Only the header form is bound."
   },
   {
     "file": "src/core/webhooks/__tests__/webhooks-delivery.test.ts",
-    "line": 682,
+    "line": 707,
     "title": "an empty secret signs and verifies without complaint",
     "why": "Construction refuses an empty secret on an endpoint, but the exported helpers are what a consumer calls, and they accept one."
   },
