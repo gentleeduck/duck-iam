@@ -144,16 +144,16 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     expect(errors.some((e) => e.includes('user-bad'))).toBe(true)
   })
 
-  it('reports a wrong-typed policies root instead of silently loading empty', async () => {
-    const { adapter, errors } = await makeAdapter({ policies: [] })
-    expect(await adapter.listPolicies()).toEqual([])
-    expect(errors.some((e) => e.includes('policies: expected object, got array'))).toBe(true)
+  // A corrupt root field is refused, not read as an empty set: loading zero
+  // policies would drop every deny the store holds.
+  it('refuses a wrong-typed policies root instead of loading it as empty', async () => {
+    const { adapter } = await makeAdapter({ policies: [] })
+    await expect(adapter.listPolicies()).rejects.toThrow(/"policies" must be an object, got array/)
   })
 
-  it('reports a wrong-typed roles root instead of silently loading empty', async () => {
-    const { adapter, errors } = await makeAdapter({ roles: 'oops' })
-    expect(await adapter.listRoles()).toEqual([])
-    expect(errors.some((e) => e.includes('roles: expected object, got string'))).toBe(true)
+  it('refuses a wrong-typed roles root instead of loading it as empty', async () => {
+    const { adapter } = await makeAdapter({ roles: 'oops' })
+    await expect(adapter.listRoles()).rejects.toThrow(/"roles" must be an object, got string/)
   })
 
   it('refuses to load a store whose root is not an object', async () => {

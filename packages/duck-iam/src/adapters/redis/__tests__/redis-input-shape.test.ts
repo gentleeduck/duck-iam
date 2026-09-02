@@ -42,3 +42,50 @@ describe('IamRedisAdapter direct-call input shape', () => {
     expect(await adapter.getSubjectAttributes('user-1')).toEqual({ tier: 'gold' })
   })
 })
+
+describe('an empty scope is refused rather than stored as a global assignment', () => {
+  function setRedis(): IamRedis.ILike {
+    const sets = new Map<string, Set<string>>()
+    const unused = async () => {
+      throw new Error('not exercised')
+    }
+    return {
+      del: async () => 0,
+      get: unused,
+      hdel: unused,
+      hget: unused,
+      hgetall: unused,
+      hkeys: unused,
+      hset: unused,
+      hvals: unused,
+      sadd: async (k, ...members) => {
+        const set = sets.get(k) ?? new Set<string>()
+        sets.set(k, set)
+        let added = 0
+        for (const m of members) if (!set.has(m)) set.add(m), added++
+        return added
+      },
+      set: unused,
+      smembers: async (k) => [...(sets.get(k) ?? [])],
+      srem: async () => 0,
+    }
+  }
+
+  it('assignRole with scope "" throws instead of granting globally', async () => {
+    const adapter = new IamRedisAdapter<string, string, string, string>({ client: setRedis() })
+    await expect(adapter.assignRole('user-1', 'editor', '')).rejects.toThrow(/must not be an empty string/)
+  })
+
+  it('an omitted scope is still a global assignment', async () => {
+    const adapter = new IamRedisAdapter<string, string, string, string>({ client: setRedis() })
+    await adapter.assignRole('user-1', 'editor')
+    expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
+  })
+
+  it('a real scope stays scoped', async () => {
+    const adapter = new IamRedisAdapter<string, string, string, string>({ client: setRedis() })
+    await adapter.assignRole('user-1', 'editor', 'org-1')
+    expect(await adapter.getSubjectRoles('user-1')).toEqual([])
+    expect(await adapter.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
+  })
+})

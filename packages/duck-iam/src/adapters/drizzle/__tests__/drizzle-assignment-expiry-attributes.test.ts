@@ -387,3 +387,37 @@ describe('IamDrizzleAdapter assignment attributes', () => {
     expect(ctx?.rowId).toBe('sub-1')
   })
 })
+
+describe('an unreadable time bound fails closed', () => {
+  it.each([
+    ['garbage string', 'not-a-date'],
+    ['empty-ish string', '   '],
+    ['invalid Date object', new Date('nope')],
+  ])('an assignment with an unparseable expiresAt (%s) is inactive', async (_label, expiresAt) => {
+    const mock = makeMock()
+    mock.assignments.push({ id: 'a1', subjectId: 'sub-1', roleId: 'editor', scope: null, expiresAt })
+    const adapter = new IamDrizzleAdapter<A, R, Ro, S>(mock.config)
+    expect(await adapter.getSubjectRoles('sub-1')).toEqual([])
+  })
+
+  it('an assignment with an unparseable startsAt is inactive', async () => {
+    const mock = makeMock()
+    mock.assignments.push({ id: 'a1', subjectId: 'sub-1', roleId: 'editor', scope: null, startsAt: 'whenever' })
+    const adapter = new IamDrizzleAdapter<A, R, Ro, S>(mock.config)
+    expect(await adapter.getSubjectRoles('sub-1')).toEqual([])
+  })
+
+  it('a readable window still grants', async () => {
+    const mock = makeMock()
+    mock.assignments.push({
+      expiresAt: new Date(Date.now() + HOUR),
+      id: 'a1',
+      roleId: 'editor',
+      scope: null,
+      startsAt: new Date(Date.now() - HOUR),
+      subjectId: 'sub-1',
+    })
+    const adapter = new IamDrizzleAdapter<A, R, Ro, S>(mock.config)
+    expect(await adapter.getSubjectRoles('sub-1')).toEqual(['editor'])
+  })
+})

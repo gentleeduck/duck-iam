@@ -177,8 +177,14 @@ export class IamRedisAdapter<
   }
 
   private _encodeAssignment(roleId: TRole, scope?: TScope | null): string {
-    const r = roleId as string
-    const s = (scope ?? '') as string
+    const r: string = roleId
+    // The empty string is how this encoding spells "no scope", so a literal
+    // empty scope would decode as a global assignment: strictly more power than
+    // was granted. Refused rather than silently widened.
+    if (scope === '') {
+      throw new Error('[@gentleduck/iam:redis] scope must not be an empty string; omit it for a global assignment')
+    }
+    const s: string = scope ?? ''
     if (r.includes(IamRedisAdapter._SEP) || s.includes(IamRedisAdapter._SEP)) {
       throw new Error('[@gentleduck/iam:redis] role / scope must not contain NUL bytes')
     }
