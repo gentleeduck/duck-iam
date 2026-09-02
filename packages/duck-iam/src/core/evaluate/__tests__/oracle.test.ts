@@ -92,7 +92,12 @@ function makeRule(rng: () => number, idx: number): AccessControl.IRule {
   return {
     id: `r${idx}`,
     effect: rng() < 0.5 ? 'allow' : 'deny',
-    priority: Math.floor(rng() * 20),
+    // Deliberately narrow. `first-match` / `highest-priority` break equal
+    // priorities by source order, and that tie-break is where the interpreter
+    // and the indexed fast path can drift apart. Spread over 20 values, ties
+    // were rare enough that a real literal-vs-wildcard divergence went unseen;
+    // 4 values makes collisions the common case without losing ordering cover.
+    priority: Math.floor(rng() * 4),
     actions,
     resources,
     conditions: withConditions ? makeConditionGroup(rng) : { all: [] },

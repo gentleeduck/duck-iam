@@ -35,9 +35,11 @@ function evaluateDynamicCell(
       const decision = combiners[group.algorithm](matched, defaultEffect)
       perPolicy.push(decision.effect === 'allow')
     } catch (err) {
-      // Rotten rule drops its policy as NotApplicable, same as evaluateFast's safeEval -
-      // but still reported, same as evaluateFast's safeEval does via onPolicyError.
+      // An error is Indeterminate, not NotApplicable: a group carrying a deny rule
+      // votes deny rather than dropping out, so padding a `matches` field cannot
+      // silently retire it. Allow-only groups stay skippable. Reported either way.
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), group.policy)
+      if (group.rules.some((rule) => rule.effect === 'deny')) perPolicy.push(false)
     }
   }
   if (perPolicy.length === 0) return null
