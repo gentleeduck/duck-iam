@@ -1,5 +1,5 @@
 ---
-'@gentleduck/iam': major
+'@gentleduck/iam': minor
 ---
 
 **Breaking:** scoped permission keys are now prefixed with `@`.
