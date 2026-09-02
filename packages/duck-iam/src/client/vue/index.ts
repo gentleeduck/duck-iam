@@ -1,15 +1,23 @@
 /**
  * Vue 3 integration for duck-iam.
  *
+ * `createAccessPlugin` / `useAccess` are not module-level exports: build them
+ * once with `createIamVueAccess(vue)` and share that result app-wide.
+ *
  * Usage:
  *
+ *   // access.ts - build the surface once:
+ *   import { ref, computed, inject, provide, defineComponent, h } from "vue";
+ *   import { createIamVueAccess } from "@gentleduck/iam/client/vue";
+ *
+ *   export const { createAccessPlugin, useAccess } = createIamVueAccess({
+ *     ref, computed, inject, provide, defineComponent, h,
+ *   });
+ *
  *   // Plugin setup (main.ts):
- *   import { createAccessPlugin } from "duck-iam/client/vue";
  *   app.use(createAccessPlugin(permissionMap));
  *
  *   // In components:
- *   import { useAccess } from "duck-iam/client/vue";
- *
  *   const { can, cannot } = useAccess();
  *   const canDelete = can("delete", "post");
  *   const canManage = can("manage", "user", undefined, "admin");
@@ -65,7 +73,7 @@ interface VueApp {
  * @example
  * ```ts
  * import { ref, computed, inject, provide, defineComponent, h } from 'vue'
- * import { createIamVueAccess } from 'duck-iam/client/vue'
+ * import { createIamVueAccess } from '@gentleduck/iam/client/vue'
  *
  * export const { useAccess, createAccessPlugin } = createIamVueAccess({
  *   ref, computed, inject, provide, defineComponent, h,
@@ -80,7 +88,7 @@ export function createIamVueAccess<
   const { ref, inject, provide, defineComponent } = vue
 
   /** Create reactive access control state with can/cannot helpers. */
-  function createAccessState(initialPermissions: IamClient.PermissionMap<TAction, TResource, TScope>) {
+  function createAccessState(initialPermissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
     const permissions = ref(initialPermissions)
 
     const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
@@ -92,7 +100,7 @@ export function createIamVueAccess<
       return !can(action, resource, resourceId, scope)
     }
 
-    const update = (newPerms: IamClient.PermissionMap<TAction, TResource, TScope>) => {
+    const update = (newPerms: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => {
       permissions.value = newPerms
     }
 
@@ -100,7 +108,7 @@ export function createIamVueAccess<
   }
 
   /** Provide access control state to child components via Vue's provide/inject. */
-  function provideAccess(permissions: IamClient.PermissionMap<TAction, TResource, TScope>) {
+  function provideAccess(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
     const state = createAccessState(permissions)
     provide(IAM_ACCESS_INJECTION_KEY, state)
     return state
@@ -119,7 +127,7 @@ export function createIamVueAccess<
   }
 
   /** Create a Vue plugin that installs access control globally. */
-  function createAccessPlugin(permissions: IamClient.PermissionMap<TAction, TResource, TScope>) {
+  function createAccessPlugin(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
     return {
       install(app: VueApp) {
         const state = createAccessState(permissions)
