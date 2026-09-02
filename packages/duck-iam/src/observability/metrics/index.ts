@@ -59,7 +59,7 @@ export namespace IamMetrics {
     /**
      * Maximum number of duration samples kept in the rolling window. Higher
      * values give more accurate tail percentiles at the cost of memory.
-     * Defaults to `1000`.
+     * Must be a positive integer; defaults to `1000`.
      */
     sampleSize?: number
   }
@@ -83,6 +83,9 @@ export namespace IamMetrics {
  */
 export function iamCreateMetricsAggregator(config: IamMetrics.IConfig = {}): IamMetrics.IAggregator {
   const cap = config.sampleSize ?? 1000
+  if (!Number.isInteger(cap) || cap < 1) {
+    throw new RangeError(`[@gentleduck/iam:metrics] sampleSize must be a positive integer (got ${String(cap)})`)
+  }
   const buf = new Float64Array(cap)
   let head = 0
   let count = 0
