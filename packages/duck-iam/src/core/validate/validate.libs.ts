@@ -1,176 +1,20 @@
 import type { IamEngine } from '..'
-import { MAX_CONDITION_DEPTH, MAX_REGEX_LENGTH } from '../conditions/conditions.libs'
+import { detectCatastrophicRegex, MAX_CONDITION_DEPTH } from '../conditions/conditions.libs'
+
+// The regex-safety heuristic lives next to `getCachedRegex` so validate-time and
+// evaluate-time agree on exactly which patterns are refusable. Re-exported here
+// because it was part of this module's public surface.
+export {
+  detectCatastrophicRegex,
+  MAX_BOUNDED_QUANTIFIER,
+  MAX_UNBOUNDED_QUANTIFIERS,
+} from '../conditions/conditions.libs'
+
 import { ALLOWED_ROOTS } from '../resolve/resolve'
 import type { IamValidate } from './validate.types'
 
 function isPlainObjectLike(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
-}
-
-/**
- * Maximum number of unbounded quantifiers (`+`, `*`, `{n,}`) allowed in a
- * single `matches` pattern. Beyond this the surface area for catastrophic
- * backtracking gets impractical to reason about, so we refuse outright.
- */
-export const MAX_UNBOUNDED_QUANTIFIERS = 4
-
-/**
- * Largest finite upper bound permitted in a `{n,m}` quantifier. The matcher
- * walks `m` iterations worst-case, so anything above ~1000 starts to look
- * like a DoS vector even though it isn't technically unbounded.
- */
-export const MAX_BOUNDED_QUANTIFIER = 1_000
-
-/**
- * Cheap heuristic for catastrophic-backtracking regex (nested quantifiers, large bounds, backref-quantifier, etc).
- *
- * @param pattern - Raw regex source.
- * @returns `{ safe: true }` when the pattern looks benign, otherwise `{ safe: false, reason }`.
- */
-export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
-  if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
-  if (pattern.length > MAX_REGEX_LENGTH) {
-    return {
-      safe: false,
-      reason: `pattern length ${pattern.length} exceeds MAX_REGEX_LENGTH (${MAX_REGEX_LENGTH})`,
-    }
-  }
-
-  // Backreference followed by a quantifier - run before the nested-quantifier
-  // scan so the more specific reason wins for shapes like `(\w+)\1+`. Numeric
-  // (`\1+`, `\3*`, `\2{1,5}`) and named (`\k<name>+`) forms can drive
-  // exponential backtracking when the captured group matches a variable-length
-  // pattern. Flag any backref+quantifier pair.
-  if (/\\[1-9]\d*\s*[+*?{]/.test(pattern) || /\\k<[^>]+>\s*[+*?{]/.test(pattern)) {
-    return { safe: false, reason: 'backref-quantifier' }
-  }
-
-  // Lookaround group whose body contains a quantifier. Run before the
-  // nested-quantifier scan so `(?=(a+)+)` is reported with the more specific
-  // reason. JS supports `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)`. Walk
-  // paren depth and inspect the body of any lookaround for `+`, `*`, or
-  // `{...}`.
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]
-    if (ch === '\\') {
-      i++
-      continue
-    }
-    if (ch !== '(') continue
-    const tail3 = pattern.slice(i, i + 3)
-    const tail4 = pattern.slice(i, i + 4)
-    const isLookahead = tail3 === '(?=' || tail3 === '(?!'
-    const isLookbehind = tail4 === '(?<=' || tail4 === '(?<!'
-    if (!isLookahead && !isLookbehind) continue
-    const bodyStart = i + (isLookahead ? 3 : 4)
-    let depth = 1
-    let j = bodyStart
-    while (j < pattern.length && depth > 0) {
-      const cj = pattern[j]
-      if (cj === '\\') {
-        j += 2
-        continue
-      }
-      if (cj === '(') depth++
-      else if (cj === ')') depth--
-      if (depth === 0) break
-      j++
-    }
-    if (depth !== 0) continue
-    const body = pattern.slice(bodyStart, j)
-    const bodyStripped = body.replace(/\\./g, '')
-    if (/[+*]/.test(bodyStripped) || /\{\d+,?\d*\}/.test(bodyStripped)) {
-      return { safe: false, reason: 'lookaround-with-quantifier' }
-    }
-    i = j
-  }
-
-  // Bounded `{n,m}` with a very large upper bound, or `{n,}` with a very
-  // large lower bound. Lone repetitions like `a{5}` are fine; only the
-  // comma-form is a range.
-  {
-    const re = /(?<!\\)\{(\d+)(?:,(\d*))?\}/g
-    let m: RegExpExecArray | null
-    // biome-ignore lint/suspicious/noAssignInExpressions: classic regex iteration
-    while ((m = re.exec(pattern)) !== null) {
-      const low = Number(m[1])
-      const upperStr = m[2]
-      if (upperStr === undefined) continue // `{n}` exact count - not a range.
-      if (upperStr === '') {
-        if (low > MAX_BOUNDED_QUANTIFIER) {
-          return { safe: false, reason: 'bounded-large-quantifier' }
-        }
-        continue
-      }
-      const high = Number(upperStr)
-      if (Number.isFinite(high) && high > MAX_BOUNDED_QUANTIFIER) {
-        return { safe: false, reason: 'bounded-large-quantifier' }
-      }
-    }
-  }
-
-  // Nested quantifiers: a group whose closing `)` is immediately followed by
-  // `+`, `*`, or `{n,}` AND whose body itself contains an unbounded quantifier.
-  // We walk parens with a depth counter so nested groups are inspected too.
-  const stack: number[] = []
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]
-    if (ch === '\\') {
-      i++
-      continue
-    }
-    if (ch === '(') {
-      stack.push(i)
-      continue
-    }
-    if (ch === ')') {
-      const openIdx = stack.pop()
-      if (openIdx === undefined) continue
-      const next = pattern[i + 1]
-      const isUnboundedQuant = next === '+' || next === '*' || (next === '{' && /^\{\d+,\}?/.test(pattern.slice(i + 1)))
-      if (!isUnboundedQuant) continue
-      const body = pattern.slice(openIdx + 1, i)
-      // Strip escapes from body before scanning so `\+` doesn't trigger.
-      const bodyStripped = body.replace(/\\./g, '')
-      if (/[+*]/.test(bodyStripped) || /\{\d+,\d*\}/.test(bodyStripped)) {
-        return { safe: false, reason: 'nested quantifier (e.g. `(a+)+`) - catastrophic backtracking risk' }
-      }
-      if (bodyStripped.includes('|')) {
-        return { safe: false, reason: 'alternation inside a quantified group - catastrophic backtracking risk' }
-      }
-    }
-  }
-
-  // Count unbounded quantifiers outside of escapes. `+`, `*`, and `{n,}`
-  // each count once.
-  let unbounded = 0
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]
-    if (ch === '\\') {
-      i++
-      continue
-    }
-    if (ch === '+' || ch === '*') {
-      unbounded++
-      continue
-    }
-    if (ch === '{') {
-      // `{n,}` or `{n,m}` - only `{n,}` (no upper bound) is unbounded.
-      const close = pattern.indexOf('}', i)
-      if (close === -1) continue
-      const inner = pattern.slice(i + 1, close)
-      if (/^\d+,\s*$/.test(inner)) unbounded++
-      i = close
-    }
-  }
-  if (unbounded > MAX_UNBOUNDED_QUANTIFIERS) {
-    return {
-      safe: false,
-      reason: `${unbounded} unbounded quantifiers exceed limit of ${MAX_UNBOUNDED_QUANTIFIERS}`,
-    }
-  }
-
-  return { safe: true }
 }
 
 /**
@@ -183,10 +27,15 @@ export const MAX_FIELD_LENGTH = 256
 /** Max allowed length for a string `value` on a condition. */
 export const MAX_CONDITION_VALUE_LENGTH = 1024
 /** Valid combining algorithm names. */
-export const VALID_ALGORITHMS = new Set(['deny-overrides', 'allow-overrides', 'first-match', 'highest-priority'])
+export const VALID_ALGORITHMS: ReadonlySet<string> = new Set([
+  'deny-overrides',
+  'allow-overrides',
+  'first-match',
+  'highest-priority',
+])
 
 /** Valid rule effect values. */
-export const VALID_EFFECTS = new Set(['allow', 'deny'])
+export const VALID_EFFECTS: ReadonlySet<string> = new Set(['allow', 'deny'])
 
 /**
  * Validate-time policy size caps.
@@ -220,7 +69,7 @@ export function isResolvablePath(path: string): boolean {
 }
 
 /** Set of valid condition operator names supported by the condition evaluator. */
-export const VALID_OPERATORS = new Set([
+export const VALID_OPERATORS: ReadonlySet<string> = new Set([
   'eq',
   'neq',
   'gt',
@@ -350,7 +199,11 @@ export function validateConditionItem(input: unknown, path: string, issues: IamV
  * @param depth  - Current nesting depth (defaults to `0`; bounded by `MAX_CONDITION_DEPTH`).
  */
 export function validateConditionGroup(input: unknown, path: string, issues: IamValidate.IIssue[], depth = 0): void {
-  if (depth > MAX_CONDITION_DEPTH) {
+  // `evalConditionGroup` refuses a group at `depth >= MAX_CONDITION_DEPTH` and
+  // fails closed. Using `>` here would accept exactly one level deeper than the
+  // evaluator will ever match, so a deny rule at that depth would validate and
+  // then silently stop denying. Keep the two comparisons identical.
+  if (depth >= MAX_CONDITION_DEPTH) {
     issues.push({
       type: 'error',
       code: 'LIMIT_EXCEEDED',

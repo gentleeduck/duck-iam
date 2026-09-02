@@ -68,18 +68,178 @@ export function clearRegexCache(): void {
   regexCache.clear()
 }
 
-// Patterns containing nested quantifiers — `(a+)+`, `(a*)*`, `(a|aa)+` — are
-// the textbook ReDoS shape that turns into super-linear backtracking. The cheap
-// detection here rejects the obvious forms before they reach `new RegExp`.
-// It is not a complete catastrophic-backtracking analyser; the length cap in
-// `matches` keeps the residual risk bounded.
-const NESTED_QUANTIFIER_RE = /\([^)]*[*+?][^)]*\)[*+?{]/
+/**
+ * Maximum number of unbounded quantifiers (`+`, `*`, `{n,}`) allowed in a
+ * single `matches` pattern. Beyond this the surface area for catastrophic
+ * backtracking gets impractical to reason about, so we refuse outright.
+ */
+export const MAX_UNBOUNDED_QUANTIFIERS = 4
+
+/**
+ * Largest finite upper bound permitted in a `{n,m}` quantifier. The matcher
+ * walks `m` iterations worst-case, so anything above ~1000 starts to look
+ * like a DoS vector even though it isn't technically unbounded.
+ */
+export const MAX_BOUNDED_QUANTIFIER = 1_000
+
+/**
+ * Cheap heuristic for catastrophic-backtracking regex (nested quantifiers, large bounds, backref-quantifier, etc).
+ *
+ * @param pattern - Raw regex source.
+ * @returns `{ safe: true }` when the pattern looks benign, otherwise `{ safe: false, reason }`.
+ */
+export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
+  if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
+  if (pattern.length > MAX_REGEX_LENGTH) {
+    return {
+      safe: false,
+      reason: `pattern length ${pattern.length} exceeds MAX_REGEX_LENGTH (${MAX_REGEX_LENGTH})`,
+    }
+  }
+
+  // Backreference followed by a quantifier - run before the nested-quantifier
+  // scan so the more specific reason wins for shapes like `(\w+)\1+`. Numeric
+  // (`\1+`, `\3*`, `\2{1,5}`) and named (`\k<name>+`) forms can drive
+  // exponential backtracking when the captured group matches a variable-length
+  // pattern. Flag any backref+quantifier pair.
+  if (/\\[1-9]\d*\s*[+*?{]/.test(pattern) || /\\k<[^>]+>\s*[+*?{]/.test(pattern)) {
+    return { safe: false, reason: 'backref-quantifier' }
+  }
+
+  // Lookaround group whose body contains a quantifier. Run before the
+  // nested-quantifier scan so `(?=(a+)+)` is reported with the more specific
+  // reason. JS supports `(?=...)`, `(?!...)`, `(?<=...)`, `(?<!...)`. Walk
+  // paren depth and inspect the body of any lookaround for `+`, `*`, or
+  // `{...}`.
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i++
+      continue
+    }
+    if (ch !== '(') continue
+    const tail3 = pattern.slice(i, i + 3)
+    const tail4 = pattern.slice(i, i + 4)
+    const isLookahead = tail3 === '(?=' || tail3 === '(?!'
+    const isLookbehind = tail4 === '(?<=' || tail4 === '(?<!'
+    if (!isLookahead && !isLookbehind) continue
+    const bodyStart = i + (isLookahead ? 3 : 4)
+    let depth = 1
+    let j = bodyStart
+    while (j < pattern.length && depth > 0) {
+      const cj = pattern[j]
+      if (cj === '\\') {
+        j += 2
+        continue
+      }
+      if (cj === '(') depth++
+      else if (cj === ')') depth--
+      if (depth === 0) break
+      j++
+    }
+    if (depth !== 0) continue
+    const body = pattern.slice(bodyStart, j)
+    const bodyStripped = body.replace(/\\./g, '')
+    if (/[+*]/.test(bodyStripped) || /\{\d+,?\d*\}/.test(bodyStripped)) {
+      return { safe: false, reason: 'lookaround-with-quantifier' }
+    }
+    i = j
+  }
+
+  // Bounded `{n,m}` with a very large upper bound, or `{n,}` with a very
+  // large lower bound. Lone repetitions like `a{5}` are fine; only the
+  // comma-form is a range.
+  {
+    const re = /(?<!\\)\{(\d+)(?:,(\d*))?\}/g
+    let m: RegExpExecArray | null
+    // biome-ignore lint/suspicious/noAssignInExpressions: classic regex iteration
+    while ((m = re.exec(pattern)) !== null) {
+      const low = Number(m[1])
+      const upperStr = m[2]
+      if (upperStr === undefined) continue // `{n}` exact count - not a range.
+      if (upperStr === '') {
+        if (low > MAX_BOUNDED_QUANTIFIER) {
+          return { safe: false, reason: 'bounded-large-quantifier' }
+        }
+        continue
+      }
+      const high = Number(upperStr)
+      if (Number.isFinite(high) && high > MAX_BOUNDED_QUANTIFIER) {
+        return { safe: false, reason: 'bounded-large-quantifier' }
+      }
+    }
+  }
+
+  // Nested quantifiers: a group whose closing `)` is immediately followed by
+  // `+`, `*`, or `{n,}` AND whose body itself contains an unbounded quantifier.
+  // We walk parens with a depth counter so nested groups are inspected too.
+  const stack: number[] = []
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i++
+      continue
+    }
+    if (ch === '(') {
+      stack.push(i)
+      continue
+    }
+    if (ch === ')') {
+      const openIdx = stack.pop()
+      if (openIdx === undefined) continue
+      const next = pattern[i + 1]
+      const isUnboundedQuant = next === '+' || next === '*' || (next === '{' && /^\{\d+,\}?/.test(pattern.slice(i + 1)))
+      if (!isUnboundedQuant) continue
+      const body = pattern.slice(openIdx + 1, i)
+      // Strip escapes from body before scanning so `\+` doesn't trigger.
+      const bodyStripped = body.replace(/\\./g, '')
+      if (/[+*]/.test(bodyStripped) || /\{\d+,\d*\}/.test(bodyStripped)) {
+        return { safe: false, reason: 'nested quantifier (e.g. `(a+)+`) - catastrophic backtracking risk' }
+      }
+      if (bodyStripped.includes('|')) {
+        return { safe: false, reason: 'alternation inside a quantified group - catastrophic backtracking risk' }
+      }
+    }
+  }
+
+  // Count unbounded quantifiers outside of escapes. `+`, `*`, and `{n,}`
+  // each count once.
+  let unbounded = 0
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i++
+      continue
+    }
+    if (ch === '+' || ch === '*') {
+      unbounded++
+      continue
+    }
+    if (ch === '{') {
+      // `{n,}` or `{n,m}` - only `{n,}` (no upper bound) is unbounded.
+      const close = pattern.indexOf('}', i)
+      if (close === -1) continue
+      const inner = pattern.slice(i + 1, close)
+      if (/^\d+,\s*$/.test(inner)) unbounded++
+      i = close
+    }
+  }
+  if (unbounded > MAX_UNBOUNDED_QUANTIFIERS) {
+    return {
+      safe: false,
+      reason: `${unbounded} unbounded quantifiers exceed limit of ${MAX_UNBOUNDED_QUANTIFIERS}`,
+    }
+  }
+
+  return { safe: true }
+}
 
 /**
  * Retrieve a cached compiled regex, or compile and cache it.
- * Returns `null` if the pattern fails to compile, or if {@link NESTED_QUANTIFIER_RE}
- * rejects it as a ReDoS-shaped pattern (checked before compilation - a syntactically
- * valid pattern like `(a+)+` still returns `null`).
+ * Returns `null` if the pattern fails to compile, or if
+ * {@link detectCatastrophicRegex} rejects it as a ReDoS-shaped pattern. This is
+ * the same predicate the validator runs, so a pattern accepted at import time
+ * can never be refused at evaluation time (or the reverse).
  *
  * On a cache hit the entry is re-inserted so iteration order becomes recency
  * order; eviction then drops the *least recently used* pattern instead of
@@ -93,13 +253,15 @@ const NESTED_QUANTIFIER_RE = /\([^)]*[*+?][^)]*\)[*+?{]/
  * @returns The compiled `RegExp`, or `null` when the pattern is invalid or rejected.
  */
 export function getCachedRegex(pattern: string, cache: Map<string, RegExp> = regexCache): RegExp | null {
-  if (NESTED_QUANTIFIER_RE.test(pattern)) return null
+  // Cache lookup first: an entry only exists because it already passed the
+  // detector, so re-running the walker on every hit would be pure cost.
   const cached = cache.get(pattern)
   if (cached) {
     cache.delete(pattern)
     cache.set(pattern, cached)
     return cached
   }
+  if (!detectCatastrophicRegex(pattern).safe) return null
   try {
     const re = new RegExp(pattern)
     if (cache.size >= REGEX_CACHE_MAX) {
@@ -271,7 +433,16 @@ export function evalCondition(
   try {
     // Per-Engine regex cache when supplied, module-global fallback.
     if (cond.operator === 'matches') return evalMatchesOp(fieldVal, condVal, caches?.regex)
-    return ops[cond.operator](fieldVal, condVal)
+    const op = ops[cond.operator]
+    // An operator we cannot evaluate is indeterminate, not false: returning
+    // false here would quietly retire a deny rule. Throwing routes it through
+    // onPolicyError and the caller's fail-closed handling.
+    if (typeof op !== 'function') {
+      throw new Error(
+        `[@gentleduck/iam:conditions] unknown operator "${String(cond.operator)}" on field "${cond.field}"`,
+      )
+    }
+    return op(fieldVal, condVal)
   } catch (err) {
     if (err instanceof RegexInputTooLargeError && err.field === '<unknown>') {
       throw new RegexInputTooLargeError(cond.field, err.length)
