@@ -37,7 +37,7 @@ export class OperationsImpl {
    * Toggle maintenance mode. Emits `maintenance.on` / `maintenance.off`
    * so multi-instance fleets can subscribe and propagate.
    */
-  async maintenance(on: boolean, opts: { message?: string; retryAfterSec?: number } = {}): Promise<void> {
+  async maintenance(on: boolean, opts: { message?: string; retryAfterSec?: number } = {}): Promise<Operations.State> {
     if (on) {
       this._state.maintenance = {
         on: true,
@@ -53,11 +53,15 @@ export class OperationsImpl {
       this._state.maintenance = { on: false }
       await this._events.emit('maintenance.off', {})
     }
+    // The resulting state, so a caller does not have to follow every toggle
+    // with `snapshot()` to see what it actually set.
+    return this.snapshot()
   }
 
   /** Toggle read-only mode. Same shape as maintenance, no event yet. */
-  async readOnly(on: boolean): Promise<void> {
+  async readOnly(on: boolean): Promise<Operations.State> {
     this._state.readOnly = on ? { on: true, since: Date.now() } : { on: false }
+    return this.snapshot()
   }
 
   /**

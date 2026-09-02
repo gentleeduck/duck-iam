@@ -120,7 +120,7 @@ suite('E2E withTransaction on real Postgres', () => {
   })
 
   it('commit keeps the row, and flush publishes only then', async () => {
-    let pending: { flush(): Promise<void> } | undefined
+    let pending: { flush(): Promise<{ published: number }> } | undefined
 
     await db.transaction(async (tx) => {
       const auth = engine.withTransaction(tx)
@@ -292,7 +292,7 @@ suite('E2E withTransaction on real Postgres', () => {
     published = []
 
     let result: Batch.Result | undefined
-    let pending: { flush(): Promise<void> } | undefined
+    let pending: { flush(): Promise<{ published: number }> } | undefined
     await db.transaction(async (tx) => {
       const auth = engine.withTransaction(tx)
       result = await auth.sessions.revokeAllForIdentities([a.id, b.id])

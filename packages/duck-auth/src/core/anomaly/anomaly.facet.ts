@@ -58,10 +58,16 @@ export class AnomalyFacet {
     this._detectors.push(detector)
   }
 
-  /** Remove a previously-registered detector by id. No-op if not found. */
-  unregister(id: string): void {
+  /**
+   * Remove a previously-registered detector by id. No-op if not found, and
+   * `false` says so - a typo in the id is otherwise indistinguishable from a
+   * detector that really was removed.
+   */
+  unregister(id: string): boolean {
     const idx = this._detectors.findIndex((d) => d.id === id)
-    if (idx >= 0) this._detectors.splice(idx, 1)
+    if (idx < 0) return false
+    this._detectors.splice(idx, 1)
+    return true
   }
 
   /** Currently registered detector ids; UI / diagnostics. */
