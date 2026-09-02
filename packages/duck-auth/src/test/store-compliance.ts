@@ -256,10 +256,80 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
           providers: [{ providerId: 'oauth:authGoogle', providerSub: 'g', addedAt: new Date() }],
         }),
       )
-      await store.merge(survivor.id, dup.id)
+      const merged = await store.merge(survivor.id, dup.id)
+      // The survivor comes back from the write itself, already carrying the
+      // union - a caller that needs it should not have to re-read.
+      expect(merged?.id).toBe(survivor.id)
+      expect(merged?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
       const fresh = await store.findById(survivor.id)
       expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
       expect(await store.findById(dup.id)).toBeNull()
+    })
+
+    it('merge writes nothing when either side is missing', async () => {
+      const store = factory()
+      const dup = await store.create(identityInput({ profile: { email: 'md@x', username: 'md' } as unknown as P }))
+      const survivor = await store.create(identityInput({ profile: { email: 'ms@x', username: 'ms' } as unknown as P }))
+      const gone = (await store.create(identityInput({ profile: { email: 'mg@x', username: 'mg' } as unknown as P })))
+        .id
+      await store.erase(gone)
+
+      // A merge re-points the dup's credentials and sessions and then deletes
+      // it. With one side missing that is not a merge, it is data loss - so
+      // nothing is written and the caller is told plainly.
+      expect(await store.merge(gone, dup.id)).toBeNull()
+      expect(await store.findById(dup.id)).not.toBeNull()
+
+      expect(await store.merge(survivor.id, gone)).toBeNull()
+      expect(await store.findById(survivor.id)).not.toBeNull()
+    })
+
+    it('every mutating write answers with the row it touched', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: { email: 'ret@x', username: 'ret' } as unknown as P }))
+
+      const linked = await store.link(i.id, {
+        addedAt: new Date(),
+        providerId: 'oauth:authGoogle',
+        providerSub: 'ret-1',
+      })
+      expect(linked?.id).toBe(i.id)
+      expect(linked?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
+
+      const unlinked = await store.unlink(i.id, 'oauth:authGoogle')
+      expect(unlinked?.id).toBe(i.id)
+      expect(unlinked?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(false)
+
+      // `deletedAt` is the moment the grace window CLOSES, so the deadline a
+      // caller reports comes off the row the store wrote rather than a second
+      // reading of the clock.
+      const before = Date.now()
+      const hidden = await store.softDelete(i.id, 60_000)
+      expect(hidden?.id).toBe(i.id)
+      expect(hidden?.deletedAt?.getTime()).toBeGreaterThanOrEqual(before + 60_000)
+      expect(hidden?.emailVerified).toBe(false)
+
+      const back = await store.restore(i.id)
+      expect(back.deletedAt).toBeNull()
+
+      // The row as it was: once the delete lands there is nothing left to read.
+      const erased = await store.erase(i.id)
+      expect(erased?.id).toBe(i.id)
+      expect(await store.findById(i.id)).toBeNull()
+    })
+
+    it('a write that matches no row answers null rather than reporting a change', async () => {
+      const store = factory()
+      // A real id whose row is gone - valid for every dialect's id column,
+      // which a made-up string would not be.
+      const gone = (await store.create(identityInput({ profile: { email: 'g@x', username: 'g' } as unknown as P }))).id
+      await store.erase(gone)
+
+      expect(await store.softDelete(gone, 60_000)).toBeNull()
+      expect(await store.erase(gone)).toBeNull()
+      expect(await store.link(gone, { addedAt: new Date(), providerId: 'password', providerSub: null })).toBeNull()
+      expect(await store.unlink(gone, 'password')).toBeNull()
+      expect(await store.merge(gone, gone)).toBeNull()
     })
   })
 }

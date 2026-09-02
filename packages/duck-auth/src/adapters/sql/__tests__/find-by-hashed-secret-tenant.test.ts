@@ -24,12 +24,12 @@ function makeBridge(): SqlBridge.Me {
         identities.set(row.id, row)
       },
       updateConditional: async () => null,
-      softDelete: async () => {},
+      softDelete: async () => null,
       restore: async () => null,
-      erase: async () => {},
-      insertProviderLink: async () => {},
-      deleteProviderLink: async () => {},
-      merge: async () => {},
+      erase: async () => null,
+      insertProviderLink: async () => null,
+      deleteProviderLink: async () => null,
+      merge: async () => null,
     },
     credentials: {
       findById: async (id) => credentials.get(id) ?? null,

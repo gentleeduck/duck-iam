@@ -55,7 +55,10 @@ function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
       },
       softDelete: async (id, deletedAt) => {
         const cur = identities.get(id)
-        if (cur) identities.set(id, { ...cur, deletedAt })
+        if (!cur) return null
+        const next = { ...cur, deletedAt, emailVerified: false }
+        identities.set(id, next)
+        return next
       },
       restore: async (id) => {
         const cur = identities.get(id)
@@ -65,20 +68,23 @@ function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
         return next
       },
       erase: async (id) => {
+        const cur = identities.get(id) ?? null
         identities.delete(id)
+        return cur
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt) => {
         const cur = identities.get(identityId)
-        if (!cur) return
-        identities.set(identityId, { ...cur, providers: [...cur.providers, { providerId, providerSub, addedAt }] })
+        if (!cur) return null
+        const next = { ...cur, providers: [...cur.providers, { providerId, providerSub, addedAt }] }
+        identities.set(identityId, next)
+        return next
       },
       deleteProviderLink: async (identityId, providerId) => {
         const cur = identities.get(identityId)
-        if (!cur) return
-        identities.set(identityId, {
-          ...cur,
-          providers: cur.providers.filter((l) => l.providerId !== providerId),
-        })
+        if (!cur) return null
+        const next = { ...cur, providers: cur.providers.filter((l) => l.providerId !== providerId) }
+        identities.set(identityId, next)
+        return next
       },
       merge: async (survivorId, dupId) => {
         for (const c of credentials.values()) {
@@ -88,6 +94,7 @@ function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
           if (s.identityId === dupId) s.identityId = survivorId
         }
         identities.delete(dupId)
+        return identities.get(survivorId) ?? null
       },
     },
     credentials: {

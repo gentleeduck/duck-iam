@@ -25,12 +25,23 @@ export namespace SqlBridge {
     findByProviderSub(providerId: string, sub: string): Promise<Row | null>
     insert(row: Row): Promise<void>
     updateConditional(id: string, patch: Partial<Omit<Row, 'id'>>, expectedVersion: number): Promise<Row | null>
-    softDelete(id: string, deletedAt: Date): Promise<void>
+    /**
+     * The mutating writes all hand back the row they touched, `null` when no row
+     * matched, so a caller never has to re-read to see what a write did. Where
+     * the dialect has `RETURNING` this is the same round trip; `erase` returns
+     * the row as it was immediately before deletion.
+     */
+    softDelete(id: string, deletedAt: Date): Promise<Row | null>
     restore(id: string): Promise<Row | null>
-    erase(id: string): Promise<void>
-    insertProviderLink(identityId: string, providerId: string, providerSub: string | null, addedAt: Date): Promise<void>
-    deleteProviderLink(identityId: string, providerId: string): Promise<void>
-    merge(survivorId: string, dupId: string): Promise<void>
+    erase(id: string): Promise<Row | null>
+    insertProviderLink(
+      identityId: string,
+      providerId: string,
+      providerSub: string | null,
+      addedAt: Date,
+    ): Promise<Row | null>
+    deleteProviderLink(identityId: string, providerId: string): Promise<Row | null>
+    merge(survivorId: string, dupId: string): Promise<Row | null>
 
     /**
      * Set-based forms of the writes above. Each returns the ids it actually

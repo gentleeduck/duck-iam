@@ -75,6 +75,20 @@ export function createDrizzlePgBridge<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
   const TSchema extends Record<string, unknown> = Record<string, unknown>,
 >(db: NodePgDatabase<TSchema>): SqlBridge.Me<Profile> {
+  /**
+   * The provider-link writes are raw `execute` statements, whose `RETURNING`
+   * yields unmapped snake_case columns. Re-selecting through the query builder
+   * is one more round trip on a rare path and reuses the mapping every other
+   * read here already goes through.
+   */
+  const reselectIdentity = (id: string) =>
+    db
+      .select()
+      .from(authIdentities)
+      .where(eq(authIdentities.id, id))
+      .limit(1)
+      .then((r) => r[0] ?? null)
+
   const tenantWhere = <T extends { tenantId: PgColumn }>(table: T, tenantId: string | undefined) =>
     tenantId === undefined ? undefined : eq(table.tenantId, tenantId)
 
@@ -137,7 +151,8 @@ export function createDrizzlePgBridge<
           .update(authIdentities)
           .set({ deletedAt, emailVerified: false })
           .where(eq(authIdentities.id, id))
-          .then(() => {}),
+          .returning()
+          .then((r) => r[0] ?? null),
 
       /**
        * Three round trips, all on a rare admin path: read the hidden row, refuse
@@ -171,12 +186,14 @@ export function createDrizzlePgBridge<
       erase: async (id) => {
         await db.delete(authCredentials).where(eq(authCredentials.identityId, id))
         await db.delete(authSessions).where(eq(authSessions.identityId, id))
-        await db.delete(authIdentities).where(eq(authIdentities.id, id))
+        // `RETURNING` on the DELETE hands back the row as it was, so saying what
+        // was erased costs nothing extra.
+        const gone = await db.delete(authIdentities).where(eq(authIdentities.id, id)).returning()
+        return gone[0] ?? null
       },
 
-      insertProviderLink: (identityId, providerId, providerSub, addedAt) =>
-        db
-          .execute(sql`
+      insertProviderLink: async (identityId, providerId, providerSub, addedAt) => {
+        await db.execute(sql`
           update ${authIdentities}
           set providers = (
             select coalesce(jsonb_agg(elem), '[]'::jsonb)
@@ -185,11 +202,11 @@ export function createDrizzlePgBridge<
           ) || ${JSON.stringify([{ providerId, providerSub: providerSub ?? null, addedAt }])}::jsonb
           where id = ${identityId}
         `)
-          .then(() => {}),
+        return reselectIdentity(identityId)
+      },
 
-      deleteProviderLink: (identityId, providerId) =>
-        db
-          .execute(sql`
+      deleteProviderLink: async (identityId, providerId) => {
+        await db.execute(sql`
           update ${authIdentities}
           set providers = (
             select coalesce(jsonb_agg(elem), '[]'::jsonb)
@@ -198,7 +215,8 @@ export function createDrizzlePgBridge<
           )
           where id = ${identityId}
         `)
-          .then(() => {}),
+        return reselectIdentity(identityId)
+      },
 
       softDeleteManyReturningIds: (ids, deletedAt) =>
         db
@@ -274,17 +292,22 @@ export function createDrizzlePgBridge<
           .from(authIdentities)
           .where(eq(authIdentities.id, dupId))
           .limit(1)
-        if (surv && dupRow) {
-          await db
-            .update(authIdentities)
-            .set({ providers: [...(surv.p ?? []), ...(dupRow.p ?? [])] })
-            .where(eq(authIdentities.id, survivorId))
-        }
+        // Both sides must exist BEFORE anything is written: the steps below
+        // re-point the dup's credentials and sessions and then delete it, so a
+        // survivor that is not there turns a merge into silent data loss. The
+        // memory adapter has always refused this; so does every dialect.
+        if (!surv || !dupRow) return null
+        await db
+          .update(authIdentities)
+          .set({ providers: [...(surv.p ?? []), ...(dupRow.p ?? [])] })
+          .where(eq(authIdentities.id, survivorId))
         // Repoint all of the dup's rows across every tenant before erasing it, so the
         // FK cascade on delete cannot orphan another tenant's credentials/sessions.
         await db.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
         await db.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
         await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
+        // The survivor is what the caller keeps; `null` when there was none.
+        return reselectIdentity(survivorId)
       },
     },
 

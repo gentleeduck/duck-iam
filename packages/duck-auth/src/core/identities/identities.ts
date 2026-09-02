@@ -128,7 +128,8 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
 
   // --- provider linking ------------------------------------------------
 
-  async link(identityId: string, link: Omit<Identities.ProviderLink, 'addedAt'>): Promise<void> {
+  /** Answers with the identity as it stands after the link, providers included. */
+  async link(identityId: string, link: Omit<Identities.ProviderLink, 'addedAt'>): Promise<Identities.Me<Profile>> {
     const cur = await this._store.findById(identityId)
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     // Reject duplicate provider link for same identity.
@@ -138,11 +139,16 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
         detail: 'already linked',
       })
     }
-    await this._store.link(identityId, { ...link, addedAt: new Date() })
+    const linked = await this._store.link(identityId, { ...link, addedAt: new Date() })
+    // `null` here means the row disappeared between the read above and the
+    // write - the same condition the read rejected, so it gets the same answer.
+    if (!linked) throw new AuthError('AUTH_UNAUTHENTICATED')
     await this._events.emit('identity.linked', { identityId, providerId: link.providerId })
+    return linked
   }
 
-  async unlink(identityId: string, providerId: string): Promise<void> {
+  /** Answers with the identity as it stands after the link is dropped. */
+  async unlink(identityId: string, providerId: string): Promise<Identities.Me<Profile>> {
     const cur = await this._store.findById(identityId)
     if (!cur) throw new AuthError('AUTH_UNAUTHENTICATED')
     // Don't allow unlinking the last credential surface - leaves account inaccessible.
@@ -152,39 +158,58 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
         detail: 'cannot unlink last provider; add another method first',
       })
     }
-    await this._store.unlink(identityId, providerId)
+    const unlinked = await this._store.unlink(identityId, providerId)
+    if (!unlinked) throw new AuthError('AUTH_UNAUTHENTICATED')
+    return unlinked
   }
 
-  async merge(survivorId: string, dupId: string): Promise<void> {
+  /** Answers with the survivor, carrying the union of both provider lists. */
+  async merge(survivorId: string, dupId: string): Promise<Identities.Me<Profile>> {
     if (survivorId === dupId) {
       throw new AuthError('AUTH_PROVIDER_FAILED', {
         providerId: 'merge',
         detail: 'survivor and dup are the same identity',
       })
     }
-    await this._store.merge(survivorId, dupId)
+    // The store re-points the dup's credentials and sessions and then deletes
+    // it, so a survivor that does not exist would destroy the dup and orphan
+    // everything that pointed at it. Refuse before any of that runs.
+    if (!(await this._store.findById(survivorId))) throw new AuthError('AUTH_UNAUTHENTICATED')
+    const survivor = await this._store.merge(survivorId, dupId)
+    if (!survivor) throw new AuthError('AUTH_UNAUTHENTICATED')
     await this._events.emit('identity.merged', {
       survivorId,
       mergedFromId: dupId,
     })
+    return survivor
   }
 
   // --- soft-delete / restore / erase ----------------------------------
 
-  async softDelete(id: string): Promise<void> {
-    await this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs)
+  /**
+   * Answers with the hidden row - its `deletedAt` is when the grace window
+   * closes, so a caller can tell the user how long they have to change their
+   * mind without a second read. `null` when no such identity.
+   */
+  async softDelete(id: string): Promise<Identities.Me<Profile> | null> {
+    return this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs)
   }
 
   async restore(id: string): Promise<Identities.Me<Profile>> {
     return this._store.restore(id)
   }
 
-  /** Hard-erase. Audit-logged for compliance. Cannot be undone. */
-  async erase(id: string, opts: { reason: string; operatorId?: string }): Promise<void> {
-    await this._store.erase(id)
+  /**
+   * Hard-erase. Audit-logged for compliance. Cannot be undone. Answers with the
+   * row as it was immediately before deletion - the caller's last chance to
+   * record what went, since a second read would find nothing.
+   */
+  async erase(id: string, opts: { reason: string; operatorId?: string }): Promise<Identities.Me<Profile> | null> {
+    const erased = await this._store.erase(id)
     // Caller emits its own compliance event with reason; library stays out of
     // the audit-envelope shape for the erase action.
     void opts
+    return erased
   }
 
   // --- bulk -------------------------------------------------------------
@@ -309,7 +334,11 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
   async eraseMany(ids: readonly string[]): Promise<Batch.Result> {
     if (ids.length === 0) return batchResult([])
     if (this._store.eraseMany) return this._store.eraseMany(ids)
-    return loopFallback(ids, (id) => this._store.erase(id))
+    // `erase` hands back the row it removed, so the loop can report a miss
+    // without the extra read the set-based path never needed either.
+    return loopFallback(ids, async (id) => {
+      if (!(await this._store.erase(id))) return BATCH_NOT_FOUND
+    })
   }
 
   /**
