@@ -2,10 +2,19 @@
  * React integration for duck-iam.
  *
  * Two patterns:
- *   1. Server-driven (recommended): generate IamClient.PermissionMap on server, pass to client.
- *   2. IamClient-evaluated: load Engine on client with HttpAdapter or MemoryAdapter.
+ *   1. Server-driven (recommended): generate the permission map on the server, pass it to the client.
+ *   2. Client-evaluated: load Engine on the client with HttpAdapter or MemoryAdapter.
+ *
+ * Every binding below comes from `createIamAccessControl(React)` - nothing in
+ * this module is importable directly except that factory and
+ * `createIamPermissionChecker`.
  *
  * Usage (server-driven):
+ *
+ *   import React from 'react'
+ *   import { createIamAccessControl } from '@gentleduck/iam/client/react'
+ *
+ *   export const { AccessProvider, useAccess, Can } = createIamAccessControl(React)
  *
  *   // Server (Next.js layout, RSC, or API):
  *   const perms = await engine.permissions(userId, [
@@ -14,7 +23,7 @@
  *     { action: "manage", resource: "team" },
  *   ]);
  *
- *   // IamClient:
+ *   // Client:
  *   <AccessProvider permissions={perms}>
  *     <App />
  *   </AccessProvider>
@@ -49,7 +58,7 @@ interface ReactLike {
   createContext<T>(defaultValue: T): ReactContext<T>
   useContext<T>(context: ReactContext<T>): T
   useMemo<T>(factory: () => T, deps: readonly unknown[]): T
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- matches React's own useCallback<T extends Function>
+  // `Function` mirrors React's own useCallback<T extends Function> signature.
   useCallback<T extends Function>(callback: T, deps: readonly unknown[]): T
   createElement(type: unknown, props: Record<string, unknown> | null, ...children: ReactNode[]): ReactNode
   useState<T>(initialState: T | (() => T)): [T, (value: T | ((prev: T) => T)) => void]
@@ -135,7 +144,7 @@ export namespace IamReactClient {
  * @example
  * ```ts
  * import React from 'react'
- * import { createIamAccessControl } from 'duck-iam/client/react'
+ * import { createIamAccessControl } from '@gentleduck/iam/client/react'
  *
  * export const { AccessProvider, useAccess, Can, Cannot } = createIamAccessControl(React)
  * ```

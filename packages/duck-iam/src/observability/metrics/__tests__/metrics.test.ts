@@ -89,3 +89,61 @@ describe('iamCreateMetricsAggregator', () => {
     expect(m.snapshot().failOpen).toBe(0)
   })
 })
+
+describe('iamCreateMetricsAggregator rolling-window semantics', () => {
+  it('reports the window max, not the all-time max', () => {
+    const m = iamCreateMetricsAggregator({ sampleSize: 3 })
+    m.record(fakeEvent(100))
+    m.record(fakeEvent(1))
+    m.record(fakeEvent(2))
+    m.record(fakeEvent(3))
+    const s = m.snapshot()
+    expect(s.max).toBe(3)
+    expect(s.samples).toBe(3)
+    expect(s.total).toBe(4)
+  })
+
+  it('snapshot does not reorder the ring buffer', () => {
+    const m = iamCreateMetricsAggregator({ sampleSize: 4 })
+    for (const d of [40, 30, 20, 10]) m.record(fakeEvent(d))
+    expect(m.snapshot().max).toBe(40)
+    // Overwrites the oldest slot (40). Window is now {5, 30, 20, 10}.
+    m.record(fakeEvent(5))
+    expect(m.snapshot().max).toBe(30)
+  })
+
+  it('keeps only the newest sample at sampleSize 1', () => {
+    const m = iamCreateMetricsAggregator({ sampleSize: 1 })
+    m.record(fakeEvent(5))
+    m.record(fakeEvent(9))
+    m.record(fakeEvent(2))
+    const s = m.snapshot()
+    expect(s.samples).toBe(1)
+    expect(s.max).toBe(2)
+    expect(s.p50).toBe(2)
+    expect(s.p99).toBe(2)
+    expect(s.total).toBe(3)
+  })
+
+  it('starts a fresh window after reset', () => {
+    const m = iamCreateMetricsAggregator({ sampleSize: 10 })
+    for (const d of [100, 200, 300]) m.record(fakeEvent(d))
+    m.reset()
+    m.record(fakeEvent(7))
+    const s = m.snapshot()
+    expect(s.samples).toBe(1)
+    expect(s.max).toBe(7)
+    expect(s.p50).toBe(7)
+    expect(s.total).toBe(1)
+  })
+
+  it('leaves allow at zero for a deny-only stream', () => {
+    const m = iamCreateMetricsAggregator()
+    for (const d of [4, 8]) m.record(fakeEvent(d, false))
+    const s = m.snapshot()
+    expect(s.allow).toBe(0)
+    expect(s.deny).toBe(2)
+    expect(s.failOpen).toBe(0)
+    expect(s.max).toBe(8)
+  })
+})

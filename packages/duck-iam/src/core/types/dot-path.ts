@@ -87,9 +87,7 @@ export namespace DotPath {
    */
   export type FlexibleDollarPaths<TContext> = DollarPaths<TContext> | (string & {})
 
-  // ============================================================
-  // Section 2: Condition value adapters
-  // ============================================================
+  // Condition value adapters
 
   /**
    * Adapts an attribute value type for builder inputs while preserving `$`
@@ -115,9 +113,7 @@ export namespace DotPath {
       ? ConditionValue<TContext, PathValue<TContext, P>>
       : ConditionValue<TContext, IamPrimitives.AttributeValue>
 
-  // ============================================================
-  // Section 3: Attribute bag shape extractors
-  // ============================================================
+  // Attribute bag shape extractors
 
   /**
    * Subject attribute-bag from a context; `never` when missing.
@@ -140,9 +136,7 @@ export namespace DotPath {
    */
   export type EnvAttrShape<TContext> = TContext extends { environment: infer E } ? E : never
 
-  // ============================================================
-  // Section 4: Attribute-bag dot-path key extractors
-  // ============================================================
+  // Attribute-bag dot-path key extractors
 
   /**
    * Dot-paths into subject attribute bag (used by `When.attr()`).
@@ -177,9 +171,7 @@ export namespace DotPath {
    */
   export type EnvAttrs<TContext> = AttrPaths<EnvAttrShape<TContext>>
 
-  // ============================================================
-  // Section 5: Per-resource attribute narrowing
-  // ============================================================
+  // Per-resource attribute narrowing
 
   /**
    * Per-resource attribute map declared via `resourceAttributes`; `never` when absent.
@@ -213,9 +205,7 @@ export namespace DotPath {
     ResolvedResourceAttrs<TContext, TResource>
   >
 
-  // ============================================================
-  // Section 6: Attribute-bag value resolution
-  // ============================================================
+  // Attribute-bag value resolution
 
   /**
    * Value at a dot-path inside an attribute-bag; `never` on invalid path.
@@ -250,9 +240,7 @@ export namespace DotPath {
         : IamPrimitives.AttributeValue
       : IamPrimitives.AttributeValue
 
-  // ============================================================
-  // Section 7: Default attribute bag + context shapes
-  // ============================================================
+  // Default attribute bag + context shapes
 
   /** Marker for open-ended attribute bags; index signature returns {@link IamPrimitives.AttributeValue}. */
   export interface IAnyAttributes {
@@ -300,9 +288,7 @@ export namespace DotPath {
     scope: string
   }
 
-  // ============================================================
-  // Section 8: Internal helpers
-  // ============================================================
+  // Internal helpers
 
   /**
    * Dot-path string union into attribute-bag `T`; widens to `string` for open bags.

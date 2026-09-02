@@ -217,7 +217,7 @@ export class PolicyBuilder<
       rules: this._rules,
       targets: this._targets,
     }
-    // IamValidate at build time so callers wiring the adapter directly
+    // Validate at build time so callers wiring the adapter directly
     // (bypassing engine.admin.savePolicy's validator) still see the
     // failure where the bug was introduced.
     const result = validatePolicy(policy)

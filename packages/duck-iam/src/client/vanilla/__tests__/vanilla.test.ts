@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IamClient } from '../../../core/types'
-import { IamAccessClient } from '../index'
+import { IamAccessClient, iamAccessClient } from '../index'
 
 type Action = 'read' | 'create' | 'update' | 'delete'
 type ResourceType = 'post' | 'comment'
@@ -144,5 +144,116 @@ describe('IamAccessClient', () => {
 
     client.update(perms({ 'read:post': true }))
     expect(results).toEqual(['first', 'second'])
+  })
+})
+describe('IamAccessClient.fromServer', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  it('returns a populated client from a 2xx JSON body', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ 'read:post': true }),
+    })) as unknown as typeof fetch
+
+    const client = await IamAccessClient.fromServer<Action, ResourceType, Scope>('/api/permissions')
+    expect(client).toBeInstanceOf(IamAccessClient)
+    expect(client.can('read', 'post')).toBe(true)
+    expect(client.can('create', 'post')).toBe(false)
+  })
+
+  it('sends Content-Type json and merges caller headers and init', async () => {
+    const spy = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    globalThis.fetch = spy as unknown as typeof fetch
+
+    await IamAccessClient.fromServer('/api/permissions', {
+      headers: { Authorization: 'Bearer t' },
+      method: 'POST',
+    })
+
+    const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/permissions')
+    expect(init.method).toBe('POST')
+    expect(init.headers).toEqual({ 'Content-Type': 'application/json', Authorization: 'Bearer t' })
+  })
+
+  it('lets the caller override Content-Type', async () => {
+    const spy = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
+    globalThis.fetch = spy as unknown as typeof fetch
+
+    await IamAccessClient.fromServer('/api/permissions', { headers: { 'Content-Type': 'text/plain' } })
+
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit]
+    expect(init.headers).toEqual({ 'Content-Type': 'text/plain' })
+  })
+
+  it('throws with the status code on a non-2xx response', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({}),
+    })) as unknown as typeof fetch
+
+    await expect(IamAccessClient.fromServer('/api/permissions')).rejects.toThrow('Failed to fetch permissions: 403')
+  })
+
+  it('does not read the body when the response is not ok', async () => {
+    const json = vi.fn(async () => ({}))
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500, json })) as unknown as typeof fetch
+
+    await expect(IamAccessClient.fromServer('/api/permissions')).rejects.toThrow()
+    expect(json).not.toHaveBeenCalled()
+  })
+})
+
+describe('iamAccessClient factory', () => {
+  it('builds an IamAccessClient equivalent to the constructor', () => {
+    const client = iamAccessClient({ 'read:post': true })
+    expect(client).toBeInstanceOf(IamAccessClient)
+    expect(client.can('read', 'post')).toBe(true)
+    expect(client.can('create', 'post')).toBe(false)
+  })
+
+  it('defaults to empty permissions when called with no arguments', () => {
+    expect(iamAccessClient().permissions).toEqual({})
+  })
+})
+
+describe('allowedActions / hasAnyOn key-shape edges', () => {
+  it('ignores keys with fewer than 2 or more than 4 segments', () => {
+    const client = new IamAccessClient<Action, ResourceType, Scope>(
+      perms({ post: true, 'a:b:c:d:post': true, 'read:post': true }),
+    )
+    expect(client.allowedActions('post')).toEqual(['read'])
+  })
+
+  it('resolves a 4-segment scope:action:resource:resourceId key', () => {
+    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ 'org-1:read:post:post-9': true }))
+    expect(client.allowedActions('post')).toEqual(['read'])
+    expect(client.hasAnyOn('post')).toBe(true)
+  })
+
+  it('does not treat a 4-segment resourceId as the resource', () => {
+    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ 'org-1:read:comment:post': true }))
+    expect(client.allowedActions('post')).toEqual([])
+    expect(client.hasAnyOn('post')).toBe(false)
+  })
+
+  it('returns an empty list for a resource with no keys at all', () => {
+    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({}))
+    expect(client.allowedActions('post')).toEqual([])
+    expect(client.hasAnyOn('post')).toBe(false)
+  })
+
+  it('merge() notifies subscribers with the merged map', () => {
+    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ 'read:post': true }))
+    const listener = vi.fn()
+    client.subscribe(listener)
+    client.merge(perms({ 'create:post': true }))
+    expect(listener).toHaveBeenCalledWith({ 'read:post': true, 'create:post': true })
   })
 })

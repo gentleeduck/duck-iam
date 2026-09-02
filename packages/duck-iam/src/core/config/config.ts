@@ -14,8 +14,8 @@ import type { IamConfig } from './config.types'
  *
  * @template TActions   - Tuple of action strings, declared `as const`.
  * @template TResources - Tuple of resource strings, declared `as const`.
- * @template TScopes    - Tuple of scope strings, declared `as const`.
  * @template TRoles     - Tuple of role ID strings, declared `as const`.
+ * @template TScopes    - Tuple of scope strings, declared `as const`.
  * @template TContext   - Shape of the evaluation context for typed dot-paths.
  *
  * @param input - Your permission schema: actions, resources, and optionally scopes, roles, and context.
@@ -23,7 +23,7 @@ import type { IamConfig } from './config.types'
  *
  * @example
  * ```ts
- * const iam = createIam({
+ * const access = createIam({
  *   actions: ['create', 'read', 'update', 'delete'] as const,
  *   resources: ['post', 'comment', 'user'] as const,
  *   roles: ['viewer', 'editor', 'admin'] as const,
@@ -31,8 +31,8 @@ import type { IamConfig } from './config.types'
  * })
  *
  * // All builders are now type-safe:
- * iam.defineRole('viewer').grant('read', 'post')   // OK
- * iam.defineRole('viewer').grant('raed', 'post')   // compile error
+ * access.defineRole('viewer').grant('read', 'post')   // OK
+ * access.defineRole('viewer').grant('raed', 'post')   // compile error
  * ```
  */
 export function createIam<

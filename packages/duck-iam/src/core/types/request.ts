@@ -56,14 +56,14 @@ export namespace IamRequest {
   }
 
   /**
-   * IamRequest-level context not specific to subject or resource - client IP,
+   * Request-level context not specific to subject or resource - client IP,
    * user agent, timestamp, feature flags, etc. Custom keys allowed via the
    * string index signature.
    */
   export interface IEnvironment {
     readonly ip?: string
     readonly userAgent?: string
-    /** IamRequest timestamp in milliseconds since epoch. */
+    /** Request timestamp in milliseconds since epoch. */
     readonly timestamp?: number
     /**
      * Evaluation clock in epoch milliseconds. Auto-injected by the engine as

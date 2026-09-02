@@ -111,4 +111,28 @@ describe('enrichSubjectWithScopedRoles', () => {
       expect(enrichSubjectWithScopedRoles(s, 'org-1', 'flat', 'override').roles).toEqual(['viewer', 'editor'])
     })
   })
+
+  // `IScopedRole.scope` is optional, so an adapter can hand back an unscoped grant.
+  // It must never be treated as matching an actual request scope in any mode.
+  describe('grant with no scope', () => {
+    const s = subject(['viewer'], [{ role: 'editor' }])
+
+    it('is skipped under flat', () => {
+      expect(enrichSubjectWithScopedRoles(s, 'org-1')).toBe(s)
+    })
+
+    it('is skipped under hierarchical + union', () => {
+      expect(enrichSubjectWithScopedRoles(s, 'org-1.team-2', 'hierarchical')).toBe(s)
+    })
+
+    it('is skipped under hierarchical + override', () => {
+      expect(enrichSubjectWithScopedRoles(s, 'org-1.team-2', 'hierarchical', 'override')).toBe(s)
+    })
+
+    it('does not shadow a real ancestor grant under override', () => {
+      const mixed = subject(['viewer'], [{ role: 'ghost' }, { role: 'org-editor', scope: 'org-1' }])
+      const enriched = enrichSubjectWithScopedRoles(mixed, 'org-1.team-2', 'hierarchical', 'override')
+      expect(enriched.roles).toEqual(['viewer', 'org-editor'])
+    })
+  })
 })

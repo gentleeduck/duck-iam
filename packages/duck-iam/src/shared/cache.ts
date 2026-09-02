@@ -41,7 +41,6 @@ export class IamLRUCache<V> {
       this._misses++
       return undefined
     }
-    // Move to end (most recently used)
     this._map.delete(key)
     this._map.set(key, entry)
     this._hits++

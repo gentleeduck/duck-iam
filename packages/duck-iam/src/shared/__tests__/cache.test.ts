@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IamLRUCache } from '../cache'
+import { IamLRUCache, iamLRUCache } from '../cache'
 
 describe('IamLRUCache', () => {
   it('stores and retrieves values', () => {
@@ -82,6 +82,22 @@ describe('IamLRUCache', () => {
     expect(() => new IamLRUCache<string>(10, -1)).toThrow(RangeError)
   })
 
+  it('rejects non-finite maxSize and ttlMs', () => {
+    expect(() => new IamLRUCache<string>(Number.NaN, 1000)).toThrow(RangeError)
+    expect(() => new IamLRUCache<string>(Number.POSITIVE_INFINITY, 1000)).toThrow(RangeError)
+    expect(() => new IamLRUCache<string>(10, Number.NaN)).toThrow(RangeError)
+    expect(() => new IamLRUCache<string>(10, Number.POSITIVE_INFINITY)).toThrow(RangeError)
+  })
+
+  it('holds a single entry at maxSize 1', () => {
+    const cache = new IamLRUCache<string>(1, 60000)
+    cache.set('a', '1')
+    cache.set('b', '2')
+    expect(cache.size).toBe(1)
+    expect(cache.get('a')).toBeUndefined()
+    expect(cache.get('b')).toBe('2')
+  })
+
   it('allows ttlMs of 0 without throwing', () => {
     expect(() => new IamLRUCache<string>(10, 0)).not.toThrow()
   })
@@ -122,7 +138,6 @@ describe('IamLRUCache', () => {
       cache.set('a', '1')
       vi.advanceTimersByTime(150)
       cache.get('a') // triggers cleanup
-      // Size may still show 0 since the entry was removed
       expect(cache.get('a')).toBeUndefined()
     })
   })
@@ -159,5 +174,62 @@ describe('IamLRUCache', () => {
       cache.resetStats()
       expect(cache.stats).toEqual({ hits: 0, misses: 0, size: 1 })
     })
+  })
+
+  describe('entries()', () => {
+    it('yields nothing for an empty cache', () => {
+      const cache = new IamLRUCache<string>(10, 60000)
+      expect([...cache.entries()]).toEqual([])
+    })
+
+    it('yields live entries in insertion order', () => {
+      const cache = new IamLRUCache<string>(10, 60000)
+      cache.set('a', '1')
+      cache.set('b', '2')
+      expect([...cache.entries()]).toEqual([
+        ['a', '1'],
+        ['b', '2'],
+      ])
+    })
+
+    it('does not count as a read: stats and LRU order are untouched', () => {
+      const cache = new IamLRUCache<string>(2, 60000)
+      cache.set('a', '1')
+      cache.set('b', '2')
+      expect([...cache.entries()]).toHaveLength(2)
+      expect(cache.stats).toEqual({ hits: 0, misses: 0, size: 2 })
+      cache.set('c', '3')
+      expect(cache.get('a')).toBeUndefined()
+    })
+
+    it('skips expired entries', () => {
+      vi.useFakeTimers()
+      try {
+        const cache = new IamLRUCache<string>(10, 100)
+        cache.set('a', '1')
+        vi.advanceTimersByTime(150)
+        cache.set('b', '2')
+        expect([...cache.entries()]).toEqual([['b', '2']])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+})
+
+describe('iamLRUCache()', () => {
+  it('builds an IamLRUCache with the same constructor arguments', () => {
+    const cache = iamLRUCache<string>(2, 60000)
+    expect(cache).toBeInstanceOf(IamLRUCache)
+    cache.set('a', '1')
+    cache.set('b', '2')
+    cache.set('c', '3')
+    expect(cache.size).toBe(2)
+    expect(cache.get('a')).toBeUndefined()
+  })
+
+  it('propagates constructor validation', () => {
+    expect(() => iamLRUCache<string>(0, 1000)).toThrow(RangeError)
+    expect(() => iamLRUCache<string>(10, -1)).toThrow(RangeError)
   })
 })

@@ -149,7 +149,8 @@ export class RuleBuilder<
    */
   of<R extends TResource | '*'>(...resources: R[]): RuleBuilder<TAction, TResource, TScope, TRole, TContext, R> {
     this._resources = resources
-    /** : This cast to get intellisense working for the specified resource type */
+    // Narrows TActiveResource so `.when(w => w.resourceAttr(...))` autocompletes
+    // the attributes of the resource(s) just selected.
     return this as unknown as RuleBuilder<TAction, TResource, TScope, TRole, TContext, R>
   }
 

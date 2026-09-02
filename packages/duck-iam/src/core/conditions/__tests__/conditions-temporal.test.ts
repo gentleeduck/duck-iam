@@ -59,4 +59,14 @@ describe('temporal operators: after / before', () => {
     expect(evalConditionGroup(makeReq('not-a-date'), after)).toBe(false)
     expect(evalConditionGroup(makeReq(true), after)).toBe(false)
   })
+
+  it('fails closed on infinite operands (a NaN-only guard would let these through)', () => {
+    expect(evalConditionGroup(makeReq(Number.POSITIVE_INFINITY), after)).toBe(false)
+    expect(evalConditionGroup(makeReq(Number.NEGATIVE_INFINITY), before)).toBe(false)
+  })
+
+  it('fails closed on non-scalar operands (array / object timestamps)', () => {
+    expect(evalConditionGroup(makeReq([FUTURE_MS]), after)).toBe(false)
+    expect(evalConditionGroup(makeReq({ at: FUTURE_MS }), after)).toBe(false)
+  })
 })

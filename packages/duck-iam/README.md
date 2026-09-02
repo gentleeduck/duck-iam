@@ -25,7 +25,7 @@
 
 Type-safe authorization engine for TypeScript. RBAC + ABAC with a policy engine, condition evaluation, scoped roles, and integrations for Express, NestJS, Hono, Next.js, React, Vue, and vanilla JS.
 
-Zero runtime dependencies. Tree-shakeable - see [Module sizes](#module-sizes-gzipped) below for real per-module numbers.
+One runtime dependency (`uuid`, pulled in only by the Drizzle schema helpers). Tree-shakeable - see [Module sizes](#module-sizes-gzipped) below for real per-module numbers.
 
 ## Install
 
@@ -154,8 +154,8 @@ at 15-25 KB.
 - **`IConfig.maxPolicies` / `maxRoles`** - load-time caps that fail closed
 - **`IConfig.allowFailOpen`** - explicit opt-in required to combine `mode: 'production'` with `defaultEffect: 'allow'`
 - **`IConfig.invalidator`** - cross-instance cache-invalidation broadcaster
-- **`createRedisInvalidator`** at `@gentleduck/iam/invalidators/redis` - pub/sub helper with self-echo filter
-- **`createMetricsAggregator`** at `@gentleduck/iam/observability/metrics` - p50 / p95 / p99 over `onMetrics` events
+- **`createIamRedisInvalidator`** at `@gentleduck/iam/invalidators/redis` - pub/sub helper with self-echo filter
+- **`iamCreateMetricsAggregator`** at `@gentleduck/iam/observability/metrics` - p50 / p95 / p99 over `onMetrics` events
 - **HttpAdapter retry + per-request timeout + circuit breaker** (retries, backoff, threshold, cooldown)
 - **Required `authorize` callback** on every admin router (Express, Hono, Next, Nest)
 
@@ -214,13 +214,13 @@ import { IamHttpAdapter } from '@gentleduck/iam/adapters/http'
 ### Operability
 
 ```typescript
-import { createRedisInvalidator } from '@gentleduck/iam/invalidators/redis'
-import { createMetricsAggregator } from '@gentleduck/iam/observability/metrics'
+import { createIamRedisInvalidator } from '@gentleduck/iam/invalidators/redis'
+import { iamCreateMetricsAggregator } from '@gentleduck/iam/observability/metrics'
 
-const metrics = createMetricsAggregator()
+const metrics = iamCreateMetricsAggregator()
 const engine = new IamEngine({
   adapter,
-  invalidator: createRedisInvalidator({ client: redis }),
+  invalidator: createIamRedisInvalidator({ client: redis }),
   hooks: { onMetrics: metrics.record },
 })
 

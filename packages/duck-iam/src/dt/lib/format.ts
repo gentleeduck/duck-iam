@@ -1,5 +1,5 @@
 import type { Explain } from '../../core/explain'
-import type { AccessControl, IamPrimitives } from '../../core/types'
+import type { IamPrimitives } from '../../core/types'
 
 export function formatAttrValue(value: IamPrimitives.AttributeValue | undefined): string {
   if (value === undefined) return '(undefined)'
@@ -9,14 +9,6 @@ export function formatAttrValue(value: IamPrimitives.AttributeValue | undefined)
   if (Array.isArray(value))
     return `[${value.map((v) => formatAttrValue(v as IamPrimitives.AttributeValue)).join(', ')}]`
   return JSON.stringify(value)
-}
-
-export function effectColor(effect: AccessControl.Effect): string {
-  return effect === 'allow' ? 'text-emerald-500' : 'text-rose-500'
-}
-
-export function resultColor(result: boolean): string {
-  return result ? 'text-emerald-500' : 'text-rose-500'
 }
 
 export function safeParseJson<T = unknown>(raw: string, fallback: T): { value: T; error?: string } {
@@ -35,9 +27,4 @@ export function summarizeTrace(trace: Explain.Trace): string {
   }
   const logic = trace.logic.toUpperCase()
   return `${logic} (${trace.children.length})`
-}
-
-export function countConditions(trace: Explain.Trace): number {
-  if (trace.type === 'condition') return 1
-  return trace.children.reduce((sum, c) => sum + countConditions(c), 0)
 }
