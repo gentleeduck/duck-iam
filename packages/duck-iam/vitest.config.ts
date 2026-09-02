@@ -11,6 +11,7 @@ export default mergeConfig(
   baseConfig,
   defineConfig({
     test: {
+      globalSetup: ['src/test/e2e-containers.ts'],
       exclude: [
         '**/node_modules/**',
         '**/dist/**',
