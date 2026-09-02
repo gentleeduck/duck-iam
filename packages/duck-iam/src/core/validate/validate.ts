@@ -339,6 +339,49 @@ export function validateRole(input: unknown): IamValidate.IResult {
       message: 'Role must have a "permissions" array',
       path: 'permissions',
     })
+  } else {
+    // Entries were previously unchecked, so `[null]` or `[{}]` passed validation
+    // and reached key building as `undefined:undefined`.
+    for (const [i, perm] of r.permissions.entries()) {
+      if (!isPlainObject(perm)) {
+        issues.push({
+          type: 'error',
+          code: 'INVALID_TYPE',
+          message: `"permissions[${i}]" must be a non-null object`,
+          path: `permissions[${i}]`,
+        })
+        continue
+      }
+      for (const field of ['action', 'resource'] as const) {
+        if (typeof perm[field] !== 'string' || perm[field] === '') {
+          issues.push({
+            type: 'error',
+            code: 'MISSING_FIELD',
+            message: `"permissions[${i}].${field}" must be a non-empty string`,
+            path: `permissions[${i}].${field}`,
+          })
+        }
+      }
+      // `''` is refused, not accepted-and-normalised: the redis encoding spells
+      // "no scope" as the empty string, and `matchesScope` used to read an
+      // empty pattern as global. One contract - omit the field for global.
+      if (perm.scope !== undefined && (typeof perm.scope !== 'string' || perm.scope === '')) {
+        issues.push({
+          type: 'error',
+          code: 'INVALID_TYPE',
+          message: `"permissions[${i}].scope" must be a non-empty string if provided (omit it for a global permission)`,
+          path: `permissions[${i}].scope`,
+        })
+      }
+      if (perm.conditions !== undefined && !isPlainObject(perm.conditions)) {
+        issues.push({
+          type: 'error',
+          code: 'INVALID_TYPE',
+          message: `"permissions[${i}].conditions" must be an object if provided`,
+          path: `permissions[${i}].conditions`,
+        })
+      }
+    }
   }
 
   if (r.inherits !== undefined && r.inherits !== null) {

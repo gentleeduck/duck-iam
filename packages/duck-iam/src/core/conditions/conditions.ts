@@ -42,6 +42,21 @@ function evalItem(
 }
 
 /**
+ * A group key that is present but not an array is malformed. Throwing makes it
+ * indeterminate: reporting it and failing closed beats reading a broken `none`
+ * as an empty list, which would satisfy the group unconditionally.
+ */
+function assertItems(
+  items: unknown,
+  key: 'all' | 'any' | 'none',
+): ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> {
+  if (!Array.isArray(items)) {
+    throw new Error(`[@gentleduck/iam:conditions] condition group "${key}" must be an array`)
+  }
+  return items
+}
+
+/**
  * Evaluates a condition group tree against an access request.
  *
  * Handles `all` (AND), `any` (OR), and `none` (NOT/NOR) groups recursively.
@@ -64,17 +79,20 @@ export function evalConditionGroup(
   }
 
   if ('all' in group) {
-    return group.all.every((item) => evalItem(req, item, depth + 1, caches))
+    return assertItems(group.all, 'all').every((item) => evalItem(req, item, depth + 1, caches))
   }
 
   if ('any' in group) {
-    return group.any.some((item) => evalItem(req, item, depth + 1, caches))
+    return assertItems(group.any, 'any').some((item) => evalItem(req, item, depth + 1, caches))
   }
 
   if ('none' in group) {
-    return !group.none.some((item) => evalItem(req, item, depth + 1, caches))
+    return !assertItems(group.none, 'none').some((item) => evalItem(req, item, depth + 1, caches))
   }
 
-  // Empty object {} = no conditions = unconditionally true
-  return true
+  // `{}` means no conditions, which is unconditionally true. Anything else that
+  // reached here has keys we do not recognise (a typo'd `all`, a row from a
+  // hand-edited store). Reading that as "no conditions" turns a conditional
+  // allow into an unconditional one, so it is false instead.
+  return group !== null && typeof group === 'object' && Object.keys(group).length === 0
 }
