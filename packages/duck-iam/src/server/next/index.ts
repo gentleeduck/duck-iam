@@ -14,6 +14,7 @@ import {
   IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
   iamDefaultCsrfCheck,
+  iamExtractEnvironment,
   iamNoticeCsrfDefaultIfNeeded,
   iamRunAdminAuthz,
   iamWithAdminAudit,
@@ -149,11 +150,7 @@ export function withIamAccess<
   }
   const {
     getUserId,
-    getEnvironment = (req) => ({
-      ip: req.headers.get('x-forwarded-for') ?? undefined,
-      userAgent: req.headers.get('user-agent') ?? undefined,
-      timestamp: Date.now(),
-    }),
+    getEnvironment = (req) => iamExtractEnvironment({ headers: req.headers, method: req.method, url: req.url }),
     scope,
     onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
   } = opts
@@ -389,7 +386,7 @@ export function createIamAdminHandlers<
   const onUnauthorized = opts.onUnauthorized ?? (() => Response.json({ error: 'Unauthorized' }, { status: 401 }))
   const onError = opts.onError ?? (() => Response.json({ error: 'Internal server error' }, { status: 500 }))
 
-  /** Read gate: no audit emission. */
+  /** Read gate: authorize only - no CSRF check, no audit emission. */
   const gate =
     <P>(fn: (req: Request, ctx: { params: Promise<P> | P }) => Promise<Response>) =>
     async (req: Request, ctx: { params: Promise<P> | P }): Promise<Response> => {
@@ -402,9 +399,8 @@ export function createIamAdminHandlers<
     }
 
   /**
-   * Mutation gate: identical to {@link gate} but emits an `onAdminMutation`
-   * event after the handler resolves or rejects. Uses try/finally so the
-   * hook fires even when the handler throws.
+   * Mutation gate: unlike {@link gate} it runs the CSRF check first, then emits
+   * an `onAdminMutation` audit event whether the handler resolves or rejects.
    */
   const mutate =
     <P>(

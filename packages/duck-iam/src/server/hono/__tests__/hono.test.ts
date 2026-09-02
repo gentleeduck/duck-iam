@@ -194,6 +194,22 @@ describe('iamAccessMiddleware (hono)', () => {
     can.mockRestore()
   })
 
+  it('takes the leftmost hop from a multi-value x-forwarded-for', async () => {
+    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
+    const { ctx } = makeContext({
+      method: 'GET',
+      path: '/post',
+      headers: { 'x-forwarded-for': ' 5.6.7.8 , 10.0.0.1' },
+    })
+    await mw(
+      ctx,
+      vi.fn(async () => undefined),
+    )
+    expect(can.mock.calls[0]?.[3]?.ip).toBe('5.6.7.8')
+    can.mockRestore()
+  })
+
   it('onError handles engine throw', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('boom'))
     const onError = vi.fn((_e, c) => c.json({ err: true }, 599))
