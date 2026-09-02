@@ -4,6 +4,7 @@ import {
   IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
   iamDefaultCsrfCheck,
+  iamExtractEnvironment,
   iamNoticeCsrfDefaultIfNeeded,
   iamRunAdminAuthz,
   iamWithAdminAudit,
@@ -90,13 +91,18 @@ export namespace IamHono {
   }
 }
 
-/** Extract environment from IamHono context using common headers. */
+/** Extract environment from IamHono context; `cf-connecting-ip` wins, then the leftmost `x-forwarded-for` hop. */
 function defaultEnv(c: HonoContext): IamRequest.IEnvironment {
-  return {
-    ip: c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for'),
-    userAgent: c.req.header('user-agent'),
-    timestamp: Date.now(),
-  }
+  return iamExtractEnvironment({
+    ip: c.req.header('cf-connecting-ip'),
+    headers: {
+      'x-forwarded-for': c.req.header('x-forwarded-for'),
+      'x-real-ip': c.req.header('x-real-ip'),
+      'user-agent': c.req.header('user-agent'),
+    },
+    method: c.req.method,
+    url: c.req.url,
+  })
 }
 
 /**
@@ -213,7 +219,7 @@ export function iamBindAdminRouter<
   const onUnauthorized = opts.onUnauthorized ?? ((c) => c.json({ error: 'Unauthorized' }, 401))
   const onError = opts.onError ?? ((_, c) => c.json({ error: 'Internal server error' }, 500))
 
-  /** Read gate: no audit emission. */
+  /** Read gate: authorize only - no CSRF check, no audit emission. */
   const gate =
     (handler: (c: HonoContext) => Promise<Response> | Response) =>
     async (c: HonoContext): Promise<Response> => {
@@ -226,9 +232,8 @@ export function iamBindAdminRouter<
     }
 
   /**
-   * Mutation gate: identical to {@link gate} but emits an `onAdminMutation`
-   * event after the handler resolves or rejects. Uses try/finally so the
-   * hook fires even when the handler throws.
+   * Mutation gate: unlike {@link gate} it runs the CSRF check first, then emits
+   * an `onAdminMutation` audit event whether the handler resolves or rejects.
    */
   const mutate =
     (

@@ -320,8 +320,8 @@ export function createIamAdminOperations<
 
   /**
    * Gate that returns whatever {@link IamNest.IAdminAuthorize} returned so the value
-   * can be forwarded into the audit event as `actor`. Throws a 401-flavoured
-   * Error on denial so the calling controller surfaces a NestJS exception.
+   * can be forwarded into the audit event as `actor`. Throws an `Error` carrying
+   * `status` 403 (CSRF) or 401 (denied) so the controller surfaces a Nest exception.
    */
   const gateWithActor = async (req: NestRequest): Promise<unknown> => {
     // CSRF guard runs before authorize so a cookie-based authorize cannot
@@ -371,6 +371,7 @@ export function createIamAdminOperations<
     )
   }
 
+  /** Read gate. Unlike the express/hono/next adapters this also runs the CSRF check. */
   const gate = async (req: NestRequest): Promise<void> => {
     await gateWithActor(req)
   }

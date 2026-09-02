@@ -113,6 +113,15 @@ describe('withIamAccess', () => {
     can.mockRestore()
   })
 
+  it('default getEnvironment takes the leftmost hop from a multi-value x-forwarded-for', async () => {
+    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+    const handler = vi.fn(async () => Response.json({ ok: true }))
+    const wrapped = withIamAccess(engine, 'read', 'post', handler, { getUserId: () => 'u' })
+    await wrapped(makeRequest({ headers: { 'x-forwarded-for': ' 1.1.1.1 , 10.0.0.1' } }), { params: {} })
+    expect(can.mock.calls[0]?.[3]?.ip).toBe('1.1.1.1')
+    can.mockRestore()
+  })
+
   it('onError on engine throw', async () => {
     vi.spyOn(engine, 'can').mockRejectedValue(new Error('boom'))
     const onError = vi.fn(() => Response.json({ err: true }, { status: 599 }))

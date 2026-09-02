@@ -163,7 +163,6 @@ let _CSRF_DEFAULT_NOTICED = false
 export function iamNoticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
   if (csrfCheckPassed || _CSRF_DEFAULT_NOTICED) return
   _CSRF_DEFAULT_NOTICED = true
-  // eslint-disable-next-line no-console
   console.info(
     '[@gentleduck/iam] admin router: default CSRF check enabled - ' +
       'rejecting browser requests with Sec-Fetch-Site: cross-site|cross-origin. ' +
@@ -180,7 +179,6 @@ export function iamNoticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
  * @param req - Any object the adapter can extract a header from.
  * @returns `true` to allow, `false` to reject (403).
  */
-
 export function iamDefaultCsrfCheck(req: unknown): boolean {
   const r = req as
     | {

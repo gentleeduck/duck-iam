@@ -269,7 +269,7 @@ export function iamAdminRouter<
   const effectiveCsrfCheck = csrfCheck === false ? null : (csrfCheck ?? iamDefaultCsrfCheck)
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
-  /** Read gate: no audit emission. */
+  /** Read gate: authorize only - no CSRF check, no audit emission. */
   const gate = (handler: (req: Req, res: Res) => Promise<void>) => async (req: Req, res: Res) => {
     try {
       if (!(await authorize(req))) {
@@ -283,9 +283,8 @@ export function iamAdminRouter<
   }
 
   /**
-   * Mutation gate: identical to {@link gate} but emits an `onAdminMutation`
-   * event after the handler resolves or rejects. Uses try/finally so the
-   * hook fires even when the handler throws.
+   * Mutation gate: unlike {@link gate} it runs the CSRF check first, then emits
+   * an `onAdminMutation` audit event whether the handler resolves or rejects.
    */
   const mutate =
     (
