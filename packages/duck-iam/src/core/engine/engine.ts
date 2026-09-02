@@ -326,6 +326,11 @@ export class IamEngine<
    * pre-invalidation data - it starts (or joins) a fresh build against the post-invalidation
    * generation instead, matching what a caller would get with no single-flighting at all.
    */
+  /** Cached table, or a build if none is current. The single read path for every caller. */
+  private async _getCompiledTable(): Promise<CompiledTable> {
+    return this._compiledTable ?? (await this._rebuildCompiledTable())
+  }
+
   private _rebuildCompiledTable(): Promise<CompiledTable> {
     if (this._compiledTableBuild && this._compiledTableBuildGen === this._compiledTableGen) {
       return this._compiledTableBuild
@@ -408,7 +413,7 @@ export class IamEngine<
 
       const signals: { failOpen?: boolean } = {}
       if (this._mode === 'production') {
-        const table = this._compiledTable ?? (await this._rebuildCompiledTable())
+        const table = await this._getCompiledTable()
         const mask = maskFromRoles(table, req.subject.roles)
         const allowed = lookup(
           table,
@@ -683,7 +688,7 @@ export class IamEngine<
 
   /**
    * Batch check: evaluate many permissions at once for a single subject.
-   * Returns a map keyed by `[scope:]action:resource[:resourceId]` (see `iamBuildPermissionKey`).
+   * Returns a map keyed by `[@scope:]action:resource[:resourceId]` (see `iamBuildPermissionKey`).
    * Loads adapter data once, then evaluates each check.
    * Each check goes through scoped role enrichment and hooks, consistent with authorize().
    *
@@ -790,7 +795,7 @@ export class IamEngine<
         const signals: { failOpen?: boolean } = {}
 
         if (this._mode === 'production') {
-          const table = this._compiledTable ?? (await this._rebuildCompiledTable())
+          const table = await this._getCompiledTable()
           const mask = maskFromRoles(table, req.subject.roles)
           const allowed = lookup(
             table,
@@ -927,6 +932,10 @@ export class IamEngine<
    */
   async preload(opts: { validator?: boolean } = {}): Promise<void> {
     await preloadEngine({
+      // In production the compiled table is what every check reads. Building it
+      // here surfaces a config it cannot represent (over 32 roles) at boot,
+      // instead of throwing inside the first authorization request.
+      ...(this._mode === 'production' && { buildCompiledTable: () => this._getCompiledTable() }),
       loadAllPolicies: () => this._loadAllPolicies(),
       loadValidator: opts.validator === true,
     })
@@ -944,6 +953,9 @@ export class IamEngine<
   async healthCheck(): Promise<IamEngineTypes.IHealth> {
     return runHealthCheck(this._cachesForStats(), async () => {
       await this._withTimeout((opts) => this._adapter.listPolicies(opts), 'healthCheck.listPolicies')
+      // A production engine whose table cannot be built answers no check, so a
+      // green probe would be a lie. Uses the cached table when there is one.
+      if (this._mode === 'production') await this._getCompiledTable()
     })
   }
 }

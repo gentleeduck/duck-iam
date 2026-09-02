@@ -394,6 +394,19 @@ export function createAdmin<
           `[@gentleduck/iam:engine] unsupported snapshot schemaVersion ${formatErrInterp(incoming)}; expected 1`,
         )
       }
+      for (const field of ['policies', 'roles'] as const) {
+        if (!Array.isArray(snapshot[field])) {
+          throw new Error(`[@gentleduck/iam:engine] snapshot "${field}" must be an array`)
+        }
+      }
+      // Validate the whole snapshot before touching the adapter. Interleaving
+      // meant an invalid row halfway through left the store half-applied: in
+      // `replace` mode the deletions had already landed, so deny policies could
+      // be gone with nothing written back in their place.
+      const { validatePolicy, validateRole } = await _getValidate()
+      for (const p of snapshot.policies) assertValidOrThrow('policy', validatePolicy(p))
+      for (const r of snapshot.roles) assertValidOrThrow('role', validateRole(r))
+
       const mode = options.mode ?? 'merge'
       let policiesDeleted = 0
       let rolesDeleted = 0
@@ -414,15 +427,8 @@ export function createAdmin<
           }
         }
       }
-      const { validatePolicy, validateRole } = await _getValidate()
-      for (const p of snapshot.policies) {
-        assertValidOrThrow('policy', validatePolicy(p))
-        await adapter.savePolicy(p)
-      }
-      for (const r of snapshot.roles) {
-        assertValidOrThrow('role', validateRole(r))
-        await adapter.saveRole(r)
-      }
+      for (const p of snapshot.policies) await adapter.savePolicy(p)
+      for (const r of snapshot.roles) await adapter.saveRole(r)
       // Bulk write touched every cache; invalidate once instead of per-row.
       engine.cache.invalidatePolicies()
       engine.cache.invalidateRoles()
