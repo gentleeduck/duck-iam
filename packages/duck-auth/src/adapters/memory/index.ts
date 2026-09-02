@@ -118,7 +118,9 @@ export class MemoryAdapter<
       softDelete: async (id, gracePeriodMs) => {
         const cur = store.get(id)
         if (!cur) return
-        store.set(id, { ...cur, deletedAt: new Date(Date.now() + gracePeriodMs) })
+        // See the dialect bridges: the address is released while the row is
+        // soft-deleted, so the verified claim must not survive the round trip.
+        store.set(id, { ...cur, deletedAt: new Date(Date.now() + gracePeriodMs), emailVerified: false })
       },
       restore: async (id) => {
         const cur = store.get(id)
@@ -126,6 +128,18 @@ export class MemoryAdapter<
         const deletedAtMs = cur.deletedAt?.getTime()
         if (!deletedAtMs || deletedAtMs < Date.now()) {
           throw new AuthError('AUTH_GRACE_EXPIRED')
+        }
+        // The address was free the whole time this row was hidden, so someone
+        // may have taken it. There is no unique index here to catch it, which
+        // would leave two live rows answering to the same email.
+        const email = getProfileString(cur.profile, 'email')
+        if (email !== undefined) {
+          for (const other of store.values()) {
+            if (other.id === id || isSoftDeleted(other)) continue
+            if (getProfileString(other.profile, 'email') === email) {
+              throw new AuthError('AUTH_EMAIL_TAKEN')
+            }
+          }
         }
         // `Me.deletedAt` is non-optional (`Date | null`), so reset rather than omit.
         const next: Identities.Me<Profile> = { ...cur, deletedAt: null }
