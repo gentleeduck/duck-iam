@@ -28,8 +28,13 @@ export namespace Org {
     listOrgsForIdentity(identityId: string, ctx: TenantContext): Promise<Me<Meta>[]>
     listMembers(orgId: string, ctx: TenantContext): Promise<Membership[]>
     addMember(m: Omit<Membership, 'joinedAt'>, ctx: TenantContext): Promise<Membership>
-    removeMember(orgId: string, identityId: string, ctx: TenantContext): Promise<void>
-    setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext): Promise<void>
+    /**
+     * Both answer with the membership they touched, `null` when there was none:
+     * `removeMember` with the row as it stands left, `setRoles` with the row
+     * carrying its new roles.
+     */
+    removeMember(orgId: string, identityId: string, ctx: TenantContext): Promise<Membership | null>
+    setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext): Promise<Membership | null>
     /** See `Identities.Store.withClient`. Absent means this store cannot join a transaction. */
     withClient?(client: unknown): Store<Meta>
   }
