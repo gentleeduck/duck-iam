@@ -1,7 +1,8 @@
 {
-  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "_comment": "Mutation testing scaffold. Removing a try/catch or sentinel-compare line should be killed by the security regression test suite. Run with `bun run mutation`. Slow (~5-15 min); not part of CI by default. KNOWN ISSUE: Stryker 9 + Vitest 4 + this monorepo's symlinked node_modules currently fails dry-run discovery (`No tests were executed`). Workaround pending - investigate stryker-vitest-runner glob resolution or migrate to @stryker-mutator/jest-runner against a vitest-compat jest config.",
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Mutation testing scaffold. Removing a try/catch or sentinel-compare line should be killed by the security regression test suite. Run with `bun run mutation` (full run is slow, ~5-15 min; not part of CI by default) or `bunx stryker run --mutate src/<file>.ts` for one file. `tsconfigFile` deliberately names a file that does not exist: Stryker's tsconfig preprocessor calls `ts.parseConfigFileTextToJson`, which TypeScript 7 no longer exports, and our tsconfig `extends` a package specifier so nothing needs rewriting. Test files must NOT be in `ignorePatterns` - that removes them from the sandbox; the `mutate` list already keeps them unmutated.",
   "packageManager": "npm",
+  "tsconfigFile": "tsconfig.stryker-skip.json",
   "testRunner": "vitest",
   "vitest": {
     "configFile": "vitest.config.ts",
@@ -27,16 +28,7 @@
     "src/adapters/memory/index.ts",
     "src/invalidators/redis/index.ts"
   ],
-  "ignorePatterns": [
-    "node_modules/**",
-    "dist/**",
-    ".cache/**",
-    ".turbo/**",
-    "audit/**",
-    "**/__tests__/**",
-    "**/*.bench.ts",
-    "**/*.test.ts"
-  ],
+  "ignorePatterns": ["node_modules/**", "dist/**", ".cache/**", ".turbo/**", "audit/**", "**/*.bench.ts"],
   "thresholds": {
     "high": 80,
     "low": 60,
