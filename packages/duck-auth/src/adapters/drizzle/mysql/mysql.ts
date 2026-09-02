@@ -364,13 +364,19 @@ export function createDrizzleMysqlBridge<
         return reselectCredential(id)
       },
       revoke: async (id, revokedAt, tenantId) => {
-        await db
+        const result = await db
           .update(authCredentials)
           .set({ revokedAt })
           .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+        if (result[0].affectedRows === 0) return null
+        return reselectCredential(id)
       },
       delete: async (id, tenantId) => {
+        // Read before the delete: after it there is nothing left to re-select,
+        // and MySQL has no `RETURNING` to read on the way past.
+        const row = await reselectCredential(id)
         await db.delete(authCredentials).where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+        return row
       },
       deleteByIdentitiesReturningIds: async (identityIds, tenantId) => {
         const where = and(inArray(authCredentials.identityId, [...identityIds]), tenantWhere(authCredentials, tenantId))
@@ -381,15 +387,16 @@ export function createDrizzleMysqlBridge<
         return hit
       },
       deleteByKind: async (identityId, kind, tenantId) => {
-        await db
-          .delete(authCredentials)
-          .where(
-            and(
-              eq(authCredentials.identityId, identityId),
-              eq(authCredentials.kind, kind),
-              tenantWhere(authCredentials, tenantId),
-            ),
-          )
+        const where = and(
+          eq(authCredentials.identityId, identityId),
+          eq(authCredentials.kind, kind),
+          tenantWhere(authCredentials, tenantId),
+        )
+        // Same read-then-write as every other set-based MySQL statement here:
+        // both run on one connection, so the read cannot race its own write.
+        const doomed = await db.select().from(authCredentials).where(where)
+        await db.delete(authCredentials).where(where)
+        return doomed
       },
     },
     // --- Sessions ---

@@ -155,9 +155,19 @@ describe('MfaFacet - TOTP', () => {
       await facet.confirmTotpEnrollment('user-1', code)
       const handler = vi.fn()
       events.on('mfa.removed', handler)
-      await facet.removeTotp('user-1')
+      const gone = await facet.removeTotp('user-1')
+      // How many factors went. `0` is the difference between "MFA turned off"
+      // and "there was nothing to turn off" - the rows themselves stay put,
+      // they carry the shared secret.
+      expect(gone).toEqual({ removed: 1 })
       expect(await facet.hasTotp('user-1')).toBe(false)
       expect(handler).toHaveBeenCalledOnce()
+    })
+
+    it('answers removed:0 for an identity that had no totp, and for a rejected id', async () => {
+      expect(await facet.removeTotp('never-enrolled')).toEqual({ removed: 0 })
+      expect(await facet.removeTotp('')).toEqual({ removed: 0 })
+      expect(await facet.removeTotp('x'.repeat(300))).toEqual({ removed: 0 })
     })
   })
 })
@@ -372,7 +382,8 @@ describe('MfaFacet - WebAuthn-MFA', () => {
       webauthnModule: webauthn,
     })
     expect(await facet.hasWebauthnMfa(identityId)).toBe(true)
-    await facet.removeWebauthnMfa(identityId)
+    expect(await facet.removeWebauthnMfa(identityId)).toEqual({ removed: 1 })
     expect(await facet.hasWebauthnMfa(identityId)).toBe(false)
+    expect(await facet.removeWebauthnMfa(identityId)).toEqual({ removed: 0 })
   })
 })

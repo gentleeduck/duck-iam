@@ -385,13 +385,15 @@ export function createDrizzlePgBridge<
           .update(authCredentials)
           .set({ revokedAt })
           .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
-          .then(() => {}),
+          .returning()
+          .then((r) => r[0] ?? null),
 
       delete: (id, tenantId) =>
         db
           .delete(authCredentials)
           .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
-          .then(() => {}),
+          .returning()
+          .then((r) => r[0] ?? null),
 
       deleteByIdentitiesReturningIds: (identityIds, tenantId) =>
         db
@@ -415,7 +417,7 @@ export function createDrizzlePgBridge<
               tenantWhere(authCredentials, tenantId),
             ),
           )
-          .then(() => {}),
+          .returning(),
     },
 
     sessions: {

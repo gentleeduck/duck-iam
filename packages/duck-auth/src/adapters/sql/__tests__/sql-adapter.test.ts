@@ -130,15 +130,25 @@ function makeInMemoryBridge(): SqlBridge.Me<ProfileShape> {
       },
       revoke: async (id, revokedAt) => {
         const cur = credentials.get(id)
-        if (cur) credentials.set(id, { ...cur, revokedAt: new Date(revokedAt) })
+        if (!cur) return null
+        const next = { ...cur, revokedAt: new Date(revokedAt) }
+        credentials.set(id, next)
+        return next
       },
       delete: async (id) => {
+        const cur = credentials.get(id) ?? null
         credentials.delete(id)
+        return cur
       },
       deleteByKind: async (identityId, kind) => {
+        const removed: Credential.Me[] = []
         for (const [id, r] of credentials) {
-          if (r.identityId === identityId && r.kind === kind) credentials.delete(id)
+          if (r.identityId === identityId && r.kind === kind) {
+            removed.push(r)
+            credentials.delete(id)
+          }
         }
+        return removed
       },
     },
     sessions: {
