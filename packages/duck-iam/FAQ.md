@@ -264,7 +264,7 @@ Being straight about the slow paths:
 - **Heavy wildcard policies.** Rules containing `*` cannot be precomputed and are
   scanned linearly in `wildcardAny`. Prefer literal action and resource pairs
   where you can.
-- **Regex conditions.** The `matches` operator is the most expensive of the 18
+- **Regex conditions.** The `matches` operator is the most expensive of the 19
   operators, even with the compiled-regex cache. Use `eq`, `in`, or
   `starts_with` when they express the same thing.
 - **Very large policy sets.** Index build cost is linear in rule count and paid
@@ -275,9 +275,11 @@ Being straight about the slow paths:
 
 ### How well tested is it?
 
-1,368 test cases across 64 test files, plus mutation testing via Stryker,
-adapter compliance suites shared across all six adapters, and benchmarks against
-five competing libraries.
+See `docs/TEST-INVENTORY.md` for a catalog of every test file and what it
+pins down. Run `bunx vitest run` in the package for the authoritative counts -
+quoting a number here only guarantees it goes stale. Beyond the unit suites
+there is mutation testing via Stryker, adapter compliance suites shared across
+all six adapters, and benchmarks against five competing libraries.
 
 ---
 

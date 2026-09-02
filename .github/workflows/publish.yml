@@ -139,6 +139,11 @@ jobs:
       - name: Build
         run: bunx turbo run build --filter='./packages/*'
 
+      # The publish job is reached by a push to main, not by the PR checks, so
+      # nothing else stops a broken package from reaching the registry.
+      - name: Test and typecheck
+        run: bunx turbo run test check-types --filter='./packages/*'
+
       - name: Publish
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
