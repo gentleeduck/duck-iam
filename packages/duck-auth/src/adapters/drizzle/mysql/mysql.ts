@@ -6,7 +6,7 @@
  */
 
 import { createRequire } from 'node:module'
-import { and, eq, isNull, lt, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import type { MySqlColumn } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
@@ -161,6 +161,71 @@ export function createDrizzleMysqlBridge<
           .set({ providers })
           .where(and(eq(authIdentities.id, identityId)))
       },
+      /**
+       * MySQL has no `RETURNING`, so every set-based write here reads the
+       * matching ids FIRST and then writes them. Both statements run on one
+       * connection - inside the caller's transaction when there is one - so the
+       * read cannot race the write it is describing.
+       */
+      softDeleteManyReturningIds: async (ids, deletedAt) => {
+        const live = await db
+          .select({ id: authIdentities.id })
+          .from(authIdentities)
+          .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
+        const hit = live.map((r) => r.id)
+        if (hit.length === 0) return []
+        await db.update(authIdentities).set({ deletedAt }).where(inArray(authIdentities.id, hit))
+        return hit
+      },
+
+      eraseManyReturningIds: async (ids) => {
+        const list = [...ids]
+        const present = await db
+          .select({ id: authIdentities.id })
+          .from(authIdentities)
+          .where(inArray(authIdentities.id, list))
+        const hit = present.map((r) => r.id)
+        if (hit.length === 0) return []
+        // FK CASCADE handles these; explicit deletes are belt-and-suspenders,
+        // as in the single-row `erase` above.
+        await db.delete(authCredentials).where(inArray(authCredentials.identityId, hit))
+        await db.delete(authSessions).where(inArray(authSessions.identityId, hit))
+        await db.delete(authIdentities).where(inArray(authIdentities.id, hit))
+        return hit
+      },
+
+      restoreManyReturning: async (ids) => {
+        const list = [...ids]
+        const present = await db
+          .select({ id: authIdentities.id })
+          .from(authIdentities)
+          .where(inArray(authIdentities.id, list))
+        const hit = present.map((r) => r.id)
+        if (hit.length === 0) return []
+        await db.update(authIdentities).set({ deletedAt: null }).where(inArray(authIdentities.id, hit))
+        return db.select().from(authIdentities).where(inArray(authIdentities.id, hit))
+      },
+
+      /**
+       * One conditional update per row, so each is matched on its OWN expected
+       * version - a set-based form cannot express per-row version predicates
+       * here without `UPDATE ... FROM (VALUES ...)`, which MySQL lacks. They run
+       * back-to-back on one connection, so the batch is still atomic with the
+       * caller's transaction; only the statement count fails to collapse.
+       */
+      updateProfileManyReturning: async (rows) => {
+        const updated: string[] = []
+        for (const r of rows) {
+          const result = await db
+            .update(authIdentities)
+            .set(r.patch)
+            .where(and(eq(authIdentities.id, r.id), eq(authIdentities.version, r.expectedVersion)))
+          if (result[0].affectedRows > 0) updated.push(r.id)
+        }
+        if (updated.length === 0) return []
+        return db.select().from(authIdentities).where(inArray(authIdentities.id, updated))
+      },
+
       merge: async (survivorId, dupId) => {
         // Union dup's provider links into the survivor before re-pointing rows.
         const [surv] = await db
@@ -260,6 +325,14 @@ export function createDrizzleMysqlBridge<
       delete: async (id, tenantId) => {
         await db.delete(authCredentials).where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
       },
+      deleteByIdentitiesReturningIds: async (identityIds, tenantId) => {
+        const where = and(inArray(authCredentials.identityId, [...identityIds]), tenantWhere(authCredentials, tenantId))
+        const present = await db.select({ id: authCredentials.identityId }).from(authCredentials).where(where)
+        const hit = present.map((r) => r.id).filter((id): id is string => id !== null)
+        if (hit.length === 0) return []
+        await db.delete(authCredentials).where(where)
+        return hit
+      },
       deleteByKind: async (identityId, kind, tenantId) => {
         await db
           .delete(authCredentials)
@@ -296,6 +369,33 @@ export function createDrizzleMysqlBridge<
       deleteAllForIdentity: async (identityId) => {
         await db.delete(authSessions).where(eq(authSessions.identityId, identityId))
       },
+      deleteAllForIdentitiesReturningIds: async (identityIds) => {
+        const list = [...identityIds]
+        const present = await db
+          .select({ id: authSessions.identityId })
+          .from(authSessions)
+          .where(inArray(authSessions.identityId, list))
+        const hit = present.map((r) => r.id).filter((id): id is string => id !== null)
+        if (hit.length === 0) return []
+        await db.delete(authSessions).where(inArray(authSessions.identityId, hit))
+        return hit
+      },
+      deleteManyReturningIds: async (ids) => {
+        const list = [...ids]
+        const present = await db
+          .select({ id: authSessions.id })
+          .from(authSessions)
+          .where(inArray(authSessions.id, list))
+        const hit = present.map((r) => r.id)
+        if (hit.length === 0) return []
+        await db.delete(authSessions).where(inArray(authSessions.id, hit))
+        return hit
+      },
+      listByIdentities: (identityIds) =>
+        db
+          .select()
+          .from(authSessions)
+          .where(inArray(authSessions.identityId, [...identityIds])),
       deleteExpired: async (now) => {
         const result = await db.delete(authSessions).where(lt(authSessions.absoluteExpiresAt, now))
         return result[0].affectedRows

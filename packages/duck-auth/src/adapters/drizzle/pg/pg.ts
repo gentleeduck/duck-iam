@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { and, eq, isNull, lt, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
@@ -13,6 +13,19 @@ import type { Pg } from './pg.types'
  * `factors`/`actingAs` come back as ISO strings; revive them so `Sessions.Me` satisfies
  * its `Date`-typed contract. Top-level timestamptz columns are already `Date`.
  */
+/**
+ * Pull the `id` column out of a raw `db.execute` result. `execute` hands back
+ * untyped rows, so narrow rather than assert - a row without a string id is
+ * dropped instead of becoming `undefined` in the caller's outcome list.
+ */
+function idsOf(rows: readonly Record<string, unknown>[]): string[] {
+  const out: string[] = []
+  for (const row of rows) {
+    if (typeof row.id === 'string') out.push(row.id)
+  }
+  return out
+}
+
 function reviveSessionRow<T extends { factors: unknown; actingAs: unknown }>(row: T | null): T | null {
   return row ? reviveSessionRowRequired(row) : null
 }
@@ -156,6 +169,69 @@ export function createDrizzlePgBridge<
         `)
           .then(() => {}),
 
+      softDeleteManyReturningIds: (ids, deletedAt) =>
+        db
+          .update(authIdentities)
+          .set({ deletedAt })
+          .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
+          .returning({ id: authIdentities.id })
+          .then((r) => r.map((x) => x.id)),
+
+      eraseManyReturningIds: async (ids) => {
+        const list = [...ids]
+        // Children first: `auth_credentials`/`auth_sessions` reference the
+        // identity, exactly as the single-row `erase` above does.
+        await db.delete(authCredentials).where(inArray(authCredentials.identityId, list))
+        await db.delete(authSessions).where(inArray(authSessions.identityId, list))
+        const gone = await db
+          .delete(authIdentities)
+          .where(inArray(authIdentities.id, list))
+          .returning({ id: authIdentities.id })
+        return gone.map((x) => x.id)
+      },
+
+      restoreManyReturning: (ids) =>
+        db
+          .update(authIdentities)
+          .set({ deletedAt: null })
+          .where(inArray(authIdentities.id, [...ids]))
+          .returning(),
+
+      /**
+       * One set-based `UPDATE ... FROM (VALUES ...)` so every row is matched on
+       * its OWN expected version in a single statement, then one `SELECT` to
+       * read the survivors back through the query builder.
+       *
+       * The `id` column is `uuid`, so the VALUES id is cast to `uuid` too - cast
+       * it to `text` and Postgres reports "no operator matches" for `t.id = v.id`
+       * rather than silently comparing nothing.
+       *
+       * Two statements rather than one `RETURNING t.*`, because `execute` yields
+       * raw snake_case columns that would have to be re-mapped by hand; a second
+       * set-based select is still O(1) statements per batch, and it reuses the
+       * mapping every other read here already goes through.
+       */
+      updateProfileManyReturning: async (rows) => {
+        if (rows.length === 0) return []
+        const values = sql.join(
+          rows.map(
+            (r) =>
+              sql`(${r.id}::uuid, ${JSON.stringify(r.patch.profile)}::jsonb, ${r.patch.updatedAt ?? new Date()}::timestamptz, ${r.patch.version ?? r.expectedVersion + 1}::integer, ${r.expectedVersion}::integer)`,
+          ),
+          sql`, `,
+        )
+        const updated = await db.execute(sql`
+          update ${authIdentities} as t
+          set profile = v.profile, updated_at = v.updated_at, version = v.version
+          from (values ${values}) as v(id, profile, updated_at, version, expected_version)
+          where t.id = v.id and t.version = v.expected_version
+          returning t.id
+        `)
+        const ids = idsOf(updated.rows)
+        if (ids.length === 0) return []
+        return db.select().from(authIdentities).where(inArray(authIdentities.id, ids))
+      },
+
       merge: async (survivorId, dupId) => {
         const [surv] = await db
           .select({ p: authIdentities.providers })
@@ -263,6 +339,18 @@ export function createDrizzlePgBridge<
           .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
           .then(() => {}),
 
+      deleteByIdentitiesReturningIds: (identityIds, tenantId) =>
+        db
+          .delete(authCredentials)
+          .where(
+            and(
+              inArray(authCredentials.identityId, [...identityIds]),
+              tenantId === undefined ? undefined : eq(authCredentials.tenantId, tenantId),
+            ),
+          )
+          .returning({ id: authCredentials.identityId })
+          .then((r) => r.map((x) => x.id)),
+
       deleteByKind: (identityId, kind, tenantId) =>
         db
           .delete(authCredentials)
@@ -312,6 +400,27 @@ export function createDrizzlePgBridge<
           .delete(authSessions)
           .where(eq(authSessions.identityId, identityId))
           .then(() => {}),
+      deleteAllForIdentitiesReturningIds: (identityIds) =>
+        db
+          .delete(authSessions)
+          .where(inArray(authSessions.identityId, [...identityIds]))
+          .returning({ id: authSessions.identityId })
+          .then((r) => r.map((x) => x.id).filter((id): id is string => id !== null)),
+
+      deleteManyReturningIds: (ids) =>
+        db
+          .delete(authSessions)
+          .where(inArray(authSessions.id, [...ids]))
+          .returning({ id: authSessions.id })
+          .then((r) => r.map((x) => x.id)),
+
+      listByIdentities: (identityIds) =>
+        db
+          .select()
+          .from(authSessions)
+          .where(inArray(authSessions.identityId, [...identityIds]))
+          .then((rows) => rows.map(reviveSessionRowRequired)),
+
       deleteExpired: (now) =>
         db
           .delete(authSessions)
