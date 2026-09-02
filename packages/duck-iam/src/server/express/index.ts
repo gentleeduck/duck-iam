@@ -1,9 +1,10 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamRequest } from '../../core/types'
 import {
-  IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
+  iamActionForMethod,
   iamDefaultCsrfCheck,
+  iamDefaultResource,
   iamExtractEnvironment,
   iamNoticeCsrfDefaultIfNeeded,
   iamRunAdminAuthz,
@@ -124,11 +125,8 @@ export function iamAccessMiddleware<
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamExpress.IOptions<TScope> = {}): Middleware {
   const {
     getUserId = (req) => req.user?.id ?? null,
-    getResource = (req) => {
-      const parts = (req.path ?? '/').split('/').filter(Boolean)
-      return { type: parts[0] ?? 'root', id: parts[1], attributes: {} }
-    },
-    getAction = (req) => IAM_METHOD_ACTION_MAP[req.method ?? 'GET'] ?? 'read',
+    getResource = (req) => iamDefaultResource(req.path),
+    getAction = (req) => iamActionForMethod(req.method),
     getEnvironment = iamExtractEnvironment,
     getScope,
     onDenied = (_, res) => res.status(403).json({ error: 'Forbidden' }),

@@ -519,10 +519,23 @@ export function iamExtractEnvironment(req: {
     // leftmost is the original client). Apps behind multiple trusted
     // proxies should bypass this helper and assemble `env.ip` themselves.
     ip: req.ip ?? normalizeForwardedFor(getHeader('x-forwarded-for')) ?? normalizeForwardedFor(getHeader('x-real-ip')),
-    userAgent: getHeader('user-agent'),
+    userAgent: normalizeUserAgent(getHeader('user-agent')),
     timestamp: Date.now(),
   }
 }
+
+/**
+ * Drop an oversized `User-Agent`. It is attacker-controlled and flows into
+ * `matches` conditions, which throw above `MAX_REGEX_INPUT_LENGTH`; an
+ * uncapped value lets a caller perturb evaluation with one header.
+ */
+function normalizeUserAgent(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  return raw.length === 0 || raw.length > MAX_USER_AGENT_LENGTH ? undefined : raw
+}
+
+/** Longest `User-Agent` passed through to conditions; matches the `matches` operator's input cap. */
+const MAX_USER_AGENT_LENGTH = 2048
 
 /**
  * Extract the leftmost client IP from an `X-Forwarded-For` / `X-Real-IP`
@@ -537,6 +550,80 @@ function normalizeForwardedFor(raw: string | undefined): string | undefined {
   if (trimmed.length === 0) return undefined
   if (trimmed.length > 256) return undefined
   return trimmed
+}
+
+/**
+ * Action used when a request's method is not in {@link IAM_METHOD_ACTION_MAP}.
+ * Deliberately not a real action: an unmapped method must match no permission
+ * and be denied, rather than inheriting `read` and passing a read check.
+ */
+export const IAM_UNKNOWN_ACTION = 'unknown'
+
+/**
+ * Default action for an HTTP method. Case-insensitive, because `delete` from a
+ * hand-rolled client must not miss the map and fall through to `read`.
+ */
+export function iamActionForMethod(method: string | undefined): string {
+  if (typeof method !== 'string') return IAM_UNKNOWN_ACTION
+  return IAM_METHOD_ACTION_MAP[method.toUpperCase()] ?? IAM_UNKNOWN_ACTION
+}
+
+/**
+ * Canonical pathname for prefix/regex matching. `new URL()` resolves dot
+ * segments but leaves `//admin` and `/%61dmin` intact, either of which skips a
+ * `/admin` rule while still routing to `/admin`. Decodes once (as routers do),
+ * collapses slash runs, then re-resolves dot segments the decode may have
+ * revealed. A malformed escape keeps the raw path rather than throwing.
+ */
+export function iamNormalizePathname(pathname: string): string {
+  let decoded = pathname
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    // Malformed percent-escape: keep the raw form so matching still runs.
+  }
+  const collapsed = decoded.replace(/\/{2,}/g, '/')
+  const out: string[] = []
+  for (const segment of collapsed.split('/')) {
+    if (segment === '' || segment === '.') continue
+    if (segment === '..') {
+      out.pop()
+      continue
+    }
+    out.push(segment)
+  }
+  const joined = `/${out.join('/')}`
+  return joined !== '/' && collapsed.endsWith('/') ? `${joined}/` : joined
+}
+
+/**
+ * Resource type used when a request path cannot be trusted to name one.
+ * Matches no policy target, so the request is denied rather than authorized
+ * against whatever the raw path happened to spell.
+ */
+export const IAM_UNKNOWN_RESOURCE = 'unknown'
+
+/**
+ * Default `{ type, id }` for a request path, shared by the framework adapters.
+ *
+ * The raw path is not usable here: `/posts/../admin/secret` reads as type
+ * `posts`, so the check passes while the router serves `/admin/secret`. The
+ * path is canonicalised first, and a segment still holding a `%` after one
+ * decode (a double-encoded traversal the router may decode again) falls back to
+ * {@link IAM_UNKNOWN_RESOURCE}.
+ */
+export function iamDefaultResource(pathname: string | undefined): {
+  type: string
+  id: string | undefined
+  attributes: Record<string, never>
+} {
+  const parts = iamNormalizePathname(typeof pathname === 'string' ? pathname : '/')
+    .split('/')
+    .filter(Boolean)
+  if (parts.some((segment) => segment.includes('%'))) {
+    return { attributes: {}, id: undefined, type: IAM_UNKNOWN_RESOURCE }
+  }
+  return { attributes: {}, id: parts[1], type: parts[0] ?? 'root' }
 }
 
 /** Maps HTTP methods to default access actions used by the framework adapters. */
