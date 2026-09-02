@@ -1,17 +1,7 @@
 import type { Batch } from './batch.types'
 
-/**
- * Stable outcome id for one `(subject, role, scope)` triple. The space is a
- * separator the three parts cannot contain silently: subject and role ids are
- * validated non-empty, and a scope with a space in it still yields a distinct
- * key, because the parts are joined in a fixed order.
- */
-export function tripleKey(subjectId: string, roleId: string, scope?: string): string {
-  return `${subjectId} ${roleId} ${scope ?? ''}`
-}
-
 /** Build a `Batch.Result` from per-row outcomes, deriving the counts. */
-export function batchResult<T>(outcomes: Batch.Outcome<T>[]): Batch.Result<T> {
+export function batchResult<TRow, T>(outcomes: Batch.Outcome<TRow, T>[]): Batch.Result<TRow, T> {
   let applied = 0
   for (const o of outcomes) if (o.ok) applied++
   return { applied, failed: outcomes.length - applied, outcomes }
@@ -26,14 +16,45 @@ export function batchResult<T>(outcomes: Batch.Outcome<T>[]): Batch.Result<T> {
  * error means the write genuinely failed and the caller's transaction should
  * abort rather than the batch reporting a per-row failure and carrying on.
  */
-export async function loopFallback<Row, T>(
-  rows: readonly Row[],
-  key: (row: Row) => string,
-  run: (row: Row) => Promise<T>,
-): Promise<Batch.Result<T>> {
-  const outcomes: Batch.Outcome<T>[] = []
-  for (const row of rows) outcomes.push({ id: key(row), ok: true, value: await run(row) })
+export async function loopFallback<TRow, T>(
+  rows: readonly TRow[],
+  run: (row: TRow) => Promise<T>,
+): Promise<Batch.Result<TRow, T>> {
+  const outcomes: Batch.Outcome<TRow, T>[] = []
+  for (const row of rows) outcomes.push({ ok: true, row, value: await run(row) })
   return batchResult(outcomes)
+}
+
+/**
+ * Credit each written row to the first requested row that accounts for it.
+ *
+ * A batch can name the same write twice - the identical triple listed twice,
+ * or an unscoped revoke alongside a scoped one it already covers. The write
+ * happens once, so crediting both rows would report two changes where the
+ * database made one. Requested rows are walked in order and each claims one
+ * write not already claimed, so no write is ever credited twice and the answer
+ * does not depend on which order the driver returned its rows in.
+ *
+ * A row claims one write, not every write it matches: a wildcard revoke that
+ * removed three rows is still one request that changed something, and claiming
+ * all three would starve two later rows that each genuinely accounted for one.
+ *
+ * @returns Indices into `requested` of the rows that claimed a write.
+ */
+export function creditWrites<TRow, TWrite>(
+  requested: readonly TRow[],
+  written: readonly TWrite[],
+  accountsFor: (row: TRow, write: TWrite) => boolean,
+): number[] {
+  const claimed = new Array<boolean>(written.length).fill(false)
+  const credited: number[] = []
+  requested.forEach((row, i) => {
+    const hit = written.findIndex((write, w) => !claimed[w] && accountsFor(row, write))
+    if (hit === -1) return
+    claimed[hit] = true
+    credited.push(i)
+  })
+  return credited
 }
 
 /**
@@ -45,20 +66,19 @@ export async function loopFallback<Row, T>(
  * miss would contradict the single-row method, which treats it as success.
  *
  * `changed` carries the finer answer when the adapter supplied one: pass the
- * rows the statement actually moved, or `null` when the driver could not say,
- * in which case `changed` is left off entirely rather than guessed.
+ * indices of the rows the statement moved, or `null` when the driver could not
+ * say, in which case `changed` is left off entirely rather than guessed.
  */
-export function appliedRows<Row>(
-  requested: readonly Row[],
-  changed: readonly Row[] | null,
-  key: (row: Row) => string,
-): Batch.Result<Batch.Change> {
-  const moved = changed === null ? null : new Set(changed.map(key))
+export function appliedRows<TRow>(
+  requested: readonly TRow[],
+  moved: readonly number[] | null,
+): Batch.Result<TRow, Batch.Change> {
+  const credited = moved === null ? null : new Set(moved)
   return batchResult(
-    requested.map((row) => ({
-      id: key(row),
+    requested.map((row, i) => ({
       ok: true as const,
-      value: moved === null ? {} : { changed: moved.has(key(row)) },
+      row,
+      value: credited === null ? {} : { changed: credited.has(i) },
     })),
   )
 }

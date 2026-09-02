@@ -123,15 +123,23 @@ export namespace IamAdapter {
      * loops over {@link assignRole} when it is absent, so an adapter that omits
      * it is still complete.
      *
-     * Returns the subset of `rows` the statement actually wrote - the grants
-     * that were not already there - or `null` when the driver cannot say. Both
-     * answers are honest and neither costs an extra round trip: report the
-     * subset only where a `RETURNING` clause on the write itself supplies it,
-     * and `null` everywhere else rather than paying for a read to find out.
+     * Returns the indices into `rows` of the rows the statement actually wrote
+     * - the grants that were not already there - or `null` when the driver
+     * cannot say. Both answers are honest and neither costs an extra round
+     * trip: report the indices only where a `RETURNING` clause on the write
+     * itself supplies them, and `null` everywhere else rather than paying for
+     * a read to find out.
+     *
+     * Indices rather than a subset of `rows`, so that two rows asking for the
+     * same write stay distinguishable, and so an implementation is not silently
+     * required to return the very objects it was handed. Credit each write to
+     * the first row that accounts for it - `creditWrites` in `core/batch`
+     * implements the rule - so a write that happened once is never reported
+     * twice.
      */
-    assignRoleMany?(rows: readonly IAssignRow<TRole, TScope>[]): Promise<readonly ITripleRow<TRole, TScope>[] | null>
+    assignRoleMany?(rows: readonly IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null>
     /** Set-based revoke. See {@link assignRoleMany}. */
-    revokeRoleMany?(rows: readonly ITripleRow<TRole, TScope>[]): Promise<readonly ITripleRow<TRole, TScope>[] | null>
+    revokeRoleMany?(rows: readonly ITripleRow<TRole, TScope>[]): Promise<readonly number[] | null>
     /** Returns the attribute bag for a subject. */
     getSubjectAttributes(subjectId: string, opts?: IReadOptions): Promise<IamPrimitives.Attributes>
     /**

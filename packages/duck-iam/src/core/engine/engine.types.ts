@@ -77,9 +77,13 @@ export namespace IamEngineTypes {
      * not this call is what put it there. `outcome.value.changed` distinguishes
      * the two where the adapter could say so; see {@link Batch.Change}.
      */
-    assignRoles(rows: readonly IAssignRow<TRole, TScope>[]): Promise<Batch.Result<Batch.Change>>
+    assignRoles(
+      rows: readonly IAssignRow<TRole, TScope>[],
+    ): Promise<Batch.Result<IAssignRow<TRole, TScope>, Batch.Change>>
     /** Revoke many triples. See {@link assignRoles}. */
-    revokeRoles(rows: readonly ITripleRow<TRole, TScope>[]): Promise<Batch.Result<Batch.Change>>
+    revokeRoles(
+      rows: readonly ITripleRow<TRole, TScope>[],
+    ): Promise<Batch.Result<ITripleRow<TRole, TScope>, Batch.Change>>
     /**
      * Move many assignments between scopes. Delegates to
      * {@link updateAssignmentScope} per row, which falls back to revoke +
@@ -87,7 +91,7 @@ export namespace IamEngineTypes {
      * `fromScope` - so a row only fails by throwing, and every row that
      * returns is reported applied.
      */
-    moveRoleScopes(rows: readonly IMoveRow<TRole, TScope>[]): Promise<Batch.Result>
+    moveRoleScopes(rows: readonly IMoveRow<TRole, TScope>[]): Promise<Batch.Result<IMoveRow<TRole, TScope>>>
     /** Invalidate several subjects at once. Duplicate ids are collapsed. */
     invalidateSubjects(subjectIds: readonly string[]): void
 

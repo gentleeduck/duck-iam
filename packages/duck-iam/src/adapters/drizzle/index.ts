@@ -2,6 +2,7 @@ import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { MySqlTableWithColumns } from 'drizzle-orm/mysql-core/table'
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core/table'
 import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
+import { creditWrites } from '../../core/batch'
 import type { IamConfig } from '../../core/config'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
@@ -119,18 +120,6 @@ function epochMs(value: Date | string | number | null | undefined): number | nul
 
 /** One assignment row as read back from a `RETURNING` clause. `null` is the unscoped row, as the column stores it. */
 type ReturnedTriple = { roleId: string; scope: string | null; subjectId: string }
-
-/**
- * Keys for matching returned rows back to requested ones.
- *
- * Deliberately not `tripleKey`, the engine's outcome id: that one folds an
- * absent scope and an empty-string scope together, and these must not, because
- * `iam_assignments.scope` stores them as `NULL` and `''` - two different rows,
- * as {@link IamDrizzleAdapter.revokeRole} already distinguishes.
- */
-const roleKey = (subjectId: string, roleId: string): string => `${subjectId} ${roleId}`
-const scopedKey = (subjectId: string, roleId: string, scope: string | null): string =>
-  `${roleKey(subjectId, roleId)} ${scope === null ? 'unscoped' : `scope ${scope}`}`
 
 /**
  * Read the identifying columns out of untyped `RETURNING` rows.
@@ -598,7 +587,7 @@ export class IamDrizzleAdapter<
    * Grants every triple with one multi-row insert, reusing the same
    * insert-or-skip conflict handling as {@link assignRole}.
    *
-   * Reports the rows this statement actually created. `RETURNING` on the
+   * Reports which rows this statement actually created. `RETURNING` on the
    * insert names them for free - the conflict clause has already skipped the
    * duplicates, so the driver hands back exactly the new grants on the round
    * trip the write was making anyway. A duplicate is still `ok` to the caller;
@@ -606,11 +595,9 @@ export class IamDrizzleAdapter<
    * treats an existing grant as success.
    *
    * @param rows - The triples to grant, each with its optional temporal bounds.
-   * @returns The rows this call granted, or `null` on MySQL - see below.
+   * @returns Indices of the rows this call granted, or `null` on MySQL - see below.
    */
-  async assignRoleMany(
-    rows: readonly IamAdapter.IAssignRow<TRole, TScope>[],
-  ): Promise<readonly IamAdapter.IAssignRow<TRole, TScope>[] | null> {
+  async assignRoleMany(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null> {
     if (rows.length === 0) return []
     const statement = this._insertOrSkip(
       this._t.assignments,
@@ -631,10 +618,13 @@ export class IamDrizzleAdapter<
       await statement
       return null
     }
-    const granted = new Set(
-      returnedTriples(await statement.returning()).map((t) => scopedKey(t.subjectId, t.roleId, t.scope)),
+    // `r.scope ?? null` compares against the column as stored, which keeps an
+    // unscoped row distinct from one scoped to the empty string.
+    return creditWrites(
+      rows,
+      returnedTriples(await statement.returning()),
+      (r, t) => r.subjectId === t.subjectId && r.roleId === t.roleId && (r.scope ?? null) === t.scope,
     )
-    return rows.filter((r) => granted.has(scopedKey(r.subjectId, r.roleId, r.scope ?? null)))
   }
 
   /**
@@ -642,17 +632,15 @@ export class IamDrizzleAdapter<
    * per-triple conditions. Falls back to one delete per row when `ops.or` was
    * not supplied - same rows removed, more statements.
    *
-   * Reports the rows this statement actually removed, read off the same
+   * Reports which rows this statement actually removed, read off the same
    * `DELETE` via `RETURNING`. A triple that was never granted is still `ok`,
    * mirroring {@link revokeRole}: the postcondition ("this subject does not
    * hold this role here") holds either way. It is reported `changed: false`.
    *
    * @param rows - The triples to revoke. A row with no `scope` revokes the role in every scope.
-   * @returns The rows this call removed a grant for, or `null` on MySQL.
+   * @returns Indices of the rows this call removed a grant for, or `null` on MySQL.
    */
-  async revokeRoleMany(
-    rows: readonly IamAdapter.ITripleRow<TRole, TScope>[],
-  ): Promise<readonly IamAdapter.ITripleRow<TRole, TScope>[] | null> {
+  async revokeRoleMany(rows: readonly IamAdapter.ITripleRow<TRole, TScope>[]): Promise<readonly number[] | null> {
     if (rows.length === 0) return []
     const rowCondition = (r: IamAdapter.ITripleRow<TRole, TScope>): SQLWrapper | undefined => {
       const conditions: (SQLWrapper | undefined)[] = [
@@ -675,21 +663,15 @@ export class IamDrizzleAdapter<
     for (const where of wheres) {
       gone.push(...returnedTriples(await this._db.delete(this._t.assignments).where(where).returning()))
     }
-    // Keyed by subject and role only: a requested row with no `scope` revokes
-    // the role everywhere, so it must match a removed row whatever scope that
-    // row held. A scoped request matches only its own scope.
-    const scopesGone = new Map<string, Set<string | null>>()
-    for (const t of gone) {
-      const key = roleKey(t.subjectId, t.roleId)
-      const seen = scopesGone.get(key)
-      if (seen) seen.add(t.scope)
-      else scopesGone.set(key, new Set([t.scope]))
-    }
-    return rows.filter((r) => {
-      const scopes = scopesGone.get(roleKey(r.subjectId, r.roleId))
-      if (!scopes) return false
-      return r.scope === undefined || scopes.has(r.scope)
-    })
+    // A requested row with no `scope` revokes the role everywhere, so it
+    // accounts for a removed row whatever scope that row held. A scoped
+    // request accounts only for its own scope, and `''` is a scope like any
+    // other - distinct from the unscoped row's `null`.
+    return creditWrites(
+      rows,
+      gone,
+      (r, t) => r.subjectId === t.subjectId && r.roleId === t.roleId && (r.scope === undefined || r.scope === t.scope),
+    )
   }
 
   /**

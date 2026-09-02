@@ -1,4 +1,4 @@
-import { appliedRows, batchResult, loopFallback, tripleKey } from '../batch'
+import { appliedRows, batchResult, loopFallback } from '../batch'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 import type { IamValidate } from '../validate/validate.types'
 import type { IamEngineTypes } from './engine.types'
@@ -297,7 +297,6 @@ export function createAdmin<
     assertNonEmptyStringParam('roleId', roleId)
     assertOptionalNonEmptyStringParam('scope', scope)
   }
-  const tripleOf = (r: IamEngineTypes.ITripleRow<TRole, TScope>): string => tripleKey(r.subjectId, r.roleId, r.scope)
   /** One invalidation per subject, however many rows of the batch named it. */
   const invalidateEach = (rows: readonly IamEngineTypes.ITripleRow<TRole, TScope>[]): void => {
     for (const subjectId of new Set(rows.map((r) => r.subjectId))) engine.cache.invalidateSubject(subjectId)
@@ -395,21 +394,21 @@ export function createAdmin<
       const assignRoleMany = adapter.assignRoleMany?.bind(adapter)
       // `null` means "written, but I cannot say which rows moved". The loop
       // path is in that position by construction: `assignRole` returns void.
-      let changed: readonly IamEngineTypes.ITripleRow<TRole, TScope>[] | null = null
+      let changed: readonly number[] | null = null
       if (assignRoleMany) changed = await assignRoleMany(rows)
       else for (const r of rows) await adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts)
       invalidateEach(rows)
-      return appliedRows(rows, changed, tripleOf)
+      return appliedRows(rows, changed)
     },
     async revokeRoles(rows: readonly IamEngineTypes.ITripleRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])
       for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope)
       const revokeRoleMany = adapter.revokeRoleMany?.bind(adapter)
-      let changed: readonly IamEngineTypes.ITripleRow<TRole, TScope>[] | null = null
+      let changed: readonly number[] | null = null
       if (revokeRoleMany) changed = await revokeRoleMany(rows)
       else for (const r of rows) await adapter.revokeRole(r.subjectId, r.roleId, r.scope)
       invalidateEach(rows)
-      return appliedRows(rows, changed, tripleOf)
+      return appliedRows(rows, changed)
     },
     async moveRoleScopes(rows: readonly IamEngineTypes.IMoveRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])
@@ -422,11 +421,7 @@ export function createAdmin<
       // Delegates per row to the single-row move, which owns the revoke + assign
       // fallback for adapters with no in-place update. There is no set-based
       // form to fall back FROM, so this loop is the fast path, not a shim.
-      return loopFallback(
-        rows,
-        (r) => tripleKey(r.subjectId, r.roleId, r.fromScope),
-        (r) => moveOne(r.subjectId, r.roleId, r.fromScope, r.toScope, r.actor),
-      )
+      return loopFallback(rows, (r) => moveOne(r.subjectId, r.roleId, r.fromScope, r.toScope, r.actor))
     },
     invalidateSubjects(subjectIds: readonly string[]) {
       for (const id of new Set(subjectIds)) engine.cache.invalidateSubject(id)

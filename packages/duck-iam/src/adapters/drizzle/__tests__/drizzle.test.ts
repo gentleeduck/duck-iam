@@ -432,7 +432,7 @@ describe('IamDrizzleAdapter', () => {
       // Both grants are in place afterwards; only the second is one this call
       // made. The conflict clause skipped the first, so `RETURNING` never
       // named it.
-      expect(changed?.map((r) => r.roleId)).toEqual(['viewer'])
+      expect(changed).toEqual([1])
       expect((await adapter.getSubjectRoles('user-1')).sort()).toEqual(['editor', 'viewer'])
     })
 
@@ -444,7 +444,7 @@ describe('IamDrizzleAdapter', () => {
         { roleId: 'viewer' as Ro, subjectId: 'user-1' },
       ])
 
-      expect(changed?.map((r) => r.roleId)).toEqual(['editor'])
+      expect(changed).toEqual([0])
     })
 
     it('revokeRoleMany keeps an unscoped row distinct from one scoped to the empty string', async () => {
@@ -461,8 +461,35 @@ describe('IamDrizzleAdapter', () => {
       // row held, so it changed nothing - even though both requests name the
       // same subject and role, and the engine's outcome id cannot tell them
       // apart.
-      expect(changed?.map((r) => r.scope)).toEqual([undefined])
+      expect(changed).toEqual([1])
       expect(await adapter.getSubjectRoles('user-1')).toEqual([])
+    })
+
+    it('credits a write once when two rows of a batch ask for the same grant', async () => {
+      const changed = await adapter.assignRoleMany([
+        { roleId: 'editor' as Ro, subjectId: 'user-1' },
+        { roleId: 'editor' as Ro, subjectId: 'user-1' },
+      ])
+
+      // One INSERT happened, so exactly one row is credited - the first. The
+      // duplicate reports `changed: false` rather than both claiming a write
+      // the database made once.
+      expect(changed).toEqual([0])
+      expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
+    })
+
+    it('credits a subsuming revoke, not the row it already covers', async () => {
+      await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
+
+      // The first row revokes the role in every scope, so it already accounts
+      // for what the second asks for.
+      const changed = await adapter.revokeRoleMany([
+        { roleId: 'editor' as Ro, subjectId: 'user-1' },
+        { roleId: 'editor' as Ro, scope: 'org-1' as S, subjectId: 'user-1' },
+      ])
+
+      expect(changed).toEqual([0])
+      expect(await adapter.getSubjectScopedRoles('user-1')).toEqual([])
     })
 
     it('getSubjectAttributes returns {} when missing', async () => {
