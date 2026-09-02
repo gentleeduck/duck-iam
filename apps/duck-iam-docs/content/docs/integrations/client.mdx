@@ -51,11 +51,11 @@ Keys follow one of four formats depending on which fields are present:
   // Format: "action:resource:resourceId"
   "delete:post:abc123": false,
 
-  // Format: "scope:action:resource"
-  "org-1:manage:billing": true,
+  // Format: "@scope:action:resource" - the @ marks a scope
+  "@org-1:manage:billing": true,
 
-  // Format: "scope:action:resource:resourceId"
-  "org-1:update:post:post-42": true,
+  // Format: "@scope:action:resource:resourceId"
+  "@org-1:update:post:post-42": true,
 }
 ```
 
