@@ -105,6 +105,12 @@ export namespace IamDrizzle {
  * const engine = new IamEngine({ adapter })
  * ```
  */
+/** Epoch ms for an optional timestamp column: `null` when absent, `NaN` when unparseable. */
+function epochMs(value: Date | string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  return value instanceof Date ? value.getTime() : new Date(value).getTime()
+}
+
 export class IamDrizzleAdapter<
   TAction extends string,
   TResource extends string,
@@ -295,10 +301,17 @@ export class IamDrizzleAdapter<
     return role
   }
 
-  /** True unless `now` falls outside `[startsAt, expiresAt)`. Both bounds are optional. */
+  /**
+   * True unless `now` falls outside `[startsAt, expiresAt)`. Both bounds are
+   * optional. A bound that is present but unreadable makes the assignment
+   * inactive: `NaN` fails both comparisons, so an expired row with a corrupt
+   * `expiresAt` would otherwise read as a live grant.
+   */
   private _isActive(row: IamDrizzle.AssignmentRow, now: number): boolean {
-    const startsAt = row.startsAt ? new Date(row.startsAt).getTime() : null
-    const expiresAt = row.expiresAt ? new Date(row.expiresAt).getTime() : null
+    const startsAt = epochMs(row.startsAt)
+    const expiresAt = epochMs(row.expiresAt)
+    if (startsAt !== null && !Number.isFinite(startsAt)) return false
+    if (expiresAt !== null && !Number.isFinite(expiresAt)) return false
     if (startsAt !== null && now < startsAt) return false
     if (expiresAt !== null && now >= expiresAt) return false
     return true

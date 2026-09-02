@@ -48,6 +48,17 @@ export namespace IamFile {
      * @returns The canonical path with all symlinks resolved.
      */
     realpath?(path: string): Promise<string>
+    /**
+     * Optional: atomically replace `oldPath` with `newPath`. When present the
+     * adapter writes to a temporary file and renames it over the store, so a
+     * crash mid-write cannot leave a truncated file that reads back as zero
+     * policies. Without it the adapter falls back to writing in place.
+     *
+     * @param oldPath - Absolute path of the temporary file.
+     * @param newPath - Absolute path to replace.
+     * @returns Resolves once the rename completes.
+     */
+    rename?(oldPath: string, newPath: string): Promise<void>
   }
 
   /** Describes initialization options for {@link IamFileAdapter}. */
@@ -151,6 +162,8 @@ export class IamFileAdapter<
   private readonly _path: string
   private readonly _parentDir: string
   private readonly _rootDir: string | null
+  /** Cache for {@link _canonicalRootDir}. */
+  private _canonicalRoot: string | null = null
   private readonly _fs: TFS
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
   private _cache: IamFile.IState<TAction, TResource, TRole, TScope> | null = null
@@ -235,24 +248,44 @@ export class IamFileAdapter<
         return
       }
     }
-    const rel = nodePath.relative(this._rootDir, canonical)
+    // Compare against the root's own realpath. A textually-resolved root that
+    // is itself reached through a symlink (a `/var` -> `/private/var` style
+    // link) would otherwise never contain a canonical path.
+    const canonicalRoot = await this._canonicalRootDir(this._rootDir)
+    const rel = nodePath.relative(canonicalRoot, canonical)
     if (rel.startsWith('..') || nodePath.isAbsolute(rel)) {
       throw new Error(
-        `[@gentleduck/iam:file] IamFileAdapter realpath "${canonical}" escapes rootDir "${this._rootDir}" (symlink traversal)`,
+        `[@gentleduck/iam:file] IamFileAdapter realpath "${canonical}" escapes rootDir "${canonicalRoot}" (symlink traversal)`,
       )
     }
   }
 
-  /** Present-but-wrong-typed top-level field: report and treat as empty, like the assignments/attributes parsers do. */
+  /** `root` with symlinks resolved. Resolved once; the root does not move under us. */
+  private async _canonicalRootDir(root: string): Promise<string> {
+    if (this._canonicalRoot !== null) return this._canonicalRoot
+    try {
+      this._canonicalRoot = this._fs.realpath ? await this._fs.realpath(root) : root
+    } catch {
+      // Root not resolvable yet (not created): the textual form is the best
+      // available base, and it is what the constructor already validated.
+      this._canonicalRoot = root
+    }
+    return this._canonicalRoot
+  }
+
+  /**
+   * Present-but-wrong-typed top-level field. Unlike a single malformed row,
+   * this one throws: treating a corrupt `policies` field as `{}` reports the
+   * store as having no policies at all, which erases every deny in it.
+   * A missing field is still an empty set.
+   */
   private _rootField(parsed: Record<string, unknown>, name: 'policies' | 'roles'): Record<string, unknown> {
     const v = parsed[name]
     if (v === undefined || v === null) return {}
     if (isPlainObject(v)) return v
-    this._reportPolicyError(
-      new Error(`${name}: expected object, got ${Array.isArray(v) ? 'array' : typeof v}`),
-      '__root__',
+    throw new Error(
+      `[@gentleduck/iam:file] "${name}" must be an object, got ${Array.isArray(v) ? 'array' : typeof v}; refusing to load the store as empty`,
     )
-    return {}
   }
 
   private _reportPolicyError(err: Error, rowId: string): void {
@@ -368,7 +401,25 @@ export class IamFileAdapter<
     return pending
   }
 
-  private async _flush(): Promise<void> {
+  /**
+   * Serialises flushes. Without this, two in-flight writes can each snapshot
+   * the cache and then rename in the opposite order, leaving the older snapshot
+   * on disk and losing the newer write.
+   */
+  private _flushChain: Promise<void> = Promise.resolve()
+
+  private _flush(): Promise<void> {
+    const next = this._flushChain.then(
+      () => this._flushNow(),
+      () => this._flushNow(),
+    )
+    // The chain copy swallows rejections so one failed write does not poison
+    // every later one; the caller still owns `next`'s rejection.
+    this._flushChain = next.catch(() => {})
+    return next
+  }
+
+  private async _flushNow(): Promise<void> {
     if (!this._cache) return
     await this._assertWithinRoot()
     // Non-recursive mkdir of the immediate parent only. If a grandparent is
@@ -387,7 +438,19 @@ export class IamFileAdapter<
         )
       }
     }
-    await this._fs.writeFile(this._path, JSON.stringify(this._cache, null, 2), 'utf8')
+    const data = JSON.stringify(this._cache, null, 2)
+    if (!this._fs.rename) {
+      // No rename available (test fake, browser shim): in-place write, which a
+      // crash can truncate. Documented on IamFile.IFS.rename.
+      await this._fs.writeFile(this._path, data, 'utf8')
+      return
+    }
+    // Write beside the store then rename over it. A crash mid-write leaves the
+    // previous file intact instead of a truncated one that would load as zero
+    // policies, i.e. as if every deny had been deleted.
+    const tmpPath = `${this._path}.${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}.tmp`
+    await this._fs.writeFile(tmpPath, data, 'utf8')
+    await this._fs.rename(tmpPath, this._path)
   }
 
   /**

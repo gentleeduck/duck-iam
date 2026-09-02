@@ -254,6 +254,27 @@ function _normaliseHostForAllowlist(host: string): string {
 }
 
 /**
+ * One path segment built from an id. `encodeURIComponent` leaves `.` alone, so
+ * an id of `../../admin` still walks the remote API's path. Dot segments are
+ * refused outright rather than encoded, because servers differ on whether they
+ * re-normalise `%2E`.
+ */
+function segment(value: string, field: string): string {
+  if (typeof value !== 'string' || value === '') {
+    throw new Error(`[@gentleduck/iam:http] ${field} must be a non-empty string`)
+  }
+  if (value === '.' || value === '..') {
+    throw new Error(`[@gentleduck/iam:http] ${field} cannot be a path segment of "${value}"`)
+  }
+  return encodeURIComponent(value)
+}
+
+/** Best-effort row id for error context: the row's own string `id`, else the caller's fallback. */
+function rowIdOf(row: unknown, fallback: string): string {
+  return typeof row === 'object' && row !== null && 'id' in row && typeof row.id === 'string' ? row.id : fallback
+}
+
+/**
  * Backs the access store with a remote [@gentleduck/iam:http] HTTP API.
  *
  * Useful for client-side engines that delegate storage to a backend service.
@@ -271,11 +292,6 @@ function _normaliseHostForAllowlist(host: string): string {
  * })
  * ```
  */
-/** Best-effort row id for error context: the row's own string `id`, else the caller's fallback. */
-function rowIdOf(row: unknown, fallback: string): string {
-  return typeof row === 'object' && row !== null && 'id' in row && typeof row.id === 'string' ? row.id : fallback
-}
-
 export class IamHttpAdapter<
   TAction extends string = string,
   TResource extends string = string,
@@ -582,7 +598,7 @@ export class IamHttpAdapter<
     opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
-    const row = await this._requestOrNull<unknown>(`/policies/${encodeURIComponent(id)}`, undefined, opts)
+    const row = await this._requestOrNull<unknown>(`/policies/${segment(id, 'policy id')}`, undefined, opts)
     return row === null ? null : this._narrowPolicy(row, id)
   }
   /**
@@ -604,7 +620,7 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the delete.
    */
   async deletePolicy(id: string): Promise<void> {
-    await this._request(`/policies/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await this._request(`/policies/${segment(id, 'policy id')}`, { method: 'DELETE' })
   }
 
   /**
@@ -629,7 +645,7 @@ export class IamHttpAdapter<
     opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
     if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
-    const row = await this._requestOrNull<unknown>(`/roles/${encodeURIComponent(id)}`, undefined, opts)
+    const row = await this._requestOrNull<unknown>(`/roles/${segment(id, 'role id')}`, undefined, opts)
     return row === null ? null : this._narrowRole(row, id)
   }
   /**
@@ -648,7 +664,7 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the delete.
    */
   async deleteRole(id: string): Promise<void> {
-    await this._request(`/roles/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    await this._request(`/roles/${segment(id, 'role id')}`, { method: 'DELETE' })
   }
 
   /**
@@ -670,7 +686,7 @@ export class IamHttpAdapter<
    */
   async getSubjectRoles(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
-    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, undefined, opts)
+    const raw: unknown = await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles`, undefined, opts)
     return parseHttpSubjectRoles<TRole>(raw, subjectId)
   }
   /**
@@ -685,7 +701,11 @@ export class IamHttpAdapter<
     opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
-    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/scoped-roles`, undefined, opts)
+    const raw: unknown = await this._request(
+      `/subjects/${segment(subjectId, 'subject id')}/scoped-roles`,
+      undefined,
+      opts,
+    )
     return parseHttpSubjectScopedRoles<TRole, TScope>(raw, subjectId)
   }
   /**
@@ -697,7 +717,7 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the write.
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
-    await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles`, {
+    await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles`, {
       method: 'POST',
       body: JSON.stringify({ roleId, scope }),
     })
@@ -712,7 +732,7 @@ export class IamHttpAdapter<
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
     const params = scope !== undefined ? `?scope=${encodeURIComponent(scope)}` : ''
-    await this._request(`/subjects/${encodeURIComponent(subjectId)}/roles/${encodeURIComponent(roleId)}${params}`, {
+    await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles/${segment(roleId, 'role id')}${params}`, {
       method: 'DELETE',
     })
   }
@@ -725,7 +745,11 @@ export class IamHttpAdapter<
    */
   async getSubjectAttributes(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
     if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return {}
-    const raw: unknown = await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, undefined, opts)
+    const raw: unknown = await this._request(
+      `/subjects/${segment(subjectId, 'subject id')}/attributes`,
+      undefined,
+      opts,
+    )
     return parseHttpSubjectAttributes(raw, subjectId)
   }
   /**
@@ -737,7 +761,7 @@ export class IamHttpAdapter<
    */
   async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
     iamAssertAttributesParam('http', subjectId, attrs)
-    await this._request(`/subjects/${encodeURIComponent(subjectId)}/attributes`, {
+    await this._request(`/subjects/${segment(subjectId, 'subject id')}/attributes`, {
       method: 'PATCH',
       body: JSON.stringify(attrs),
     })
