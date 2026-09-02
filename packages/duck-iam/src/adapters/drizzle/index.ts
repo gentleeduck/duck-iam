@@ -128,6 +128,8 @@ export class IamDrizzleAdapter<
   private readonly _json: 'native' | 'string'
   private readonly _dialect: 'pg' | 'mysql' | 'sqlite'
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
+  /** Retained whole so {@link withClient} can re-make this adapter with only `db` swapped. */
+  private readonly _config: IamDrizzle.IConfig<TDb, TType>
 
   /**
    * Creates a new IamDrizzle adapter.
@@ -135,6 +137,7 @@ export class IamDrizzleAdapter<
    * @param config - Provides the IamDrizzle db, tables, and operator functions.
    */
   constructor(config: IamDrizzle.IConfig<TDb, TType>) {
+    this._config = config
     this._db = config.db
     this._t = config.tables
     this._eq = config.ops.eq
@@ -143,6 +146,21 @@ export class IamDrizzleAdapter<
     this._json = config.json ?? 'native'
     this._dialect = config.dialect ?? 'pg'
     this._onPolicyError = config.onPolicyError
+  }
+
+  /**
+   * Re-makes this adapter against `client`, keeping every other config field.
+   *
+   * A drizzle transaction handle exposes the same `select`/`insert`/`update`/
+   * `delete` builders as the db it came from, which is why the cast is sound -
+   * and why it lives here, in the layer that owns the driver type, instead of
+   * leaking drizzle into the engine.
+   */
+  withClient(client: unknown): IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType> {
+    return new IamDrizzleAdapter<TAction, TResource, TRole, TScope, TDb, TType>({
+      ...this._config,
+      db: client as TDb,
+    })
   }
 
   /**
