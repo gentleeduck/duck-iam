@@ -27,7 +27,7 @@
  */
 
 import type { IamClient } from '../../core/types'
-import { iamBuildPermissionKey, iamSplitPermissionKey } from '../../shared/keys'
+import { iamBuildPermissionKey, iamParsePermissionKey } from '../../shared/keys'
 
 /** Callback invoked when permissions are updated via {@link IamAccessClient.update} or {@link IamAccessClient.merge}. */
 type Listener<TAction extends string = string, TResource extends string = string, TScope extends string = string> = (
@@ -172,9 +172,7 @@ export class IamAccessClient<
   /**
    * Lists every action allowed against the given resource type.
    *
-   * Handles all key formats produced by `iamBuildPermissionKey`:
-   * `action:resource`, `action:resource:resourceId`, `scope:action:resource`,
-   * and `scope:action:resource:resourceId`.
+   * Keys not produced by `iamBuildPermissionKey` are ignored.
    *
    * @param resource - Specifies the resource type to filter by.
    * @returns Deduplicated array of actions allowed on `resource`.
@@ -204,39 +202,13 @@ export class IamAccessClient<
 }
 
 /**
- * Extract the action from a permission key for a given resource.
- *
- * Key formats (from iamBuildPermissionKey):
- *   "action:resource"
- *   "action:resource:resourceId"
- *   "scope:action:resource"
- *   "scope:action:resource:resourceId"
- *
- * Rather than guessing the format from part count (ambiguous for 3 parts),
- * we check if the resource appears at the expected position for each format.
+ * Extract the action from a permission key for a given resource, or `null` when
+ * the key targets something else or is not a key this package built.
  */
 function extractAction(key: string, resource: string): string | null {
-  // iamSplitPermissionKey honours `\:` / `\\` escapes; naive split mis-tokenises.
-  const parts = iamSplitPermissionKey(key)
-
-  switch (parts.length) {
-    case 2:
-      // action:resource
-      if (parts[1] === resource) return parts[0] as string
-      return null
-    case 3:
-      // Could be action:resource:resourceId OR scope:action:resource.
-      // Check both: resource at index 1 (unscoped) or index 2 (scoped).
-      if (parts[1] === resource) return parts[0] as string
-      if (parts[2] === resource) return parts[1] as string
-      return null
-    case 4:
-      // scope:action:resource:resourceId
-      if (parts[2] === resource) return parts[1] as string
-      return null
-    default:
-      return null
-  }
+  const parsed = iamParsePermissionKey(key)
+  if (parsed === null || parsed.resource !== resource) return null
+  return parsed.action
 }
 
 /** Factory around {@link IamAccessClient}, for callers who prefer functions to `new`. */

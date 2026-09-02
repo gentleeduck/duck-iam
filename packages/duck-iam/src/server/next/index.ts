@@ -11,10 +11,11 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamClient, IamRequest } from '../../core/types'
 import {
-  IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
+  iamActionForMethod,
   iamDefaultCsrfCheck,
   iamExtractEnvironment,
+  iamNormalizePathname,
   iamNoticeCsrfDefaultIfNeeded,
   iamRunAdminAuthz,
   iamWithAdminAudit,
@@ -292,7 +293,9 @@ export function createIamNextMiddleware<
 
   return async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url)
-    const path = url.pathname
+    // `//admin` and `/%61dmin` both survive `new URL()` and skip a `/admin`
+    // rule while still routing to `/admin`. Match on the canonical form.
+    const path = iamNormalizePathname(url.pathname)
 
     const matchedRule = opts.rules.find((r) => {
       if (typeof r.pattern === 'string') {
@@ -309,7 +312,9 @@ export function createIamNextMiddleware<
     }
 
     try {
-      const action = matchedRule.action ?? (IAM_METHOD_ACTION_MAP[req.method] as TAction) ?? ('read' as TAction)
+      // `TAction` is erased at runtime, so an inferred method action cannot be
+      // narrowed to it. One documented widening rather than one per branch.
+      const action: TAction = matchedRule.action ?? (iamActionForMethod(req.method) as TAction)
 
       const allowed = await engine.can(
         userId,

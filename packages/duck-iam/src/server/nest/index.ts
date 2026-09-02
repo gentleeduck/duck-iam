@@ -1,10 +1,12 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../core/types'
 import {
-  IAM_METHOD_ACTION_MAP,
+  IAM_UNKNOWN_RESOURCE,
   type IamAdminAudit,
+  iamActionForMethod,
   iamDefaultCsrfCheck,
   iamExtractEnvironment,
+  iamNormalizePathname,
   iamNoticeCsrfDefaultIfNeeded,
   iamWithAdminAudit,
 } from '../generic'
@@ -215,7 +217,7 @@ export function iamNestAccessGuard<
     const userId = getUserId(request)
     if (!userId) return false
 
-    const action = meta.infer ? (IAM_METHOD_ACTION_MAP[request.method] ?? 'read') : (meta.action ?? 'read')
+    const action = meta.infer ? iamActionForMethod(request.method) : (meta.action ?? 'read')
 
     const resource = meta.infer ? inferResource(request) : (meta.resource ?? 'unknown')
 
@@ -236,11 +238,18 @@ export function iamNestAccessGuard<
   }
 }
 
-/** Infer resource type from request route path. */
+/**
+ * Infer resource type from the request route path. Prefers Nest's route
+ * template; the raw-path fallback is canonicalised first so `/posts/../admin`
+ * cannot be authorized as `posts`.
+ */
 function inferResource(request: NestRequest): string {
-  const path: string = request.route?.path ?? request.path ?? '/'
+  const template: string | undefined = request.route?.path
+  const path: string = template ?? iamNormalizePathname(request.path ?? '/')
   const segments = path.split('/').filter((s: string) => s && !s.startsWith(':'))
-  return segments[segments.length - 1] ?? 'root'
+  const last = segments[segments.length - 1]
+  if (last === undefined) return 'root'
+  return last.includes('%') ? IAM_UNKNOWN_RESOURCE : last
 }
 
 /** DI token for the access Engine in NestJS. */

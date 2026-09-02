@@ -30,7 +30,7 @@ describe('IamAccessClient', () => {
   })
 
   it('can() works with scoped keys', () => {
-    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ 'org-1:read:post': true }))
+    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ '@org-1:read:post': true }))
     expect(client.can('read', 'post', undefined, 'org-1')).toBe(true)
   })
 
@@ -94,7 +94,7 @@ describe('IamAccessClient', () => {
 
   it('allowedActions() handles scoped keys', () => {
     const client = new IamAccessClient<Action, ResourceType, Scope>(
-      perms({ 'org-1:read:post': true, 'org-1:create:post': true }),
+      perms({ '@org-1:read:post': true, '@org-1:create:post': true }),
     )
     const actions = client.allowedActions('post')
     expect(actions).toEqual(expect.arrayContaining(['read', 'create']))
@@ -114,7 +114,7 @@ describe('IamAccessClient', () => {
 
   it('allowedActions() deduplicates actions', () => {
     const client = new IamAccessClient<Action, ResourceType, Scope>(
-      perms({ 'read:post': true, 'org-1:read:post': true }),
+      perms({ 'read:post': true, '@org-1:read:post': true }),
     )
     const actions = client.allowedActions('post')
     expect(actions).toEqual(['read'])
@@ -232,13 +232,13 @@ describe('allowedActions / hasAnyOn key-shape edges', () => {
   })
 
   it('resolves a 4-segment scope:action:resource:resourceId key', () => {
-    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ 'org-1:read:post:post-9': true }))
+    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ '@org-1:read:post:post-9': true }))
     expect(client.allowedActions('post')).toEqual(['read'])
     expect(client.hasAnyOn('post')).toBe(true)
   })
 
   it('does not treat a 4-segment resourceId as the resource', () => {
-    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ 'org-1:read:comment:post': true }))
+    const client = new IamAccessClient<Action, ResourceType, Scope>(perms({ '@org-1:read:comment:post': true }))
     expect(client.allowedActions('post')).toEqual([])
     expect(client.hasAnyOn('post')).toBe(false)
   })

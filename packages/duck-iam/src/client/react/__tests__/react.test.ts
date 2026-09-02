@@ -92,7 +92,7 @@ describe('createIamAccessControl', () => {
   const map: IamClient.PermissionMap<A, R, S> = {
     'read:post': true,
     'create:post': false,
-    'org-1:delete:post': true,
+    '@org-1:delete:post': true,
     'delete:post:abc': true,
   } as unknown as IamClient.PermissionMap<A, R, S>
 
@@ -252,7 +252,7 @@ describe('createIamPermissionChecker', () => {
 
   it('respects scope key', () => {
     const checker = createIamPermissionChecker<A, R, S>({
-      'org-1:delete:post': true,
+      '@org-1:delete:post': true,
     } as unknown as IamClient.PermissionMap<A, R, S>)
     expect(checker.can('delete', 'post', undefined, 'org-1')).toBe(true)
     expect(checker.can('delete', 'post')).toBe(false)

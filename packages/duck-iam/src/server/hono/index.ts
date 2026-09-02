@@ -1,9 +1,10 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamRequest } from '../../core/types'
 import {
-  IAM_METHOD_ACTION_MAP,
   type IamAdminAudit,
+  iamActionForMethod,
   iamDefaultCsrfCheck,
+  iamDefaultResource,
   iamExtractEnvironment,
   iamNoticeCsrfDefaultIfNeeded,
   iamRunAdminAuthz,
@@ -133,11 +134,8 @@ export function iamAccessMiddleware<
   const {
     // Read only from upstream-set `c.get('userId')`; never trust client headers.
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
-    getResource = (c) => {
-      const parts = c.req.path.split('/').filter(Boolean)
-      return { type: parts[0] ?? 'root', id: parts[1], attributes: {} }
-    },
-    getAction = (c) => IAM_METHOD_ACTION_MAP[c.req.method] ?? 'read',
+    getResource = (c) => iamDefaultResource(c.req.path),
+    getAction = (c) => iamActionForMethod(c.req.method),
     getEnvironment = defaultEnv,
     getScope,
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),
