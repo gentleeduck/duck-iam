@@ -85,6 +85,8 @@ export namespace Sessions {
     deleteAllForIdentity(identityId: string): Promise<void>
     /** Periodic GC. Acquires distributed lease before running. */
     gc(now: number): Promise<{ deleted: number }>
+    /** See `Identities.Store.withClient`. Absent means this store cannot join a transaction. */
+    withClient?(client: unknown): Store
   }
 
   /** SessionsFacet tuning. */

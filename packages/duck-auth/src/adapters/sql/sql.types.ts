@@ -10,6 +10,13 @@ export namespace SqlBridge {
     credentials: Credential<Credential.Me>
     sessions: Session<Sessions.Me>
     // TODO: add events emitter here
+    /**
+     * Re-make this bridge against a different driver client - a transaction
+     * handle. Implemented by adapters whose driver has transactions;
+     * `createSqlStores` propagates it to every store it builds, so one
+     * implementation per adapter covers all three stores.
+     */
+    withClient?(client: unknown): Me<Profile>
   }
 
   export type Identity<Row> = {

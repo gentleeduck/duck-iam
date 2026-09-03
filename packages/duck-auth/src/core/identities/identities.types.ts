@@ -56,6 +56,17 @@ export namespace Identities {
     unlink(identityId: string, providerId: string): Promise<void>
     /** Merges a duplicate global identity into the survivor, repointing ALL of the dup's tenant-scoped rows (credentials/sessions) before erasing it. */
     merge(survivorId: string, dupId: string): Promise<void>
+    /**
+     * Re-bind this store to a caller-supplied driver client - a transaction
+     * handle. The client is opaque to duck-auth and is handed straight back to
+     * the adapter that produced this store, so the library never learns what
+     * driver is in use.
+     *
+     * Absent means the store cannot join a transaction; `AuthEngine.withTransaction`
+     * throws `AUTH_MISCONFIGURED` naming the store rather than silently leaving
+     * it outside the caller's transaction.
+     */
+    withClient?(client: unknown): Store<Profile>
   }
 
   /** IdentitiesFacet tuning. */
