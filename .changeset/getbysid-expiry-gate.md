@@ -23,4 +23,6 @@ Expired sessions are no longer accepted at any privileged gate.
 - The `fresh` field on a session returned by `getBySid` is now computed from `rotatedAt`. A session that was stored `fresh: true` but rotated longer ago than `freshnessMs` now reports `false` — which is what the gates guarding password changes and step-up were always meant to see.
 - New exports `isSessionExpired` and `isSessionFresh` from `~/core/sessions`.
 
-**Not covered:** `resolveBySid` still reports the stored `fresh` rather than recomputing it. Closing that means threading `freshnessMs` through an exported signature, which wants its own decision.
+**`resolveBySid` recomputes it too.** It takes an optional `freshnessMs` on its options bag, defaulting to `DEFAULT_SESSION_CONFIG.freshnessMs`, and `AuthEngine.resolveSession` passes its own — so the cookie path now means the same thing by `session.fresh` that the JWT path has always meant, which recomputes from `rotatedAt` on every verify.
+
+**And `fresh` turned out to be two claims in one column.** Recomputing purely from the clock broke a step-up case, and the failure was correct: `rotateOrCreate({ purpose: 'step-up' })` demotes the session being stepped up *from* by writing `fresh: false` onto a row whose `rotatedAt` is seconds old. The clock half decays; the stored half revokes. `isSessionFresh` is now the AND of both — a stored `false` is sticky, so freshness expires with time and can be withdrawn early, but storage can never grant it.
