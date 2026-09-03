@@ -1,5 +1,5 @@
 import type { AuthEngine } from '@gentleduck/auth'
-import type { Identity, Session } from '@gentleduck/auth/core'
+import type { Identities, Session } from '@gentleduck/auth/core'
 import type { NestAdapter } from '@gentleduck/auth/server/nestjs'
 import {
   CurrentIdentity,
@@ -51,7 +51,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(DuckAuthGuard)
-  me(@CurrentSession() session: Session.ISession, @CurrentIdentity() identity: Identity.IIdentity<unknown>) {
+  me(@CurrentSession() session: Session.ISession, @CurrentIdentity() identity: Identities.IIdentity<unknown>) {
     return {
       ok: true as const,
       code: 'AUTH_ME_OK' as const,

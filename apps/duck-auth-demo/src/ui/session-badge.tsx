@@ -4,7 +4,7 @@
  */
 
 import { useSession } from '@gentleduck/auth/client/react'
-import type { Identity } from '@gentleduck/auth/core'
+import type { Identities } from '@gentleduck/auth/core'
 import { Badge } from '@gentleduck/registry-ui/badge'
 
 /**
@@ -15,7 +15,7 @@ import { Badge } from '@gentleduck/registry-ui/badge'
  *
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
-export function SessionBadge<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(
+export function SessionBadge<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(
   props: SessionBadge.IProps<Profile>,
 ): React.JSX.Element {
   const session = useSession<Profile>()
@@ -34,7 +34,7 @@ export function SessionBadge<Profile extends Identity.ProfileMetadataBase = Iden
  * @author wildduck2 <https://github.com/gentleeduck/duck-iam>
  */
 export namespace SessionBadge {
-  export interface IProps<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
+  export interface IProps<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
     formatIdentity?(identity: { id: string; profile?: Profile }): string
   }
 }

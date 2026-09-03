@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
-import { Identity } from '~/core'
+import type { Identities } from '~/core'
 import { AuthEngine } from '~/core/engine'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { passwords } from '~/providers/passwords'
@@ -9,7 +9,7 @@ import { ScryptHasher } from '~/providers/passwords/hashers/scrypt'
 import { createOidcOP, type OidcOpRoot } from '../index'
 import type { OidcOP } from '../types'
 
-interface ProfileShape extends Identity.ProfileMetadataBase {}
+interface ProfileShape extends Identities.ProfileMetadataBase {}
 
 function buildAuth() {
   const adapter = new MemoryAdapter<ProfileShape>()

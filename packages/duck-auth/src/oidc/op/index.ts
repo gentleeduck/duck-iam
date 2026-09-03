@@ -11,7 +11,7 @@
  * module owns the state machine.
  */
 
-import type { Identity } from '~/core'
+import type { Identities } from '~/core'
 import { getProfileString, isFiniteNumber } from '~/core/credentials/credentials'
 import { randomToken, sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
@@ -44,7 +44,7 @@ export {
   AuthMemoryRefreshTokenStore,
 }
 
-interface IDeps<Profile extends Identity.ProfileMetadataBase> {
+interface IDeps<Profile extends Identities.ProfileMetadataBase> {
   auth: AuthEngine<Profile>
   clients: OidcOP.ClientStore
   codes: OidcOP.CodeStore
@@ -79,7 +79,7 @@ function parseScopeString(raw: unknown): string[] | { error: string } {
  * and route `authorize` / `token` / `userinfo` / `introspect` / `revoke`
  * from your HTTP layer.
  */
-export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase> {
+export class OidcOpRoot<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
   readonly issuer: string
   readonly supportedScopes: string[]
   private deps: IDeps<Profile>
@@ -398,7 +398,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
    */
   async completeConsent(input: {
     client_id: string
-    identity: Identity.Me<Profile>
+    identity: Identities.Me<Profile>
     redirect_uri: string
     scope: string[]
     state?: string
@@ -434,7 +434,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
 
   private async mintCodeAndRedirect(input: {
     client: OidcOP.Client
-    identity: Identity.Me<Profile>
+    identity: Identities.Me<Profile>
     redirect_uri: string
     scope: string[]
     state?: string
@@ -742,7 +742,7 @@ export class OidcOpRoot<Profile extends Identity.ProfileMetadataBase = Identity.
 }
 
 /** Convenience factory with sensible memory-store defaults. */
-export function createOidcOP<Profile extends Identity.ProfileMetadataBase = Identity.ProfileMetadataBase>(args: {
+export function createOidcOP<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase>(args: {
   auth: AuthEngine<Profile>
   config: OidcOP.Cfg
   signIdToken: (payload: Record<string, unknown>) => Promise<string> | string

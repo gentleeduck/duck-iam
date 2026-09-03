@@ -42,15 +42,11 @@ export type { Hijack } from './hijack'
 /**
  * `Identities` is the name the namespace carries everywhere else - in its own
  * declaration, in every internal signature, in the doc comments and in the
- * error messages - so it is the name it is exported under too.
+ * error messages - so it is the name it is exported under too. It was
+ * previously exported as `Identity`, which meant reading one name in the docs
+ * and writing another at the import site.
  */
-/**
- * @deprecated The old export alias, kept so 5.x imports keep working. It was
- * the only place the namespace was called `Identity`, which meant reading
- * `Identities` in every doc comment and writing `Identity` at the import site.
- * Import `Identities` instead; this goes away in 6.0.
- */
-export type { Identities, Identities as Identity } from './identities'
+export type { Identities } from './identities'
 export type { M2m } from './m2m'
 export type { Operations } from './operations'
 export type { Org } from './orgs'
