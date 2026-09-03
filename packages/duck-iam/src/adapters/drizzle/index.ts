@@ -38,6 +38,12 @@ export namespace IamDrizzle {
       and: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
       /** Builds an `IS NULL` condition. Optional - required only for `updateAssignmentScope` to match a global (unscoped) assignment. */
       isNull?: (col: unknown) => SQLWrapper
+      /**
+       * Builds an `OR` of conditions. Optional - required only to collapse
+       * `revokeRoleMany` into a single `DELETE`; without it that method revokes
+       * one row at a time, which is correct but not one statement.
+       */
+      or?: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
     }
     /**
      * JSON column encoding strategy.
@@ -125,6 +131,7 @@ export class IamDrizzleAdapter<
   private readonly _eq: IamDrizzle.IConfig<TDb, TType>['ops']['eq']
   private readonly _and: IamDrizzle.IConfig<TDb, TType>['ops']['and']
   private readonly _isNull?: IamDrizzle.IConfig<TDb, TType>['ops']['isNull']
+  private readonly _or?: IamDrizzle.IConfig<TDb, TType>['ops']['or']
   private readonly _json: 'native' | 'string'
   private readonly _dialect: 'pg' | 'mysql' | 'sqlite'
   private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'drizzle'; rowId: string }) => void
@@ -143,6 +150,7 @@ export class IamDrizzleAdapter<
     this._eq = config.ops.eq
     this._and = config.ops.and
     this._isNull = config.ops.isNull
+    this._or = config.ops.or
     this._json = config.json ?? 'native'
     this._dialect = config.dialect ?? 'pg'
     this._onPolicyError = config.onPolicyError
@@ -204,7 +212,7 @@ export class IamDrizzleAdapter<
    * insert-ignore is a builder-order modifier (`.ignore()` before
    * `.values()`), not a trailing call like `onConflictDoNothing()`.
    */
-  private _insertOrSkip(table: IamDrizzle.DrizzleTable, values: Record<string, unknown>) {
+  private _insertOrSkip(table: IamDrizzle.DrizzleTable, values: Record<string, unknown> | Record<string, unknown>[]) {
     return this._dialect === 'mysql'
       ? this._db.insert(table).ignore().values(values)
       : this._db.insert(table).values(values).onConflictDoNothing()
@@ -547,6 +555,69 @@ export class IamDrizzleAdapter<
     ]
     if (scope !== undefined) conditions.push(this._eq(this._t.assignments.scope, scope))
     await this._db.delete(this._t.assignments).where(this._and(...(conditions as (SQLWrapper | undefined)[])))
+  }
+
+  /**
+   * Grants every triple with one multi-row insert, reusing the same
+   * insert-or-skip conflict handling as {@link assignRole}.
+   *
+   * Returns every requested row, because that is what "applied" means for an
+   * idempotent grant: afterwards the assignment is in place, whether this
+   * statement created it or found it already there. Reporting a duplicate as a
+   * miss would contradict the single-row method, which treats it as success.
+   *
+   * @param rows - The triples to grant, each with its optional temporal bounds.
+   * @returns The rows whose grants are in place - all of them.
+   */
+  async assignRoleMany(
+    rows: readonly IamAdapter.IAssignRow<TRole, TScope>[],
+  ): Promise<readonly IamAdapter.IAssignRow<TRole, TScope>[]> {
+    if (rows.length === 0) return []
+    await this._insertOrSkip(
+      this._t.assignments,
+      rows.map((r) => ({
+        subjectId: r.subjectId,
+        roleId: r.roleId,
+        scope: r.scope ?? null,
+        startsAt: r.opts?.startsAt ?? null,
+        expiresAt: r.opts?.expiresAt ?? null,
+        attributes: r.opts?.attributes ? encodeJson(r.opts.attributes, this._json) : null,
+      })),
+    )
+    return rows
+  }
+
+  /**
+   * Revokes every triple with one `DELETE` whose `WHERE` is an `OR` of the
+   * per-triple conditions. Falls back to one delete per row when `ops.or` was
+   * not supplied - same rows removed, more statements.
+   *
+   * Returns every requested row, mirroring {@link revokeRole}: a triple that
+   * was never granted is not an error there either, and the postcondition
+   * ("this subject does not hold this role in this scope") holds regardless.
+   *
+   * @param rows - The triples to revoke. A row with no `scope` revokes the role in every scope.
+   * @returns The rows whose grants are gone - all of them.
+   */
+  async revokeRoleMany(
+    rows: readonly IamAdapter.ITripleRow<TRole, TScope>[],
+  ): Promise<readonly IamAdapter.ITripleRow<TRole, TScope>[]> {
+    if (rows.length === 0) return []
+    const rowCondition = (r: IamAdapter.ITripleRow<TRole, TScope>): SQLWrapper | undefined => {
+      const conditions: (SQLWrapper | undefined)[] = [
+        this._eq(this._t.assignments.subjectId, r.subjectId) as SQLWrapper,
+        this._eq(this._t.assignments.roleId, r.roleId) as SQLWrapper,
+      ]
+      if (r.scope !== undefined) conditions.push(this._eq(this._t.assignments.scope, r.scope) as SQLWrapper)
+      return this._and(...conditions)
+    }
+    const or = this._or
+    if (or) {
+      await this._db.delete(this._t.assignments).where(or(...rows.map(rowCondition)))
+      return rows
+    }
+    for (const r of rows) await this._db.delete(this._t.assignments).where(rowCondition(r))
+    return rows
   }
 
   /**

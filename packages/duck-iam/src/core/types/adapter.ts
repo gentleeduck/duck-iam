@@ -11,6 +11,23 @@ export namespace IamAdapter {
     readonly signal?: AbortSignal
   }
 
+  /**
+   * One `(subject, role, scope)` triple - the unit every batch role write takes.
+   * Defined here, next to the store methods that consume it, so the store
+   * interface and the admin interface cannot drift apart.
+   */
+  export interface ITripleRow<TRole extends string = string, TScope extends string = string> {
+    readonly subjectId: string
+    readonly roleId: TRole
+    readonly scope?: TScope
+  }
+
+  /** A triple plus the per-grant extras {@link ISubjectStore.assignRole} accepts. */
+  export interface IAssignRow<TRole extends string = string, TScope extends string = string>
+    extends ITripleRow<TRole, TScope> {
+    readonly opts?: IAssignOptions
+  }
+
   /** Optional extras for {@link ISubjectStore.assignRole}: temporal bounds and per-grant attributes. */
   export interface IAssignOptions {
     readonly startsAt?: Date
@@ -101,6 +118,15 @@ export namespace IamAdapter {
       toScope: TScope | undefined,
       actor?: string,
     ): Promise<boolean>
+    /**
+     * Set-based assign - one statement for the whole list. Optional; the admin
+     * loops over {@link assignRole} when it is absent, so an adapter that omits
+     * it is still complete. Returns the triples it actually wrote, so the admin
+     * can report honest per-row outcomes rather than assuming every row landed.
+     */
+    assignRoleMany?(rows: readonly IAssignRow<TRole, TScope>[]): Promise<readonly ITripleRow<TRole, TScope>[]>
+    /** Set-based revoke. See {@link assignRoleMany}. */
+    revokeRoleMany?(rows: readonly ITripleRow<TRole, TScope>[]): Promise<readonly ITripleRow<TRole, TScope>[]>
     /** Returns the attribute bag for a subject. */
     getSubjectAttributes(subjectId: string, opts?: IReadOptions): Promise<IamPrimitives.Attributes>
     /**

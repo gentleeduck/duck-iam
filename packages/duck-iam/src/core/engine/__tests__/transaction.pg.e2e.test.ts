@@ -8,7 +8,7 @@
  * Skips when DUCKIAM_E2E_DATABASE_URL is unset; `globalSetup` provisions a
  * container when docker is available.
  */
-import { and, eq } from 'drizzle-orm'
+import { and, eq, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -26,7 +26,9 @@ const TABLES = { assignments: iamAssignments, attrs: iamSubjectAttrs, policies: 
 // `isNull` is omitted deliberately: it is needed only by `updateAssignmentScope`,
 // which nothing here calls, and drizzle's own `isNull` does not satisfy the
 // adapter's declared `(col: unknown) => SQLWrapper` without a cast.
-const OPS = { and, eq }
+// `or` IS supplied: it is what collapses `revokeRoleMany` into one DELETE, and
+// the batch cases below would silently exercise the per-row fallback without it.
+const OPS = { and, eq, or }
 
 suite('E2E IamEngine.withTransaction on real Postgres', () => {
   let pool: Pool
@@ -136,6 +138,82 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
     await pending?.flush()
 
     expect(await engine.getEffectiveRoles('u4')).toContain('admin')
+  })
+
+  describe('batch role writes through the set-based drizzle statements', () => {
+    beforeEach(async () => {
+      await engine.admin.saveRole({ id: 'viewer', name: 'viewer', permissions: [] })
+    })
+
+    it('assignRoles grants every triple', async () => {
+      const result = await engine.admin.assignRoles([
+        { roleId: 'admin', subjectId: 'b1' },
+        { roleId: 'viewer', scope: 'org-1', subjectId: 'b2' },
+      ])
+
+      expect(result.applied).toBe(2)
+      expect(await assignmentCount()).toBe(2)
+      expect(await engine.getEffectiveRoles('b1')).toContain('admin')
+      expect(await engine.getEffectiveRoles('b2', 'org-1')).toContain('viewer')
+    })
+
+    it('assignRoles is idempotent, like the single-row grant', async () => {
+      const rows = [{ roleId: 'admin' as const, subjectId: 'b3' }]
+      await engine.admin.assignRoles(rows)
+      const again = await engine.admin.assignRoles(rows)
+
+      // The duplicate is skipped by the conflict clause, not reported as a
+      // miss - the grant is in place either way.
+      expect(again.applied).toBe(1)
+      expect(await assignmentCount()).toBe(1)
+    })
+
+    it('revokeRoles removes every triple in the list and nothing else', async () => {
+      await engine.admin.assignRoles([
+        { roleId: 'admin', subjectId: 'b4' },
+        { roleId: 'viewer', subjectId: 'b5' },
+        { roleId: 'admin', subjectId: 'b6' },
+      ])
+
+      await engine.admin.revokeRoles([
+        { roleId: 'admin', subjectId: 'b4' },
+        { roleId: 'viewer', subjectId: 'b5' },
+      ])
+
+      expect(await assignmentCount()).toBe(1)
+      expect(await engine.getEffectiveRoles('b6')).toContain('admin')
+    })
+
+    it('a revoke row with no scope clears the role in every scope', async () => {
+      await engine.admin.assignRoles([
+        { roleId: 'admin', scope: 'org-1', subjectId: 'b7' },
+        { roleId: 'admin', scope: 'org-2', subjectId: 'b7' },
+      ])
+
+      await engine.admin.revokeRoles([{ roleId: 'admin', subjectId: 'b7' }])
+
+      expect(await assignmentCount()).toBe(0)
+    })
+
+    it('a rolled-back batch leaves no rows and never reaches the shared cache', async () => {
+      expect(await engine.getEffectiveRoles('b8')).toEqual([])
+
+      await rollsBack(async (tx) => {
+        const perms = engine.withTransaction(tx)
+        await perms.admin.assignRoles([
+          { roleId: 'admin', subjectId: 'b8' },
+          { roleId: 'viewer', subjectId: 'b9' },
+        ])
+
+        expect(await perms.getEffectiveRoles('b8')).toContain('admin')
+        // One buffered invalidation per distinct subject, none applied yet.
+        expect(perms.pending.size).toBe(2)
+        expect(await assignmentCount()).toBe(0)
+      })
+
+      expect(await assignmentCount()).toBe(0)
+      expect(await engine.getEffectiveRoles('b8')).toEqual([])
+    })
   })
 
   it('a role saved and rolled back leaves no row', async () => {
