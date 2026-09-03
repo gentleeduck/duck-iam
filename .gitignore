@@ -129,3 +129,9 @@ packages/duck-auth/**/*.md
 
 # Syncthing conflict artifacts
 *.sync-conflict-*
+
+# Velite build artifact for the docs content. The docs app itself moved out
+# (6bf78c7a), leaving a 7.6MB prebuilt JSON checked in as the only copy of 20
+# pages of pre-rename API - unreviewable, and wrong. Never track it again.
+.velite/
+**/.velite/
