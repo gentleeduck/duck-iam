@@ -1,3 +1,4 @@
+import { BATCH_NOT_FOUND, type Batch, batchResult, loopFallback } from '~/core/batch'
 import { getProfileString } from '../credentials/credentials'
 import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
@@ -13,6 +14,15 @@ import type { Identities } from './identities.types'
  * through `update(expectedVersion)`; callers that pass a stale version see
  * `AUTH/STALE_WRITE` and decide retry/surface.
  */
+/**
+ * Outcome id for a provider link. One identity may appear several times in a
+ * batch - two links for the same person - so keying outcomes by identity alone
+ * would collide and silently drop rows.
+ */
+function linkKey(identityId: string, providerId: string): string {
+  return `${identityId} ${providerId}`
+}
+
 export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> {
   constructor(
     private readonly _store: Identities.Store<Profile>,
@@ -260,6 +270,135 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
    */
   static exportToJson<P extends Identities.ProfileMetadataBase>(blob: Identities.ExportBlob<P>): string {
     return JSON.stringify(blob, sortKeys, 2)
+  }
+
+  // --- batch ----------------------------------------------------------
+
+  /**
+   * Soft-deletes many identities. One statement when the store supports it,
+   * otherwise one call per id. Reports per-row outcomes: an id with no live
+   * identity is `not-found`, not an exception.
+   */
+  async softDeleteMany(ids: readonly string[]): Promise<Batch.Result> {
+    if (ids.length === 0) return batchResult([])
+    if (this._store.softDeleteMany) {
+      return this._store.softDeleteMany(ids, this._cfg.softDeleteGracePeriodMs)
+    }
+    return loopFallback(ids, async (id) => {
+      if (!(await this._store.findById(id))) return BATCH_NOT_FOUND
+      await this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs)
+    })
+  }
+
+  /** Restores many soft-deleted identities. See {@link softDeleteMany}. */
+  async restoreMany(ids: readonly string[]): Promise<Batch.Result<Identities.Me<Profile>>> {
+    if (ids.length === 0) return batchResult([])
+    if (this._store.restoreMany) return this._store.restoreMany(ids)
+    return loopFallback(ids, async (id) => {
+      try {
+        return await this._store.restore(id)
+      } catch {
+        // `restore` throws on an id that was never there; in a batch that is a
+        // per-row miss, not a reason to abandon the remaining ids.
+        return BATCH_NOT_FOUND
+      }
+    })
+  }
+
+  /** Hard-erases many identities. Cannot be undone. See {@link softDeleteMany}. */
+  async eraseMany(ids: readonly string[]): Promise<Batch.Result> {
+    if (ids.length === 0) return batchResult([])
+    if (this._store.eraseMany) return this._store.eraseMany(ids)
+    return loopFallback(ids, (id) => this._store.erase(id))
+  }
+
+  /**
+   * Updates many profiles, each against its own expected version. Rows that
+   * lose the optimistic-lock race are reported as `stale-write`; the rest still
+   * apply. Every patch is resolved and cap-checked before anything is written,
+   * so an oversized profile fails the batch rather than half-applying it.
+   */
+  async updateProfileMany(
+    rows: readonly { id: string; patch: Partial<Profile>; expectedVersion: number }[],
+  ): Promise<Batch.Result<Identities.Me<Profile>>> {
+    if (rows.length === 0) return batchResult([])
+
+    const resolved: { id: string; profile: Profile; expectedVersion: number }[] = []
+    const missing: Batch.Outcome<Identities.Me<Profile>>[] = []
+    for (const row of rows) {
+      const cur = await this._store.findById(row.id)
+      if (!cur) {
+        missing.push({ id: row.id, ok: false, reason: 'not-found' })
+        continue
+      }
+      const next = { ...cur.profile, ...row.patch }
+      this._assertProfileWithinCap(next)
+      resolved.push({ expectedVersion: row.expectedVersion, id: row.id, profile: next })
+    }
+
+    const byId = new Map<string, Batch.Outcome<Identities.Me<Profile>>>()
+    if (resolved.length > 0) {
+      const applied = this._store.updateProfileMany
+        ? await this._store.updateProfileMany(resolved)
+        : await loopFallback(
+            resolved.map((r) => r.id),
+            async (id) => {
+              const r = resolved.find((x) => x.id === id)
+              if (!r) return BATCH_NOT_FOUND
+              return this._store.update(id, { profile: r.profile }, r.expectedVersion)
+            },
+          )
+      for (const o of applied.outcomes) byId.set(o.id, o)
+    }
+    for (const m of missing) byId.set(m.id, m)
+
+    // Re-assemble in the caller's input order - `missing` rows never reached the store.
+    return batchResult(rows.map((r) => byId.get(r.id) ?? { id: r.id, ok: false, reason: 'not-found' as const }))
+  }
+
+  /**
+   * Links several provider identities at once. Emits one `identity.linked` per
+   * link that actually landed.
+   */
+  async linkMany(
+    links: readonly { identityId: string; link: Omit<Identities.ProviderLink, 'addedAt'> }[],
+  ): Promise<Batch.Result> {
+    if (links.length === 0) return batchResult([])
+    const stamped = links.map((l) => ({ identityId: l.identityId, link: { ...l.link, addedAt: new Date() } }))
+    const result = this._store.linkMany
+      ? await this._store.linkMany(stamped)
+      : await loopFallback(
+          stamped.map((l) => linkKey(l.identityId, l.link.providerId)),
+          async (key) => {
+            const entry = stamped.find((l) => linkKey(l.identityId, l.link.providerId) === key)
+            if (!entry) return BATCH_NOT_FOUND
+            await this._store.link(entry.identityId, entry.link)
+          },
+        )
+    for (const [i, outcome] of result.outcomes.entries()) {
+      const entry = stamped[i]
+      if (outcome.ok && entry) {
+        await this._events.emit('identity.linked', {
+          identityId: entry.identityId,
+          providerId: entry.link.providerId,
+        })
+      }
+    }
+    return result
+  }
+
+  /** Unlinks several provider identities at once. */
+  async unlinkMany(links: readonly { identityId: string; providerId: string }[]): Promise<Batch.Result> {
+    if (links.length === 0) return batchResult([])
+    if (this._store.unlinkMany) return this._store.unlinkMany(links)
+    return loopFallback(
+      links.map((l) => linkKey(l.identityId, l.providerId)),
+      async (key) => {
+        const entry = links.find((l) => linkKey(l.identityId, l.providerId) === key)
+        if (!entry) return BATCH_NOT_FOUND
+        await this._store.unlink(entry.identityId, entry.providerId)
+      },
+    )
   }
 }
 

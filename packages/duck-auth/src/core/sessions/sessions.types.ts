@@ -1,3 +1,4 @@
+import type { Batch } from '~/core/batch'
 /** Session domain + lifecycle types — the single `Session` namespace for the sessions subject. */
 
 import type { Identities } from '../identities'
@@ -87,6 +88,16 @@ export namespace Sessions {
     gc(now: number): Promise<{ deleted: number }>
     /** See `Identities.Store.withClient`. Absent means this store cannot join a transaction. */
     withClient?(client: unknown): Store
+
+    /**
+     * Set-based forms of the deletes above, plus the read the facet needs to
+     * emit one event per session actually removed. Each is optional: the facet
+     * loops when the store omits it.
+     */
+    deleteAllForIdentities?(identityIds: readonly string[]): Promise<Batch.Result>
+    deleteMany?(ids: readonly string[]): Promise<Batch.Result>
+    /** Rows about to be deleted, so the facet can emit one event per real revocation. */
+    listByIdentities?(identityIds: readonly string[]): Promise<Me[]>
   }
 
   /** SessionsFacet tuning. */

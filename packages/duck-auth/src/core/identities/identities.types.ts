@@ -1,3 +1,4 @@
+import type { Batch } from '~/core/batch'
 import type { Credential } from '~/core/credentials/credentials.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 
@@ -67,6 +68,22 @@ export namespace Identities {
      * it outside the caller's transaction.
      */
     withClient?(client: unknown): Store<Profile>
+
+    /**
+     * Set-based forms of the single-row writes above. Each is optional: the
+     * facet loops over the single-row method when the store omits it, so the
+     * memory and redis adapters need no change. A store that implements one
+     * must apply it as ONE statement, atomic with any transaction the store is
+     * bound to, and return one outcome per input row in input order.
+     */
+    softDeleteMany?(ids: readonly string[], gracePeriodMs: number): Promise<Batch.Result>
+    restoreMany?(ids: readonly string[]): Promise<Batch.Result<Me<Profile>>>
+    eraseMany?(ids: readonly string[]): Promise<Batch.Result>
+    updateProfileMany?(
+      rows: readonly { id: string; profile: Profile; expectedVersion: number }[],
+    ): Promise<Batch.Result<Me<Profile>>>
+    linkMany?(links: readonly { identityId: string; link: ProviderLink }[]): Promise<Batch.Result>
+    unlinkMany?(links: readonly { identityId: string; providerId: string }[]): Promise<Batch.Result>
   }
 
   /** IdentitiesFacet tuning. */

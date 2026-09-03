@@ -1,3 +1,4 @@
+import type { Batch } from '~/core/batch'
 import type { TenantContext } from '../tenant/tenant.types'
 
 /**
@@ -71,5 +72,8 @@ export namespace Credential {
     deleteByKind(identityId: string, kind: Kind, ctx: TenantContext): Promise<void>
     /** See `Identities.Store.withClient`. Absent means this store cannot join a transaction. */
     withClient?(client: unknown): Store
+
+    /** Set-based delete by identity. Optional; callers loop when absent. */
+    deleteByIdentities?(identityIds: readonly string[], ctx: TenantContext): Promise<Batch.Result>
   }
 }

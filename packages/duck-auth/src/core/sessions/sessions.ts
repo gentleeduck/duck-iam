@@ -1,3 +1,4 @@
+import { BATCH_NOT_FOUND, type Batch, batchResult, loopFallback } from '~/core/batch'
 import type { Events } from '~/core/events/events.types'
 import { isExpiredAt, isFiniteNumber } from '../credentials/credentials'
 import { randomToken, sha256 } from '../crypto'
@@ -296,6 +297,62 @@ export class SessionsImpl {
       fingerprint: input.fingerprint ?? null,
       actingAs: input.actingAs ?? null,
     })
+  }
+
+  // --- batch ----------------------------------------------------------
+
+  /**
+   * Revokes every session for each of `identityIds`. One statement when the
+   * store supports it, otherwise one sweep per identity.
+   *
+   * Emits one `session.revoked` per session actually removed - an identity that
+   * had no sessions emits nothing and reports `not-found`, so a caller cannot
+   * mistake "swept clean" for "there was something to sweep".
+   */
+  async revokeAllForIdentities(identityIds: readonly string[]): Promise<Batch.Result> {
+    if (identityIds.length === 0) return batchResult([])
+
+    // Read the doomed rows first: after the delete there is nothing left to
+    // name in the events.
+    const doomed = this._store.listByIdentities
+      ? await this._store.listByIdentities(identityIds)
+      : (await Promise.all(identityIds.map((id) => this._store.listByIdentity(id)))).flat()
+
+    const result = this._store.deleteAllForIdentities
+      ? await this._store.deleteAllForIdentities(identityIds)
+      : await loopFallback(identityIds, async (id) => {
+          if (!doomed.some((s) => s.identityId === id)) return BATCH_NOT_FOUND
+          await this._store.deleteAllForIdentity(id)
+        })
+
+    const revoked = new Set(result.outcomes.filter((o) => o.ok).map((o) => o.id))
+    for (const s of doomed) {
+      if (s.identityId !== null && revoked.has(s.identityId)) {
+        await this._events.emit('session.revoked', { identityId: s.identityId, sessionId: s.id })
+      }
+    }
+    return result
+  }
+
+  /** Revokes sessions by their hashed ids. Emits one `session.revoked` per row removed. */
+  async revokeByHashes(ids: readonly string[]): Promise<Batch.Result> {
+    if (ids.length === 0) return batchResult([])
+    const rows = await Promise.all(ids.map((id) => this._store.getByHash(id)))
+    const result = this._store.deleteMany
+      ? await this._store.deleteMany(ids)
+      : await loopFallback(ids, async (id) => {
+          if (!rows.some((r) => r?.id === id)) return BATCH_NOT_FOUND
+          await this._store.delete(id)
+        })
+    for (const [i, outcome] of result.outcomes.entries()) {
+      if (outcome.ok) {
+        await this._events.emit('session.revoked', {
+          identityId: rows[i]?.identityId ?? null,
+          sessionId: ids[i] ?? outcome.id,
+        })
+      }
+    }
+    return result
   }
 }
 
