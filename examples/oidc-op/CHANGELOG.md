@@ -1,5 +1,29 @@
 # @gentleduck/example-oidc-op
 
+## 0.0.17
+
+### Patch Changes
+
+- Updated dependencies
+  - @gentleduck/auth@5.4.0
+
+## 0.0.16
+
+### Patch Changes
+
+- Updated dependencies [80c809a]
+- Updated dependencies [45e1ff6]
+- Updated dependencies
+  - @gentleduck/auth@5.3.6
+
+## 0.0.15
+
+### Patch Changes
+
+- Updated dependencies [80c809a]
+- Updated dependencies [45e1ff6]
+  - @gentleduck/auth@5.3.6
+
 ## 0.0.14
 
 ### Patch Changes
