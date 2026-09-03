@@ -1,18 +1,19 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
-import { evalConditionGroup } from '../../conditions'
-import { evaluatePolicyFast } from '../../evaluate/evaluate'
-import { combiners } from '../../evaluate/evaluate.libs'
+import { evalConditionGroup } from '../../conditions/conditions'
+import { evaluatePolicyFast, type IVoteSource } from '../../evaluate/evaluate'
+import { combiners, policyHasDenyRule } from '../../evaluate/evaluate.libs'
 import type { AccessControl, IamRequest } from '../../types'
+import { scopeCovers } from '../engine.libs'
 import { CellKind, type CompiledTable, type DynamicPolicyGroup } from './compiled.types'
 
 type Caches = { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> }
-type OnPolicyError = (err: Error, policy: AccessControl.IPolicy) => void
 
 /**
  * Folds one DYNAMIC cell's per-policy votes into a single boolean (ABAC flatPolicies only -
  * RBAC is a separate top-level vote, see `rbacVote`). Returns `null` only when every group at
- * this cell threw - same fail-skip contract as `evaluatePolicyFast`'s residual-policy loop: a
- * cell with zero surviving votes must abstain, not fail-closed the whole request.
+ * this cell threw. A throw is Indeterminate: the group votes deny if its policy carries any
+ * deny rule, otherwise it casts the `defaultEffect` vote it would have cast had it evaluated.
+ * It never abstains - abstaining is what let a forced throw delete the vote.
  */
 function evaluateDynamicCell(
   groups: readonly DynamicPolicyGroup[],
@@ -20,9 +21,14 @@ function evaluateDynamicCell(
   defaultEffect: AccessControl.Effect,
   combine: AccessControl.PolicyCombine,
   caches?: Caches,
-  onPolicyError?: OnPolicyError,
+  onPolicyError?: AccessControl.PolicyErrorHandler,
+  voteSource?: IVoteSource,
 ): boolean | null {
+  if (voteSource) voteSource.fromDefault = false
   const perPolicy: boolean[] = []
+  // Parallel to `perPolicy`: whether that group's allow came from `defaultEffect`
+  // rather than from a rule that fired.
+  const fromDefault: boolean[] = []
   const subjectRoles = Array.isArray(req.subject.roles) ? req.subject.roles : []
   for (const group of groups) {
     // Role-targeted group: subject without the role doesn't get a vote from it at all
@@ -34,16 +40,24 @@ function evaluateDynamicCell(
         .map((rule) => ({ rule, effect: rule.effect }))
       const decision = combiners[group.algorithm](matched, defaultEffect)
       perPolicy.push(decision.effect === 'allow')
+      fromDefault.push(decision.rule === undefined)
     } catch (err) {
-      // An error is Indeterminate, not NotApplicable: a group carrying a deny rule
-      // votes deny rather than dropping out, so padding a `matches` field cannot
-      // silently retire it. Allow-only groups stay skippable. Reported either way.
+      // An error is Indeterminate, not NotApplicable. The deny check is asked of
+      // the whole *policy*, not of `group.rules` - a group holds only the rules
+      // shaped for this action/resource cell, so a policy whose deny rule targets
+      // a different cell reads as allow-only here and the vote is dropped. The
+      // interpreter asks `policyHasDenyRule(policy)`; asking anything narrower is
+      // what let production allow what development denied. Reported either way.
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), group.policy)
-      if (group.rules.some((rule) => rule.effect === 'deny')) perPolicy.push(false)
+      const hasDeny = policyHasDenyRule(group.policy)
+      perPolicy.push(hasDeny ? false : defaultEffect === 'allow')
+      fromDefault.push(!hasDeny)
     }
   }
   if (perPolicy.length === 0) return null
-  return combine === 'allow-overrides' ? perPolicy.some(Boolean) : perPolicy.every(Boolean)
+  const result = combine === 'allow-overrides' ? perPolicy.some(Boolean) : perPolicy.every(Boolean)
+  if (voteSource) voteSource.fromDefault = result && perPolicy.some((v, i) => v && fromDefault[i] === true)
+  return result
 }
 
 /**
@@ -60,8 +74,10 @@ function abacFlatVote(
   req: IamRequest.IAccessRequest,
   defaultEffect: AccessControl.Effect,
   caches?: Caches,
-  onPolicyError?: OnPolicyError,
+  onPolicyError?: AccessControl.PolicyErrorHandler,
+  voteSource?: IVoteSource,
 ): boolean | null {
+  if (voteSource) voteSource.fromDefault = false
   if (!table.hasFlatSource) return null
 
   const a = table.actionId.get(action)
@@ -77,7 +93,7 @@ function abacFlatVote(
   // DYNAMIC
   const groups = table.dynamic[idx]
   if (!groups) return null
-  return evaluateDynamicCell(groups, req, defaultEffect, table.policyCombine, caches, onPolicyError)
+  return evaluateDynamicCell(groups, req, defaultEffect, table.policyCombine, caches, onPolicyError, voteSource)
 }
 
 /**
@@ -99,8 +115,10 @@ function rbacVote(
   req: IamRequest.IAccessRequest,
   defaultEffect: AccessControl.Effect,
   caches?: Caches,
-  onPolicyError?: OnPolicyError,
+  onPolicyError?: AccessControl.PolicyErrorHandler,
+  voteSource?: IVoteSource,
 ): boolean | null {
+  if (voteSource) voteSource.fromDefault = false
   if (!table.hasRbacSource) return null
 
   // `actionId`/`resourceId` are shared with the ABAC flat layer - a dimension can exist
@@ -115,29 +133,37 @@ function rbacVote(
 
   // Scoped/conditioned grants: one throw anywhere in this cell's groups poisons the whole
   // scan (same all-or-nothing granularity as `rbacResidual`'s catch below, not ABAC's
-  // per-policy-group fail-skip) - abstain rather than risk a partial, order-dependent vote.
+  // per-policy-group handling), so the whole scan resolves Indeterminate rather than
+  // risking a partial, order-dependent vote.
   const groups = idx !== undefined ? table.rbacDynamic[idx] : undefined
   if (groups) {
     try {
       for (const g of groups) {
         if ((mask & g.roleMask) === 0) continue
-        if (g.scope !== undefined && g.scope !== req.scope) continue
+        if (g.scope !== undefined && !scopeCovers(g.scope, req.scope, table.scopeMode)) continue
         if (g.conditions && !evalConditionGroup(req, g.conditions, 0, caches)) continue
         return true // role permissions are allow-only - first match wins
       }
     } catch (err) {
+      // Indeterminate, not NotApplicable. Role permissions are allow-only, so the
+      // vote this scan would have cast is `defaultEffect` - returning `null`
+      // abstains and deletes it, which under 'and' turns the throw into an allow.
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), groups[0]!.policy)
-      return null
+      if (voteSource) voteSource.fromDefault = true
+      return defaultEffect === 'allow'
     }
   }
 
   if (table.rbacResidual) {
     try {
-      const vote = evaluatePolicyFast(table.rbacResidual, req, defaultEffect, caches)
+      const vote = evaluatePolicyFast(table.rbacResidual, req, defaultEffect, caches, voteSource)
       if (vote !== null) return vote
     } catch (err) {
+      // Same Indeterminate contract as every other catch on this path.
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), table.rbacResidual)
-      return null
+      const hasDeny = policyHasDenyRule(table.rbacResidual)
+      if (voteSource) voteSource.fromDefault = !hasDeny
+      return hasDeny ? false : defaultEffect === 'allow'
     }
   }
 
@@ -147,7 +173,9 @@ function rbacVote(
   // subject holds (or its scope/condition doesn't match) - so that's still a real vote,
   // not silence.
   const hasAnyGrant = cellAllow !== 0 || (groups !== undefined && groups.length > 0)
-  return hasAnyGrant ? defaultEffect === 'allow' : null
+  if (!hasAnyGrant) return null
+  if (voteSource) voteSource.fromDefault = true
+  return defaultEffect === 'allow'
 }
 
 /**
@@ -162,26 +190,37 @@ export function lookup(
   resource: string,
   req: IamRequest.IAccessRequest,
   defaultEffect: AccessControl.Effect = 'deny',
-  onPolicyError?: OnPolicyError,
+  onPolicyError?: AccessControl.PolicyErrorHandler,
   signals?: { failOpen?: boolean },
   caches?: Caches,
 ): boolean {
   const applicable: boolean[] = []
+  // Parallel to `applicable`: whether that vote is the `defaultEffect` fallback
+  // rather than a rule's verdict. `failOpen` is exactly "the allow rests on the
+  // fallback", and the boolean vote alone cannot say so.
+  const fromDefault: boolean[] = []
+  const voteSource: IVoteSource = { fromDefault: false }
+  const push = (vote: boolean | null): void => {
+    if (vote === null) return
+    applicable.push(vote)
+    fromDefault.push(voteSource.fromDefault)
+  }
 
-  const abac = abacFlatVote(table, action, resource, req, defaultEffect, caches, onPolicyError)
-  if (abac !== null) applicable.push(abac)
-
-  const rbac = rbacVote(table, mask, action, resource, req, defaultEffect, caches, onPolicyError)
-  if (rbac !== null) applicable.push(rbac)
+  push(abacFlatVote(table, action, resource, req, defaultEffect, caches, onPolicyError, voteSource))
+  push(rbacVote(table, mask, action, resource, req, defaultEffect, caches, onPolicyError, voteSource))
 
   for (const policy of table.residualPolicies) {
-    // Same fail-skip contract as evaluateFast's safeEval: one rotten residual
-    // policy must not fail-closed the whole request.
     try {
-      const vote = evaluatePolicyFast(policy, req, defaultEffect, caches)
-      if (vote !== null) applicable.push(vote)
+      push(evaluatePolicyFast(policy, req, defaultEffect, caches, voteSource))
     } catch (err) {
+      // Same Indeterminate contract as the interpreter's safeEval: a deny-bearing
+      // policy votes deny, an allow-only one votes `defaultEffect`. Swallowing the
+      // error instead drops the vote entirely, which is how a throwing residual
+      // policy made production allow what development denied.
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
+      const hasDeny = policyHasDenyRule(policy)
+      voteSource.fromDefault = !hasDeny
+      push(hasDeny ? false : defaultEffect === 'allow')
     }
   }
 
@@ -190,5 +229,9 @@ export function lookup(
     if (signals && allowed) signals.failOpen = true
     return allowed
   }
-  return table.policyCombine === 'allow-overrides' ? applicable.some(Boolean) : applicable.every(Boolean)
+  const allowed = table.policyCombine === 'allow-overrides' ? applicable.some(Boolean) : applicable.every(Boolean)
+  // Only the votes that carry the allow count: under `allow-overrides` that is
+  // the allowing one, under `and` all of them. Never raised on a deny verdict.
+  if (signals && allowed && applicable.some((v, i) => v && fromDefault[i] === true)) signals.failOpen = true
+  return allowed
 }

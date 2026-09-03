@@ -1,30 +1,58 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
-import { policyTargetsActionResource } from '../../evaluate/evaluate.libs'
-import { rolesToPolicy } from '../../rbac'
-import type { AccessControl } from '../../types'
-import { CellKind, type CompiledTable, type DynamicPolicyGroup, type RbacRuleGroup } from './compiled.types'
 
-/** `roleId`'s bit position is `1 << index`; a 32-bit mask can't address a 33rd role without aliasing an earlier one. */
-const MAX_ROLES = 32
+import { matchesUnconditionally } from '../../conditions/conditions'
+import { combiners, policyTargetsActionResource } from '../../evaluate/evaluate.libs'
+import { MAX_INHERITANCE_DEPTH, rolesToPolicy } from '../../rbac'
+import type { AccessControl } from '../../types'
+import { IAM_MAX_COMPILED_ROLES as MAX_ROLES } from '../engine.libs'
+import { IamPolicyCompileError, IamRoleLimitExceededError } from './compiled.errors'
+import { CellKind, type CompiledTable, type DynamicPolicyGroup, type RbacRuleGroup } from './compiled.types'
 
 /** Not a literal string: `'*'`, or an action/resource prefix pattern (`'foo:*'`, `'foo.*'`). */
 function isWildcard(v: string): boolean {
   return v === '*' || v.endsWith(':*') || v.endsWith('.*')
 }
 
+/**
+ * True when the group is anything other than a request-independent match, so
+ * the rule cannot be lowered into a static cell. This is deliberately wider
+ * than "carries a clause": a group that can never match (`{ any: [] }`, an
+ * unrecognised key set) is not static-true either, and treating it as one
+ * lowered a rule the interpreter refuses into a cell that always fires.
+ */
 function hasConditions(group: AccessControl.IConditionGroup): boolean {
-  return 'all' in group
-    ? group.all.length > 0
-    : 'any' in group
-      ? group.any.length > 0
-      : 'none' in group
-        ? group.none.length > 0
-        : false
+  return !matchesUnconditionally(group)
 }
 
 /** `targets.roles`, or `undefined` when the policy applies regardless of role. */
 function targetRolesOf(policy: AccessControl.IPolicy): readonly string[] | undefined {
   return policy.targets?.roles?.length ? policy.targets.roles : undefined
+}
+
+/**
+ * Reject a policy whose shape the compiler cannot walk, naming it.
+ *
+ * Runs before anything reads `policy.rules`, so a malformed policy fails here
+ * - attributed - instead of somewhere downstream as an anonymous
+ * `rules is not iterable`. The engine forwards this to `onPolicyError` with the
+ * id and rethrows; the deny is unchanged. See {@link IamPolicyCompileError}.
+ *
+ * The checks are the fields the compiler actually iterates. Types claim all
+ * three are arrays, which is exactly the claim that does not survive a policy
+ * arriving from an adapter, a database row, or a hand-written config.
+ */
+function assertCompilablePolicy(policy: AccessControl.IPolicy): void {
+  const policyId = typeof policy.id === 'string' ? policy.id : '<unnamed>'
+  if (!Array.isArray(policy.rules)) throw new IamPolicyCompileError(policyId, '`rules` is missing or not an array')
+  let index = 0
+  for (const rule of policy.rules) {
+    const at = typeof rule?.id === 'string' ? `rule ${JSON.stringify(rule.id)}` : `rule at index ${index}`
+    index++
+    if (rule === null || typeof rule !== 'object') throw new IamPolicyCompileError(policyId, `${at} is not an object`)
+    if (!Array.isArray(rule.actions)) throw new IamPolicyCompileError(policyId, `${at}: \`actions\` is not an array`)
+    if (!Array.isArray(rule.resources))
+      throw new IamPolicyCompileError(policyId, `${at}: \`resources\` is not an array`)
+  }
 }
 
 /**
@@ -38,6 +66,11 @@ function targetRolesOf(policy: AccessControl.IPolicy): readonly string[] | undef
  * `DynamicPolicyGroup`.
  */
 function isResidualPolicy(policy: AccessControl.IPolicy): boolean {
+  // An unrecognised algorithm cannot be reduced to cells: cell kind is decided
+  // from `rule.effect` alone, so a deny-carrying policy would compile to a
+  // CONST_ALLOW and grant in production while the interpreter throws and denies.
+  // Residual keeps it on `evaluatePolicyFast`, which rejects it the same way.
+  if (!Object.hasOwn(combiners, policy.algorithm)) return true
   if (policy.targets?.actions?.some(isWildcard) || policy.targets?.resources?.some(isWildcard)) return true
   for (const rule of policy.rules) {
     for (const a of rule.actions) if (isWildcard(a)) return true
@@ -80,16 +113,16 @@ export function compileTable(
   roles: readonly AccessControl.IRole[],
   policies: readonly AccessControl.IPolicy[],
   policyCombine: AccessControl.PolicyCombine,
+  scopeMode: 'flat' | 'hierarchical' = 'flat',
 ): CompiledTable {
   if (roles.length > MAX_ROLES) {
-    throw new Error(
-      `[@gentleduck/iam:compiled] compileTable(): ${roles.length} roles exceeds the ${MAX_ROLES}-role limit the compiled table's 32-bit grant mask can address without bit-index aliasing (role N and role N+32 would silently share a bit). Reduce the role count, or route this deployment through mode: 'development' instead.`,
-    )
+    throw new IamRoleLimitExceededError(roles.length, MAX_ROLES)
   }
 
   const flatPolicies: AccessControl.IPolicy[] = []
   const residualPolicies: AccessControl.IPolicy[] = []
   for (const policy of policies) {
+    assertCompilablePolicy(policy)
     if (isResidualPolicy(policy)) residualPolicies.push(policy)
     else flatPolicies.push(policy)
   }
@@ -102,7 +135,7 @@ export function compileTable(
     ...role,
     permissions: role.permissions.filter((perm) => isWildcardPermission(perm)),
   }))
-  const rbacResidualPolicy = rolesToPolicy(filteredRoles)
+  const rbacResidualPolicy = rolesToPolicy(filteredRoles, scopeMode)
   const rbacResidual = rbacResidualPolicy.rules.length > 0 ? rbacResidualPolicy : null
 
   // RBAC's cell-dynamic source: literal action+resource, but scope and/or conditions. This
@@ -112,7 +145,7 @@ export function compileTable(
     ...role,
     permissions: role.permissions.filter((perm) => !isWildcardPermission(perm) && !isSimplePermission(perm, role)),
   }))
-  const rbacDynamicSourcePolicy = rolesToPolicy(dynamicSourceRoles)
+  const rbacDynamicSourcePolicy = rolesToPolicy(dynamicSourceRoles, scopeMode)
   const hasRbacDynamic = rbacDynamicSourcePolicy.rules.length > 0
 
   const hasSimpleRoles = roles.some((role) => role.permissions.some((perm) => isSimplePermission(perm, role)))
@@ -153,12 +186,18 @@ export function compileTable(
   const byId = new Map(roles.map((r) => [r.id, r]))
   const effective: number[][] = roles.map((r) => {
     const out: number[] = []
-    const seen = new Set<string>()
+    // Shallowest depth per role, and `MAX_INHERITANCE_DEPTH` rather than a bare
+    // 32, so this walk cannot drift from the interpreter's in either respect.
+    const seen = new Map<string, number>()
     const walk = (id: string, depth: number): void => {
-      if (depth > 32 || seen.has(id)) return
-      seen.add(id)
-      const idx = roleId.get(id)
-      if (idx !== undefined) out.push(idx)
+      if (depth > MAX_INHERITANCE_DEPTH) return
+      const best = seen.get(id)
+      if (best !== undefined && best <= depth) return
+      if (best === undefined) {
+        const idx = roleId.get(id)
+        if (idx !== undefined) out.push(idx)
+      }
+      seen.set(id, depth)
       for (const parent of byId.get(id)?.inherits ?? []) walk(parent, depth + 1)
     }
     walk(r.id, 0)
@@ -271,6 +310,7 @@ export function compileTable(
     resourceId,
     roleId,
     policyCombine,
+    scopeMode,
     kind,
     touched,
     allow,

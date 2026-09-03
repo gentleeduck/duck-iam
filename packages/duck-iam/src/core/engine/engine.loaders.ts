@@ -35,6 +35,8 @@ export interface IIamLoaderDeps<
    * counts against the cap.
    */
   maxConcurrentSubjectLoads: number
+  /** `IConfig.scopeMode`; decides how `rolesToPolicy` gates a role-declared scope. */
+  scopeMode: 'flat' | 'hierarchical'
   withTimeout: <T>(fn: (opts: { signal: AbortSignal }) => Promise<T>, label: string) => Promise<T>
 }
 
@@ -163,7 +165,7 @@ export async function loadRbacPolicy<
     },
     async () => {
       const roles = await loadRoles(deps)
-      return deepFreezePolicy(rolesToPolicy(roles))
+      return deepFreezePolicy(rolesToPolicy(roles, deps.scopeMode))
     },
     (built) => {
       deps.rbacPolicyCache.set('rbac', built)

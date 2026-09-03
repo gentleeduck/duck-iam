@@ -180,12 +180,13 @@ export namespace IamEngineTypes {
     /** Engine mode in effect (`'production'` or `'development'`). */
     readonly mode: AccessControl.Mode
     /**
-     * `true` when the verdict was `allow` solely because the engine's
-     * `defaultEffect: 'allow'` fallback fired (no applicable policy). Always
-     * `false` when an explicit allow rule matched, or when the verdict was
-     * deny. Operators chart this to detect silent policy-set breakage
-     * (broken adapter, mass deletion, ReDoS-dropped rules) that the boolean
-     * verdict alone hides.
+     * `true` when the verdict was `allow` and the vote carrying it came from
+     * the engine's `defaultEffect: 'allow'` fallback rather than a rule -
+     * either no policy was applicable, or one was and every rule of it
+     * evaluated false. Always `false` when an explicit allow rule matched, or
+     * when the verdict was deny. Operators chart this to detect silent
+     * policy-set breakage (broken adapter, mass deletion, ReDoS-dropped rules)
+     * that the boolean verdict alone hides.
      */
     readonly failOpen: boolean
   }
@@ -231,9 +232,19 @@ export namespace IamEngineTypes {
     onError?(error: Error, request: IamRequest.IAccessRequest<TAction, TResource, TScope>): void | Promise<void>
     /**
      * Called when evaluation of a single policy throws (malformed rule, bad
-     * condition tree, adapter returning garbage). The policy is treated as
-     * NotApplicable so the rest of the policy set continues to evaluate; the
-     * hook is the only signal the operator gets that a stored row is broken.
+     * condition tree, adapter returning garbage). The hook is the only signal
+     * the operator gets that a stored row is broken.
+     *
+     * The offending policy stays **applicable** and votes Indeterminate - it
+     * denies if it carries any deny rule, and otherwise falls back to
+     * `defaultEffect`. It is not treated as NotApplicable: skipping a policy
+     * that could have denied is what turns a throw into an allow under
+     * `combine: 'and'`.
+     *
+     * The second argument is the policy **id**, a string - not the policy
+     * object the evaluator's own handler receives. See
+     * {@link AccessControl.PolicyErrorHandler} for all three shapes; an inline
+     * arrow is contextually typed and compiles against every one of them.
      */
     onPolicyError?(error: Error, policyId: string): void
     /**
@@ -336,14 +347,19 @@ export namespace IamEngineTypes {
      */
     readonly invalidator?: IInvalidator<TRole>
     /**
-     * How scoped role assignments match a request's `scope`. Defaults to
-     * `'flat'`: exact match (`scopedRole.scope === request.scope`), as always.
+     * How a scope matches a request's `scope`. Defaults to `'flat'`: exact
+     * match, as always.
      *
      * `'hierarchical'` treats a dot-delimited scope as a path and matches a
      * grant at any ancestor -- `'org-1'` applies to `'org-1.team-2.repo-3'`,
      * GitHub/Slack-shaped. Grants at every matching level are unioned in
      * (additive, no per-level revoke). Safe to enable even for apps that
      * don't use dotted scopes -- a plain scope degrades to exact match.
+     *
+     * Applies to both kinds of scope: the one an *assignment* carries
+     * (`assignRole(u, r, 'org-1')`) and the one a *role or permission declares*
+     * (`defineRole(...).scope('org-1')`, `grantScoped`). They were two
+     * different things under one flag until this was fixed.
      */
     readonly scopeMode?: 'flat' | 'hierarchical'
     /**
@@ -419,5 +435,22 @@ export namespace IamEngineTypes {
     readonly adapterLatencyMs: number
     /** IamAdapter error message when `adapter === 'fail'`. */
     readonly lastError?: string
+    /**
+     * Present only when the role count outran the compiled table's 32-bit grant
+     * mask and the engine dropped to the interpreter.
+     *
+     * `ok` stays `true`: the interpreter answers every question correctly, so
+     * the instance is healthy and must not be pulled from rotation. What it has
+     * lost is throughput, and a slower path with no diagnostic is a performance
+     * cliff nobody can see - which is why it is reported here rather than only
+     * warned once at startup, where a long-lived process would have scrolled it
+     * away hours ago.
+     */
+    readonly compiledTable?: {
+      readonly available: false
+      readonly reason: 'role-limit-exceeded'
+      readonly roleCount: number
+      readonly limit: number
+    }
   }
 }

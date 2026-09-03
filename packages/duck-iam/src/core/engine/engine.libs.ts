@@ -1,7 +1,16 @@
 import { appliedRows, batchResult, loopFallback } from '../batch'
+import { matchesScope } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 import type { IamValidate } from '../validate/validate.types'
 import type { IamEngineTypes } from './engine.types'
+
+/**
+ * A role's bit position in the compiled table's grant mask is `1 << index`, so
+ * a 32-bit mask cannot address a 33rd role without aliasing an earlier one.
+ * Lives here rather than in `compiled.compile.ts` so the engine can enforce it
+ * at construction without statically importing the compiled chunk.
+ */
+export const IAM_MAX_COMPILED_ROLES = 32
 
 /**
  * Default `environment.now` to the current epoch ms when the caller did not
@@ -167,12 +176,13 @@ function _measureDepth(node: unknown, current = 0): number {
 function formatErrInterp(value: unknown, maxLen = 64): string {
   if (value === null) return 'null'
   if (value === undefined) return 'undefined'
-  const t = typeof value
-  if (t === 'string') {
-    const s = value as string
-    if (s.length <= maxLen) return `string '${s}'`
-    return `string '${s.slice(0, maxLen)}...' (length ${s.length})`
+  // Narrow on the inline `typeof`, not through the `t` alias - TS follows the
+  // first and not the second, which is what forced the cast this replaces.
+  if (typeof value === 'string') {
+    if (value.length <= maxLen) return `string '${value}'`
+    return `string '${value.slice(0, maxLen)}...' (length ${value.length})`
   }
+  const t = typeof value
   if (t === 'number' || t === 'boolean' || t === 'bigint') return `${t} ${String(value)}`
   if (Array.isArray(value)) return `array (length ${value.length})`
   return t
@@ -203,6 +213,30 @@ function freezeConditionArray(arr: ReadonlyArray<AccessControl.ICondition | Acce
     else freezeConditionGroup(item)
   }
   Object.freeze(arr)
+}
+
+/**
+ * Whether a grant declared at `declared` reaches a request made at
+ * `requestScope`. Under `'flat'` that is exact equality; under
+ * `'hierarchical'` a scope also covers everything beneath it, the same relation
+ * {@link scopeAncestors} computes from the request's end for scoped
+ * assignments. Used for the *other* kind of scope - the one a role or
+ * permission declares - so one config flag means one thing.
+ */
+export function scopeCovers(
+  declared: string,
+  requestScope: string | undefined,
+  scopeMode: 'flat' | 'hierarchical',
+): boolean {
+  // The exact-match arm is `matchesScope`'s, not a second copy of it. The scope
+  // contract was documented in `resolve.ts` and enforced by three unrelated
+  // expressions elsewhere, which is how the truth tables came to disagree;
+  // this is the one imperative scope check in the engine, so it is the one
+  // that routes through the module that owns the contract. `'*'` reaching here
+  // is global, which `matchesScope` already says and the old `===` did not.
+  if (matchesScope(declared, requestScope)) return true
+  if (requestScope === undefined) return false
+  return scopeMode === 'hierarchical' && requestScope.startsWith(`${declared}.`)
 }
 
 /**

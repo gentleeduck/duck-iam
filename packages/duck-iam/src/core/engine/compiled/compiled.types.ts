@@ -38,6 +38,12 @@ export interface CompiledTable {
   readonly resourceId: ReadonlyMap<string, number>
   readonly roleId: ReadonlyMap<string, number>
   readonly policyCombine: import('../../types').AccessControl.PolicyCombine
+  /**
+   * `IConfig.scopeMode`. Baked in at compile time because a role permission's
+   * declared scope is stored literally on {@link RbacRuleGroup} and matched at
+   * lookup time; under `'hierarchical'` that match covers descendant scopes.
+   */
+  readonly scopeMode: 'flat' | 'hierarchical'
   /** idx = actionId(a) * nResources + resourceId(r) indexes every array below. */
   readonly kind: Uint8Array
   /** 0 means the flat layer has no vote at this cell (defaultEffect applies). */

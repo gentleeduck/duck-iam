@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluate } from '../../../evaluate'
+import { evaluate } from '../../../evaluate/evaluate'
 import { rolesToPolicy } from '../../../rbac'
 import type { AccessControl, IamPrimitives, IamRequest } from '../../../types'
 import { CellKind, compileTable } from '../compiled.compile'
