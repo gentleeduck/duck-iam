@@ -122,6 +122,70 @@ export class RedisEvents implements Events.IBus {
   }
 }
 
+/**
+ * Every field the event types declare as a `Date`. `JSON.stringify` writes each
+ * one as an ISO string and `JSON.parse` leaves it a string, so without this a
+ * remote subscriber gets a payload that satisfies no part of its own type.
+ */
+const DATE_KEYS: ReadonlySet<string> = new Set([
+  'absoluteExpiresAt',
+  'addedAt',
+  'completedAt',
+  'createdAt',
+  'deletedAt',
+  'expiresAt',
+  'invitedAt',
+  'joinedAt',
+  'lastUsedAt',
+  'leftAt',
+  'revokedAt',
+  'rotatedAt',
+  'startedAt',
+  'updatedAt',
+])
+
+/**
+ * Caller-owned blobs. `metadata` and `profile` are `Record<string, unknown>` the
+ * host app fills, and the library's own metadata shapes store times as epoch
+ * **numbers**, never Dates - so there is nothing here to revive, and walking in
+ * would rewrite someone else's data on a key-name collision.
+ */
+const OPAQUE_KEYS: ReadonlySet<string> = new Set(['metadata', 'profile'])
+
+/**
+ * Turn the ISO strings a JSON round-trip leaves behind back into `Date`s.
+ *
+ * A local handler is handed the original object, so this divergence was
+ * invisible in a single process and appeared only across the Redis fan-out that
+ * is the whole point of this class: `payload.session.expiresAt.getTime()` threw
+ * `is not a function`, and worse, `payload.audit.actingAs.expiresAt < Date.now()`
+ * compared a string with a number and answered `false` - an impersonation window
+ * that never looked expired on any instance except the one that opened it.
+ *
+ * Reviving by key rather than by sniffing every string for a date shape keeps a
+ * free-text field that happens to hold a timestamp - `actingAs.reason`, say - a
+ * string, which is what its type promises.
+ */
+function reviveDates(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reviveDates)
+  if (typeof value !== 'object' || value === null) return value
+  const out: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(value)) {
+    if (OPAQUE_KEYS.has(key)) {
+      out[key] = child
+    } else if (DATE_KEYS.has(key) && typeof child === 'string') {
+      const parsed = new Date(child)
+      // A key we expected to hold a date but which does not parse is left as it
+      // arrived: the payload is already wrong, and an `Invalid Date` reads as a
+      // real Date to every caller while comparing false against everything.
+      out[key] = Number.isFinite(parsed.getTime()) ? parsed : child
+    } else {
+      out[key] = reviveDates(child)
+    }
+  }
+  return out
+}
+
 /** Parse a pub/sub envelope. Returns null on any shape mismatch. */
 function parseEnvelope(message: string): { from: string; payload: unknown } | null {
   let raw: unknown
@@ -133,7 +197,7 @@ function parseEnvelope(message: string): { from: string; payload: unknown } | nu
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   if (!('from' in raw) || typeof raw.from !== 'string') return null
   if (!('payload' in raw)) return null
-  return { from: raw.from, payload: raw.payload }
+  return { from: raw.from, payload: reviveDates(raw.payload) }
 }
 
 /** Factory around {@link RedisEvents}, for callers who prefer functions to `new`. */

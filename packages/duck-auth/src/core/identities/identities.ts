@@ -195,7 +195,14 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     return this._store.softDelete(id, this._cfg.softDeleteGracePeriodMs)
   }
 
-  async restore(id: string): Promise<Identities.Me<Profile>> {
+  /**
+   * Clears a soft delete. `null` means the id matched nothing, the same as
+   * {@link softDelete} and {@link erase}. A row that WAS matched and then
+   * refused throws instead, carrying which rule refused it -
+   * `AUTH_GRACE_EXPIRED` when the window has closed, `AUTH_EMAIL_TAKEN` when
+   * a live row now holds its address.
+   */
+  async restore(id: string): Promise<Identities.Me<Profile> | null> {
     return this._store.restore(id)
   }
 
@@ -315,19 +322,21 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
     })
   }
 
-  /** Restores many soft-deleted identities. See {@link softDeleteMany}. */
+  /**
+   * Restores many soft-deleted identities. See {@link softDeleteMany}.
+   *
+   * `restore` answers `null` for an id that matched nothing and throws for its
+   * two real refusals - the grace window has closed, someone else now holds the
+   * address - so the loop passes both shapes through: `null` becomes
+   * `not-found`, and `loopFallback` maps each thrown code to its own reason.
+   * Flattening them into one outcome would report all three as `not-found`,
+   * which is true of only the first: the other two rows are still there and are
+   * being refused.
+   */
   async restoreMany(ids: readonly string[]): Promise<Batch.Result<Identities.Me<Profile>>> {
     if (ids.length === 0) return batchResult([])
     if (this._store.restoreMany) return this._store.restoreMany(ids)
-    return loopFallback(ids, async (id) => {
-      try {
-        return await this._store.restore(id)
-      } catch {
-        // `restore` throws on an id that was never there; in a batch that is a
-        // per-row miss, not a reason to abandon the remaining ids.
-        return BATCH_NOT_FOUND
-      }
-    })
+    return loopFallback(ids, async (id) => (await this._store.restore(id)) ?? BATCH_NOT_FOUND)
   }
 
   /** Hard-erases many identities. Cannot be undone. See {@link softDeleteMany}. */

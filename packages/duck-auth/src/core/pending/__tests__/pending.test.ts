@@ -53,8 +53,8 @@ describe('createPending', () => {
     await bus.emit('session.revoked', { sessionId: 's1', identityId: 'i1' })
     // How many were published, so a second flush after a commit is tellable
     // from the first: the second drains an empty buffer.
-    expect(await pending.flush()).toEqual({ published: 1 })
-    expect(await pending.flush()).toEqual({ published: 0 })
+    expect(await pending.flush()).toEqual({ failed: [], published: 1 })
+    expect(await pending.flush()).toEqual({ failed: [], published: 0 })
 
     expect(handler).toHaveBeenCalledTimes(1)
   })
@@ -69,7 +69,7 @@ describe('createPending', () => {
     // How many went undelivered, so an explicit rollback path can log what it
     // dropped rather than discovering the buffer was empty all along.
     expect(pending.discard()).toEqual({ discarded: 1 })
-    expect(await pending.flush()).toEqual({ published: 0 })
+    expect(await pending.flush()).toEqual({ failed: [], published: 0 })
 
     expect(handler).not.toHaveBeenCalled()
     expect(pending.size).toBe(0)
@@ -84,7 +84,12 @@ describe('createPending', () => {
     expect(pending.size).toBe(1)
   })
 
-  it('flush drains every event even when the bus rejects, then reports with AggregateError', async () => {
+  /**
+   * `flush` runs after the caller has committed and empties the buffer either
+   * way, so a rejection would report a committed write as a failure with
+   * nothing to retry. The failures come back as data instead.
+   */
+  it('flush drains every event even when the bus rejects, and reports rather than throwing', async () => {
     // InMemoryEvents catches listener errors itself, so a rejecting BUS is what
     // exercises this path: a Redis bus with a dropped connection, or an operator
     // bus that deliberately propagates. One bad publish must not strand the rest.
@@ -101,9 +106,33 @@ describe('createPending', () => {
     await bus.emit('session.revoked', { sessionId: 's1', identityId: 'i1' })
     await bus.emit('session.created', { session: session('s2'), identity: null })
 
-    await expect(pending.flush()).rejects.toThrow(AggregateError)
+    const result = await pending.flush()
+
+    expect(result.published).toBe(1)
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0]?.message).toBe('publish failed')
+    // The good event still went out, and the buffer is drained regardless.
     expect(delivered).toEqual(['session.created'])
     expect(pending.size).toBe(0)
+  })
+
+  it('a listener that throws a non-Error still arrives as an Error, original on cause', async () => {
+    const target: Events.IBus = {
+      on: () => () => {},
+      emit: async () => {
+        throw 'a bare string'
+      },
+    }
+
+    const { bus, pending } = createPending(target)
+    await bus.emit('session.revoked', { sessionId: 's1', identityId: 'i1' })
+
+    // `failed: Error[]` is what callers log; a bare throw must not break that,
+    // and must not lose the value either.
+    const [err] = (await pending.flush()).failed
+    expect(err).toBeInstanceOf(Error)
+    expect(err?.message).toBe('a bare string')
+    expect(err?.cause).toBe('a bare string')
   })
 
   it('on() subscribes on the real bus, so listeners registered through the buffer still work', async () => {

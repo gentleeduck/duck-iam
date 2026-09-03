@@ -125,5 +125,9 @@ export async function cancelAccountDeletion<Profile extends Identities.ProfileMe
     throw new AuthError('AUTH_UNAUTHENTICATED')
   }
   const identity = await deps.identities.restore(input.identityId)
+  // The store reports "no such id" as data; at the flow boundary it is an
+  // error - there is no account whose deletion this could be cancelling, and
+  // the caller is asking about one by id.
+  if (!identity) throw new AuthError('AUTH_UNAUTHENTICATED')
   return { identity, identityId: input.identityId }
 }

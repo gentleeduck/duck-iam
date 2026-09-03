@@ -127,7 +127,7 @@ describe('MfaFacet - TOTP', () => {
         const rows = await adapter.credentials.listByIdentity('user-1', 'totp', {})
         const row = rows[0]
         if (!row) throw new Error('row missing')
-        row.revokedAt = new Date(0)
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: new Date(0) })
         const verify = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
         expect(await facet.verifyTotp('user-1', verify)).toBe(false)
         expect(await facet.hasTotp('user-1')).toBe(false)
@@ -141,7 +141,7 @@ describe('MfaFacet - TOTP', () => {
         const row = rows[0]
         if (!row) throw new Error('row missing')
         // @ts-expect-error: SEC test intentionally violates the typed shape
-        row.revokedAt = 'compromise-marker'
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: 'compromise-marker' })
         const verify = totpAt(challenge.secret, Math.floor(Date.now() / 1000 / 30))
         expect(await facet.verifyTotp('user-1', verify)).toBe(false)
       })
@@ -205,7 +205,7 @@ describe('MfaFacet - backup codes', () => {
     const rows = await adapter.credentials.listByIdentity('user-1', 'recovery', {})
     const matching = rows.find((r) => r.secret === codeHash)
     if (!matching) throw new Error('matching row missing')
-    matching.revokedAt = new Date(0)
+    adapter.raw.credentials.set(matching.id, { ...matching, revokedAt: new Date(0) })
     expect(await facet.verifyBackupCode('user-1', code)).toBe(false)
   })
 
@@ -344,7 +344,7 @@ describe('MfaFacet - WebAuthn-MFA', () => {
     const creds = await adapter.credentials.listByIdentity(identityId, 'webauthn-mfa', {})
     const cred = creds[0]
     if (!cred) throw new Error('expected credential')
-    ;(cred.metadata as { counter: number }).counter = 5
+    await adapter.credentials.patchMetadata(cred.id, { counter: 5 }, {})
     const verifyAuth = webauthn.verifyAuthenticationResponse as ReturnType<typeof vi.fn>
     verifyAuth.mockResolvedValueOnce({
       verified: true,

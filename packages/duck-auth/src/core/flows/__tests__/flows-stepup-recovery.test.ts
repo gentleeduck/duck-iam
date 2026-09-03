@@ -262,7 +262,7 @@ describe('FlowsImpl - password reset', () => {
     const creds = await adapter.credentials.listByIdentity(identity.id, 'recovery', {})
     const cred = creds[0]
     if (!cred) throw new Error('missing credential')
-    cred.expiresAt = new Date(Date.now() - 1)
+    adapter.raw.credentials.set(cred.id, { ...cred, expiresAt: new Date(Date.now() - 1) })
     await expect(auth.flows.completePasswordReset({ token, newPassword: 'new-password-9' })).rejects.toMatchObject({
       code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
     })

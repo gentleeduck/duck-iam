@@ -537,10 +537,32 @@ describe('resolveBySid()', () => {
       identityInput({ profile: { username: 'u', email: 'u@x.com' }, providers: [] }),
     )
     const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
-    await adapter.identities.erase(identity.id)
+    // The identity row is dropped on its own, leaving the session behind. That
+    // is the case this guard exists for: a schema without the cascade, or the
+    // window between the identity delete and the session cleanup. Going through
+    // `erase` would take the session with it and never reach the check.
+    adapter.raw.identities.delete(identity.id)
     await expect(resolveBySid(sid, adapter.sessions, adapter.identities)).rejects.toMatchObject({
       code: 'AUTH_SESSION_REVOKED',
     })
+  })
+
+  it('erasing an identity takes its sessions with it, so nothing is left to resolve', async () => {
+    const adapter = new MemoryAdapter()
+    const events = new InMemoryEvents()
+    const facet = new SessionsImpl(adapter.sessions, events, DEFAULT_SESSION_CONFIG)
+    const identity = await adapter.identities.create(
+      identityInput({ profile: { username: 'u', email: 'u@x.com' }, providers: [] }),
+    )
+    const { sid } = await facet.create({ identityId: identity.id, kind: 'user', aal: 1, factors: [] })
+
+    await adapter.identities.erase(identity.id)
+
+    // `on delete cascade` on `auth_sessions.identity_id` is what every dialect
+    // declares, so the row is gone rather than orphaned - `resolveBySid` finds
+    // nothing at all, which is a `null`, not a revoked session.
+    expect(await adapter.sessions.listByIdentity(identity.id)).toEqual([])
+    expect(await resolveBySid(sid, adapter.sessions, adapter.identities)).toBeNull()
   })
 
   describe('NaN-bypass defenses against malformed adapter rows', () => {

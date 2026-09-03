@@ -235,7 +235,7 @@ describe('IdentitiesFacet', () => {
       await facet.softDelete(i.id)
       expect(await facet.getById(i.id)).toBeNull()
       const back = await facet.restore(i.id)
-      expect(back.id).toBe(i.id)
+      expect(back?.id).toBe(i.id)
       expect(await facet.getById(i.id)).not.toBeNull()
     })
 
@@ -284,7 +284,10 @@ describe('IdentitiesFacet', () => {
       const i = await facet.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
       await facet.erase(i.id, { reason: 'gdpr-2026-05-25' })
       expect(await facet.getById(i.id)).toBeNull()
-      await expect(facet.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_UNAUTHENTICATED' })
+      // An erased id matched nothing, which is the same outcome `softDelete`
+      // and `erase` report with `null` - not an exception one of the three
+      // happens to raise.
+      expect(await facet.restore(i.id)).toBeNull()
     })
   })
 

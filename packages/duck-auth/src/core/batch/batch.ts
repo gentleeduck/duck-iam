@@ -51,5 +51,10 @@ export function toSoftReason(err: unknown): Batch.FailureReason | null {
   if (!(err instanceof AuthError)) return null
   if (err.code === 'AUTH_STALE_WRITE') return 'stale-write'
   if (err.code === 'AUTH_UNAUTHENTICATED') return 'not-found'
+  // Both are per-row refusals of a row that WAS found, which is why neither can
+  // be reported as `not-found`: the id still exists and the caller may well be
+  // able to act on it once the clash is resolved.
+  if (err.code === 'AUTH_GRACE_EXPIRED') return 'grace-expired'
+  if (err.code === 'AUTH_EMAIL_TAKEN') return 'email-taken'
   return null
 }

@@ -3,13 +3,10 @@ import type { Credential } from '~/core/credentials/credentials.types'
 import { authUlid } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
-import type { Sessions } from '~/core/sessions/sessions.types'
+import { stripUndefined } from '~/core/patch'
+import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { SqlBridge } from './sql.types'
-
-/** Drops explicit undefined values from partial patches before passing to the bridge */
-const stripUndefined = <T extends object>(obj: T): Partial<T> =>
-  Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined)) as Partial<T>
 
 export function pickFreshestCredential(rows: readonly Credential.Me[]): Credential.Me | null {
   let live: Credential.Me | null = null
@@ -46,9 +43,20 @@ export function profileEmail(profile: unknown): string | undefined {
  * for hard purge - while the memory adapter refused them. This makes the
  * dialects agree with the memory adapter rather than the other way round.
  */
-export function assertRestorable(row: { deletedAt: Date | null }): void {
+export function isRestorable(row: { deletedAt: Date | null }): boolean {
   const closesAt = row.deletedAt?.getTime()
-  if (closesAt === undefined || closesAt < Date.now()) throw new AuthError('AUTH_GRACE_EXPIRED')
+  return closesAt !== undefined && closesAt >= Date.now()
+}
+
+/**
+ * The throwing twin, for the single-row path. `restoreMany` needs the predicate
+ * instead: it decides per row and keeps going, reporting a refusal as a soft
+ * failure rather than aborting the batch. Both are one rule expressed once, so
+ * the batch and single-row forms cannot drift into disagreeing about when a
+ * grace window has closed.
+ */
+export function assertRestorable(row: { deletedAt: Date | null }): void {
+  if (!isRestorable(row)) throw new AuthError('AUTH_GRACE_EXPIRED')
 }
 
 /**
@@ -130,17 +138,38 @@ function storedDate(value: unknown): Date | null {
 }
 
 /**
+ * `$type<ProviderLink[]>()` is a compile-time assertion drizzle makes about a
+ * JSON column; the database enforces `NOT NULL` and nothing else. A row written
+ * by an older migration, another service, or a hand-run `UPDATE` can hold
+ * `null`, `{}`, `"..."` or `[1, 2]` in that column, and every one of those used
+ * to reach `.length`/`.map` and throw a `TypeError` out of a plain `findById`.
+ * The Redis store already answers `[]` for the same input; failing soft here
+ * keeps a malformed row from taking the whole request down with it.
+ */
+function isProviderLink(value: unknown): value is Identities.ProviderLink {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('providerId' in value) || typeof value.providerId !== 'string') return false
+  if (!('providerSub' in value)) return false
+  return value.providerSub === null || typeof value.providerSub === 'string'
+}
+
+/**
  * A link whose `addedAt` is unreadable keeps the link and falls back to the
  * row's own `createdAt`: the date is informational, while dropping the entry
- * would silently remove a way into the account.
+ * would silently remove a way into the account. A link missing its `providerId`
+ * is a different matter - it can never match a lookup, so keeping it would only
+ * inflate the array.
  */
 function reviveIdentity<Profile extends Identities.ProfileMetadataBase>(
   row: Identities.Me<Profile>,
 ): Identities.Me<Profile> {
+  if (!Array.isArray(row.providers)) return { ...row, providers: [] }
   if (row.providers.length === 0) return row
   return {
     ...row,
-    providers: row.providers.map((link) => ({ ...link, addedAt: storedDate(link.addedAt) ?? row.createdAt })),
+    providers: row.providers
+      .filter(isProviderLink)
+      .map((link) => ({ ...link, addedAt: storedDate(link.addedAt) ?? row.createdAt })),
   }
 }
 
@@ -155,8 +184,22 @@ const reviveIdentityOrNull = <Profile extends Identities.ProfileMetadataBase>(
  * cannot be read is not a window anyone should be inside, so it is dropped,
  * matching the Redis store.
  */
+function isFactor(value: unknown): value is Sessions.Factor {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('method' in value)) return false
+  return AUTH_SESSION_FACTOR_METHODS.some((method) => method === value.method)
+}
+
 function reviveSession(row: Sessions.Me): Sessions.Me {
-  const factors = row.factors.map((f) => ({ ...f, completedAt: storedDate(f.completedAt) ?? row.createdAt }))
+  // Same story as `providers`: the column is `NOT NULL` json, which excludes SQL
+  // NULL and nothing else. A factor whose `method` is outside the union is
+  // dropped rather than carried, matching the Redis store - an AAL decision has
+  // to read the same on every backend, and a method no `switch` handles is worse
+  // than one that is simply absent.
+  const rawFactors = Array.isArray(row.factors) ? row.factors : []
+  const factors = rawFactors
+    .filter(isFactor)
+    .map((f) => ({ ...f, completedAt: storedDate(f.completedAt) ?? row.createdAt }))
   if (!row.actingAs) return { ...row, factors }
   const startedAt = storedDate(row.actingAs.startedAt)
   const expiresAt = storedDate(row.actingAs.expiresAt)
@@ -217,11 +260,7 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
     },
     softDelete: async (id, gracePeriodMs) =>
       reviveIdentityOrNull(await bridge.softDelete(id, new Date(Date.now() + gracePeriodMs))),
-    restore: async (id) => {
-      const row = await bridge.restore(id)
-      if (!row) throw new AuthError('AUTH_UNAUTHENTICATED')
-      return reviveIdentity(row)
-    },
+    restore: async (id) => reviveIdentityOrNull(await bridge.restore(id)),
     erase: async (id) => reviveIdentityOrNull(await bridge.erase(id)),
     link: async (identityId, link) =>
       reviveIdentityOrNull(
@@ -242,14 +281,22 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
 
     ...(restoreManyReturning && {
       restoreMany: async (ids: readonly string[]) => {
-        const rows = await restoreManyReturning(ids)
-        const byId = new Map(rows.map((row) => [row.id, row]))
+        const { candidates, restored } = await restoreManyReturning(ids)
+        const seen = new Map(candidates.map((row) => [row.id, row]))
+        const byId = new Map(restored.map((row) => [row.id, row]))
         return batchResult(
           ids.map((id) => {
             const row = byId.get(id)
-            return row
-              ? { id, ok: true as const, value: reviveIdentity(row) }
-              : { id, ok: false as const, reason: 'not-found' as const }
+            if (row) return { id, ok: true as const, value: reviveIdentity(row) }
+            const candidate = seen.get(id)
+            // The id matched nothing at all - the only case that is really absent.
+            if (!candidate) return { id, ok: false as const, reason: 'not-found' as const }
+            if (!isRestorable(candidate)) return { id, ok: false as const, reason: 'grace-expired' as const }
+            // Still inside its window and still refused leaves exactly one rule
+            // it can have failed: a live row now answers to its address. A
+            // dialect that grows a third refusal must be classified here too,
+            // or it will be reported as this one.
+            return { id, ok: false as const, reason: 'email-taken' as const }
           }),
         )
       },
@@ -342,7 +389,11 @@ function buildCredentials(bridge: SqlBridge.Credential<Credential.Me>): Credenti
     patchMetadata: async (id, patch, ctx) => {
       for (let attempt = 0; attempt < 2; attempt++) {
         const row = await bridge.findById(id, ctx.tenantId)
-        if (!row) throw new AuthError('AUTH_UNAUTHENTICATED')
+        // One code for "the conditional write matched no row". The retry below
+        // already reports a lost race as AUTH_STALE_WRITE, and a caller cannot
+        // act differently on the two: an id that is gone and an id that moved
+        // both mean re-read and decide again.
+        if (!row) throw new AuthError('AUTH_STALE_WRITE', { expected: -1, actual: -1 })
         const next = await bridge.updateConditional(
           id,
           { metadata: { ...(row.metadata ?? {}), ...patch }, version: row.version + 1 },

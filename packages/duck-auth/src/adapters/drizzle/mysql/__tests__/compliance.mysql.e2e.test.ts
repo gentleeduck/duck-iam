@@ -91,7 +91,7 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       )
       await stores.identities.softDelete(created.id, 60_000)
       const restored = await stores.identities.restore(created.id)
-      expect(restored.id).toBe(created.id)
+      expect(restored?.id).toBe(created.id)
       expect(await stores.identities.findById(created.id)).not.toBeNull()
     })
 

@@ -52,7 +52,17 @@ export namespace SqlBridge {
      * which is correct - just one statement per row instead of one per batch.
      */
     softDeleteManyReturningIds?(ids: readonly string[], deletedAt: Date): Promise<string[]>
-    restoreManyReturning?(ids: readonly string[]): Promise<Row[]>
+    /**
+     * Restore is the one set-based write with more than one way to refuse a
+     * row, so it hands back what it READ as well as what it wrote. Without the
+     * candidates `createSqlStores` can only see that an id did not come back,
+     * and every refusal - closed grace window, address since taken - would have
+     * to be reported as `not-found`, which is the one thing they are not.
+     *
+     * `candidates` is every row the ids matched, hidden or not; `restored` is
+     * the subset actually brought back.
+     */
+    restoreManyReturning?(ids: readonly string[]): Promise<{ candidates: Row[]; restored: Row[] }>
     eraseManyReturningIds?(ids: readonly string[]): Promise<string[]>
     updateProfileManyReturning?(
       rows: readonly { id: string; patch: Partial<Omit<Row, 'id'>>; expectedVersion: number }[],

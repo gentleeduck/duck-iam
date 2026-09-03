@@ -6,20 +6,44 @@
  */
 
 import { createRequire } from 'node:module'
-import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm'
 import type { MySqlColumn } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
 import {
   assertEmailFree,
   assertRestorable,
   createSqlStores,
+  isRestorable,
   pickFreshestCredential,
   profileEmail,
 } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './mysql.schema'
 import type { Mysql } from './mysql.types'
+
+/**
+ * The question {@link assertRestorable} answers by throwing. `restoreMany` has
+ * to ask it per row and keep going, so it needs the predicate rather than the
+ * assertion - the batch reports a closed window as one row's soft failure, not
+ * as an error that takes the other rows down with it.
+ */
+/**
+ * Every read-modify-write here pins its `UPDATE` to the state the read saw, and
+ * this is that predicate for the `providers` array. MySQL compares two `json`
+ * values semantically, so re-serialising what came back matches the stored
+ * document whatever order the server chose to keep its keys in.
+ *
+ * Without it the two statements are a lost-update race: two links added at once
+ * both read one array, both write their own, and the second silently erases the
+ * first - a provider the user believes is connected and is not.
+ */
+const providersUnchanged = (seen: readonly Identities.ProviderLink[]) =>
+  sql`${authIdentities.providers} = cast(${JSON.stringify(seen)} as json)`
+
+/** A write that matched nothing after its own read saw the row: someone else got there first. */
+const staleWrite = (): AuthError => new AuthError('AUTH_STALE_WRITE', { actual: -1, expected: -1 })
 
 /**
  * MySQL returns `json` columns as already-parsed JSON, so `Date` fields nested inside
@@ -121,10 +145,15 @@ export function createDrizzleMysqlBridge<
         // both ignore soft-deleted rows, so the address is free to be claimed by
         // someone else during the grace window. Restoring must not hand back a
         // verified claim to an address this identity may no longer control.
+        //
+        // Live rows only. `deletedAt` is the moment the purge window closes, so
+        // a second call on an already-hidden row would push that moment forward
+        // and a row could be kept out of reach of the purge indefinitely by
+        // repeating a delete that has nothing left to delete.
         const result = await db
           .update(authIdentities)
           .set({ deletedAt, emailVerified: false })
-          .where(and(eq(authIdentities.id, id)))
+          .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
         if (result[0].affectedRows === 0) return null
         return reselectIdentity(id)
       },
@@ -152,8 +181,16 @@ export function createDrizzleMysqlBridge<
             .limit(1)
           assertEmailFree(email, clash.length > 0)
         }
-        const result = await db.update(authIdentities).set({ deletedAt: null }).where(eq(authIdentities.id, id))
-        if (result[0].affectedRows === 0) return null
+        // `assertRestorable` has already refused a null; naming the value is
+        // what lets the write below pin itself to the row the checks were made
+        // against, rather than to whatever the row has become since.
+        const closesAt = row.deletedAt
+        if (closesAt === null) throw staleWrite()
+        const result = await db
+          .update(authIdentities)
+          .set({ deletedAt: null })
+          .where(and(eq(authIdentities.id, id), eq(authIdentities.deletedAt, closesAt)))
+        if (result[0].affectedRows === 0) throw staleWrite()
         return reselectIdentity(id)
       },
       erase: async (id) => {
@@ -175,17 +212,45 @@ export function createDrizzleMysqlBridge<
           .limit(1)
         const cur = rows[0]
         if (!cur) return null
-        const providers = cur.providers ?? []
+        // A `(providerId, providerSub)` pair identifies one account at the
+        // provider, so letting a second identity claim one is account takeover:
+        // sign in as the attacker, link the victim's Google sub, and the next
+        // `findByProviderSub` may hand the victim's session to either row.
+        // Soft-deleted rows do NOT count: `findByProviderSub` already ignores
+        // them, so holding a sub against a row nothing can read back would keep
+        // someone's provider login hostage forever. `restore` is where a hidden
+        // row re-earns its claims, the same as it does for its email. A null sub
+        // names no account (every password link has one), so it is exempt.
+        if (providerSub !== null) {
+          const held = await db
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(
+              and(
+                ne(authIdentities.id, identityId),
+                isNull(authIdentities.deletedAt),
+                sql`json_contains(${authIdentities.providers}, ${JSON.stringify({ providerId, providerSub })})`,
+              ),
+            )
+            .limit(1)
+          if (held.length > 0) {
+            throw new AuthError('AUTH_PROVIDER_FAILED', {
+              detail: 'provider sub already linked to a different identity',
+              providerId,
+            })
+          }
+        }
+        const seen = cur.providers ?? []
         // Already linked: nothing to write, but the row still exists and it
         // already carries the link, so answer with it rather than with `null`.
-        if (providers.some((p) => p.providerId === providerId && p.providerSub === providerSub)) {
+        if (seen.some((p) => p.providerId === providerId && p.providerSub === providerSub)) {
           return reselectIdentity(identityId)
         }
-        providers.push({ providerId, providerSub: providerSub ?? null, addedAt })
-        await db
+        const result = await db
           .update(authIdentities)
-          .set({ providers })
-          .where(and(eq(authIdentities.id, identityId)))
+          .set({ providers: [...seen, { addedAt, providerId, providerSub: providerSub ?? null }] })
+          .where(and(eq(authIdentities.id, identityId), providersUnchanged(seen)))
+        if (result[0].affectedRows === 0) throw staleWrite()
         return reselectIdentity(identityId)
       },
       deleteProviderLink: async (identityId, providerId) => {
@@ -196,11 +261,17 @@ export function createDrizzleMysqlBridge<
           .limit(1)
         const cur = rows[0]
         if (!cur) return null
-        const providers = (cur.providers ?? []).filter((p) => p.providerId !== providerId)
-        await db
+        const seen = cur.providers ?? []
+        const providers = seen.filter((p) => p.providerId !== providerId)
+        // Nothing to remove. Worth its own branch rather than writing the array
+        // back unchanged: MySQL counts an UPDATE that changes nothing as zero
+        // rows affected, which the pinned write below would read as a lost race.
+        if (providers.length === seen.length) return reselectIdentity(identityId)
+        const result = await db
           .update(authIdentities)
           .set({ providers })
-          .where(and(eq(authIdentities.id, identityId)))
+          .where(and(eq(authIdentities.id, identityId), providersUnchanged(seen)))
+        if (result[0].affectedRows === 0) throw staleWrite()
         return reselectIdentity(identityId)
       },
       /**
@@ -216,8 +287,19 @@ export function createDrizzleMysqlBridge<
           .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
         const hit = live.map((r) => r.id)
         if (hit.length === 0) return []
-        await db.update(authIdentities).set({ deletedAt, emailVerified: false }).where(inArray(authIdentities.id, hit))
-        return hit
+        // `isNull` again on the write, not just the read: a row soft-deleted
+        // between the two would otherwise have its purge deadline pushed out to
+        // this batch's, and the caller would be told it deleted a row it did
+        // not. The re-read names the rows actually carrying this stamp.
+        await db
+          .update(authIdentities)
+          .set({ deletedAt, emailVerified: false })
+          .where(and(inArray(authIdentities.id, hit), isNull(authIdentities.deletedAt)))
+        const stamped = await db
+          .select({ id: authIdentities.id })
+          .from(authIdentities)
+          .where(and(inArray(authIdentities.id, hit), eq(authIdentities.deletedAt, deletedAt)))
+        return stamped.map((r) => r.id)
       },
 
       eraseManyReturningIds: async (ids) => {
@@ -236,16 +318,68 @@ export function createDrizzleMysqlBridge<
         return hit
       },
 
+      /**
+       * The set-based form of `restore`, and it owes the caller the same two
+       * refusals: a row whose grace window has closed is queued for purge, and a
+       * row whose address a live identity now holds cannot come back without two
+       * live rows answering to one email.
+       *
+       * Both are per-row decisions, so a row that fails one is left out of the
+       * statement rather than throwing - `createSqlStores` reads an id missing
+       * from the response as that row's soft failure, which is what keeps one
+       * bad id in a batch of fifty from aborting the other forty-nine.
+       */
       restoreManyReturning: async (ids) => {
         const list = [...ids]
-        const present = await db
-          .select({ id: authIdentities.id })
+        if (list.length === 0) return { candidates: [], restored: [] }
+        const candidates = await db.select().from(authIdentities).where(inArray(authIdentities.id, list))
+        const restorable = candidates.filter(isRestorable)
+        const emails = new Map<string, string>()
+        for (const row of restorable) {
+          const email = profileEmail(row.profile)
+          if (email !== undefined) emails.set(row.id, email.toLowerCase())
+        }
+        const taken = new Set<string>()
+        if (emails.size > 0) {
+          const live = await db
+            .select({ profile: authIdentities.profile })
+            .from(authIdentities)
+            .where(
+              and(
+                inArray(sql`lower(${authIdentities.profile}->>'$.email')`, [...new Set(emails.values())]),
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+          for (const row of live) {
+            const email = profileEmail(row.profile)
+            if (email !== undefined) taken.add(email.toLowerCase())
+          }
+        }
+        // Two hidden rows in one batch can also answer to the same address -
+        // nothing kept them apart while both were invisible - so an address
+        // claimed by an earlier row in this batch is taken for the rest of it.
+        const okIds: string[] = []
+        for (const row of restorable) {
+          const email = emails.get(row.id)
+          if (email !== undefined) {
+            if (taken.has(email)) continue
+            taken.add(email)
+          }
+          okIds.push(row.id)
+        }
+        if (okIds.length === 0) return { candidates, restored: [] }
+        // Still-hidden rows only: a row restored by someone else between the
+        // read and this write is not one this batch restored, and the re-read
+        // below would otherwise claim it.
+        await db
+          .update(authIdentities)
+          .set({ deletedAt: null })
+          .where(and(inArray(authIdentities.id, okIds), isNotNull(authIdentities.deletedAt)))
+        const restored = await db
+          .select()
           .from(authIdentities)
-          .where(inArray(authIdentities.id, list))
-        const hit = present.map((r) => r.id)
-        if (hit.length === 0) return []
-        await db.update(authIdentities).set({ deletedAt: null }).where(inArray(authIdentities.id, hit))
-        return db.select().from(authIdentities).where(inArray(authIdentities.id, hit))
+          .where(and(inArray(authIdentities.id, okIds), isNull(authIdentities.deletedAt)))
+        return { candidates, restored }
       },
 
       /**
@@ -285,6 +419,11 @@ export function createDrizzleMysqlBridge<
         // survivor that is not there turns a merge into silent data loss. The
         // memory adapter has always refused this; so does every dialect.
         if (!surv || !dupRow) return null
+        // Merging a row into itself has nothing to move and one row to keep. Run
+        // the steps below on it and the last of them deletes the survivor, so a
+        // caller that passed the same id twice - a resolved duplicate that was
+        // never a duplicate - would lose the account it was trying to keep.
+        if (survivorId === dupId) return reselectIdentity(survivorId)
         await db
           .update(authIdentities)
           .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
@@ -319,14 +458,21 @@ export function createDrizzleMysqlBridge<
           .from(authCredentials)
           .where(and(...where))
       },
-      findByProviderSub: async (provider, sub, _tenantId) => {
+      // `provider`/`sub` live in the free-form `metadata` of an oauth row, and
+      // nothing stops another kind from carrying the same two keys - an api-key
+      // whose metadata records which provider minted it would answer an oauth
+      // lookup. Both filters are the ones the caller already believes are on:
+      // one tenant's oauth rows, and only oauth rows.
+      findByProviderSub: async (provider, sub, tenantId) => {
         const rows = await db
           .select()
           .from(authCredentials)
           .where(
             and(
+              eq(authCredentials.kind, 'oauth'),
               sql`${authCredentials.metadata}->>'$.provider' = ${provider}`,
               sql`${authCredentials.metadata}->>'$.sub' = ${sub}`,
+              tenantWhere(authCredentials, tenantId),
             ),
           )
           .limit(1)
@@ -374,8 +520,17 @@ export function createDrizzleMysqlBridge<
       delete: async (id, tenantId) => {
         // Read before the delete: after it there is nothing left to re-select,
         // and MySQL has no `RETURNING` to read on the way past.
-        const row = await reselectCredential(id)
-        await db.delete(authCredentials).where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+        //
+        // Through the SAME predicate the delete uses, not by id alone. Reading
+        // by id handed another tenant's row straight back to a caller whose
+        // delete could not touch it - the delete was correctly scoped, so the
+        // row survived and the answer said it had not: a cross-tenant read
+        // dressed up as a delete. Out of tenant is `null`, exactly as gone is.
+        const where = and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId))
+        const rows = await db.select().from(authCredentials).where(where).limit(1)
+        const row = rows[0]
+        if (!row) return null
+        await db.delete(authCredentials).where(where)
         return row
       },
       deleteByIdentitiesReturningIds: async (identityIds, tenantId) => {
@@ -409,6 +564,11 @@ export function createDrizzleMysqlBridge<
         return reviveSessionRow(rows[0] ?? null)
       },
       update: async (id, patch) => {
+        // A patch whose every key was an explicit `undefined` arrives here
+        // empty, and drizzle refuses an `UPDATE` with nothing to set. "Change
+        // none of these fields" is a read, not an error: the memory store hands
+        // the row back untouched and so does this.
+        if (Object.keys(patch).length === 0) return reselectSession(id)
         const result = await db.update(authSessions).set(patch).where(eq(authSessions.id, id))
         if (result[0].affectedRows === 0) return null
         return reselectSession(id)
@@ -450,8 +610,14 @@ export function createDrizzleMysqlBridge<
           .select()
           .from(authSessions)
           .where(inArray(authSessions.identityId, [...identityIds])),
+      // Either clock, not just the outer one. `expiresAt` is the idle deadline a
+      // session is renewed against and `absoluteExpiresAt` the ceiling it can
+      // never pass; reading only the ceiling left every idled-out session in the
+      // table until its absolute deadline, hours or days later.
       deleteExpired: async (now) => {
-        const result = await db.delete(authSessions).where(lt(authSessions.absoluteExpiresAt, now))
+        const result = await db
+          .delete(authSessions)
+          .where(or(lt(authSessions.expiresAt, now), lt(authSessions.absoluteExpiresAt, now)))
         return result[0].affectedRows
       },
     },

@@ -224,7 +224,7 @@ describe('magic-link provider', () => {
       const creds = await adapter.credentials.listByIdentity(i.id, 'magic-link', {})
       const cred = creds[0]
       if (!cred) throw new Error('credential missing')
-      cred.expiresAt = new Date(Date.now() - 1)
+      adapter.raw.credentials.set(cred.id, { ...cred, expiresAt: new Date(Date.now() - 1) })
       await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
         code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
       })
@@ -257,32 +257,32 @@ describe('magic-link provider', () => {
       }
 
       it('non-numeric expiresAt (from a buggy adapter) is treated as expired (NaN-bypass defense)', async () => {
-        const { auth, row, token } = await mintTokenAndGrabRow()
+        const { adapter, auth, row, token } = await mintTokenAndGrabRow()
         if (!row) throw new Error('row missing')
         // Inject a malformed expiresAt that would have made
         // `expiresAt < now` evaluate `NaN < N === false` and let the
         // token be treated as fresh.
         // @ts-expect-error: SEC test intentionally violates the typed shape
-        row.expiresAt = 'not-a-number'
+        adapter.raw.credentials.set(row.id, { ...row, expiresAt: 'not-a-number' })
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
           code: 'AUTH_RECOVERY_TOKEN_EXPIRED',
         })
       })
 
       it('revokedAt === 0 (legitimate epoch number) is now treated as revoked (previously slipped past `!revokedAt`)', async () => {
-        const { auth, row, token } = await mintTokenAndGrabRow()
+        const { adapter, auth, row, token } = await mintTokenAndGrabRow()
         if (!row) throw new Error('row missing')
-        row.revokedAt = new Date(0)
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: new Date(0) })
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
           code: 'AUTH_RECOVERY_TOKEN_INVALID',
         })
       })
 
       it('revokedAt as a non-numeric value also surfaces as revoked', async () => {
-        const { auth, row, token } = await mintTokenAndGrabRow()
+        const { adapter, auth, row, token } = await mintTokenAndGrabRow()
         if (!row) throw new Error('row missing')
         // @ts-expect-error: SEC test intentionally violates the typed shape
-        row.revokedAt = 'truthy-but-not-a-timestamp'
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: 'truthy-but-not-a-timestamp' })
         await expect(auth.flows.signIn({ providerId: 'magic-link', input: { token } })).rejects.toMatchObject({
           code: 'AUTH_RECOVERY_TOKEN_INVALID',
         })
