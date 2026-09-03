@@ -5,7 +5,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
-    "@changesets/cli": "^2.31.0",
+    "@changesets/cli": "^3.0.1",
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
     "husky": "^9.1.7",
