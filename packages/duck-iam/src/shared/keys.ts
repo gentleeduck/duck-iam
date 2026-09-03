@@ -49,6 +49,16 @@ export function iamParsePermissionKey(key: string): {
   const scope = scoped ? parts.shift() : undefined
   const [action, resource, resourceId] = parts
   if (action === undefined || resource === undefined) return null
+
+  // "Well-formed" has to mean "in the image of the builder", not "splittable".
+  // The splitter treats an unrecognised `\x` literally, which is right for
+  // tokenising but leaves the parser non-injective on the canonical image: a
+  // lone `\`, an unescaped `@` inside a segment and any `\x` sequence all
+  // parsed into tuples the builder would have encoded differently. That put a
+  // live disagreement inside one client - `can()` builds a canonical key and
+  // misses, while `allowedActions()`/`hasAnyOn()` parse the raw key and hit.
+  if (iamBuildPermissionKey(action, resource, resourceId, scope) !== key) return null
+
   return { action, resource, resourceId, scope }
 }
 
@@ -74,17 +84,17 @@ export function iamSplitPermissionKey(key: string): string[] {
   let current = ''
   let i = 0
   while (i < key.length) {
-    const ch = key[i] as string
-    if (ch === '\\' && i + 1 < key.length) {
-      const next = key[i + 1] as string
-      // Only the three escape sequences are recognised; anything else is
-      // treated literally so an attacker-crafted `\x` doesn't silently
-      // become `x`.
-      if (next === ':' || next === '\\' || next === SCOPE_PREFIX) {
-        current += next
-        i += 2
-        continue
-      }
+    const ch = key[i]
+    if (ch === undefined) break
+    // Only the three escape sequences are recognised; anything else is treated
+    // literally so an attacker-crafted `\x` doesn't silently become `x`. Past
+    // the last character `next` is `undefined`, which matches none of them, so
+    // no separate bounds check is needed.
+    const next = key[i + 1]
+    if (ch === '\\' && (next === ':' || next === '\\' || next === SCOPE_PREFIX)) {
+      current += next
+      i += 2
+      continue
     }
     if (ch === ':') {
       out.push(current)

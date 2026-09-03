@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey, iamParsePermissionKey, iamSplitPermissionKey } from '../keys'
 
 describe('iamBuildPermissionKey()', () => {
@@ -158,5 +159,38 @@ describe('iamParsePermissionKey - arity is no longer ambiguous', () => {
     expect(iamParsePermissionKey('')).toBeNull()
     expect(iamParsePermissionKey('read')).toBeNull()
     expect(iamParsePermissionKey('a:b:c:d:e')).toBeNull()
+  })
+})
+
+/**
+ * `IamClient.PermissionKey` is the type the server->client payload is declared
+ * with. It carried the pre-`@` scoped form long after the builder moved on, so
+ * a consumer using literal generics - the documented pattern - could not assign
+ * a real `engine.permissions()` result without a cast, while a hand-written map
+ * in the retired ambiguous format type-checked clean.
+ *
+ * These bind the two together: each constant is annotated with the type and
+ * assigned the builder's output, so a drift in either direction fails.
+ */
+describe('iamBuildPermissionKey() output matches IamClient.PermissionKey', () => {
+  type Key = IamClient.PermissionKey<'read', 'doc', 'org'>
+
+  it.each([
+    ['read:doc', iamBuildPermissionKey('read', 'doc')],
+    ['read:doc:d-1', iamBuildPermissionKey('read', 'doc', 'd-1')],
+    ['@org:read:doc', iamBuildPermissionKey('read', 'doc', undefined, 'org')],
+    ['@org:read:doc:d-1', iamBuildPermissionKey('read', 'doc', 'd-1', 'org')],
+  ] satisfies Array<[Key, string]>)('%s', (typed, built) => {
+    expect(built).toBe(typed)
+  })
+
+  // Control: `satisfies` above only checks the left column, so this pins that
+  // the builder is what produced the right one.
+  it('a map keyed by the builder is assignable to PartialPermissionMap', () => {
+    const map: IamClient.PartialPermissionMap<'read', 'doc', 'org'> = {
+      '@org:read:doc': true,
+      'read:doc': false,
+    }
+    expect(Object.keys(map)).toContain(iamBuildPermissionKey('read', 'doc', undefined, 'org'))
   })
 })
