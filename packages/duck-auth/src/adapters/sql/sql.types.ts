@@ -31,7 +31,13 @@ export namespace SqlBridge {
      * the dialect has `RETURNING` this is the same round trip; `erase` returns
      * the row as it was immediately before deletion.
      */
-    softDelete(id: string, deletedAt: Date): Promise<Row | null>
+    /**
+     * `deletedBy` is passed rather than read from the ambient actor inside each
+     * dialect: the bridge is a data-layer contract, and three dialects each
+     * reaching for context is three places for it to be forgotten.
+     */
+    softDelete(id: string, deletedAt: Date, deletedBy: string | null): Promise<Row | null>
+    /** Clears `deletedAt` *and* `deletedBy`: a live row names no deleter. */
     restore(id: string): Promise<Row | null>
     erase(id: string): Promise<Row | null>
     insertProviderLink(
@@ -51,7 +57,7 @@ export namespace SqlBridge {
      * All optional. An adapter that omits one falls back to the facet's loop,
      * which is correct - just one statement per row instead of one per batch.
      */
-    softDeleteManyReturningIds?(ids: readonly string[], deletedAt: Date): Promise<string[]>
+    softDeleteManyReturningIds?(ids: readonly string[], deletedAt: Date, deletedBy: string | null): Promise<string[]>
     /**
      * Restore is the one set-based write with more than one way to refuse a
      * row, so it hands back what it READ as well as what it wrote. Without the
@@ -62,7 +68,18 @@ export namespace SqlBridge {
      * `candidates` is every row the ids matched, hidden or not; `restored` is
      * the subset actually brought back.
      */
-    restoreManyReturning?(ids: readonly string[]): Promise<{ candidates: Row[]; restored: Row[] }>
+    restoreManyReturning?(ids: readonly string[]): Promise<{
+      candidates: Row[]
+      restored: Row[]
+      /**
+       * Which rule refused each row that was restorable but not restored. The
+       * dialect is the only place that knows - it ran both clash queries - and
+       * without it `restoreMany` has to guess, which is how a provider clash
+       * would arrive labelled `email-taken`. Optional so an older custom bridge
+       * still compiles; omitting it falls back to that guess.
+       */
+      refused?: readonly { id: string; reason: 'email-taken' | 'provider-taken' }[]
+    }>
     eraseManyReturningIds?(ids: readonly string[]): Promise<string[]>
     updateProfileManyReturning?(
       rows: readonly { id: string; patch: Partial<Omit<Row, 'id'>>; expectedVersion: number }[],

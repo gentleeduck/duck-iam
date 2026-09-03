@@ -19,6 +19,9 @@ export function makeIdentity(over: Partial<Identities.Me> = {}): Identities.Me {
     createdAt: new Date(0),
     updatedAt: new Date(0),
     deletedAt: null,
+    deletedBy: null,
+    createdBy: null,
+    updatedBy: null,
     ...over,
   }
 }

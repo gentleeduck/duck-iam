@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryAdapter } from '~/adapters/memory'
+import { actorId, withActor } from '~/core/actor'
 import { InMemoryEvents } from '~/core/events'
 import type { Identities } from '~/core/identities/identities.types'
 import { credentialInput, sessionInput } from '~/test/store-inputs'
@@ -389,6 +390,53 @@ describe('IdentitiesFacet', () => {
       const j2 = IdentitiesImpl.exportToJson({ ...blob2, exportedAt: 0 })
       expect(j1).toBe(j2)
       expect(j1.split('\n')[0]).toBe('{')
+    })
+  })
+
+  /**
+   * `erase` has always taken `{ reason, operatorId }` and its body did
+   * `void opts` - the operator was accepted at the signature and discarded.
+   * Provenance columns have the same shape of defect, which is why these two
+   * sit together: declaring a place for who-did-it and never filling it.
+   */
+  describe('actor provenance', () => {
+    it('erase binds its operatorId as the ambient actor for the store call', async () => {
+      const i = await facet.create({ profile: { email: 'e@x.com', username: 'e@x.com' } })
+      const inner = adapter.identities.erase.bind(adapter.identities)
+      let seen: string | null = 'nothing-ran'
+      adapter.identities.erase = async (id: string) => {
+        seen = actorId()
+        return inner(id)
+      }
+
+      await facet.erase(i.id, { operatorId: 'op-7', reason: 'gdpr-request' })
+
+      expect(seen).toBe('op-7')
+    })
+
+    it('erase with no operatorId leaves the ambient actor alone rather than clearing it', async () => {
+      const i = await facet.create({ profile: { email: 'e2@x.com', username: 'e2@x.com' } })
+      const inner = adapter.identities.erase.bind(adapter.identities)
+      let seen: string | null = 'nothing-ran'
+      adapter.identities.erase = async (id: string) => {
+        seen = actorId()
+        return inner(id)
+      }
+
+      // An omitted `operatorId` is "I did not say", not "nobody" - an outer
+      // request-scoped actor still has to survive the call.
+      await withActor('outer', () => facet.erase(i.id, { reason: 'gdpr-request' }))
+
+      expect(seen).toBe('outer')
+    })
+
+    it('a create through the facet carries the ambient actor onto the row', async () => {
+      const i = await withActor('op-9', () => facet.create({ profile: { email: 'p@x.com', username: 'p@x.com' } }))
+
+      // The facet does not stamp anything itself; this pins that it does not
+      // lose the context on the way down to the store either.
+      expect(i.createdBy).toBe('op-9')
+      expect(i.updatedBy).toBe('op-9')
     })
   })
 })

@@ -3,6 +3,7 @@ import { MemoryLimiter } from '~/limiters/memory'
 import { ApiKeysFacet } from '~/providers/api-key'
 import { MfaFacet } from '~/providers/mfa'
 import { PasswordsImpl } from '~/providers/passwords'
+import { setDefaultActorResolver } from '../actor'
 import { AnomalyFacet, DEFAULT_ANOMALY_CONFIG } from '../anomaly'
 import type { Anomaly } from '../anomaly/anomaly.types'
 import { randomToken, sha256, timingSafeEqual } from '../crypto'
@@ -78,6 +79,10 @@ export class AuthEngine<
 
   constructor(cfg: Engine.Cfg<Profile, Tenant, OrgMeta>) {
     this.cfg = cfg
+    // Installed before any facet exists, so the very first write an engine makes
+    // is already attributable. Only when the caller asked for one: passing
+    // `undefined` here would clear a resolver someone set directly.
+    if (cfg.resolveActor !== undefined) setDefaultActorResolver(cfg.resolveActor)
     // Wrapped once here so every facet below emits through the stamper. Operator buses
     // included, so a facet never receives `cfg.events` unwrapped.
     this.events = withAuditStamping(cfg.events ?? new InMemoryEvents())

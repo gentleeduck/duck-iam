@@ -444,7 +444,13 @@ describe('the retry loop cannot tell a transient failure from a permanent one', 
       return new Response('', { status: 500 })
     })
     await deliverer.deliverOne('maintenance.on', {})
-    expect(waits.slice(1).every((w, i) => w >= 15 * 2 ** i)).toBe(true)
+    // `Date.now()` has millisecond resolution and `setTimeout` may fire a tick
+    // early, so a 15ms sleep can measure 14 and the exact floor flakes under
+    // load. The tolerance is far below anything that would count as jitter -
+    // real jitter randomises over a fraction of the interval, not by 2ms - so
+    // the finding this test records still holds.
+    const SCHEDULING_SLACK_MS = 2
+    expect(waits.slice(1).every((w, i) => w >= 15 * 2 ** i - SCHEDULING_SLACK_MS)).toBe(true)
   })
 
   it('fans out to every eligible endpoint concurrently', async () => {

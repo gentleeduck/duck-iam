@@ -30,6 +30,8 @@ const STATUS_FOR: Record<AuthError.Code, number> = {
   AUTH_STALE_WRITE: 409,
   AUTH_GRACE_EXPIRED: 410,
   AUTH_EMAIL_TAKEN: 409,
+  AUTH_USERNAME_TAKEN: 409,
+  AUTH_PROVIDER_TAKEN: 409,
   AUTH_EMAIL_CHANGE_PENDING: 409,
   AUTH_IMPERSONATE_FORBIDDEN: 403,
   AUTH_IMPERSONATE_REQUIRES_IAM: 500,
@@ -149,6 +151,8 @@ export namespace AuthError {
     | { code: 'AUTH_STALE_WRITE'; status: 409; expected: number; actual: number }
     | { code: 'AUTH_GRACE_EXPIRED'; status: 410 }
     | { code: 'AUTH_EMAIL_TAKEN'; status: 409 }
+    | { code: 'AUTH_USERNAME_TAKEN'; status: 409 }
+    | { code: 'AUTH_PROVIDER_TAKEN'; status: 409; providerId?: string }
     | { code: 'AUTH_EMAIL_CHANGE_PENDING'; status: 409; pendingNewEmail?: string }
     | { code: 'AUTH_IMPERSONATE_FORBIDDEN'; status: 403; reason: string }
     | { code: 'AUTH_IMPERSONATE_REQUIRES_IAM'; status: 500 }

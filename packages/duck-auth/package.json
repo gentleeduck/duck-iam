@@ -645,7 +645,7 @@
     "format": "biome format --write ./",
     "clean": "rimraf dist .cache .turbo node_modules",
     "test:e2e": "vitest run e2e",
-    "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && node src/test/oidc-e2e-schema.mjs"
+    "e2e:schema": "drizzle-kit generate --config src/test/drizzle-e2e.config.ts && node src/test/pg-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-mysql.config.ts && node src/test/mysql-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-sqlite.config.ts && node src/test/sqlite-e2e-schema.mjs && drizzle-kit generate --config src/test/drizzle-e2e-oidc-pg.config.ts && drizzle-kit generate --config src/test/drizzle-e2e-oidc-mysql.config.ts && node src/test/oidc-e2e-schema.mjs"
   },
   "dependencies": {
     "@types/node": "^26.1.0",

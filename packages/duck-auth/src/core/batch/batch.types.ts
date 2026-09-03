@@ -19,7 +19,14 @@ export namespace Batch {
    * reason for that rule, so a caller can tell "this id is gone" from "this id
    * is here and you may not have it" without a second read.
    */
-  export type FailureReason = 'not-found' | 'stale-write' | 'skipped' | 'grace-expired' | 'email-taken'
+  export type FailureReason =
+    | 'not-found'
+    | 'stale-write'
+    | 'skipped'
+    | 'grace-expired'
+    | 'email-taken'
+    | 'username-taken'
+    | 'provider-taken'
 
   export type Outcome<T = void> =
     | { id: string; ok: true; value: T }

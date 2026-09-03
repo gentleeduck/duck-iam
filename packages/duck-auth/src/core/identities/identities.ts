@@ -1,4 +1,5 @@
 import { BATCH_NOT_FOUND, type Batch, batchResult, loopFallback } from '~/core/batch'
+import { withActor } from '../actor'
 import { getProfileString } from '../credentials/credentials'
 import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
@@ -212,10 +213,19 @@ export class IdentitiesImpl<Profile extends Identities.ProfileMetadataBase = Ide
    * record what went, since a second read would find nothing.
    */
   async erase(id: string, opts: { reason: string; operatorId?: string }): Promise<Identities.Me<Profile> | null> {
-    const erased = await this._store.erase(id)
-    // Caller emits its own compliance event with reason; library stays out of
-    // the audit-envelope shape for the erase action.
-    void opts
+    // `operatorId` used to be accepted and dropped on the floor. It now binds
+    // the ambient actor for the duration, so anything the erase cascades into
+    // is attributed to the operator who asked for it rather than to whoever
+    // the request happened to be running as.
+    // Bound only when there is something to bind: `withActor(undefined, ...)`
+    // is a fence that clears the scope - the same as `withTenant` - so passing
+    // an omitted `operatorId` straight through would erase a request-scoped
+    // actor the caller had already established.
+    const erased = await (opts.operatorId === undefined
+      ? this._store.erase(id)
+      : withActor(opts.operatorId, () => this._store.erase(id)))
+    // `reason` stays the caller's to log: the library does not own the shape of
+    // a compliance audit envelope.
     return erased
   }
 

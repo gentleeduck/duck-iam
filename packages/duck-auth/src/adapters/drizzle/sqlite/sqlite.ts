@@ -11,11 +11,14 @@ import { and, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase, SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import {
   assertEmailFree,
+  assertProviderSubFree,
   assertRestorable,
+  claimedProviderSubs,
   createSqlStores,
   isRestorable,
   pickFreshestCredential,
   profileEmail,
+  providerSubKey,
 } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
 import { AuthError } from '~/core/errors'
@@ -58,7 +61,7 @@ export function createDrizzleSqliteBridge<
           .from(authIdentities)
           .where(
             and(
-              sql`lower(json_extract(${authIdentities.profile}, '$.email')) = lower(${email})`,
+              sql`lower(${authIdentities.profile} ->> '$.email') = lower(${email})`,
               isNull(authIdentities.deletedAt),
             ),
           )
@@ -94,7 +97,7 @@ export function createDrizzleSqliteBridge<
           .returning()
         return result[0] ?? null
       },
-      softDelete: async (id, deletedAt) => {
+      softDelete: async (id, deletedAt, deletedBy) => {
         // `emailVerified` goes with it: the partial unique index and `findByEmail`
         // both ignore soft-deleted rows, so the address is free to be claimed by
         // someone else during the grace window. Restoring must not hand back a
@@ -106,7 +109,7 @@ export function createDrizzleSqliteBridge<
         // repeating a delete that has nothing left to delete.
         const result = await db
           .update(authIdentities)
-          .set({ deletedAt, emailVerified: false })
+          .set({ deletedAt, deletedBy, emailVerified: false })
           .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
           .returning()
         return result[0] ?? null
@@ -128,16 +131,36 @@ export function createDrizzleSqliteBridge<
             .from(authIdentities)
             .where(
               and(
-                sql`lower(json_extract(${authIdentities.profile}, '$.email')) = lower(${email})`,
+                sql`lower(${authIdentities.profile} ->> '$.email') = lower(${email})`,
                 isNull(authIdentities.deletedAt),
               ),
             )
             .limit(1)
           assertEmailFree(email, clash.length > 0)
         }
+        // A hidden row's provider logins were free to be claimed the whole time it
+        // was invisible, exactly like its email address. `isNull(deletedAt)` also
+        // excludes the row being restored, so this only ever finds someone else.
+        for (const claim of claimedProviderSubs(row)) {
+          const taken = await db
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(
+              and(
+                sql`exists (
+                  select 1 from json_each(${authIdentities.providers}) je
+                  where json_extract(je.value, '$.providerId') = ${claim.providerId}
+                    and json_extract(je.value, '$.providerSub') = ${claim.providerSub}
+                )`,
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+            .limit(1)
+          if (taken.length > 0) assertProviderSubFree({ providerId: claim.providerId })
+        }
         const result = await db
           .update(authIdentities)
-          .set({ deletedAt: null })
+          .set({ deletedAt: null, deletedBy: null })
           .where(eq(authIdentities.id, id))
           .returning()
         return result[0] ?? null
@@ -225,10 +248,10 @@ export function createDrizzleSqliteBridge<
           .returning()
         return unlinked[0] ?? null
       },
-      softDeleteManyReturningIds: async (ids, deletedAt) => {
+      softDeleteManyReturningIds: async (ids, deletedAt, deletedBy) => {
         const rows = await db
           .update(authIdentities)
-          .set({ deletedAt, emailVerified: false })
+          .set({ deletedAt, deletedBy, emailVerified: false })
           .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
           .returning({ id: authIdentities.id })
         return rows.map((r) => r.id)
@@ -275,7 +298,7 @@ export function createDrizzleSqliteBridge<
             .from(authIdentities)
             .where(
               and(
-                inArray(sql`lower(json_extract(${authIdentities.profile}, '$.email'))`, [...new Set(emails.values())]),
+                inArray(sql`lower(${authIdentities.profile} ->> '$.email')`, [...new Set(emails.values())]),
                 isNull(authIdentities.deletedAt),
               ),
             )
@@ -287,22 +310,69 @@ export function createDrizzleSqliteBridge<
         // Two hidden rows in one batch can also answer to the same address -
         // nothing kept them apart while both were invisible - so an address
         // claimed by an earlier row in this batch is taken for the rest of it.
+        // Provider logins clash the same way addresses do, and the batch has to catch
+        // it for the same reason the single-row path does: `findByProviderSub` skips
+        // hidden rows, so every sub a candidate holds was free to be taken while it
+        // was gone.
+        const claims = new Map<string, string[]>()
+        const allClaims: { providerId: string; providerSub: string }[] = []
+        for (const row of restorable) {
+          const pairs = claimedProviderSubs(row)
+          if (pairs.length === 0) continue
+          claims.set(row.id, pairs.map(providerSubKey))
+          allClaims.push(...pairs)
+        }
+        const takenSubs = new Set<string>()
+        if (allClaims.length > 0) {
+          const holders = await db
+            .select({ providers: authIdentities.providers })
+            .from(authIdentities)
+            .where(
+              and(
+                or(
+                  ...allClaims.map(
+                    (claim) => sql`exists (
+          select 1 from json_each(${authIdentities.providers}) je
+          where json_extract(je.value, '$.providerId') = ${claim.providerId}
+            and json_extract(je.value, '$.providerSub') = ${claim.providerSub}
+        )`,
+                  ),
+                ),
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+          // Every sub a matched live row holds, not just the one that matched: they
+          // are all genuinely spoken for by a row that is visible right now.
+          for (const holder of holders) {
+            for (const pair of claimedProviderSubs(holder)) takenSubs.add(providerSubKey(pair))
+          }
+        }
         const okIds: string[] = []
+        const refused: { id: string; reason: 'email-taken' | 'provider-taken' }[] = []
         for (const row of restorable) {
           const email = emails.get(row.id)
-          if (email !== undefined) {
-            if (taken.has(email)) continue
-            taken.add(email)
+          const keys = claims.get(row.id)
+          // Both checks before either commit: a row refused for its address must not
+          // go on to reserve its provider subs against later rows.
+          if (email !== undefined && taken.has(email)) {
+            refused.push({ id: row.id, reason: 'email-taken' })
+            continue
           }
+          if (keys?.some((key) => takenSubs.has(key))) {
+            refused.push({ id: row.id, reason: 'provider-taken' })
+            continue
+          }
+          if (email !== undefined) taken.add(email)
+          if (keys !== undefined) for (const key of keys) takenSubs.add(key)
           okIds.push(row.id)
         }
-        if (okIds.length === 0) return { candidates, restored: [] }
+        if (okIds.length === 0) return { candidates, refused, restored: [] }
         const restored = await db
           .update(authIdentities)
-          .set({ deletedAt: null })
+          .set({ deletedAt: null, deletedBy: null })
           .where(inArray(authIdentities.id, okIds))
           .returning()
-        return { candidates, restored }
+        return { candidates, refused, restored }
       },
 
       /**

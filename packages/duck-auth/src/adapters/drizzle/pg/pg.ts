@@ -4,11 +4,14 @@ import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import {
   assertEmailFree,
+  assertProviderSubFree,
   assertRestorable,
+  claimedProviderSubs,
   createSqlStores,
   isRestorable,
   pickFreshestCredential,
   profileEmail,
+  providerSubKey,
 } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
 import { AuthError } from '~/core/errors'
@@ -171,7 +174,7 @@ export function createDrizzlePgBridge<
             .then((r) => r[0] ?? null),
         ),
 
-      softDelete: (id, deletedAt) =>
+      softDelete: (id, deletedAt, deletedBy) =>
         // `emailVerified` goes with it: the partial unique index and `findByEmail`
         // both ignore soft-deleted rows, so the address is free to be claimed by
         // someone else during the grace window. Restoring must not hand back a
@@ -184,7 +187,7 @@ export function createDrizzlePgBridge<
         nullOnUnrepresentableId(() =>
           db
             .update(authIdentities)
-            .set({ deletedAt, emailVerified: false })
+            .set({ deletedAt, deletedBy, emailVerified: false })
             .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
             .returning()
             .then((r) => r[0] ?? null),
@@ -213,9 +216,25 @@ export function createDrizzlePgBridge<
             .limit(1)
           assertEmailFree(email, clash.length > 0)
         }
+        // A hidden row's provider logins were free to be claimed the whole time it
+        // was invisible, exactly like its email address. `isNull(deletedAt)` also
+        // excludes the row being restored, so this only ever finds someone else.
+        for (const claim of claimedProviderSubs(row)) {
+          const taken = await db
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(
+              and(
+                sql`${authIdentities.providers} @> ${JSON.stringify([{ providerId: claim.providerId, providerSub: claim.providerSub }])}::jsonb`,
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+            .limit(1)
+          if (taken.length > 0) assertProviderSubFree({ providerId: claim.providerId })
+        }
         const restored = await db
           .update(authIdentities)
-          .set({ deletedAt: null })
+          .set({ deletedAt: null, deletedBy: null })
           .where(eq(authIdentities.id, id))
           .returning()
         return restored[0] ?? null
@@ -309,11 +328,11 @@ export function createDrizzlePgBridge<
           return reselectIdentity(identityId)
         }),
 
-      softDeleteManyReturningIds: (ids, deletedAt) =>
+      softDeleteManyReturningIds: (ids, deletedAt, deletedBy) =>
         emptyOnUnrepresentableId(() =>
           db
             .update(authIdentities)
-            .set({ deletedAt, emailVerified: false })
+            .set({ deletedAt, deletedBy, emailVerified: false })
             .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
             .returning({ id: authIdentities.id })
             .then((r) => r.map((x) => x.id)),
@@ -380,22 +399,65 @@ export function createDrizzlePgBridge<
             // the index is partial on `deletedAt`, so nothing kept them apart
             // while both were invisible - and restoring both would be the clash
             // this guard exists to refuse. First one wins.
+            // Provider logins clash the same way addresses do, and the batch has to catch
+            // it for the same reason the single-row path does: `findByProviderSub` skips
+            // hidden rows, so every sub a candidate holds was free to be taken while it
+            // was gone.
+            const claims = new Map<string, string[]>()
+            const allClaims: { providerId: string; providerSub: string }[] = []
+            for (const row of restorable) {
+              const pairs = claimedProviderSubs(row)
+              if (pairs.length === 0) continue
+              claims.set(row.id, pairs.map(providerSubKey))
+              allClaims.push(...pairs)
+            }
+            const takenSubs = new Set<string>()
+            if (allClaims.length > 0) {
+              const holders = await db
+                .select({ providers: authIdentities.providers })
+                .from(authIdentities)
+                .where(
+                  and(
+                    or(
+                      ...allClaims.map(
+                        (claim) => sql`${authIdentities.providers} @> ${JSON.stringify([claim])}::jsonb`,
+                      ),
+                    ),
+                    isNull(authIdentities.deletedAt),
+                  ),
+                )
+              // Every sub a matched live row holds, not just the one that matched: they
+              // are all genuinely spoken for by a row that is visible right now.
+              for (const holder of holders) {
+                for (const pair of claimedProviderSubs(holder)) takenSubs.add(providerSubKey(pair))
+              }
+            }
             const okIds: string[] = []
+            const refused: { id: string; reason: 'email-taken' | 'provider-taken' }[] = []
             for (const row of restorable) {
               const email = emails.get(row.id)
-              if (email !== undefined) {
-                if (taken.has(email)) continue
-                taken.add(email)
+              const keys = claims.get(row.id)
+              // Both checks before either commit: a row refused for its address must not
+              // go on to reserve its provider subs against later rows.
+              if (email !== undefined && taken.has(email)) {
+                refused.push({ id: row.id, reason: 'email-taken' })
+                continue
               }
+              if (keys?.some((key) => takenSubs.has(key))) {
+                refused.push({ id: row.id, reason: 'provider-taken' })
+                continue
+              }
+              if (email !== undefined) taken.add(email)
+              if (keys !== undefined) for (const key of keys) takenSubs.add(key)
               okIds.push(row.id)
             }
-            if (okIds.length === 0) return { candidates, restored: [] }
+            if (okIds.length === 0) return { candidates, refused, restored: [] }
             const restored = await db
               .update(authIdentities)
-              .set({ deletedAt: null })
+              .set({ deletedAt: null, deletedBy: null })
               .where(inArray(authIdentities.id, okIds))
               .returning()
-            return { candidates, restored }
+            return { candidates, refused, restored }
           },
           { candidates: [], restored: [] },
         ),
@@ -420,14 +482,14 @@ export function createDrizzlePgBridge<
           const values = sql.join(
             rows.map(
               (r) =>
-                sql`(${r.id}::uuid, ${JSON.stringify(r.patch.profile)}::jsonb, ${r.patch.updatedAt ?? new Date()}::timestamptz, ${r.patch.version ?? r.expectedVersion + 1}::integer, ${r.expectedVersion}::integer)`,
+                sql`(${r.id}::uuid, ${JSON.stringify(r.patch.profile)}::jsonb, ${r.patch.updatedAt ?? new Date()}::timestamptz, ${r.patch.updatedBy ?? null}::text, ${r.patch.version ?? r.expectedVersion + 1}::integer, ${r.expectedVersion}::integer)`,
             ),
             sql`, `,
           )
           const updated = await db.execute(sql`
             update ${authIdentities} as t
-            set profile = v.profile, updated_at = v.updated_at, version = v.version
-            from (values ${values}) as v(id, profile, updated_at, version, expected_version)
+            set profile = v.profile, updated_at = v.updated_at, updated_by = v.updated_by, version = v.version
+            from (values ${values}) as v(id, profile, updated_at, updated_by, version, expected_version)
             where t.id = v.id and t.version = v.expected_version
             returning t.id
           `)

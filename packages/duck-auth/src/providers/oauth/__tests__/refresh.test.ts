@@ -262,6 +262,8 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
 
   it('projectAccessToken returns null when access token expired', () => {
     const expired = projectAccessToken({
+      createdBy: null,
+      updatedBy: null,
       id: 'x',
       identityId,
       kind: 'oauth',
@@ -287,6 +289,8 @@ describe('oauth refresh-token reuse detection (RFC 6749 section 10.4)', () => {
   describe('family metadata validation', () => {
     function rowWithMeta(metadata: Record<string, unknown>): Parameters<typeof projectAccessToken>[0] {
       return {
+        createdBy: null,
+        updatedBy: null,
         id: 'x',
         identityId,
         kind: 'oauth',

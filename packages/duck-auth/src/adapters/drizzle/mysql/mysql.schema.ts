@@ -9,6 +9,7 @@ import {
   json,
   mysqlTable,
   text,
+  uniqueIndex,
   varchar,
 } from 'drizzle-orm/mysql-core'
 import type { SqlBridge } from '~/adapters/sql'
@@ -17,9 +18,13 @@ import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
 /**
- * Timestamps are timezone-naive DATETIME(3); store UTC and convert at the edges. MySQL
- * can't index a JSON path without a generated column, so email/username uniqueness
- * (unlike pg's expression indexes) is enforced at the application layer for this dialect.
+ * Timestamps are timezone-naive DATETIME(3); store UTC and convert at the edges.
+ *
+ * MySQL cannot index a JSON path directly, which is why email and username
+ * uniqueness used to be left to the application here while pg and sqlite had
+ * real indexes. That is not a weaker guarantee, it is no guarantee: the check
+ * is read-then-write, so two concurrent signups both saw a free address and
+ * both got it. The generated columns below carry the indexes instead.
  */
 const nowMs = sql`CURRENT_TIMESTAMP(3)`
 
@@ -27,8 +32,6 @@ export const authIdentities = mysqlTable(
   'auth_identities',
   {
     id: varchar('id', { length: 64 }).primaryKey(),
-    /** Origin/home tenant this identity was created under. Scoping only. */
-    tenantId: varchar('tenant_id', { length: 64 }),
     profile: json('profile').notNull().$type<SqlBridge.ProfileMetadataBase>(),
     providers: json('providers').notNull().default([]).$type<Identities.ProviderLink[]>(),
     version: int('version').notNull().default(1),
@@ -41,10 +44,41 @@ export const authIdentities = mysqlTable(
       .default(nowMs)
       .$onUpdate(() => new Date()),
     deletedAt: datetime('deleted_at', { fsp: 3 }),
+    /**
+     * Who soft-deleted the row, from the ambient actor. Cleared by `restore`,
+     * so a non-null value and a null `deleted_at` cannot coexist: the pair is
+     * read together or not at all.
+     */
+    deletedBy: varchar('deleted_by', { length: 191 }),
+    /**
+     * Index carriers for the two uniqueness rules, not part of the row
+     * contract - `select()` on this table must exclude them.
+     *
+     * NULL for a soft-deleted row, which is what reproduces pg's and sqlite's
+     * `WHERE deleted_at IS NULL` partial indexes: MySQL allows any number of
+     * NULLs in a unique index, so a hidden row drops out of it and frees its
+     * address for the grace window, exactly as the other dialects do.
+     */
+    emailNorm: varchar('email_norm', { length: 320 }).generatedAlwaysAs(
+      sql`(if(deleted_at is null, lower(profile ->> '$.email'), null))`,
+      { mode: 'stored' },
+    ),
+    usernameNorm: varchar('username_norm', { length: 191 }).generatedAlwaysAs(
+      sql`(if(deleted_at is null, lower(profile ->> '$.username'), null))`,
+      { mode: 'stored' },
+    ),
   },
   (t) => [
-    index('auth_identities_tenant').on(t.tenantId),
     index('auth_identities_deleted_at').on(t.deletedAt),
+    uniqueIndex('uq_auth_identities_email').on(t.emailNorm),
+    uniqueIndex('uq_auth_identities_username').on(t.usernameNorm),
+    // pg and sqlite have refused a profile missing either key since 5.x; MySQL
+    // simply had no equivalent, so the same bad row was writable on one dialect
+    // and not the others.
+    check(
+      'chk_auth_identities_profile_shape',
+      sql`profile is null or (profile ->> '$.username' is not null and profile ->> '$.email' is not null)`,
+    ),
     check('chk_auth_identities_version', sql`version >= 1`),
   ],
 )
@@ -107,8 +141,6 @@ export const authSessions = mysqlTable(
     ip: varchar('ip', { length: 45 }),
     userAgent: text('user_agent'),
     fingerprint: varchar('fingerprint', { length: 128 }),
-    createdBy: varchar('created_by', { length: 191 }),
-    updatedBy: varchar('updated_by', { length: 191 }),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
     updatedAt: datetime('updated_at', { fsp: 3 })
       .notNull()
@@ -155,6 +187,12 @@ export const authEvents = mysqlTable(
     method: varchar('method', { length: 32 }),
     ip: varchar('ip', { length: 45 }),
     userAgent: text('user_agent'),
+    /**
+     * Who performed the action, when that differs from `identity_id` - an admin
+     * revoking someone else's session, a support agent resetting a password.
+     * `identity_id` is the subject; this is the operator.
+     */
+    actorId: varchar('actor_id', { length: 191 }),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: json('metadata').$type<Record<string, unknown> | null>(),
     createdAt: datetime('created_at', { fsp: 3 }).notNull().default(nowMs),
@@ -162,6 +200,10 @@ export const authEvents = mysqlTable(
   (t) => [
     index('auth_events_identity_created').on(t.identityId, t.createdAt),
     index('auth_events_tenant_created').on(t.tenantId, t.createdAt),
+    // "Everything operator X did, newest first" - the question `actor_id`
+    // exists to answer. `auth_events` is append-only and unbounded, so without
+    // this the one query the column was added for is a full scan of the log.
+    index('auth_events_actor_created').on(t.actorId, t.createdAt),
     index('auth_events_created').on(t.createdAt),
     check(
       'chk_auth_events_method',

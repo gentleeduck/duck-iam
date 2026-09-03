@@ -57,6 +57,15 @@ export namespace Engine {
       /** SEC: max serialized (JSON UTF-8) profile size, in bytes. Default 16 KiB. Set to `0` to disable. */
       profileMaxBytes?: number
     }
+    /**
+     * Fills `created_by` / `updated_by` / `deleted_by` when no `withActor`
+     * scope is active - wire it to whatever request context the host framework
+     * already has. Returning `null` or `undefined` records no actor, which is
+     * a truthful answer; it is never replaced with a placeholder.
+     *
+     * Process-wide: see {@link setDefaultActorResolver}.
+     */
+    resolveActor?: () => string | null | undefined
     hijack?: Hijack.Cfg
     /**
      * Anomaly scoring thresholds and per-signal reactions. Merged over the

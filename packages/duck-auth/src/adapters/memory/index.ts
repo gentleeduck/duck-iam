@@ -1,3 +1,5 @@
+import { claimedProviderSubs } from '~/adapters/sql'
+import { actorId } from '~/core/actor'
 import { getProfileString, isRevoked, isSoftDeleted } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { randomToken, timingSafeEqual } from '~/core/crypto'
@@ -38,6 +40,32 @@ function put<T>(map: Map<string, T>, key: string, row: T): T {
  */
 const sameEmail = (a: string | undefined, b: string | undefined): boolean =>
   a !== undefined && b !== undefined && a.toLowerCase() === b.toLowerCase()
+
+/**
+ * The two partial unique indexes every SQL dialect carries on this table, as a
+ * scan.
+ *
+ * Live rows only: both indexes are partial on `deleted_at`, so a hidden row's
+ * address and handle are free for the grace window. `self` is excluded so an
+ * update that leaves the profile alone is not refused by the row it is updating.
+ *
+ * Without this the memory adapter admitted rows Postgres will not hold, which
+ * is worse than a missing check - every test that runs on memory is then
+ * asserting behaviour the real adapters do not have.
+ */
+function assertProfileFree(
+  rows: Iterable<{ id: string; profile: unknown; deletedAt: Date | null }>,
+  profile: unknown,
+  self: string | undefined,
+): void {
+  const email = getProfileString(profile, 'email')
+  const username = getProfileString(profile, 'username')
+  for (const other of rows) {
+    if (other.id === self || isSoftDeleted(other)) continue
+    if (sameEmail(getProfileString(other.profile, 'email'), email)) throw new AuthError('AUTH_EMAIL_TAKEN')
+    if (sameEmail(getProfileString(other.profile, 'username'), username)) throw new AuthError('AUTH_USERNAME_TAKEN')
+  }
+}
 
 /**
  * In-memory adapter - dev + test only. Production must use redis/drizzle/prisma.
@@ -112,27 +140,22 @@ export class MemoryAdapter<
             }
           }
         }
-        // Every dialect carries a partial unique index on `lower(email)` where
-        // the row is live, so admitting a second one here would let a test pass
-        // against state Postgres refuses to hold.
-        const email = getProfileString(input.profile, 'email')
-        for (const other of store.values()) {
-          if (isSoftDeleted(other)) continue
-          if (sameEmail(getProfileString(other.profile, 'email'), email)) {
-            throw new AuthError('AUTH_EMAIL_TAKEN')
-          }
-        }
+        assertProfileFree(store.values(), input.profile, undefined)
         const nowDate = new Date()
         const id: Identities.Me<Profile> = {
           ...input,
           id: randomToken(16),
           providers,
+          createdBy: actorId(),
+          updatedBy: actorId(),
+
           // New identities are unverified unless the caller states otherwise.
           emailVerified: input.emailVerified ?? false,
           version: 1,
           createdAt: nowDate,
           updatedAt: nowDate,
           deletedAt: null,
+          deletedBy: null,
         }
         return put(store, id.id, id)
       },
@@ -149,11 +172,18 @@ export class MemoryAdapter<
             actual: cur.version,
           })
         }
+        // A patch that moves the profile has to clear the same two indexes a
+        // SQL dialect would check on the UPDATE; this had no check at all, so
+        // taking another live row's email succeeded here and nowhere else.
+        if (patch.profile !== undefined) assertProfileFree(store.values(), patch.profile, id)
         const next: Identities.Me<Profile> = {
           ...cur,
           ...stripUndefined(patch),
           version: cur.version + 1,
           updatedAt: new Date(),
+          // `createdBy` is deliberately not touched: it comes through the
+          // `...cur` spread and belongs to whoever made the row.
+          updatedBy: actorId(),
         }
         return put(store, id, next)
       },
@@ -168,6 +198,7 @@ export class MemoryAdapter<
         const next: Identities.Me<Profile> = {
           ...cur,
           deletedAt: new Date(Date.now() + gracePeriodMs),
+          deletedBy: actorId(),
           emailVerified: false,
         }
         return put(store, id, next)
@@ -181,20 +212,24 @@ export class MemoryAdapter<
         if (!deletedAtMs || deletedAtMs < Date.now()) {
           throw new AuthError('AUTH_GRACE_EXPIRED')
         }
-        // The address was free the whole time this row was hidden, so someone
-        // may have taken it. There is no unique index here to catch it, which
-        // would leave two live rows answering to the same email.
-        const email = getProfileString(cur.profile, 'email')
-        if (email !== undefined) {
+        // The address and handle were both free the whole time this row was
+        // hidden, so someone may have taken either.
+        assertProfileFree(store.values(), cur.profile, id)
+        // Same reasoning for provider logins: `findByProviderSub` skips hidden
+        // rows, so this row's subs were claimable the whole time it was gone.
+        // Restoring past a clash leaves two live rows answering to one Google
+        // account, and lookups then return whichever comes first.
+        for (const claim of claimedProviderSubs(cur)) {
           for (const other of store.values()) {
             if (other.id === id || isSoftDeleted(other)) continue
-            if (sameEmail(getProfileString(other.profile, 'email'), email)) {
-              throw new AuthError('AUTH_EMAIL_TAKEN')
-            }
+            const held = other.providers.some(
+              (link) => link.providerId === claim.providerId && link.providerSub === claim.providerSub,
+            )
+            if (held) throw new AuthError('AUTH_PROVIDER_TAKEN', { providerId: claim.providerId })
           }
         }
         // `Me.deletedAt` is non-optional (`Date | null`), so reset rather than omit.
-        const next: Identities.Me<Profile> = { ...cur, deletedAt: null }
+        const next: Identities.Me<Profile> = { ...cur, deletedAt: null, deletedBy: null }
         return put(store, id, next)
       },
       erase: async (id) => {
@@ -447,6 +482,8 @@ export class MemoryAdapter<
         const id = randomToken(16)
         // Inherit tenantId from ctx when input doesn't set it.
         const c: Credential.Me = {
+          createdBy: actorId(),
+          updatedBy: actorId(),
           id,
           identityId: input.identityId,
           tenantId: input.tenantId ?? ctx?.tenantId ?? null,

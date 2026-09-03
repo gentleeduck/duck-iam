@@ -27,6 +27,12 @@ export const authIdentities = sqliteTable(
       .default(nowMs)
       .$onUpdate(() => new Date()),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+    /**
+     * Who soft-deleted the row, from the ambient actor. Cleared by `restore`,
+     * so a non-null value and a null `deleted_at` cannot coexist: the pair is
+     * read together or not at all.
+     */
+    deletedBy: text('deleted_by'),
   },
   (t) => [
     // pg's `profile ? 'key'` returns NULL (constraint-passes) on a NULL profile;
@@ -39,12 +45,13 @@ export const authIdentities = sqliteTable(
       )`,
     ),
     index('auth_identities_deleted_at').on(t.deletedAt).where(isNull(t.deletedAt)),
-    uniqueIndex('uq_auth_identities_email')
-      .on(sql`(lower(json_extract(profile, '$.email')))`)
-      .where(isNull(t.deletedAt)),
-    uniqueIndex('uq_auth_identities_username')
-      .on(sql`(lower(json_extract(profile, '$.username')))`)
-      .where(isNull(t.deletedAt)),
+    // `->>` rather than `json_extract(profile, '$.email')`: drizzle-kit splits an
+    // index expression on commas to find its columns, so the json_extract form
+    // emitted DDL for two nonexistent columns instead of one expression - the
+    // index silently did not exist. SQLite has had `->>` since 3.38, and it
+    // mirrors what the pg schema does with the same index.
+    uniqueIndex('uq_auth_identities_email').on(sql`(lower(profile ->> '$.email'))`).where(isNull(t.deletedAt)),
+    uniqueIndex('uq_auth_identities_username').on(sql`(lower(profile ->> '$.username'))`).where(isNull(t.deletedAt)),
     check('chk_auth_identities_version', sql`version >= 1`),
   ],
 )
@@ -109,8 +116,6 @@ export const authSessions = sqliteTable(
     ip: text('ip'),
     userAgent: text('user_agent'),
     fingerprint: text('fingerprint'),
-    createdBy: text('created_by'),
-    updatedBy: text('updated_by'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
       .notNull()
@@ -157,6 +162,12 @@ export const authEvents = sqliteTable(
     method: text('method'),
     ip: text('ip'),
     userAgent: text('user_agent'),
+    /**
+     * Who performed the action, when that differs from `identity_id` - an admin
+     * revoking someone else's session, a support agent resetting a password.
+     * `identity_id` is the subject; this is the operator.
+     */
+    actorId: text('actor_id'),
     /** Provider-specific extra fields (error codes, device hints, etc.). */
     metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown> | null>(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull().default(nowMs),
@@ -164,6 +175,10 @@ export const authEvents = sqliteTable(
   (t) => [
     index('auth_events_identity_created').on(t.identityId, t.createdAt),
     index('auth_events_tenant_created').on(t.tenantId, t.createdAt),
+    // "Everything operator X did, newest first" - the question `actor_id`
+    // exists to answer. `auth_events` is append-only and unbounded, so without
+    // this the one query the column was added for is a full scan of the log.
+    index('auth_events_actor_created').on(t.actorId, t.createdAt),
     index('auth_events_created').on(t.createdAt),
     check(
       'chk_auth_events_method',

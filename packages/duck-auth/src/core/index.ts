@@ -6,6 +6,8 @@ export {
   RememberMeFacet,
   rememberMeFacet,
 } from '~/providers/mfa'
+export type { ActorContext } from './actor'
+export { actorId, currentActor, resolveActor, setDefaultActorResolver, withActor } from './actor'
 export type { Anomaly, AuthDeviceFingerprint } from './anomaly'
 export type { Batch } from './batch'
 export type { AuthCaptcha } from './captcha'

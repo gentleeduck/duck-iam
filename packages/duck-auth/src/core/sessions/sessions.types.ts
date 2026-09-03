@@ -60,6 +60,12 @@ export namespace Sessions {
     expiresAt: Date
     absoluteExpiresAt: Date
     fresh: boolean
+    /**
+     * The impersonation window, when one is open. This is also the only case in
+     * which a session's author differs from its subject, which is why the row
+     * carries no `createdBy`: for every other session `identityId` already
+     * answers "who opened this", and a column repeating it can only drift.
+     */
     actingAs: ActingAs | null
   }
 

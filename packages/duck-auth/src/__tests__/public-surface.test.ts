@@ -35,9 +35,17 @@ describe('public surface', () => {
       'AuthCookieTransport',
       'AuthEngine',
       'AuthError',
+      // The actor context is runtime, not just types: `withActor` is how a
+      // caller fills `createdBy` / `updatedBy`, so it has to be reachable from
+      // the root the same way the engine is.
+      'actorId',
       'authEngine',
+      'currentActor',
+      'resolveActor',
       'rethrowAuthError',
+      'setDefaultActorResolver',
       'throwAuthError',
+      'withActor',
     ])
   })
 
