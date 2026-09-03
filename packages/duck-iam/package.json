@@ -331,7 +331,7 @@
     "@gentleduck/vitest-config": "workspace:*",
     "@rbac/rbac": "^2.1.3",
     "@stryker-mutator/core": "^9.6.1",
-    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "accesscontrol": "^3.1.0",
