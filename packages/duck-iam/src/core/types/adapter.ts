@@ -237,6 +237,29 @@ export namespace IamAdapter {
     assignRoleMany?(rows: readonly IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null>
     /** Set-based revoke. See {@link assignRoleMany}. */
     revokeRoleMany?(rows: readonly IRevokeRow<TRole, TScope>[]): Promise<readonly number[] | null>
+    /**
+     * The next instant at which this subject's answers stop being true, when
+     * the store knows one.
+     *
+     * An adapter that stores time-boxed grants answers `getSubjectRoles` as of
+     * `Date.now()`, and the engine caches that answer for its whole `cacheTTL`.
+     * The two disagree the moment a window opens or closes: a grant issued to
+     * expire in 30 seconds kept granting for up to 90, and a grant scheduled to
+     * start stayed denied for up to a minute after it opened. The adapter is
+     * the only party that can see the bound, so it reports it and the engine
+     * caps the cache entry there.
+     *
+     * Return the earliest **future** `startsAt` or `expiresAt` among the
+     * subject's grants, or `null` when none of them has a bound - which is why
+     * the five adapters with no temporal columns do not implement this at all,
+     * rather than implementing it to return `null`: absent and "nothing to
+     * report" are the same answer, and only drizzle has anything to say.
+     *
+     * @param subjectId - Identifies the subject whose grants are inspected.
+     * @param opts - Read options, as for the other reads.
+     * @returns Epoch ms of the next boundary, or `null` when there is none.
+     */
+    getSubjectGrantBoundary?(subjectId: string, opts?: IReadOptions): Promise<number | null>
     /** Returns the attribute bag for a subject. */
     getSubjectAttributes(subjectId: string, opts?: IReadOptions): Promise<IamPrimitives.Attributes>
     /**

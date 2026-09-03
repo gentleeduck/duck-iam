@@ -6,6 +6,7 @@ import { creditWrites } from '../../core/batch'
 import type { IamConfig } from '../../core/config'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import { iamAssertValidAssignWindow } from '../../shared/assign-options'
 import { iamIsForeignKeyViolation, iamUnknownRoleError } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
 import {
@@ -459,6 +460,42 @@ export class IamDrizzleAdapter<
   }
 
   /**
+   * The next instant one of this subject's grants opens or closes.
+   *
+   * Every read here answers as of `Date.now()`, and the engine caches that
+   * answer for its whole `cacheTTL`. Nothing else can see the bounds, so
+   * without this a grant written to expire in thirty seconds went on granting
+   * for as long as the entry lived - up to ninety - and a grant scheduled to
+   * start stayed denied for up to a minute after it opened. See
+   * {@link IamAdapter.ISubjectStore.getSubjectGrantBoundary}.
+   *
+   * Computed in JS over the same subject-indexed rows the other reads select,
+   * rather than as a `MIN()` over a `CASE`: the three dialects spell that
+   * differently, and the row set is the one the adapter already knows how to
+   * read. Unreadable bounds are skipped - `_isActive` already refuses those
+   * rows outright, so they have no boundary to wait for.
+   *
+   * @param subjectId - Identifies the subject whose grants are inspected.
+   * @returns Epoch ms of the earliest future bound, or `null` when there is none.
+   */
+  async getSubjectGrantBoundary(subjectId: string): Promise<number | null> {
+    const rows = await this._selectWhere<IamDrizzle.AssignmentRow>(
+      this._t.assignments,
+      this._t.assignments.subjectId,
+      subjectId,
+    )
+    const now = Date.now()
+    let next: number | null = null
+    for (const row of rows) {
+      for (const bound of [epochMs(row.startsAt), epochMs(row.expiresAt)]) {
+        if (bound === null || !Number.isFinite(bound) || bound <= now) continue
+        if (next === null || bound < next) next = bound
+      }
+    }
+    return next
+  }
+
+  /**
    * True unless `now` falls outside `[startsAt, expiresAt)`. Both bounds are
    * optional. A bound that is present but unreadable makes the assignment
    * inactive: `NaN` fails both comparisons, so an expired row with a corrupt
@@ -693,6 +730,7 @@ export class IamDrizzleAdapter<
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('drizzle', scope)
+    iamAssertValidAssignWindow('drizzle', opts)
     await this._refusingUnknownRole(() =>
       this._insertOrSkip(this._t.assignments, {
         subjectId,
@@ -764,7 +802,10 @@ export class IamDrizzleAdapter<
    * @returns Indices of the rows this call granted, or `null` on MySQL - see below.
    */
   async assignRoleMany(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null> {
-    for (const r of rows) iamAssertAssignableScope('drizzle', r.scope)
+    for (const r of rows) {
+      iamAssertAssignableScope('drizzle', r.scope)
+      iamAssertValidAssignWindow('drizzle', r.opts)
+    }
     if (rows.length === 0) return []
     // All-or-nothing across the batch: a multi-row insert builds its column
     // list from the value objects, so including `createdBy` on some rows and

@@ -798,4 +798,372 @@ suite('IamDrizzleAdapter against rows only a real driver returns', () => {
       expect(await adapter.updateAssignmentScope('u1', 'editor', 'org-9', 'org-1')).toBe(false)
     })
   })
+
+  /**
+   * Time-boxed grants, from a real `timestamptz` to a cached decision.
+   *
+   * `startsAt`/`expiresAt` are accepted by this adapter alone - the other five
+   * refuse assign options outright - so the storage half of the feature has
+   * exactly one implementation and it is this one. Everything here therefore
+   * runs against the real column type: the driver's parse, the session's
+   * timezone, sub-second precision, and the two out-of-range values a real
+   * server can hold and the array mock cannot.
+   *
+   * The second half is the part a store cannot fix on its own. Every read
+   * answers as of `Date.now()` and the engine caches that answer for a whole
+   * `cacheTTL`, so an expiry inside the TTL window used to keep granting after
+   * it passed. `getSubjectGrantBoundary` is what closes it, and the only honest
+   * way to check that is a real clock over a real database - no fake timers,
+   * because the driver and the server keep their own time.
+   */
+  describe('time-boxed grants end to end', () => {
+    const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+    async function seedReader(): Promise<void> {
+      await adapter.saveRole({ id: 'reader', name: 'Reader', permissions: [{ action: 'read', resource: 'post' }] })
+      await adapter.saveRole({ id: 'writer', name: 'Writer', permissions: [{ action: 'write', resource: 'post' }] })
+    }
+
+    const POST = { attributes: {}, type: 'post' } as const
+
+    it('reads a millisecond-precise expiry back off the wire unchanged', async () => {
+      await reset()
+      await seedReader()
+      // .123 is the interesting digit: `timestamptz` keeps microseconds, JS
+      // keeps milliseconds, and a truncating round-trip would move the
+      // boundary earlier or later than the row actually says.
+      const expiresAt = new Date(Date.now() + 3_600_000 + 123)
+      await adapter.assignRole('u1', 'reader', undefined, { expiresAt })
+      expect(await adapter.getSubjectGrantBoundary('u1')).toBe(expiresAt.getTime())
+    })
+
+    it('reads a bound written in a non-UTC offset as the instant it names', async () => {
+      await reset()
+      await seedReader()
+      // The literal carries +09; the boundary is an instant, not a wall clock,
+      // so the answer must be the same number a UTC literal would produce.
+      await pool.query(
+        `INSERT INTO iam_assignments (id, subject_id, role_id, expires_at)
+         VALUES ('a1','u1','reader','2099-03-01 12:00:00+09')`,
+      )
+      expect(await adapter.getSubjectGrantBoundary('u1')).toBe(Date.UTC(2099, 2, 1, 3, 0, 0))
+    })
+
+    it('does not report `infinity` as a boundary - nothing happens at it', async () => {
+      await reset()
+      await seedReader()
+      await pool.query(
+        `INSERT INTO iam_assignments (id, subject_id, role_id, expires_at) VALUES ('a1','u1','reader','infinity')`,
+      )
+      expect(await adapter.getSubjectRoles('u1')).toEqual(['reader'])
+      expect(await adapter.getSubjectGrantBoundary('u1')).toBeNull()
+    })
+
+    it('does not report a bound the server has already passed', async () => {
+      await reset()
+      await seedReader()
+      await adapter.assignRole('u1', 'reader', undefined, {
+        expiresAt: new Date(Date.now() - 1_000),
+        startsAt: new Date(Date.now() - 3_600_000),
+      })
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+      expect(await adapter.getSubjectGrantBoundary('u1')).toBeNull()
+    })
+
+    it('takes the earliest bound across global and scoped grants alike', async () => {
+      await reset()
+      await seedReader()
+      const soon = new Date(Date.now() + 120_000)
+      const later = new Date(Date.now() + 3_600_000)
+      await adapter.assignRole('u1', 'reader', undefined, { expiresAt: later })
+      await adapter.assignRole('u1', 'writer', 'org-1', { expiresAt: soon })
+      await adapter.assignRole('u1', 'writer', 'org-2', { startsAt: later })
+      expect(await adapter.getSubjectGrantBoundary('u1')).toBe(soon.getTime())
+    })
+
+    it('stops granting when the row expires, not a cacheTTL later', async () => {
+      await reset()
+      await seedReader()
+      // A minute of caching over a grant with a second to live. Before the
+      // boundary was plumbed through, the cached allow outlived the row by the
+      // whole 60s and `can` stayed true here.
+      const engine = new IamEngine<string, string, string, string>({ adapter, cacheTTL: 60 })
+      await adapter.assignRole('u1', 'reader', undefined, { expiresAt: new Date(Date.now() + 1_200) })
+
+      expect(await engine.can('u1', 'read', POST)).toBe(true)
+      expect(await engine.can('u1', 'read', POST)).toBe(true) // served from cache
+      await sleep(1_600)
+      expect(await engine.can('u1', 'read', POST)).toBe(false)
+      // and the store agrees, so the deny is the row's, not a cleared cache's
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+    }, 30_000)
+
+    it('starts granting when the row opens, not a cacheTTL later', async () => {
+      await reset()
+      await seedReader()
+      const engine = new IamEngine<string, string, string, string>({ adapter, cacheTTL: 60 })
+      await adapter.assignRole('u1', 'reader', undefined, { startsAt: new Date(Date.now() + 1_200) })
+
+      expect(await engine.can('u1', 'read', POST)).toBe(false)
+      await sleep(1_600)
+      expect(await engine.can('u1', 'read', POST)).toBe(true)
+    }, 30_000)
+
+    it('drops only the window that closed and keeps the one still open', async () => {
+      await reset()
+      await seedReader()
+      const engine = new IamEngine<string, string, string, string>({ adapter, cacheTTL: 60 })
+      await adapter.assignRole('u1', 'writer', undefined, { expiresAt: new Date(Date.now() + 1_200) })
+      await adapter.assignRole('u1', 'reader', undefined, { expiresAt: new Date(Date.now() + 3_600_000) })
+
+      expect(await engine.can('u1', 'write', POST)).toBe(true)
+      expect(await engine.can('u1', 'read', POST)).toBe(true)
+      await sleep(1_600)
+      expect(await engine.can('u1', 'write', POST)).toBe(false)
+      expect(await engine.can('u1', 'read', POST)).toBe(true)
+    }, 30_000)
+
+    it('refuses an empty window in the adapter, before the driver sees it', async () => {
+      await reset()
+      await seedReader()
+      // The adapter's own message, not `ch_iam_assignments_starts_before_expires`
+      // wrapped in drizzle's `Failed query: ...`. Both refuse; only one of them
+      // says what to do about it, and only one of them exists when the caller
+      // brought their own table.
+      await expect(
+        adapter.assignRole('u1', 'reader', undefined, {
+          expiresAt: new Date(Date.now()),
+          startsAt: new Date(Date.now() + 60_000),
+        }),
+      ).rejects.toThrow(/startsAt >= expiresAt/)
+      const rows = await pool.query('SELECT count(*)::int AS n FROM iam_assignments')
+      expect((rows.rows[0] as { n: number }).n).toBe(0)
+    })
+
+    it('and the shipped schema refuses it too, for the row the adapter never sends', async () => {
+      await reset()
+      await seedReader()
+      expect(
+        await failureChain(() =>
+          pool.query(
+            `INSERT INTO iam_assignments (id, subject_id, role_id, starts_at, expires_at)
+             VALUES ('a1','u1','reader', now() + interval '1 hour', now())`,
+          ),
+        ),
+      ).toMatch(/ch_iam_assignments_starts_before_expires/)
+    })
+
+    it('an unbounded grant is not re-read on every call', async () => {
+      await reset()
+      await seedReader()
+      const engine = new IamEngine<string, string, string, string>({ adapter, cacheTTL: 60 })
+      await adapter.assignRole('u1', 'reader')
+      expect(await engine.can('u1', 'read', POST)).toBe(true)
+
+      // No boundary means the entry keeps the full TTL. Revoking behind the
+      // engine's back and still seeing the allow is what proves it: a cache
+      // that shortened every entry would show the revoke immediately.
+      await adapter.revokeRole('u1', 'reader')
+      expect(await engine.can('u1', 'read', POST)).toBe(true)
+      expect(await adapter.getSubjectRoles('u1')).toEqual([])
+    }, 30_000)
+  })
+
+  /**
+   * A randomised window matrix, decided by Postgres and re-decided in JS.
+   *
+   * The cases above are the ones a person thinks of. This one is the ones
+   * nobody does: several hundred grants whose bounds are drawn from a seeded
+   * generator - open on one side, open on both, already closed, not yet open,
+   * `infinity`, `-infinity`, scoped and global - all stored at once, then read
+   * back and compared against a reference model of the same rule written in
+   * plain JS. Any instant where the SQL filter and the model disagree is a
+   * divergence between what the schema stores and what the package documents.
+   *
+   * The seed is fixed, so a failure names a reproducible row set rather than a
+   * mood.
+   */
+  describe('randomised window matrix against the real filter', () => {
+    /** Deterministic PRNG - a failing run must be replayable from the seed. */
+    function mulberry32(seed: number): () => number {
+      let a = seed >>> 0
+      return () => {
+        a = (a + 0x6d2b79f5) >>> 0
+        let t = Math.imul(a ^ (a >>> 15), 1 | a)
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+      }
+    }
+
+    /**
+     * A bound as both halves need it: the SQL literal Postgres stores and the
+     * number the reference model compares against.
+     *
+     * `null` is an absent bound (the column stays NULL); the infinities are the
+     * two values a real server can hold and `Date` cannot, and they are modelled
+     * as the limits they are rather than as instants.
+     */
+    interface IBound {
+      readonly sql: string
+      readonly at: number | null
+      readonly label: string
+    }
+
+    const NO_BOUND: IBound = { at: null, label: 'NULL', sql: 'NULL' }
+
+    function boundAt(offsetMs: number, now: number): IBound {
+      const at = now + offsetMs
+      return { at, label: `${offsetMs}ms`, sql: `'${new Date(at).toISOString()}'::timestamptz` }
+    }
+
+    const POS_INF: IBound = { at: Number.POSITIVE_INFINITY, label: 'infinity', sql: `'infinity'::timestamptz` }
+    const NEG_INF: IBound = { at: Number.NEGATIVE_INFINITY, label: '-infinity', sql: `'-infinity'::timestamptz` }
+
+    interface IGrant {
+      readonly subject: string
+      readonly role: string
+      readonly scope: string | null
+      readonly startsAt: IBound
+      readonly expiresAt: IBound
+    }
+
+    /** The documented rule, restated: `[startsAt, expiresAt)` at `at`. */
+    function isLive(g: IGrant, at: number): boolean {
+      if (g.startsAt.at !== null && at < g.startsAt.at) return false
+      if (g.expiresAt.at !== null && at >= g.expiresAt.at) return false
+      return true
+    }
+
+    /** The next instant `isLive` could change for this subject, or null. */
+    function nextBoundary(grants: IGrant[], at: number): number | null {
+      let next: number | null = null
+      for (const g of grants) {
+        for (const b of [g.startsAt.at, g.expiresAt.at]) {
+          if (b === null || !Number.isFinite(b) || b <= at) continue
+          if (next === null || b < next) next = b
+        }
+      }
+      return next
+    }
+
+    const SEED = 0x5eed_1a11
+    const SCOPES: (string | null)[] = [null, 'org-1', 'org-2']
+    const ROLES = ['r0', 'r1', 'r2', 'r3']
+    const SUBJECTS = 24
+
+    it('agrees with the reference model on every generated grant', async () => {
+      await reset()
+      for (const r of ROLES) await seedRole(r, `Role ${r}`)
+
+      const rand = mulberry32(SEED)
+      // Every offset is at least a minute away from the evaluation instant, so
+      // the wall clock moving between the INSERT and the SELECT cannot flip a
+      // row. The point is the filter, not the scheduler.
+      const OFFSETS = [-7_200_000, -3_600_000, -600_000, -60_000, 60_000, 600_000, 3_600_000, 7_200_000]
+      const pickBound = (): IBound => {
+        const roll = rand()
+        if (roll < 0.3) return NO_BOUND
+        if (roll < 0.36) return POS_INF
+        if (roll < 0.42) return NEG_INF
+        const offset = OFFSETS[Math.floor(rand() * OFFSETS.length)]
+        if (offset === undefined) throw new Error('offset table exhausted')
+        return boundAt(offset, Date.now())
+      }
+
+      /**
+       * A pair the schema will accept.
+       *
+       * `ch_iam_assignments_starts_before_expires` refuses `starts >= expires`,
+       * and so does the adapter now, so an empty window is not a case this
+       * matrix can carry - generating one would only re-test the refusal that
+       * has its own tests. Redraw until the pair is one a caller could store.
+       */
+      const pickWindow = (): { startsAt: IBound; expiresAt: IBound } => {
+        for (let attempt = 0; attempt < 50; attempt++) {
+          const startsAt = pickBound()
+          const expiresAt = pickBound()
+          if (startsAt.at === null || expiresAt.at === null) return { expiresAt, startsAt }
+          if (startsAt.at < expiresAt.at) return { expiresAt, startsAt }
+        }
+        return { expiresAt: NO_BOUND, startsAt: NO_BOUND }
+      }
+
+      const grants: IGrant[] = []
+      const seen = new Set<string>()
+      for (let s = 0; s < SUBJECTS; s++) {
+        const subject = `u${s}`
+        for (const role of ROLES) {
+          for (const scope of SCOPES) {
+            if (rand() < 0.45) continue
+            const key = `${subject}|${role}|${scope}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            grants.push({ ...pickWindow(), role, scope, subject })
+          }
+        }
+      }
+      expect(grants.length, 'the generator produced nothing to test').toBeGreaterThan(60)
+
+      const values = grants
+        .map(
+          (g, i) =>
+            `('g${i}', '${g.subject}', '${g.role}', ${g.scope === null ? 'NULL' : `'${g.scope}'`}, ${g.startsAt.sql}, ${g.expiresAt.sql})`,
+        )
+        .join(',\n')
+      await pool.query(
+        `INSERT INTO iam_assignments (id, subject_id, role_id, scope, starts_at, expires_at) VALUES\n${values}`,
+      )
+
+      // One instant for the whole comparison. Reading it once and using it for
+      // both sides is what makes a disagreement mean something.
+      const at = Date.now()
+      const describeGrant = (g: IGrant) =>
+        `${g.subject}/${g.role}/${g.scope ?? 'global'} [${g.startsAt.label}, ${g.expiresAt.label})`
+
+      for (let s = 0; s < SUBJECTS; s++) {
+        const subject = `u${s}`
+        const mine = grants.filter((g) => g.subject === subject)
+        const detail = `seed ${SEED}, subject ${subject}:\n${mine.map(describeGrant).join('\n')}`
+
+        const expectedGlobal = [
+          ...new Set(mine.filter((g) => g.scope === null && isLive(g, at)).map((g) => g.role)),
+        ].sort()
+        expect([...(await adapter.getSubjectRoles(subject))].sort(), detail).toEqual(expectedGlobal)
+
+        const expectedScoped = mine
+          .filter((g) => g.scope !== null && isLive(g, at))
+          .map((g) => ({ role: g.role, scope: g.scope }))
+          .sort((a, b) => `${a.role}${a.scope}`.localeCompare(`${b.role}${b.scope}`))
+        const actualScoped = (await adapter.getSubjectScopedRoles(subject))
+          .map((r) => ({ role: r.role, scope: r.scope }))
+          .sort((a, b) => `${a.role}${a.scope}`.localeCompare(`${b.role}${b.scope}`))
+        expect(actualScoped, detail).toEqual(expectedScoped)
+
+        expect(await adapter.getSubjectGrantBoundary(subject), detail).toBe(nextBoundary(mine, at))
+      }
+    }, 60_000)
+
+    it('the reference model itself is not vacuous', async () => {
+      // A generator that produced only-live or only-dead rows would make the
+      // case above pass without testing anything. This pins that the matrix it
+      // builds actually contains both, and both kinds of bound.
+      const rand = mulberry32(SEED)
+      const now = Date.now()
+      const sample: IGrant[] = []
+      for (let i = 0; i < 400; i++) {
+        const roll = () => {
+          const r = rand()
+          if (r < 0.3) return NO_BOUND
+          if (r < 0.36) return POS_INF
+          if (r < 0.42) return NEG_INF
+          return boundAt(r < 0.7 ? -600_000 : 600_000, now)
+        }
+        sample.push({ expiresAt: roll(), role: 'r0', scope: null, startsAt: roll(), subject: `u${i}` })
+      }
+      expect(sample.some((g) => isLive(g, now))).toBe(true)
+      expect(sample.some((g) => !isLive(g, now))).toBe(true)
+      expect(sample.some((g) => nextBoundary([g], now) !== null)).toBe(true)
+      expect(sample.some((g) => nextBoundary([g], now) === null)).toBe(true)
+    })
+  })
 })

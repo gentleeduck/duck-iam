@@ -101,7 +101,11 @@ function collect(): IFile[] {
   const results: unknown = parsed.testResults
   if (!Array.isArray(results)) throw new Error('testResults is not an array')
 
-  let failed = 0
+  // Named, not just counted. A bare "warning: 6 test(s) failed" sends whoever
+  // regenerates the inventory off to re-run the whole suite to find out which -
+  // and the docker-backed files fail here for contention reasons that do not
+  // reproduce on their own, so the names are the whole diagnosis.
+  const failures: string[] = []
   const out: IFile[] = []
   for (const entry of results) {
     if (typeof entry !== 'object' || entry === null) continue
@@ -109,12 +113,15 @@ function collect(): IFile[] {
     const assertions = 'assertionResults' in entry && Array.isArray(entry.assertionResults) ? entry.assertionResults : []
     const rel = relative(join(PKG, 'src'), entry.name)
     for (const a of assertions) {
-      if (typeof a === 'object' && a !== null && 'status' in a && a.status === 'failed') failed++
+      if (typeof a !== 'object' || a === null || !('status' in a) || a.status !== 'failed') continue
+      const title = 'fullName' in a && typeof a.fullName === 'string' ? a.fullName : '<unnamed>'
+      failures.push(`${rel} > ${title}`)
     }
     out.push({ covers: coversOf(entry.name), file: rel, tests: assertions.length })
   }
-  if (failed > 0) {
-    console.warn(`warning: ${failed} test(s) failed - counts below reflect the run as it happened`)
+  if (failures.length > 0) {
+    console.warn(`warning: ${failures.length} test(s) failed - counts below reflect the run as it happened`)
+    for (const f of failures) console.warn(`  - ${f}`)
   }
   return out.sort((a, b) => a.file.localeCompare(b.file))
 }

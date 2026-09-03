@@ -113,14 +113,39 @@ export async function resolveSubject<
       `[@gentleduck/iam:engine] subject load shed: ${deps.inFlight.subjects.size} concurrent subject loads already in flight (cap ${deps.maxConcurrentSubjectLoads}); rejecting new load for "${subjectId}"`,
     )
   }
+  let boundary: number | null = null
+  // A boundary the store could not produce is not a boundary of `null`: `null`
+  // means "nothing changes for a while" and buys the entry a full TTL, which is
+  // exactly the stale allow the boundary exists to prevent. Unknown means the
+  // subject is not cached at all.
+  let cacheable = true
   return runSingleFlightKeyed(
     deps.inFlight.subjects,
     subjectId,
     async () => {
-      const [assignedRoles, attributes, allRoles] = await Promise.all([
+      // The boundary rides along in the same `Promise.all` as the reads it
+      // describes: an adapter with time-boxed grants has to be asked, and
+      // asking after the fact would add a round trip to every cold subject.
+      const boundaryFn = deps.adapter.getSubjectGrantBoundary
+      const [assignedRoles, attributes, allRoles, grantBoundary] = await Promise.all([
         deps.withTimeout((opts) => deps.adapter.getSubjectRoles(subjectId, opts), 'getSubjectRoles'),
         deps.withTimeout((opts) => deps.adapter.getSubjectAttributes(subjectId, opts), 'getSubjectAttributes'),
         loadRoles(deps),
+        boundaryFn
+          ? deps
+              .withTimeout((opts) => boundaryFn.call(deps.adapter, subjectId, opts), 'getSubjectGrantBoundary')
+              .catch((err: unknown) => {
+                // Advisory, so its failure must not decide anything. The reads
+                // above still apply the window, and `cacheable = false` keeps
+                // the answer from outliving a bound nobody can name.
+                cacheable = false
+                console.warn(
+                  `[@gentleduck/iam:engine] getSubjectGrantBoundary failed for "${subjectId}"; ` +
+                    `not caching this subject: ${err instanceof Error ? err.message : String(err)}`,
+                )
+                return null
+              })
+          : Promise.resolve(null),
       ])
       const roles = resolveEffectiveRoles(assignedRoles, allRoles)
       const scopedRolesFn = deps.adapter.getSubjectScopedRoles
@@ -140,11 +165,16 @@ export async function resolveSubject<
           role === sr.role ? { ...sr, role } : { ...sr, role, scope: rolesById.get(role)?.scope ?? sr.scope },
         ),
       )
+      // Carried out to the cache write below rather than returned, so the
+      // in-flight map still holds a plain `Promise<ISubject>` for the callers
+      // already waiting on it.
+      boundary = grantBoundary
       const subject: IamRequest.ISubject = { id: subjectId, roles, scopedRoles, attributes }
       return subject
     },
     (subject) => {
-      deps.subjectCache.set(subjectId, subject)
+      if (!cacheable) return
+      deps.subjectCache.set(subjectId, subject, boundary ?? undefined)
     },
   )
 }

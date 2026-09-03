@@ -36,7 +36,11 @@ export class IamLRUCache<V> {
       this._misses++
       return undefined
     }
-    if (Date.now() > entry.expiresAt) {
+    // `>=`, not `>`: `expiresAt` is an exclusive upper bound everywhere else in
+    // this package - a grant is inactive at the exact millisecond it expires -
+    // and a `notAfter` cap is only worth anything if the cache agrees. At the
+    // TTL's own boundary the difference is one millisecond of extra freshness.
+    if (Date.now() >= entry.expiresAt) {
       this._map.delete(key)
       this._misses++
       return undefined
@@ -61,16 +65,32 @@ export class IamLRUCache<V> {
   /**
    * Set + TTL refresh; evicts the oldest at capacity.
    *
+   * `notAfter` caps the entry's life below the cache's own TTL, for a value
+   * that is only true until a known instant. A time-boxed grant is exactly
+   * that: the adapter answers `[startsAt, expiresAt)` to the millisecond, and
+   * without the cap the snapshot of that answer outlived it by up to a full
+   * `cacheTTL` - 60 seconds by default - so a grant issued to expire in 30
+   * seconds kept granting for 90.
+   *
    * @param key - Stores the entry under this cache key.
    * @param value - Associates this value with the key.
+   * @param notAfter - Epoch ms this value stops being true, when that is
+   *   known. Ignored unless it is a finite instant earlier than the TTL would
+   *   give; an instant already past stores nothing at all.
    */
-  set(key: string, value: V): void {
+  set(key: string, value: V, notAfter?: number): void {
     this._map.delete(key)
+    const now = Date.now()
+    let expiresAt = now + this._ttl
+    if (notAfter !== undefined && Number.isFinite(notAfter) && notAfter < expiresAt) {
+      if (notAfter <= now) return
+      expiresAt = notAfter
+    }
     if (this._map.size >= this._maxSize) {
       const first = this._map.keys().next().value
       if (first !== undefined) this._map.delete(first)
     }
-    this._map.set(key, { value, expiresAt: Date.now() + this._ttl })
+    this._map.set(key, { value, expiresAt })
   }
 
   /**
