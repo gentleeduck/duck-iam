@@ -314,7 +314,7 @@ describe('FlowsImpl - password reset', () => {
 
   it('completePasswordReset rejects signup-flow tokens', async () => {
     const { auth } = buildAuth()
-    // Start a signup-flow which mints a recovery+metadata.kind='signup-flow' row.
+    // Start a signup-flow which mints a recovery+metadata.purpose='signup-flow' row.
     const begin = await auth.flows.beginSignUp({ email: 'fresh@x.com' })
     expect(begin.flowToken).toBeDefined()
 

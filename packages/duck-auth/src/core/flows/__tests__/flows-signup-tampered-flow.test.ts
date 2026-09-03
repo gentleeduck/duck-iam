@@ -69,7 +69,7 @@ describe('flows signup - tampered flow metadata', () => {
     // spreads `'abc'` into individual chars - corrupting the state
     // machine. Parser rejects up front.
     const token = await plantFlowRow(adapter, identityId, {
-      kind: 'signup-flow',
+      purpose: 'signup-flow',
       flow: {
         id: 'flow-1',
         identityId,
@@ -88,7 +88,7 @@ describe('flows signup - tampered flow metadata', () => {
 
   it('rejects flow with non-array required field', async () => {
     const token = await plantFlowRow(adapter, identityId, {
-      kind: 'signup-flow',
+      purpose: 'signup-flow',
       flow: {
         id: 'flow-1',
         identityId,
@@ -107,7 +107,7 @@ describe('flows signup - tampered flow metadata', () => {
 
   it('rejects flow with unknown required stage (forward-compat-paranoid)', async () => {
     const token = await plantFlowRow(adapter, identityId, {
-      kind: 'signup-flow',
+      purpose: 'signup-flow',
       flow: {
         id: 'flow-1',
         identityId,
@@ -129,7 +129,7 @@ describe('flows signup - tampered flow metadata', () => {
     // so a forward-compat consumer can store extra completed markers.
     // But this WILL leave the required stages un-completed.
     const token = await plantFlowRow(adapter, identityId, {
-      kind: 'signup-flow',
+      purpose: 'signup-flow',
       flow: {
         id: 'flow-1',
         identityId,
@@ -150,7 +150,7 @@ describe('flows signup - tampered flow metadata', () => {
 
   it('rejects flow with non-string identityId', async () => {
     const token = await plantFlowRow(adapter, identityId, {
-      kind: 'signup-flow',
+      purpose: 'signup-flow',
       flow: {
         id: 'flow-1',
         identityId: 42, // <- number, not string
@@ -169,7 +169,7 @@ describe('flows signup - tampered flow metadata', () => {
 
   it('rejects flow with non-finite absoluteExpiresAt', async () => {
     const token = await plantFlowRow(adapter, identityId, {
-      kind: 'signup-flow',
+      purpose: 'signup-flow',
       flow: {
         id: 'flow-1',
         identityId,
@@ -209,7 +209,7 @@ describe('flows signup - tampered flow metadata', () => {
 
   it('rejects flow with non-plain-object flow field', async () => {
     const token = await plantFlowRow(adapter, identityId, {
-      kind: 'signup-flow',
+      purpose: 'signup-flow',
       flow: 'not-an-object',
     })
     await expect(auth.flows.completeSignUp({ flowToken: token })).rejects.toMatchObject({

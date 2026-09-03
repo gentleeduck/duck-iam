@@ -9,10 +9,16 @@
  */
 
 import type { Channel } from '~/channels/channels.types'
-import { isCredentialExpired, isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
+import {
+  getCredentialPurpose,
+  isCredentialExpired,
+  isRevoked,
+  toCredentialUpsert,
+} from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { isSafeCallbackPath } from '~/core/url-validators'
+import { NO_IDENTITY_SENTINEL } from '~/providers/passwords/passwords.constants'
 import type { Flows } from './flows.types'
 
 export async function requestPasswordReset<Profile extends Identities.ProfileMetadataBase>(
@@ -45,12 +51,10 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
     })
   }
 
-  const identity = await opts.findIdentityByEmail(emailCanonical, opts.tenantId)
-  if (!identity) {
-    ctx.crypto.authSha256(ctx.crypto.authRandomToken(32))
-    return { ok: true }
-  }
-
+  // Hoisted above the identity lookup on purpose. Below it, this throw fired only
+  // for an address that exists and returned `{ok:true}` for one that does not -
+  // a misconfigured channel turned the endpoint into a plain-language oracle.
+  // A missing channel is a wiring fault either way, so it cannot depend on who asked.
   const channel = opts.channels[channelKind]
   if (!channel) {
     throw new AuthError('AUTH_MISCONFIGURED', {
@@ -58,25 +62,42 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
     })
   }
 
+  const identity = await opts.findIdentityByEmail(emailCanonical, opts.tenantId)
+
+  // Both branches mint and hash a token, then make the same three store calls in
+  // the same order. `passwords.ts` established this discipline with the same
+  // sentinel: the unknown-address path has to cost what the known one costs, or
+  // the response time answers the question the response body refuses to.
+  // What is left asymmetric is one write against one read on the credentials
+  // table - not the "one sha256 versus three round-trips" this branch used to be.
   const token = ctx.crypto.authRandomToken(32)
   const tokenHash = ctx.crypto.authSha256(token)
-  await ctx.stores.credentials.upsert(
-    toCredentialUpsert({
-      identityId: identity.id,
-      kind: 'recovery',
-      secret: tokenHash,
-      metadata: { kind: 'password-reset', email },
-      expiresAt: new Date(Date.now() + ttlMs),
-    }),
-    ctx.tenant,
-  )
+  const subjectId = identity ? identity.id : NO_IDENTITY_SENTINEL
+
+  if (identity) {
+    await ctx.stores.credentials.upsert(
+      toCredentialUpsert({
+        identityId: identity.id,
+        kind: 'recovery',
+        secret: tokenHash,
+        metadata: { purpose: 'password-reset', email },
+        expiresAt: new Date(Date.now() + ttlMs),
+      }),
+      ctx.tenant,
+    )
+  } else {
+    // Same table, same tenant scope, one round trip. A write cannot be mirrored:
+    // `auth_credentials.identity_id` is a foreign key, so there is no row to hang
+    // a decoy on.
+    await ctx.stores.credentials.listByIdentity(subjectId, 'recovery', ctx.tenant)
+  }
 
   const url = `${ctx.baseUrl}${callbackPath}?token=${encodeURIComponent(token)}`
-  const identityRow = await ctx.stores.identities.findById(identity.id)
-  if (!identityRow) {
+  const identityRow = await ctx.stores.identities.findById(subjectId)
+  const requiresMfa = await deps.requireMfa().hasTotp(subjectId, ctx.tenant)
+  if (!identity || !identityRow) {
     return { ok: true }
   }
-  const requiresMfa = await deps.requireMfa().hasTotp(identity.id, ctx.tenant)
   void channel
     .send({
       identity: identityRow,
@@ -116,8 +137,7 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   if (!row || isRevoked(row)) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
-  const meta = isPlainObject(row.metadata) && typeof row.metadata.kind === 'string' ? row.metadata : null
-  if (meta?.kind !== 'password-reset') {
+  if (getCredentialPurpose(row) !== 'password-reset') {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
   if (isCredentialExpired(row)) {
@@ -158,8 +178,4 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   await deps.sessions.revokeAllForIdentity(row.identityId)
   await deps.events.emit('recovery.password.completed', { identityId: row.identityId })
   return { ok: true }
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
 }

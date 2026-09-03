@@ -321,13 +321,22 @@ export class FlowsImpl<Profile extends Identities.ProfileMetadataBase = Identiti
 
   /**
    * Begin a multi-step signup. Creates the identity with
-   * `profile.emailVerified=false` and returns a flow handle the caller
+   * `emailVerified=false` and returns a flow handle the caller
    * persists (cookie); each subsequent stage advances the handle until
    * `complete()` issues the session.
    *
+   * Rate-limited on the canonical address. The identity row is written before
+   * anything proves the caller owns that address - see `DECISIONS.md` D1 for
+   * why it still is, and what it would take not to.
+   *
+   * `username` is derived from the email local part when `initialProfile` does
+   * not carry one, because the type and the Postgres CHECK both require it.
+   *
    * Flows persist their state in the credentials store under
-   * `kind: 'recovery'` + `metadata.kind: 'signup-flow'` so the existing
-   * findByHashedSecret / expiresAt machinery applies for free.
+   * `kind: 'recovery'` + `metadata.purpose: 'signup-flow'` so the existing
+   * findByHashedSecret / expiresAt machinery applies for free. `purpose` is the
+   * one discriminator every flow writes, and the only thing that tells four
+   * different token kinds apart inside one `kind`.
    */
   async beginSignUp(opts: {
     email: string

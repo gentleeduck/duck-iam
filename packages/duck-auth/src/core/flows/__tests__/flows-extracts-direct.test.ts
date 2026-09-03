@@ -15,6 +15,7 @@ import { AuthEngine } from '~/core/engine'
 import type { Identities } from '~/core/identities/identities.types'
 import { CookieTransport } from '~/core/transport/cookie.transport'
 import { MemoryLimiter } from '~/limiters/memory'
+import { mfaProvider } from '~/providers/mfa'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { cancelAccountDeletion, completeAccountDeletion, requestAccountDeletion } from '../account-deletion.flow'
 import { completeEmailVerification, requestEmailVerification } from '../email-verification.flow'
@@ -34,7 +35,7 @@ function build() {
     transport: new CookieTransport({ secure: false, name: 'duck-sid' }),
     stores: { identities: adapter.identities, sessions: adapter.sessions, credentials: adapter.credentials },
     limiter: new MemoryLimiter({ max: 50, windowMs: 60_000 }),
-    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) })],
+    providers: [passwords({ hasher: new ScryptHasher({ N: 1 << 10, keylen: 32 }) }), mfaProvider()],
   })
   return { auth, adapter }
 }
