@@ -30,7 +30,7 @@ blogduck/
 |   |       |-- main.ts             # Entry point
 |   |       |-- app.module.ts       # Root module with global guard
 |   |       |-- access/
-|   |       |   |-- access.guard.ts # Wraps nestAccessGuard
+|   |       |   |-- access.guard.ts # Wraps iamNestAccessGuard
 |   |       |   |-- access.module.ts# Provides engine globally
 |   |       |   +-- authorize.ts    # Typed @Authorize decorator
 |   |       |-- posts/              # CRUD controller + service
@@ -243,13 +243,18 @@ Each integration is a thin layer:
 
 | Layer | What it does | Import |
 |-------|-------------|--------|
-| `nestAccessGuard` | Creates a NestJS-compatible guard function | `@gentleduck/iam/server/nest` |
-| `createTypedAuthorize` | Type-safe `@Authorize` decorator factory | `@gentleduck/iam/server/nest` |
-| `createEngineProvider` | NestJS DI provider for the engine | `@gentleduck/iam/server/nest` |
-| `generatePermissionMap` | Batch-evaluates permissions for a user | `@gentleduck/iam/server/generic` |
+| `iamNestAccessGuard` | Creates a NestJS-compatible guard function | `@gentleduck/iam/server/nest` |
+| `IamAuthorize` | The `@Authorize` decorator itself, already generic | `@gentleduck/iam/server/nest` |
+| `createIamEngineProvider` | NestJS DI provider for the engine | `@gentleduck/iam/server/nest` |
+| `generateIamPermissionMap` | Batch-evaluates permissions for a user | `@gentleduck/iam/server/generic` |
 | `createIamAccessControl` | React context + `Can`/`Cannot` components | `@gentleduck/iam/client/react` |
 
-None of these are magic. `nestAccessGuard` is ~30 lines. `createIamAccessControl` is a React context with a `can()` function. You can read the source and understand exactly what happens.
+> 5.0.0 prefixed the public surface with `Iam`. One name did not survive the
+> rename: `createTypedAuthorize` was **removed**, not renamed — `IamAuthorize` is
+> the decorator, not a factory that returns one. See `src/access/authorize.ts`
+> for the one-line alias that keeps the `@Authorize({ ... })` call sites intact.
+
+None of these are magic. `iamNestAccessGuard` is ~30 lines. `createIamAccessControl` is a React context with a `can()` function. You can read the source and understand exactly what happens.
 
 ### Caching built in
 

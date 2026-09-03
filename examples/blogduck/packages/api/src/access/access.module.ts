@@ -1,9 +1,9 @@
 import { engine } from '@blogduck/shared'
-import { createEngineProvider } from '@gentleduck/iam/server/nest'
+import { createIamEngineProvider } from '@gentleduck/iam/server/nest'
 import { Global, Module } from '@nestjs/common'
 import { AccessGuard } from './access.guard'
 
-const engineProvider = createEngineProvider(() => engine)
+const engineProvider = createIamEngineProvider(() => engine)
 
 @Global()
 @Module({

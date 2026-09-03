@@ -133,6 +133,13 @@ on hot UI gates).
 `await engine.preload()` at boot warms the merged policy cache. The first real
 request then runs at steady-state speed instead of paying load plus index cost.
 
+It also builds the compiled permission table - in both modes, since the table
+now produces the verdict everywhere. A config with more than 32 roles cannot be
+represented in it, and `preload()` is where you find that out: the engine warns
+once, falls back to the interpreter, and `healthCheck().compiledTable` reports
+the table as unavailable from then on. The answers stay correct; only the
+throughput changes.
+
 ---
 
 ## Part 2: the questions people ask
@@ -174,7 +181,7 @@ a minute per cache, not once per request.
 Three options, use whichever fits:
 
 1. `engine.cache.invalidatePolicies()` after a write on the same process.
-2. `createRedisInvalidator({ client: redis })` passed as `invalidator`, which
+2. `createIamRedisInvalidator({ client: redis, secret })` passed as `invalidator`, which
    broadcasts invalidation to every node.
 3. Lower `cacheTTL` and accept the extra adapter load.
 
@@ -209,9 +216,11 @@ throws at construction unless you also pass `allowFailOpen: true`, and even then
 it logs a loud startup warning. Evaluation errors, adapter timeouts, and subject
 resolution failures all resolve to deny, not allow.
 
-A single broken policy does not break the whole check either: it is treated as
-not applicable and routed to the `onPolicyError` hook, so one bad row cannot
-take down authorization for everyone.
+A policy that throws is Indeterminate, never skipped. If it carries any deny
+rule it evaluates to deny - a broken row that could have denied must not become
+an allow, which is what skipping it did. An allow-only policy casts the
+`defaultEffect` vote it would have cast had it evaluated. Either way the error
+is routed to the `onPolicyError` hook.
 
 There is also a `failOpen` signal on the metrics hook, set only when an allow
 came from the default rather than from a matching rule. Chart it and you will

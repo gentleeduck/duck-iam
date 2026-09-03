@@ -375,7 +375,7 @@ affected cells dirty on write. A dirty cell falls through to today's
 tick. The policy change takes effect immediately with zero rebuild latency on the
 request path. This is how a JIT tiers.
 
-**Multi-node needs nothing new.** `createRedisInvalidator` already broadcasts
+**Multi-node needs nothing new.** `createIamRedisInvalidator` already broadcasts
 invalidation. Compiled tables subscribe to the same events and each node
 recompiles locally.
 
@@ -1014,7 +1014,8 @@ What changed from every phase above:
 
 - **No `experimentalCompiledTable` flag.** `mode: 'production'` always
   builds and uses the compiled table. There is no non-compiled production
-  path left to fall through to.
+  path left to fall through to. (Since the round-3 audit, `'development'`
+  runs the table too - see "Both modes evaluate through the table" below.)
 - **`'and'`-mode soundness fixed at the rule-shape level, not by forcing
   phantom voters.** The first cut of this design classified every cell
   touched by 2+ flat ABAC policies as `DYNAMIC` and synthesized a
@@ -1423,3 +1424,72 @@ runtimes.
 
 Do the incremental fixes first. They are 7x for a few days of low-risk work, and
 they will tell you whether you ever need the rest.
+
+---
+
+## Both modes evaluate through the table
+
+Added after the round-3 audit, which turned up the same defect five separate
+times (A/W-1, B/S-1, B/S-2, B/S-3, B/W-1). Every instance had one shape:
+production evaluated through the compiled table, development through the
+interpreter, so any disagreement between the two was invisible until it reached
+production — and it reached production as an *allow* against a development run
+that denied. Fixing them one at a time never addressed why they kept arriving.
+
+The table now produces the verdict in both modes.
+
+Development additionally runs the interpreter, because **the table cannot
+explain itself**. `CONST_ALLOW`/`CONST_DENY` cells are a single `kind` byte and
+`allow` is a raw `Uint32Array` bitmask; only `DynamicPolicyGroup` and
+`residualPolicies` still carry a `policyId`. Policy identity is erased at
+compile time, and that erasure *is* the optimisation — so the table can say
+"allow" but never "because of rule `r-owner` in policy `ownership`". Baking
+dev-only provenance into the table would just recreate the divergence one level
+down: a table built differently in the two modes is two tables.
+
+So: table for the verdict, interpreter for the provenance, and an assertion that
+the two agree.
+
+- **They agree** (the normal case): the caller gets the table's verdict and the
+  interpreter's `IDecision`.
+- **They disagree**: that is a duck-iam bug. The message names the request, both
+  verdicts, and the interpreter's reason; it is printed *and* thrown.
+  `authorize()` catches everything and fails closed, which is the right verdict
+  but a useless diagnostic on its own (`reason: 'Evaluation error'`), so the
+  console line is what makes it visible to a developer with no `onError` wired.
+
+Two consequences worth stating outright:
+
+- **The explanatory run is observationally silent.** It is passed `undefined`
+  for `onPolicyError`, because two evaluators otherwise double every
+  operator-visible side effect — a handler wired to an alerting pipeline would
+  page twice for one rotten policy, in development only. This is safe precisely
+  because `onPolicyError` is notification-only: `safeEval` branches on whether
+  the policy carries a deny rule, and that control flow is identical whether or
+  not a handler is attached.
+- **Development is slower, on purpose.** Two evaluators cost roughly 2.4x one.
+  Production runs one.
+
+### More roles than the mask can address
+
+`compileTable()` throws `IamRoleLimitExceededError` past 32 roles, because a
+32-bit grant mask cannot address a 33rd without bit-index aliasing — role N and
+role N+32 would silently share a bit.
+
+This used to mean the engine denied every request in the deployment. It no
+longer does: the interpreter answers the same questions correctly and has no
+such limit, so `_getCompiledTable()` catches *that* error specifically, warns
+once, and returns `null`. Both modes then run the interpreter alone.
+`healthCheck()` reports `compiledTable: { available: false, reason:
+'role-limit-exceeded', roleCount, limit }` while keeping `ok: true` — the engine
+is serving correct answers, just without the fast path, and a green probe that
+mentioned nothing is how that would go unnoticed.
+
+Every *other* compile failure still throws and still denies. A malformed policy
+is a bug, and answering it with a slower correct path would hide it. What did
+get recovered is the diagnostic: the interpreter used to isolate a rotten policy
+and name it through `onPolicyError`, and moving both modes onto the table would
+have traded that for an anonymous `policy.rules is not iterable`. So
+`assertCompilablePolicy` runs before the compiler walks anything, names the
+policy and the rule, and the engine forwards it to `onPolicyError` before
+rethrowing.

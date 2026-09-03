@@ -34,9 +34,17 @@ You define the schema once. Every builder method, `can()`, `check()`, and `permi
 // src/iam.ts
 import { createIam } from '@gentleduck/iam'
 
+// The shape the typed dot-paths are derived from. The key names matter:
+// `subject`, `environment` and `resourceAttributes` are what `.attr()`,
+// `.env()` and `.resourceAttr()` read. `resourceAttributes` is keyed by
+// resource type, which is what makes `.resourceAttr()` narrow per resource.
 interface AppContext {
-  user: { id: string; orgId: string; tier: 'free' | 'pro' }
-  env: { region: string }
+  subject: { id: string; roles: string[]; attributes: { orgId: string; tier: 'free' | 'pro' } }
+  resourceAttributes: {
+    post: { ownerId: string; status: 'draft' | 'ready' | 'published' }
+    comment: { ownerId: string }
+  }
+  environment: { region: string; hour: number }
 }
 
 export const iam = createIam({
@@ -104,61 +112,100 @@ export const roles = [viewerRole, editorRole, adminRole, billingRole]
 
 ## 4. Define Policies (ABAC)
 
-Policies let you express attribute-based rules beyond simple role grants.
-Rules combine with `all()` (AND) / `any()` (OR).
+Policies hold rules. A rule states an effect (`allow` / `deny`), the actions and
+resources it covers, an optional scope, and the conditions under which it fires.
+Conditions are built with `when(w => ...)`; chained calls are ANDed, and `.or()`
+/ `.and()` / `.not()` nest a group.
 
 ```ts
 // src/policies.ts
 import { iam } from './iam'
 
-// Only the author OR an admin can update a post
+// Only the owner OR an admin can update a post
 export const postOwnerPolicy = iam.definePolicy('post-owner')
-  .allow('update', 'post')
-  .when(
-    iam.when()
-      .any(
-        (w) => w.check((ctx) => ctx.subject.attributes.userId === ctx.resource.attributes.authorId),
-        (w) => w.hasRole('admin'),
-      ),
+  .name('Post owner or admin may update')
+  .algorithm('deny-overrides')
+  .rule('owner-or-admin', r => r
+    .allow()
+    .on('update')
+    .of('post')
+    .when(w => w.or(o => o.isOwner().role('admin'))),
   )
   .build()
 
 // Only allow publish on posts that are in 'ready' state
 export const publishGatePolicy = iam.definePolicy('publish-gate')
-  .allow('publish', 'post')
-  .when(
-    iam.when()
-      .attr('resource.status', 'eq', 'ready')
-      .hasRole('editor'),
+  .name('Publish only what is ready')
+  .rule('ready-editors-only', r => r
+    .allow()
+    .on('publish')
+    .of('post')
+    .when(w => w.resourceAttr('status', 'eq', 'ready').role('editor')),
   )
   .build()
 
-// Multi-tenant: user can only act within their own org scope
+// Multi-tenant: editors act only inside their own org
 export const orgScopePolicy = iam.definePolicy('org-scope')
-  .allow('create', 'post')
-  .allow('update', 'post')
-  .when(
-    iam.when()
-      .env('user.orgId', 'eq', 'org:acme')   // typed dot-path via AppContext
-      .hasRole('editor'),
+  .name('Editors act only inside their own org')
+  .rule('own-org-only', r => r
+    .allow()
+    .on('create', 'update')
+    .of('post')
+    .forScope('org:acme')
+    .when(w => w.role('editor').attr('orgId', 'eq', 'acme')),
   )
   .build()
 
 export const policies = [postOwnerPolicy, publishGatePolicy, orgScopePolicy]
 ```
 
-### Condition reference
+These three are pinned by `guide-abac-examples.test.ts` in the package, so what
+you read here is what the builders actually accept.
+
+### Policy builder
 
 | Method | What it does |
 |---|---|
-| `.attr(path, op, value)` | Compare a dot-path on resource/subject attributes |
-| `.env(path, op, value)` | Compare against the context (your `AppContext`) |
-| `.resourceAttr(path, op, value)` | Shorthand for resource attribute check |
-| `.check(fn)` | Arbitrary function — receives full context |
-| `.hasRole(roleId)` | Subject holds this role |
-| `.all(...conditions)` | AND |
-| `.any(...conditions)` | OR |
-| `.not(condition)` | Negate |
+| `.name(s)` / `.desc(s)` / `.version(n)` | Metadata |
+| `.algorithm(a)` | How the policy's own rules combine: `deny-overrides` (default), `allow-overrides`, `first-match`, `highest-priority` |
+| `.target({ actions, resources, roles })` | Skip the policy entirely unless the request matches |
+| `.rule(id, r => ...)` | Add a rule inline |
+| `.addRule(rule)` | Add a rule built separately with `defineRule` |
+| `.build()` | Produce the `Policy` object |
+
+### Rule builder
+
+| Method | What it does |
+|---|---|
+| `.allow()` / `.deny()` | Effect (a rule must state one) |
+| `.on(...actions)` | Actions the rule covers; `'*'` for any |
+| `.of(...resources)` | Resource types the rule covers; `'*'` for any |
+| `.forScope(...scopes)` | Limit to these scopes; omit for all |
+| `.priority(n)` | Ordering for `first-match` / `highest-priority` |
+| `.when(w => ...)` | Conditions, ANDed |
+| `.whenAny(w => ...)` | Conditions, ORed |
+| `.build()` | Produce the `Rule` object |
+
+### Condition reference
+
+`When` is the `w` in `.when(w => ...)`. Chained calls AND together.
+
+| Method | What it does |
+|---|---|
+| `.check(field, op, value)` | Compare any dot-path (`subject.attributes.tier`, `environment.hour`, ...) |
+| `.attr(path, op, value)` | Subject attribute — shorthand for `subject.attributes.<path>` |
+| `.resourceAttr(path, op, value)` | Resource attribute — shorthand for `resource.attributes.<path>` |
+| `.env(path, op, value)` | Environment attribute — shorthand for `environment.<path>` |
+| `.role(id)` / `.roles(...ids)` | Subject holds this role / any of these |
+| `.scope(id)` / `.scopes(...ids)` | Request is in this scope / any of these |
+| `.isOwner(field?)` | Resource's owner field equals the subject's id; defaults to `resource.attributes.ownerId` |
+| `.resourceType(...types)` | Resource type is one of these |
+| `.and(w => ...)` | Nested AND group |
+| `.or(w => ...)` | Nested OR group |
+| `.not(w => ...)` | Negated group |
+
+There is no `.check(fn)` — conditions are declarative data, not closures, so the
+compiled production table can represent them.
 
 ---
 
@@ -194,9 +241,9 @@ Add to your Drizzle schema:
 
 ```ts
 // schema.ts
-export { iamPolicies, iamRoles, iamAssignments, iamSubjectAttrs } from '@gentleduck/iam/adapters/drizzle/schema/pg'
-// MySQL:  '@gentleduck/iam/adapters/drizzle/schema/mysql'
-// SQLite: '@gentleduck/iam/adapters/drizzle/schema/sqlite'
+export { iamPolicies, iamRoles, iamAssignments, iamSubjectAttrs } from '@gentleduck/iam/adapters/drizzle/pg'
+// MySQL:  '@gentleduck/iam/adapters/drizzle/mysql'
+// SQLite: '@gentleduck/iam/adapters/drizzle/sqlite'
 ```
 
 ### Redis
@@ -265,11 +312,25 @@ if (!canUpdate) return Response.json({ error: 'Forbidden' }, { status: 403 })
 ### Development mode — rich Decision object
 
 ```ts
-const decision = await engine.check(userId, 'delete', { type: 'post', id: postId })
-// decision.allowed: boolean
-// decision.reasons: string[]  — which rules matched
-// decision.trace:   ...       — full evaluation trace
+// `attributes` is required on IResource - pass `{}` when there are none.
+const decision = await engine.check(userId, 'delete', { type: 'post', id: postId, attributes: {} })
+// decision.allowed:   boolean
+// decision.effect:    'allow' | 'deny'
+// decision.reason:    string        — singular; one line saying why
+// decision.policy?:   string        — id of the deciding policy, if any
+// decision.rule?:     IRule         — the deciding rule, if any
+// decision.duration:  number        — ms spent evaluating
+// decision.timestamp: number        — Unix ms
+// decision.failure?:  'input' | 'resolution' | 'evaluation'
 ```
+
+`failure` is the one to branch on: it is set only when the deny came from the
+engine breaking rather than from a policy saying no, so it is how you answer
+`503` for an adapter outage and `403` for a real denial. It is absent on every
+ordinary decision.
+
+There is no `decision.reasons` array and no `decision.trace` — for the full
+evaluation trace, call `explain()`.
 
 ### Explain (audit trail)
 
@@ -279,21 +340,54 @@ const trace = await engine.explain(userId, 'publish', {
   id: postId,
   attributes: { status: 'ready', authorId: userId },
 })
-console.log(trace.allowed, trace.matchedPolicies)
+
+trace.decision.allowed  // boolean — the outcome lives on `decision`
+trace.request           // { action, resourceType, resourceId?, scope? }
+trace.subject           // { id, roles, scopedRolesApplied, attributes }
+trace.policies          // IPolicyTrace[] — every policy consulted, in order
+trace.summary           // plain-text human-readable rendering
 ```
+
+Each entry in `trace.policies` carries `policyId`, `policyName`, `algorithm`,
+`targetMatch`, `result`, `reason`, `rules`, and — when one rule decided it —
+`decidingRuleId` / `decidingRule`. To list the policies that actually applied:
+
+```ts
+const applied = trace.policies.filter((p) => p.targetMatch)
+```
+
+> `trace.summary` interpolates policy ids, subject ids and role ids verbatim,
+> and those can be operator- or request-supplied. If you render it into HTML,
+> escape it yourself — the explain pipeline never escapes for a specific target.
 
 ### Batch check
 
+`checks()` describes each check with a `resource` **string** plus an optional
+`resourceId` — not a resource object:
+
 ```ts
 const checks = iam.checks([
-  { action: 'read',   resource: { type: 'post',    id: postId } },
-  { action: 'update', resource: { type: 'comment', id: commentId } },
-  { action: 'delete', resource: { type: 'post',    id: postId } },
+  { action: 'read',   resource: 'post',    resourceId: postId },
+  { action: 'update', resource: 'comment', resourceId: commentId },
+  { action: 'delete', resource: 'post',    resourceId: postId, scope: 'org-1' },
 ])
 
 const results = await engine.permissions(userId, checks)
-// results[0].allowed, results[1].allowed, results[2].allowed
 ```
+
+`permissions()` returns a **keyed map**, not an array — the key format is
+`[@scope:]action:resource[:resourceId]`, the same one `iamBuildPermissionKey`
+produces:
+
+```ts
+results[`read:post:${postId}`]              // boolean
+results[`update:comment:${commentId}`]      // boolean
+results[`@org-1:delete:post:${postId}`]     // boolean — note the `@` scope marker
+```
+
+In production mode the values are plain booleans; in development mode you get
+the full typed `IamClient.PermissionMap`. Batches over 1024 checks throw — an
+oversized batch is a caller bug, not a fail-closed deny.
 
 ---
 
@@ -334,13 +428,23 @@ Cache invalidation is automatic when you use `admin.*` methods.
 For distributed deployments, wire an invalidator:
 
 ```ts
-import { IamRedisInvalidator } from '@gentleduck/iam/adapters/redis'
+import { createIamRedisInvalidator } from '@gentleduck/iam/invalidators/redis'
 import { Redis } from 'ioredis'
 
-const publisher  = new Redis(process.env.REDIS_URL!)
-const subscriber = new Redis(process.env.REDIS_URL!)
-
-const invalidator = new IamRedisInvalidator({ publisher, subscriber })
+// One client, not a publisher/subscriber pair - the invalidator owns both
+// sides of the channel itself.
+const invalidator = createIamRedisInvalidator({
+  client: new Redis(process.env.REDIS_URL!),
+  // Sign every envelope. Without it the invalidator falls back to unsigned
+  // messages and warns once: anyone with PUBLISH rights on the channel can
+  // wipe your caches. Set it in production.
+  secret: process.env.IAM_INVALIDATE_SECRET!,
+  // Multi-tenant on shared Redis: scopes the channel to
+  // `duck-iam:invalidate:tenant:<id>` so tenant A cannot flush tenant B.
+  // tenantId: 'acme',
+  onPublishError: (err, channel) => alert.warn({ err, channel }),
+  onSubscribeError: (err, channel) => alert.error({ err, channel }),
+})
 
 const engine = iam.createEngine({
   adapter,
@@ -348,6 +452,15 @@ const engine = iam.createEngine({
   invalidator,   // all instances subscribe; policy save on node A clears cache on nodes B+C
 })
 ```
+
+`createIamRedisInvalidator` is a **factory**, not a class. `IamRedisInvalidator`
+is the type-only namespace holding its `IConfig` and `IPubSubLike` — there is no
+constructor to call with `new`. The subpath is
+`@gentleduck/iam/invalidators/redis`; `@gentleduck/iam/adapters/redis` is the
+storage adapter, a different thing.
+
+Wire `onSubscribeError` even if you skip `onPublishError`: a failed publish loses
+one event, a failed subscribe loses every future one.
 
 ---
 
@@ -464,13 +577,20 @@ auth.events.on('org.member.added', async ({ orgId, identityId, role }) => {
 })
 
 auth.events.on('org.member.removed', async ({ orgId, identityId }) => {
-  // revoke all scoped roles for this org
-  const assignments = await engine.admin.listAssignments(identityId)
-  for (const a of assignments.filter((x) => x.scope === `org:${orgId}`)) {
-    await engine.admin.revokeRole(identityId, a.role, a.scope)
-  }
+  // Revoke all scoped roles for this org. The admin facet has no
+  // list-assignments method - read the subject's scoped grants from the
+  // adapter, which is the layer that owns assignment rows.
+  const scoped = await adapter.getSubjectScopedRoles(identityId)
+  await engine.admin.revokeRoles(
+    scoped
+      .filter((g) => g.scope === `org:${orgId}`)
+      .map((g) => ({ subjectId: identityId, roleId: g.role, scope: g.scope })),
+  )
 })
 ```
+
+`revokeRoles` takes the whole batch at once, so an adapter with a set-based
+delete does it in one statement; adapters without one fall back to a loop.
 
 - If you do not use `auth.orgs` at all (e.g. org data lives in a separate service),
   omit `storage.orgs` from `createAuth`. duck-iam still works; just use scopes directly.
@@ -479,20 +599,42 @@ auth.events.on('org.member.removed', async ({ orgId, identityId }) => {
 
 ## 13. Validation
 
+Both validators return `{ valid, issues }` — there is no `ok` and no `errors`.
+Getting this wrong is quiet and expensive: `if (!result.ok)` is `true` for every
+*valid* policy, because `ok` is always `undefined`.
+
 ```ts
-import { IamValidate } from '@gentleduck/iam/core/validate'
+import type { IamValidate } from '@gentleduck/iam/core/validate'
 
 // Validate an untrusted policy (from DB, API, user upload)
 const result = iam.validatePolicy(untrustedInput)
-if (!result.ok) {
-  console.error(result.errors)  // typed validation errors
+if (!result.valid) {
+  console.error(result.issues)
 }
 
 // Validate a role set for circular inheritance, duplicate IDs, etc.
 const roleResult = iam.validateRoles(roles)
-if (!roleResult.ok) {
-  console.error(roleResult.errors)
+if (!roleResult.valid) {
+  console.error(roleResult.issues)
 }
+```
+
+`valid` is `false` only when there is at least one **error**-level issue;
+warnings never flip it. Each issue carries:
+
+| Field | Meaning |
+| --- | --- |
+| `type` | `'error'` blocks usage, `'warning'` is informational |
+| `code` | machine-readable `ValidationCode` — branch on this, not on `message` |
+| `message` | human-readable description |
+| `roleId?` | set by role validation |
+| `path?` | dot-path into the offending field, set by policy validation |
+
+So to treat warnings as non-blocking but still surface them:
+
+```ts
+const errors = result.issues.filter((i) => i.type === 'error')
+const warnings = result.issues.filter((i) => i.type === 'warning')
 ```
 
 ---
@@ -500,9 +642,14 @@ if (!roleResult.ok) {
 ## Tips
 
 - **`mode: 'production'`** returns `boolean` from `can()` — zero overhead, no Decision object allocation. Use `mode: 'development'` in dev/tests to get `reasons` + `trace`.
-- **`policyCombine: 'and'`** is default (all policies must allow). Switch to `'or'` for "any policy grants = allow" semantics — watch out with ABAC policies that have broad deny rules.
+- **`policyCombine: 'and'`** is default (every applicable policy must allow). The only other values are `'allow-overrides'` (any applicable policy allowing is enough) and `'first-applicable'` (the first policy that is not NotApplicable decides; development mode only). There is no `'or'` — the engine now throws on an unrecognised value rather than falling through to the most permissive branch.
 - **`defaultEffect: 'deny'`** is fail-closed. Never set `defaultEffect: 'allow'` in production without the `allowFailOpen: true` flag — the engine constructor refuses it to prevent accidental fail-open deployments.
-- **Cache TTL**: `cacheTTL: 0` disables caching entirely. Use for ultra-low-latency tests or when you need fully consistent reads on every check. For prod, 30–60s TTL with a Redis invalidator is the sweet spot.
+- **Cache TTL**: `cacheTTL: 0` does **not** disable caching. Entries expire on a
+  strict `Date.now() > expiresAt`, so a `0` TTL still serves a cached value to
+  every read that lands in the same millisecond as the write. It is close
+  enough for tests; it is not a consistency guarantee. To be certain a read is
+  fresh, invalidate explicitly (`engine.cache.invalidateSubject(id)`). For
+  prod, 30–60s TTL with a Redis invalidator is the sweet spot.
 - **Typed dot-paths**: passing `context: {} as unknown as AppContext` to `createIam` enables IntelliSense on `.env()` and `.attr()` condition paths. No runtime cost.
 - **GitOps policies**: export your policy snapshot on every prod deploy and check it into git. Use `import({ mode: 'merge' })` on startup to keep the DB in sync without wiping runtime-assigned subject data.
 - **Multi-tenant scoping**: assign roles with a `scope` argument (`assignRole(userId, 'editor', 'org:acme')`). The engine evaluates scoped roles only when the request carries a matching scope.

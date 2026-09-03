@@ -69,7 +69,7 @@ const allowed = await engine.can('user-1', 'read', { type: 'post', attributes: {
 
 ## Performance
 
-Benchmarked against 6 JS authorization libraries using vitest bench
+Benchmarked against 5 other JS authorization libraries using vitest bench
 (`bun run bench`). Two different things get measured - keep them
 separate.
 
@@ -80,7 +80,7 @@ separate.
 | @casl/ability | ~17.0M | baseline |
 | easy-rbac | ~5.0M | 3.4x slower |
 | @rbac/rbac | ~3.3M | 5.2x slower |
-| **@gentleduck/iam** `evaluateFast()` | ~7.6M | 2.2x slower |
+| **@gentleduck/iam** `iamEvaluateFast()` | ~7.6M | 2.2x slower |
 | accesscontrol | ~1.3M | 12.8x slower |
 | casbin | ~208K | 82x slower |
 
@@ -90,8 +90,14 @@ subject resolution + the compiled table):
 | Mode | ops/sec | vs CASL |
 |------|---------|---------|
 | `mode: 'production'` (compiled table) | ~1.15M | ~14x slower |
-| `mode: 'development'` (interpreter) | ~155K | ~110x slower |
 | @casl/ability (ability pre-built, `.can()`) | ~17.0M | baseline |
+
+`mode: 'development'` runs the same compiled table for the verdict and *also*
+runs the interpreter, to recover the `reason`/`policy`/`rule` provenance the
+table erases at compile time and to assert the two agree. That costs roughly
+2.4x production on the same machine. It is meant to: development is where a
+table/interpreter disagreement should surface, and production is where the
+second evaluator would be pure overhead.
 
 CASL is a narrower tool: one flat rule set, fully sync, no persistence
 layer. `engine.can()` also runs a policy engine (4 combining algorithms
@@ -104,15 +110,17 @@ on one core - network, DB, and serialization around it cost more than
 the check itself in any real request. Throughput doesn't degrade with
 catalog size either; the compiled table is an O(1) index lookup
 regardless of how many roles or policies exist. What actually
-constrains scale is catalog *shape* - role count (hard cap: 32 per
-table), very wide action x resource grids, and deeply nested
-hierarchical resource types - not raw request throughput.
+constrains scale is catalog *shape* - role count, very wide
+action x resource grids, and deeply nested hierarchical resource types -
+not raw request throughput. Past 32 roles the 32-bit grant mask can no
+longer address them all, so the engine warns once and falls back to the
+interpreter: still correct, no longer O(1).
 
 For the smallest bundle, import only what you use via subpaths:
 
 ```typescript
 // Engine-only (skip adapters, server middleware, client wrappers)
-import { IamEngine, evaluatePolicyFast } from '@gentleduck/iam/core'
+import { IamEngine, iamEvaluatePolicyFast } from '@gentleduck/iam/core'
 
 // Each adapter, server adapter, and client wrapper is a separate entry
 import { IamMemoryAdapter } from '@gentleduck/iam/adapters/memory'
@@ -152,7 +160,7 @@ at 15-25 KB.
 - **`engine.dispose()`** - release the cross-instance invalidator subscription on shutdown
 - **`IConfig.adapterTimeoutMs`** - `AbortController`-driven timeout on every adapter read (default 5 s)
 - **`IConfig.maxPolicies` / `maxRoles`** - load-time caps that fail closed
-- **`IConfig.allowFailOpen`** - explicit opt-in required to combine `mode: 'production'` with `defaultEffect: 'allow'`
+- **`IConfig.allowFailOpen`** - explicit opt-in required whenever `defaultEffect` is `'allow'`, in every mode
 - **`IConfig.invalidator`** - cross-instance cache-invalidation broadcaster
 - **`createIamRedisInvalidator`** at `@gentleduck/iam/invalidators/redis` - pub/sub helper with self-echo filter
 - **`iamCreateMetricsAggregator`** at `@gentleduck/iam/observability/metrics` - p50 / p95 / p99 over `onMetrics` events
@@ -180,7 +188,9 @@ import { iamNestAccessGuard, IamAuthorize, createIamAdminOperations } from '@gen
 
 // Next.js
 import { withIamAccess, createIamAdminHandlers } from '@gentleduck/iam/server/next'
-export const DELETE = withIamAccess(engine, 'delete', 'post', handler)
+export const DELETE = withIamAccess(engine, 'delete', 'post', handler, {
+  getUserId: async () => (await auth()).userId, // required - headers are spoofable
+})
 ```
 
 ### Client libraries

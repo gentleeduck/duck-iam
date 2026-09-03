@@ -72,7 +72,7 @@ iamBuildPermissionKey('delete', 'post')
 // "delete:post"
 
 iamBuildPermissionKey('update', 'post', 'post-42', 'org-1')
-// "org-1:update:post:post-42"
+// "@org-1:update:post:post-42"  -- the `@` marks the leading segment as a scope
 ```
 
 You rarely need to call `iamBuildPermissionKey()` directly -- the React, Vue, and vanilla clients call it internally. It is useful when generating or inspecting `PermissionMap` objects in tests, server endpoints, or custom client helpers.
@@ -431,8 +431,11 @@ access.hasAnyOn('billing')     // false
 access.hasAnyOn('post')        // true
 ```
 
-Both methods handle all four key formats. For a 3-part key like `"org-1:read:post"`, the
-method correctly identifies `"post"` as the resource and `"read"` as the action.
+Both methods handle all four key formats. The `@` on a scope is what makes a 3-part key
+unambiguous: `"@org-1:read:post"` is scope + action + resource, while `"read:post:p-42"`
+is action + resource + resourceId. Without the marker the two shapes are indistinguishable,
+which is why a hand-written `"org-1:read:post"` parses as action `"org-1"` and never
+matches.
 
 These helpers suit UI summarization -- navigation menus, toolbar groups, or coarse "does
 this user have anything on posts?" checks. They scan the existing `PermissionMap` and do
@@ -617,8 +620,12 @@ access.update(newPerms) // subscribers are notified automatically
     <AccordionContent className="text-muted-foreground">
       Use it in non-React or non-Vue frontends, Web Components, small islands, or anywhere you want a subscribable
       permission store with <code className="rounded bg-muted px-2 py-1">update()</code>,
-      <code className="rounded bg-muted px-2 py-1">merge()</code>, <code className="rounded bg-muted px-2 py-1">allowedActions()</code>,
-      and <code className="rounded bg-muted px-2 py-1">hasAnyOn()</code>.
+      <code className="rounded bg-muted px-2 py-1">merge()</code>, and
+      <code className="rounded bg-muted px-2 py-1">subscribe()</code>. Map introspection is no longer a reason to reach
+      for it: <code className="rounded bg-muted px-2 py-1">allowedActions()</code> and
+      <code className="rounded bg-muted px-2 py-1">hasAnyOn()</code> are on the React context, the Vue access state, and
+      every entry point as the standalone <code className="rounded bg-muted px-2 py-1">iamAllowedActions()</code> /
+      <code className="rounded bg-muted px-2 py-1">iamHasAnyOn()</code>.
     </AccordionContent>
   </AccordionItem>
 
@@ -634,7 +641,7 @@ access.update(newPerms) // subscribers are notified automatically
     <AccordionTrigger>When should I include resourceId or scope in a client-side check?</AccordionTrigger>
     <AccordionContent className="text-muted-foreground">
       Include them whenever the server generated a resource-specific or scope-specific permission. If your map contains
-      keys like <code className="rounded bg-muted px-2 py-1">org-1:update:post:post-42</code>, the client must call
+      keys like <code className="rounded bg-muted px-2 py-1">@org-1:update:post:post-42</code>, the client must call
       <code className="rounded bg-muted px-2 py-1">can('update', 'post', 'post-42', 'org-1')</code> to hit the same key.
     </AccordionContent>
   </AccordionItem>
