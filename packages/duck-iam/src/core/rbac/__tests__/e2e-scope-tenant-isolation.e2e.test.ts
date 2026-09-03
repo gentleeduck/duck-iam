@@ -18,7 +18,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { IamDrizzleAdapter } from '../../../adapters/drizzle'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../../../adapters/drizzle/pg'
 import { iamBuildPermissionKey } from '../../../shared/keys'
-import { applyPgSchema, databaseUrl, isolatedDatabaseUrl } from '../../../test/e2e-env'
+import { applyPgSchema, assertE2eReachable, databaseUrl, isolatedDatabaseUrl } from '../../../test/e2e-env'
 import { IamEngine } from '../../engine'
 
 const BASE_URL = databaseUrl()
@@ -29,6 +29,7 @@ if (BASE_URL !== undefined && URL === undefined) {
       'Refusing to skip: a skipped suite is not a passing suite.',
   )
 }
+assertE2eReachable('scope-tenant-isolation', URL)
 const suite = URL ? describe : describe.skip
 
 type Action = 'read' | 'write'

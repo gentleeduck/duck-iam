@@ -7,6 +7,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
 
 let loaded = false
 
@@ -83,4 +84,58 @@ export async function isolatedDatabaseUrl(name: string): Promise<string | undefi
   }
   url.pathname = `/${dbName}`
   return url.toString()
+}
+
+/**
+ * Fail a suite that is about to skip for a reason that is not a real one.
+ *
+ * Every e2e file gates itself on `URL ? describe : describe.skip`, which is
+ * deliberate: Stryker's dry run and a fresh checkout with no docker both have
+ * to get through the suite without a database. The cost is that a skip and a
+ * *broken provisioner* look identical from the outside - and that is not
+ * hypothetical. A container that failed to boot once took 51 compliance cases
+ * out of a run, silently, and the only reason it was noticed at all was that a
+ * generated inventory's numbers moved.
+ *
+ * So the rule is: if docker is up, having no backend is a failure, not a skip.
+ * `e2e-adapter-drizzle-pg` has always asserted this for itself; this is that
+ * guard, shared, so no suite can go quiet without saying so.
+ *
+ * Call it at module scope next to the `const suite = …` line. It registers its
+ * own `describe`, so it runs even when the suite it guards is skipped - which
+ * is the entire point.
+ */
+export function assertE2eReachable(suiteName: string, backend: string | number | undefined): void {
+  describe(`E2E reachability (${suiteName})`, () => {
+    it('has its backend whenever docker is available', async () => {
+      if (!(await dockerIsUp())) {
+        expect(backend, 'docker is down, so no e2e backend is expected here').toBeUndefined()
+        return
+      }
+      expect(
+        backend,
+        `docker is up but "${suiteName}" has no backend, so the suite skipped instead of running. ` +
+          'That is a provisioning failure, not a reason to be quiet.',
+      ).toBeDefined()
+    })
+  })
+}
+
+/**
+ * Is the docker daemon answering?
+ *
+ * Generous timeout on purpose: a five-second probe is fine on an idle machine
+ * and wrong on one already running e2e containers, where the daemon is busy
+ * enough to take longer - and reading "busy" as "absent" is what turns this
+ * guard back into the silent skip it exists to prevent.
+ */
+async function dockerIsUp(): Promise<boolean> {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  try {
+    await promisify(execFile)('docker', ['info', '--format', '{{.ServerVersion}}'], { timeout: 30_000 })
+    return true
+  } catch {
+    return false
+  }
 }

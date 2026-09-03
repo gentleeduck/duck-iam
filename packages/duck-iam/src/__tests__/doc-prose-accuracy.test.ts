@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { glob } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { IAM_UNKNOWN_ACTION, IAM_UNKNOWN_RESOURCE } from '../server/generic'
 
 /**
  * Round 2's low-severity J findings were prose that had quietly stopped being
@@ -231,10 +232,15 @@ describe('counts and cross-references stay true', () => {
         `${name} appears in no server/generic import block`,
       ).toBe(true)
     }
-    // And they are still exported under those names.
-    const generic = readFileSync(join(PKG, 'src/server/generic/index.ts'), 'utf8')
-    expect(generic).toContain("export const IAM_UNKNOWN_ACTION = 'unknown'")
-    expect(generic).toContain("export const IAM_UNKNOWN_RESOURCE = 'unknown'")
+    // And they are still exported under those names, with the values the page
+    // documents. Asserted on the imported values rather than on the text of the
+    // source file: the constants now read their value from the reserved token
+    // in `shared/reserved.ts` (a string sentinel could not carry the denial the
+    // docs promised - `'*'` matches strings), and a substring match on the old
+    // one-line literal called that a documentation failure when nothing the
+    // page states had changed.
+    expect(IAM_UNKNOWN_ACTION).toBe('unknown')
+    expect(IAM_UNKNOWN_RESOURCE).toBe('unknown')
   })
 
   /**

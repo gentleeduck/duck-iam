@@ -79,6 +79,8 @@ async function startPostgres(): Promise<string> {
     '-d',
     '--name',
     PG_CONTAINER,
+    '--label',
+    'duck-iam-e2e-owned',
     '-p',
     '0:5432',
     '-e',
@@ -142,7 +144,7 @@ if (DOCKER_UP) {
 }
 
 afterAll(async () => {
-  if (DOCKER_UP) await docker(['rm', '-f', PG_CONTAINER]).catch(() => '')
+  if (DOCKER_UP) await docker(['rm', '-f', '-v', PG_CONTAINER]).catch(() => '')
 })
 
 const TABLES = { assignments: iamAssignments, attrs: iamSubjectAttrs, policies: iamPolicies, roles: iamRoles }

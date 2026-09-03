@@ -350,10 +350,45 @@ describe('IamPrismaAdapter', () => {
       expect(args.create.inherits).toEqual([])
     })
 
-    it('toRole converts null inherits to empty array', async () => {
-      await adapter.saveRole({ id: 'r2' as Ro, name: 'R', permissions: [] })
+    /**
+     * The write path still sends `[]` for a role with no parents - the column
+     * needs a value - but the *read* path no longer invents one. `toRole` used
+     * to return `inherits: []` plus `description`/`scope`/`metadata` as keys
+     * holding `undefined`, so a role saved as `{id, name, permissions}` came
+     * back from prisma with seven keys and from memory with three: `Object.keys`
+     * disagreed, `'inherits' in role` disagreed, and a consumer branching on
+     * either got two answers from one write.
+     *
+     * Drizzle's `_safeParseRole` already omits both, with a docstring saying
+     * why, and `RoleBuilder.build()` omits `inherits` when the author names no
+     * parents - so absent is the shape both ends of the round trip already
+     * agreed on, and prisma was the one store that did not.
+     */
+    it('toRole omits the keys the stored role does not have', async () => {
+      const saved = { id: 'r2' as Ro, name: 'R', permissions: [] }
+      await adapter.saveRole(saved)
       const got = await adapter.getRole('r2')
-      expect(got?.inherits).toEqual([])
+
+      expect(got).toEqual(saved)
+      expect(Object.keys(got ?? {}).sort()).toEqual(['id', 'name', 'permissions'])
+      expect('inherits' in (got ?? {})).toBe(false)
+      expect('description' in (got ?? {})).toBe(false)
+      expect('scope' in (got ?? {})).toBe(false)
+      expect('metadata' in (got ?? {})).toBe(false)
+    })
+
+    it('toRole keeps every key the stored role does have', async () => {
+      const saved = {
+        id: 'r3' as Ro,
+        name: 'R3',
+        description: 'has one',
+        permissions: [],
+        inherits: ['viewer' as Ro],
+        scope: 'org-1' as S,
+        metadata: { tier: 'gold' },
+      }
+      await adapter.saveRole(saved)
+      expect(await adapter.getRole('r3')).toEqual(saved)
     })
 
     it('deleteRole removes the row', async () => {

@@ -14,7 +14,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { IamDrizzleAdapter } from '../../../adapters/drizzle'
 import { iamAssignments, iamPolicies, iamRoles, iamSubjectAttrs } from '../../../adapters/drizzle/pg'
-import { applyPgSchema, isolatedDatabaseUrl } from '../../../test/e2e-env'
+import { applyPgSchema, assertE2eReachable, isolatedDatabaseUrl } from '../../../test/e2e-env'
 import type { Batch } from '../../batch'
 import { IamEngine } from '../engine'
 
@@ -24,6 +24,7 @@ function changedFlags<TRow>(result: Batch.Result<TRow, Batch.Change>): (boolean 
 }
 
 const URL = await isolatedDatabaseUrl('transaction')
+assertE2eReachable('engine-transaction-pg', URL)
 const suite = URL ? describe : describe.skip
 
 type Role = 'admin' | 'viewer'

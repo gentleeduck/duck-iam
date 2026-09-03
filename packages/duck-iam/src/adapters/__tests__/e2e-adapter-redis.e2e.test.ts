@@ -56,7 +56,7 @@ async function waitFor(what: string, probe: () => Promise<boolean>, budgetMs = 6
 const CONTAINER = `duck-iam-adapterconf-redis-${randomBytes(4).toString('hex')}`
 
 async function startRedis(): Promise<number> {
-  await docker(['run', '-d', '--name', CONTAINER, '-p', '0:6379', 'redis:7-alpine'])
+  await docker(['run', '-d', '--name', CONTAINER, '--label', 'duck-iam-e2e-owned', '-p', '0:6379', 'redis:7-alpine'])
   await waitFor(`${CONTAINER} answering PING`, async () => {
     try {
       const out = await docker(['exec', CONTAINER, 'redis-cli', 'PING'], 10_000)
@@ -130,7 +130,7 @@ function realClient(port: number): IamRedis.ILike & { raw: Redis } {
 
 afterAll(async () => {
   await Promise.all(clients.map((c) => c.quit().catch(() => undefined)))
-  if (DOCKER_UP) await docker(['rm', '-f', CONTAINER]).catch(() => '')
+  if (DOCKER_UP) await docker(['rm', '-f', '-v', CONTAINER]).catch(() => '')
 })
 
 describe('E2E harness reachability (redis)', () => {

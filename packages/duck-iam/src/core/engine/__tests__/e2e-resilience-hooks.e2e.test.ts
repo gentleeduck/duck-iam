@@ -104,6 +104,8 @@ beforeAll(async () => {
     '-d',
     '--name',
     containerName,
+    '--label',
+    'duck-iam-e2e-owned',
     '-p',
     `127.0.0.1:${port}:5432`,
     '-e',
@@ -132,7 +134,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await Promise.all(pools.map((p) => p.end().catch(() => {})))
   await fixturePool?.end().catch(() => {})
-  if (containerName) await docker(['rm', '-f', containerName]).catch(() => {})
+  if (containerName) await docker(['rm', '-f', '-v', containerName]).catch(() => {})
 }, 120_000)
 
 /** Every hook throwing at once: nothing may become an allow because of it. */

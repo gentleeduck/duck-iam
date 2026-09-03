@@ -138,7 +138,53 @@ async function waitUntilReachable(port: number): Promise<void> {
 async function removeStrays(): Promise<void> {
   const ids = await docker(['ps', '-aq', '--filter', `label=${LABEL}`])
   if (ids.length === 0) return
-  await docker(['rm', '-f', ...ids.split('\n')])
+  await docker(['rm', '-f', '-v', ...ids.split('\n')])
+}
+
+/**
+ * The label every *suite-owned* container carries, and the age past which one
+ * is certainly abandoned.
+ *
+ * The containers a suite starts for itself deliberately do NOT carry
+ * {@link LABEL}: `removeStrays` deletes every container with that label at the
+ * start of *any* vitest invocation, which would pull the server out from under
+ * a suite still using it. The cost of staying unlabelled was that nothing ever
+ * collected them - an interrupted run (Ctrl-C, a timeout, a crash before
+ * `afterAll`) left them running forever, and four such orphans, two to four
+ * hours old, were once found throttling the daemon badly enough to turn a
+ * 30-second suite into a 205-second one.
+ *
+ * A second label plus an age bound gets both: these are swept, but only when
+ * they are far too old to belong to a run in progress. Suites finish in
+ * minutes, so an hour is not a race - it is a container nobody is coming back
+ * for.
+ */
+export const OWNED_LABEL = 'duck-iam-e2e-owned'
+const OWNED_MAX_AGE = '60m'
+
+/**
+ * Remove suite-owned containers old enough that no live run can own them.
+ *
+ * `--filter until=` is docker's own "created before" predicate, so this never
+ * has to parse a timestamp, and a container started by a concurrent run is far
+ * too young to match.
+ */
+async function removeAgedOwnedStrays(): Promise<void> {
+  const ids = await docker([
+    'ps',
+    '-aq',
+    '--filter',
+    `label=${OWNED_LABEL}`,
+    '--filter',
+    `until=${OWNED_MAX_AGE}`,
+  ]).catch(() => '')
+  if (ids.length === 0) return
+  const names = ids.split('\n').filter(Boolean)
+  // `-v` matters more here than anywhere: these are the containers that died
+  // without running their own cleanup, so their anonymous volumes are the ones
+  // that have been accumulating.
+  await docker(['rm', '-f', '-v', ...names]).catch(() => '')
+  console.info(`[e2e] removed ${names.length} abandoned test container(s) older than ${OWNED_MAX_AGE}`)
 }
 
 async function startPostgres(): Promise<string> {
@@ -192,6 +238,8 @@ export async function setup(): Promise<void> {
   }
 
   await removeStrays()
+
+  await removeAgedOwnedStrays()
   try {
     process.env.DUCKIAM_E2E_DATABASE_URL = await startPostgres()
   } catch (err) {
@@ -206,7 +254,7 @@ export async function teardown(): Promise<void> {
   if (started.length === 0) return
   const names = started.splice(0, started.length)
   try {
-    await docker(['rm', '-f', ...names])
+    await docker(['rm', '-f', '-v', ...names])
   } catch (err) {
     // Surface it: a silent failure here leaks containers until the next sweep.
     console.warn(`[e2e] could not remove ${names.join(', ')}: ${err instanceof Error ? err.message : err}`)

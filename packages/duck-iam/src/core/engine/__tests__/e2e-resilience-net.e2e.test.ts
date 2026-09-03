@@ -287,6 +287,8 @@ beforeAll(async () => {
     '-d',
     '--name',
     containerName,
+    '--label',
+    'duck-iam-e2e-owned',
     '-p',
     `127.0.0.1:${pgPort}:5432`,
     '-e',
@@ -319,7 +321,7 @@ afterAll(async () => {
   for (const p of proxies) await p.close().catch(() => {})
   await Promise.all(pools.map((p) => p.end().catch(() => {})))
   await fixturePool?.end().catch(() => {})
-  if (containerName) await docker(['rm', '-f', containerName]).catch(() => {})
+  if (containerName) await docker(['rm', '-f', '-v', containerName]).catch(() => {})
 }, 120_000)
 
 const DOC = { attributes: {}, type: 'doc' } as const

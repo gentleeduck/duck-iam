@@ -72,13 +72,13 @@ drift the way the hand-maintained version did.
 | `adapters/prisma/__tests__/prisma-malformed-row-drop.test.ts` | 9 | IamPrismaAdapter malformed-row handling |
 | `adapters/prisma/__tests__/prisma-null-scope-rows.test.ts` | 4 | prisma getSubjectScopedRoles |
 | `adapters/prisma/__tests__/prisma-update-assignment-scope.test.ts` | 12 | IamPrismaAdapter.updateAssignmentScope |
-| `adapters/prisma/__tests__/prisma.test.ts` | 84 | IamPrismaAdapter |
+| `adapters/prisma/__tests__/prisma.test.ts` | 85 | IamPrismaAdapter |
 | `adapters/redis/__tests__/redis-input-shape.test.ts` | 5 | IamRedisAdapter direct-call input shape |
 | `adapters/redis/__tests__/redis-io-failure.test.ts` | 8 | IamRedisAdapter connection failure |
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
 | `adapters/redis/__tests__/redis.test.ts` | 103 | IamRedisAdapter |
-| **Subtotal** | **1197** | |
+| **Subtotal** | **1198** | |
 
 ---
 
@@ -110,7 +110,7 @@ drift the way the hand-maintained version did.
 | `core/builder/__tests__/builder-composition-and-aliasing.test.ts` | 18 | RuleBuilder: repeated condition groups |
 | `core/builder/__tests__/builder-fuzz-authoring.test.ts` | 2 | a random condition tree means the same thing to everyone who reads it |
 | `core/builder/__tests__/builder.test.ts` | 72 | When (condition builder) |
-| `core/builder/__tests__/e2e-builder-round-trip.e2e.test.ts` | 14 |  |
+| `core/builder/__tests__/e2e-builder-round-trip.e2e.test.ts` | 15 |  |
 | `core/builder/__tests__/guide-abac-examples.test.ts` | 9 | guide §4: post-owner policy |
 | `core/builder/__tests__/inherits-replaces.test.ts` | 4 | RoleBuilder.inherits replaces |
 | `core/conditions/__tests__/conditions-polynomial-redos.test.ts` | 19 | detectCatastrophicRegex: adjacent unbounded quantifiers |
@@ -131,7 +131,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/e2e-resilience-net.e2e.test.ts` | 15 | E2E fail-closed: connection reset mid-flight |
 | `core/engine/__tests__/e2e-resilience-redis.e2e.test.ts` | 6 | E2E fail-closed: the Redis the decision is READ from |
 | `core/engine/__tests__/e2e-verdict-differential.e2e.test.ts` | 2 | E2E verdict parity: compiled table vs interpreter over generated catalogs |
-| `core/engine/__tests__/e2e-verdict-pg-fallback.e2e.test.ts` | 12 |  |
+| `core/engine/__tests__/e2e-verdict-pg-fallback.e2e.test.ts` | 13 |  |
 | `core/engine/__tests__/e2e-verdict-rbac-divergence.e2e.test.ts` | 4 | E2E verdict divergence: RBAC role permissions |
 | `core/engine/__tests__/engine-admin-input-validation.test.ts` | 21 | engine.admin input validation |
 | `core/engine/__tests__/engine-check-invalid-subject.test.ts` | 2 | engine.check() with an invalid subjectId |
@@ -163,7 +163,7 @@ drift the way the hand-maintained version did.
 | `core/engine/__tests__/policy-combine-validation.test.ts` | 11 | policyCombine validation |
 | `core/engine/__tests__/preload-surfaces-compile-error.test.ts` | 6 |  |
 | `core/engine/__tests__/scope-covers-contract.test.ts` | 45 | scopeCovers agrees with matchesScope on the flat axis |
-| `core/engine/__tests__/transaction.pg.e2e.test.ts` | 16 |  |
+| `core/engine/__tests__/transaction.pg.e2e.test.ts` | 17 |  |
 | `core/engine/__tests__/unified-verdict-path.test.ts` | 11 | development keeps the rich decision while the table supplies the verdict |
 | `core/evaluate/__tests__/algorithm-alias-precompute.test.ts` | 9 | precompute covers every algorithm that can be precomputed |
 | `core/evaluate/__tests__/evaluate-error-indeterminate.test.ts` | 15 | evaluate ('and') with a throwing deny policy |
@@ -185,10 +185,10 @@ drift the way the hand-maintained version did.
 | `core/explain/__tests__/explain.libs.test.ts` | 21 | tracePolicy() combining algorithms |
 | `core/explain/__tests__/explain.test.ts` | 26 | iamEscapeHtml |
 | `core/pending/__tests__/pending.test.ts` | 23 | createPending |
-| `core/rbac/__tests__/e2e-scope-inheritance.e2e.test.ts` | 24 |  |
-| `core/rbac/__tests__/e2e-scope-modes-and-order.e2e.test.ts` | 14 |  |
-| `core/rbac/__tests__/e2e-scope-prod-parity.e2e.test.ts` | 11 |  |
-| `core/rbac/__tests__/e2e-scope-tenant-isolation.e2e.test.ts` | 40 |  |
+| `core/rbac/__tests__/e2e-scope-inheritance.e2e.test.ts` | 25 |  |
+| `core/rbac/__tests__/e2e-scope-modes-and-order.e2e.test.ts` | 15 |  |
+| `core/rbac/__tests__/e2e-scope-prod-parity.e2e.test.ts` | 12 |  |
+| `core/rbac/__tests__/e2e-scope-tenant-isolation.e2e.test.ts` | 41 |  |
 | `core/rbac/__tests__/inheritance-order-independence.test.ts` | 5 | inheritance resolution does not depend on the order of `inherits` |
 | `core/rbac/__tests__/permission-condition-depth-parity.test.ts` | 19 | an `any` permission condition costs the same depth as an `all` one |
 | `core/rbac/__tests__/rbac-scope-attribution.test.ts` | 6 | rolesToPolicy() scope attribution |
@@ -216,7 +216,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **2013** | |
+| **Subtotal** | **2020** | |
 
 ---
 
@@ -268,11 +268,13 @@ drift the way the hand-maintained version did.
 | `server/__tests__/adapter-failure-mode-parity.test.ts` | 13 | a throwing getUserId denies through the adapter, not the framework |
 | `server/__tests__/cross-adapter.test.ts` | 37 | the path-deriving integrations build the same tuple |
 | `server/__tests__/e2e-http-servers.e2e.test.ts` | 169 | harness |
+| `server/express/__tests__/express-path-bypass.test.ts` | 12 | iamAccessMiddleware refuses a path it cannot map, even for a wildcard admin |
 | `server/express/__tests__/express.test.ts` | 44 | iamAccessMiddleware (express) |
 | `server/generic/__tests__/admin-shared.test.ts` | 25 | iamDefaultCsrfCheck |
 | `server/generic/__tests__/extract-environment-ua-cap.test.ts` | 2 | iamExtractEnvironment user-agent cap |
 | `server/generic/__tests__/extract-environment-xff.test.ts` | 20 | iamExtractEnvironment XFF normalization under trustProxy |
 | `server/generic/__tests__/generic.test.ts` | 22 | generateIamPermissionMap() |
+| `server/generic/__tests__/http-boundary-refusal.test.ts` | 52 | the unknown-action and unknown-resource sentinels are real refusals |
 | `server/generic/__tests__/method-action-and-path.test.ts` | 19 | iamActionForMethod |
 | `server/hono/__tests__/hono.test.ts` | 31 | iamAccessMiddleware (hono) |
 | `server/nest/__tests__/nest-infer-resource-parity.test.ts` | 18 | no route template: agrees with iamDefaultResource |
@@ -280,7 +282,7 @@ drift the way the hand-maintained version did.
 | `server/next/__tests__/next-middleware-encoded-path.test.ts` | 6 | next middleware: a path with encoding residue |
 | `server/next/__tests__/next-middleware-environment.test.ts` | 4 | createIamNextMiddleware environment |
 | `server/next/__tests__/next.test.ts` | 29 | withIamAccess |
-| **Subtotal** | **465** | |
+| **Subtotal** | **529** | |
 
 ---
 
@@ -309,8 +311,9 @@ drift the way the hand-maintained version did.
 | `__tests__/public-error-and-type-surface.test.ts` | 7 | the custom error class is reachable |
 | `__tests__/public-surface-internals.test.ts` | 7 | public surface: mutable internals stay internal |
 | `__tests__/public-surface-naming.test.ts` | 23 | package root naming |
+| `__tests__/test-command-partition.test.ts` | 5 | the two test commands partition every test file |
 | `__tests__/test-inventory-freshness.test.ts` | 5 | test inventory stays honest |
-| **Subtotal** | **109** | |
+| **Subtotal** | **114** | |
 
 ---
 
@@ -319,13 +322,13 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 9 | 139 |
-| Adapters | 41 | 1197 |
+| Adapters | 41 | 1198 |
 | Clients | 8 | 111 |
-| Core | 114 | 2013 |
+| Core | 114 | 2020 |
 | Devtools | 5 | 71 |
 | Invalidators | 9 | 101 |
 | Observability | 3 | 24 |
-| Server | 15 | 465 |
+| Server | 17 | 529 |
 | Shared | 4 | 94 |
-| Package surface | 10 | 109 |
-| **Total** | **218** | **4324** |
+| Package surface | 11 | 114 |
+| **Total** | **221** | **4401** |

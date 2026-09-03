@@ -70,7 +70,19 @@ async function waitUntilReachable(port: number): Promise<void> {
 /** Bring up a throwaway Redis on an ephemeral host port. Labelled for sweep-up. */
 export async function startRedis(): Promise<{ name: string; port: number }> {
   const name = `${REDIS_LABEL}-${randomBytes(4).toString('hex')}`
-  await docker(['run', '-d', '--name', name, '--label', REDIS_LABEL, '-p', '0:6379', REDIS_IMAGE])
+  await docker([
+    'run',
+    '-d',
+    '--name',
+    name,
+    '--label',
+    'duck-iam-e2e-owned',
+    '--label',
+    REDIS_LABEL,
+    '-p',
+    '0:6379',
+    REDIS_IMAGE,
+  ])
   const raw = await docker(['port', name, '6379'])
   const portText = raw.split('\n')[0]?.split(':').pop()
   const port = Number(portText)
@@ -123,6 +135,8 @@ export async function startPostgres(): Promise<{ name: string; url: string }> {
     '--name',
     name,
     '--label',
+    'duck-iam-e2e-owned',
+    '--label',
     E2E_LABEL,
     '-p',
     '0:5432',
@@ -147,7 +161,7 @@ export async function startPostgres(): Promise<{ name: string; url: string }> {
 
 export async function removeContainer(name: string): Promise<void> {
   try {
-    await docker(['rm', '-f', name])
+    await docker(['rm', '-f', '-v', name])
   } catch (err) {
     console.warn(`[e2e-invalidation] could not remove ${name}: ${err instanceof Error ? err.message : err}`)
   }
@@ -155,7 +169,7 @@ export async function removeContainer(name: string): Promise<void> {
 
 export async function removeRedis(name: string): Promise<void> {
   try {
-    await docker(['rm', '-f', name])
+    await docker(['rm', '-f', '-v', name])
   } catch (err) {
     console.warn(`[e2e-invalidation] could not remove ${name}: ${err instanceof Error ? err.message : err}`)
   }
@@ -165,7 +179,7 @@ export async function removeRedis(name: string): Promise<void> {
 export async function removeRedisStrays(): Promise<void> {
   const ids = await docker(['ps', '-aq', '--filter', `label=${REDIS_LABEL}`])
   if (ids.length === 0) return
-  await docker(['rm', '-f', ...ids.split('\n')])
+  await docker(['rm', '-f', '-v', ...ids.split('\n')])
 }
 
 export type Reply = string | number | null | Reply[]

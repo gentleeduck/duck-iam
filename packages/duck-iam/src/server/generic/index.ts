@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamClient, IamRequest } from '../../core/types'
+import { IAM_RESERVED_REFUSAL } from '../../shared/reserved'
 
 /**
  * Shared admin-mutation audit event shape.
@@ -179,28 +180,69 @@ export function iamNoticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
  * @param req - Any object the adapter can extract a header from.
  * @returns `true` to allow, `false` to reject (403).
  */
+/** The header the default CSRF predicate reads, lowercased for comparison. */
+const SEC_FETCH_SITE = 'sec-fetch-site'
+
+/** Narrows to something with a callable `get`, i.e. a fetch-API `Headers`. */
+function hasHeaderGetter(value: unknown): value is { get: (name: string) => string | null } {
+  return typeof value === 'object' && value !== null && typeof Reflect.get(value, 'get') === 'function'
+}
+
+/** Narrows to a hono-style context whose `req.header(name)` reads a header. */
+function hasHeaderAccessor(value: unknown): value is { req: { header: (name: string) => string | undefined } } {
+  if (typeof value !== 'object' || value === null) return false
+  const inner: unknown = Reflect.get(value, 'req')
+  if (typeof inner !== 'object' || inner === null) return false
+  return typeof Reflect.get(inner, 'header') === 'function'
+}
+
+/** First usable string in a header value that may have arrived repeated. */
+function headerString(value: unknown): string | undefined {
+  if (typeof value === 'string') return value
+  if (!Array.isArray(value)) return undefined
+  for (const entry of value) if (typeof entry === 'string') return entry
+  return undefined
+}
+
+/**
+ * Reads `Sec-Fetch-Site` out of whatever shape the adapter passed, **case
+ * insensitively**.
+ *
+ * HTTP header names are case-insensitive and node happens to lowercase what it
+ * parses, so reading the single key `'sec-fetch-site'` out of a Record worked
+ * for express and nest and silently failed for anything else - a hand-built
+ * request object, a framework that preserves the wire casing, or a consumer
+ * calling this exported predicate directly with `{ 'Sec-Fetch-Site': ... }`.
+ * Failing to find the header is indistinguishable from "no header was sent",
+ * which this predicate reads as a non-browser caller and *allows*: the
+ * cross-site request it exists to reject got through on a capital letter.
+ */
+function readSecFetchSite(req: unknown): string | undefined {
+  if (typeof req !== 'object' || req === null) return undefined
+  const headers: unknown = Reflect.get(req, 'headers')
+  // Fetch-API `Headers` is already case-insensitive; ask it directly.
+  if (hasHeaderGetter(headers)) {
+    const found = headers.get(SEC_FETCH_SITE)
+    if (found !== null && found !== '') return found
+  } else if (typeof headers === 'object' && headers !== null) {
+    // Express/Nest-style Record. Own keys only, compared case-insensitively:
+    // an inherited `constructor` is not a header.
+    for (const [name, value] of Object.entries(headers)) {
+      if (name.toLowerCase() !== SEC_FETCH_SITE) continue
+      const found = headerString(value)
+      if (found !== undefined && found !== '') return found
+    }
+  }
+  // Hono-style `c.req.header(name)`.
+  if (hasHeaderAccessor(req)) {
+    const found = req.req.header(SEC_FETCH_SITE)
+    if (found !== undefined && found !== '') return found
+  }
+  return undefined
+}
+
 export function iamDefaultCsrfCheck(req: unknown): boolean {
-  const r = req as
-    | {
-        headers?: Record<string, string | string[] | undefined> | { get?: (n: string) => string | null }
-        req?: { header?: (n: string) => string | undefined }
-      }
-    | undefined
-  let site: string | undefined
-  // Express/NestJS-style: req.headers is a Record.
-  const recordHeaders = r?.headers
-  if (recordHeaders && typeof (recordHeaders as { get?: unknown }).get !== 'function') {
-    const v = (recordHeaders as Record<string, string | string[] | undefined>)['sec-fetch-site']
-    site = Array.isArray(v) ? v[0] : v
-  }
-  // Next/fetch-API style: req.headers.get(...).
-  if (!site && recordHeaders && typeof (recordHeaders as { get?: unknown }).get === 'function') {
-    site = (recordHeaders as { get: (n: string) => string | null }).get('sec-fetch-site') ?? undefined
-  }
-  // Hono style: c.req.header(...).
-  if (!site && r?.req?.header) {
-    site = r.req.header('sec-fetch-site')
-  }
+  const site = readSecFetchSite(req)
   if (!site) return true // non-browser caller; let bearer/mTLS auth decide
   return site !== 'cross-site' && site !== 'cross-origin'
 }
@@ -299,7 +341,20 @@ export async function iamRunAdminAuthz<TReq>(
   csrfCheck: ((req: TReq) => boolean) | null,
   authorize: (req: TReq) => unknown | Promise<unknown>,
 ): Promise<IamIAdminAuthzResult> {
-  if (csrfCheck && !csrfCheck(req)) return { phase: 'forbidden' }
+  if (csrfCheck) {
+    // A throwing predicate used to propagate out of here while a throwing
+    // `authorize` was caught and reported - so whether a request was refused
+    // depended on the framework adapter's outer catch, and the two phases of
+    // the same gate behaved differently. A predicate that cannot answer has
+    // not said yes.
+    let passed: boolean
+    try {
+      passed = csrfCheck(req)
+    } catch {
+      return { phase: 'forbidden' }
+    }
+    if (!passed) return { phase: 'forbidden' }
+  }
   let actor: unknown
   try {
     actor = await authorize(req)
@@ -307,7 +362,50 @@ export async function iamRunAdminAuthz<TReq>(
     return { phase: 'error', error: err instanceof Error ? err : new Error(String(err)) }
   }
   if (!actor) return { phase: 'unauthorized' }
-  return { phase: 'ok', actor }
+  // A truthy answer authorizes the mutation - `authorize: (req) => req.user?.role
+  // === 'admin'` is the documented shape and returns a boolean, so that stays
+  // exactly as it was. What does not stay is `true` being written into the
+  // admin audit event as the person who made the change: an audit trail that
+  // names `true` as the actor cannot attribute the mutation to anybody, and
+  // attribution is the whole reason the event exists. A value that names no one
+  // is recorded as no one, and the operator is told once how to fix it.
+  if (iamIsNameableActor(actor)) return { phase: 'ok', actor }
+  noticeUnnameableActor(actor)
+  return { phase: 'ok', actor: undefined }
+}
+
+/** Per-process latch so the un-nameable-actor notice fires at most once. */
+let _ACTOR_NOTICED = false
+
+function noticeUnnameableActor(actor: unknown): void {
+  if (_ACTOR_NOTICED) return
+  _ACTOR_NOTICED = true
+  console.warn(
+    `[@gentleduck/iam:generic] admin router: \`authorize\` returned ${describeActor(actor)}, which names ` +
+      'no one, so admin audit events for this router will record no actor. Return the actor itself ' +
+      '(a subject id, or an object identifying them) instead of whether they are allowed, ' +
+      'to make admin mutations attributable.',
+  )
+}
+
+/** Names the shape an un-nameable actor arrived in, for the notice above. */
+function describeActor(actor: unknown): string {
+  if (Array.isArray(actor)) return 'an array'
+  if (typeof actor === 'string') return 'a blank string'
+  return `a ${typeof actor}`
+}
+
+/**
+ * Can this value be recorded as the actor who performed an admin mutation?
+ *
+ * A non-empty string (a subject id) or an object identifying them. Not a
+ * boolean, a number, a symbol, a function or an array: none of those name a
+ * person, and the admin audit event exists to name one. This is the check
+ * {@link iamIsSubjectId} makes on `getUserId`, on the admin path.
+ */
+export function iamIsNameableActor(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
@@ -597,10 +695,12 @@ function normalizeForwardedFor(raw: string | undefined): string | undefined {
 
 /**
  * Action used when a request's method is not in {@link IAM_METHOD_ACTION_MAP}.
- * Deliberately not a real action: an unmapped method must match no permission
- * and be denied, rather than inheriting `read` and passing a read check.
+ * Not a real action: an unmapped method must be denied rather than inheriting
+ * `read` and passing a read check. The denial is enforced by the engine, which
+ * reserves this token - see {@link IAM_RESERVED_REFUSAL}. It is not enough for
+ * the string to look unmatchable, because a `'*'` rule matches every string.
  */
-export const IAM_UNKNOWN_ACTION = 'unknown'
+export const IAM_UNKNOWN_ACTION: typeof IAM_RESERVED_REFUSAL = IAM_RESERVED_REFUSAL
 
 /**
  * Default action for an HTTP method. Case-insensitive, because `delete` from a
@@ -659,10 +759,11 @@ export function iamIsSubjectId(value: unknown): value is string {
 
 /**
  * Resource type used when a request path cannot be trusted to name one.
- * Matches no policy target, so the request is denied rather than authorized
- * against whatever the raw path happened to spell.
+ * Reserved by the engine, which refuses it before consulting any policy, so the
+ * request is denied rather than authorized against whatever the raw path
+ * happened to spell - see {@link IAM_RESERVED_REFUSAL}.
  */
-export const IAM_UNKNOWN_RESOURCE = 'unknown'
+export const IAM_UNKNOWN_RESOURCE: typeof IAM_RESERVED_REFUSAL = IAM_RESERVED_REFUSAL
 
 /**
  * True when a raw path segment can be read one way here and another way by the
@@ -682,6 +783,14 @@ export const IAM_UNKNOWN_RESOURCE = 'unknown'
 export function iamPathIsAmbiguous(raw: string): boolean {
   for (const segment of raw.split('/')) {
     if (segment === '.' || segment === '..') return true
+    // A literal backslash, not only an encoded one. The WHATWG URL parser
+    // rewrites `\` to `/` in a special-scheme URL *before* resolving dot
+    // segments, so `new URL('http://x/posts\\..\\admin').pathname` is
+    // `/admin`: this layer reads the type as `posts\..\admin` while anything
+    // parsing the target through `URL` reads `/admin`. The decoded check below
+    // already treats `\` as a separator, so `%5C` was refused while the plain
+    // character - the easier one to send - was not.
+    if (segment.includes('\\')) return true
     if (!segment.includes('%')) continue
     let decoded: string
     try {
@@ -706,8 +815,9 @@ export function iamPathIsAmbiguous(raw: string): boolean {
  * `posts`, so the check passes while the router serves `/admin/secret`. Nor is
  * the canonicalised path, which reads as `admin` here while express serves
  * `/posts`. Anything a router might resolve differently falls back to
- * {@link IAM_UNKNOWN_RESOURCE}, which matches no policy target and therefore
- * denies.
+ * {@link IAM_UNKNOWN_RESOURCE}, which the engine refuses outright - see
+ * {@link IAM_RESERVED_REFUSAL}; being unmatchable by any policy is not
+ * something a string can guarantee, because `'*'` matches strings.
  */
 export function iamDefaultResource(pathname: string | undefined): {
   type: string
