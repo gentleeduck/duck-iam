@@ -31,6 +31,25 @@ export namespace SqlBridge {
     insertProviderLink(identityId: string, providerId: string, providerSub: string | null, addedAt: Date): Promise<void>
     deleteProviderLink(identityId: string, providerId: string): Promise<void>
     merge(survivorId: string, dupId: string): Promise<void>
+
+    /**
+     * Set-based forms of the writes above. Each returns the ids it actually
+     * affected, which is what lets `createSqlStores` build honest per-row
+     * outcomes: an id in the request but not in the response did not match.
+     *
+     * All optional. An adapter that omits one falls back to the facet's loop,
+     * which is correct - just one statement per row instead of one per batch.
+     */
+    softDeleteManyReturningIds?(ids: readonly string[], deletedAt: Date): Promise<string[]>
+    restoreManyReturning?(ids: readonly string[]): Promise<Row[]>
+    eraseManyReturningIds?(ids: readonly string[]): Promise<string[]>
+    updateProfileManyReturning?(
+      rows: readonly { id: string; patch: Partial<Omit<Row, 'id'>>; expectedVersion: number }[],
+    ): Promise<Row[]>
+    insertProviderLinks?(
+      links: readonly { identityId: string; providerId: string; providerSub: string | null; addedAt: Date }[],
+    ): Promise<string[]>
+    deleteProviderLinks?(links: readonly { identityId: string; providerId: string }[]): Promise<string[]>
   }
 
   export type Credential<Row> = {
@@ -48,6 +67,9 @@ export namespace SqlBridge {
     revoke(id: string, revokedAt: Date, tenantId: string | undefined): Promise<void>
     delete(id: string, tenantId: string | undefined): Promise<void>
     deleteByKind(identityId: string, kind: Credential.Kind, tenantId: string | undefined): Promise<void>
+
+    /** Set-based delete by identity, returning the identity ids actually hit. Optional. */
+    deleteByIdentitiesReturningIds?(identityIds: readonly string[], tenantId: string | undefined): Promise<string[]>
   }
 
   export type Session<Row> = {
@@ -58,6 +80,14 @@ export namespace SqlBridge {
     listByIdentity(identityId: string): Promise<Row[]>
     deleteAllForIdentity(identityId: string): Promise<void>
     deleteExpired(now: Date): Promise<number>
+
+    /**
+     * Set-based forms of the deletes above, plus the read the facet needs to
+     * name the sessions it revoked. All optional; the facet loops when absent.
+     */
+    deleteAllForIdentitiesReturningIds?(identityIds: readonly string[]): Promise<string[]>
+    deleteManyReturningIds?(ids: readonly string[]): Promise<string[]>
+    listByIdentities?(identityIds: readonly string[]): Promise<Row[]>
   }
 
   export type Event<Row> = {

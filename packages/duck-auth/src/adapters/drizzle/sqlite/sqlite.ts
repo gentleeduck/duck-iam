@@ -7,7 +7,7 @@
  */
 
 import { createRequire } from 'node:module'
-import { and, eq, isNull, lt, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase, SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
@@ -131,6 +131,56 @@ export function createDrizzleSqliteBridge<
           .set({ providers })
           .where(and(eq(authIdentities.id, identityId)))
       },
+      softDeleteManyReturningIds: async (ids, deletedAt) => {
+        const rows = await db
+          .update(authIdentities)
+          .set({ deletedAt })
+          .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
+          .returning({ id: authIdentities.id })
+        return rows.map((r) => r.id)
+      },
+
+      eraseManyReturningIds: async (ids) => {
+        const list = [...ids]
+        // FK CASCADE covers these; explicit deletes are belt-and-suspenders, as
+        // in the single-row `erase` above.
+        await db.delete(authCredentials).where(inArray(authCredentials.identityId, list))
+        await db.delete(authSessions).where(inArray(authSessions.identityId, list))
+        const gone = await db
+          .delete(authIdentities)
+          .where(inArray(authIdentities.id, list))
+          .returning({ id: authIdentities.id })
+        return gone.map((r) => r.id)
+      },
+
+      restoreManyReturning: (ids) =>
+        db
+          .update(authIdentities)
+          .set({ deletedAt: null })
+          .where(inArray(authIdentities.id, [...ids]))
+          .returning(),
+
+      /**
+       * SQLite has no `UPDATE ... FROM (VALUES ...)`, so each row still needs
+       * its own conditional update to be matched on its own expected version.
+       * They run back-to-back on one connection - inside the caller's
+       * transaction when there is one - so the batch is still atomic; it is the
+       * statement count, not the atomicity, that SQLite cannot collapse.
+       */
+      updateProfileManyReturning: async (rows) => {
+        const out: (typeof authIdentities.$inferSelect)[] = []
+        for (const r of rows) {
+          const updated = await db
+            .update(authIdentities)
+            .set(r.patch)
+            .where(and(eq(authIdentities.id, r.id), eq(authIdentities.version, r.expectedVersion)))
+            .returning()
+          const row = updated[0]
+          if (row) out.push(row)
+        }
+        return out
+      },
+
       merge: async (survivorId, dupId) => {
         // Union dup's provider links into the survivor before re-pointing rows.
         const [surv] = await db
@@ -230,6 +280,13 @@ export function createDrizzleSqliteBridge<
       delete: async (id, tenantId) => {
         await db.delete(authCredentials).where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
       },
+      deleteByIdentitiesReturningIds: async (identityIds, tenantId) => {
+        const rows = await db
+          .delete(authCredentials)
+          .where(and(inArray(authCredentials.identityId, [...identityIds]), tenantWhere(authCredentials, tenantId)))
+          .returning({ id: authCredentials.identityId })
+        return rows.map((r) => r.id).filter((id): id is string => id !== null)
+      },
       deleteByKind: async (identityId, kind, tenantId) => {
         await db
           .delete(authCredentials)
@@ -264,6 +321,25 @@ export function createDrizzleSqliteBridge<
       deleteAllForIdentity: async (identityId) => {
         await db.delete(authSessions).where(eq(authSessions.identityId, identityId))
       },
+      deleteAllForIdentitiesReturningIds: async (identityIds) => {
+        const rows = await db
+          .delete(authSessions)
+          .where(inArray(authSessions.identityId, [...identityIds]))
+          .returning({ id: authSessions.identityId })
+        return rows.map((r) => r.id).filter((id): id is string => id !== null)
+      },
+      deleteManyReturningIds: async (ids) => {
+        const rows = await db
+          .delete(authSessions)
+          .where(inArray(authSessions.id, [...ids]))
+          .returning({ id: authSessions.id })
+        return rows.map((r) => r.id)
+      },
+      listByIdentities: (identityIds) =>
+        db
+          .select()
+          .from(authSessions)
+          .where(inArray(authSessions.identityId, [...identityIds])),
       deleteExpired: async (now) => {
         const result = await db.delete(authSessions).where(lt(authSessions.absoluteExpiresAt, now)).returning()
         return result.length

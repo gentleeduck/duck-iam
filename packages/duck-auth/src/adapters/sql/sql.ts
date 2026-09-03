@@ -1,8 +1,10 @@
+import { type Batch, batchResult } from '~/core/batch'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { authUlid } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { SqlBridge } from './sql.types'
 
 /** Drops explicit undefined values from partial patches before passing to the bridge */
@@ -47,9 +49,38 @@ export function createSqlStores<Profile extends Identities.ProfileMetadataBase>(
   return { identities, credentials, sessions }
 }
 
+/**
+ * Turns "ids I asked for" plus "ids the statement actually touched" into
+ * per-row outcomes in input order.
+ *
+ * An id the statement did not touch is `not-found` - which is exactly what a
+ * `WHERE id = ANY($1)` matching fewer rows than it was given means.
+ */
+function outcomesFromAffected(requested: readonly string[], affected: readonly string[]): Batch.Result {
+  const hit = new Set(affected)
+  return batchResult(
+    requested.map((id) =>
+      hit.has(id)
+        ? { id, ok: true as const, value: undefined }
+        : { id, ok: false as const, reason: 'not-found' as const },
+    ),
+  )
+}
+
+/** Outcome id for a provider link; mirrors the facet's key so outcomes line up. */
+function linkKey(identityId: string, providerId: string): string {
+  return `${identityId} ${providerId}`
+}
+
 function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
   bridge: SqlBridge.Identity<Identities.Me<Profile>>,
 ): Identities.Store<Profile> {
+  // Hoisted so the `&&` guard below narrows a `const` the closure captures.
+  // Reading `bridge.x` again inside the closure would be `x | undefined` all
+  // over again, and the only way back would be a `!` the type system cannot
+  // check.
+  const { softDeleteManyReturningIds, eraseManyReturningIds, restoreManyReturning } = bridge
+  const { updateProfileManyReturning, insertProviderLinks, deleteProviderLinks } = bridge
   return {
     findById: (id) => bridge.findById(id),
     findByEmail: (email) => bridge.findByEmail(email),
@@ -89,10 +120,82 @@ function buildIdentities<Profile extends Identities.ProfileMetadataBase>(
     link: (identityId, link) => bridge.insertProviderLink(identityId, link.providerId, link.providerSub, link.addedAt),
     unlink: (identityId, providerId) => bridge.deleteProviderLink(identityId, providerId),
     merge: (survivorId, dupId) => bridge.merge(survivorId, dupId),
+
+    ...(softDeleteManyReturningIds && {
+      softDeleteMany: async (ids: readonly string[], gracePeriodMs: number) =>
+        outcomesFromAffected(ids, await softDeleteManyReturningIds(ids, new Date(Date.now() + gracePeriodMs))),
+    }),
+
+    ...(eraseManyReturningIds && {
+      eraseMany: async (ids: readonly string[]) => outcomesFromAffected(ids, await eraseManyReturningIds(ids)),
+    }),
+
+    ...(restoreManyReturning && {
+      restoreMany: async (ids: readonly string[]) => {
+        const rows = await restoreManyReturning(ids)
+        const byId = new Map(rows.map((row) => [row.id, row]))
+        return batchResult(
+          ids.map((id) => {
+            const row = byId.get(id)
+            return row
+              ? { id, ok: true as const, value: row }
+              : { id, ok: false as const, reason: 'not-found' as const }
+          }),
+        )
+      },
+    }),
+
+    ...(updateProfileManyReturning && {
+      updateProfileMany: async (rows: readonly { id: string; profile: Profile; expectedVersion: number }[]) => {
+        const updated = await updateProfileManyReturning(
+          rows.map((r) => ({
+            expectedVersion: r.expectedVersion,
+            id: r.id,
+            patch: { profile: r.profile, updatedAt: new Date(), version: r.expectedVersion + 1 },
+          })),
+        )
+        const byId = new Map(updated.map((row) => [row.id, row]))
+        // A requested id missing from the response is `stale-write`, not
+        // `not-found`: the facet already proved the row exists, so the only way
+        // the conditional update matched nothing is a version mismatch.
+        return batchResult(
+          rows.map((r) => {
+            const row = byId.get(r.id)
+            return row
+              ? { id: r.id, ok: true as const, value: row }
+              : { id: r.id, ok: false as const, reason: 'stale-write' as const }
+          }),
+        )
+      },
+    }),
+
+    ...(insertProviderLinks && {
+      linkMany: async (links: readonly { identityId: string; link: Identities.ProviderLink }[]) =>
+        outcomesFromAffected(
+          links.map((l) => linkKey(l.identityId, l.link.providerId)),
+          await insertProviderLinks(
+            links.map((l) => ({
+              addedAt: l.link.addedAt,
+              identityId: l.identityId,
+              providerId: l.link.providerId,
+              providerSub: l.link.providerSub,
+            })),
+          ),
+        ),
+    }),
+
+    ...(deleteProviderLinks && {
+      unlinkMany: async (links: readonly { identityId: string; providerId: string }[]) =>
+        outcomesFromAffected(
+          links.map((l) => linkKey(l.identityId, l.providerId)),
+          await deleteProviderLinks([...links]),
+        ),
+    }),
   }
 }
 
 function buildCredentials(bridge: SqlBridge.Credential<Credential.Me>): Credential.Store {
+  const { deleteByIdentitiesReturningIds } = bridge
   return {
     findById: (id, ctx) => bridge.findById(id, ctx.tenantId),
     listByIdentity: (identityId, kind, ctx) => bridge.listByIdentity(identityId, kind, ctx.tenantId),
@@ -142,10 +245,16 @@ function buildCredentials(bridge: SqlBridge.Credential<Credential.Me>): Credenti
     revoke: (id, ctx) => bridge.revoke(id, new Date(), ctx.tenantId),
     delete: (id, ctx) => bridge.delete(id, ctx.tenantId),
     deleteByKind: (identityId, kind, ctx) => bridge.deleteByKind(identityId, kind, ctx.tenantId),
+
+    ...(deleteByIdentitiesReturningIds && {
+      deleteByIdentities: async (identityIds: readonly string[], ctx: TenantContext) =>
+        outcomesFromAffected(identityIds, await deleteByIdentitiesReturningIds(identityIds, ctx.tenantId)),
+    }),
   }
 }
 
 function buildSessions(bridge: SqlBridge.Session<Sessions.Me>): Sessions.Store {
+  const { deleteAllForIdentitiesReturningIds, deleteManyReturningIds, listByIdentities } = bridge
   return {
     create: async (s) => {
       await bridge.insert({
@@ -177,5 +286,18 @@ function buildSessions(bridge: SqlBridge.Session<Sessions.Me>): Sessions.Store {
     listByIdentity: (identityId) => bridge.listByIdentity(identityId),
     deleteAllForIdentity: (identityId) => bridge.deleteAllForIdentity(identityId),
     gc: async (now) => ({ deleted: await bridge.deleteExpired(new Date(now)) }),
+
+    ...(deleteAllForIdentitiesReturningIds && {
+      deleteAllForIdentities: async (identityIds: readonly string[]) =>
+        outcomesFromAffected(identityIds, await deleteAllForIdentitiesReturningIds(identityIds)),
+    }),
+
+    ...(deleteManyReturningIds && {
+      deleteMany: async (ids: readonly string[]) => outcomesFromAffected(ids, await deleteManyReturningIds(ids)),
+    }),
+
+    ...(listByIdentities && {
+      listByIdentities: (identityIds: readonly string[]) => listByIdentities(identityIds),
+    }),
   }
 }

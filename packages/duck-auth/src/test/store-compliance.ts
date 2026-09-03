@@ -12,6 +12,25 @@ import { credentialInput, identityInput, sessionInput } from '~/test/store-input
  *
  * @param factory - factory returning a fresh `Identity.IStore` per test
  */
+/**
+ * An identity id that is guaranteed absent AND guaranteed acceptable to the
+ * adapter's `id` column. A literal like `'no-such-id'` is neither: Postgres
+ * stores identity ids as `uuid` and rejects it as malformed input long before
+ * it can miss. Creating a row and erasing it borrows the store's own id shape.
+ */
+async function absentIdentityId<P extends SqlBridge.ProfileMetadataBase>(
+  store: Identities.Store<P>,
+): Promise<string> {
+  const doomed = await store.create(
+    identityInput({ profile: { email: `absent-${Date.now()}@x`, username: 'absent' } as unknown as P }),
+  )
+  await store.erase(doomed.id)
+  return doomed.id
+}
+
+/** Same idea for session compliance, whose identity ids come from the caller. */
+const ABSENT = '00000000-0000-4000-8000-000000000000'
+
 export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBase = SqlBridge.ProfileMetadataBase>(
   factory: () => Identities.Store<P>,
 ): void {
@@ -43,6 +62,63 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       expect(rebound).not.toBe(store)
       expect(rebound.findById).toBeTypeOf('function')
       expect(await store.findById(i.id)).not.toBeNull()
+    })
+
+    it('softDeleteMany, when present, reports one outcome per id in input order', async () => {
+      const store = factory()
+      // A store with no set-based form is complete without one; the facet loops.
+      if (!store.softDeleteMany) return
+      const a = await store.create(identityInput({ profile: { email: 'ba@x', username: 'ba' } as unknown as P }))
+      const b = await store.create(identityInput({ profile: { email: 'bb@x', username: 'bb' } as unknown as P }))
+      const gone = await absentIdentityId(store)
+
+      const result = await store.softDeleteMany([a.id, gone, b.id], 1000)
+
+      expect(result.outcomes.map((o) => o.id)).toEqual([a.id, gone, b.id])
+      expect(result.applied).toBe(2)
+      expect(result.failed).toBe(1)
+      expect(await store.findById(a.id)).toBeNull()
+      expect(await store.findById(b.id)).toBeNull()
+    })
+
+    it('updateProfileMany, when present, reports stale rows without throwing', async () => {
+      const store = factory()
+      if (!store.updateProfileMany) return
+      const a = await store.create(identityInput({ profile: { email: 'ua@x', username: 'ua' } as unknown as P }))
+      const b = await store.create(identityInput({ profile: { email: 'ub@x', username: 'ub' } as unknown as P }))
+
+      const result = await store.updateProfileMany([
+        { expectedVersion: 999, id: a.id, profile: { email: 'ua2@x', username: 'ua2' } as unknown as P },
+        { expectedVersion: b.version, id: b.id, profile: { email: 'ub2@x', username: 'ub2' } as unknown as P },
+      ])
+
+      expect(result.outcomes[0]).toMatchObject({ ok: false, reason: 'stale-write' })
+      expect(result.outcomes[1]?.ok).toBe(true)
+      // The winner really landed and its version really moved on.
+      const after = await store.findById(b.id)
+      expect(after?.profile.username).toBe('ub2')
+      expect(after?.version).toBe(b.version + 1)
+      // The loser is untouched.
+      expect((await store.findById(a.id))?.profile.username).toBe('ua')
+    })
+
+    it('eraseMany and restoreMany, when present, round-trip', async () => {
+      const store = factory()
+      if (!store.restoreMany || !store.eraseMany) return
+      const a = await store.create(identityInput({ profile: { email: 'er@x', username: 'er' } as unknown as P }))
+      await store.softDelete(a.id, 1000)
+
+      expect((await store.restoreMany([a.id, await absentIdentityId(store)])).applied).toBe(1)
+      expect(await store.findById(a.id)).not.toBeNull()
+
+      expect((await store.eraseMany([a.id])).applied).toBe(1)
+      expect(await store.findById(a.id)).toBeNull()
+    })
+
+    it('a batch over an empty list is a no-op', async () => {
+      const store = factory()
+      if (!store.softDeleteMany) return
+      expect((await store.softDeleteMany([], 1000)).outcomes).toEqual([])
     })
 
     it('findByEmail finds a created identity (identities are global)', async () => {
@@ -173,6 +249,63 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       // Nullable columns the store fills with `null` are extra keys on the
       // returned row, so assert the caller-provided fields are a subset.
       expect(await store.getByHash(sid('hash-1'))).toMatchObject(session)
+    })
+
+    it('deleteAllForIdentities, when present, sweeps every named identity', async () => {
+      const store = factory()
+      // A store with no set-based form is complete without one; the facet loops.
+      if (!store.deleteAllForIdentities) return
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      const mk = (id: string, identityId: string) =>
+        sessionInput({
+          id: sid(id),
+          identityId,
+          kind: 'user',
+          aal: 1,
+          factors: [],
+          createdAt: now,
+          rotatedAt: now,
+          expiresAt: exp,
+          absoluteExpiresAt: exp,
+          fresh: true,
+        })
+      await store.create(mk('bulk-1', OWNER))
+      await store.create(mk('bulk-2', OWNER))
+      await store.create(mk('bulk-3', OTHER))
+
+      const result = await store.deleteAllForIdentities([OWNER, OTHER, ABSENT])
+
+      expect(result.outcomes.map((o) => o.id)).toEqual([OWNER, OTHER, ABSENT])
+      expect(result.applied).toBe(2)
+      expect(result.outcomes[2]).toMatchObject({ ok: false, reason: 'not-found' })
+      expect(await store.listByIdentity(OWNER)).toEqual([])
+      expect(await store.listByIdentity(OTHER)).toEqual([])
+    })
+
+    it('listByIdentities, when present, returns the union of the named identities', async () => {
+      const store = factory()
+      if (!store.listByIdentities) return
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await store.create(
+        sessionInput({
+          id: sid('union-1'),
+          identityId: OWNER,
+          kind: 'user',
+          aal: 1,
+          factors: [],
+          createdAt: now,
+          rotatedAt: now,
+          expiresAt: exp,
+          absoluteExpiresAt: exp,
+          fresh: true,
+        }),
+      )
+
+      const rows = await store.listByIdentities([OWNER, ABSENT])
+
+      expect(rows.map((r) => r.identityId)).toEqual([OWNER])
     })
 
     it('listByIdentity returns only sessions of the requested identity', async () => {
@@ -382,6 +515,22 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       )
       await store.rotate(c.id, 'h2', c.version, {})
       await expect(store.rotate(c.id, 'h3', 1, {})).rejects.toMatchObject({ code: 'AUTH_STALE_WRITE' })
+    })
+
+    it('deleteByIdentities, when present, reports one outcome per identity in input order', async () => {
+      const store = factory()
+      // Stores with no set-based form are complete without one; the facet loops.
+      if (!store.deleteByIdentities) return
+      await store.upsert(credentialInput({ identityId: OWNER, kind: 'password', secret: 'bp', metadata: {} }), {})
+      await store.upsert(credentialInput({ identityId: OWNER, kind: 'totp', secret: 'bt', metadata: {} }), {})
+
+      const result = await store.deleteByIdentities([OWNER, ABSENT], {})
+
+      expect(result.outcomes.map((o) => o.id)).toEqual([OWNER, ABSENT])
+      expect(result.applied).toBe(1)
+      expect(result.outcomes[1]).toMatchObject({ ok: false, reason: 'not-found' })
+      // Every kind went, not just the one the last statement happened to match.
+      expect(await store.listByIdentity(OWNER, null, {})).toEqual([])
     })
 
     it('deleteByKind removes only credentials of that kind for an identity', async () => {
