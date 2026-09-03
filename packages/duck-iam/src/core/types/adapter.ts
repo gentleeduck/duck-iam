@@ -48,12 +48,59 @@ export namespace IamAdapter {
     readonly opts?: IAssignOptions
   }
 
-  /** Optional extras for {@link ISubjectStore.assignRole}: temporal bounds and per-grant attributes. */
+  /** A triple plus the per-revoke extras {@link ISubjectStore.revokeRole} accepts. */
+  export interface IRevokeRow<TRole extends string = string, TScope extends string = string>
+    extends ITripleRow<TRole, TScope> {
+    readonly opts?: IRevokeOptions
+  }
+
+  /**
+   * Optional extras for {@link ISubjectStore.assignRole}: temporal bounds,
+   * per-grant attributes, and who is making the grant.
+   */
   export interface IAssignOptions {
     readonly startsAt?: Date
     readonly expiresAt?: Date
     readonly attributes?: IamPrimitives.Attributes
+    /**
+     * Who is making this grant.
+     *
+     * Written to the assignment's provenance column where the schema has one -
+     * `created_by` in the drizzle pg and mysql schemas, which declared the
+     * column before there was any way to fill it - and carried on the
+     * `role.assigned` mutation event regardless of whether any column exists.
+     *
+     * Unlike the other three fields, an adapter that cannot store this does
+     * **not** throw: see the note on `ASSIGN_OPTION_FIELDS` in
+     * `shared/assign-options.ts` for why the two cases differ.
+     */
+    readonly actor?: string
   }
+
+  /**
+   * Names who is performing a write.
+   *
+   * Every table in the drizzle schemas has carried `created_by` / `updated_by`
+   * since it was written, and until this existed nothing could fill them: the
+   * schema promised an audit trail the API could not produce. Adapters whose
+   * storage has no such column ignore it - the mutation event carries the actor
+   * regardless, which is why this is not covered by the `iamAssertNoAssignOptions`
+   * allow-list the way `expiresAt` is. Dropping `expiresAt` changes what the
+   * store answers; dropping `actor` does not.
+   */
+  export interface IActorOptions {
+    readonly actor?: string
+  }
+
+  /**
+   * Optional extras for {@link ISubjectStore.revokeRole}.
+   *
+   * A revoke hard-deletes the row, so there is nothing left to carry
+   * provenance; `actor` exists so the `role.revoked` mutation event can name
+   * who did it, and so an adapter that keeps its own tombstones has the value
+   * available. Adapters are free to ignore it.
+   */
+  export interface IRevokeOptions extends IActorOptions {}
 
   /**
    * Storage interface for ABAC policies.
@@ -71,8 +118,12 @@ export namespace IamAdapter {
     listPolicies(opts?: IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]>
     /** Returns a single policy by ID, or `null` if not found. */
     getPolicy(id: string, opts?: IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null>
-    /** Engine invalidates its policy cache after this call. */
-    savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void>
+    /**
+     * Engine invalidates its policy cache after this call. `opts.actor` fills
+     * the row's `created_by` on first write and `updated_by` on every later
+     * one, where the schema has those columns.
+     */
+    savePolicy(policy: AccessControl.IPolicy<TAction, TResource, TRole>, opts?: IActorOptions): Promise<void>
     /** Engine invalidates its policy cache after this call. */
     deletePolicy(id: string): Promise<void>
   }
@@ -96,8 +147,18 @@ export namespace IamAdapter {
     /** Returns a single role by ID, or `null` if not found. */
     getRole(id: string, opts?: IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null>
     /** Engine invalidates its role cache after this call. */
-    saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void>
-    /** Engine invalidates its role cache after this call. */
+    saveRole(role: AccessControl.IRole<TAction, TResource, TRole, TScope>, opts?: IActorOptions): Promise<void>
+    /**
+     * Removes the role and every grant that named it. Engine invalidates its
+     * role cache after this call.
+     *
+     * The cascade is part of the contract, not an implementation detail: the
+     * SQL schemas get it from `fk_iam_assignments_role ON DELETE CASCADE`,
+     * memory/file/redis sweep their assignments, and an HTTP server is expected
+     * to do the same. A grant left pointing at a deleted role still reads as a
+     * grant, and a role recreated under the reused id hands it back to everyone
+     * who once held it without an operator granting anything.
+     */
     deleteRole(id: string): Promise<void>
   }
 
@@ -123,10 +184,21 @@ export namespace IamAdapter {
      * cannot store `opts` **throws** rather than dropping it - a time-boxed grant
      * that silently became permanent is the failure this contract exists to
      * prevent. Only the drizzle schemas carry the columns today.
+     *
+     * The role must already exist: granting an id no role is stored under
+     * **throws**. Drizzle and prisma get this from the assignments-to-roles
+     * foreign key, the memory, file and redis adapters check before writing,
+     * and the HTTP adapter delegates to the operator's server, which must also.
+     * Accepting the write instead recorded a grant that `resolveSubject` then
+     * dropped, so a typo'd role id read back as success and granted nothing.
      */
     assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IAssignOptions): Promise<void>
-    /** Revokes a role from a subject, optionally within a scope. */
-    revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void>
+    /**
+     * Revokes a role from a subject, optionally within a scope. `opts.actor`
+     * is advisory - the row is deleted, so most adapters have nowhere to put
+     * it; the `role.revoked` mutation event carries it either way.
+     */
+    revokeRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IRevokeOptions): Promise<void>
     /**
      * Moves an existing `(subjectId, roleId, fromScope)` assignment to `toScope` in
      * place - one write instead of revoke + assign. Returns `false` when no matching
@@ -164,15 +236,16 @@ export namespace IamAdapter {
      */
     assignRoleMany?(rows: readonly IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null>
     /** Set-based revoke. See {@link assignRoleMany}. */
-    revokeRoleMany?(rows: readonly ITripleRow<TRole, TScope>[]): Promise<readonly number[] | null>
+    revokeRoleMany?(rows: readonly IRevokeRow<TRole, TScope>[]): Promise<readonly number[] | null>
     /** Returns the attribute bag for a subject. */
     getSubjectAttributes(subjectId: string, opts?: IReadOptions): Promise<IamPrimitives.Attributes>
     /**
      * Merges `attrs` into the subject's existing attribute bag (shallow per-key
      * overwrite). Set a key to `null` to clear it. Implementations must not drop
-     * keys absent from `attrs`.
+     * keys absent from `attrs`. `opts.actor` fills the row's provenance columns
+     * where the schema has them.
      */
-    setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void>
+    setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes, opts?: IActorOptions): Promise<void>
   }
 
   /**

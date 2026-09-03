@@ -40,7 +40,7 @@ export const VALID_ALGORITHMS: ReadonlySet<string> = new Set([
  * different name than it is. Rejected at validation rather than normalized:
  * silently rewriting a name would change which rules a policy matches.
  */
-function hasControlChar(value: string): boolean {
+export function hasControlChar(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i)
     if (code < 0x20 || code === 0x7f) return true

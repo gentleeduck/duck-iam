@@ -119,14 +119,27 @@ describe('IamDrizzleAdapter native JSONB shape validation', () => {
     )
   })
 
-  it('returns {} when data column is null (legit empty state, not corruption)', async () => {
+  // These two asserted `{}` on the reading that a null `data` is a legitimate
+  // empty state. It is not one: `data` is `.notNull()` in all three shipped
+  // schemas, so a row that exists cannot carry an absent value, and a `null`
+  // arriving here is `'null'::jsonb` - a stored value, the shape an import or a
+  // hand-written migration produces from a missing field. Against real
+  // Postgres that `{}` retired the deny rule in
+  // `e2e-adapter-drizzle-pg.e2e.test.ts` and turned a corrupt row into an
+  // allow, while prisma's adapter threw on the identical row. A subject with no
+  // attributes has no row at all, and that case still answers `{}` above.
+  it('throws when the data column holds a stored JSON null', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: null }])
-    await expect(adapter.getSubjectAttributes('user-1')).resolves.toEqual({})
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
+      /corrupted attributes for "user-1" \(not a JSON object\)/,
+    )
   })
 
-  it('returns {} when data column is undefined', async () => {
+  it('throws when the data column is undefined', async () => {
     const adapter = buildAdapter([{ subjectId: 'user-1', data: undefined }])
-    await expect(adapter.getSubjectAttributes('user-1')).resolves.toEqual({})
+    await expect(adapter.getSubjectAttributes('user-1')).rejects.toThrow(
+      /corrupted attributes for "user-1" \(not a JSON object\)/,
+    )
   })
 
   it('accepts a valid native object', async () => {

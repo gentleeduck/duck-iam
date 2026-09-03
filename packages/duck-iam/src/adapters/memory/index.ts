@@ -1,5 +1,6 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam } from '../../shared/attributes'
 import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
@@ -155,13 +156,27 @@ export class IamMemoryAdapter<
   }
 
   /**
-   * Removes a role by ID.
+   * Removes a role by ID, and with it every grant that named it.
+   *
+   * The grants go too because the SQL schemas take them: `fk_iam_assignments_role`
+   * is `ON DELETE CASCADE`, so `deleteRole('editor')` left `getSubjectRoles`
+   * returning `editor` here and `[]` on drizzle and prisma - one call, two
+   * answers. Keeping the orphan is not the harmless option either: it reads as
+   * a grant, `assignRole` now refuses to create one like it, and recreating a
+   * role under the reused id hands it back to everyone who once held it,
+   * without an operator granting anything.
    *
    * @param id - Identifies the role to delete.
-   * @returns Resolves once the entry is removed (no-op when absent).
+   * @returns Resolves once the role and its grants are removed (no-op when absent).
    */
   async deleteRole(id: string): Promise<void> {
     this._roles.delete(id)
+    for (const [subjectId, entries] of this._assignments) {
+      const kept = entries.filter((e) => e.role !== id)
+      if (kept.length === entries.length) continue
+      if (kept.length === 0) this._assignments.delete(subjectId)
+      else this._assignments.set(subjectId, kept)
+    }
   }
 
   /**
@@ -194,7 +209,8 @@ export class IamMemoryAdapter<
   /**
    * Grants a role to a subject, optionally restricted to a scope.
    *
-   * Duplicate `(role, scope)` pairs are silently ignored.
+   * Duplicate `(role, scope)` pairs are silently ignored. A role that is not
+   * stored is refused - see {@link iamAssertRoleExists}.
    *
    * @param id - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.
@@ -204,6 +220,7 @@ export class IamMemoryAdapter<
   async assignRole(id: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('memory', scope)
     iamAssertNoAssignOptions('memory', opts)
+    iamAssertRoleExists('memory', this._roles.has(roleId))
     let entries = this._assignments.get(id)
     if (!entries) {
       entries = []

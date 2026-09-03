@@ -2,8 +2,14 @@ import * as nodePath from 'node:path'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertRoleExists } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
-import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import {
+  iamAssertSavablePolicy,
+  iamAssertSavableRole,
+  iamNormalizePolicy,
+  iamUnreadablePolicy,
+} from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
@@ -394,6 +400,7 @@ export class IamFileAdapter<
               .issues.map((i) => i.message)
               .join('; ')
             this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
+            throw iamUnreadablePolicy('file', rowId, issues)
           }
         }
         const roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>> = Object.create(null)
@@ -460,7 +467,11 @@ export class IamFileAdapter<
    * out verbatim, and the marker itself never reaches the file.
    */
   private _serializableState(state: IamFile.IState<TAction, TResource, TRole, TScope>): Record<string, unknown> {
-    const attributes: Record<string, unknown> = { ...state.attributes }
+    // Null-prototype: `id` is a subject id read from the file, and on a normal
+    // object `attributes['__proto__'] = raw` runs the setter - the corrupt row
+    // would be silently dropped from the output this method exists to preserve
+    // verbatim.
+    const attributes: Record<string, unknown> = Object.assign(Object.create(null), state.attributes)
     for (const [id, raw] of state.corruptAttributes ?? []) attributes[id] = raw
     return { assignments: state.assignments, attributes, policies: state.policies, roles: state.roles }
   }
@@ -590,7 +601,15 @@ export class IamFileAdapter<
   }
 
   /**
-   * Removes a role by ID and flushes to disk.
+   * Removes a role by ID, and with it every grant that named it.
+   *
+   * The grants go too because the SQL schemas take them: `fk_iam_assignments_role`
+   * is `ON DELETE CASCADE`, so `deleteRole('editor')` left `getSubjectRoles`
+   * returning `editor` here and `[]` on drizzle and prisma - one call, two
+   * answers. Keeping the orphan is not the harmless option either: it reads as
+   * a grant, `assignRole` now refuses to create one like it, and recreating a
+   * role under the reused id hands it back to everyone who once held it,
+   * without an operator granting anything.
    *
    * @param id - Identifies the role to delete.
    * @returns Resolves once the file is rewritten.
@@ -598,6 +617,12 @@ export class IamFileAdapter<
   async deleteRole(id: string): Promise<void> {
     const s = await this._loadState()
     delete s.roles[id]
+    for (const [subjectId, entries] of Object.entries(s.assignments)) {
+      const kept = entries.filter((e) => e.role !== id)
+      if (kept.length === entries.length) continue
+      if (kept.length === 0) delete s.assignments[subjectId]
+      else s.assignments[subjectId] = kept
+    }
     await this._flush()
   }
 
@@ -633,7 +658,8 @@ export class IamFileAdapter<
   /**
    * Grants a role to a subject, optionally restricted to a scope.
    *
-   * Duplicate `(role, scope)` pairs are silently ignored.
+   * Duplicate `(role, scope)` pairs are silently ignored. A role that is not
+   * stored is refused - see {@link iamAssertRoleExists}.
    *
    * @param id - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.
@@ -650,6 +676,7 @@ export class IamFileAdapter<
       throw new Error('[@gentleduck/iam:file] scope must not be an empty string; omit it for a global assignment')
     }
     const s = await this._loadState()
+    iamAssertRoleExists('file', Object.hasOwn(s.roles, roleId))
     let entries = s.assignments[id]
     if (!entries) {
       entries = []

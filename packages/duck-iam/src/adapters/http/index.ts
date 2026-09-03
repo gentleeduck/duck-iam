@@ -2,7 +2,12 @@ import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../..
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
-import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import {
+  iamAssertSavablePolicy,
+  iamAssertSavableRole,
+  iamNormalizePolicy,
+  iamUnreadablePolicy,
+} from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
@@ -487,7 +492,11 @@ export class IamHttpAdapter<
     console.warn(`[@gentleduck/iam:http] dropped malformed row "${rowId}": ${err.message}`)
   }
 
-  /** Narrow one API row to a policy; a shape mismatch is reported and dropped, never returned. */
+  /**
+   * Narrow one API row to a policy. A shape mismatch is reported and then
+   * throws - never dropped, and never returned unvalidated. See
+   * {@link iamUnreadablePolicy}; `_narrowRole` below still drops.
+   */
   private _narrowPolicy(row: unknown, fallbackId: string): AccessControl.IPolicy<TAction, TResource, TRole> | null {
     const policy = parsePolicyRow<TAction, TResource, TRole>(row)
     if (policy !== null) return policy
@@ -496,7 +505,7 @@ export class IamHttpAdapter<
       .issues.map((i) => i.message)
       .join('; ')
     this._reportPolicyError(new Error(`Invalid policy "${rowId}": ${issues}`), rowId)
-    return null
+    throw iamUnreadablePolicy('http', rowId, issues)
   }
 
   private _narrowRole(row: unknown, fallbackId: string): AccessControl.IRole<TAction, TResource, TRole, TScope> | null {
@@ -720,6 +729,14 @@ export class IamHttpAdapter<
   /**
    * Removes a role by ID via DELETE.
    *
+   * The server is expected to drop the grants naming that role along with it,
+   * as `ON DELETE CASCADE` does on the SQL schemas and as the other five
+   * adapters now do: a grant left behind reads as a grant, and a role later
+   * recreated under the same id hands it back to everyone who once held it.
+   * This adapter cannot enforce that - it has no listing of subjects to sweep -
+   * so it states the expectation and the reference server in
+   * `http-compliance.test.ts` shows the shape of a correct implementation.
+   *
    * @param id - Identifies the role to delete.
    * @returns Resolves once the API acknowledges the delete.
    */
@@ -770,6 +787,12 @@ export class IamHttpAdapter<
   }
   /**
    * Grants a role to a subject, optionally restricted to a scope.
+   *
+   * The contract refuses a grant naming a role that does not exist, but the
+   * operator's server is the authority on which roles exist here, so this
+   * adapter delegates: the server rejects the write and the non-2xx surfaces as
+   * a throw, exactly as for the read contract. Checking locally would mean an
+   * extra round trip whose answer the server is free to disagree with.
    *
    * @param subjectId - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.

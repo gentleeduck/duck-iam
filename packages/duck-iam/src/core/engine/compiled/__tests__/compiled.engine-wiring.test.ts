@@ -40,6 +40,7 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       policyCombine,
     })
     const development = new IamEngine({
+      mode: 'development',
       adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
       defaultEffect: 'deny',
       policyCombine,
@@ -58,6 +59,7 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       policyCombine,
     })
     const development = new IamEngine({
+      mode: 'development',
       adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
       defaultEffect: 'deny',
       policyCombine,
@@ -80,6 +82,7 @@ describe.each(['and', 'allow-overrides'] as const)('production mode (policyCombi
       policyCombine,
     })
     const development = new IamEngine({
+      mode: 'development',
       adapter: new IamMemoryAdapter({ roles, policies, assignments, attributes }),
       defaultEffect: 'deny',
       policyCombine,
@@ -152,6 +155,7 @@ describe('production mode: mixed simple+residual RBAC on one role (regression)',
     })
     const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' }) // 'and' default
     const development = new IamEngine({
+      mode: 'development',
       adapter: new IamMemoryAdapter({
         roles: mixedRoles,
         policies: [],

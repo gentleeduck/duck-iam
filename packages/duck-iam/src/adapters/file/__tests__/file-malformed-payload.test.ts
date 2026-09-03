@@ -223,9 +223,15 @@ describe('IamFileAdapter malformed assignments/attributes', () => {
     })
 
     it('returns null policy for id="__proto__"', async () => {
+      // A *complete* row on purpose. `{ id, rules }` alone does not parse, and
+      // while the loader dropped unreadable policy rows this test passed
+      // against an empty store - it never reached the prototype-key lookup it
+      // is named for. The loader now refuses such a row, which is what exposed
+      // it.
       const { adapter } = await makeAdapter({
-        policies: { 'p-real': { id: 'p-real', rules: [] } },
+        policies: { 'p-real': { algorithm: 'deny-overrides', id: 'p-real', name: 'Real', rules: [] } },
       })
+      expect((await adapter.listPolicies()).map((x) => x.id)).toEqual(['p-real'])
       expect(await adapter.getPolicy('__proto__')).toBeNull()
       expect(await adapter.getPolicy('constructor')).toBeNull()
     })

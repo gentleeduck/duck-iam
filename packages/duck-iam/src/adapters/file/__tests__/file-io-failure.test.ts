@@ -16,8 +16,9 @@ function errno(code: string): NodeJS.ErrnoException {
 }
 
 /** Fake FS whose individual operations can be made to fail with a given errno. */
-function makeFS(fail: { write?: string; mkdir?: string; read?: string } = {}): IamFile.IFS {
+function makeFS(fail: { write?: string; mkdir?: string; read?: string } = {}, seed?: string): IamFile.IFS {
   const files = new Map<string, string>()
+  if (seed !== undefined) files.set(STORE, seed)
   const dirs = new Set<string>()
   return {
     async mkdir(path: string) {
@@ -56,12 +57,24 @@ describe('IamFileAdapter I/O failure handling', () => {
   })
 
   it('surfaces a writeFile failure from every mutating method', async () => {
-    const adapter = new IamFileAdapter<A, R, Ro, S>({ fs: makeFS({ write: 'EACCES' }), path: STORE })
+    // The store is seeded with `viewer` because `assignRole` refuses a role
+    // that is not stored, and the failure under test here is the write, not
+    // the grant target. It is not `editor`: the `deleteRole('editor')` line
+    // below removes the role from the loaded state before its flush fails, so
+    // granting `editor` afterwards would fail on the missing role instead of
+    // on the write.
+    const seed = JSON.stringify({
+      assignments: {},
+      attributes: {},
+      policies: {},
+      roles: { viewer: { id: 'viewer', name: 'Viewer', permissions: [] } },
+    })
+    const adapter = new IamFileAdapter<A, R, Ro, S>({ fs: makeFS({ write: 'EACCES' }, seed), path: STORE })
     await expect(adapter.savePolicy(policy)).rejects.toThrow(/EACCES/)
     await expect(adapter.deletePolicy('p1')).rejects.toThrow(/EACCES/)
     await expect(adapter.saveRole({ id: 'editor', name: 'Editor', permissions: [] })).rejects.toThrow(/EACCES/)
     await expect(adapter.deleteRole('editor')).rejects.toThrow(/EACCES/)
-    await expect(adapter.assignRole('user-1', 'editor')).rejects.toThrow(/EACCES/)
+    await expect(adapter.assignRole('user-1', 'viewer')).rejects.toThrow(/EACCES/)
     await expect(adapter.setSubjectAttributes('user-1', { team: 'A' })).rejects.toThrow(/EACCES/)
   })
 

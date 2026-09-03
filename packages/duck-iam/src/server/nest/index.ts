@@ -7,7 +7,9 @@ import {
   iamDefaultCsrfCheck,
   iamDefaultResource,
   iamExtractEnvironment,
+  iamIsSubjectId,
   iamNoticeCsrfDefaultIfNeeded,
+  iamPathIsAmbiguous,
   iamWithAdminAudit,
 } from '../generic'
 
@@ -218,7 +220,7 @@ export function iamNestAccessGuard<
       // Inside the try, like every other extractor: a throwing `getUserId` must
       // reach `onError` rather than the framework's boundary.
       const userId = getUserId(request)
-      if (!userId) return false
+      if (!iamIsSubjectId(userId)) return false
 
       const action = meta.infer ? iamActionForMethod(request.method) : (meta.action ?? 'read')
       const resource = meta.infer ? inferResource(request) : (meta.resource ?? 'unknown')
@@ -262,6 +264,13 @@ export function iamNestAccessGuard<
  * treats an untrustworthy path.
  */
 function inferResource(request: NestRequest): string {
+  // Checked before the template branch, because a matched template does not
+  // make an ambiguous target safe - it only records which route express picked
+  // for it. Express matched `/public/*` for `/public/../admin` and this
+  // returned a confident `public`, so the request was authorized as public and
+  // then served by the public handler on nest while hono and next served
+  // `/admin`. A target no two routers resolve alike names no resource.
+  if (typeof request.path === 'string' && iamPathIsAmbiguous(request.path)) return IAM_UNKNOWN_RESOURCE
   const template: string | undefined = request.route?.path
   if (typeof template !== 'string') return iamDefaultResource(request.path).type
 

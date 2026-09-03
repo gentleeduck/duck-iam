@@ -196,9 +196,28 @@ describe('iamAccessMiddleware (hono)', () => {
     can.mockRestore()
   })
 
-  it('falls back to x-forwarded-for', async () => {
+  // Same reasoning as cf-connecting-ip above: with nothing in front of the app
+  // the client writes this header itself, so it is only read once the app says
+  // a proxy it trusts is rewriting it.
+  it('ignores x-forwarded-for unless trustCloudflareHeaders is set', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
+    const { ctx } = makeContext({
+      method: 'GET',
+      path: '/post',
+      headers: { 'x-forwarded-for': '5.6.7.8' },
+    })
+    await mw(
+      ctx,
+      vi.fn(async () => undefined),
+    )
+    expect(can.mock.calls[0]?.[3]?.ip).toBeUndefined()
+    can.mockRestore()
+  })
+
+  it('falls back to x-forwarded-for once trustCloudflareHeaders is set', async () => {
+    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u', trustCloudflareHeaders: true })
     const { ctx } = makeContext({
       method: 'GET',
       path: '/post',
@@ -214,7 +233,7 @@ describe('iamAccessMiddleware (hono)', () => {
 
   it('takes the leftmost hop from a multi-value x-forwarded-for', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
-    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u', trustCloudflareHeaders: true })
     const { ctx } = makeContext({
       method: 'GET',
       path: '/post',

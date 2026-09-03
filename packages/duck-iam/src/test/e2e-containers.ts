@@ -38,8 +38,16 @@ const started: string[] = []
  * not running e2e tests. `execFile` has no timeout by default, so that hung
  * `globalSetup`, and with it *every* vitest invocation in the package,
  * including Stryker's dry run.
+ *
+ * Was `5_000`, which is inside the range `docker info` takes on a loaded
+ * machine: on macOS it costs ~2.5s idle, and the whole E2E sweep - eighteen
+ * suites, several of them starting containers - is exactly the load that pushes
+ * it past five seconds. A slow probe then read as "no docker" and every suite
+ * skipped itself, so the run reported green having tested nothing. A probe that
+ * decides whether 650 tests run must not be tuned so close to the thing it
+ * measures.
  */
-const DOCKER_PROBE_TIMEOUT_MS = 5_000
+const DOCKER_PROBE_TIMEOUT_MS = 30_000
 
 async function docker(args: string[], timeout?: number): Promise<string> {
   const { stdout } = await exec('docker', args, { encoding: 'utf8', timeout })
@@ -53,6 +61,21 @@ async function dockerAvailable(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/**
+ * Set `DUCKIAM_E2E_REQUIRE_DOCKER=1` to turn "docker is not available" from a
+ * silent skip into a failure.
+ *
+ * The skip exists so a contributor without docker can still run the package's
+ * suite, and it is right for that. It is wrong for a run whose *purpose* is the
+ * E2E suites: those skip themselves file by file, so the run reports green and
+ * the only trace is one `console.info` line scrolled off the top. Anyone
+ * deliberately exercising the E2E suites should set this.
+ */
+function dockerIsRequired(): boolean {
+  const flag = process.env.DUCKIAM_E2E_REQUIRE_DOCKER
+  return flag !== undefined && flag !== '' && flag !== '0' && flag !== 'false'
 }
 
 /** Host port docker assigned to `containerPort` when published to `0`. */
@@ -158,6 +181,12 @@ export async function setup(): Promise<void> {
   if (process.env.DUCKIAM_E2E_DATABASE_URL) return
 
   if (!(await dockerAvailable())) {
+    if (dockerIsRequired()) {
+      throw new Error(
+        '[e2e] DUCKIAM_E2E_REQUIRE_DOCKER is set but docker did not answer within ' +
+          `${DOCKER_PROBE_TIMEOUT_MS}ms. Refusing to run the suite with every e2e file silently skipped.`,
+      )
+    }
     console.info('[e2e] docker unavailable; e2e suites will skip themselves')
     return
   }

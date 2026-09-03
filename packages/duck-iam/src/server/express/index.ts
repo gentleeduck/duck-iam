@@ -7,6 +7,7 @@ import {
   iamDefaultCsrfCheck,
   iamDefaultResource,
   iamExtractEnvironment,
+  iamIsSubjectId,
   iamNoticeCsrfDefaultIfNeeded,
   iamOptionalStringField,
   iamRequirePathParam,
@@ -151,7 +152,7 @@ export function iamAccessMiddleware<
       // middleware that returns a rejected promise writes nothing to the
       // socket - the client hung until it timed out.
       const userId = getUserId(req)
-      if (!userId) {
+      if (!iamIsSubjectId(userId)) {
         res.status(401).json({ error: 'Unauthorized' })
         return
       }
@@ -217,7 +218,7 @@ export function iamGuard<
   return async (req, res, next) => {
     try {
       const userId = getUserId(req)
-      if (!userId) {
+      if (!iamIsSubjectId(userId)) {
         res.status(401).json({ error: 'Unauthorized' })
         return
       }

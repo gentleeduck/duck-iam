@@ -36,7 +36,9 @@ const CORRUPT = JSON.stringify({
   assignments: { 'someone-else': [{ role: 'viewer' }] },
   attributes: { bad: 'not-an-object', good: { tier: 'gold' } },
   policies: {},
-  roles: {},
+  // `assignRole` refuses a role that is not stored, and the unrelated write
+  // below has to be a write that succeeds.
+  roles: { editor: { id: 'editor', name: 'Editor', permissions: [] } },
 })
 
 function adapterOn(fs: IamFile.IFS) {

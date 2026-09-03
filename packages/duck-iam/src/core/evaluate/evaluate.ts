@@ -1,6 +1,7 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
 
 import { evalConditionGroup } from '../conditions/conditions'
+import { IAM_RBAC_POLICY_ID } from '../rbac/rbac'
 import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import {
@@ -65,6 +66,7 @@ export function evaluatePolicy(
   request: IamRequest.IAccessRequest,
   defaultEffect: AccessControl.Effect = 'deny',
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
+  onRuleError?: AccessControl.PolicyErrorHandler,
 ): AccessControl.IDecision {
   const start = performance.now()
 
@@ -99,8 +101,50 @@ export function evaluatePolicy(
 
   const matched: Array<{ rule: AccessControl.IRule; effect: AccessControl.Effect }> = []
 
+  /**
+   * A rule that throws abstains, but only in a policy that carries no deny
+   * rule.
+   *
+   * The distinction is what makes this safe, and it is not the same as the
+   * policy-level rule `safeEval` documents. Dropping a whole *policy* is
+   * unsafe because the vote it would have cast may have been a deny, and
+   * deleting that vote turns a throw into an allow under `combine: 'and'`.
+   * Skipping one *rule* inside an allow-only policy deletes no such vote: no
+   * rule there can deny, so the policy's only outcomes are "some rule allowed"
+   * and "none matched, so `defaultEffect`". Skipping can move the result from
+   * the first to the second - a loss of access, fail-closed - and never the
+   * other way, because the allow it might land on is one another rule granted
+   * on its own. An attacker padding an attribute to force the throw gains
+   * nothing they did not already hold.
+   *
+   * Restricted to the generated RBAC union, and that restriction is the point.
+   * `rolesToPolicy` folds *every* role permission into one allow-only
+   * `__rbac__` policy, but they are independent grants from separate roles that
+   * the compiled table evaluates first-match-wins - not one authored unit whose
+   * rules an operator meant to be read together. An operator's own allow-only
+   * policy is such a unit, the compiled table's `evaluateDynamicCell` treats it
+   * as one, and widening this to every allow-only policy makes the interpreter
+   * disagree with the table in the opposite direction.
+   *
+   * Without this, one rotten permission poisoned every unrelated grant in the
+   * union: a conditional permission that threw on request data denied a subject
+   * their own unconditional grant from another role, while the compiled table
+   * answered allow. Production allowed what development denied, on identical
+   * data, with no malformed catalog anywhere - an oversized *request* attribute
+   * is enough, and no validator sees those.
+   */
+  const rulesAbstainOnThrow = policy.id === IAM_RBAC_POLICY_ID && !policyHasDenyRule(policy)
+
   for (const rule of policy.rules) {
-    if (ruleApplies(rule, request, caches)) {
+    let applies: boolean
+    try {
+      applies = ruleApplies(rule, request, caches)
+    } catch (err) {
+      if (!rulesAbstainOnThrow) throw err
+      onRuleError?.(err instanceof Error ? err : new Error(String(err)), policy)
+      continue
+    }
+    if (applies) {
       matched.push({ rule, effect: rule.effect })
     }
   }
@@ -178,7 +222,7 @@ export function evaluate(
    */
   const safeEval = (policy: AccessControl.IPolicy): AccessControl.IDecision => {
     try {
-      return evaluatePolicy(policy, request, defaultEffect, caches)
+      return evaluatePolicy(policy, request, defaultEffect, caches, onPolicyError)
     } catch (err) {
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
       if (policyHasDenyRule(policy)) {
@@ -302,6 +346,7 @@ export function evaluatePolicyFast(
   defaultEffect: AccessControl.Effect = 'deny',
   caches?: { regex?: Map<string, RegExp>; path?: Map<string, string[] | null> },
   voteSource?: IVoteSource,
+  onRuleError?: AccessControl.PolicyErrorHandler,
 ): boolean | null {
   if (voteSource) voteSource.fromDefault = false
 
@@ -342,7 +387,7 @@ export function evaluatePolicyFast(
   // `matches` or an unrecognised operator; `mayThrow` is computed once per
   // policy and cached with the index.
   if (idx.mayThrow) {
-    const decision = evaluatePolicy(policy, request, defaultEffect, caches)
+    const decision = evaluatePolicy(policy, request, defaultEffect, caches, onRuleError)
     return decision.applicable === false ? null : decision.allowed
   }
 
@@ -522,7 +567,7 @@ export function evaluateFast(
   const voteSource: IVoteSource = { fromDefault: false }
   const safeEval = (policy: AccessControl.IPolicy): boolean | null => {
     try {
-      return evaluatePolicyFast(policy, request, defaultEffect, caches, voteSource)
+      return evaluatePolicyFast(policy, request, defaultEffect, caches, voteSource, onPolicyError)
     } catch (err) {
       onPolicyError?.(err instanceof Error ? err : new Error(String(err)), policy)
       voteSource.fromDefault = false

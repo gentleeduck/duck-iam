@@ -103,6 +103,12 @@ function makePrismaMock() {
       // hid the divergence the real driver would have shown.
       deleteMany: vi.fn(async ({ where }: { where: { id: string } }) => {
         const count = roles.delete(where.id) ? 1 : 0
+        // `AccessAssignment.role` is declared `onDelete: Cascade`, so the
+        // database takes the grants with the role. Without this the mock
+        // certified an orphan the real schema cannot produce.
+        for (let i = assignments.length - 1; i >= 0; i--) {
+          if (assignments[i]?.roleId === where.id) assignments.splice(i, 1)
+        }
         return { count }
       }),
     },
@@ -134,6 +140,13 @@ function makePrismaMock() {
       // could not see it.
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const row = data as unknown as AssignmentRow
+        // `AccessAssignment.role` is a required relation, so the real client
+        // raises P2003 for a grant naming a role that does not exist. A mock
+        // that accepts one lets this suite certify behaviour no real database
+        // has.
+        if (!roles.has(row.roleId)) {
+          throw prismaError('P2003', 'Foreign key constraint failed on the field: `roleId`')
+        }
         const clash = assignments.some(
           (a) => a.subjectId === row.subjectId && a.roleId === row.roleId && a.scope === row.scope,
         )
@@ -185,6 +198,21 @@ function makePrismaMock() {
 
 // IamAdapter compliance - fresh prisma mock per call.
 runAdapterCompliance('IamPrismaAdapter', () => new IamPrismaAdapter(makePrismaMock()))
+
+/**
+ * Stores a role so an assignment naming it is legal.
+ *
+ * `AccessAssignment.role` is a required relation, so a grant naming a role the
+ * table does not hold raises `P2003` - on the mock as on the real client.
+ *
+ * @param prisma - The mock client to seed.
+ * @param ids - Role ids to store.
+ */
+async function seedRoles(prisma: ReturnType<typeof makePrismaMock>, ...ids: string[]): Promise<void> {
+  for (const id of ids) {
+    await prisma.accessRole.upsert({ create: { id, name: id, permissions: [] }, where: { id } })
+  }
+}
 
 describe('IamPrismaAdapter', () => {
   let prisma: ReturnType<typeof makePrismaMock>
@@ -336,6 +364,10 @@ describe('IamPrismaAdapter', () => {
   })
 
   describe('IamAdapter.ISubjectStore', () => {
+    beforeEach(async () => {
+      await seedRoles(prisma, 'editor', 'viewer')
+    })
+
     /**
      * `assignRole` used a bare `create` against `@@unique([subjectId, roleId,
      * scope])`. A repeat *scoped* grant raised `P2002`, so re-running a
@@ -473,13 +505,16 @@ describe('IamPrismaAdapter', () => {
 describe('the prisma mock rejects what Prisma rejects', () => {
   it('raises P2002 on a duplicate (subjectId, roleId, scope)', async () => {
     const prisma = makePrismaMock()
+    await seedRoles(prisma, 'editor')
     const row = { roleId: 'editor', scope: null, subjectId: 'user-1' }
     await prisma.accessAssignment.create({ data: row })
     await expect(prisma.accessAssignment.create({ data: row })).rejects.toMatchObject({ code: 'P2002' })
   })
 
   it("so the adapter's duplicate-assign pre-check is what keeps the write legal", async () => {
-    const adapter = new IamPrismaAdapter<A, R, Ro, S>(makePrismaMock())
+    const mock = makePrismaMock()
+    await seedRoles(mock, 'editor')
+    const adapter = new IamPrismaAdapter<A, R, Ro, S>(mock)
     await adapter.assignRole('user-1', 'editor')
     // Without the `findMany` pre-check in `assignRole` this second call reaches
     // `create` and raises P2002 - which is exactly what production did.
@@ -489,6 +524,7 @@ describe('the prisma mock rejects what Prisma rejects', () => {
 
   it('interprets `NOT` in a deleteMany where-clause', async () => {
     const prisma = makePrismaMock()
+    await seedRoles(prisma, 'editor')
     await prisma.accessAssignment.create({ data: { roleId: 'editor', scope: 'org-1', subjectId: 'user-1' } })
     await prisma.accessAssignment.create({ data: { roleId: 'editor', scope: 'org-2', subjectId: 'user-1' } })
     // The clause `updateAssignmentScope` sends: drop the row already sitting on
@@ -501,7 +537,9 @@ describe('the prisma mock rejects what Prisma rejects', () => {
   })
 
   it('runs the conflict-drop end to end: moving onto a scope the subject already holds', async () => {
-    const adapter = new IamPrismaAdapter<A, R, Ro, S>(makePrismaMock())
+    const mock = makePrismaMock()
+    await seedRoles(mock, 'editor')
+    const adapter = new IamPrismaAdapter<A, R, Ro, S>(mock)
     await adapter.assignRole('user-1', 'editor', 'org-1')
     await adapter.assignRole('user-1', 'editor', 'org-2')
     expect(await adapter.updateAssignmentScope('user-1', 'editor', 'org-1', 'org-2')).toBe(true)

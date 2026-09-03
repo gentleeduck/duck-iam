@@ -1,8 +1,13 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
-import { parsePolicyRow, parseRoleRow } from '../../core/validate'
+import { parsePolicyRow, parseRoleRow, validatePolicy } from '../../core/validate'
 import { iamAssertNoAssignOptions } from '../../shared/assign-options'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
-import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import {
+  iamAssertSavablePolicy,
+  iamAssertSavableRole,
+  iamNormalizePolicy,
+  iamUnreadablePolicy,
+} from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
@@ -107,6 +112,40 @@ export namespace IamPrisma {
  * @template TScope - Constrains valid scope strings.
  * @template TPrisma - Constrains the Prisma client shape.
  */
+/**
+ * Provenance columns for an upsert: `created_by` on the row this call inserts,
+ * `updated_by` on the row it overwrites. `created_by` answers "who first put
+ * this here" and must not move on a later edit; `updated_by` answers "who
+ * touched it last" and must. Spread rather than written as null, so a table
+ * predating the columns is untouched unless the caller names an actor.
+ */
+/**
+ * Is this Prisma's `P2002`, "unique constraint failed"?
+ *
+ * `assignRole` is a read-then-write, and the gap between the two statements is
+ * exactly wide enough for a concurrent writer to insert the same grant first.
+ * The loser's `create` then raised `P2002` and the call rejected - a repeat
+ * grant of a role the subject demonstrably holds, reported as a failure, while
+ * every other adapter treats one as a no-op (`SADD`, `onConflictDoNothing`,
+ * skip-if-present). Twenty concurrent identical scoped grants produced nine
+ * rejections before this.
+ *
+ * Swallowing it is not hiding an error: the row the caller asked for exists,
+ * which is the whole of what `assignRole` promises.
+ */
+function isUniqueConstraintViolation(err: unknown): boolean {
+  if (err === null || typeof err !== 'object') return false
+  return Reflect.get(err, 'code') === 'P2002'
+}
+
+function provenance(actor: string | undefined): {
+  create: Record<string, string>
+  update: Record<string, string>
+} {
+  if (actor === undefined) return { create: {}, update: {} }
+  return { create: { createdBy: actor }, update: { updatedBy: actor } }
+}
+
 export class IamPrismaAdapter<
   TAction extends string = string,
   TResource extends string = string,
@@ -147,10 +186,7 @@ export class IamPrismaAdapter<
   async listPolicies(_opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
     const rows = await this._prisma.accessPolicy.findMany()
     const out: AccessControl.IPolicy<TAction, TResource, TRole>[] = []
-    for (const row of rows) {
-      const policy = parsePolicyRow<TAction, TResource, TRole>(toPolicy(row))
-      if (policy !== null) out.push(policy)
-    }
+    for (const row of rows) out.push(this._readPolicy(row))
     return out
   }
 
@@ -166,7 +202,31 @@ export class IamPrismaAdapter<
     _opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
     const row = await this._prisma.accessPolicy.findUnique({ where: { id } })
-    return row ? parsePolicyRow<TAction, TResource, TRole>(toPolicy(row)) : null
+    return row ? this._readPolicy(row) : null
+  }
+
+  /**
+   * One policy row, or a throw naming it.
+   *
+   * This adapter used to be alone in dropping an unreadable policy row with no
+   * signal at all - the other five at least warn - so a corrupt row removed a
+   * policy and nothing said so. See {@link iamUnreadablePolicy} for why a
+   * policy is refused where a role is skipped.
+   *
+   * Reported through `console.warn` rather than an `onPolicyError` handler:
+   * unlike the other adapters this one takes no options object, so there is
+   * nowhere to wire one without changing its constructor. The throw is the part
+   * that matters for correctness; the warning names the row.
+   */
+  private _readPolicy(row: IamPrisma.IPolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> {
+    const candidate = toPolicy(row)
+    const policy = parsePolicyRow<TAction, TResource, TRole>(candidate)
+    if (policy !== null) return policy
+    const issues = validatePolicy(candidate)
+      .issues.map((i) => i.message)
+      .join('; ')
+    console.warn(`[@gentleduck/iam:prisma] unreadable policy row "${row.id}": ${issues}`)
+    throw iamUnreadablePolicy('prisma', row.id, issues)
   }
 
   /**
@@ -175,13 +235,17 @@ export class IamPrismaAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the upsert completes.
    */
-  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(
+    p: AccessControl.IPolicy<TAction, TResource, TRole>,
+    opts?: IamAdapter.IActorOptions,
+  ): Promise<void> {
     iamAssertSavablePolicy('prisma', p)
     const data = fromPolicy(iamNormalizePolicy(p))
+    const who = provenance(opts?.actor)
     await this._prisma.accessPolicy.upsert({
       where: { id: p.id },
-      create: data,
-      update: data,
+      create: { ...data, ...who.create },
+      update: { ...data, ...who.update },
     })
   }
 
@@ -232,13 +296,17 @@ export class IamPrismaAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the upsert completes.
    */
-  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(
+    r: AccessControl.IRole<TAction, TResource, TRole, TScope>,
+    opts?: IamAdapter.IActorOptions,
+  ): Promise<void> {
     iamAssertSavableRole('prisma', r)
     const data = fromRole(r)
+    const who = provenance(opts?.actor)
     await this._prisma.accessRole.upsert({
       where: { id: r.id },
-      create: data,
-      update: data,
+      create: { ...data, ...who.create },
+      update: { ...data, ...who.update },
     })
   }
 
@@ -296,6 +364,10 @@ export class IamPrismaAdapter<
   /**
    * Grants a role to a subject, optionally restricted to a scope.
    *
+   * A grant naming a role that does not exist is refused by the FK on
+   * `AccessAssignment.role`, which raises before the row lands; the other
+   * adapters check explicitly to reach the same answer.
+   *
    * @param subjectId - Identifies the subject receiving the role.
    * @param roleId - Specifies the role being granted.
    * @param scope - Optional scope binding the assignment.
@@ -314,17 +386,27 @@ export class IamPrismaAdapter<
     //
     // A read-then-write, not an `upsert`: the composite key includes a nullable
     // column, and `upsert` cannot address a row whose key is partly `NULL`.
-    // The window between the two statements is the same one every other adapter
-    // has; if a concurrent writer wins it, the unique index rejects the insert
-    // for a scoped grant, which is the correct outcome for a duplicate.
+    // It is the fast path only - the read cannot make the write atomic, so a
+    // concurrent writer can still land the same grant in the window between
+    // them, and the unique index is what actually decides the outcome. That
+    // index has to be the `NULLS NOT DISTINCT` one `schema.prisma` tells you to
+    // migrate to; the plain index Prisma generates does not collapse `NULL`s,
+    // so unscoped duplicates pile up unchecked.
     const existing = await this._prisma.accessAssignment.findMany({
       take: 1,
       where: { roleId, scope: scope ?? null, subjectId },
     })
     if (existing.length > 0) return
-    await this._prisma.accessAssignment.create({
-      data: { roleId, scope: scope ?? null, subjectId },
-    })
+    try {
+      await this._prisma.accessAssignment.create({
+        data: { roleId, scope: scope ?? null, subjectId, ...provenance(opts?.actor).create },
+      })
+    } catch (err) {
+      // The row exists - a racing writer inserted the identical grant first.
+      // That is the state the caller asked for, so this is a success. Any
+      // other failure is real and propagates.
+      if (!isUniqueConstraintViolation(err)) throw err
+    }
   }
 
   /**
@@ -357,9 +439,7 @@ export class IamPrismaAdapter<
     roleId: TRole,
     fromScope?: TScope,
     toScope?: TScope,
-    // Accepted for contract parity with the other adapters; the reference Prisma
-    // schema has no `updatedBy` column so there is nothing to persist it to.
-    _actor?: string,
+    actor?: string,
   ): Promise<boolean> {
     // Confirm the source row exists before touching the target scope, otherwise a
     // stale `fromScope` would delete the grant the caller is moving onto.
@@ -370,12 +450,25 @@ export class IamPrismaAdapter<
     if (existing.length === 0) return false
     // The target scope may already have its own row (unique on subjectId+roleId+scope);
     // drop it rather than let the update violate that constraint.
-    await this._prisma.accessAssignment.deleteMany({
-      where: { subjectId, roleId, scope: toScope ?? null, NOT: { scope: fromScope ?? null } },
-    })
+    //
+    // No `NOT: { scope: from }` guarding the source row. That clause was there
+    // for the no-op move, but on a nullable column it is three-valued logic:
+    // moving `org-1` to global asked for `scope IS NULL AND NOT (scope =
+    // 'org-1')`, whose second half is `NULL` for exactly the rows the first
+    // half selected, so the global row was never deleted and the update left
+    // two of them - the collapse this delete exists to perform, silently
+    // skipped. Comparing the two scopes here settles the no-op case in
+    // JavaScript, where `null` compares the way it reads.
+    const from = fromScope ?? null
+    const to = toScope ?? null
+    if (from !== to) {
+      await this._prisma.accessAssignment.deleteMany({
+        where: { subjectId, roleId, scope: to },
+      })
+    }
     const result = await this._prisma.accessAssignment.updateMany({
       where: { subjectId, roleId, scope: fromScope ?? null },
-      data: { scope: toScope ?? null },
+      data: { scope: toScope ?? null, ...provenance(actor).update },
     })
     return result.count > 0
   }
@@ -413,23 +506,39 @@ export class IamPrismaAdapter<
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the upsert completes.
    */
-  async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
+  async setSubjectAttributes(
+    subjectId: string,
+    attrs: IamPrimitives.Attributes,
+    opts?: IamAdapter.IActorOptions,
+  ): Promise<void> {
     // The other four adapters have always called this; without it a non-object
     // `attrs` spreads into per-character keys and corrupts the ABAC bag, so the
     // same call errored loudly on memory/file/redis/http and wrote junk here.
     iamAssertAttributesParam('prisma', subjectId, attrs)
-    // Recover from corrupt existing data instead of locking the operator out.
+    // Recover from corrupt existing data instead of locking the operator out -
+    // but say so. Redis and drizzle route the same swallow through
+    // `onPolicyError`; this one said nothing at all, so a read that failed for
+    // any reason, a transient connection error included, silently replaced the
+    // subject's whole attribute bag with the keys in this call. The overwrite
+    // still happens (the alternative is an operator locked out by one corrupt
+    // row) and now it leaves a record. `console.warn` because this adapter has
+    // no error handler to wire - the same reason `_readPolicy` uses it.
     let existing: IamPrimitives.Attributes
     try {
       existing = await this.getSubjectAttributes(subjectId)
-    } catch {
+    } catch (err) {
+      console.warn(
+        `[@gentleduck/iam:prisma] could not read existing attributes for "${subjectId}"; ` +
+          `overwriting with the attributes in this call: ${err instanceof Error ? err.message : String(err)}`,
+      )
       existing = {}
     }
     const merged = { ...existing, ...attrs }
+    const who = provenance(opts?.actor)
     await this._prisma.accessSubjectAttr.upsert({
       where: { subjectId },
-      create: { subjectId, data: merged },
-      update: { data: merged },
+      create: { subjectId, data: merged, ...who.create },
+      update: { data: merged, ...who.update },
     })
   }
 }

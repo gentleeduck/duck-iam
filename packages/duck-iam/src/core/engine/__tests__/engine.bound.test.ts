@@ -13,15 +13,21 @@ function bindable(adapter: IamMemoryAdapter): IamMemoryAdapter {
   return Object.assign(copy, { withClient: () => bindable(adapter) })
 }
 
+/**
+ * `assignRole` refuses a role id nothing is stored under, so the adapters below
+ * are built holding the role these cases grant.
+ */
+const GRANTABLE = [{ id: 'admin', name: 'Admin', permissions: [] }]
+
 describe('IamEngine.withTransaction', () => {
   let engine: IamEngine
 
   beforeEach(() => {
-    engine = new IamEngine({ adapter: bindable(new IamMemoryAdapter()) })
+    engine = new IamEngine({ adapter: bindable(new IamMemoryAdapter({ roles: GRANTABLE })) })
   })
 
   it('throws when the adapter cannot join a transaction', () => {
-    const plain = new IamEngine({ adapter: new IamMemoryAdapter() })
+    const plain = new IamEngine({ adapter: new IamMemoryAdapter({ roles: GRANTABLE }) })
 
     expect(() => plain.withTransaction({})).toThrowError(/withClient|transaction/i)
   })

@@ -264,10 +264,12 @@ export namespace AccessControl {
   /**
    * Engine execution mode.
    *
-   * - `'development'` returns rich {@link IDecision} objects with timing,
-   *   reasons, rule references, and the full explain/debug API. Default.
    * - `'production'` returns plain booleans. No timing overhead, no
-   *   allocation, no reason strings. Enables dead-code elimination of debug paths.
+   *   allocation, no reason strings. Enables dead-code elimination of debug
+   *   paths. **Default** since 5.9.0.
+   * - `'development'` returns rich {@link IDecision} objects with timing,
+   *   reasons, rule references, and the full explain/debug API. Opt in with
+   *   `mode: 'development'`.
    */
   export type Mode = 'development' | 'production'
 

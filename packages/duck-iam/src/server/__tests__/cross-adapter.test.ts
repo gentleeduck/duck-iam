@@ -174,9 +174,17 @@ describe('createIamNextMiddleware refuses exactly what the others call `unknown`
         rules: [{ pattern: '/', resource: 'any' }],
       })
 
-      const res = await mw(new Request(`https://example.com${path}`, { method }))
+      const req = new Request(`https://example.com${path}`, { method })
+      // The expectation is computed from the path the middleware can actually
+      // see, not the one written above. `new Request(...)` resolves dot
+      // segments while constructing the URL, so a traversal never reaches next
+      // middleware to be refused - a Fetch-API limitation the express and
+      // generic integrations do not share, recorded as a divergence in
+      // `e2e-http-servers.e2e.test.ts`.
+      const seenPath = new URL(req.url).pathname
+      const res = await mw(req)
 
-      if (iamDefaultResource(path).type === IAM_UNKNOWN_RESOURCE) {
+      if (iamDefaultResource(seenPath).type === IAM_UNKNOWN_RESOURCE) {
         expect(res?.status).toBe(403)
         // Refused before the engine, so a permissive rule cannot rescue it.
         expect(engine.calls).toEqual([])

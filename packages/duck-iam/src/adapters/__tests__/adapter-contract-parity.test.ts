@@ -10,6 +10,12 @@ import { IamMemoryAdapter } from '../memory'
  * places where they answered the same call differently. A deployment's
  * authorization behaviour must not change with its storage choice.
  */
+/**
+ * `assignRole` refuses a role id nothing is stored under, so every adapter
+ * below is built holding the role these cases grant.
+ */
+const ADMIN = { id: 'admin', name: 'Admin', permissions: [] }
+
 describe('assignRole options are refused, not discarded', () => {
   // Only the drizzle schemas carry `starts_at`/`expires_at`; prisma has no such
   // columns at all. The other five took the argument and dropped it, so a
@@ -35,7 +41,7 @@ describe('assignRole options are refused, not discarded', () => {
   })
 
   it('reaches the caller through a real adapter', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [] })
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
     await expect(adapter.assignRole('u1', 'admin', undefined, { expiresAt: new Date(0) })).rejects.toThrow(/expiresAt/)
     await expect(adapter.assignRole('u1', 'admin')).resolves.toBeUndefined()
     expect(await adapter.getSubjectRoles('u1')).toEqual(['admin'])
@@ -100,7 +106,7 @@ describe('an empty-string scope is refused by every adapter', () => {
   })
 
   it('reaches the caller through a real adapter, on assign and on revoke', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [] })
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
     await expect(adapter.assignRole('u1', 'admin', '')).rejects.toThrow(/must not be an empty string/)
     await expect(adapter.revokeRole('u1', 'admin', '')).rejects.toThrow(/must not be an empty string/)
     await expect(adapter.assignRole('u1', 'admin', 'org-1')).resolves.toBeUndefined()
@@ -108,7 +114,7 @@ describe('an empty-string scope is refused by every adapter', () => {
   })
 
   it('leaves no grant behind when it refuses', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [] })
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
     await expect(adapter.assignRole('u1', 'admin', '')).rejects.toThrow()
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([])
     expect(await adapter.getSubjectRoles('u1')).toEqual([])
@@ -196,20 +202,20 @@ describe('the http adapter refuses an id it could not read back', () => {
  */
 describe('delete and assign are idempotent', () => {
   it('memory: deleting a policy that never existed is not an error', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [] })
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
     await expect(adapter.deletePolicy('never-existed')).resolves.toBeUndefined()
     await expect(adapter.deleteRole('never-existed')).resolves.toBeUndefined()
   })
 
   it('memory: assigning the same grant twice leaves one grant', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [] })
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
     await adapter.assignRole('u1', 'admin', 'org-1')
     await adapter.assignRole('u1', 'admin', 'org-1')
     expect(await adapter.getSubjectScopedRoles('u1')).toEqual([{ role: 'admin', scope: 'org-1' }])
   })
 
   it('memory: an unscoped repeat does not accumulate either', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [] })
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
     await adapter.assignRole('u1', 'admin')
     await adapter.assignRole('u1', 'admin')
     expect(await adapter.getSubjectRoles('u1')).toEqual(['admin'])
@@ -217,7 +223,7 @@ describe('delete and assign are idempotent', () => {
 
   // Control: idempotence must not collapse grants that genuinely differ.
   it('memory: a scoped and an unscoped grant of one role stay distinct', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [] })
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
     await adapter.assignRole('u1', 'admin')
     await adapter.assignRole('u1', 'admin', 'org-1')
     expect(await adapter.getSubjectRoles('u1')).toEqual(['admin'])
@@ -245,6 +251,8 @@ describe('delete and assign are idempotent', () => {
  */
 describe('read options are accepted by every adapter', () => {
   it('takes a signal on the reads the engine makes', async () => {
+    // No seeded role here: this case asserts the empty answers, and it grants
+    // nothing.
     const adapter = new IamMemoryAdapter({ roles: [] })
     const signal = new AbortController().signal
     // An ignoring adapter answers normally; it does not throw on the parameter
@@ -256,7 +264,7 @@ describe('read options are accepted by every adapter', () => {
   })
 
   it('answers the same with and without one', async () => {
-    const adapter = new IamMemoryAdapter({ roles: [] })
+    const adapter = new IamMemoryAdapter({ roles: [ADMIN] })
     await adapter.assignRole('u1', 'admin')
     const withSignal = await adapter.getSubjectRoles('u1', { signal: new AbortController().signal })
     expect(withSignal).toEqual(await adapter.getSubjectRoles('u1'))

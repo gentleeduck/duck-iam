@@ -26,6 +26,26 @@ import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } 
 import type { IamEngineTypes } from './engine.types'
 
 /**
+ * Default ceiling on concurrent distinct-subject adapter loads.
+ *
+ * The cap used to default to `0` (unbounded), which made it a safety limit that
+ * protected nobody: the cold-cache thundering herd its own documentation
+ * describes was permitted by default, and only an operator who had already read
+ * that paragraph was protected from it.
+ *
+ * `512` is chosen to sit far above legitimate steady-state concurrency and well
+ * below runaway growth. Only a *distinct, never-before-cached* subject counts:
+ * a cache hit does not, and a request joining an already-in-flight load for the
+ * same subject does not. A node with 512 different cold subjects resolving
+ * simultaneously is in a herd, not serving traffic normally.
+ *
+ * Shedding is a denial of legitimate traffic, so the number is deliberately
+ * generous. Set `maxConcurrentSubjectLoads: 0` to restore the old unbounded
+ * behaviour explicitly.
+ */
+const DEFAULT_MAX_CONCURRENT_SUBJECT_LOADS = 512
+
+/**
  * Clears the process-global regex and dot-path caches - the fallbacks used by
  * direct `evaluate()` / operator calls and by `explain()`. Every `can()` path
  * uses the engine's own per-instance caches, which this does not touch, so it
@@ -34,6 +54,18 @@ import type { IamEngineTypes } from './engine.types'
 export function iamFlushSharedCaches(): void {
   clearRegexCache()
   clearPathCache()
+}
+
+/**
+ * Runtime shape check for {@link IamEngine.setInvalidator}. An invalidator
+ * arriving after construction comes from wherever the caller's Redis client was
+ * built, so it is checked rather than trusted: a missing `subscribe` would
+ * otherwise surface much later as invalidations that silently never arrive.
+ */
+function isInvalidatorLike<TRole extends string>(value: unknown): value is IamEngineTypes.IInvalidator<TRole> {
+  if (value === null || typeof value !== 'object') return false
+  if (!('publish' in value) || !('subscribe' in value)) return false
+  return typeof value.publish === 'function' && typeof value.subscribe === 'function'
 }
 
 /** Bit per directly-held role name; `compileTable`'s inheritance closure already bakes inherited grants into `table.allow`, so no re-expansion is needed here. */
@@ -75,7 +107,7 @@ export class IamEngine<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-  TMode extends AccessControl.Mode = 'development',
+  TMode extends AccessControl.Mode = 'production',
 > {
   private _adapter: IamAdapter.IAdapter<TAction, TResource, TRole, TScope>
   private _defaultEffect: AccessControl.Effect
@@ -167,7 +199,7 @@ export class IamEngine<
     this._config = config
     this._adapter = config.adapter
     this._defaultEffect = config.defaultEffect ?? 'deny'
-    this._mode = config.mode ?? 'development'
+    this._mode = config.mode ?? 'production'
     this._policyCombine = config.policyCombine ?? 'and'
     this._scopeMode = config.scopeMode ?? 'flat'
     this._scopeCombine = config.scopeCombine ?? 'union'
@@ -207,7 +239,7 @@ export class IamEngine<
     this._maxPolicies = config.maxPolicies ?? 10_000
     this._maxRoles = config.maxRoles ?? 10_000
     this._adapterTimeoutMs = config.adapterTimeoutMs ?? 5_000
-    this._maxConcurrentSubjectLoads = config.maxConcurrentSubjectLoads ?? 0
+    this._maxConcurrentSubjectLoads = config.maxConcurrentSubjectLoads ?? DEFAULT_MAX_CONCURRENT_SUBJECT_LOADS
 
     // Reject non-finite caps; `NaN > x` is always false so a NaN limit
     // silently disables the bound.
@@ -240,10 +272,9 @@ export class IamEngine<
     this._mergedPolicyCache = new IamLRUCache(1, ttl)
     this._subjectCache = new IamLRUCache(maxSize, ttl)
 
-    if (config.invalidator) {
-      this._invalidator = config.invalidator
-      this._invalidatorUnsub = config.invalidator.subscribe((event) => this._applyInvalidateEvent(event))
-    }
+    // Through the setter, so the constructor path and the late-attach path
+    // validate and subscribe identically.
+    if (config.invalidator) this.setInvalidator(config.invalidator)
   }
 
   /**
@@ -293,6 +324,49 @@ export class IamEngine<
       this._compiledTable = null
       this._compiledTableGen++
     }
+  }
+
+  /**
+   * Attach, replace, or detach the cross-instance invalidator after
+   * construction.
+   *
+   * `IConfig.invalidator` is constructor-only, but engines are commonly built
+   * at module import time - before any request-scoped or replica-specific
+   * Redis client exists. Without this, the only way to wire invalidation late
+   * was to hand-roll the pub/sub that `createIamRedisInvalidator` already
+   * implements, and hand-rolled copies drift from the event union they have to
+   * match.
+   *
+   * Replacing unsubscribes the previous invalidator first, so an engine holds
+   * at most one subscription however many times this is called. Pass `null` to
+   * detach and go back to local-only invalidation.
+   *
+   * A transaction-bound view built by {@link withTransaction} deliberately has
+   * no invalidator of its own and is unaffected; its buffered invalidations
+   * broadcast through this engine on `pending.flush()`, so they pick up
+   * whatever is attached here at flush time.
+   *
+   * @param invalidator - The broadcaster to attach, or `null` to detach.
+   * @throws When `invalidator` is neither `null` nor an object with `publish`
+   *   and `subscribe` methods - a malformed one would otherwise fail later, at
+   *   the first mutation, as a lost broadcast rather than a bad argument.
+   */
+  setInvalidator(invalidator: IamEngineTypes.IInvalidator<TRole> | null): void {
+    if (invalidator !== null && !isInvalidatorLike(invalidator)) {
+      throw new TypeError(
+        '[@gentleduck/iam:engine] setInvalidator: expected null or an object with `publish` and `subscribe` methods',
+      )
+    }
+    // Unsubscribe first and unconditionally: an exception from the new
+    // `subscribe` must not leave the old subscription attached to an
+    // invalidator this engine no longer considers current.
+    this._invalidatorUnsub = disposeInvalidator(this._invalidatorUnsub).unsub
+    if (invalidator === null) {
+      this._invalidator = undefined
+      return
+    }
+    this._invalidator = invalidator
+    this._invalidatorUnsub = invalidator.subscribe((event) => this._applyInvalidateEvent(event))
   }
 
   /** Release the invalidator subscription. Call when discarding the engine. */
@@ -615,7 +689,9 @@ export class IamEngine<
     request: IamRequest.IAccessRequest<TAction, TResource, TScope>,
   ): Promise<AccessControl.ModeResult<TMode>> {
     let req = request
-    const t0 = this._hooks.onMetrics ? performance.now() : 0
+    // Also captured for `afterEvaluate` / `onDeny`, which now fire in production
+    // and need a real `duration` on the decision synthesised for them.
+    const t0 = this._hooks.onMetrics || this._hooks.afterEvaluate || this._hooks.onDeny ? performance.now() : 0
 
     // Trailing hooks run outside the evaluation try; a thrown hook must not
     // rewrite an allow into deny via the catch.
@@ -662,6 +738,10 @@ export class IamEngine<
       // propagate over the engine's fail-closed behaviour.
       await this._safeHookCall(() => this._hooks.onError?.(err, req), 'onError')
       this._emitMetrics(req, false, t0, false)
+      // NOTE: `afterEvaluate` / `onDeny` deliberately do NOT fire here. They did
+      // not fire on this path in development either, so routing them through it
+      // now would be a second behaviour change wearing the first one's clothes.
+      // The error-path denial is reported by `onError`, as it always was.
       if (this._mode === 'production') return this._asResult(false)
       return this._asResult({
         allowed: false,
@@ -676,8 +756,16 @@ export class IamEngine<
     // Trailing hook block - runs OUTSIDE the evaluation try so a hook throw
     // cannot rewrite the decision. Each hook is individually wrapped so a
     // bug in one doesn't suppress the others.
-    if (decisionForHooks !== null) {
-      const d = decisionForHooks
+    //
+    // Both hooks fire in production too. They used to be development-only,
+    // which put a denial log - a production concern if there is one - out of
+    // reach exactly where operators need it. Production has no `IDecision` to
+    // hand over, because the compiled table erases policy identity by design,
+    // so one is synthesised from the verdict: right `allowed`/`effect`, honest
+    // generic `reason`, no `policy`/`rule` provenance. Development still passes
+    // the interpreter's decision, which carries all three.
+    if (this._hooks.afterEvaluate || this._hooks.onDeny) {
+      const d = decisionForHooks ?? this._verdictOnlyDecision(allowedForMetrics, t0)
       await this._safeHookCall(() => this._hooks.afterEvaluate?.(req, d), 'afterEvaluate')
       if (!d.allowed) {
         await this._safeHookCall(() => this._hooks.onDeny?.(req, d), 'onDeny')
@@ -685,6 +773,33 @@ export class IamEngine<
     }
     this._emitMetrics(req, allowedForMetrics, t0, failOpenForMetrics)
     return result
+  }
+
+  /**
+   * Build the {@link AccessControl.IDecision} production hands to
+   * `afterEvaluate` / `onDeny`.
+   *
+   * Production evaluates through the compiled table, whose `CONST_ALLOW` /
+   * `CONST_DENY` cells are a single `kind` byte and whose `allow` is a raw
+   * bitmask - policy identity is erased at compile time, and that erasure is
+   * the optimisation. So there is no `policy` or `rule` to report and the
+   * `reason` is generic. Reconstructing them would mean running the interpreter
+   * alongside the table on every production request, which is what development
+   * mode already does and what production exists not to do.
+   *
+   * Called only when one of the two hooks is wired, so the allocation lands on
+   * installs that asked for it and nobody else.
+   */
+  private _verdictOnlyDecision(allowed: boolean, t0: number): AccessControl.IDecision {
+    return {
+      allowed,
+      effect: allowed ? 'allow' : 'deny',
+      reason: allowed
+        ? 'Allowed (production mode; compiled table does not retain policy identity)'
+        : 'Denied (production mode; compiled table does not retain policy identity)',
+      duration: performance.now() - t0,
+      timestamp: Date.now(),
+    }
   }
 
   /**
@@ -1054,7 +1169,17 @@ export class IamEngine<
 
   /** Lazily-built admin interface for CRUD operations on policies, roles, subjects. */
   get admin(): IamEngineTypes.IAdmin<TAction, TResource, TRole, TScope> {
-    this._admin ??= createAdmin<TAction, TResource, TRole, TScope>(this._adapter, this)
+    this._admin ??= createAdmin<TAction, TResource, TRole, TScope>(this._adapter, {
+      cache: this.cache,
+      // Left off entirely when no `onMutation` is wired, so an install that
+      // does not want the audit bus builds no events and pays nothing for it.
+      ...(this._hooks.onMutation !== undefined && {
+        mutations: {
+          emit: (event: IamEngineTypes.IMutationEvent<TRole, TScope>) =>
+            this._safeHookCall(() => this._hooks.onMutation?.(event), 'onMutation'),
+        },
+      }),
+    })
     return this._admin
   }
 
@@ -1223,7 +1348,7 @@ export function iamEngine<
   TResource extends string = string,
   TRole extends string = string,
   TScope extends string = string,
-  TMode extends AccessControl.Mode = 'development',
+  TMode extends AccessControl.Mode = 'production',
 >(
   config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
 ): IamEngine<TAction, TResource, TRole, TScope, TMode> {

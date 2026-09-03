@@ -104,6 +104,7 @@ describe('IamFileAdapter', () => {
   it('assignRole + getSubjectRoles persists across calls', async () => {
     const fs = makeFakeFS()
     const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    await adapter.saveRole({ id: 'viewer', name: 'Viewer', permissions: [] })
     await adapter.assignRole('user-1', 'viewer')
     expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })
@@ -111,6 +112,7 @@ describe('IamFileAdapter', () => {
   it('scoped assignments are exposed via getSubjectScopedRoles only', async () => {
     const fs = makeFakeFS()
     const adapter = new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store.json', fs })
+    await adapter.saveRole({ id: 'editor', name: 'Editor', permissions: [] })
     await adapter.assignRole('user-1', 'editor', 'org-1')
     expect(await adapter.getSubjectRoles('user-1')).toEqual([])
     expect(await adapter.getSubjectScopedRoles('user-1')).toEqual([{ role: 'editor', scope: 'org-1' }])
@@ -142,12 +144,14 @@ describe('IamFileAdapter', () => {
     await expect(adapter.listPolicies()).rejects.toThrow(/corrupt.*refusing to load/)
   })
 
-  describe('malformed-row drop (P0)', () => {
+  describe('malformed-row handling (P0)', () => {
     // Same guarantee the IamRedis adapter provides: a corrupt row stored on
-    // disk (manual edit, partial migration, etc) must be dropped, not
-    // returned as-is. The engine's safeEval would otherwise treat it as
-    // NotApplicable and silently strip any deny rules it would have carried.
-    it('drops a policy entry that fails validation, keeps valid ones', async () => {
+    // disk (manual edit, partial migration, etc) must never be returned as-is.
+    // A corrupt *role* entry is dropped and reported - permissions are
+    // allow-only. A corrupt *policy* entry is reported and then throws:
+    // dropping it is precisely the "silently strip any deny rules it would
+    // have carried" failure this block names. See `iamUnreadablePolicy`.
+    it('refuses a policy entry that fails validation, rather than keeping the rest', async () => {
       const seeded = JSON.stringify({
         policies: {
           good: policy,
@@ -165,8 +169,7 @@ describe('IamFileAdapter', () => {
         fs,
         onPolicyError: (_err, ctx) => errors.push({ rowId: ctx.rowId }),
       })
-      const list = await adapter.listPolicies()
-      expect(list.map((p) => p.id)).toEqual(['p1'])
+      await expect(adapter.listPolicies()).rejects.toThrow(/policy "bad" cannot be read and will not be skipped/)
       expect(errors[0]?.rowId).toBe('bad')
     })
 
@@ -477,6 +480,7 @@ describe('iamFileAdapter factory', () => {
   it('returns a working IamFileAdapter over the supplied FS', async () => {
     const adapter = iamFileAdapter({ fs: makeFakeFS(), path: '/store.json' })
     expect(adapter).toBeInstanceOf(IamFileAdapter)
+    await adapter.saveRole({ id: 'viewer', name: 'Viewer', permissions: [] })
     await adapter.assignRole('user-1', 'viewer')
     expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
   })

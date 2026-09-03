@@ -3,7 +3,12 @@ import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../engine'
 
 function buildEngine() {
-  const adapter = new IamMemoryAdapter<string, string, string, string>()
+  // Holding `editor` because `assignRole` refuses a role id nothing is stored
+  // under, and what these cases measure is the argument validation in front of
+  // that.
+  const adapter = new IamMemoryAdapter<string, string, string, string>({
+    roles: [{ id: 'editor', name: 'Editor', permissions: [] }],
+  })
   const engine = new IamEngine<string, string, string, string, 'production'>({
     adapter,
     mode: 'production',

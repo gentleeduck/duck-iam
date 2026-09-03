@@ -7,6 +7,7 @@ import {
   iamDefaultCsrfCheck,
   iamDefaultResource,
   iamExtractEnvironment,
+  iamIsSubjectId,
   iamNoticeCsrfDefaultIfNeeded,
   iamRequirePathParam,
   iamRunAdminAuthz,
@@ -101,23 +102,33 @@ export namespace IamHono {
 }
 
 /**
- * Extract environment from Hono context: the leftmost `x-forwarded-for` hop,
- * then `x-real-ip`. `cf-connecting-ip` is read only when the caller opts in -
- * express and nest reach this slot from a framework-computed socket address,
- * and reading a forwarded header unconditionally made hono the one adapter
- * whose `env.ip` any client could set outright.
+ * Extract environment from a Hono context.
+ *
+ * `environment.ip` stays `undefined` unless `trustCloudflareHeaders` is set,
+ * and then it is `cf-connecting-ip` - a header Cloudflare overwrites on every
+ * request, which is what makes it usable. `x-forwarded-for` and `x-real-ip`
+ * are still passed through to {@link iamExtractEnvironment} so it can decide,
+ * and it declines by default: with nothing in front of the app those are
+ * headers the client sets itself, and reading them unconditionally let a plain
+ * `X-Forwarded-For: 10.0.0.1` satisfy an IP-conditioned admin grant here.
+ *
+ * An app that terminates behind its own proxy supplies the value through
+ * `opts.getEnvironment` instead.
  */
 function defaultEnv(c: HonoContext, trustCloudflareHeaders = false): IamRequest.IEnvironment {
-  return iamExtractEnvironment({
-    ip: trustCloudflareHeaders ? c.req.header('cf-connecting-ip') : undefined,
-    headers: {
-      'x-forwarded-for': c.req.header('x-forwarded-for'),
-      'x-real-ip': c.req.header('x-real-ip'),
-      'user-agent': c.req.header('user-agent'),
+  return iamExtractEnvironment(
+    {
+      ip: trustCloudflareHeaders ? c.req.header('cf-connecting-ip') : undefined,
+      headers: {
+        'x-forwarded-for': c.req.header('x-forwarded-for'),
+        'x-real-ip': c.req.header('x-real-ip'),
+        'user-agent': c.req.header('user-agent'),
+      },
+      method: c.req.method,
+      url: c.req.url,
     },
-    method: c.req.method,
-    url: c.req.url,
-  })
+    { trustProxy: trustCloudflareHeaders },
+  )
 }
 
 /**
@@ -162,7 +173,7 @@ export function iamAccessMiddleware<
       // Inside the try, like every other extractor: a throwing `getUserId` must
       // reach `onError` rather than the framework's boundary.
       const userId = getUserId(c)
-      if (!userId) return c.json({ error: 'Unauthorized' }, 401)
+      if (!iamIsSubjectId(userId)) return c.json({ error: 'Unauthorized' }, 401)
 
       const allowed = await engine.can(
         userId,
@@ -416,7 +427,7 @@ export function iamGuard<
   return async (c, next) => {
     try {
       const userId = getUserId(c)
-      if (!userId) return c.json({ error: 'Unauthorized' }, 401)
+      if (!iamIsSubjectId(userId)) return c.json({ error: 'Unauthorized' }, 401)
 
       const allowed = await engine.can(
         userId,

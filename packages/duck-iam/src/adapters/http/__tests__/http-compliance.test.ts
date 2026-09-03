@@ -64,6 +64,15 @@ function makeReferenceServer(): typeof globalThis.fetch {
       }
       if (method === 'DELETE' && id !== undefined) {
         roles.delete(id)
+        // Deleting a role takes its grants, the way `ON DELETE CASCADE` does on
+        // the SQL schemas. The adapter delegates this to the server, so the
+        // reference server has to show what a correct one does.
+        for (const [subjectId, entries] of assignments) {
+          assignments.set(
+            subjectId,
+            entries.filter((e) => e.role !== id),
+          )
+        }
         return json({})
       }
     }
@@ -79,6 +88,10 @@ function makeReferenceServer(): typeof globalThis.fetch {
         if (method === 'POST') {
           const roleId = String((body as { roleId: string }).roleId)
           const scope = (body as { scope?: string }).scope
+          // The contract refuses a grant naming a role that does not exist. The
+          // HTTP adapter delegates that to the server, so the reference server
+          // is where it lives - a 422 the adapter surfaces as a throw.
+          if (!roles.has(roleId)) return json({ error: `no role "${roleId}"` }, 422)
           if (!entries.some((e) => e.role === roleId && e.scope === scope)) entries.push({ role: roleId, scope })
           assignments.set(subjectId, entries)
           return json({})

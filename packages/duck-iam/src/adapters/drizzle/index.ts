@@ -6,8 +6,14 @@ import { creditWrites } from '../../core/batch'
 import type { IamConfig } from '../../core/config'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
+import { iamIsForeignKeyViolation, iamUnknownRoleError } from '../../shared/assignment-target'
 import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
-import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import {
+  iamAssertSavablePolicy,
+  iamAssertSavableRole,
+  iamNormalizePolicy,
+  iamUnreadablePolicy,
+} from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import type { Mysql } from './mysql/mysql.types'
@@ -116,9 +122,88 @@ export namespace IamDrizzle {
  * const engine = new IamEngine({ adapter })
  * ```
  */
-/** Epoch ms for an optional timestamp column: `null` when absent, `NaN` when unparseable. */
+/**
+ * Which optional `ops` this process has already complained about.
+ *
+ * Module-level rather than per-instance because {@link IamDrizzleAdapter.withClient}
+ * re-constructs the adapter for every transaction: a per-instance flag would
+ * turn one misconfiguration into one warning per transaction, which is how a
+ * startup diagnostic becomes log noise operators filter out.
+ */
+const warnedMissingOps = new Set<'isNull' | 'or'>()
+// Not exported as a reset seam: this entrypoint ships exactly the adapter class
+// and its factory, and `entrypoint-naming.test.ts` enforces that. Tests that
+// need a fresh warning state re-import the module (`vi.resetModules()`).
+
+/**
+ * Warn once per process for each optional operator the caller left out.
+ *
+ * Both omissions are *correct* but slow, and silently so: without `or`,
+ * `revokeRoleMany` degrades from one `DELETE` to one per row; without `isNull`,
+ * `updateAssignmentScope` cannot express the `IS NULL` an unscoped assignment
+ * needs and falls back to revoke + assign - two writes, and briefly no grant at
+ * all. Neither can be derived: `eq(col, null)` is not `IS NULL` in SQL, and
+ * there is no way to synthesise an `OR` builder from `eq` and `and`. So the
+ * only honest fix is to say so at construction, where the caller can act on it.
+ */
+/**
+ * Provenance columns for an upsert: `created_by` on the row this call inserts,
+ * `updated_by` on the row it overwrites.
+ *
+ * Split deliberately. `created_by` answers "who first put this here" and must
+ * not move on a later edit; `updated_by` answers "who touched it last" and must.
+ * Both are spread rather than written as null, so a table predating the columns
+ * is untouched unless the caller actually names an actor.
+ */
+function provenance(actor: string | undefined): {
+  insert: Record<string, string>
+  update: Record<string, string>
+} {
+  if (actor === undefined) return { insert: {}, update: {} }
+  return { insert: { createdBy: actor }, update: { updatedBy: actor } }
+}
+
+function warnMissingOps(ops: { isNull?: unknown; or?: unknown }): void {
+  const missing: string[] = []
+  if (typeof ops.isNull !== 'function' && !warnedMissingOps.has('isNull')) {
+    warnedMissingOps.add('isNull')
+    missing.push(
+      '`isNull` - updateAssignmentScope() cannot match an unscoped (NULL) assignment in place and falls back to revoke + assign',
+    )
+  }
+  if (typeof ops.or !== 'function' && !warnedMissingOps.has('or')) {
+    warnedMissingOps.add('or')
+    missing.push('`or` - revokeRoleMany() issues one DELETE per row instead of one statement')
+  }
+  if (missing.length === 0) return
+  try {
+    console.warn(
+      `[@gentleduck/iam:drizzle] running on a degraded path; ops is missing ${missing.join('; ')}. ` +
+        'Pass them through from drizzle-orm: `ops: { eq, and, isNull, or }`.',
+    )
+  } catch {
+    /* a closed stdout must not break adapter construction */
+  }
+}
+
+/**
+ * Epoch ms for an optional timestamp column: `null` when absent, `NaN` when
+ * unparseable, and `Infinity` / `-Infinity` passed through as themselves.
+ *
+ * Postgres spells "never expires" as `infinity`, and node-postgres parses it to
+ * the JS number, not a Date. `new Date(Infinity)` is an Invalid Date, so that
+ * spelling used to collapse into the same `NaN` an unreadable column produces,
+ * and a grant marked as never expiring read as inactive - a wrong deny, on the
+ * value an operator writes precisely to mean "always". Kept as numbers, the two
+ * bounds compare the way they read: `now < -Infinity` is false, so a
+ * `-infinity` start is always begun, and `now >= Infinity` is false, so an
+ * `infinity` expiry never lapses. The other two spellings (`starts_at =
+ * infinity`, `expires_at = -infinity`) fall out inactive from the same
+ * comparisons, which is also what they mean.
+ */
 function epochMs(value: Date | string | number | null | undefined): number | null {
   if (value === null || value === undefined) return null
+  if (typeof value === 'number' && !Number.isFinite(value)) return value
   return value instanceof Date ? value.getTime() : new Date(value).getTime()
 }
 
@@ -184,6 +269,7 @@ export class IamDrizzleAdapter<
     this._json = config.json ?? 'native'
     this._dialect = config.dialect ?? 'pg'
     this._onPolicyError = config.onPolicyError
+    warnMissingOps(config.ops)
   }
 
   /**
@@ -277,12 +363,16 @@ export class IamDrizzleAdapter<
       this._onPolicyError(err, { adapter: 'drizzle', rowId })
       return
     }
-    console.warn(`[@gentleduck/iam:drizzle] dropped malformed row "${rowId}": ${err.message}`)
+    console.warn(`[@gentleduck/iam:drizzle] malformed row "${rowId}": ${err.message}`)
   }
 
   /**
-   * Parse a row's JSON columns + validate the policy shape. Returns `null` on
-   * any failure (parse error or invalid shape) so the caller can drop the row.
+   * Parse a row's JSON columns + validate the policy shape.
+   *
+   * Throws on any failure - a bad JSON column or an invalid shape - rather than
+   * returning `null` for the caller to skip. See {@link iamUnreadablePolicy}:
+   * a dropped policy may be the one that denies. `_safeParseRole` below still
+   * returns `null`, because role permissions are allow-only.
    */
   private _safeParsePolicy(row: IamDrizzle.PolicyRow): AccessControl.IPolicy<TAction, TResource, TRole> | null {
     let parsedRules: unknown
@@ -299,8 +389,9 @@ export class IamDrizzleAdapter<
           : row.targets
         : undefined
     } catch (err) {
-      this._reportPolicyError(err instanceof Error ? err : new Error(String(err)), row.id)
-      return null
+      const detail = err instanceof Error ? err : new Error(String(err))
+      this._reportPolicyError(detail, row.id)
+      throw iamUnreadablePolicy('drizzle', row.id, detail.message)
     }
 
     const candidate = {
@@ -318,7 +409,7 @@ export class IamDrizzleAdapter<
         .issues.map((i) => i.message)
         .join('; ')
       this._reportPolicyError(new Error(`Invalid policy "${row.id}": ${issues}`), row.id)
-      return null
+      throw iamUnreadablePolicy('drizzle', row.id, issues)
     }
     return policy
   }
@@ -336,14 +427,25 @@ export class IamDrizzleAdapter<
       return null
     }
 
+    // Absent columns are omitted, not set to `undefined`, the way
+    // `_safeParsePolicy` above already does it. A key holding `undefined` is
+    // still a key: `Object.keys` lists it, `JSON.stringify` drops it, and
+    // `toEqual` ignores it, so "does this role have a description" got three
+    // different answers depending which one the consumer asked - and a role
+    // saved as `{id,name,permissions}` read back from Postgres with seven keys
+    // and from memory with three.
     const candidate = {
       id: row.id,
       name: row.name,
-      description: row.description ?? undefined,
+      ...(row.description === null || row.description === undefined ? {} : { description: row.description }),
       permissions,
-      inherits,
-      scope: row.scope ?? undefined,
-      metadata,
+      // An empty `inherits` is what the column's `[]` default produces for a
+      // role saved without one, which is the same thing as not having it.
+      // Anything else - including a value that is not an array - is passed
+      // through for `parseRoleRow` to refuse.
+      ...(Array.isArray(inherits) && inherits.length === 0 ? {} : { inherits }),
+      ...(row.scope === null || row.scope === undefined ? {} : { scope: row.scope }),
+      ...(metadata === undefined ? {} : { metadata }),
     }
     const role = parseRoleRow<TAction, TResource, TRole, TScope>(candidate)
     if (role === null) {
@@ -365,8 +467,12 @@ export class IamDrizzleAdapter<
   private _isActive(row: IamDrizzle.AssignmentRow, now: number): boolean {
     const startsAt = epochMs(row.startsAt)
     const expiresAt = epochMs(row.expiresAt)
-    if (startsAt !== null && !Number.isFinite(startsAt)) return false
-    if (expiresAt !== null && !Number.isFinite(expiresAt)) return false
+    // `Number.isNaN`, not `!Number.isFinite`: only an *unreadable* bound makes
+    // the row inactive on sight. `±Infinity` is readable - it is how Postgres
+    // spells an open-ended bound - and the comparisons below give it the right
+    // answer on their own.
+    if (startsAt !== null && Number.isNaN(startsAt)) return false
+    if (expiresAt !== null && Number.isNaN(expiresAt)) return false
     if (startsAt !== null && now < startsAt) return false
     if (expiresAt !== null && now >= expiresAt) return false
     return true
@@ -437,10 +543,17 @@ export class IamDrizzleAdapter<
    * @param p - Provides the policy to persist.
    * @returns Resolves once the upsert completes.
    */
-  async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+  async savePolicy(
+    p: AccessControl.IPolicy<TAction, TResource, TRole>,
+    opts?: IamAdapter.IActorOptions,
+  ): Promise<void> {
     iamAssertSavablePolicy('drizzle', p)
     const data = serializePolicy(iamNormalizePolicy(p), this._json)
-    await this._upsert(this._t.policies, data, this._t.policies.id, p.id, data)
+    const who = provenance(opts?.actor)
+    await this._upsert(this._t.policies, { ...data, ...who.insert }, this._t.policies.id, p.id, {
+      ...data,
+      ...who.update,
+    })
   }
 
   /**
@@ -490,10 +603,14 @@ export class IamDrizzleAdapter<
    * @param r - Provides the role to persist.
    * @returns Resolves once the upsert completes.
    */
-  async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+  async saveRole(
+    r: AccessControl.IRole<TAction, TResource, TRole, TScope>,
+    opts?: IamAdapter.IActorOptions,
+  ): Promise<void> {
     iamAssertSavableRole('drizzle', r)
     const data = serializeRole(r, this._json)
-    await this._upsert(this._t.roles, data, this._t.roles.id, r.id, data)
+    const who = provenance(opts?.actor)
+    await this._upsert(this._t.roles, { ...data, ...who.insert }, this._t.roles.id, r.id, { ...data, ...who.update })
   }
 
   /**
@@ -576,14 +693,42 @@ export class IamDrizzleAdapter<
    */
   async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
     iamAssertAssignableScope('drizzle', scope)
-    await this._insertOrSkip(this._t.assignments, {
-      subjectId,
-      roleId,
-      scope: scope ?? null,
-      startsAt: opts?.startsAt ?? null,
-      expiresAt: opts?.expiresAt ?? null,
-      attributes: opts?.attributes ? encodeJson(opts.attributes, this._json) : null,
-    })
+    await this._refusingUnknownRole(() =>
+      this._insertOrSkip(this._t.assignments, {
+        subjectId,
+        roleId,
+        scope: scope ?? null,
+        startsAt: opts?.startsAt ?? null,
+        expiresAt: opts?.expiresAt ?? null,
+        attributes: opts?.attributes ? encodeJson(opts.attributes, this._json) : null,
+        // Spread rather than written as null, so a table without the column is
+        // untouched unless the caller actually names an actor. The pg and mysql
+        // schemas here declare `created_by`; this is what finally fills it.
+        ...(opts?.actor !== undefined && { createdBy: opts.actor }),
+      }),
+    )
+  }
+
+  /**
+   * Runs a write that may violate `fk_iam_assignments_role` and reports the
+   * violation the way the other five adapters do.
+   *
+   * The database is the check here - checking first would leave a window where
+   * the role is deleted before the insert lands - but drizzle buries the
+   * constraint on `.cause` under a `Failed query: <sql>` message, so without
+   * this an operator sees the statement and never the reason. The original
+   * error is kept as `cause`.
+   *
+   * @param write - The insert to run.
+   * @returns Whatever the write returns.
+   */
+  private async _refusingUnknownRole<T>(write: () => Promise<T>): Promise<T> {
+    try {
+      return await write()
+    } catch (err) {
+      if (!iamIsForeignKeyViolation(err)) throw err
+      throw iamUnknownRoleError('drizzle', err)
+    }
   }
 
   /**
@@ -621,6 +766,11 @@ export class IamDrizzleAdapter<
   async assignRoleMany(rows: readonly IamAdapter.IAssignRow<TRole, TScope>[]): Promise<readonly number[] | null> {
     for (const r of rows) iamAssertAssignableScope('drizzle', r.scope)
     if (rows.length === 0) return []
+    // All-or-nothing across the batch: a multi-row insert builds its column
+    // list from the value objects, so including `createdBy` on some rows and
+    // not others would produce rows the driver has to reconcile. If any row
+    // names an actor, every row carries the column - null where it has none.
+    const anyActor = rows.some((r) => r.opts?.actor !== undefined)
     const statement = this._insertOrSkip(
       this._t.assignments,
       rows.map((r) => ({
@@ -630,6 +780,7 @@ export class IamDrizzleAdapter<
         startsAt: r.opts?.startsAt ?? null,
         expiresAt: r.opts?.expiresAt ?? null,
         attributes: r.opts?.attributes ? encodeJson(r.opts.attributes, this._json) : null,
+        ...(anyActor && { createdBy: r.opts?.actor ?? null }),
       })),
     )
     // MySQL's insert-ignore has no `RETURNING`. The grants land either way;
@@ -637,14 +788,14 @@ export class IamDrizzleAdapter<
     // `changed` off rather than guessing. Finding out would cost a second
     // round trip for an answer nobody asked for.
     if (this._dialect === 'mysql') {
-      await statement
+      await this._refusingUnknownRole(() => Promise.resolve(statement))
       return null
     }
     // `r.scope ?? null` compares against the column as stored, which keeps an
     // unscoped row distinct from one scoped to the empty string.
     return creditWrites(
       rows,
-      returnedTriples(await statement.returning()),
+      returnedTriples(await this._refusingUnknownRole(() => statement.returning())),
       (r, t) => r.subjectId === t.subjectId && r.roleId === t.roleId && (r.scope ?? null) === t.scope,
     )
   }
@@ -764,8 +915,14 @@ export class IamDrizzleAdapter<
       }
       return this._validateAttributesShape(parsed, subjectId)
     }
-    if (data === null || data === undefined) return {}
-    return this._validateAttributesShape(data, subjectId)
+    // No `data === null -> {}` short circuit. `data` is `.notNull()` in all
+    // three shipped schemas, so a row that exists cannot carry an absent value
+    // - a `null` arriving here is `'null'::jsonb`, a stored value, and the
+    // shape an import or a hand-written migration produces from a missing
+    // field. Answering `{}` for it read as "this subject has no attributes"
+    // and silently retired every deny rule that tests one; prisma's adapter
+    // threw on the identical row. `_validateAttributesShape` refuses it.
+    return this._validateAttributesShape(data ?? null, subjectId)
   }
 
   private _validateAttributesShape(value: unknown, subjectId: string): IamPrimitives.Attributes {
@@ -788,7 +945,11 @@ export class IamDrizzleAdapter<
    * @param attrs - Provides the partial attribute patch to merge in.
    * @returns Resolves once the upsert completes.
    */
-  async setSubjectAttributes(subjectId: string, attrs: IamPrimitives.Attributes): Promise<void> {
+  async setSubjectAttributes(
+    subjectId: string,
+    attrs: IamPrimitives.Attributes,
+    opts?: IamAdapter.IActorOptions,
+  ): Promise<void> {
     // The other four adapters have always called this; without it a non-object
     // `attrs` spreads into per-character keys and corrupts the ABAC bag, so the
     // same call errored loudly on memory/file/redis/http and wrote junk here.
@@ -804,7 +965,11 @@ export class IamDrizzleAdapter<
     }
     const mergedObj = { ...existing, ...attrs }
     const merged = this._json === 'string' ? JSON.stringify(mergedObj) : mergedObj
-    await this._upsert(this._t.attrs, { subjectId, data: merged }, this._t.attrs.subjectId, subjectId, { data: merged })
+    const who = provenance(opts?.actor)
+    await this._upsert(this._t.attrs, { subjectId, data: merged, ...who.insert }, this._t.attrs.subjectId, subjectId, {
+      data: merged,
+      ...who.update,
+    })
   }
 }
 

@@ -88,7 +88,7 @@ export namespace IamConfig {
      * Typed {@link IamEngine} instance. Permission checks are constrained to the
      * declared actions / resources / scopes.
      */
-    createEngine: <TMode extends AccessControl.Mode = 'development'>(
+    createEngine: <TMode extends AccessControl.Mode = 'production'>(
       config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
     ) => IamEngine<TAction, TResource, TRole, TScope, TMode>
 

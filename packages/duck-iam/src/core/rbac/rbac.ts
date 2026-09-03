@@ -54,6 +54,34 @@ function collectPermissions(
 }
 
 /**
+ * Id of the single policy `rolesToPolicy` folds every role permission into.
+ *
+ * Exported because it is not just a label: the evaluator has to be able to tell
+ * this policy apart from one an operator authored. It is a union of independent,
+ * allow-only grants that the compiled table evaluates first-match-wins, not a
+ * single authored unit whose rules are meant to be read together - and that
+ * difference decides what happens when one of its rules throws.
+ */
+export const IAM_RBAC_POLICY_ID = '__rbac__'
+
+/**
+ * Depth at which a role permission's own condition group is evaluated.
+ *
+ * `rolesToPolicy` wraps every permission as `{ all: [{ all: baseConditions }, perm.conditions] }`,
+ * so the interpreter's `evalConditionGroup` reaches the author's group one level
+ * down. The compiled table stores `perm.conditions` raw and used to start it at
+ * `0`, which handed the author ten usable nesting levels in production and nine
+ * in development: at exactly `MAX_CONDITION_DEPTH` the table allowed and the
+ * interpreter denied. `validateRole` already validates at this depth, so `1` is
+ * the number the other two paths were supposed to agree on - the table was the
+ * odd one out.
+ *
+ * Anything that evaluates or checks a permission's conditions outside the
+ * generated policy must start here, not at `0`.
+ */
+export const IAM_RBAC_CONDITION_DEPTH = 1
+
+/**
  * Convert RBAC role definitions into an ABAC policy.
  *
  * Each permission becomes a rule with a condition that checks
@@ -142,7 +170,7 @@ export function rolesToPolicy(
   }
 
   return {
-    id: '__rbac__',
+    id: IAM_RBAC_POLICY_ID,
     name: 'RBAC Policies',
     description: 'Auto-generated from role definitions',
     algorithm: 'allow-overrides',

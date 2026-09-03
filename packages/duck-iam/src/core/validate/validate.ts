@@ -1,7 +1,8 @@
-import { MAX_INHERITANCE_DEPTH } from '../rbac'
+import { IAM_RBAC_CONDITION_DEPTH, MAX_INHERITANCE_DEPTH } from '../rbac'
 import type { AccessControl } from '../types'
 import {
   checkKnownKeys,
+  hasControlChar,
   POLICY_KEYS,
   POLICY_LIMITS,
   TARGET_KEYS,
@@ -403,6 +404,21 @@ export function validateRole(input: unknown): IamValidate.IResult {
       message: 'Role must have a non-empty string "id"',
       path: 'id',
     })
+  } else if (hasControlChar(r.id)) {
+    // The published JSON Schema has forbidden control characters in a name
+    // since it was written; the runtime validator only checked rule actions and
+    // resources, so a role id carrying one was accepted here and refused
+    // downstream. On redis that is not cosmetic: NUL is the assignment member
+    // separator, so `saveRole` stored a role `assignRole` then threw on - a
+    // write the store accepted and the contract cannot use. The same id is also
+    // invisible in any UI that would display it, so it reads as a different
+    // role than it is.
+    issues.push({
+      type: 'error',
+      code: 'INVALID_TYPE',
+      message: `Role "id" must not contain control characters`,
+      path: 'id',
+    })
   }
 
   // Same contract as `permissions[i].scope` below, which was the only one
@@ -440,11 +456,26 @@ export function validateRole(input: unknown): IamValidate.IResult {
         continue
       }
       for (const field of ['action', 'resource'] as const) {
-        if (typeof perm[field] !== 'string' || perm[field] === '') {
+        const value = perm[field]
+        if (typeof value !== 'string' || value === '') {
           issues.push({
             type: 'error',
             code: 'MISSING_FIELD',
             message: `"permissions[${i}].${field}" must be a non-empty string`,
+            path: `permissions[${i}].${field}`,
+          })
+        } else if (hasControlChar(value)) {
+          // `rolesToPolicy` turns these into a rule's `actions` / `resources`,
+          // which the validator has always held to this rule - so the same
+          // string was refused when an operator wrote it as a policy and
+          // accepted when they wrote it as a role permission. A NUL is the
+          // sharp case: `evaluate.libs.ts`'s literal rule index is keyed by
+          // action then resource precisely because an embedded NUL used to
+          // collide two unrelated rules.
+          issues.push({
+            type: 'error',
+            code: 'INVALID_TYPE',
+            message: `"permissions[${i}].${field}" must not contain control characters`,
             path: `permissions[${i}].${field}`,
           })
         }
@@ -478,11 +509,11 @@ export function validateRole(input: unknown): IamValidate.IResult {
           // and allowed in production. Rules have always been checked this way;
           // role permissions now are too.
           //
-          // Depth 1 mirrors `rolesToPolicy`, which nests the author's group one
-          // level inside the generated rule's own `all` - the same level for
-          // every group key. Validating at 0 would accept a group one level
-          // past what `evalConditionGroup` will match.
-          validateConditionGroup(perm.conditions, `permissions[${i}].conditions`, issues, 1)
+          // `IAM_RBAC_CONDITION_DEPTH` mirrors `rolesToPolicy`, which nests the
+          // author's group one level inside the generated rule's own `all` - the
+          // same level for every group key. Validating at 0 would accept a group
+          // one level past what `evalConditionGroup` will match.
+          validateConditionGroup(perm.conditions, `permissions[${i}].conditions`, issues, IAM_RBAC_CONDITION_DEPTH)
         }
       }
     }

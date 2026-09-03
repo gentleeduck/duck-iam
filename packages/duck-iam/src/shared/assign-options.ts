@@ -1,6 +1,18 @@
 import type { IamAdapter } from '../core/types'
 
-/** The fields of {@link IamAdapter.IAssignOptions} an adapter has to store to honour. */
+/**
+ * The fields of {@link IamAdapter.IAssignOptions} an adapter has to store to honour.
+ *
+ * `actor` is deliberately NOT in this list, and the difference is not an
+ * oversight. Dropping `expiresAt` changes what the store will *answer*: the
+ * grant outlives the bound the caller asked for, so the write has to fail.
+ * Dropping `actor` changes nothing about any future authorization decision -
+ * the engine emits it on the `role.assigned` / `role.revoked` mutation event
+ * whether or not a column exists, so the audit trail the caller wanted is
+ * intact. Five of the six adapters have no provenance column at all; refusing
+ * their writes would make `actor` unusable everywhere except drizzle for no
+ * safety gain.
+ */
 const ASSIGN_OPTION_FIELDS = ['startsAt', 'expiresAt', 'attributes'] as const
 
 /**

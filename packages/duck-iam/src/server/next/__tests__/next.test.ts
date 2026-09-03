@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
 import { IamEngine } from '../../../core/engine'
 import type { AccessControl } from '../../../core/types'
+import { iamExtractEnvironment } from '../../generic'
 import {
   checkIamAccess,
   createIamAdminHandlers,
@@ -103,20 +104,27 @@ describe('withIamAccess', () => {
     can.mockRestore()
   })
 
-  it('default getEnvironment reads x-forwarded-for + ua', async () => {
+  it('default getEnvironment reads the ua but never guesses the ip', async () => {
+    // next runs behind whatever the deployment puts in front of it, and the
+    // wrapper cannot tell a proxy-written x-forwarded-for from one the client
+    // typed. Guessing here let a client satisfy an IP-conditioned policy, so
+    // the ip is the app's to supply via `getEnvironment`.
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const handler = vi.fn(async () => Response.json({ ok: true }))
     const wrapped = withIamAccess(engine, 'read', 'post', handler, { getUserId: () => 'u' })
     await wrapped(makeRequest({ headers: { 'x-forwarded-for': '1.1.1.1', 'user-agent': 'curl' } }), { params: {} })
-    expect(can.mock.calls[0]?.[3]?.ip).toBe('1.1.1.1')
+    expect(can.mock.calls[0]?.[3]?.ip).toBeUndefined()
     expect(can.mock.calls[0]?.[3]?.userAgent).toBe('curl')
     can.mockRestore()
   })
 
-  it('default getEnvironment takes the leftmost hop from a multi-value x-forwarded-for', async () => {
+  it('an app that trusts its proxy supplies the ip through getEnvironment', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const handler = vi.fn(async () => Response.json({ ok: true }))
-    const wrapped = withIamAccess(engine, 'read', 'post', handler, { getUserId: () => 'u' })
+    const wrapped = withIamAccess(engine, 'read', 'post', handler, {
+      getEnvironment: (req) => iamExtractEnvironment({ headers: req.headers }, { trustProxy: true }),
+      getUserId: () => 'u',
+    })
     await wrapped(makeRequest({ headers: { 'x-forwarded-for': ' 1.1.1.1 , 10.0.0.1' } }), { params: {} })
     expect(can.mock.calls[0]?.[3]?.ip).toBe('1.1.1.1')
     can.mockRestore()

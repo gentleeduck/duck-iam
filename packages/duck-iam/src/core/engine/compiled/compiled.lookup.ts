@@ -2,6 +2,7 @@
 import { evalConditionGroup } from '../../conditions/conditions'
 import { evaluatePolicyFast, type IVoteSource } from '../../evaluate/evaluate'
 import { combiners, policyHasDenyRule } from '../../evaluate/evaluate.libs'
+import { IAM_RBAC_CONDITION_DEPTH } from '../../rbac/rbac'
 import type { AccessControl, IamRequest } from '../../types'
 import { scopeCovers } from '../engine.libs'
 import { CellKind, type CompiledTable, type DynamicPolicyGroup } from './compiled.types'
@@ -141,7 +142,11 @@ function rbacVote(
       for (const g of groups) {
         if ((mask & g.roleMask) === 0) continue
         if (g.scope !== undefined && !scopeCovers(g.scope, req.scope, table.scopeMode)) continue
-        if (g.conditions && !evalConditionGroup(req, g.conditions, 0, caches)) continue
+        // `IAM_RBAC_CONDITION_DEPTH`, not `0`: this group is `perm.conditions` raw,
+        // and `rolesToPolicy` nests the same group one level down, so starting at
+        // `0` here gave production one nesting level more than development and
+        // than `validateRole` allows.
+        if (g.conditions && !evalConditionGroup(req, g.conditions, IAM_RBAC_CONDITION_DEPTH, caches)) continue
         return true // role permissions are allow-only - first match wins
       }
     } catch (err) {
@@ -156,7 +161,7 @@ function rbacVote(
 
   if (table.rbacResidual) {
     try {
-      const vote = evaluatePolicyFast(table.rbacResidual, req, defaultEffect, caches, voteSource)
+      const vote = evaluatePolicyFast(table.rbacResidual, req, defaultEffect, caches, voteSource, onPolicyError)
       if (vote !== null) return vote
     } catch (err) {
       // Same Indeterminate contract as every other catch on this path.
@@ -211,7 +216,7 @@ export function lookup(
 
   for (const policy of table.residualPolicies) {
     try {
-      push(evaluatePolicyFast(policy, req, defaultEffect, caches, voteSource))
+      push(evaluatePolicyFast(policy, req, defaultEffect, caches, voteSource, onPolicyError))
     } catch (err) {
       // Same Indeterminate contract as the interpreter's safeEval: a deny-bearing
       // policy votes deny, an allow-only one votes `defaultEffect`. Swallowing the
