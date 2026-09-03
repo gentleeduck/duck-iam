@@ -90,7 +90,15 @@ export namespace Sessions {
     delete(id: string): Promise<void>
     listByIdentity(identityId: string): Promise<Me[]>
     deleteAllForIdentity(identityId: string): Promise<void>
-    /** Periodic GC. Acquires distributed lease before running. */
+    /**
+     * Periodic GC. Implementations that can run on several instances at once MUST
+     * serialise themselves - `RedisSessionImpl` takes a `{prefix}:gc:lease` with
+     * SET NX and no-ops when it loses. Callers schedule this; they do not lock it.
+     *
+     * `deleted` counts each row the run reconciled exactly once, whether its
+     * record was already gone or was swept here for being past `expiresAt` or
+     * `absoluteExpiresAt`.
+     */
     gc(now: number): Promise<{ deleted: number }>
     /** See `Identities.Store.withClient`. Absent means this store cannot join a transaction. */
     withClient?(client: unknown): Store

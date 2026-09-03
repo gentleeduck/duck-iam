@@ -113,9 +113,15 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       const store = factory()
       if (!store.restoreMany || !store.eraseMany) return ctx.skip()
       const a = await store.create(identityInput({ profile: { email: 'er@x', username: 'er' } as unknown as P }))
-      await store.softDelete(a.id, 1000)
+      // The absent id costs a create and an erase against the real database, so
+      // take it before the clock starts. A one-second window with that round-trip
+      // inside it closes on a loaded container, and the run then reports a working
+      // grace window as a broken `restoreMany`. A minute is what the rest of this
+      // suite uses for a window meant to stay open.
+      const absent = await absentIdentityId(store)
+      await store.softDelete(a.id, 60_000)
 
-      expect((await store.restoreMany([a.id, await absentIdentityId(store)])).applied).toBe(1)
+      expect((await store.restoreMany([a.id, absent])).applied).toBe(1)
       expect(await store.findById(a.id)).not.toBeNull()
 
       expect((await store.eraseMany([a.id])).applied).toBe(1)

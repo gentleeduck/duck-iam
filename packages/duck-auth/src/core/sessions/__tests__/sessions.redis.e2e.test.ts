@@ -122,21 +122,33 @@ suite('E2E RedisSessionImpl (real Redis)', () => {
   })
 
   describe('gc at scale', () => {
-    it('times a gc sweep over 500 sessions (S4 is O(identities x sessions) sequential)', async () => {
-      const store = new RedisSessionImpl({ redis: client, prefix: `${prefix}:gcscale` })
+    it('sweeps only what is due, and pages past the range limit to get all of it', async () => {
+      const store = new RedisSessionImpl({ prefix: `${prefix}:gcscale`, redis: client })
       const identityId = `gc-${Date.now()}`
-      await Promise.all(
-        Array.from({ length: 500 }, (_, i) => store.create(sess({ id: `gc-${i}-${Date.now()}`, identityId }) as never)),
-      )
+      const past = new Date(Date.now() - 60_000)
+      // 500 due rows against a 250-member page: a single-page sweep leaves half
+      // of them behind. 100 live ones alongside, because a sweep that took them
+      // too would be signing every one of those users out.
+      await Promise.all([
+        ...Array.from({ length: 500 }, (_, i) =>
+          store.create(
+            sess({ absoluteExpiresAt: past, expiresAt: past, id: `gc-dead-${i}-${Date.now()}`, identityId }) as never,
+          ),
+        ),
+        ...Array.from({ length: 100 }, (_, i) =>
+          store.create(sess({ id: `gc-live-${i}-${Date.now()}`, identityId }) as never),
+        ),
+      ])
 
       const started = Date.now()
       const { deleted } = await store.gc(Date.now())
       const elapsed = Date.now() - started
 
-      // Feeds the decision in plan 02 Task 3: is batching enough, or does gc
-      // need a cursor-based redesign?
-      console.log(`      gc over 500 sessions: ${elapsed}ms, deleted=${deleted}`)
-      expect(elapsed).toBeGreaterThanOrEqual(0)
+      console.log(`      gc over 600 sessions (500 due): ${elapsed}ms, deleted=${deleted}`)
+      expect(deleted).toBe(500)
+      // The identity index is reconciled from the expiry member alone - no
+      // session body is read to find out whose set to clear.
+      expect(await store.listByIdentity(identityId)).toHaveLength(100)
     }, 60_000)
   })
 })
