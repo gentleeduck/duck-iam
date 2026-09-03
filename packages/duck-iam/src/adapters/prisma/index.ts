@@ -115,6 +115,18 @@ export class IamPrismaAdapter<
   }
 
   /**
+   * Re-makes this adapter against `client` - the value Prisma hands an
+   * interactive transaction callback, `$transaction(async (tx) => ...)`.
+   *
+   * That `tx` exposes the same delegates (`accessPolicy`, `accessRole`, ...)
+   * as the base client, minus `$transaction` itself, so every read and write
+   * this adapter makes joins the caller's transaction unchanged.
+   */
+  withClient(client: unknown): IamPrismaAdapter<TAction, TResource, TRole, TScope, TPrisma> {
+    return new IamPrismaAdapter<TAction, TResource, TRole, TScope, TPrisma>(client as TPrisma)
+  }
+
+  /**
    * Lists every policy in the database.
    *
    * @param _opts - Ignored read options accepted for interface compatibility.

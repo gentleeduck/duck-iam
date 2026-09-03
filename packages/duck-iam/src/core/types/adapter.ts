@@ -127,5 +127,17 @@ export namespace IamAdapter {
     TScope extends string = string,
   > extends IPolicyStore<TAction, TResource, TRole>,
       IRoleStore<TAction, TResource, TRole, TScope>,
-      ISubjectStore<TRole, TScope> {}
+      ISubjectStore<TRole, TScope> {
+    /**
+     * Re-binds this adapter to a caller-supplied driver client - typically a
+     * transaction handle. The client is opaque to duck-iam and handed straight
+     * back to the adapter, which is the only layer that knows the driver type.
+     *
+     * Omitting it means this adapter cannot join a transaction, and
+     * `IamEngine.withTransaction` throws rather than silently leaving writes
+     * outside the caller's transaction. The memory, file, redis and http
+     * adapters all omit it - none has a transaction to join.
+     */
+    withClient?(client: unknown): IAdapter<TAction, TResource, TRole, TScope>
+  }
 }
