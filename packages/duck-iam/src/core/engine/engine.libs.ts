@@ -1,3 +1,4 @@
+import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import type { Batch } from '../batch'
 import { appliedRows, batchResult, loopFallback } from '../batch'
 import { matchesScope } from '../resolve/resolve'
@@ -485,9 +486,10 @@ export function createAdmin<
     async deleteRole(id: string, opts?: IamEngineTypes.IActorOptions) {
       assertNonEmptyStringParam('id', id)
       await adapter.deleteRole(id)
-      // The pre-existing cast: `TRole` is erased at runtime, so there is nothing
-      // to narrow against. A predicate here would be a cast wearing a disguise.
-      const roleId = id as TRole
+      // `TRole` is erased at runtime, so there is nothing to narrow against; a
+      // predicate here would be a cast wearing a disguise. Routed through the
+      // one documented place so it greps alongside the other tenant literals.
+      const roleId = iamAsRoleLiteral<TRole>(id)
       engine.cache.invalidateRoles(roleId)
       await emit?.({ type: 'role.deleted', at: Date.now(), roleId, ...actorOf(opts) })
     },
