@@ -7,6 +7,7 @@ import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamClient, IamRequest } from '../types'
 import { lookup } from './compiled/compiled.lookup'
 import type { CompiledTable } from './compiled/compiled.types'
+import { type Bound, buildBoundEngine } from './engine.bound'
 import { emitMetrics, safeHookCall } from './engine.hooks'
 import {
   applyInvalidateEvent,
@@ -83,6 +84,8 @@ export class IamEngine<
   private _adapterTimeoutMs: number
   private _maxConcurrentSubjectLoads: number
   private _invalidator?: IamEngineTypes.IInvalidator<TRole>
+  /** Retained whole so {@link withTransaction} can re-make this engine with only the adapter swapped. */
+  private readonly _config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>
   private _invalidatorUnsub: (() => void) | null = null
   private _policyCache: IamLRUCache<AccessControl.IPolicy[]>
   private _roleCache: IamLRUCache<AccessControl.IRole[]>
@@ -152,6 +155,7 @@ export class IamEngine<
    * @param config - Engine configuration (adapter, mode, caches, hooks).
    */
   constructor(config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>) {
+    this._config = config
     this._adapter = config.adapter
     this._defaultEffect = config.defaultEffect ?? 'deny'
     this._mode = config.mode ?? 'development'
@@ -867,6 +871,44 @@ export class IamEngine<
     return this._admin
   }
 
+  /**
+   * Returns a view of this engine whose adapter runs on `client` - a driver
+   * transaction handle - and whose cache invalidations buffer into `pending`
+   * instead of applying and broadcasting immediately.
+   *
+   * Writes go through `.admin`, the same interface as {@link admin}. Reads run
+   * on the returned view's own engine, which carries empty caches and so sees
+   * the transaction's own uncommitted writes.
+   *
+   * ```ts
+   * let pending
+   * await db.transaction(async (tx) => {
+   *   const perms = iam.withTransaction(tx)
+   *   await perms.admin.assignRole(userId, 'admin', orgId)
+   *   await tx.insert(members).values({ userId, orgId })
+   *   pending = perms.pending
+   * })
+   * await pending.flush() // invalidate and broadcast only after the commit
+   * ```
+   *
+   * A rollback needs no cleanup: drop the facade and the buffered
+   * invalidations go with it, or call `pending.discard()` to say so explicitly.
+   *
+   * @param client - Opaque driver handle, passed straight to the adapter.
+   * @throws When the configured adapter has no `withClient`, rather than
+   *   silently leaving the writes outside the caller's transaction.
+   */
+  withTransaction(client: unknown): Bound.IamEngine<TAction, TResource, TRole, TScope, TMode> {
+    const bind = this._adapter.withClient
+    if (!bind) {
+      throw new Error(
+        '[@gentleduck/iam:engine] withTransaction: the configured adapter cannot join a transaction ' +
+          '(no withClient). Use the drizzle or prisma adapter, or perform this write outside the transaction.',
+      )
+    }
+    return buildBoundEngine(this, bind.call(this._adapter, client), this._config, (cfg) => new IamEngine(cfg))
+  }
+
   /** @internal Cache references for the stats helper. */
   private _cachesForStats() {
     return {
@@ -960,7 +1002,23 @@ export class IamEngine<
   }
 }
 
-/** Factory around {@link IamEngine}, for callers who prefer functions to `new`. */
-export function iamEngine(...args: ConstructorParameters<typeof IamEngine>): IamEngine {
-  return new IamEngine(...args)
+/**
+ * Factory around {@link IamEngine}, for callers who prefer functions to `new`.
+ *
+ * Generic over the same parameters as the class so the caller's action,
+ * resource, role, scope and mode types survive the call. In particular a config
+ * carrying `mode: 'production'` produces a production-typed engine, on which
+ * {@link IamEngine.explain} - development-only, and a runtime throw in
+ * production - no longer typechecks.
+ */
+export function iamEngine<
+  TAction extends string = string,
+  TResource extends string = string,
+  TRole extends string = string,
+  TScope extends string = string,
+  TMode extends AccessControl.Mode = 'development',
+>(
+  config: IamEngineTypes.IConfig<TAction, TResource, TRole, TScope, TMode>,
+): IamEngine<TAction, TResource, TRole, TScope, TMode> {
+  return new IamEngine<TAction, TResource, TRole, TScope, TMode>(config)
 }
