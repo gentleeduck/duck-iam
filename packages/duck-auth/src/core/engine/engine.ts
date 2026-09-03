@@ -18,6 +18,7 @@ import { Providers } from '../provider'
 import type { Sessions } from '../sessions'
 import { DEFAULT_SESSION_CONFIG, SessionsImpl } from '../sessions'
 import type { Transport } from '../transport/transport.types'
+import { type Bound, buildBoundEngine } from './engine.bound'
 import { resolveSession } from './engine.resolve-session'
 import { assertStrict } from './engine.strict'
 import type { Engine } from './engine.types'
@@ -130,6 +131,74 @@ export class AuthEngine<
       () => this.mfa,
       DEFAULT_FLOWS_CONFIG,
     )
+  }
+
+  /**
+   * Return a view of this engine whose SQL-backed facets run on `client` - a
+   * driver transaction handle - and whose events buffer into `pending` instead
+   * of publishing immediately.
+   *
+   * The client is opaque: it is handed straight to each store's `withClient`,
+   * so the library never learns what driver it is. Throws `AUTH_MISCONFIGURED`
+   * naming the store when a configured store cannot join a transaction.
+   *
+   * ```ts
+   * let pending
+   * await db.transaction(async (tx) => {
+   *   const auth = engine.withTransaction(tx)
+   *   await auth.identities.softDelete(id)
+   *   await tx.delete(users).where(eq(users.id, id))
+   *   pending = auth.pending
+   * })
+   * await pending.flush()   // publish only once the commit landed
+   * ```
+   */
+  withTransaction(client: unknown): Bound.AuthEngine<Profile, OrgMeta> {
+    return buildBoundEngine<Profile, OrgMeta>({
+      client,
+      events: this.events,
+      identitiesCfg: {
+        softDeleteGracePeriodMs:
+          this.cfg.identities?.softDeleteGracePeriodMs ?? DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
+        profileMaxBytes: this.cfg.identities?.profileMaxBytes ?? DEFAULT_IDENTITIES_CONFIG.profileMaxBytes,
+      },
+      sessionsCfg: {
+        ttlMs: this.cfg.session?.ttlMs ?? DEFAULT_SESSION_CONFIG.ttlMs,
+        absoluteTtlMs: this.cfg.session?.absoluteTtlMs ?? DEFAULT_SESSION_CONFIG.absoluteTtlMs,
+        freshnessMs: this.cfg.session?.freshnessMs ?? DEFAULT_SESSION_CONFIG.freshnessMs,
+      },
+      stores: this.cfg.stores,
+      // Task 4 replaces this with `this.providers.withClient(client, bus)`. Until
+      // then the registry is the engine's own, so provider-owned facets are the
+      // known remaining gap; nothing else in the facade depends on it.
+      buildProviders: () => this.providers,
+      buildFlows: ({ sessions, identities, providers, events, stores }) =>
+        new FlowsImpl<Profile>(
+          sessions,
+          identities,
+          providers,
+          this.transport,
+          events,
+          (tenantId) => ({
+            stores,
+            tenant: tenantId !== undefined ? { tenantId } : {},
+            baseUrl: this.cfg.baseUrl,
+            // Deliberately the engine's own limiter: a rate-limit decision is a
+            // layer-2 guard and must survive a rollback, or a failed transaction
+            // would refund an attacker's attempts.
+            limiter: this.limiter,
+            events,
+            crypto: {
+              authRandomToken: (bytes) => randomToken(bytes),
+              authSha256: (s) => sha256(s),
+              authTimingSafeEqual: timingSafeEqual,
+            },
+          }),
+          () => providers.resolve(PasswordsImpl) ?? this.passwords,
+          () => providers.resolve(MfaFacet) ?? this.mfa,
+          DEFAULT_FLOWS_CONFIG,
+        ),
+    })
   }
 
   /**
