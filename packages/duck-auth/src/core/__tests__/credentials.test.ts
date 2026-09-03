@@ -197,7 +197,3 @@ describe('isProfileBooleanTrue', () => {
     expect(isProfileBooleanTrue([{ emailVerified: true }], 'emailVerified')).toBe(false)
   })
 })
-
-describe('memory findByEmail - profile-shape robustness', () => {
-  it.todo('integration test lives at src/adapters/memory/__tests__ - covered transitively')
-})
