@@ -437,6 +437,61 @@ describe('SessionsFacet', () => {
     })
   })
 
+  describe('getBySid()', () => {
+    it('returns a live session', async () => {
+      const { session, sid } = await facet.create({ aal: 1, factors: [], identityId: 'u', kind: 'user' })
+      expect((await facet.getBySid(sid))?.id).toBe(session.id)
+    })
+
+    it('returns null for an unknown SID', async () => {
+      expect(await facet.getBySid('does-not-exist')).toBeNull()
+    })
+
+    it('refuses a session past its sliding expiresAt, and hard-deletes it', async () => {
+      // The root cause behind four separate exploit paths: this method reads like
+      // `resolveBySid` and used to hand back whatever the store had.
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'u', kind: 'user' })
+      await adapter.sessions.update(sha256(sid), {
+        absoluteExpiresAt: new Date(Date.now() + 86_400_000),
+        expiresAt: new Date(Date.now() - 1000),
+      })
+      expect(await facet.getBySid(sid)).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
+    })
+
+    it('refuses a session past its absoluteExpiresAt, and hard-deletes it', async () => {
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'u', kind: 'user' })
+      await adapter.sessions.update(sha256(sid), { absoluteExpiresAt: new Date(Date.now() - 1) })
+      expect(await facet.getBySid(sid)).toBeNull()
+      expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
+    })
+
+    it('fails closed on a non-finite expiresAt rather than treating it as no deadline', async () => {
+      // `NaN < now` is false, so a lenient read keeps a should-be-dead session
+      // alive forever. Only an adapter bug produces one.
+      const { sid } = await facet.create({ aal: 1, factors: [], identityId: 'u', kind: 'user' })
+      await adapter.sessions.update(sha256(sid), { expiresAt: new Date(Number.NaN) })
+      expect(await facet.getBySid(sid)).toBeNull()
+    })
+
+    it('recomputes fresh from rotatedAt instead of trusting the stored flag', async () => {
+      // Only `touch` ever refreshed the stored boolean, so a session written
+      // `fresh: true` and never touched still claimed freshness weeks later - and
+      // the password-reset MFA gate reads exactly that field.
+      const { sid } = await facet.create({ aal: 2, factors: [], identityId: 'u', kind: 'user' })
+      await adapter.sessions.update(sha256(sid), {
+        fresh: true,
+        rotatedAt: new Date(Date.now() - DEFAULT_SESSION_CONFIG.freshnessMs - 1000),
+      })
+      expect((await facet.getBySid(sid))?.fresh).toBe(false)
+    })
+
+    it('still reports fresh inside the freshness window', async () => {
+      const { sid } = await facet.create({ aal: 2, factors: [], identityId: 'u', kind: 'user' })
+      expect((await facet.getBySid(sid))?.fresh).toBe(true)
+    })
+  })
+
   describe('touch()', () => {
     it('extends expiresAt within absoluteTtlMs cap', async () => {
       const { session, sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })

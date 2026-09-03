@@ -213,12 +213,38 @@ export class SessionsImpl {
     return all
   }
 
-  /** Resolve a plaintext SID to its session row (no identity join). */
+  /**
+   * Resolve a plaintext SID to its session row (no identity join), refusing one
+   * that is past either deadline.
+   *
+   * The gate is here and not in the store on purpose: `getByHash` means "the row
+   * filed under this key", and whether a session is still usable is policy. But
+   * every caller of this method gates something privileged on the answer -
+   * completing a step-up, starting an impersonation, the MFA re-check on a
+   * password reset - and two of them hand the result straight to
+   * `rotateOrCreate`, which mints a new live session from it. Without the gate,
+   * presenting an expired sid to any of them resurrected it. This method reads
+   * like `resolveBySid` and was the only one of the two that did not check.
+   *
+   * `fresh` is recomputed from `rotatedAt` rather than read off the row. Only
+   * `touch` ever refreshed the stored flag, so a session written `fresh: true`
+   * and never touched still claimed freshness weeks later - and the
+   * password-reset gate reads exactly that field.
+   */
   async getBySid(sid: string): Promise<Sessions.Me | null> {
     // Defensive typeof + length cap; authSha256(non-string) throws + multi-MB
     // input bloats hashing.
     if (typeof sid !== 'string' || sid.length === 0 || sid.length > 4096) return null
-    return this._store.getByHash(sha256(sid))
+    const session = await this._store.getByHash(sha256(sid))
+    if (!session) return null
+    const now = Date.now()
+    if (isSessionExpired(session, now)) {
+      // The same side effect `resolveBySid` has: a row nobody can use should not
+      // sit there waiting for `gc` to come round to it.
+      await this._store.delete(session.id)
+      return null
+    }
+    return { ...session, fresh: isSessionFresh(session, now, this._cfg.freshnessMs) }
   }
 
   /** Refresh expiresAt by ttlMs without rotating the SID. Stops fresh-window slip. */
@@ -228,35 +254,17 @@ export class SessionsImpl {
     const s = await this._store.getByHash(hash)
     if (!s) return null
     const now = Date.now()
-    const absoluteExpiresAtMs =
-      s.absoluteExpiresAt instanceof Date
-        ? s.absoluteExpiresAt.getTime()
-        : isFiniteNumber(s.absoluteExpiresAt)
-          ? (s.absoluteExpiresAt as number)
-          : Number.NaN
-    // fail closed if absoluteExpiresAt is non-finite (adapter bug).
-    // `NaN < now === false` would otherwise extend a should-be-dead
-    // session past its absolute cap.
-    if (!Number.isFinite(absoluteExpiresAtMs) || absoluteExpiresAtMs < now) {
+    // Fail closed on either deadline, so `touch` cannot revive a session
+    // `resolveBySid` would have rejected.
+    if (isSessionExpired(s, now)) {
       await this._store.delete(s.id)
       return null
     }
-    const expiresAtMs =
-      s.expiresAt instanceof Date
-        ? s.expiresAt.getTime()
-        : isFiniteNumber(s.expiresAt)
-          ? (s.expiresAt as number)
-          : Number.NaN
-    // Fail closed on a non-finite or already-passed sliding expiry. Without this, touch()
-    // revives a session that resolveBySid would have rejected.
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs < now) {
-      await this._store.delete(s.id)
-      return null
-    }
-    const rotatedAtMs = s.rotatedAt instanceof Date ? s.rotatedAt.getTime() : (s.rotatedAt as number)
+    // Finite: the guard above rejected everything else, so the cap below is a
+    // real number and never `NaN`.
+    const absoluteExpiresAtMs = deadlineMs(s.absoluteExpiresAt)
     const newExpiresAt = new Date(Math.min(absoluteExpiresAtMs, now + this._cfg.ttlMs))
-    const fresh = now - rotatedAtMs < this._cfg.freshnessMs
-    return this._store.update(s.id, { expiresAt: newExpiresAt, fresh })
+    return this._store.update(s.id, { expiresAt: newExpiresAt, fresh: isSessionFresh(s, now, this._cfg.freshnessMs) })
   }
 
   /** List all live sessions for an identity. Used by UI's "active devices view. */
@@ -372,6 +380,42 @@ export class SessionsImpl {
   }
 }
 
+/** A deadline as epoch ms, or `NaN` when the value is not a readable one. */
+function deadlineMs(v: unknown): number {
+  if (v instanceof Date) return v.getTime()
+  return isFiniteNumber(v) ? v : Number.NaN
+}
+
+/**
+ * True when a **required** deadline has passed, or cannot be read at all.
+ *
+ * `isExpiredAt` cannot stand in here: it reads a missing value as "no deadline,
+ * never expires". That is right for an optional impersonation window and exactly
+ * backwards for a deadline every session is required to carry. Failing closed
+ * matters because `NaN < now` is false, so a lenient read keeps a should-be-dead
+ * session alive forever - and only an adapter bug produces one, which is the
+ * case least worth trusting.
+ */
+function isDeadlinePast(v: unknown, now: number): boolean {
+  const ms = deadlineMs(v)
+  return !Number.isFinite(ms) || ms < now
+}
+
+/** Past either deadline: the sliding idle timeout, or the hard absolute cap. */
+export function isSessionExpired(session: Pick<Sessions.Me, 'expiresAt' | 'absoluteExpiresAt'>, now: number): boolean {
+  return isDeadlinePast(session.expiresAt, now) || isDeadlinePast(session.absoluteExpiresAt, now)
+}
+
+/**
+ * Freshness computed from `rotatedAt`, never read off the row's own `fresh`
+ * flag. Fails closed on a `rotatedAt` nothing can read, since this is the gate
+ * in front of password changes.
+ */
+export function isSessionFresh(session: Pick<Sessions.Me, 'rotatedAt'>, now: number, freshnessMs: number): boolean {
+  const ms = deadlineMs(session.rotatedAt)
+  return Number.isFinite(ms) && now - ms < freshnessMs
+}
+
 /**
  * Resolve a plaintext SID to (session, identity), used by `AuthEngine.resolveSession`.
  *
@@ -397,20 +441,7 @@ export async function resolveBySid<Profile extends Identities.ProfileMetadataBas
   // because the erased-identity throw below never hands them the session.
   if (opts.expectedTenantId !== undefined && session.tenantId !== opts.expectedTenantId) return null
   const now = Date.now()
-  const expiresAtMs =
-    session.expiresAt instanceof Date
-      ? session.expiresAt.getTime()
-      : isFiniteNumber(session.expiresAt)
-        ? (session.expiresAt as number)
-        : Number.NaN
-  const absExpiresAtMs =
-    session.absoluteExpiresAt instanceof Date
-      ? session.absoluteExpiresAt.getTime()
-      : isFiniteNumber(session.absoluteExpiresAt)
-        ? (session.absoluteExpiresAt as number)
-        : Number.NaN
-  // Fail closed on non-finite expiry (adapter bug) since `NaN < now` is false.
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs < now || !Number.isFinite(absExpiresAtMs) || absExpiresAtMs < now) {
+  if (isSessionExpired(session, now)) {
     await sessions.delete(session.id)
     return null
   }
