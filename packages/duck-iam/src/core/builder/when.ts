@@ -227,7 +227,8 @@ export class When<
    * @returns `this` for chaining
    */
   roles(...roleIds: TRole[]): this {
-    this._items.push({ field: 'subject.roles', operator: 'in', value: roleIds as string[] })
+    assertNonEmptyList('roles', roleIds)
+    this._items.push({ field: 'subject.roles', operator: 'in', value: [...roleIds] })
     return this
   }
 
@@ -253,7 +254,8 @@ export class When<
    * @returns `this` for chaining
    */
   scopes(...ids: TScope[]): this {
-    this._items.push({ field: 'scope', operator: 'in', value: ids as string[] })
+    assertNonEmptyList('scopes', ids)
+    this._items.push({ field: 'scope', operator: 'in', value: [...ids] })
     return this
   }
 
@@ -292,7 +294,8 @@ export class When<
    * @returns `this` for chaining
    */
   resourceType(...types: (TResource | '*')[]): this {
-    this._items.push({ field: 'resource.type', operator: 'in', value: types as string[] })
+    assertNonEmptyList('resourceType', types)
+    this._items.push({ field: 'resource.type', operator: 'in', value: [...types] })
     return this
   }
 
@@ -463,7 +466,7 @@ export class When<
    * @returns A readonly `all` condition group
    */
   buildAll(): { readonly all: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
-    return { all: this._items }
+    return { all: [...this._items] }
   }
 
   /**
@@ -475,7 +478,7 @@ export class When<
    * @returns A readonly `any` condition group
    */
   buildAny(): { readonly any: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
-    return { any: this._items }
+    return { any: [...this._items] }
   }
 
   /**
@@ -487,8 +490,58 @@ export class When<
    * @returns A readonly `none` condition group
    */
   buildNone(): { readonly none: ReadonlyArray<AccessControl.ICondition | AccessControl.IConditionGroup> } {
-    return { none: this._items }
+    return { none: [...this._items] }
   }
+}
+
+/**
+ * Refuses a variadic condition helper that was handed nothing to match.
+ *
+ * `roles()`, `scopes()` and `resourceType()` emit `{ operator: 'in', value: [] }`
+ * when called with no arguments - a condition no request can satisfy. On an
+ * allow rule that is dead weight; on a **deny** rule the deny can never fire,
+ * so the guard the author wrote is simply not there, and the policy validates
+ * clean because the shape is legal.
+ *
+ * Only the zero-argument *call* is refused. `w.in(field, list)` with a list
+ * that came out empty at runtime still means what it says - nothing matches -
+ * and is left alone; nobody writes `w.roles()` on purpose.
+ */
+function assertNonEmptyList(method: 'roles' | 'scopes' | 'resourceType', values: readonly string[]): void {
+  if (values.length > 0) return
+  throw new Error(
+    `[@gentleduck/iam:builder] When.${method}() was called with no arguments, which builds a condition ` +
+      'that can never match: on a deny rule it removes the guard entirely. Pass at least one value, ' +
+      'or use `.in(field, list)` if the list is computed and may legitimately be empty.',
+  )
+}
+
+/**
+ * The builder a condition callback actually meant.
+ *
+ * Every condition callback is typed `(w: When) => When` - it is handed a
+ * builder and *returns* one - and the returned value used to be discarded. A
+ * callback that returned a different builder, which is exactly the reusable
+ * group `when()` documents below, left `{ all: [] }` behind: on an allow rule,
+ * an unconditional grant.
+ *
+ * The returned builder wins. Conditions on *both* is an authoring mistake with
+ * no reading that keeps them all, so it is refused rather than resolved by
+ * guesswork.
+ */
+export function iamChosenWhen<W extends { buildAll(): { readonly all: readonly unknown[] } }>(
+  given: W,
+  returned: W,
+): W {
+  if (!(returned instanceof When) || returned === given) return given
+  if (given.buildAll().all.length > 0) {
+    throw new Error(
+      '[@gentleduck/iam:builder] a condition callback added conditions to the builder it was given ' +
+        'and returned a different one; both cannot be kept. Chain onto the builder passed in, ' +
+        'or return a group built elsewhere - not both.',
+    )
+  }
+  return returned
 }
 
 /**
@@ -519,8 +572,8 @@ export class When<
 export const when = <
   TAction extends string = string,
   TResource extends string = string,
-  TScope extends string = string,
   TRole extends string = string,
+  TScope extends string = string,
   TContext extends object = DotPath.IDefaultContext,
   TActiveResource extends string = string,
 >() => new When<TAction, TResource, TRole, TScope, TContext, TActiveResource>()

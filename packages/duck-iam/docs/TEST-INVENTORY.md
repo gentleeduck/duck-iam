@@ -39,8 +39,8 @@ drift the way the hand-maintained version did.
 |---|---|---|
 | `adapters/__tests__/adapter-contract-parity.test.ts` | 46 | assignRole options are refused, not discarded |
 | `adapters/__tests__/e2e-adapter-drizzle-pg.e2e.test.ts` | 108 | E2E harness reachability (drizzle/pg) |
-| `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 27 | E2E harness reachability (prisma/pg) |
-| `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 25 | E2E harness reachability (redis) |
+| `adapters/__tests__/e2e-adapter-prisma-pg.e2e.test.ts` | 78 | E2E harness reachability (prisma/pg) |
+| `adapters/__tests__/e2e-adapter-redis.e2e.test.ts` | 76 | E2E harness reachability (redis) |
 | `adapters/__tests__/save-time-validation.test.ts` | 19 | every adapter refuses to save a row its reads would drop |
 | `adapters/drizzle/__tests__/drizzle-actor-provenance.test.ts` | 11 | assignRole records who made the grant |
 | `adapters/drizzle/__tests__/drizzle-assignment-expiry-attributes.test.ts` | 54 | IamDrizzleAdapter assignment expiry |
@@ -78,7 +78,7 @@ drift the way the hand-maintained version did.
 | `adapters/redis/__tests__/redis-legacy-migration-optin.test.ts` | 8 | redis legacy assignment migration is opt-in |
 | `adapters/redis/__tests__/redis-mutation-survivors.test.ts` | 18 | M-1: the legacy-encoding heuristic |
 | `adapters/redis/__tests__/redis.test.ts` | 103 | IamRedisAdapter |
-| **Subtotal** | **1095** | |
+| **Subtotal** | **1197** | |
 
 ---
 
@@ -106,8 +106,11 @@ drift the way the hand-maintained version did.
 | `core/__tests__/policy-error-handler-shapes.test.ts` | 6 | the evaluator hands its handler the policy object |
 | `core/batch/__tests__/credit-writes.test.ts` | 9 | creditWrites |
 | `core/batch/__tests__/loop-fallback.test.ts` | 6 | loopFallback |
+| `core/builder/__tests__/builder-authoring-hazards.test.ts` | 23 | a condition callback that returns a different builder |
 | `core/builder/__tests__/builder-composition-and-aliasing.test.ts` | 18 | RuleBuilder: repeated condition groups |
+| `core/builder/__tests__/builder-fuzz-authoring.test.ts` | 2 | a random condition tree means the same thing to everyone who reads it |
 | `core/builder/__tests__/builder.test.ts` | 72 | When (condition builder) |
+| `core/builder/__tests__/e2e-builder-round-trip.e2e.test.ts` | 14 |  |
 | `core/builder/__tests__/guide-abac-examples.test.ts` | 9 | guide §4: post-owner policy |
 | `core/builder/__tests__/inherits-replaces.test.ts` | 4 | RoleBuilder.inherits replaces |
 | `core/conditions/__tests__/conditions-polynomial-redos.test.ts` | 19 | detectCatastrophicRegex: adjacent unbounded quantifiers |
@@ -213,7 +216,7 @@ drift the way the hand-maintained version did.
 | `core/validate/__tests__/validate-unreachable-target.test.ts` | 12 | validatePolicy() - unreachable targets |
 | `core/validate/__tests__/validate-value-length.test.ts` | 8 | validatePolicy condition value length cap |
 | `core/validate/__tests__/validate.test.ts` | 64 | validateRoles() |
-| **Subtotal** | **1974** | |
+| **Subtotal** | **2013** | |
 
 ---
 
@@ -316,13 +319,13 @@ drift the way the hand-maintained version did.
 | Area | Files | Tests |
 |---|---|---|
 | Core / compiled engine | 9 | 139 |
-| Adapters | 41 | 1095 |
+| Adapters | 41 | 1197 |
 | Clients | 8 | 111 |
-| Core | 111 | 1974 |
+| Core | 114 | 2013 |
 | Devtools | 5 | 71 |
 | Invalidators | 9 | 101 |
 | Observability | 3 | 24 |
 | Server | 15 | 465 |
 | Shared | 4 | 94 |
 | Package surface | 10 | 109 |
-| **Total** | **215** | **4183** |
+| **Total** | **218** | **4324** |
