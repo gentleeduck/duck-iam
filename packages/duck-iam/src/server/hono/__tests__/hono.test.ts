@@ -161,7 +161,9 @@ describe('iamAccessMiddleware (hono)', () => {
     can.mockRestore()
   })
 
-  it('uses default env extractor with cf-connecting-ip', async () => {
+  // `cf-connecting-ip` is a request header, and hono has no framework-computed
+  // socket address to fall back on, so it is read only on opt-in.
+  it('ignores cf-connecting-ip unless trustCloudflareHeaders is set', async () => {
     const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
     const mw = iamAccessMiddleware(engine, { getUserId: () => 'u' })
     const { ctx } = makeContext({
@@ -173,8 +175,24 @@ describe('iamAccessMiddleware (hono)', () => {
       ctx,
       vi.fn(async () => undefined),
     )
-    expect(can.mock.calls[0]?.[3]?.ip).toBe('1.2.3.4')
+    expect(can.mock.calls[0]?.[3]?.ip).toBeUndefined()
     expect(can.mock.calls[0]?.[3]?.userAgent).toBe('curl')
+    can.mockRestore()
+  })
+
+  it('uses cf-connecting-ip once trustCloudflareHeaders is set', async () => {
+    const can = vi.spyOn(engine, 'can').mockResolvedValue(true)
+    const mw = iamAccessMiddleware(engine, { getUserId: () => 'u', trustCloudflareHeaders: true })
+    const { ctx } = makeContext({
+      method: 'GET',
+      path: '/post',
+      headers: { 'cf-connecting-ip': '1.2.3.4', 'user-agent': 'curl' },
+    })
+    await mw(
+      ctx,
+      vi.fn(async () => undefined),
+    )
+    expect(can.mock.calls[0]?.[3]?.ip).toBe('1.2.3.4')
     can.mockRestore()
   })
 

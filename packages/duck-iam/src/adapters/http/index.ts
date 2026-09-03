@@ -1,6 +1,10 @@
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
-import { iamAssertAttributesParam } from '../../shared/attributes'
+import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import { iamAssertAssignableScope } from '../../shared/scope'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
 /** Brand symbol marking an error as retry-eligible. Internal to this adapter. */
 const TRANSIENT = Symbol('duck-iam.http.transient')
@@ -60,7 +64,7 @@ export namespace IamHttp {
      * malformed row is dropped from the result; the rest are returned intact.
      * Wire this to alerting so corrupt rows do not silently vanish from decisions.
      */
-    onPolicyError?: (err: Error, ctx: { adapter: 'http'; rowId: string }) => void
+    onPolicyError?: IamAdapter.RowErrorHandler<'http'>
     /** Overrides the default `globalThis.fetch` implementation. */
     fetch?: typeof globalThis.fetch
     /** Provides headers (e.g. auth tokens) merged into every request. */
@@ -254,19 +258,62 @@ function _normaliseHostForAllowlist(host: string): string {
 }
 
 /**
- * One path segment built from an id. `encodeURIComponent` leaves `.` alone, so
- * an id of `../../admin` still walks the remote API's path. Dot segments are
- * refused outright rather than encoded, because servers differ on whether they
- * re-normalise `%2E`.
+ * Longest id this adapter will put in a URL path. Nothing here can know the
+ * server's own limit; this is the point past which a request is more likely to
+ * be truncated or rejected mid-path than served.
+ */
+const MAX_ID_LENGTH = 1024
+
+/**
+ * One path segment built from an id. Encoding is not enough on its own:
+ * `encodeURIComponent` leaves `.` alone, and servers differ on whether they
+ * decode `%2F` before routing - Apache with `AllowEncodedSlashes On` and any
+ * handler that decodes a captured segment before dispatch both do. So
+ * separators and all-dot segments are refused outright rather than encoded.
+ *
+ * The length cap lives here, in the one function both the read and the write
+ * paths call, because it previously lived on the five read methods alone. Their
+ * sibling writes - `assignRole`, `revokeRole`, `setSubjectAttributes`,
+ * `savePolicy`, `deletePolicy` - had no cap at all, so a write for an
+ * over-long id succeeded and every read of it then answered `null`, `[]` or
+ * `{}` with nothing logged. The `{}` was the sharp end: an ABAC rule denying on
+ * `attributes.suspended === true` evaluated as though the attribute were
+ * absent, so the guard meant to bound a URL was quietly retiring deny rules. An
+ * id this adapter will not read is a caller error, not an empty result.
  */
 function segment(value: string, field: string): string {
   if (typeof value !== 'string' || value === '') {
     throw new Error(`[@gentleduck/iam:http] ${field} must be a non-empty string`)
   }
-  if (value === '.' || value === '..') {
+  if (value.includes('/') || value.includes('\\')) {
+    throw new Error(`[@gentleduck/iam:http] ${field} cannot contain a path separator`)
+  }
+  if (/^\.+$/.test(value)) {
     throw new Error(`[@gentleduck/iam:http] ${field} cannot be a path segment of "${value}"`)
   }
+  if (value.length > MAX_ID_LENGTH) {
+    throw new Error(
+      `[@gentleduck/iam:http] ${field} is ${value.length} characters, over the ${MAX_ID_LENGTH} this adapter will put in a URL path`,
+    )
+  }
   return encodeURIComponent(value)
+}
+
+/**
+ * Rejects an id the read path could never fetch back.
+ *
+ * `savePolicy` / `saveRole` PUT to a collection URL with the id in the body, so
+ * they never reach {@link segment} and inherited none of its guards: a policy
+ * whose id is over-long, or contains a path separator, was accepted by the
+ * write and then permanently unreadable, because `getPolicy` builds a path
+ * segment from that same id. Writing a row nobody can read back is worse than
+ * refusing the write.
+ */
+function assertReadableId(id: unknown, field: string): void {
+  if (typeof id !== 'string') {
+    throw new Error(`[@gentleduck/iam:http] ${field} must be a non-empty string`)
+  }
+  segment(id, field)
 }
 
 /** Best-effort row id for error context: the row's own string `id`, else the caller's fallback. */
@@ -417,20 +464,20 @@ export class IamHttpAdapter<
   }
 
   /** Sends an HTTP request to the API, merging headers and parsing the JSON response. */
-  private async _request<T>(path: string, init?: RequestInit, readOpts?: IamAdapter.IReadOptions): Promise<T> {
+  private async _request(path: string, init?: RequestInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (!res.ok) {
       throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
     }
-    return readJsonCapped<T>(res)
+    return readJsonCapped(res)
   }
 
   /**
-   * Same as {@link _request} but treats `404 Not Found` as a missing-resource
-   * signal and returns `null` instead of throwing. The `IamAdapter.IAdapter`
-   * contract for `getPolicy`/`getRole` is "the role, or null if not found";
-   * the previous throw-on-every-non-2xx behaviour broke that contract and
-   * caused engine.resolve() to bubble up a hard error on every cold miss.
+   * Routes a dropped row to `onPolicyError`, or warns when no handler is set.
+   *
+   * A row this adapter cannot narrow is never returned; the caller has to learn
+   * about it some other way, and silence here is how a malformed policy becomes
+   * an invisible permission change.
    */
   private _reportPolicyError(err: Error, rowId: string): void {
     if (this._onPolicyError) {
@@ -466,7 +513,9 @@ export class IamHttpAdapter<
   /** A list endpoint must return an array; anything else is dropped wholesale and reported once. */
   private _narrowList<T>(body: unknown, path: string, narrow: (row: unknown, fallbackId: string) => T | null): T[] {
     if (!Array.isArray(body)) {
-      const got = body === null ? 'null' : Array.isArray(body) ? 'array' : typeof body
+      // `Array.isArray(body)` is already false here, so the old ternary's
+      // `'array'` arm could never be taken.
+      const got = body === null ? 'null' : typeof body
       this._reportPolicyError(new Error(`Expected an array from ${path}, got ${got}`), path)
       return []
     }
@@ -478,17 +527,24 @@ export class IamHttpAdapter<
     return out
   }
 
-  private async _requestOrNull<T>(
-    path: string,
-    init?: RequestInit,
-    readOpts?: IamAdapter.IReadOptions,
-  ): Promise<T | null> {
+  /**
+   * Same as {@link _request} but treats `404 Not Found` as a missing-resource
+   * signal and returns `null` instead of throwing. The `IamAdapter.IAdapter`
+   * contract for `getPolicy`/`getRole` is "the row, or null if not found";
+   * the previous throw-on-every-non-2xx behaviour broke that contract and made
+   * `engine.resolve()` bubble a hard error on every cold miss.
+   */
+  private async _requestOrNull(path: string, init?: RequestInit, readOpts?: IamAdapter.IReadOptions): Promise<unknown> {
     const res = await this._fetchWithRetry(path, init, readOpts)
     if (res.status === 404) return null
     if (!res.ok) {
       throw new Error(`[@gentleduck/iam:http] HTTP ${res.status}: ${await readBodyCapped(res)}`)
     }
-    return readJsonCapped<T>(res)
+    // A bodiless success is the same answer as a 404 for a single-row read:
+    // the API acknowledged the request and returned no row. `null` is this
+    // method's word for that, so an empty body becomes one rather than
+    // travelling on as `undefined`.
+    return (await readJsonCapped(res)) ?? null
   }
 
   /**
@@ -583,7 +639,7 @@ export class IamHttpAdapter<
    * @returns Array of policies returned by `GET /policies`.
    */
   async listPolicies(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IPolicy<TAction, TResource, TRole>[]> {
-    const body = await this._request<unknown>('/policies', undefined, opts)
+    const body = await this._request('/policies', undefined, opts)
     return this._narrowList(body, '/policies', (row, fallbackId) => this._narrowPolicy(row, fallbackId))
   }
   /**
@@ -597,8 +653,8 @@ export class IamHttpAdapter<
     id: string,
     opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IPolicy<TAction, TResource, TRole> | null> {
-    if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
-    const row = await this._requestOrNull<unknown>(`/policies/${segment(id, 'policy id')}`, undefined, opts)
+    if (typeof id !== 'string' || id.length === 0) return null
+    const row = await this._requestOrNull(`/policies/${segment(id, 'policy id')}`, undefined, opts)
     return row === null ? null : this._narrowPolicy(row, id)
   }
   /**
@@ -608,9 +664,11 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the write.
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+    iamAssertSavablePolicy('http', p)
+    assertReadableId(p?.id, 'policy id')
     await this._request('/policies', {
       method: 'PUT',
-      body: JSON.stringify(p),
+      body: JSON.stringify(iamNormalizePolicy(p)),
     })
   }
   /**
@@ -630,7 +688,7 @@ export class IamHttpAdapter<
    * @returns Array of roles returned by `GET /roles`.
    */
   async listRoles(opts?: IamAdapter.IReadOptions): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope>[]> {
-    const body = await this._request<unknown>('/roles', undefined, opts)
+    const body = await this._request('/roles', undefined, opts)
     return this._narrowList(body, '/roles', (row, fallbackId) => this._narrowRole(row, fallbackId))
   }
   /**
@@ -644,8 +702,8 @@ export class IamHttpAdapter<
     id: string,
     opts?: IamAdapter.IReadOptions,
   ): Promise<AccessControl.IRole<TAction, TResource, TRole, TScope> | null> {
-    if (typeof id !== 'string' || id.length === 0 || id.length > 1024) return null
-    const row = await this._requestOrNull<unknown>(`/roles/${segment(id, 'role id')}`, undefined, opts)
+    if (typeof id !== 'string' || id.length === 0) return null
+    const row = await this._requestOrNull(`/roles/${segment(id, 'role id')}`, undefined, opts)
     return row === null ? null : this._narrowRole(row, id)
   }
   /**
@@ -655,6 +713,8 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the write.
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+    iamAssertSavableRole('http', r)
+    assertReadableId(r?.id, 'role id')
     await this._request('/roles', { method: 'PUT', body: JSON.stringify(r) })
   }
   /**
@@ -685,7 +745,7 @@ export class IamHttpAdapter<
    * @returns Array of UNSCOPED role IDs returned by `GET /subjects/{id}/roles`.
    */
   async getSubjectRoles(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<TRole[]> {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
+    if (typeof subjectId !== 'string' || subjectId.length === 0) return []
     const raw: unknown = await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles`, undefined, opts)
     return parseHttpSubjectRoles<TRole>(raw, subjectId)
   }
@@ -700,7 +760,7 @@ export class IamHttpAdapter<
     subjectId: string,
     opts?: IamAdapter.IReadOptions,
   ): Promise<IamRequest.IScopedRole<TRole, TScope>[]> {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return []
+    if (typeof subjectId !== 'string' || subjectId.length === 0) return []
     const raw: unknown = await this._request(
       `/subjects/${segment(subjectId, 'subject id')}/scoped-roles`,
       undefined,
@@ -716,7 +776,9 @@ export class IamHttpAdapter<
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the API acknowledges the write.
    */
-  async assignRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+  async assignRole(subjectId: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    iamAssertAssignableScope('http', scope)
+    iamAssertNoAssignOptions('http', opts)
     await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles`, {
       method: 'POST',
       body: JSON.stringify({ roleId, scope }),
@@ -731,6 +793,7 @@ export class IamHttpAdapter<
    * @returns Resolves once the API acknowledges the delete.
    */
   async revokeRole(subjectId: string, roleId: TRole, scope?: TScope): Promise<void> {
+    iamAssertAssignableScope('http', scope)
     const params = scope !== undefined ? `?scope=${encodeURIComponent(scope)}` : ''
     await this._request(`/subjects/${segment(subjectId, 'subject id')}/roles/${segment(roleId, 'role id')}${params}`, {
       method: 'DELETE',
@@ -744,7 +807,7 @@ export class IamHttpAdapter<
    * @returns The subject's attribute map.
    */
   async getSubjectAttributes(subjectId: string, opts?: IamAdapter.IReadOptions): Promise<IamPrimitives.Attributes> {
-    if (typeof subjectId !== 'string' || subjectId.length === 0 || subjectId.length > 1024) return {}
+    if (typeof subjectId !== 'string' || subjectId.length === 0) return {}
     const raw: unknown = await this._request(
       `/subjects/${segment(subjectId, 'subject id')}/attributes`,
       undefined,
@@ -809,12 +872,32 @@ async function readBodyCapped(res: Response): Promise<string> {
  * Stream-and-cap JSON reader: refuses bodies past 4 MiB so a hostile remote
  * cannot OOM us before we ever reach JSON.parse. Real IAM payloads are
  * <100 KiB; 4 MiB is generous for bulk-policy fetches.
+ *
+ * An empty body is `undefined`, not a parse error. `204 No Content` is the
+ * canonical answer to a `DELETE` and a perfectly ordinary one to a `PUT` or
+ * `POST` that returns nothing, and this used to hand the caller
+ * `SyntaxError: Unexpected end of JSON input` from `JSON.parse('')` - so every
+ * write against a spec-compliant API threw, while the same call succeeded on
+ * the other five adapters. The read paths all take the result as `unknown` and
+ * put it through their own narrowing, which rejects `undefined` on its own
+ * terms.
  */
-async function readJsonCapped<T>(res: Response): Promise<T> {
+/**
+ * Returns `unknown`, not a caller-named `T`. Every call site already asked for
+ * `unknown` and narrowed with a real validator, so the generic's only effect
+ * was the `JSON.parse(raw) as T` inside it - a remote server's response typed
+ * as whatever the call site hoped for, one step before the check that decides
+ * what it is.
+ */
+async function readJsonCapped(res: Response): Promise<unknown> {
   const MAX_BYTES = 4 * 1024 * 1024
+  // `204 No Content` and `205 Reset Content` are defined as bodiless; reading
+  // them is a parse error waiting to happen, not a missing payload to diagnose.
+  if (res.status === 204 || res.status === 205) return undefined
   const reader = res.body?.getReader()
   if (!reader) {
-    return (await res.json()) as T
+    const raw = await res.text()
+    return raw === '' ? undefined : JSON.parse(raw)
   }
   const decoder = new TextDecoder()
   let text = ''
@@ -833,17 +916,18 @@ async function readJsonCapped<T>(res: Response): Promise<T> {
   } finally {
     void reader.cancel().catch(() => {})
   }
-  return JSON.parse(text) as T
+  return text === '' ? undefined : JSON.parse(text)
 }
 
 function parseHttpSubjectAttributes(value: unknown, subjectId: string): IamPrimitives.Attributes {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  const attrs = iamNarrowAttributes(value)
+  if (attrs === null) {
     const got = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
     throw new Error(
-      `[@gentleduck/iam:http] getSubjectAttributes for "${subjectId}" returned ${got} (expected JSON object)`,
+      `[@gentleduck/iam:http] getSubjectAttributes for "${subjectId}" returned ${got} (expected a JSON object of scalar values)`,
     )
   }
-  return value as IamPrimitives.Attributes
+  return attrs
 }
 
 function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: string): TRole[] {
@@ -854,7 +938,7 @@ function parseHttpSubjectRoles<TRole extends string>(value: unknown, subjectId: 
   const roles: TRole[] = []
   for (const entry of value) {
     if (typeof entry === 'string' && entry.length > 0) {
-      roles.push(entry as TRole)
+      roles.push(iamAsRoleLiteral(entry))
     }
   }
   return roles
@@ -877,7 +961,7 @@ function parseHttpSubjectScopedRoles<TRole extends string, TScope extends string
     const scope = Reflect.get(entry, 'scope')
     if (typeof role !== 'string' || role.length === 0) continue
     if (typeof scope !== 'string' || scope.length === 0) continue
-    out.push({ role: role as TRole, scope: scope as TScope })
+    out.push({ role: iamAsRoleLiteral(role), scope: iamAsScopeLiteral(scope) })
   }
   return out
 }

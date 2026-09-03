@@ -25,13 +25,53 @@ export interface IamIFlowRecorder {
 }
 
 export interface IamIFlowRecorderOptions {
+  /** Ring-buffer capacity. Must be a positive integer; defaults to 250. */
   bufferSize?: number
 }
 
 const DEFAULT_BUFFER = 250
 
+/**
+ * Builds the in-memory decision log the devtools Flow panel renders.
+ *
+ * Bind it to the engine's `afterEvaluate` hook and the panel fills itself; the
+ * recorder holds the last `bufferSize` decisions in a ring buffer and notifies
+ * subscribers on every write. Nothing is persisted and nothing leaves the
+ * process - it is a debugging surface, and `IamDevtools` refuses to mount it
+ * outside an explicit development build (see {@link isDevtoolsAllowed}).
+ *
+ * @param options - `bufferSize` caps retained entries; must be a positive integer, defaults to 250.
+ * @returns A recorder exposing `record`, `list`, `get`, `clear` and `subscribe`.
+ * @throws RangeError when `bufferSize` is not a positive integer.
+ * @example
+ * ```ts
+ * const flow = iamCreateFlowRecorder({ bufferSize: 500 })
+ * const engine = new IamEngine({
+ *   adapter,
+ *   hooks: {
+ *     afterEvaluate: (req, res, ms) =>
+ *       flow.record({
+ *         action: req.action,
+ *         allowed: res.allowed,
+ *         durationMs: ms,
+ *         resource: req.resource.type,
+ *         subjectId: req.subject.id,
+ *       }),
+ *   },
+ * })
+ * <IamDevtools engine={engine} flow={flow} />
+ * ```
+ */
 export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): IamIFlowRecorder {
   const bufferSize = options.bufferSize ?? DEFAULT_BUFFER
+  // Same discipline as `iamCreateMetricsAggregator`'s `sampleSize`. Unchecked,
+  // NaN/Infinity make the `> bufferSize` trim permanently false so the ring
+  // buffer grows without bound, and a negative throws `Invalid array length`
+  // from inside `record()` - which `safeHookCall` swallows, leaving a recorder
+  // that silently records nothing.
+  if (!Number.isInteger(bufferSize) || bufferSize < 1) {
+    throw new RangeError(`[@gentleduck/iam:dt:flow] bufferSize must be a positive integer (got ${String(bufferSize)})`)
+  }
   let nextId = 1
   let buffer: IamIFlowEntry[] = []
   const listeners = new Set<() => void>()
@@ -71,7 +111,9 @@ export function iamCreateFlowRecorder(options: IamIFlowRecorderOptions = {}): Ia
       return entry
     },
     list() {
-      return buffer
+      // The declared type is `readonly`, which erases: returning the live array
+      // let a caller push into the recorder's own buffer.
+      return buffer.slice()
     },
     get(id) {
       return buffer.find((e) => e.id === id)

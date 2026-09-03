@@ -12,13 +12,13 @@ function makePrismaWithAttrs(data: unknown): {
       findMany: vi.fn(),
       findUnique: vi.fn(),
       upsert: vi.fn(),
-      delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     accessRole: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
       upsert: vi.fn(),
-      delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     accessAssignment: {
       findMany: vi.fn(),
@@ -108,5 +108,33 @@ describe('IamPrismaAdapter attribute corruption defense', () => {
       const stored = attrs.get('user-1')!.data as Record<string, unknown>
       expect(stored).toEqual({ tier: 'pro', verified: true })
     })
+  })
+})
+
+/**
+ * `iamAssertAttributesParam` is the shared boundary guard every adapter is
+ * supposed to run first. Prisma and Drizzle - the two SQL backends - never
+ * called it, so `setSubjectAttributes(id, 'abc')` spread into per-character keys
+ * and wrote `{0:'a',1:'b',2:'c'}` here while the other four threw. The store a
+ * deployment picks must not change what an authorization call does.
+ */
+describe('IamPrismaAdapter rejects a non-object attribute payload', () => {
+  it.each([
+    ['a string', '"abc"'],
+    ['an array', '[1,2]'],
+    ['null', 'null'],
+    ['a number', '7'],
+  ])('rejects %s without writing', async (_label, json) => {
+    const { adapter, attrs } = makePrismaWithAttrs(undefined)
+    await expect(adapter.setSubjectAttributes('user-1', JSON.parse(json))).rejects.toThrow(/must be a plain object/)
+    expect(attrs.size).toBe(0)
+  })
+
+  // Control: an ordinary object still writes, so the rejections above are not
+  // the method having become inert.
+  it('control: writes a plain object', async () => {
+    const { adapter, attrs } = makePrismaWithAttrs(undefined)
+    await adapter.setSubjectAttributes('user-1', { tier: 'gold' })
+    expect(attrs.get('user-1')?.data).toEqual({ tier: 'gold' })
   })
 })

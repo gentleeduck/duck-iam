@@ -258,3 +258,88 @@ describe('createIamPermissionChecker', () => {
     expect(checker.can('delete', 'post')).toBe(false)
   })
 })
+
+/**
+ * The suite tested that the happy path answers correctly and never that the
+ * unhappy path answers `false`. `can()` is declared `: boolean` and used to
+ * gate UI, so what it returns while loading and after a failed fetch is the
+ * whole contract.
+ */
+describe('usePermissions fails closed', () => {
+  const fetcher = () => Promise.resolve({ 'read:post': true })
+
+  it('denies while the first fetch is still in flight', () => {
+    const { React, beginRender } = makeFakeReact()
+    const { usePermissions } = createIamAccessControl<A, R, S>(React as never)
+    beginRender()
+    const r = usePermissions(fetcher)
+    expect(r.loading).toBe(true)
+    expect(r.can('read', 'post')).toBe(false)
+  })
+
+  it('denies after the fetch rejects', async () => {
+    const { React, runEffects, beginRender } = makeFakeReact()
+    const { usePermissions } = createIamAccessControl<A, R, S>(React as never)
+    const failing = () => Promise.reject(new Error('fail'))
+
+    beginRender()
+    usePermissions(failing)
+    await runEffects()
+    await new Promise((r) => setTimeout(r, 0))
+
+    beginRender()
+    const r = usePermissions(failing)
+    expect(r.error?.message).toBe('fail')
+    expect(r.can('read', 'post')).toBe(false)
+  })
+
+  // Control: the same wiring does grant once a fetch succeeds, so the two
+  // assertions above are about the failure and not about a dead `can()`.
+  it('grants after a successful fetch', async () => {
+    const { React, runEffects, beginRender } = makeFakeReact()
+    const { usePermissions } = createIamAccessControl<A, R, S>(React as never)
+
+    beginRender()
+    usePermissions(fetcher)
+    await runEffects()
+    await new Promise((r) => setTimeout(r, 0))
+
+    beginRender()
+    expect(usePermissions(fetcher).can('read', 'post')).toBe(true)
+  })
+})
+
+/**
+ * The permission map is unvalidated server JSON. The `as Record<string,
+ * boolean>` cast these checks replace was the only thing asserting the value
+ * was a boolean, so `{"read:post": "false"}` - a plausible server slip - read
+ * as a grant and `<Can>` rendered.
+ */
+describe('react: a non-boolean map value denies', () => {
+  // Built the way a hostile map actually arrives: unvalidated server JSON.
+  const hostile: IamClient.PartialPermissionMap<A, R, S> = JSON.parse(
+    '{"read:post":"false","create:post":1,"delete:post":{}}',
+  )
+
+  it('AccessProvider.can denies each of them', () => {
+    const { React } = makeFakeReact()
+    const { AccessProvider, useAccess } = createIamAccessControl<A, R, S>(React as never)
+    AccessProvider({ children: null, permissions: hostile })
+    const { can, cannot } = useAccess()
+    expect(can('read', 'post')).toBe(false)
+    expect(can('create', 'post')).toBe(false)
+    expect(can('delete', 'post')).toBe(false)
+    expect(cannot('read', 'post')).toBe(true)
+  })
+
+  it('createIamPermissionChecker denies them too', () => {
+    const checker = createIamPermissionChecker<A, R, S>(hostile)
+    expect(checker.can('read', 'post')).toBe(false)
+    expect(checker.cannot('read', 'post')).toBe(true)
+  })
+
+  // Control: a literal `true` still grants through the same path.
+  it('still grants on a literal true', () => {
+    expect(createIamPermissionChecker<A, R, S>({ 'read:post': true }).can('read', 'post')).toBe(true)
+  })
+})

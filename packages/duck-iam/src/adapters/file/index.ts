@@ -1,7 +1,11 @@
 import * as nodePath from 'node:path'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../../core/types'
 import { parsePolicyRow, parseRoleRow, validatePolicy, validateRole } from '../../core/validate'
-import { iamAssertAttributesParam } from '../../shared/attributes'
+import { iamAssertNoAssignOptions } from '../../shared/assign-options'
+import { iamAssertAttributesParam, iamNarrowAttributes } from '../../shared/attributes'
+import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
+import { iamAssertAssignableScope } from '../../shared/scope'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 
 export namespace IamFile {
   /**
@@ -97,7 +101,7 @@ export namespace IamFile {
      * intact. Wire this to your alerting pipeline so corrupt rows do not
      * silently vanish from authorization decisions.
      */
-    onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
+    onPolicyError?: IamAdapter.RowErrorHandler<'file'>
   }
 
   /**
@@ -120,8 +124,17 @@ export namespace IamFile {
     roles: Record<string, AccessControl.IRole<TAction, TResource, TRole, TScope>>
     assignments: Record<string, Array<{ role: TRole; scope?: TScope }>>
     attributes: Record<string, IamPrimitives.Attributes>
-    /** Subject ids whose attributes row was dropped as corrupt at load; reads throw until an admin write replaces it. */
-    corruptAttributes?: Set<string>
+    /**
+     * Subject ids whose attributes row was dropped as corrupt at load, mapped to
+     * the raw value read from the file. Reads throw until an admin write
+     * replaces the row, and the raw value is written back on every flush so the
+     * next load re-detects the corruption - redis and http re-derive it from the
+     * stored bytes on every read, and this is how the file adapter matches them.
+     * Without it the marker lived for one process: the next flush serialised a
+     * cache whose corrupt row had already been dropped, quietly repairing the
+     * store into the "empty" state the read had just refused to serve.
+     */
+    corruptAttributes?: Map<string, unknown>
   }
 }
 
@@ -165,11 +178,16 @@ export class IamFileAdapter<
   /** Cache for {@link _canonicalRootDir}. */
   private _canonicalRoot: string | null = null
   private readonly _fs: TFS
-  private readonly _onPolicyError?: (err: Error, ctx: { adapter: 'file'; rowId: string }) => void
+  private readonly _onPolicyError?: IamAdapter.RowErrorHandler<'file'>
   private _cache: IamFile.IState<TAction, TResource, TRole, TScope> | null = null
   private _loadInFlight: Promise<IamFile.IState<TAction, TResource, TRole, TScope>> | null = null
-  // realpath is re-checked on every I/O so an attacker cannot swap the file
-  // for a symlink after first read and redirect subsequent writes.
+  // realpath is re-checked on the first read (cache miss) and before EVERY
+  // write. It is not re-checked on a cache hit: `_loadState` returns `_cache`
+  // before reaching `_assertWithinRoot`. Swapping the file for a symlink after
+  // the first read therefore does not re-open the read path - but it also
+  // cannot steer a later write, because the write path checks unconditionally
+  // and fails closed. This comment used to say "every I/O", which is the
+  // reason a reviewer would not look.
 
   /**
    * Create the adapter; synchronously validates `init.path` for absoluteness, `..`, and `rootDir` containment.
@@ -218,11 +236,16 @@ export class IamFileAdapter<
 
   /**
    * Resolves symlinks via `realpath` (when the FS driver exposes one) and
-   * re-checks containment under `_rootDir`. Runs on every read AND every
-   * write so an attacker cannot swap the file for a symlink after the first
-   * I/O and steer later writes elsewhere. Symlink check is skipped when
-   * `realpath` is unavailable (test fakes, browser bundles) - the
-   * constructor already enforced textual containment.
+   * re-checks containment under `_rootDir`.
+   *
+   * Runs before every write (`:449`) and on a read that actually touches the
+   * filesystem (`:319`) - **not** on a read served from `_cache`, which returns
+   * one line earlier. So a symlink swapped in after the first read is not
+   * re-detected by later reads; it is caught the next time anything writes, and
+   * that write throws rather than following the link.
+   *
+   * The symlink check is skipped when `realpath` is unavailable (test fakes,
+   * browser bundles) - the constructor already enforced textual containment.
    */
   private async _assertWithinRoot(): Promise<void> {
     if (!this._rootDir || !this._fs.realpath) return
@@ -260,7 +283,17 @@ export class IamFileAdapter<
     }
   }
 
-  /** `root` with symlinks resolved. Resolved once; the root does not move under us. */
+  /**
+   * `root` with symlinks resolved, computed once and cached for the adapter's
+   * lifetime - including a resolution that failed and fell back to the textual
+   * form.
+   *
+   * "The root does not move under us" is an assumption, not something enforced.
+   * When it is violated every direction fails closed (the containment check
+   * throws), so the adapter refuses its own writes until the process restarts
+   * rather than writing outside the root. That is the right side to fail on,
+   * but it is a liveness cost worth knowing about before caching more here.
+   */
   private async _canonicalRootDir(root: string): Promise<string> {
     if (this._canonicalRoot !== null) return this._canonicalRoot
     try {
@@ -419,6 +452,19 @@ export class IamFileAdapter<
     return next
   }
 
+  /**
+   * The on-disk shape. Serialising `_cache` directly wrote `corruptAttributes`
+   * out as `{}` - a `Set` has no enumerable own properties - and, worse, wrote
+   * an `attributes` map with the corrupt rows simply missing, so an unrelated
+   * write repaired a store the adapter had refused to read. Corrupt rows go back
+   * out verbatim, and the marker itself never reaches the file.
+   */
+  private _serializableState(state: IamFile.IState<TAction, TResource, TRole, TScope>): Record<string, unknown> {
+    const attributes: Record<string, unknown> = { ...state.attributes }
+    for (const [id, raw] of state.corruptAttributes ?? []) attributes[id] = raw
+    return { assignments: state.assignments, attributes, policies: state.policies, roles: state.roles }
+  }
+
   private async _flushNow(): Promise<void> {
     if (!this._cache) return
     await this._assertWithinRoot()
@@ -438,7 +484,7 @@ export class IamFileAdapter<
         )
       }
     }
-    const data = JSON.stringify(this._cache, null, 2)
+    const data = JSON.stringify(this._serializableState(this._cache), null, 2)
     if (!this._fs.rename) {
       // No rename available (test fake, browser shim): in-place write, which a
       // crash can truncate. Documented on IamFile.IFS.rename.
@@ -486,8 +532,9 @@ export class IamFileAdapter<
    * @returns Resolves once the file is rewritten.
    */
   async savePolicy(p: AccessControl.IPolicy<TAction, TResource, TRole>): Promise<void> {
+    iamAssertSavablePolicy('file', p)
     const s = await this._loadState()
-    s.policies[p.id] = p
+    s.policies[p.id] = iamNormalizePolicy(p)
     await this._flush()
   }
 
@@ -536,6 +583,7 @@ export class IamFileAdapter<
    * @returns Resolves once the file is rewritten.
    */
   async saveRole(r: AccessControl.IRole<TAction, TResource, TRole, TScope>): Promise<void> {
+    iamAssertSavableRole('file', r)
     const s = await this._loadState()
     s.roles[r.id] = r
     await this._flush()
@@ -592,7 +640,15 @@ export class IamFileAdapter<
    * @param scope - Optional scope binding the assignment.
    * @returns Resolves once the file is rewritten.
    */
-  async assignRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
+  async assignRole(id: string, roleId: TRole, scope?: TScope, opts?: IamAdapter.IAssignOptions): Promise<void> {
+    iamAssertAssignableScope('file', scope)
+    iamAssertNoAssignOptions('file', opts)
+    // The loader refuses an empty scope, so writing one persisted a state this
+    // adapter cannot read back - and the read failure took the subject's *other*
+    // grants with it. Refused at the write, as redis does, rather than widened.
+    if (scope === '') {
+      throw new Error('[@gentleduck/iam:file] scope must not be an empty string; omit it for a global assignment')
+    }
     const s = await this._loadState()
     let entries = s.assignments[id]
     if (!entries) {
@@ -610,10 +666,14 @@ export class IamFileAdapter<
    *
    * @param id - Identifies the subject losing the role.
    * @param roleId - Specifies the role being revoked.
-   * @param scope - Optional scope to match; omit to revoke unscoped only.
+   * @param scope - Optional scope to match. Omitting it removes EVERY
+   *                assignment for the role, scoped ones included - not just the
+   *                unscoped grant. This doc used to say the opposite, on a
+   *                destructive operation.
    * @returns Resolves once the file is rewritten.
    */
   async revokeRole(id: string, roleId: TRole, scope?: TScope): Promise<void> {
+    iamAssertAssignableScope('file', scope)
     const s = await this._loadState()
     const entries = s.assignments[id]
     if (!entries) return
@@ -701,32 +761,32 @@ function parseFileAssignments<TRole extends string, TScope extends string>(
       report(rowId, `expected array of {role, scope?}, got ${rowVal === null ? 'null' : typeof rowVal}`)
       continue
     }
+    // One malformed entry costs that entry, not the row. `break` here dropped
+    // every assignment the subject had - an unrelated `viewer` grant vanished
+    // because a sibling `editor` entry was bad - which is a silent, permanent
+    // denial of service on that subject with nothing but a warning to show for
+    // it. Each rejection is reported on its own so the operator can find it.
     const entries: Array<{ role: TRole; scope?: TScope }> = []
-    let perEntryError: string | null = null
-    for (const entry of rowVal) {
+    for (const [i, entry] of rowVal.entries()) {
       if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-        perEntryError = `assignment entry not a plain object`
-        break
+        report(rowId, `assignment entry [${i}] not a plain object`)
+        continue
       }
       const role = Reflect.get(entry, 'role')
       if (typeof role !== 'string' || role.length === 0) {
-        perEntryError = `assignment entry missing/non-string role`
-        break
+        report(rowId, `assignment entry [${i}] missing/non-string role`)
+        continue
       }
       const scope = Reflect.get(entry, 'scope')
       if (scope !== undefined && (typeof scope !== 'string' || scope.length === 0)) {
-        perEntryError = `assignment entry scope must be a non-empty string when present`
-        break
+        report(rowId, `assignment entry [${i}] scope must be a non-empty string when present`)
+        continue
       }
       const narrowed: { role: TRole; scope?: TScope } =
         scope === undefined
-          ? { role: roleAs<TRole>(role) }
-          : { role: roleAs<TRole>(role), scope: scopeAs<TScope>(scope) }
+          ? { role: iamAsRoleLiteral<TRole>(role) }
+          : { role: iamAsRoleLiteral<TRole>(role), scope: iamAsScopeLiteral<TScope>(scope) }
       entries.push(narrowed)
-    }
-    if (perEntryError !== null) {
-      report(rowId, perEntryError)
-      continue
     }
     out[rowId] = entries
   }
@@ -740,8 +800,8 @@ function parseFileAssignments<TRole extends string, TScope extends string>(
 function parseFileAttributes(
   raw: unknown,
   report: (rowId: string, reason: string) => void,
-): { attributes: Record<string, IamPrimitives.Attributes>; corruptAttributes: Set<string> } {
-  const corruptAttributes = new Set<string>()
+): { attributes: Record<string, IamPrimitives.Attributes>; corruptAttributes: Map<string, unknown> } {
+  const corruptAttributes = new Map<string, unknown>()
   if (raw === undefined || raw === null) return { attributes: Object.create(null), corruptAttributes }
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     report('__root__', `expected object, got ${Array.isArray(raw) ? 'array' : typeof raw}`)
@@ -751,30 +811,23 @@ function parseFileAttributes(
   for (const [rowId, rowVal] of Object.entries(raw)) {
     if (typeof rowVal !== 'object' || rowVal === null || Array.isArray(rowVal)) {
       report(rowId, `expected attributes object, got ${rowVal === null ? 'null' : typeof rowVal}`)
-      corruptAttributes.add(rowId)
+      corruptAttributes.set(rowId, rowVal)
       continue
     }
-    const attrs: IamPrimitives.Attributes = Object.create(null)
-    for (const [k, v] of Object.entries(rowVal)) {
-      attrs[k] = v as IamPrimitives.AttributeValue
+    // A value that is not storable (a nested object-of-objects, say) makes the
+    // whole row corrupt rather than being quietly typed as a primitive. The row
+    // then throws on read like any other corruption, instead of reporting the
+    // attribute as absent - which would retire every deny rule that tests it.
+    const narrowed = iamNarrowAttributes(rowVal)
+    if (narrowed === null) {
+      report(rowId, 'attribute values must be scalars, arrays of scalars, or flat records of scalars')
+      corruptAttributes.set(rowId, rowVal)
+      continue
     }
+    const attrs: IamPrimitives.Attributes = Object.assign(Object.create(null), narrowed)
     out[rowId] = attrs
   }
   return { attributes: out, corruptAttributes }
-}
-
-/**
- * Narrowing helpers for the typed-string generics. We have already
- * runtime-validated that the value is a non-empty string; the role/scope
- * type parameters are TS-only constraints that the file adapter can't
- * verify (the legitimate string values are determined by the calling
- * app's `createIam`).
- */
-function roleAs<TRole extends string>(s: string): TRole {
-  return s as TRole
-}
-function scopeAs<TScope extends string>(s: string): TScope {
-  return s as TScope
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

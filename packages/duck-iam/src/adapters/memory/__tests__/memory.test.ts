@@ -30,15 +30,19 @@ describe('IamMemoryAdapter', () => {
       expect(await adapter.listPolicies()).toEqual([])
     })
 
+    // `version: 1` is supplied on the write path now, so a policy stored
+    // without one reads back the same on all six adapters instead of `1` on
+    // the two SQL backends and `undefined` on the other four. Asserting the
+    // caller's object verbatim here was pinning that divergence.
     it('savePolicy + listPolicies', async () => {
       await adapter.savePolicy(policy)
-      expect(await adapter.listPolicies()).toEqual([policy])
+      expect(await adapter.listPolicies()).toEqual([{ ...policy, version: 1 }])
     })
 
     it('getPolicy returns policy or null', async () => {
       expect(await adapter.getPolicy('p1')).toBeNull()
       await adapter.savePolicy(policy)
-      expect(await adapter.getPolicy('p1')).toEqual(policy)
+      expect(await adapter.getPolicy('p1')).toEqual({ ...policy, version: 1 })
     })
 
     it('deletePolicy removes policy', async () => {
@@ -166,7 +170,11 @@ describe('IamMemoryAdapter', () => {
         attributes: { 'user-1': { level: 5 } },
       })
 
-      expect(await adapter.listPolicies()).toEqual([{ id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [] }])
+      // Seeded rows are normalised exactly as written ones are, so this is the
+      // same `version: 1` the write path supplies - not a second shape.
+      expect(await adapter.listPolicies()).toEqual([
+        { id: 'p1', name: 'P', algorithm: 'deny-overrides', rules: [], version: 1 },
+      ])
       expect(await adapter.listRoles()).toEqual([{ id: 'viewer', name: 'Viewer', permissions: [] }])
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['viewer'])
       expect(await adapter.getSubjectAttributes('user-1')).toEqual({ level: 5 })

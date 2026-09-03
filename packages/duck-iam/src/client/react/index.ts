@@ -42,9 +42,15 @@
 import type { ReactNode } from 'react'
 import type { IamClient } from '../../core/types'
 import { iamBuildPermissionKey } from '../../shared/keys'
+import { iamAllowedActions, iamHasAnyOn, iamPermissionGranted } from '../../shared/permission-map'
 
 /** Re-exported: a consumer building a key by hand must use the same escaping. */
-export { iamBuildPermissionKey }
+/**
+ * Re-exported: map introspection used to live only on the vanilla class, so a
+ * React consumer who needed "what can this user do here" hand-rolled
+ * `key.split(':')` - wrong on every key carrying a scope or an id.
+ */
+export { iamAllowedActions, iamBuildPermissionKey, iamHasAnyOn }
 
 // React is a peer dep; consumers inject their own React via createIamAccessControl(React).
 
@@ -106,6 +112,8 @@ export namespace IamReactClient {
   > {
     can: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
     cannot: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
+    allowedActions: (resource: TResource) => string[]
+    hasAnyOn: (resource: TResource) => boolean
     permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>
   }
 
@@ -127,7 +135,35 @@ export namespace IamReactClient {
     can: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
     /** Returns `true` if the action/resource combination is denied. */
     cannot: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => boolean
+    /** Lists every action granted on `resource` by the current map. */
+    allowedActions: (resource: TResource) => string[]
+    /** Returns `true` when the current map grants any action on `resource`. */
+    hasAnyOn: (resource: TResource) => boolean
   }
+}
+
+/**
+ * Message shared by the context default and its tests.
+ */
+const MISSING_PROVIDER =
+  '[@gentleduck/iam:react] useAccess() called outside <AccessProvider>. ' +
+  'Wrap the tree in <AccessProvider permissions={...}> or use createIamPermissionChecker().'
+
+/**
+ * Whether to make a missing provider a hard error.
+ *
+ * Vue throws for the same wiring bug and React denied silently, so the identical
+ * mistake was loud in one framework and invisible in the other - and the silent
+ * half looks exactly like a correctly-configured user with no permissions.
+ *
+ * The polarity is deliberately the opposite of the devtools guard: only an
+ * explicit `development` signal throws. No signal denies, because a raw-browser
+ * bundle that never shimmed `process` must not start throwing out of a render.
+ */
+function isDevelopment(): boolean {
+  const nodeEnv: string | undefined =
+    typeof process !== 'undefined' ? (process as { env?: { NODE_ENV?: string } }).env?.NODE_ENV : undefined
+  return nodeEnv === 'development'
 }
 
 /**
@@ -156,10 +192,18 @@ export function createIamAccessControl<
 >(React: ReactLike) {
   const { createContext, useContext, useMemo, useCallback } = React
 
+  // Fail closed in production, loud in development. Every member reports the
+  // same wiring bug, so `<Can>` and `allowedActions()` cannot quietly render an
+  // empty UI while `useAccess()` would have thrown.
+  const outsideProvider = (): never => {
+    throw new Error(MISSING_PROVIDER)
+  }
   const AccessContext = createContext<IamReactClient.IContextValue<TAction, TResource, TScope>>({
-    permissions: {} as IamClient.PartialPermissionMap<TAction, TResource, TScope>,
-    can: () => false,
-    cannot: () => true,
+    permissions: {},
+    can: () => (isDevelopment() ? outsideProvider() : false),
+    cannot: () => (isDevelopment() ? outsideProvider() : true),
+    allowedActions: () => (isDevelopment() ? outsideProvider() : []),
+    hasAnyOn: () => (isDevelopment() ? outsideProvider() : false),
   })
 
   /** Context provider component that supplies permission data to the tree. */
@@ -173,13 +217,15 @@ export function createIamAccessControl<
     const value = useMemo(() => {
       const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
         const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-        return (permissions as Record<string, boolean>)[key] ?? false
+        return iamPermissionGranted(permissions, key)
       }
 
       return {
         permissions,
         can,
         cannot: (a: TAction, r: TResource, id?: string, s?: TScope) => !can(a, r, id, s),
+        allowedActions: (resource: TResource) => iamAllowedActions(permissions, resource),
+        hasAnyOn: (resource: TResource) => iamHasAnyOn(permissions, resource),
       }
     }, [permissions])
 
@@ -229,19 +275,29 @@ export function createIamAccessControl<
     return cannot(action, resource, resourceId, scope) ? children : null
   }
 
+  /** Stable identity: a fresh `{}` per render would re-set state on every run. */
+  const EMPTY_PERMISSIONS: IamClient.PartialPermissionMap<TAction, TResource, TScope> = {}
+
   /** Hook to asynchronously fetch permissions from a server endpoint. */
   function usePermissions(
     fetchFn: () => Promise<IamClient.PartialPermissionMap<TAction, TResource, TScope>>,
     deps: readonly unknown[] = [],
   ) {
-    const [permissions, setPermissions] = React.useState(
-      {} as IamClient.PartialPermissionMap<TAction, TResource, TScope>,
-    )
+    const [permissions, setPermissions] = React.useState(EMPTY_PERMISSIONS)
     const [loading, setLoading] = React.useState(true)
     const [error, setError] = React.useState<Error | null>(null)
 
     React.useEffect(() => {
       let cancelled = false
+      // A refetch is a different subject until proven otherwise. Holding the
+      // previous map made `can()` answer with the last subject's grants for the
+      // whole in-flight window, and keep answering with them indefinitely if the
+      // refetch failed - the sign-out and account-switch cases. Consumers that
+      // want the old UI during a refetch should gate on `loading`, not on stale
+      // permissions. `error` is cleared for the same reason: a stale error
+      // outlived the failure that caused it.
+      setPermissions(EMPTY_PERMISSIONS)
+      setError(null)
       setLoading(true)
       fetchFn()
         .then((perms: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => {
@@ -264,12 +320,21 @@ export function createIamAccessControl<
     const can = useCallback(
       (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) => {
         const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-        return (permissions as Record<string, boolean>)[key] ?? false
+        return iamPermissionGranted(permissions, key)
       },
       [permissions],
     )
 
-    return { permissions, can, loading, error }
+    return {
+      permissions,
+      can,
+      cannot: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope) =>
+        !can(action, resource, resourceId, scope),
+      allowedActions: (resource: TResource) => iamAllowedActions(permissions, resource),
+      hasAnyOn: (resource: TResource) => iamHasAnyOn(permissions, resource),
+      loading,
+      error,
+    }
   }
 
   return {
@@ -300,7 +365,7 @@ export function createIamPermissionChecker<
 >(permissions: IamClient.PartialPermissionMap<TAction, TResource, TScope>) {
   const can = (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
     const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-    return (permissions as Record<string, boolean>)[key] ?? false
+    return iamPermissionGranted(permissions, key)
   }
 
   return {
@@ -308,6 +373,8 @@ export function createIamPermissionChecker<
     cannot: (action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean => {
       return !can(action, resource, resourceId, scope)
     },
+    allowedActions: (resource: TResource) => iamAllowedActions(permissions, resource),
+    hasAnyOn: (resource: TResource) => iamHasAnyOn(permissions, resource),
     permissions,
   }
 }

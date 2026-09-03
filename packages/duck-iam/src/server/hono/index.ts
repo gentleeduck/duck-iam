@@ -1,5 +1,6 @@
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamRequest } from '../../core/types'
+import { iamAsRoleLiteral, iamAsScopeLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminAudit,
   iamActionForMethod,
@@ -7,11 +8,12 @@ import {
   iamDefaultResource,
   iamExtractEnvironment,
   iamNoticeCsrfDefaultIfNeeded,
+  iamRequirePathParam,
   iamRunAdminAuthz,
   iamWithAdminAudit,
 } from '../generic'
 
-/** Minimal IamHono context shape. */
+/** Minimal Hono context shape. */
 interface HonoContext {
   req: {
     method: string
@@ -25,15 +27,15 @@ interface HonoContext {
   json(data: unknown, status?: number): Response
   text(data: string, status?: number): Response
 }
-/** IamHono next function. */
+/** Hono next function. */
 type HonoNext = () => Promise<void>
-/** IamHono middleware function. */
+/** Hono middleware function. */
 type HonoMiddleware = (c: HonoContext, next: HonoNext) => Promise<Response | undefined>
 
-/** IamHono server integration types. Type-only namespace - zero bundle cost. */
+/** Hono server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamHono {
   /**
-   * Describes options for the IamHono {@link iamAccessMiddleware} and {@link iamGuard}.
+   * Describes options for the Hono {@link iamAccessMiddleware} and {@link iamGuard}.
    *
    * Every extractor has a sensible default.
    *
@@ -54,10 +56,16 @@ export namespace IamHono {
     onDenied?: (c: HonoContext) => Response
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
     onError?: (err: Error, c: HonoContext) => Response
+    /**
+     * Read `cf-connecting-ip` as the client IP. Off by default: the header is
+     * only trustworthy when Cloudflare is the sole ingress, and a Hono app
+     * exposed directly lets any client set it.
+     */
+    trustCloudflareHeaders?: boolean
   }
 
   /**
-   * Required iamGuard callback for the IamHono admin router.
+   * Required iamGuard callback for the Hono admin router.
    *
    * Returning `false` (or throwing) blocks the request.
    */
@@ -83,7 +91,7 @@ export namespace IamHono {
     onAdminMutation?: IamAdminAudit.Hook
   }
 
-  /** Describes the minimal IamHono router surface used by {@link iamBindAdminRouter}. */
+  /** Describes the minimal Hono router surface used by {@link iamBindAdminRouter}. */
   export interface IRouterLike {
     get(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
     put(path: string, handler: (c: HonoContext) => Promise<Response> | Response): unknown
@@ -92,10 +100,16 @@ export namespace IamHono {
   }
 }
 
-/** Extract environment from IamHono context; `cf-connecting-ip` wins, then the leftmost `x-forwarded-for` hop. */
-function defaultEnv(c: HonoContext): IamRequest.IEnvironment {
+/**
+ * Extract environment from Hono context: the leftmost `x-forwarded-for` hop,
+ * then `x-real-ip`. `cf-connecting-ip` is read only when the caller opts in -
+ * express and nest reach this slot from a framework-computed socket address,
+ * and reading a forwarded header unconditionally made hono the one adapter
+ * whose `env.ip` any client could set outright.
+ */
+function defaultEnv(c: HonoContext, trustCloudflareHeaders = false): IamRequest.IEnvironment {
   return iamExtractEnvironment({
-    ip: c.req.header('cf-connecting-ip'),
+    ip: trustCloudflareHeaders ? c.req.header('cf-connecting-ip') : undefined,
     headers: {
       'x-forwarded-for': c.req.header('x-forwarded-for'),
       'x-real-ip': c.req.header('x-real-ip'),
@@ -107,7 +121,7 @@ function defaultEnv(c: HonoContext): IamRequest.IEnvironment {
 }
 
 /**
- * Builds IamHono middleware that runs `engine.can(...)` on every request.
+ * Builds Hono middleware that runs `engine.can(...)` on every request.
  *
  * Replies 401 when no user is present and 403 when denied.
  *
@@ -117,7 +131,7 @@ function defaultEnv(c: HonoContext): IamRequest.IEnvironment {
  * @template TScope - Constrains valid scope strings.
  * @param engine - Provides the access engine to consult.
  * @param opts - Configures optional extractors and error hooks.
- * @returns A IamHono middleware function.
+ * @returns A Hono middleware function.
  * @example
  * ```ts
  * app.use('*', iamAccessMiddleware(engine, {
@@ -136,17 +150,20 @@ export function iamAccessMiddleware<
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
     getResource = (c) => iamDefaultResource(c.req.path),
     getAction = (c) => iamActionForMethod(c.req.method),
-    getEnvironment = defaultEnv,
+    trustCloudflareHeaders = false,
+    getEnvironment = (c: HonoContext) => defaultEnv(c, trustCloudflareHeaders),
     getScope,
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),
     onError = (_err, c) => c.json({ error: 'Internal server error' }, 500),
   } = opts
 
   return async (c, next) => {
-    const userId = getUserId(c)
-    if (!userId) return c.json({ error: 'Unauthorized' }, 401)
-
     try {
+      // Inside the try, like every other extractor: a throwing `getUserId` must
+      // reach `onError` rather than the framework's boundary.
+      const userId = getUserId(c)
+      if (!userId) return c.json({ error: 'Unauthorized' }, 401)
+
       const allowed = await engine.can(
         userId,
         getAction(c) as TAction,
@@ -156,15 +173,19 @@ export function iamAccessMiddleware<
       )
 
       if (!allowed) return onDenied(c)
-      await next()
     } catch (err) {
       return onError(err instanceof Error ? err : new Error(String(err)), c)
     }
+    // Outside the try, deliberately. Express / nest / next never wrap the
+    // downstream handler; hono did, so a business-logic error thrown by the
+    // route reached this middleware's `onError` - documented as "handles thrown
+    // errors during evaluation" - and pre-empted the app's own `app.onError`.
+    await next()
   }
 }
 
 /**
- * Wires admin CRUD endpoints onto a IamHono router.
+ * Wires admin CRUD endpoints onto a Hono router.
  *
  * `authorize` is required and runs before every handler. Throws when the
  * callback is missing.
@@ -173,15 +194,15 @@ export function iamAccessMiddleware<
  * @template TResource - Constrains valid resource strings.
  * @template TRole - Constrains valid role strings.
  * @template TScope - Constrains valid scope strings.
- * @param router - Provides the existing IamHono router instance.
+ * @param router - Provides the existing Hono router instance.
  * @param engine - Provides the access engine whose `admin` operations are exposed.
  * @param opts - Must include `authorize`.
  * @returns The same router (chainable).
  * @throws Error when `opts.authorize` is not a function.
  * @example
  * ```ts
- * import { IamHono } from 'hono'
- * const admin = new IamHono()
+ * import { Hono } from 'hono'
+ * const admin = new Hono()
  * iamBindAdminRouter(admin, engine, {
  *   authorize: (c) => isAdmin(c),
  *   onAdminMutation: (e) => auditLog.write(e),
@@ -189,7 +210,7 @@ export function iamAccessMiddleware<
  * app.route('/admin', admin)
  * ```
  * @example
- * Rate limiting is out of scope; compose at the mount point with a IamHono
+ * Rate limiting is out of scope; compose at the mount point with a Hono
  * middleware before the admin sub-app. Pseudocode:
  * ```ts
  * import { rateLimit } from 'some-hono-rate-limit'
@@ -208,7 +229,7 @@ export function iamBindAdminRouter<
   opts: IamHono.IAdminOptions,
 ): IamHono.IRouterLike {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam] iamBindAdminRouter requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam:hono] iamBindAdminRouter requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
@@ -319,7 +340,11 @@ export function iamBindAdminRouter<
         if (scope !== undefined && (typeof scope !== 'string' || scope.length === 0 || scope.length > 128)) {
           return c.json({ error: 'invalid scope' }, 400)
         }
-        await engine.admin.assignRole(c.req.param('id') as string, roleId as TRole, scope as TScope | undefined)
+        await engine.admin.assignRole(
+          iamRequirePathParam(c.req.param('id'), 'id'),
+          iamAsRoleLiteral<TRole>(roleId),
+          scope === undefined ? undefined : iamAsScopeLiteral<TScope>(scope),
+        )
         return c.json({ ok: true })
       },
     ),
@@ -331,7 +356,10 @@ export function iamBindAdminRouter<
       'role-assignment',
       (c) => c.req.param('id'),
       async (c) => {
-        await engine.admin.revokeRole(c.req.param('id') as string, c.req.param('roleId') as TRole)
+        await engine.admin.revokeRole(
+          iamRequirePathParam(c.req.param('id'), 'id'),
+          iamAsRoleLiteral<TRole>(iamRequirePathParam(c.req.param('roleId'), 'roleId')),
+        )
         return c.json({ ok: true })
       },
     ),
@@ -341,7 +369,7 @@ export function iamBindAdminRouter<
 }
 
 /**
- * Builds IamHono middleware that checks `(action, resourceType)` for the current
+ * Builds Hono middleware that checks `(action, resourceType)` for the current
  * user, pulling the resource ID from the `:id` route param.
  *
  * @template TAction - Constrains valid action strings.
@@ -352,7 +380,7 @@ export function iamBindAdminRouter<
  * @param action - Specifies the action being performed.
  * @param resourceType - Specifies the resource type required for the check.
  * @param opts - Configures optional extractors and `scope` override.
- * @returns A IamHono middleware function.
+ * @returns A Hono middleware function.
  * @example
  * ```ts
  * app.delete('/posts/:id', iamGuard(engine, 'delete', 'post'), handler)
@@ -368,24 +396,28 @@ export function iamGuard<
   engine: IamEngine<TAction, TResource, TRole, TScope>,
   action: TAction,
   resourceType: TResource,
-  opts: Pick<IamHono.IOptions<TScope>, 'getUserId' | 'getEnvironment' | 'onDenied' | 'onError'> & {
+  opts: Pick<
+    IamHono.IOptions<TScope>,
+    'getUserId' | 'getEnvironment' | 'onDenied' | 'onError' | 'trustCloudflareHeaders'
+  > & {
     scope?: TScope
   } = {},
 ): HonoMiddleware {
   const {
     // Read only from upstream-set `c.get('userId')`; never trust client headers.
     getUserId = (c) => (c.get('userId') as string | undefined) ?? null,
-    getEnvironment = defaultEnv,
+    trustCloudflareHeaders = false,
+    getEnvironment = (c: HonoContext) => defaultEnv(c, trustCloudflareHeaders),
     onDenied = (c) => c.json({ error: 'Forbidden' }, 403),
     onError = (_err, c) => c.json({ error: 'Internal server error' }, 500),
     scope,
   } = opts
 
   return async (c, next) => {
-    const userId = getUserId(c)
-    if (!userId) return c.json({ error: 'Unauthorized' }, 401)
-
     try {
+      const userId = getUserId(c)
+      if (!userId) return c.json({ error: 'Unauthorized' }, 401)
+
       const allowed = await engine.can(
         userId,
         action,
@@ -395,9 +427,13 @@ export function iamGuard<
       )
 
       if (!allowed) return onDenied(c)
-      await next()
     } catch (err) {
       return onError(err instanceof Error ? err : new Error(String(err)), c)
     }
+    // Outside the try, deliberately. Express / nest / next never wrap the
+    // downstream handler; hono did, so a business-logic error thrown by the
+    // route reached this middleware's `onError` - documented as "handles thrown
+    // errors during evaluation" - and pre-empted the app's own `app.onError`.
+    await next()
   }
 }

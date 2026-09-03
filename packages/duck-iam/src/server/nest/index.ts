@@ -5,8 +5,8 @@ import {
   type IamAdminAudit,
   iamActionForMethod,
   iamDefaultCsrfCheck,
+  iamDefaultResource,
   iamExtractEnvironment,
-  iamNormalizePathname,
   iamNoticeCsrfDefaultIfNeeded,
   iamWithAdminAudit,
 } from '../generic'
@@ -214,16 +214,16 @@ export function iamNestAccessGuard<
 
     if (!meta) return true // No @IamAuthorize decorator: allow.
 
-    const userId = getUserId(request)
-    if (!userId) return false
-
-    const action = meta.infer ? iamActionForMethod(request.method) : (meta.action ?? 'read')
-
-    const resource = meta.infer ? inferResource(request) : (meta.resource ?? 'unknown')
-
-    const scope = (meta.scope as TScope | undefined) ?? getScope?.(request)
-
     try {
+      // Inside the try, like every other extractor: a throwing `getUserId` must
+      // reach `onError` rather than the framework's boundary.
+      const userId = getUserId(request)
+      if (!userId) return false
+
+      const action = meta.infer ? iamActionForMethod(request.method) : (meta.action ?? 'read')
+      const resource = meta.infer ? inferResource(request) : (meta.resource ?? 'unknown')
+      const scope = (meta.scope as TScope | undefined) ?? getScope?.(request)
+
       const attributes = getResourceAttributes ? await getResourceAttributes(request, { action, resource, scope }) : {}
       return await engine.can(
         userId,
@@ -239,17 +239,38 @@ export function iamNestAccessGuard<
 }
 
 /**
- * Infer resource type from the request route path. Prefers Nest's route
- * template; the raw-path fallback is canonicalised first so `/posts/../admin`
- * cannot be authorized as `posts`.
+ * Infer resource type from the request route path, agreeing with the shared
+ * {@link iamDefaultResource} that express, hono and next use.
+ *
+ * Three things used to make Nest disagree with it, so a policy written against
+ * one framework silently did not apply in the other:
+ *
+ * - the *last* segment was taken rather than the first, so on any platform with
+ *   no `request.route` - `@nestjs/platform-fastify` exposes `routeOptions.url` /
+ *   `routerPath` and sets no `route` - `/posts/42` authorized against `42`;
+ * - the `%`-after-one-decode guard was applied to that one segment instead of
+ *   every segment, so `/admin/%252e%252e/posts` came back as a confident
+ *   `posts` while express and hono denied it as `unknown`;
+ * - a `*` segment was returned verbatim, and `'*'` is the engine's wildcard
+ *   *pattern* sentinel: a `@Get('*')` route authorized as `'*'` matched every
+ *   `resources: ['*']` allow and no targeted deny.
+ *
+ * The raw-path branch is now the shared helper outright. The template branch
+ * keeps its own reading - the template is the router's own string and needs no
+ * canonicalisation - but takes the first non-param segment, so both branches
+ * name the same resource, and treats any non-literal segment the way the helper
+ * treats an untrustworthy path.
  */
 function inferResource(request: NestRequest): string {
   const template: string | undefined = request.route?.path
-  const path: string = template ?? iamNormalizePathname(request.path ?? '/')
-  const segments = path.split('/').filter((s: string) => s && !s.startsWith(':'))
-  const last = segments[segments.length - 1]
-  if (last === undefined) return 'root'
-  return last.includes('%') ? IAM_UNKNOWN_RESOURCE : last
+  if (typeof template !== 'string') return iamDefaultResource(request.path).type
+
+  const first = template
+    .split('/')
+    .filter((segment: string) => segment.length > 0)
+    .find((segment: string) => !segment.startsWith(':'))
+  if (first === undefined) return 'root'
+  return first.includes('%') || first.includes('*') ? IAM_UNKNOWN_RESOURCE : first
 }
 
 /** DI token for the access Engine in NestJS. */
@@ -278,9 +299,23 @@ export function createIamEngineProvider<
 }
 
 /**
+ * Error carrying both `status` and `statusCode`.
+ *
+ * Nest's base exception filter routes anything that is not an `HttpException`
+ * to `handleUnknownError`, whose only non-500 branch duck-types
+ * `err.statusCode && err.message` - `statusCode`, not `status`. With `status`
+ * alone every unauthenticated poke at an admin endpoint got a 500 plus an
+ * error-level stack trace in the log, where express, hono and next all return
+ * a real 401/403. `status` is kept for express-style consumers.
+ */
+function adminHttpError(message: string, statusCode: number): Error {
+  return Object.assign(new Error(message), { status: statusCode, statusCode })
+}
+
+/**
  * Builds framework-agnostic admin operations for use inside a NestJS controller.
  *
- * IamNest's decorator-driven routing means we do not ship a router factory;
+ * NestJS's decorator-driven routing means we do not ship a router factory;
  * instead this returns a record of admin handlers the user wires into their
  * `@Controller` methods. Enforces `authorize` at construction time so the
  * controller cannot be instantiated unguarded.
@@ -305,7 +340,7 @@ export function createIamEngineProvider<
  * }
  * ```
  * @example
- * Rate limiting is out of scope; compose with IamNest's `@nestjs/throttler` or a
+ * Rate limiting is out of scope; compose with NestJS's `@nestjs/throttler` or a
  * global guard. Pseudocode:
  * ```ts
  * @UseGuards(ThrottlerGuard)
@@ -320,7 +355,7 @@ export function createIamAdminOperations<
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNest.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam] createIamAdminOperations requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam:nest] createIamAdminOperations requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
@@ -328,24 +363,18 @@ export function createIamAdminOperations<
   iamNoticeCsrfDefaultIfNeeded(csrfCheck !== undefined)
 
   /**
-   * Gate that returns whatever {@link IamNest.IAdminAuthorize} returned so the value
-   * can be forwarded into the audit event as `actor`. Throws an `Error` carrying
-   * `status` 403 (CSRF) or 401 (denied) so the controller surfaces a Nest exception.
+   * Gate that returns whatever {@link IamNest.IAdminAuthorize} returned so the
+   * value can be forwarded into the audit event as `actor`. Throws a 403 (CSRF)
+   * or 401 (denied) via {@link adminHttpError}.
    */
   const gateWithActor = async (req: NestRequest): Promise<unknown> => {
     // CSRF guard runs before authorize so a cookie-based authorize cannot
     // be tricked by a cross-origin POST. No-op when csrfCheck is omitted.
     if (effectiveCsrfCheck && !effectiveCsrfCheck(req)) {
-      const err = new Error('Forbidden (CSRF check failed)') as Error & { status?: number }
-      err.status = 403
-      throw err
+      throw adminHttpError('Forbidden (CSRF check failed)', 403)
     }
     const result = await authorize(req)
-    if (!result) {
-      const err = new Error('Unauthorized') as Error & { status?: number }
-      err.status = 401
-      throw err
-    }
+    if (!result) throw adminHttpError('Unauthorized', 401)
     return result
   }
 

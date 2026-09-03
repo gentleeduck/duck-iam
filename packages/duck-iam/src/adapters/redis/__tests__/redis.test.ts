@@ -91,7 +91,7 @@ class AuthFakeRedis implements IamRedis.ILike {
 }
 
 // IamAdapter compliance - fresh AuthFakeRedis per call.
-runAdapterCompliance('IamRedisAdapter', () => new IamRedisAdapter({ client: new AuthFakeRedis() }) as never)
+runAdapterCompliance('IamRedisAdapter', () => new IamRedisAdapter({ client: new AuthFakeRedis() }))
 
 describe('IamRedisAdapter', () => {
   let redis: AuthFakeRedis
@@ -502,7 +502,7 @@ describe('IamRedisAdapter', () => {
       // Seed an entry written by the old (buggy) encoder: literal space.
       const r = new AuthFakeRedis()
       await r.sadd('assignments:user-1', 'editor org-1')
-      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r })
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r, migrateLegacyAssignments: true })
 
       // Reading scoped roles must decode the legacy entry correctly...
       const scoped = await adapter.getSubjectScopedRoles('user-1')
@@ -548,7 +548,10 @@ describe('IamRedisAdapter', () => {
           return 'OK'
         },
       }
-      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: clientWithEval })
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({
+        client: clientWithEval,
+        migrateLegacyAssignments: true,
+      })
       await adapter.getSubjectScopedRoles('user-1')
       expect(evalCalls).toHaveLength(1)
       expect(evalCalls[0]?.[1]).toBe(1)
@@ -559,7 +562,7 @@ describe('IamRedisAdapter', () => {
       // Seed a legacy entry that migration would re-encode.
       const r = new AuthFakeRedis()
       await r.sadd('assignments:user-1', 'editor org-1')
-      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r })
+      const adapter = new IamRedisAdapter<A, R, Ro, S>({ client: r, migrateLegacyAssignments: true })
 
       // Kick off a read that triggers migration, race-fired with a revoke.
       // Without per-key serialisation the migrator's SADD could land after

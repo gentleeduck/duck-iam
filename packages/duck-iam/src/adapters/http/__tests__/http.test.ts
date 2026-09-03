@@ -340,19 +340,27 @@ describe('IamHttpAdapter', () => {
       expect(calls[0]?.url).toBe('https://xn--mnchen-3ya.de/iam/policies')
     })
 
-    it('encodes subject id path segment to defeat path injection', async () => {
+    // Encoding alone is not enough: `%2F` is decoded before routing by several
+    // real servers, so an id holding a separator is refused rather than encoded.
+    it('refuses a subject id holding a path separator', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse([]))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
-      await adapter.getSubjectRoles('..//etc/passwd')
-      expect(calls[0]?.url).toBe('https://x/subjects/..%2F%2Fetc%2Fpasswd/roles')
-      expect(calls[0]?.url).not.toContain('/etc/passwd')
+      await expect(adapter.getSubjectRoles('..//etc/passwd')).rejects.toThrow(/path separator/)
+      expect(calls).toHaveLength(0)
     })
 
-    it('encodes policy id path segment', async () => {
+    it('refuses a policy id holding a path separator', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse(null, false, 404))
       const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
-      await adapter.getPolicy('..//internal-admin')
-      expect(calls[0]?.url).toBe('https://x/policies/..%2F%2Finternal-admin')
+      await expect(adapter.getPolicy('..//internal-admin')).rejects.toThrow(/path separator/)
+      expect(calls).toHaveLength(0)
+    })
+
+    it('still encodes a separator-free id into the path', async () => {
+      const { fetch, calls } = makeFetch(() => jsonResponse([]))
+      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
+      await adapter.getSubjectRoles('etc passwd')
+      expect(calls[0]?.url).toBe('https://x/subjects/etc%20passwd/roles')
     })
 
     it('warns once when allowedHosts is omitted', () => {
@@ -429,7 +437,10 @@ describe('IamHttpAdapter', () => {
       await adapter.savePolicy(policy)
       expect(calls[0]?.url).toBe('https://x/policies')
       expect(calls[0]?.init?.method).toBe('PUT')
-      expect(calls[0]?.init?.body).toBe(JSON.stringify(policy))
+      // The body is the normalised policy, not the caller's object: every
+      // adapter now puts the same shape into storage, and for http "storage"
+      // is the remote server.
+      expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ ...policy, version: 1 })
     })
 
     it('deletePolicy DELETE /policies/:id', async () => {
@@ -517,11 +528,16 @@ describe('IamHttpAdapter', () => {
       expect(calls[0]?.init?.method).toBe('DELETE')
     })
 
-    it('revokeRole DELETE with an empty-string scope still sends the scope query', async () => {
+    // This used to assert that `?scope=` was sent. That was the divergence, not
+    // a feature: the http read parser requires `scope.length > 0`, so the write
+    // went through and every read of the grant dropped it. Five of the six
+    // adapters disagreed about what `''` meant; all six now refuse it, and
+    // `undefined` remains the one spelling of "global".
+    it('revokeRole DELETE refuses an empty-string scope', async () => {
       const { fetch, calls } = makeFetch(() => jsonResponse({ ok: true }))
-      const adapter = new IamHttpAdapter<A, R, Ro, S>({ baseUrl: 'https://x', fetch })
-      await adapter.revokeRole('user-1', 'editor', '' as S)
-      expect(calls[0]?.url).toBe('https://x/subjects/user-1/roles/editor?scope=')
+      const adapter = new IamHttpAdapter({ baseUrl: 'https://x', fetch })
+      await expect(adapter.revokeRole('user-1', 'editor', '')).rejects.toThrow(/must not be an empty string/)
+      expect(calls).toHaveLength(0)
     })
 
     it('revokeRole DELETE encodes scope query', async () => {

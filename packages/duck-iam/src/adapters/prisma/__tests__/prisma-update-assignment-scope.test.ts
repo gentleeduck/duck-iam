@@ -62,8 +62,8 @@ function makeMock(seed: Array<Omit<AssignmentRow, 'id' | 'createdAt'>> = []) {
         return { count }
       }),
     },
-    accessPolicy: { delete: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
-    accessRole: { delete: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
+    accessPolicy: { deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
+    accessRole: { deleteMany: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     accessSubjectAttr: { findUnique: vi.fn(), upsert: vi.fn() },
   }
 

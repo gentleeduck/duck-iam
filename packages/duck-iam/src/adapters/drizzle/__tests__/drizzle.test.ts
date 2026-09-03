@@ -405,10 +405,14 @@ describe('IamDrizzleAdapter', () => {
       expect(await adapter.getSubjectRoles('user-1')).toEqual([])
     })
 
-    it('revokeRole with an empty-string scope targets only that scope, never all', async () => {
+    // This used to assert that `''` targeted only the empty scope rather than
+    // all scopes - the narrow reading of a value five of the six adapters
+    // interpreted differently. `''` is now refused at the shared boundary, so
+    // the stronger property holds: it revokes nothing because it never runs.
+    it('revokeRole refuses an empty-string scope and leaves both grants standing', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
       await adapter.assignRole('user-1', 'editor' as Ro, 'org-1')
-      await adapter.revokeRole('user-1', 'editor' as Ro, '' as S)
+      await expect(adapter.revokeRole('user-1', 'editor' as Ro, '' as S)).rejects.toThrow(/must not be an empty string/)
       expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
       expect((await adapter.getSubjectScopedRoles('user-1')).map((r) => r.scope)).toEqual(['org-1'])
     })
@@ -447,22 +451,33 @@ describe('IamDrizzleAdapter', () => {
       expect(changed).toEqual([0])
     })
 
-    it('revokeRoleMany keeps an unscoped row distinct from one scoped to the empty string', async () => {
-      // `scope` is NULL for this row, not `''` - the two are different rows,
-      // which `revokeRole` already distinguishes.
+    // Previously this asserted that a batch mixing `scope: ''` with an unscoped
+    // row revoked only the latter. The batch path now applies the same guard as
+    // the single-row path, so the whole batch is refused rather than half of it
+    // silently doing nothing - a partially-applied revocation is the worse of
+    // the two outcomes.
+    it('revokeRoleMany refuses a batch containing an empty-string scope', async () => {
       await adapter.assignRole('user-1', 'editor' as Ro)
 
-      const changed = await adapter.revokeRoleMany([
-        { roleId: 'editor' as Ro, scope: '' as S, subjectId: 'user-1' },
-        { roleId: 'editor' as Ro, subjectId: 'user-1' },
-      ])
+      await expect(
+        adapter.revokeRoleMany([
+          { roleId: 'editor' as Ro, scope: '' as S, subjectId: 'user-1' },
+          { roleId: 'editor' as Ro, subjectId: 'user-1' },
+        ]),
+      ).rejects.toThrow(/must not be an empty string/)
 
-      // The second request is what removed the row. The first named a scope no
-      // row held, so it changed nothing - even though both requests name the
-      // same subject and role, and the engine's outcome id cannot tell them
-      // apart.
-      expect(changed).toEqual([1])
-      expect(await adapter.getSubjectRoles('user-1')).toEqual([])
+      // Nothing was applied: the guard runs before the first write.
+      expect(await adapter.getSubjectRoles('user-1')).toEqual(['editor'])
+    })
+
+    it('control: the same batch without the empty scope still revokes', async () => {
+      // A subject of its own: the block shares one adapter, so reusing `user-1`
+      // here would measure whatever the previous test left behind.
+      await adapter.assignRole('user-ctl', 'editor' as Ro)
+      // `creditWrites` returns the *indices* of the rows a statement moved, so
+      // a single-row batch that removed its row credits index 0.
+      expect(await adapter.revokeRoleMany([{ roleId: 'editor' as Ro, subjectId: 'user-ctl' }])).toEqual([0])
+      expect(await adapter.getSubjectRoles('user-ctl')).toEqual([])
     })
 
     it('credits a write once when two rows of a batch ask for the same grant', async () => {

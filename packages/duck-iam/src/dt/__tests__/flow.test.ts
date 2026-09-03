@@ -132,3 +132,59 @@ describe('iamCreateFlowRecorder', () => {
     spy.mockRestore()
   })
 })
+
+/**
+ * `iamCreateMetricsAggregator` validates `sampleSize`; this factory took the
+ * same shape of option and validated nothing. `NaN`/`Infinity` made the trim
+ * `buffer.length > bufferSize` permanently false, so the "ring buffer" grew
+ * without bound; a negative threw `Invalid array length` from inside
+ * `record()`, which `safeHookCall` swallows - a recorder that silently
+ * records nothing while bound to `afterEvaluate`.
+ */
+describe('iamCreateFlowRecorder validates bufferSize', () => {
+  const bad = [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]
+
+  for (const bufferSize of bad) {
+    it(`rejects bufferSize=${String(bufferSize)} at construction`, () => {
+      expect(() => iamCreateFlowRecorder({ bufferSize })).toThrow(RangeError)
+      expect(() => iamCreateFlowRecorder({ bufferSize })).toThrow(/\[@gentleduck\/iam:dt:flow\]/)
+    })
+  }
+
+  it('accepts a positive integer and still trims to it', () => {
+    const rec = iamCreateFlowRecorder({ bufferSize: 2 })
+    for (let i = 0; i < 5; i++) {
+      rec.record({ action: 'read', allowed: true, resource: 'post', subjectId: `u${i}` })
+    }
+    expect(rec.list()).toHaveLength(2)
+  })
+
+  it('defaults when bufferSize is omitted', () => {
+    expect(() => iamCreateFlowRecorder()).not.toThrow()
+  })
+})
+
+describe('iamCreateFlowRecorder.list() is a copy', () => {
+  /** The declared `readonly` erases at runtime, so a consumer can do this. */
+  function pushInto(arr: unknown, value: unknown): void {
+    if (Array.isArray(arr)) arr.push(value)
+  }
+
+  it('a push into the returned array does not reach the recorder', () => {
+    const rec = iamCreateFlowRecorder({ bufferSize: 10 })
+    const entry = rec.record({ action: 'read', allowed: true, resource: 'post', subjectId: 'u1' })
+    const listed = rec.list()
+    expect(listed).toHaveLength(1)
+    pushInto(listed, { ...entry, id: 999 })
+    expect(listed).toHaveLength(2)
+    expect(rec.list()).toHaveLength(1)
+    expect(rec.get(999)).toBeUndefined()
+  })
+
+  // Control: the copy still carries the recorded entries.
+  it('returns the entries that were recorded', () => {
+    const rec = iamCreateFlowRecorder()
+    rec.record({ action: 'read', allowed: false, resource: 'post', subjectId: 'u1' })
+    expect(rec.list()[0]?.subjectId).toBe('u1')
+  })
+})

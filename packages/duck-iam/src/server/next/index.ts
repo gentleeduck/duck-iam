@@ -1,15 +1,16 @@
 /**
- * IamNext.js App Router server-side integration.
+ * Next.js App Router server-side integration.
  *
  * Covers:
  *   - API route wrappers (Route Handlers)
  *   - Server Component helpers
- *   - IamNext.js Middleware integration
+ *   - Next.js Middleware integration
  *   - Permission map generation for client hydration
  */
 
 import type { IamEngine } from '../../core'
 import type { AccessControl, IamClient, IamRequest } from '../../core/types'
+import { iamAsRoleLiteral } from '../../shared/tenant-literals'
 import {
   type IamAdminAudit,
   iamActionForMethod,
@@ -21,12 +22,12 @@ import {
   iamWithAdminAudit,
 } from '../generic'
 
-/** IamNext.js route handler context with params. */
+/** Next.js route handler context with params. */
 type RouteContext = { params: Promise<Record<string, string>> | Record<string, string> }
-/** IamNext.js App Router route handler signature. */
+/** Next.js App Router route handler signature. */
 type RouteHandler = (req: Request, ctx: RouteContext) => Promise<Response>
 
-/** IamNext.js server integration types. Type-only namespace - zero bundle cost. */
+/** Next.js server integration types. Type-only namespace - zero bundle cost. */
 export namespace IamNext {
   /**
    * Describes options for {@link withIamAccess}.
@@ -73,6 +74,17 @@ export namespace IamNext {
     }>
     /** Extracts the current user ID from the request. */
     getUserId: (req: Request) => string | null | Promise<string | null>
+    /** Extracts environment context (IP, user-agent, etc.) from the request. */
+    getEnvironment?: (req: Request) => IamRequest.IEnvironment
+    /**
+     * Handles a denied request (defaults to 403 JSON).
+     *
+     * The other four integrations have always had this; this one did not, so an
+     * operator porting a `onDenied` override here silently lost it.
+     */
+    onDenied?: (req: Request) => Response
+    /** Handles a request with no user (defaults to 401 JSON). */
+    onUnauthorized?: (req: Request) => Response
     /** Handles thrown errors during evaluation (defaults to 500 JSON). */
     onError?: (err: Error, req: Request) => Response
   }
@@ -80,7 +92,7 @@ export namespace IamNext {
   /**
    * Required guard callback for admin Route Handlers.
    *
-   * Same threat model as the IamExpress `adminRouter`: any handler that writes
+   * Same threat model as the Express `adminRouter`: any handler that writes
    * policies or roles must be gated.
    */
   export type IAdminAuthorize = (req: Request) => boolean | Promise<boolean>
@@ -107,7 +119,7 @@ export namespace IamNext {
 }
 
 /**
- * Wraps a IamNext.js App Router route handler with an access check.
+ * Wraps a Next.js App Router route handler with an access check.
  *
  * Returns 401 when no user is present, 403 when denied, and otherwise invokes
  * the wrapped handler.
@@ -122,12 +134,21 @@ export namespace IamNext {
  * @param handler - Provides the downstream route handler invoked on allow.
  * @param opts - Configures optional extractors and `scope` override.
  * @returns A wrapped route handler.
+ * `opts.getUserId` is required - identity is never derived from request
+ * headers, because a header is caller-controlled. Wire it to your session.
+ *
  * @example
  * ```ts
- * export const DELETE = withIamAccess(engine, 'delete', 'post', async (req, ctx) => {
- *   const { id } = await ctx.params
- *   return Response.json({ deleted: id })
- * })
+ * export const DELETE = withIamAccess(
+ *   engine,
+ *   'delete',
+ *   'post',
+ *   async (req, ctx) => {
+ *     const { id } = await ctx.params
+ *     return Response.json({ deleted: id })
+ *   },
+ *   { getUserId: async () => (await auth()).userId },
+ * )
  * ```
  */
 export function withIamAccess<
@@ -157,12 +178,14 @@ export function withIamAccess<
   } = opts
 
   return async (req, ctx) => {
-    const userId = await getUserId(req)
-    if (!userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     try {
+      // Inside the try, like every other extractor: a throwing `getUserId` must
+      // reach `onError` rather than the framework's boundary.
+      const userId = await getUserId(req)
+      if (!userId) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+
       const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
       const resourceId = params?.id
 
@@ -256,7 +279,7 @@ export async function getIamPermissions<
 }
 
 /**
- * Builds a IamNext.js Edge Middleware matcher that protects routes by a list of
+ * Builds a Next.js Edge Middleware matcher that protects routes by a list of
  * pattern-keyed rules.
  *
  * Returns `null` when the request passes or no rule matches; otherwise returns
@@ -289,13 +312,34 @@ export function createIamNextMiddleware<
   TRole extends string = string,
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNext.IMiddlewareOptions<TAction, TResource, TScope>) {
-  const { onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }) } = opts
+  // This was the one integration that passed no environment at all, so a rule
+  // keyed on `environment.ip` / `.userAgent` / `.hour` never fired here while
+  // firing in express, hono, nest and next's own `withIamAccess` on the same
+  // request. Same default as `withIamAccess`.
+  const {
+    getEnvironment = (req: Request) =>
+      iamExtractEnvironment({ headers: req.headers, method: req.method, url: req.url }),
+    onDenied = () => Response.json({ error: 'Forbidden' }, { status: 403 }),
+    onUnauthorized = () => Response.json({ error: 'Unauthorized' }, { status: 401 }),
+    onError = () => Response.json({ error: 'Internal server error' }, { status: 500 }),
+  } = opts
 
   return async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url)
     // `//admin` and `/%61dmin` both survive `new URL()` and skip a `/admin`
     // rule while still routing to `/admin`. Match on the canonical form.
     const path = iamNormalizePathname(url.pathname)
+
+    // `iamNormalizePathname` decodes exactly once; the residue check that makes
+    // that safe lives in `iamDefaultResource`, and this call site did not
+    // reproduce it. A path the framework may decode a second time either picked
+    // the wrong rule (`/posts/%252e%252e/admin` was checked as `posts` while
+    // routing to `/admin`) or matched none - and no rule means `return null`,
+    // which passes the request through with no authorization call at all.
+    // Refused here, as `IAM_UNKNOWN_RESOURCE` refuses it in express and hono.
+    if (path.includes('%')) {
+      return onDenied(req)
+    }
 
     const matchedRule = opts.rules.find((r) => {
       if (typeof r.pattern === 'string') {
@@ -306,12 +350,15 @@ export function createIamNextMiddleware<
 
     if (!matchedRule) return null
 
-    const userId = await opts.getUserId(req)
-    if (!userId) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     try {
+      // Inside the try, like the other four: a throwing `getUserId` reaches
+      // `onError` rather than escaping to the framework's own boundary, where
+      // it would be reported as an application error rather than an authz one.
+      const userId = await opts.getUserId(req)
+      if (!userId) {
+        return onUnauthorized(req)
+      }
+
       // `TAction` is erased at runtime, so an inferred method action cannot be
       // narrowed to it. One documented widening rather than one per branch.
       const action: TAction = matchedRule.action ?? (iamActionForMethod(req.method) as TAction)
@@ -323,12 +370,12 @@ export function createIamNextMiddleware<
           type: matchedRule.resource,
           attributes: {},
         },
-        undefined,
+        getEnvironment(req),
         matchedRule.scope,
       )
 
       if (!allowed) {
-        return Response.json({ error: 'Forbidden' }, { status: 403 })
+        return onDenied(req)
       }
 
       return null
@@ -339,7 +386,7 @@ export function createIamNextMiddleware<
 }
 
 /**
- * Builds pre-bound admin Route Handlers for IamNext.js App Router.
+ * Builds pre-bound admin Route Handlers for Next.js App Router.
  *
  * Every handler runs `authorize(req)` first; failure replies 401. Throws at
  * construction time when `opts.authorize` is missing.
@@ -382,7 +429,7 @@ export function createIamAdminHandlers<
   TScope extends string = string,
 >(engine: IamEngine<TAction, TResource, TRole, TScope>, opts: IamNext.IAdminOptions) {
   if (!opts || typeof opts.authorize !== 'function') {
-    throw new Error('[@gentleduck/iam] createIamAdminHandlers requires an `authorize` callback.')
+    throw new Error('[@gentleduck/iam:next] createIamAdminHandlers requires an `authorize` callback.')
   }
   const { authorize, onAdminMutation, redactPath, onAuditHookError, includeErrorMessage, csrfCheck } = opts
   // Default to the built-in Sec-Fetch-Site check; pass `false` to disable.
@@ -484,7 +531,7 @@ export function createIamAdminHandlers<
       async (_req, ctx) => {
         const params = ctx.params instanceof Promise ? await ctx.params : ctx.params
         const { id, roleId } = params as { id: string; roleId: string }
-        await engine.admin.revokeRole(id, roleId as TRole)
+        await engine.admin.revokeRole(id, iamAsRoleLiteral<TRole>(roleId))
         return Response.json({ ok: true })
       },
     ),

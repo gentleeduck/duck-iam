@@ -27,7 +27,14 @@
  */
 
 import type { IamClient } from '../../core/types'
-import { iamBuildPermissionKey, iamParsePermissionKey } from '../../shared/keys'
+import { iamBuildPermissionKey } from '../../shared/keys'
+import { iamAllowedActions, iamHasAnyOn, iamPermissionGranted } from '../../shared/permission-map'
+
+/**
+ * Re-exported so a React or Vue app reaches the same map introspection this
+ * class has always had, instead of hand-rolling `key.split(':')`.
+ */
+export { iamAllowedActions, iamHasAnyOn }
 
 /** Callback invoked when permissions are updated via {@link IamAccessClient.update} or {@link IamAccessClient.merge}. */
 type Listener<TAction extends string = string, TResource extends string = string, TScope extends string = string> = (
@@ -93,12 +100,16 @@ export class IamAccessClient<
   }
 
   /**
-   * Returns a readonly view of the current permission map.
+   * Returns a copy of the current permission map.
+   *
+   * A copy, not the live object: `Readonly<...>` erases at runtime, so handing
+   * out the internal map let an in-place edit grant a permission without going
+   * through `update()`/`merge()` - and therefore without notifying subscribers.
    *
    * @returns Readonly map of action/resource keys to boolean grants.
    */
   get permissions(): Readonly<IamClient.PartialPermissionMap<TAction, TResource, TScope>> {
-    return this._permissions
+    return { ...this._permissions }
   }
 
   /**
@@ -112,7 +123,7 @@ export class IamAccessClient<
    */
   can(action: TAction, resource: TResource, resourceId?: string, scope?: TScope): boolean {
     const key = iamBuildPermissionKey(action, resource, resourceId, scope)
-    return (this._permissions as Record<string, boolean>)[key] ?? false
+    return iamPermissionGranted(this._permissions, key)
   }
 
   /**
@@ -172,19 +183,16 @@ export class IamAccessClient<
   /**
    * Lists every action allowed against the given resource type.
    *
-   * Keys not produced by `iamBuildPermissionKey` are ignored.
+   * Keys not produced by `iamBuildPermissionKey` are ignored. Returns `string[]`
+   * rather than `TAction[]`: see {@link iamAllowedActions} for why re-asserting
+   * the caller's union over unvalidated server JSON is not a claim this class
+   * can honestly make.
    *
    * @param resource - Specifies the resource type to filter by.
    * @returns Deduplicated array of actions allowed on `resource`.
    */
-  allowedActions(resource: TResource): TAction[] {
-    const actions: TAction[] = []
-    for (const [key, allowed] of Object.entries(this._permissions)) {
-      if (!allowed) continue
-      const action = extractAction(key, resource)
-      if (action) actions.push(action as TAction)
-    }
-    return [...new Set(actions)]
+  allowedActions(resource: TResource): string[] {
+    return iamAllowedActions(this._permissions, resource)
   }
 
   /**
@@ -194,21 +202,8 @@ export class IamAccessClient<
    * @returns `true` when any granted key targets the resource.
    */
   hasAnyOn(resource: TResource): boolean {
-    return Object.entries(this._permissions).some(([key, allowed]) => {
-      if (!allowed) return false
-      return extractAction(key, resource) !== null
-    })
+    return iamHasAnyOn(this._permissions, resource)
   }
-}
-
-/**
- * Extract the action from a permission key for a given resource, or `null` when
- * the key targets something else or is not a key this package built.
- */
-function extractAction(key: string, resource: string): string | null {
-  const parsed = iamParsePermissionKey(key)
-  if (parsed === null || parsed.resource !== resource) return null
-  return parsed.action
 }
 
 /** Factory around {@link IamAccessClient}, for callers who prefer functions to `new`. */

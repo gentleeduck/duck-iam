@@ -47,8 +47,7 @@ function makeMockEngine(mode?: 'production' | 'development'): IamIDevtoolsEngine
     mode,
     can: trap('can'),
     explain: trap('explain'),
-    stats: () => ({}),
-    resetStats: () => {},
+    stats: { get: () => ({}), reset: () => {} },
     admin: {
       listPolicies: trap('admin.listPolicies'),
       listRoles: trap('admin.listRoles'),

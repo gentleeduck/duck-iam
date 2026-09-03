@@ -164,7 +164,7 @@ export function iamNoticeCsrfDefaultIfNeeded(csrfCheckPassed: boolean): void {
   if (csrfCheckPassed || _CSRF_DEFAULT_NOTICED) return
   _CSRF_DEFAULT_NOTICED = true
   console.info(
-    '[@gentleduck/iam] admin router: default CSRF check enabled - ' +
+    '[@gentleduck/iam:generic] admin router: default CSRF check enabled - ' +
       'rejecting browser requests with Sec-Fetch-Site: cross-site|cross-origin. ' +
       'Pass `csrfCheck: false` for bearer-token/mTLS APIs, or supply a custom ' +
       'predicate. See SECURITY.md "Admin router CSRF" section. (2.1.0 behavior change)',
@@ -187,7 +187,7 @@ export function iamDefaultCsrfCheck(req: unknown): boolean {
       }
     | undefined
   let site: string | undefined
-  // IamExpress/IamNest-style: req.headers is a Record.
+  // Express/NestJS-style: req.headers is a Record.
   const recordHeaders = r?.headers
   if (recordHeaders && typeof (recordHeaders as { get?: unknown }).get !== 'function') {
     const v = (recordHeaders as Record<string, string | string[] | undefined>)['sec-fetch-site']
@@ -197,7 +197,7 @@ export function iamDefaultCsrfCheck(req: unknown): boolean {
   if (!site && recordHeaders && typeof (recordHeaders as { get?: unknown }).get === 'function') {
     site = (recordHeaders as { get: (n: string) => string | null }).get('sec-fetch-site') ?? undefined
   }
-  // IamHono style: c.req.header(...).
+  // Hono style: c.req.header(...).
   if (!site && r?.req?.header) {
     site = r.req.header('sec-fetch-site')
   }
@@ -419,7 +419,7 @@ function reportAuditHookError(
       // Sink itself threw - last-resort log, then stop.
       try {
         console.error(
-          '[@gentleduck/iam] onAuditHookError sink threw:',
+          '[@gentleduck/iam:generic] onAuditHookError sink threw:',
           sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
         )
       } catch {
@@ -429,7 +429,10 @@ function reportAuditHookError(
     }
   }
   try {
-    console.error('[@gentleduck/iam] onAdminMutation hook threw:', err instanceof Error ? err.message : String(err))
+    console.error(
+      '[@gentleduck/iam:generic] onAdminMutation hook threw:',
+      err instanceof Error ? err.message : String(err),
+    )
   } catch {
     // ignore
   }
@@ -518,7 +521,13 @@ export function iamExtractEnvironment(req: {
     // XFF can carry multiple comma-separated values (one per proxy hop,
     // leftmost is the original client). Apps behind multiple trusted
     // proxies should bypass this helper and assemble `env.ip` themselves.
-    ip: req.ip ?? normalizeForwardedFor(getHeader('x-forwarded-for')) ?? normalizeForwardedFor(getHeader('x-real-ip')),
+    // `req.ip` is capped too: an adapter may fill it from a platform header
+    // rather than a socket, and `env.ip` flows into `matches` conditions the
+    // same way `userAgent` does.
+    ip:
+      normalizeForwardedFor(req.ip) ??
+      normalizeForwardedFor(getHeader('x-forwarded-for')) ??
+      normalizeForwardedFor(getHeader('x-real-ip')),
     userAgent: normalizeUserAgent(getHeader('user-agent')),
     timestamp: Date.now(),
   }
@@ -635,4 +644,71 @@ export const IAM_METHOD_ACTION_MAP: Readonly<Record<string, string>> = {
   PUT: 'update',
   PATCH: 'update',
   DELETE: 'delete',
+}
+
+/**
+ * Reads a required string field out of an admin request body.
+ *
+ * The admin routers used to take `body.roleId as TRole` straight from the
+ * parsed JSON. `assertTriple` inside the engine does catch a non-string and
+ * throws, so nothing was writable that should not have been - but the cast put
+ * a domain type on an unvalidated request field several calls before anything
+ * looked at it, and read as though the check had already happened. This is
+ * that check, at the edge, with a message naming the field.
+ *
+ * @param source - The parsed request body.
+ * @param field - The field to read.
+ * @returns The field's value, guaranteed a non-empty string.
+ * @throws If the body is not an object, or the field is missing, not a string, or empty.
+ */
+export function iamRequireStringField(source: unknown, field: string): string {
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    throw new Error(`[@gentleduck/iam:generic] request body must be a JSON object to read "${field}"`)
+  }
+  const value: unknown = Reflect.get(source, field)
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`[@gentleduck/iam:generic] "${field}" must be a non-empty string`)
+  }
+  return value
+}
+
+/**
+ * {@link iamRequireStringField} for a field that may be absent.
+ *
+ * An explicit `null` reads as absent - that is how a JSON client spells "no
+ * scope" - but a present non-string is still an error rather than a silently
+ * dropped scope, which would widen a scoped grant into a global one.
+ *
+ * @param source - The parsed request body.
+ * @param field - The field to read.
+ * @returns The value, or `undefined` when the field is absent or `null`.
+ * @throws If the body is not an object, or the field is present but not a non-empty string.
+ */
+export function iamOptionalStringField(source: unknown, field: string): string | undefined {
+  if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+    throw new Error(`[@gentleduck/iam:generic] request body must be a JSON object to read "${field}"`)
+  }
+  const value: unknown = Reflect.get(source, field)
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`[@gentleduck/iam:generic] "${field}" must be a non-empty string when present`)
+  }
+  return value
+}
+
+/**
+ * A required path parameter. Same reasoning as {@link iamRequireStringField}:
+ * `req.params?.id as string` typed away the `undefined` that an unmatched route
+ * actually produces.
+ *
+ * @param value - The raw parameter, as the framework hands it over.
+ * @param name - The parameter's name, for the error message.
+ * @returns The parameter, guaranteed a non-empty string.
+ * @throws If it is absent or empty.
+ */
+export function iamRequirePathParam(value: unknown, name: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`[@gentleduck/iam:generic] path parameter "${name}" is missing`)
+  }
+  return value
 }

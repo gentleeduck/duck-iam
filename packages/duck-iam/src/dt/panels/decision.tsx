@@ -1,6 +1,6 @@
 import React from 'react'
 import type { Explain } from '../../core/explain'
-import type { IamPrimitives } from '../../core/types'
+import { iamNarrowAttributes } from '../../shared/attributes'
 import { Spinner } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, Section, SplitView } from '../components/layout'
@@ -8,6 +8,18 @@ import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
 import { safeParseJson } from '../lib/format'
 import type { IamIDecisionInput, IamIDevtoolsEngine } from '../lib/types'
 import { IamTraceTree } from './trace-tree'
+
+/**
+ * The environment bag is a free-form record, not an attribute bag, so it gets
+ * the weaker check: an object that is neither `null` nor an array. `[1,2]` and
+ * `"hello"` are valid JSON and neither is an environment.
+ */
+function narrowRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const out: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) out[key] = entry
+  return out
+}
 
 const INITIAL: IamIDecisionInput = {
   subjectId: '',
@@ -37,13 +49,25 @@ export function IamDecisionInspector({
     setError(null)
     setPending(true)
     try {
-      const attrs = safeParseJson<Record<string, IamPrimitives.AttributeValue>>(input.attributesJson, {})
-      const env = safeParseJson<Record<string, unknown>>(input.environmentJson, {})
+      const attrs = safeParseJson(input.attributesJson)
+      const env = safeParseJson(input.environmentJson)
       if (attrs.error) throw new Error(`attributes JSON: ${attrs.error}`)
       if (env.error) throw new Error(`environment JSON: ${env.error}`)
-      const resource = { type: input.resourceType, id: input.resourceId || undefined, attributes: attrs.value }
-      const environment = { ...env.value, ...(input.scope ? { scope: input.scope } : {}) }
-      const trace = await engine.explain(input.subjectId, input.action, resource, environment)
+      // Parsed, then narrowed. Valid JSON is not an attribute bag: `[1,2]` and
+      // `"hello"` both parse, and both used to arrive at `engine.explain` under
+      // the type the call site asked for.
+      const attributes = attrs.value === undefined ? {} : iamNarrowAttributes(attrs.value)
+      if (attributes === null) throw new Error('attributes JSON: expected an object of scalar values')
+      const environment = env.value === undefined ? {} : narrowRecord(env.value)
+      if (environment === null) throw new Error('environment JSON: expected an object')
+      const resource = { type: input.resourceType, id: input.resourceId || undefined, attributes }
+      // Positionally, not folded into the environment bag. `scope` was smuggled
+      // in as `environment.scope`, which nothing reads: the panel rendered a
+      // confident trace whose own `request.scope` row said `undefined` and
+      // whose `scopedRolesApplied` was empty, so an operator debugging a scoped
+      // grant was shown DENY for a request the engine allows - and the obvious
+      // repair is to widen the policy.
+      const trace = await engine.explain(input.subjectId, input.action, resource, environment, input.scope || undefined)
       setResult(trace)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

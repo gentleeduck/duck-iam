@@ -1,5 +1,6 @@
 import React from 'react'
 import type { IamPrimitives } from '../../core/types'
+import { iamNarrowAttributes } from '../../shared/attributes'
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
@@ -35,12 +36,16 @@ export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   async function saveAttrs() {
     setError(null)
     setStatus(null)
-    const parsed = safeParseJson<IamPrimitives.Attributes>(attrsDraft, {})
+    const parsed = safeParseJson(attrsDraft)
     if (parsed.error) return setError(`attributes JSON: ${parsed.error}`)
+    // Narrowed before it reaches the adapter: `setAttributes` writes whatever
+    // it is handed, and this value came out of a textarea.
+    const attributes = parsed.value === undefined ? {} : iamNarrowAttributes(parsed.value)
+    if (attributes === null) return setError('attributes JSON: expected an object of scalar values')
     setBusy(true)
     try {
-      await engine.admin.setAttributes(subjectId, parsed.value)
-      setAttrs(parsed.value)
+      await engine.admin.setAttributes(subjectId, attributes)
+      setAttrs(attributes)
       setStatus('attributes saved')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
