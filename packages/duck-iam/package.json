@@ -288,6 +288,7 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "test": "vitest run",
+    "gen:test-inventory": "bun run scripts/gen-test-inventory.ts",
     "mutation": "stryker run",
     "check-types": "tsc -p tsconfig.json --noEmit --pretty false --skipLibCheck",
     "lint": "biome lint --write ./",
