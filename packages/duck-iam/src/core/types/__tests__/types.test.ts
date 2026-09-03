@@ -63,9 +63,12 @@ type _ModePermMapProd = Expect<Equal<AccessControl.ModePermissionMap<'production
 type ReadPostKey = IamClient.PermissionKey<'read', 'post', 'org'>
 type _KeyPlain = Expect<Extends<'read:post', ReadPostKey>>
 type _KeyWithResourceId = Expect<Extends<'read:post:p-1', ReadPostKey>>
-type _KeyScoped = Expect<Extends<'org:read:post', ReadPostKey>>
-type _KeyScopedWithResourceId = Expect<Extends<'org:read:post:p-1', ReadPostKey>>
+type _KeyScoped = Expect<Extends<'@org:read:post', ReadPostKey>>
+type _KeyScopedWithResourceId = Expect<Extends<'@org:read:post:p-1', ReadPostKey>>
 type _KeyRejectsUnknownAction = Expect<Equal<Extends<'delete:post', ReadPostKey>, false>>
+// The pre-`@` scoped form is exactly the three-segment ambiguity the `@` marker
+// was introduced to remove, so the type must reject it rather than admit both.
+type _KeyRejectsUnmarkedScope = Expect<Equal<Extends<'org:read:post', ReadPostKey>, false>>
 
 // PartialPermissionMap is what `engine.permissions()` actually returns.
 type _PartialAllowsEmpty = Expect<Extends<Record<string, never>, IamClient.PartialPermissionMap<'read', 'post', 'org'>>>

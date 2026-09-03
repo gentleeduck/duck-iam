@@ -1,6 +1,6 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: index iteration guarded by length check. */
 
-import { evaluateOperator, resolveConditionValue } from '../conditions'
+import { evaluateOperator, resolveConditionValue } from '../conditions/conditions'
 import { rulePriority } from '../evaluate/evaluate.libs'
 import { matchesAction, matchesResource, matchesResourceHierarchical, resolve } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'

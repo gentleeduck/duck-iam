@@ -440,9 +440,9 @@ describe('fast path: expansive action/resource patterns route via the wildcard b
 })
 
 describe('fast path: wildcard bucket indexing (indexPolicy)', () => {
-  // A rule's own action/resource list can mix a literal alternative with a wildcard
-  // one - the rule still has hasWildcardAction/hasWildcardResource=true (so it's
-  // bucketed under its literal side, e.g. byResourceWildcardAction), but
+  // A rule's own action/resource list can mix a literal alternative with a
+  // wildcard one - `indexPolicy` still counts that side as expansive and buckets
+  // the rule under its literal side (e.g. byResourceWildcardAction), but
   // candidateShapeMatches must still recognize the literal alternative too, not
   // just the wildcard one.
   it('a rule with mixed literal + wildcard actions matches via either alternative', () => {
@@ -850,7 +850,7 @@ describe('allowFailOpen enforcement (P0)', () => {
 
   it("refuses defaultEffect: 'allow' in production without allowFailOpen", () => {
     const adapter = new IamMemoryAdapter()
-    expect(() => new IamEngine({ adapter, mode: 'production', defaultEffect: 'allow' } as never)).toThrow(/fail-open/i)
+    expect(() => new IamEngine({ adapter, defaultEffect: 'allow', mode: 'production' })).toThrow(/fail-open/i)
   })
 
   it("accepts defaultEffect: 'allow' in any mode with allowFailOpen: true", () => {

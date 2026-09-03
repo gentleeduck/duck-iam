@@ -13,10 +13,13 @@ export const MAX_REGEX_LENGTH = 128
  *
  * Even if a catastrophic pattern slips past static detection, capping the
  * input length bounds worst-case backtracking work. Strings longer than this
- * cause the `matches` operator to throw {@link RegexInputTooLargeError}, which
- * the evaluator catches and treats as a policy error (NotApplicable). Returning
- * `false` instead would flip `deny`-when-`matches` rules to allow on
+ * cause the `matches` operator to throw {@link IamRegexInputTooLargeError}.
+ * Returning `false` instead would flip `deny`-when-`matches` rules to allow on
  * adversarially-long input.
+ *
+ * Counted in UTF-16 code units, not bytes - an astral-plane string reaches the
+ * cap at a quarter of its UTF-8 size. The cap bounds backtracking work, which
+ * scales with the units the engine walks, so units are the right unit.
  */
 export const MAX_REGEX_INPUT_LENGTH = 2048
 
@@ -24,21 +27,20 @@ export const MAX_REGEX_INPUT_LENGTH = 2048
  * Thrown by the `matches` operator when the candidate string exceeds
  * {@link MAX_REGEX_INPUT_LENGTH}.
  *
- * Carried as a tagged error so the evaluator's `safeEval` can route it through
- * `onPolicyError` and mark the entire policy as NotApplicable. Critically, we
- * do NOT silently return `false`: a `false` result from a `matches` operator
- * inside a `deny` rule would flip the rule's effect to "condition not met ->
- * allow". By throwing, the whole policy drops out of the decision instead of
- * silently becoming permissive.
+ * Carried as a tagged error so every catch site can route it through
+ * `onPolicyError` and treat it as Indeterminate: a policy carrying any deny
+ * rule votes deny, an allow-only one casts the `defaultEffect` vote it would
+ * have cast. Returning `false` instead would read as "condition not met", which
+ * flips a `deny`-when-`matches` rule to allow.
  */
-export class RegexInputTooLargeError extends Error {
-  readonly name = 'RegexInputTooLargeError'
+export class IamRegexInputTooLargeError extends Error {
+  readonly name = 'IamRegexInputTooLargeError'
   readonly tag = 'duck-iam/regex-input-too-large'
   readonly field: string
   readonly length: number
   constructor(field: string, length: number) {
     super(
-      `[@gentleduck/iam:conditions] matches input on field "${field}" is ${length} bytes (> MAX_REGEX_INPUT_LENGTH=${MAX_REGEX_INPUT_LENGTH}); policy dropped as NotApplicable.`,
+      `[@gentleduck/iam:conditions] matches input on field "${field}" is ${length} UTF-16 code units (> MAX_REGEX_INPUT_LENGTH=${MAX_REGEX_INPUT_LENGTH}); condition is Indeterminate.`,
     )
     this.field = field
     this.length = length
@@ -88,6 +90,33 @@ export const MAX_BOUNDED_QUANTIFIER = 1_000
  * @param pattern - Raw regex source.
  * @returns `{ safe: true }` when the pattern looks benign, otherwise `{ safe: false, reason }`.
  */
+/** Index of the `]` closing the character class opened at `start`, or -1. */
+function findClassEnd(pattern: string, start: number): number {
+  for (let i = start + 1; i < pattern.length; i++) {
+    if (pattern[i] === '\\') {
+      i++
+      continue
+    }
+    if (pattern[i] === ']') return i
+  }
+  return -1
+}
+
+/**
+ * Remove escapes and character-class bodies from a fragment before scanning it
+ * for quantifiers. Without the class strip, the literal `*` in a glob-shaped
+ * pattern like `^([a-z0-9*-])+$` reads as a quantifier and the pattern is
+ * refused as a nested quantifier - a scanner bug, not a conservative heuristic.
+ */
+function stripLiterals(fragment: string): string {
+  return fragment.replace(/\\./g, '').replace(/\[[^\]]*\]/g, 'C')
+}
+
+/** Whether a fragment contains a group immediately followed by `+`, `*` or `{n,}`. */
+function hasQuantifiedGroup(stripped: string): boolean {
+  return /\)[+*]/.test(stripped) || /\)\{\d+,\}/.test(stripped)
+}
+
 export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
   if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
   if (pattern.length > MAX_REGEX_LENGTH) {
@@ -138,10 +167,13 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
       j++
     }
     if (depth !== 0) continue
-    const body = pattern.slice(bodyStart, j)
-    const bodyStripped = body.replace(/\\./g, '')
-    if (/[+*]/.test(bodyStripped) || /\{\d+,?\d*\}/.test(bodyStripped)) {
-      return { safe: false, reason: 'lookaround-with-quantifier' }
+    // A quantifier inside a lookaround is not itself a risk: `^(?!.*admin)`
+    // and `(?=.*[A-Z])` are linear, and they are the shapes deny guards get
+    // written in - refusing them pushes authors toward the weaker
+    // `not_contains`. The risk is a *quantified group* in the body,
+    // `(?=(a+)+)`; everything else is left to the passes below.
+    if (hasQuantifiedGroup(stripLiterals(pattern.slice(bodyStart, j)))) {
+      return { safe: false, reason: 'lookaround-with-quantified-group' }
     }
     i = j
   }
@@ -190,9 +222,9 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
       const next = pattern[i + 1]
       const isUnboundedQuant = next === '+' || next === '*' || (next === '{' && /^\{\d+,\}?/.test(pattern.slice(i + 1)))
       if (!isUnboundedQuant) continue
-      const body = pattern.slice(openIdx + 1, i)
-      // Strip escapes from body before scanning so `\+` doesn't trigger.
-      const bodyStripped = body.replace(/\\./g, '')
+      // Strip escapes and character classes before scanning, so neither `\+`
+      // nor the literal `*` in `[a-z0-9*-]` reads as a quantifier.
+      const bodyStripped = stripLiterals(pattern.slice(openIdx + 1, i))
       if (/[+*]/.test(bodyStripped) || /\{\d+,\d*\}/.test(bodyStripped)) {
         return { safe: false, reason: 'nested quantifier (e.g. `(a+)+`) - catastrophic backtracking risk' }
       }
@@ -210,6 +242,14 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     if (ch === '\\') {
       i++
       continue
+    }
+    if (ch === '[') {
+      // A `*` or `+` inside a character class is a literal, not a quantifier.
+      const close = findClassEnd(pattern, i)
+      if (close !== -1) {
+        i = close
+        continue
+      }
     }
     if (ch === '+' || ch === '*') {
       unbounded++
@@ -231,7 +271,141 @@ export function detectCatastrophicRegex(pattern: string): { safe: boolean; reaso
     }
   }
 
+  const adjacent = findAdjacentUnboundedOverlap(pattern)
+  if (adjacent !== null) {
+    return {
+      safe: false,
+      reason: `adjacent unbounded quantifiers over overlapping characters (${adjacent}) - polynomial backtracking risk`,
+    }
+  }
+
   return { safe: true }
+}
+
+/**
+ * Characters used to test whether two atoms can match the same input. Sampling
+ * beats parsing character classes by hand: each atom is compiled and probed, so
+ * the regex engine itself decides what a class matches. The pattern's own
+ * literals are added to the probe set so a class like `[q-s]` is still covered.
+ */
+const OVERLAP_PROBE_CHARS = 'aZ0 _-./@:%\t'.split('')
+
+/** Compile one atom for probing. Returns `null` if it will not compile alone. */
+function atomMatcher(source: string): RegExp | null {
+  try {
+    return new RegExp(`^(?:${source})$`)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether two atoms can match the same character. An atom that cannot be
+ * compiled or probed in isolation - a group, a backreference - is treated as
+ * overlapping, because failing safe here only costs a rejected pattern.
+ */
+function atomsOverlap(a: string, b: string, extraProbes: readonly string[]): boolean {
+  if (a === b) return true
+  const ra = atomMatcher(a)
+  const rb = atomMatcher(b)
+  if (ra === null || rb === null) return true
+  for (const c of [...OVERLAP_PROBE_CHARS, ...extraProbes]) {
+    if (ra.test(c) && rb.test(c)) return true
+  }
+  return false
+}
+
+/**
+ * Find two neighbouring unbounded quantifiers whose atoms can match the same
+ * character - `^a+a+$`, `[a-z]+[a-z]+`, `.*.*`. Each such pair multiplies the
+ * ways an input can be split between them, so `a+a+a+a+` backtracks O(n^4).
+ *
+ * The `MAX_REGEX_INPUT_LENGTH` cap does not bound that: 2048^4 is astronomical,
+ * and a 513-char input already stalls the loop for 8s. The unbounded-quantifier
+ * *count* does not catch it either, because four siblings are within the limit.
+ * Separated quantifiers are fine and stay allowed - `[a-z]+@[a-z]+\.[a-z]+` has
+ * three, but the mandatory `@` and `.` between them stop the overlap.
+ *
+ * @returns The offending atom pair as ``\`x\` then \`y\```, or `null` when none is found.
+ */
+function findAdjacentUnboundedOverlap(pattern: string): string | null {
+  const atoms = scanQuantifiedAtoms(pattern)
+  const literals = pattern.replace(/[^A-Za-z0-9]/g, '').split('')
+  let prev: QuantifiedAtom | undefined
+  for (const cur of atoms) {
+    const pair = prev
+    prev = cur
+    if (pair === undefined || !pair.unbounded || !cur.unbounded || !cur.adjacent) continue
+    if (atomsOverlap(pair.source, cur.source, literals)) return `\`${pair.source}\` then \`${cur.source}\``
+  }
+  return null
+}
+
+interface QuantifiedAtom {
+  /** The atom's regex source, without its quantifier. */
+  readonly source: string
+  /** Carries a `+`, `*` or `{n,}` quantifier. */
+  readonly unbounded: boolean
+  /** Immediately follows the previous atom, with nothing in between. */
+  readonly adjacent: boolean
+}
+
+/**
+ * Split a pattern into atoms plus their quantifiers. Groups are opaque - the
+ * nested-quantifier check above already covers `(a+)+`, and treating a group as
+ * one atom keeps this scan linear.
+ */
+function scanQuantifiedAtoms(pattern: string): QuantifiedAtom[] {
+  const atoms: QuantifiedAtom[] = []
+  let i = 0
+  let prevEnd = -1
+  while (i < pattern.length) {
+    const start = i
+    const ch = pattern[i]
+    if (ch === '\\') {
+      i += 2
+    } else if (ch === '[') {
+      i++
+      while (i < pattern.length && pattern[i] !== ']') i += pattern[i] === '\\' ? 2 : 1
+      i++
+    } else if (ch === '(') {
+      let depth = 1
+      i++
+      while (i < pattern.length && depth > 0) {
+        if (pattern[i] === '\\') i++
+        else if (pattern[i] === '(') depth++
+        else if (pattern[i] === ')') depth--
+        i++
+      }
+    } else {
+      i++
+    }
+    const source = pattern.slice(start, i)
+
+    let unbounded = false
+    const q = pattern[i]
+    if (q === '+' || q === '*') {
+      unbounded = true
+      i++
+    } else if (q === '{') {
+      const close = pattern.indexOf('}', i)
+      if (close !== -1) {
+        if (/^\d+,\s*$/.test(pattern.slice(i + 1, close))) unbounded = true
+        i = close + 1
+      }
+    } else if (q === '?') {
+      i++
+    }
+    // A lazy or possessive marker does not remove the backtracking.
+    if (pattern[i] === '?' && unbounded) i++
+
+    // Anchors and boundaries are not atoms an input character is split across.
+    if (source !== '^' && source !== '$' && source !== '\\b' && source !== '\\B') {
+      atoms.push({ adjacent: start === prevEnd, source, unbounded })
+      prevEnd = i
+    }
+  }
+  return atoms
 }
 
 /**
@@ -312,15 +486,20 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
     return !isScalar(f) || !v.includes(f)
   },
 
-  contains: (f, v) => {
-    if (Array.isArray(f)) return isScalar(v) && f.includes(v)
-    if (typeof f === 'string' && typeof v === 'string') return f.includes(v)
-    return false
-  },
+  // Array membership, which is the contract in `AccessControl`'s operator table
+  // ("Array contains / does not contain the value"). The old string fallthrough
+  // was undocumented and granted on a substring: a `groups` claim arriving as
+  // the CSV string `'not-admins-really'` satisfied `contains 'admins'`, which is
+  // the normal shape of a JWT claim. A field that is present but not an array
+  // cannot answer the question, so both operators return the answer that does
+  // NOT satisfy the guard - otherwise the same type confusion bypasses
+  // `contains` one way and `not_contains` the other. An absent field is a
+  // different case: an empty list contains nothing, so `not_contains` holds.
+  contains: (f, v) => Array.isArray(f) && isScalar(v) && f.includes(v),
   not_contains: (f, v) => {
-    if (Array.isArray(f)) return !isScalar(v) || !f.includes(v)
-    if (typeof f === 'string' && typeof v === 'string') return !f.includes(v)
-    return true
+    if (f === null || f === undefined) return true
+    if (!Array.isArray(f)) return false
+    return !isScalar(v) || !f.includes(v)
   },
 
   starts_with: (f, v) => typeof f === 'string' && typeof v === 'string' && f.startsWith(v),
@@ -333,7 +512,7 @@ export const ops: Record<AccessControl.Operator, AccessControl.OpFn> = {
     // to allow on adversarial inputs; evalCondition() routes it through
     // onPolicyError.
     if (f.length > MAX_REGEX_INPUT_LENGTH) {
-      throw new RegexInputTooLargeError('<unknown>', f.length)
+      throw new IamRegexInputTooLargeError('<unknown>', f.length)
     }
     const re = getCachedRegex(v)
     return re ? re.test(f) : false
@@ -444,8 +623,8 @@ export function evalCondition(
     }
     return op(fieldVal, condVal)
   } catch (err) {
-    if (err instanceof RegexInputTooLargeError && err.field === '<unknown>') {
-      throw new RegexInputTooLargeError(cond.field, err.length)
+    if (err instanceof IamRegexInputTooLargeError && err.field === '<unknown>') {
+      throw new IamRegexInputTooLargeError(cond.field, err.length)
     }
     throw err
   }
@@ -464,7 +643,7 @@ export function evalMatchesOp(
   if (typeof f !== 'string' || typeof v !== 'string') return false
   if (v.length > MAX_REGEX_LENGTH) return false
   if (f.length > MAX_REGEX_INPUT_LENGTH) {
-    throw new RegexInputTooLargeError('<unknown>', f.length)
+    throw new IamRegexInputTooLargeError('<unknown>', f.length)
   }
   const re = getCachedRegex(v, cache ?? regexCache)
   return re ? re.test(f) : false

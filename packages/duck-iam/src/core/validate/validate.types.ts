@@ -11,6 +11,7 @@ export namespace IamValidate {
     | 'DUPLICATE_RULE_ID'
     | 'EMPTY_ROLE'
     | 'ERR_REGEX_CATASTROPHIC'
+    | 'ERR_REGEX_INVALID'
     | 'INHERITANCE_TOO_DEEP'
     | 'INVALID_ALGORITHM'
     | 'INVALID_CONDITION'
@@ -20,7 +21,10 @@ export namespace IamValidate {
     | 'INVALID_TYPE'
     | 'LIMIT_EXCEEDED'
     | 'MISSING_FIELD'
+    | 'MISSING_VALUE'
+    | 'OPERAND_TYPE_MISMATCH'
     | 'UNREACHABLE_TARGET'
+    | 'UNKNOWN_FIELD'
     | 'UNRESOLVABLE_FIELD'
     | 'UNRESOLVABLE_VALUE'
 
@@ -40,6 +44,23 @@ export namespace IamValidate {
     readonly roleId?: string
     /** Dot-path into the offending field, when emitted by policy validation. */
     readonly path?: string
+  }
+
+  /**
+   * The action / resource / scope vocabulary a config declared, against which
+   * {@link validateRoles} can check that every grant is reachable.
+   *
+   * An omitted or empty list means "unconstrained on this axis", not "nothing
+   * is allowed" - a config that declares `actions` but no `scopes` should not
+   * have every scoped grant rejected.
+   */
+  export interface IDeclaredSurface {
+    /** Declared actions. `'*'` in a grant is always allowed. */
+    readonly actions?: readonly string[]
+    /** Declared resources. `'*'` in a grant is always allowed. */
+    readonly resources?: readonly string[]
+    /** Declared scopes. `'*'` and an omitted scope are always allowed. */
+    readonly scopes?: readonly string[]
   }
 
   /**

@@ -3,6 +3,17 @@ import { validateRole } from '../validate'
 import { When } from './when'
 
 /**
+ * The four verbs {@link RoleBuilder.grantCRUD} emits. Exported so a config can
+ * spell its `actions` list as `[...IAM_CRUD_ACTIONS, 'publish']` and keep the
+ * helper callable, rather than discovering at request time that a grant it
+ * wrote can never match.
+ */
+export const IAM_CRUD_ACTIONS = ['create', 'read', 'update', 'delete'] as const
+
+/** One of the four verbs in {@link IAM_CRUD_ACTIONS}. */
+export type IamCrudAction = (typeof IAM_CRUD_ACTIONS)[number]
+
+/**
  * Fluent builder for constructing {@link AccessControl.IRole} objects in duck-iam.
  *
  * Roles are the RBAC side of duck-iam. Each role holds a set of
@@ -93,6 +104,13 @@ export class RoleBuilder<
    * Note: inherited permissions cannot be selectively removed. To restrict
    * access below what a parent grants, use an ABAC deny policy instead.
    *
+   * **Replaces any previously declared parents.** Every neighbouring `grant*`
+   * accumulates across calls, so this method reads like it does too; it does
+   * not. `.inherits('a').inherits('b')` declares `['b']` alone, and a bare
+   * `.inherits()` wipes the list back to empty - and because `build()` omits
+   * an empty list, the result is indistinguishable from a role that never
+   * declared a parent at all.
+   *
    * @example
    * ```ts
    * // Single parent
@@ -114,8 +132,10 @@ export class RoleBuilder<
    * Sets a default scope that applies to every permission in this role.
    *
    * When `rolesToPolicy()` converts this role, each generated rule gets an
-   * additional condition `scope eq "<s>"`. The permission only fires when the
-   * request's scope matches.
+   * additional condition on `scope`, so the permission only fires when the
+   * request's scope matches. Under `IConfig.scopeMode: 'hierarchical'` the
+   * scope also covers everything beneath it - `'org-1'` fires for
+   * `'org-1.team-a'` - the same way that flag treats a scoped *assignment*.
    *
    * To scope individual permissions rather than the entire role, use
    * {@link grantScoped} instead.
@@ -163,7 +183,9 @@ export class RoleBuilder<
    * @returns `this` for chaining
    */
   grant(action: TAction | '*', resource: TResource | '*', scope?: TScope): this {
-    this._permissions.push(scope ? { action, resource, scope } : { action, resource })
+    // `scope !== undefined`, not truthiness: `grant(a, r, '')` used to fall
+    // through to a *global* permission while `grantScoped('', a, r)` threw.
+    this._permissions.push(scope !== undefined ? { action, resource, scope } : { action, resource })
     return this
   }
 
@@ -263,11 +285,24 @@ export class RoleBuilder<
    *   .grantRead('post', 'comment', 'user', 'audit-log')
    * ```
    *
+   * Only callable when the declared action union admits `'read'`. The helper
+   * used to cast straight past `TAction`, so a config declaring
+   * `actions: ['view', 'edit']` still compiled a `read` grant that no request
+   * could ever match - a permission that looks granted and denies. The
+   * conditional parameter type turns that into a compile error at the call
+   * site; `createIam(...).validateRoles` catches the same mistake at runtime
+   * for roles written as plain objects.
+   *
    * @param resources - One or more resource strings to grant read access on
    * @returns `this` for chaining
    */
-  grantRead(...resources: (TResource | '*')[]): this {
-    for (const r of resources) this.grant('read' as TAction | '*', r)
+  grantRead(...resources: ('read' extends TAction ? TResource | '*' : never)[]): this {
+    // Sound by construction: the gate above means every call site that
+    // compiles has proven `'read' extends TAction`. TypeScript cannot carry
+    // that proof into the body of a generic method, which is the only reason
+    // the annotation is written rather than inferred.
+    const action: TAction | '*' = 'read' as TAction
+    for (const r of resources) this.grant(action, r)
     return this
   }
 
@@ -284,12 +319,17 @@ export class RoleBuilder<
    *   .grantCRUD('comment')
    * ```
    *
+   * Only callable when the declared action union admits all four verbs - see
+   * {@link grantRead} for why emitting an undeclared action is worse than a
+   * compile error.
+   *
    * @param resource - The resource to grant CRUD access on
    * @returns `this` for chaining
    */
-  grantCRUD(resource: TResource | '*'): this {
-    for (const a of ['create', 'read', 'update', 'delete'] as (TAction | '*')[]) {
-      this.grant(a, resource)
+  grantCRUD(resource: IamCrudAction extends TAction ? TResource | '*' : never): this {
+    for (const a of IAM_CRUD_ACTIONS) {
+      const action: TAction | '*' = a as TAction
+      this.grant(action, resource)
     }
     return this
   }
@@ -329,8 +369,8 @@ export class RoleBuilder<
       id: this._id,
       name: this._name,
       description: this._description,
-      permissions: this._permissions,
-      inherits: this._inherits.length > 0 ? this._inherits : undefined,
+      permissions: [...this._permissions],
+      inherits: this._inherits.length > 0 ? [...this._inherits] : undefined,
       scope: this._scope,
       metadata: this._metadata,
     }

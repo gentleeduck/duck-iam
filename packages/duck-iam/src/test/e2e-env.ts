@@ -55,6 +55,13 @@ export async function applyPgSchema(pool: { query(sql: string): Promise<{ rows: 
  * files in parallel workers, so one suite's TRUNCATE lands in the middle of
  * another's fixtures. An owned database makes the isolation real rather than a
  * scheduling accident.
+ *
+ * `undefined` means "no e2e database": the caller turns that into
+ * `describe.skip`. An unreachable server counts, and this is the one place that
+ * distinction has to be made, because callers await this at module scope - a
+ * throw here fails the file instead of skipping it, which is what stopped
+ * Stryker's dry run (and therefore every mutation run) in a checkout with no
+ * Postgres. The reason is printed rather than swallowed.
  */
 export async function isolatedDatabaseUrl(name: string): Promise<string | undefined> {
   const base = databaseUrl()
@@ -68,6 +75,9 @@ export async function isolatedDatabaseUrl(name: string): Promise<string | undefi
     // drop first and let the "does not exist" pass on a clean run.
     await admin.query(`DROP DATABASE IF EXISTS ${dbName}`)
     await admin.query(`CREATE DATABASE ${dbName}`)
+  } catch (err) {
+    console.warn(`[@gentleduck/iam:test] e2e database unreachable, skipping "${name}": ${String(err)}`)
+    return undefined
   } finally {
     await admin.end()
   }

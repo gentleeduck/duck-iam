@@ -1,5 +1,6 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: hot-path index iteration is guarded by `i < arr.length`. */
-import { evalConditionGroup } from '../conditions'
+import { evalConditionGroup, matchesUnconditionally } from '../conditions/conditions'
+import { MAX_CONDITION_DEPTH, ops } from '../conditions/conditions.libs'
 import { matchesAction, matchesResource, matchesResourceHierarchical } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import type { Evaluate } from './evaluate.types'
@@ -77,12 +78,47 @@ export function policyApplies(policy: AccessControl.IPolicy, req: IamRequest.IAc
 }
 
 /**
+ * The cross-policy combine strategies both engines implement. `evaluate` and
+ * `evaluateFast` branch on `'and'` and `'allow-overrides'` and treat everything
+ * else as `first-applicable`, which is the most permissive of the three - so an
+ * unrecognised value must be rejected at construction rather than silently
+ * dropping deny-overrides semantics. TypeScript already refuses one; a
+ * config-driven or plain-JS caller does not.
+ */
+export const VALID_POLICY_COMBINES: readonly AccessControl.PolicyCombine[] = [
+  'and',
+  'allow-overrides',
+  'first-applicable',
+]
+
+/**
+ * Highest priority wins; the strict `>` keeps ties on the earliest match, which
+ * is source order. `first-match` and `highest-priority` differ only in the
+ * `reason` they report, so they rank through this one function rather than two
+ * copies that could drift.
+ */
+function topByPriority<T extends { rule: { readonly priority: number } }>(matched: readonly T[]): T | undefined {
+  let best = matched[0]
+  if (best === undefined) return undefined
+  for (let i = 1; i < matched.length; i++) {
+    const cur = matched[i]
+    if (cur !== undefined && rulePriority(cur.rule) > rulePriority(best.rule)) best = cur
+  }
+  return best
+}
+
+/**
  * Combining-algorithm implementations. Each picks one matched rule's effect:
  *
  * - `deny-overrides`   - any deny wins; otherwise first allow wins.
  * - `allow-overrides`  - any allow wins; otherwise first deny wins.
  * - `first-match`      - highest-priority match wins; ties resolved by source order.
- * - `highest-priority` - highest-priority match wins (alias of `first-match` once ties tie-break by priority alone).
+ * - `highest-priority` - identical to `first-match`: same ranking, same source-order tie-break.
+ *
+ * Source order is `policy.rules` order, which for a stored policy is the
+ * adapter's row order. Two equal-priority rules of opposing effect make the
+ * verdict depend on it; both engines agree on the answer for any given order,
+ * but the order itself is the adapter's to guarantee.
  */
 export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combiner> = {
   'deny-overrides': (matched, defaultEffect) => {
@@ -126,15 +162,8 @@ export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combin
   },
 
   'first-match': (matched, defaultEffect) => {
-    if (matched.length === 0) {
-      return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
-    }
-    // Highest priority first; stable on ties preserves source order
-    let first = matched[0]!
-    for (let i = 1; i < matched.length; i++) {
-      const cur = matched[i]!
-      if (rulePriority(cur.rule) > rulePriority(first.rule)) first = cur
-    }
+    const first = topByPriority(matched)
+    if (!first) return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
     return {
       rule: first.rule,
       effect: first.effect,
@@ -143,15 +172,13 @@ export const combiners: Record<AccessControl.CombiningAlgorithm, Evaluate.Combin
   },
 
   'highest-priority': (matched, defaultEffect) => {
-    if (matched.length > 0) {
-      const top = matched.reduce((best, cur) => (rulePriority(cur.rule) > rulePriority(best.rule) ? cur : best))
-      return {
-        rule: top.rule,
-        effect: top.effect,
-        reason: `Highest priority: rule "${top.rule.id}" (p=${top.rule.priority})`,
-      }
+    const top = topByPriority(matched)
+    if (!top) return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
+    return {
+      rule: top.rule,
+      effect: top.effect,
+      reason: `Highest priority: rule "${top.rule.id}" (p=${top.rule.priority})`,
     }
-    return { effect: defaultEffect, reason: `No matching rules. Defaulted to ${defaultEffect}` }
   },
 }
 
@@ -166,8 +193,20 @@ function isExpansivePattern(p: string): boolean {
   return p.includes('*')
 }
 
-/** WeakMap so indexes are GC'd when the policy is no longer referenced. */
-const indexCache = new WeakMap<AccessControl.IPolicy, Evaluate.IPolicyRuleIndex>()
+/**
+ * Keyed on the `rules` array, not the policy: `readonly rules` is a
+ * compile-time annotation only, and keying on the policy meant that replacing
+ * its rules array served the stale index for the object's whole lifetime -
+ * production kept granting what the interpreter, which walks `policy.rules`
+ * live, had already stopped granting. `length` and `algorithm` are recorded
+ * with it so an append and an algorithm change also invalidate.
+ *
+ * WeakMap so indexes are GC'd when the rules array is no longer referenced.
+ */
+const indexCache = new WeakMap<
+  readonly AccessControl.IRule[],
+  { algorithm: AccessControl.CombiningAlgorithm; index: Evaluate.IPolicyRuleIndex; length: number }
+>()
 
 /** Push `entry` onto `map.get(key)`, creating the bucket on first use. */
 function addToBucket(map: Map<string, Evaluate.IIndexedRule[]>, key: string, entry: Evaluate.IIndexedRule): void {
@@ -177,6 +216,30 @@ function addToBucket(map: Map<string, Evaluate.IIndexedRule[]>, key: string, ent
     map.set(key, bucket)
   }
   bucket.push(entry)
+}
+
+/**
+ * Push `entry` into the two-level action -> resource bucket map.
+ *
+ * Two levels rather than one keyed `` `${a}\0${r}` ``: literal buckets are
+ * trusted as exact-key hits and skip `candidateShapeMatches` entirely, so a
+ * non-injective key was enough to make a rule fire for a request it has
+ * nothing to do with. An embedded NUL in either component collided - a rule on
+ * action `read\0post` / resource `x` answered a request for action `read` /
+ * resource `post\0x` - in production only. A nested map has no delimiter.
+ */
+function addToPairBucket(
+  map: Map<string, Map<string, Evaluate.IIndexedRule[]>>,
+  action: string,
+  resource: string,
+  entry: Evaluate.IIndexedRule,
+): void {
+  let byResource = map.get(action)
+  if (!byResource) {
+    byResource = new Map()
+    map.set(action, byResource)
+  }
+  addToBucket(byResource, resource, entry)
 }
 
 /**
@@ -197,12 +260,36 @@ export function rulePriority(rule: { readonly priority: number }): number {
 }
 
 /**
- * True when the group actually carries a condition clause. `conditions` is
- * required by {@link AccessControl.IRule} and by the JSON schema, but rows
- * loaded through an adapter can still omit it, so every read narrows first.
+ * True when the rule's conditions have to be handed to `evalConditionGroup`
+ * rather than being read as an unconditional match. Anything the evaluator
+ * would not answer `true` to for every request belongs here - a group that can
+ * never match (`{ any: [] }`, an unrecognised key set) as much as one that
+ * depends on the request, and an absent or non-object group, on which the
+ * evaluator throws. Skipping any of those turns a rule the interpreter refuses
+ * into one the fast paths honour.
  */
-function hasConditionKeys(c: AccessControl.IConditionGroup | undefined): boolean {
-  return !!c && ('all' in c || 'any' in c || 'none' in c)
+function needsConditionEval(c: AccessControl.IConditionGroup | undefined): boolean {
+  return !matchesUnconditionally(c)
+}
+
+/**
+ * Whether any condition under `item` can throw at evaluation. Conservative: an
+ * unreadable shape, or nesting past the evaluator's own depth bound, counts as
+ * throwing so the policy falls back to the interpreter rather than being
+ * decided by a fast path that might never reach the offending rule.
+ */
+function conditionMayThrow(item: unknown, depth = 0): boolean {
+  if (depth > MAX_CONDITION_DEPTH) return true
+  if (item === null || typeof item !== 'object') return false
+  if (Array.isArray(item)) return item.some((child) => conditionMayThrow(child, depth + 1))
+  if ('operator' in item) {
+    const { operator } = item
+    return operator === 'matches' || typeof operator !== 'string' || !Object.hasOwn(ops, operator)
+  }
+  for (const key of ['all', 'any', 'none']) {
+    if (key in item && conditionMayThrow(Reflect.get(item, key), depth + 1)) return true
+  }
+  return false
 }
 
 /**
@@ -212,15 +299,18 @@ function hasConditionKeys(c: AccessControl.IConditionGroup | undefined): boolean
  * @returns The cached or freshly built {@link Evaluate.IPolicyRuleIndex}.
  */
 export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRuleIndex {
-  const cached = indexCache.get(policy)
-  if (cached) return cached
+  const rules = policy.rules
+  const cached = indexCache.get(rules)
+  if (cached && cached.length === rules.length && cached.algorithm === policy.algorithm) return cached.index
 
-  const byActionResource = new Map<string, Evaluate.IIndexedRule[]>()
+  const byActionResource = new Map<string, Map<string, Evaluate.IIndexedRule[]>>()
   const byActionWildcardResource = new Map<string, Evaluate.IIndexedRule[]>()
   const byResourceWildcardAction = new Map<string, Evaluate.IIndexedRule[]>()
   const wildcardBoth: Evaluate.IIndexedRule[] = []
 
+  let mayThrow = false
   for (const [order, rule] of policy.rules.entries()) {
+    if (!mayThrow && conditionMayThrow(rule.conditions)) mayThrow = true
     const actions = new Set<string>(rule.actions)
     const resources = new Set<string>(rule.resources)
     let hasWildcardAction = false
@@ -238,13 +328,11 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
       }
     }
     const c = rule.conditions
-    const hasConditions = hasConditionKeys(c)
+    const hasConditions = needsConditionEval(c)
     const entry: Evaluate.IIndexedRule = {
       rule,
       actions,
       resources,
-      hasWildcardAction,
-      hasWildcardResource,
       hasConditions,
       order,
     }
@@ -261,7 +349,7 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
       for (const r of resources) addToBucket(byResourceWildcardAction, r, entry)
     } else {
       for (const a of actions) {
-        for (const r of resources) addToBucket(byActionResource, `${a}\0${r}`, entry)
+        for (const r of resources) addToPairBucket(byActionResource, a, r, entry)
       }
     }
   }
@@ -273,24 +361,29 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
   const hasNoWildcards =
     wildcardBoth.length === 0 && byActionWildcardResource.size === 0 && byResourceWildcardAction.size === 0
 
-  if (hasNoWildcards && (algo === 'deny-overrides' || algo === 'allow-overrides' || algo === 'first-match')) {
+  // `highest-priority` ranks identically to `first-match` - only the reported
+  // `reason` differs - so excluding it here left an identical policy O(1) under
+  // one algorithm name and O(rules) under the other.
+  const precomputable =
+    algo === 'deny-overrides' || algo === 'allow-overrides' || algo === 'first-match' || algo === 'highest-priority'
+
+  if (hasNoWildcards && precomputable) {
     for (const rule of policy.rules) {
       const c = rule.conditions
-      if (hasConditionKeys(c)) continue
+      if (needsConditionEval(c)) continue
       if (rule.actions.some(isExpansivePattern) || rule.resources.some(isExpansivePattern)) continue
 
       for (const a of rule.actions) {
         for (const r of rule.resources) {
-          const arKey = `${a}\0${r}`
-          const entries = byActionResource.get(arKey)
+          const entries = byActionResource.get(a)?.get(r)
           if (!entries) continue
 
-          // Only precompute when every entry in this bucket is unconditional  -
+          // Only precompute when every entry in this bucket is unconditional -
           // otherwise the result depends on the request and can't be cached.
           let allUnconditional = true
           for (const e of entries) {
             const ec = e.rule.conditions
-            if (hasConditionKeys(ec)) {
+            if (needsConditionEval(ec)) {
               allUnconditional = false
               break
             }
@@ -319,13 +412,11 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
               if (e.rule.effect === 'deny') hasDeny = true
             }
             if (result === undefined && hasDeny) result = false
-          } else if (algo === 'first-match' && entries.length > 0) {
-            let best = entries[0]!
-            for (let i = 1; i < entries.length; i++) {
-              const cur = entries[i]!
-              if (rulePriority(cur.rule) > rulePriority(best.rule)) best = cur
-            }
-            result = best.rule.effect === 'allow'
+          } else {
+            // Entries are appended in `policy.rules` order, so `topByPriority`
+            // breaks ties the same way the interpreter's linear scan does.
+            const best = topByPriority(entries)
+            if (best) result = best.rule.effect === 'allow'
           }
 
           if (result !== undefined) {
@@ -347,7 +438,8 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
     byResourceWildcardAction,
     wildcardBoth,
     precomputed,
+    mayThrow,
   }
-  indexCache.set(policy, idx)
+  indexCache.set(rules, { algorithm: policy.algorithm, index: idx, length: rules.length })
   return idx
 }

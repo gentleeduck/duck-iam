@@ -1,10 +1,15 @@
 import type { Batch } from './batch.types'
 
-/** Build a `Batch.Result` from per-row outcomes, deriving the counts. */
+/**
+ * Build a `Batch.Result` from per-row outcomes.
+ *
+ * `applied` is the row count, not a tally: every outcome is `ok` by
+ * construction, because a hard failure throws and there is no soft one. See
+ * the {@link Batch} docstring for why the failure arm and its `failed` counter
+ * were removed rather than left as a channel nothing could use.
+ */
 export function batchResult<TRow, T>(outcomes: Batch.Outcome<TRow, T>[]): Batch.Result<TRow, T> {
-  let applied = 0
-  for (const o of outcomes) if (o.ok) applied++
-  return { applied, failed: outcomes.length - applied, outcomes }
+  return { applied: outcomes.length, outcomes }
 }
 
 /**

@@ -121,7 +121,11 @@ export namespace Explain {
    *
    * @example
    * ```ts
-   * const trace: Explain.IResult = await engine.explain('user-1', 'read', { type: 'post' })
+   * // `attributes` is required on IResource - pass `{}` when the resource has none.
+   * const trace: Explain.IResult = await engine.explain('user-1', 'read', {
+   *   type: 'post',
+   *   attributes: {},
+   * })
    * trace.policies.forEach((p) => console.log(p.policyId, p.result, p.reason))
    * ```
    */
@@ -159,7 +163,12 @@ export namespace Explain {
    * const info: Explain.ISubjectInfo = {
    *   subjectId: 'user-1',
    *   originalRoles: ['editor'],
-   *   scopedRolesApplied: ['org-a:admin'],
+   *   // Plain role IDs, never a `scope:role` composite. The engine derives
+   *   // this as `enrichedSubject.roles` minus `originalRoles`, so it names the
+   *   // roles a scoped grant *added* - which scope added them is not encoded
+   *   // here. This example used to show a scope-qualified composite, which is
+   *   // a shape nothing in the package emits.
+   *   scopedRolesApplied: ['admin'],
    * }
    * ```
    */

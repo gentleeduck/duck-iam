@@ -3,7 +3,11 @@ import type { IamPrimitives, IamRequest } from '../types'
 /** Top-level path prefixes accepted by {@link resolve}. */
 export const ALLOWED_ROOTS: ReadonlySet<string> = new Set(['subject', 'resource', 'environment'])
 
-/** Property names refused at any segment - blocks prototype-pollution lookups. */
+/**
+ * Property names refused at any segment. The own-property walk in {@link resolve}
+ * already makes these unreachable; the denylist stays so the path is rejected
+ * once, at parse time, and memoized as invalid rather than walked per request.
+ */
 const BLOCKED_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
 
 /**
@@ -58,7 +62,9 @@ function getSegments(path: string, cache: Map<string, string[] | null> = pathCac
 }
 
 /**
- * Resolve a dot-path field against an {@link IamRequest.IAccessRequest}; blocks `__proto__` / `constructor` / `prototype`.
+ * Resolve a dot-path field against an {@link IamRequest.IAccessRequest}. Reads
+ * own properties only, so nothing on the prototype chain - including
+ * `__proto__` / `constructor` / `prototype` - is reachable.
  *
  * @param request - The access request providing root data.
  * @param path    - Dot-path string starting with an allowed root or shorthand.
@@ -81,10 +87,40 @@ export function resolve(
 
   for (const seg of segments) {
     if (node == null || typeof node !== 'object') return null
-    node = Reflect.get(node, seg)
+    // Own properties only. `Reflect.get` resolves through the prototype chain,
+    // so every `Object.prototype` member - `toString`, `valueOf`,
+    // `hasOwnProperty`, `__defineGetter__`, … - resolved to a function on any
+    // object, and an `exists`-gated allow fired against a subject with no
+    // attributes at all. `exists` asks whether the request *carries* the
+    // attribute, which is an own-property question.
+    node = Object.hasOwn(node, seg) ? Reflect.get(node, seg) : undefined
   }
 
-  return node === undefined ? null : (node as IamPrimitives.AttributeValue)
+  return isAttributeValue(node) ? node : null
+}
+
+function isScalar(value: unknown): value is IamPrimitives.Scalar {
+  return value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+}
+
+/**
+ * Narrows a resolved node to the type {@link resolve} promises.
+ *
+ * Adapters deserialize JSON and hand the result straight through, so deeply
+ * nested objects, `Date`s and - from a `getSubjectAttributes` that returns a
+ * live object - functions genuinely reach here. Asserting the type instead of
+ * establishing it left every operator's own `typeof` guard as the only thing
+ * standing between a non-conforming value and a wrong comparison, and a `false`
+ * from a deny rule's condition is a silent grant. Anything outside the contract
+ * resolves to `null`, which is NotApplicable rather than a guess.
+ */
+function isAttributeValue(value: unknown): value is IamPrimitives.AttributeValue {
+  if (isScalar(value)) return true
+  if (Array.isArray(value)) return value.every(isScalar)
+  if (typeof value !== 'object') return false
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== Object.prototype && proto !== null) return false
+  return Object.values(value).every(isScalar)
 }
 
 /**

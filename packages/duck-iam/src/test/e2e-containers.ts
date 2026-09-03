@@ -31,14 +31,24 @@ const READY_TIMEOUT_MS = 60_000
 
 const started: string[] = []
 
-async function docker(args: string[]): Promise<string> {
-  const { stdout } = await exec('docker', args, { encoding: 'utf8' })
+/**
+ * How long the availability probe may take. `docker info` does not return when
+ * the CLI is installed and the daemon socket exists but nothing is listening -
+ * a stopped Docker Desktop, which is the ordinary state on a machine that is
+ * not running e2e tests. `execFile` has no timeout by default, so that hung
+ * `globalSetup`, and with it *every* vitest invocation in the package,
+ * including Stryker's dry run.
+ */
+const DOCKER_PROBE_TIMEOUT_MS = 5_000
+
+async function docker(args: string[], timeout?: number): Promise<string> {
+  const { stdout } = await exec('docker', args, { encoding: 'utf8', timeout })
   return stdout.trim()
 }
 
 async function dockerAvailable(): Promise<boolean> {
   try {
-    await docker(['info', '--format', '{{.ServerVersion}}'])
+    await docker(['info', '--format', '{{.ServerVersion}}'], DOCKER_PROBE_TIMEOUT_MS)
     return true
   } catch {
     return false

@@ -95,8 +95,20 @@ export namespace IamConfig {
     /** Compile-time-typed pass-through for `engine.permissions()` inputs. */
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => T
 
-    /** Role validation: duplicate IDs, dangling inherits, circular inheritance, empty roles. */
-    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, TRole, TScope>[]) => IamValidate.IResult
+    /**
+     * Role validation: duplicate IDs, dangling inherits, circular inheritance,
+     * empty roles, and - unlike the bare `validateRoles` export - grants
+     * naming an action, resource or scope outside this config's declared
+     * vocabulary, which can never match a request.
+     *
+     * The parameter is deliberately the *unconstrained* `IRole`. A runtime
+     * validator exists for data whose type you do not trust - roles read from
+     * an adapter, a config file, an admin form - and the previous signature,
+     * narrowed to the declared unions, could only be handed values that had
+     * already been proven correct. Authoring-time safety comes from
+     * `defineRole`, which is typed; this is the other half.
+     */
+    validateRoles: (roles: readonly AccessControl.IRole[]) => IamValidate.IResult
 
     /**
      * Validate a policy object from an untrusted source (database, API, JSON).

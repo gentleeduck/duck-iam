@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { MAX_REGEX_INPUT_LENGTH } from '../../conditions/conditions.libs'
 import type { AccessControl, IamRequest } from '../../types'
-import { evaluate, evaluateFast } from '../evaluate'
+import { evaluate, evaluateFast, evaluatePolicyFast } from '../evaluate'
 
 /**
  * Property-based regression guard: generate deterministic-random policy sets
@@ -44,14 +45,21 @@ const ALGORITHMS: AccessControl.CombiningAlgorithm[] = [
 const COMBINES: AccessControl.PolicyCombine[] = ['and', 'allow-overrides', 'first-applicable']
 const DEFAULTS: AccessControl.Effect[] = ['allow', 'deny']
 
+/** Long enough to make `matches` throw rather than answer. */
+const OVERSIZED_USER_AGENT = 'curl'.padEnd(MAX_REGEX_INPUT_LENGTH + 1, 'x')
+
 function pick<T>(rng: () => number, xs: readonly T[]): T {
   return xs[Math.floor(rng() * xs.length)]!
 }
 
 function makeCondition(rng: () => number): AccessControl.ICondition {
   // Pick from a small set of resolvable field/value combinations so most
-  // conditions evaluate against the generated request state.
-  const choice = Math.floor(rng() * 4)
+  // conditions evaluate against the generated request state. The `matches`
+  // arm is the only one that can throw, and it does so exactly when the
+  // request's user agent is oversized - the Indeterminate dimension was
+  // otherwise unreachable from this generator, so every dev/prod divergence
+  // that lives on an error path was invisible to the oracle.
+  const choice = Math.floor(rng() * 5)
   switch (choice) {
     case 0:
       return { field: 'subject.attributes.status', operator: 'eq', value: pick(rng, STATUSES) }
@@ -59,6 +67,8 @@ function makeCondition(rng: () => number): AccessControl.ICondition {
       return { field: 'resource.attributes.ownerId', operator: 'eq', value: '$subject.id' }
     case 2:
       return { field: 'subject.roles', operator: 'contains', value: pick(rng, ROLES) }
+    case 3:
+      return { field: 'environment.userAgent', operator: 'matches', value: 'curl' }
     default:
       return { field: 'action', operator: 'in', value: [pick(rng, ACTIONS), pick(rng, ACTIONS)] }
   }
@@ -104,28 +114,29 @@ function makeRule(rng: () => number, idx: number): AccessControl.IRule {
   }
 }
 
+/** Random target dimensions; `undefined` when no dimension was drawn. */
+function makeTargets(rng: () => number): AccessControl.IPolicy['targets'] {
+  const targets: { actions?: string[]; resources?: string[]; roles?: string[] } = {}
+  if (rng() < 0.5) targets.actions = [pick(rng, ACTIONS)]
+  if (rng() < 0.5) targets.resources = [pick(rng, RESOURCES)]
+  if (rng() < 0.3) targets.roles = [pick(rng, ROLES)]
+  return Object.keys(targets).length > 0 ? targets : undefined
+}
+
 function makePolicy(rng: () => number, idx: number): AccessControl.IPolicy {
   const numRules = 1 + Math.floor(rng() * 4)
   // 30% policies carry targets - exercises NotApplicable fallthrough.
-  const withTargets = rng() < 0.3
-  // Random target dimensions for broader coverage.
-  const targets = withTargets
-    ? {
-        ...(rng() < 0.5 ? { actions: [pick(rng, ACTIONS) as never] } : {}),
-        ...(rng() < 0.5 ? { resources: [pick(rng, RESOURCES) as never] } : {}),
-        ...(rng() < 0.3 ? { roles: [pick(rng, ROLES) as never] } : {}),
-      }
-    : undefined
+  const targets = rng() < 0.3 ? makeTargets(rng) : undefined
   return {
     id: `p${idx}`,
     name: `P${idx}`,
     algorithm: pick(rng, ALGORITHMS),
     rules: Array.from({ length: numRules }, (_, i) => makeRule(rng, i)),
-    ...(targets && Object.keys(targets).length ? { targets } : {}),
+    ...(targets ? { targets } : {}),
   }
 }
 
-function makeRequest(rng: () => number): IamRequest.IAccessRequest {
+function makeRequest(rng: () => number, forceOversized = false): IamRequest.IAccessRequest {
   // Subject carries role + attributes so conditions resolve against real state.
   const numRoles = 1 + Math.floor(rng() * 2)
   const roles = Array.from({ length: numRoles }, () => pick(rng, ROLES))
@@ -140,6 +151,10 @@ function makeRequest(rng: () => number): IamRequest.IAccessRequest {
       type: pick(rng, RESOURCES),
       attributes: { ownerId: rng() < 0.5 ? 'u0' : 'other' },
     },
+    // 10% of requests carry a user agent past the regex input cap, which makes
+    // any generated `matches` condition throw. That is the shape an attacker
+    // controls: padding a header is enough to turn a deny rule Indeterminate.
+    environment: { userAgent: forceOversized || rng() < 0.1 ? OVERSIZED_USER_AGENT : 'curl/8.0' },
     scope: rng() < 0.3 ? pick(rng, SCOPES) : undefined,
   }
 }
@@ -149,20 +164,79 @@ describe('property oracle: evaluate == evaluateFast', () => {
   // medium, and large policy sets; total suite cost stays under ~200ms.
   const ITERATIONS = 1000
 
+  /**
+   * `evaluateFast` cannot represent `first-applicable` - it falls through to
+   * `'and'`, and the Engine constructor refuses the pairing - so two of the six
+   * generated tests used to `return` before their first iteration and report
+   * green under the name of the mode they did not cover. The combine loop is
+   * driven against this reference instead, which re-derives the XACML rule from
+   * the *other* engine's per-policy primitive: the first policy that is not
+   * NotApplicable wins, and an evaluation error is Indeterminate, never a skip.
+   */
+  function firstApplicableReference(
+    policies: AccessControl.IPolicy[],
+    request: IamRequest.IAccessRequest,
+    defaultEffect: AccessControl.Effect,
+  ): boolean {
+    for (const policy of policies) {
+      let vote: boolean | null
+      try {
+        vote = evaluatePolicyFast(policy, request, defaultEffect)
+      } catch {
+        vote = policy.rules.some((r) => r.effect === 'deny') ? false : defaultEffect === 'allow'
+      }
+      if (vote === null) continue
+      return vote
+    }
+    return defaultEffect === 'allow'
+  }
+
+  /**
+   * A wildcard rule whose only condition is a `matches` on the user agent, so
+   * an oversized agent makes this policy throw whatever else was generated.
+   * Mixed in on a fixed fraction of iterations rather than left to the random
+   * draw: with the draw alone, two of the six generated tests saw zero throwing
+   * evaluations in 1000 iterations, which is how the Indeterminate dimension
+   * stayed unfuzzed even after the generator learned to produce `matches`.
+   */
+  function poisonPolicy(effect: AccessControl.Effect, idx: number): AccessControl.IPolicy {
+    return {
+      algorithm: 'deny-overrides',
+      id: `poison${idx}`,
+      name: `Poison${idx}`,
+      rules: [
+        {
+          actions: ['*'],
+          conditions: { all: [{ field: 'environment.userAgent', operator: 'matches', value: 'curl' }] },
+          effect,
+          id: 'r-poison',
+          priority: 1,
+          resources: ['*'],
+        },
+      ],
+    }
+  }
+
   for (const combine of COMBINES) {
     for (const defaultEffect of DEFAULTS) {
       it(`combine="${combine}" default="${defaultEffect}"`, () => {
-        // first-applicable on evaluateFast is rejected at Engine ctor (needs
-        // tri-state), so skip that combination here.
-        if (combine === 'first-applicable') return
         const rng = mulberry32(0xdec1ded ^ defaultEffect.length ^ combine.length)
+        let thrown = 0
+        const onPolicyError = () => {
+          thrown++
+        }
         for (let i = 0; i < ITERATIONS; i++) {
           // Mix small (1-3) and larger (8-12) policy sets across iterations.
           const numPolicies = i % 5 === 0 ? 8 + Math.floor(rng() * 5) : 1 + Math.floor(rng() * 3)
           const policies = Array.from({ length: numPolicies }, (_, idx) => makePolicy(rng, idx))
-          const request = makeRequest(rng)
-          const fullDecision = evaluate(policies, request, defaultEffect, combine)
-          const fastBool = evaluateFast(policies, request, defaultEffect, combine)
+          const poisoned = i % 4 === 0
+          if (poisoned) policies.push(poisonPolicy(rng() < 0.5 ? 'allow' : 'deny', numPolicies))
+          const request = makeRequest(rng, poisoned)
+          const fullDecision = evaluate(policies, request, defaultEffect, combine, onPolicyError)
+          const fastBool =
+            combine === 'first-applicable'
+              ? firstApplicableReference(policies, request, defaultEffect)
+              : evaluateFast(policies, request, defaultEffect, combine, onPolicyError)
           if (fullDecision.allowed !== fastBool) {
             throw new Error(
               `Divergence at iter ${i}: evaluate=${fullDecision.allowed}, evaluateFast=${fastBool}\n` +
@@ -172,7 +246,9 @@ describe('property oracle: evaluate == evaluateFast', () => {
             )
           }
         }
-        expect(true).toBe(true)
+        // The poison `matches` arm has to actually fire, or the Indeterminate
+        // dimension is back to being unfuzzed with the generator none the wiser.
+        expect(thrown).toBeGreaterThan(0)
       })
     }
   }

@@ -603,16 +603,16 @@ describe('detectCatastrophicRegex() (P1)', () => {
     expect(detectCatastrophicRegex('a{1,1000}').safe).toBe(true)
   })
 
-  it('flags `(?=(a+)+)` lookaround containing a quantifier', () => {
+  it('flags `(?=(a+)+)` lookaround containing a quantified group', () => {
     const r = detectCatastrophicRegex('(?=(a+)+)')
     expect(r.safe).toBe(false)
-    expect(r.reason).toBe('lookaround-with-quantifier')
+    expect(r.reason).toBe('lookaround-with-quantified-group')
   })
 
-  it('flags `(?<=(a*)*)` lookbehind containing a quantifier', () => {
+  it('flags `(?<=(a*)*)` lookbehind containing a quantified group', () => {
     const r = detectCatastrophicRegex('(?<=(a*)*)')
     expect(r.safe).toBe(false)
-    expect(r.reason).toBe('lookaround-with-quantifier')
+    expect(r.reason).toBe('lookaround-with-quantified-group')
   })
 
   it('accepts `(?<=foo)` lookbehind without inner quantifier', () => {

@@ -96,3 +96,24 @@ export function evalConditionGroup(
   // allow into an unconditional one, so it is false instead.
   return group !== null && typeof group === 'object' && Object.keys(group).length === 0
 }
+
+/**
+ * `true` when {@link evalConditionGroup} would return `true` for this group
+ * against *any* request, so a caller may treat the rule as matching without
+ * evaluating it. Everything else - including a group that can never match -
+ * returns `false` and has to go through the evaluator.
+ *
+ * The three shapes that are request-independently true are `{}`, an empty
+ * `all` and an empty `none`. An empty `any` is request-independently *false*,
+ * which is not the same thing: skipping the evaluator for it would turn a rule
+ * that never fires into one that always does. The key precedence is
+ * `evalConditionGroup`'s, so a group carrying two keys is read the same way
+ * here as there.
+ */
+export function matchesUnconditionally(group: AccessControl.IConditionGroup | undefined): boolean {
+  if (group === null || typeof group !== 'object') return false
+  if ('all' in group) return Array.isArray(group.all) && group.all.length === 0
+  if ('any' in group) return false
+  if ('none' in group) return Array.isArray(group.none) && group.none.length === 0
+  return Object.keys(group).length === 0
+}

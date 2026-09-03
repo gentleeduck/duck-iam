@@ -5,21 +5,27 @@ import { indexPolicy } from '../evaluate.libs'
 /**
  * `IRule.conditions` is required by the type and by the JSON schema, but neither
  * `validateRuleShape` nor the memory/http adapters enforce it, so a rule loaded
- * from storage can reach `indexPolicy` without it. `'all' in undefined` throws a
- * TypeError that the engine swallows via `onPolicyError`, dropping the whole
- * policy - which turns a deny into an allow under `allowFailOpen`.
+ * from storage can reach `indexPolicy` without it. Indexing such a rule must not
+ * throw, and must not decide it either: the row is flagged as needing
+ * evaluation so both engines hit the same `'all' in undefined` TypeError and
+ * the engine folds it into a fail-closed Indeterminate.
+ */
+/**
+ * Built through JSON, the way such a row actually arrives: `conditions` is
+ * simply absent. `JSON.parse` returns `any`, so the shape the type says cannot
+ * exist reaches `indexPolicy` without a cast standing in for the adapter.
  */
 function ruleWithoutConditions(overrides: Partial<AccessControl.IRule> = {}): AccessControl.IRule {
-  const rule = {
-    id: 'r-no-cond',
-    effect: 'deny' as const,
-    priority: 10,
-    actions: ['read'],
-    resources: ['post'],
-    ...overrides,
-  }
-  // Deliberately omitted, mirroring an adapter row that lacks the key.
-  return rule as AccessControl.IRule
+  return JSON.parse(
+    JSON.stringify({
+      actions: ['read'],
+      effect: 'deny',
+      id: 'r-no-cond',
+      priority: 10,
+      resources: ['post'],
+      ...overrides,
+    }),
+  )
 }
 
 function policyOf(rules: AccessControl.IRule[]): AccessControl.IPolicy {
@@ -31,11 +37,21 @@ describe('indexPolicy with a rule missing `conditions`', () => {
     expect(() => indexPolicy(policyOf([ruleWithoutConditions()]))).not.toThrow()
   })
 
-  it('treats a missing `conditions` as unconditional', () => {
+  // Not "unconditional": `evalConditionGroup` throws on an absent group, and a
+  // fast path that read it as an unconditional match would honour a rule the
+  // interpreter refuses. The entry is flagged as needing evaluation so both
+  // engines reach the same throw, which the engine turns into a fail-closed
+  // Indeterminate.
+  it('flags a missing `conditions` as needing evaluation', () => {
     const index = indexPolicy(policyOf([ruleWithoutConditions()]))
-    const entries = index.byActionResource.get('read\0post')
+    const entries = index.byActionResource.get('read')?.get('post')
     expect(entries).toBeDefined()
-    expect(entries?.[0]?.hasConditions).toBe(false)
+    expect(entries?.[0]?.hasConditions).toBe(true)
+  })
+
+  it('keeps it out of the precompute table', () => {
+    const index = indexPolicy(policyOf([ruleWithoutConditions()]))
+    expect(index.precomputed.size).toBe(0)
   })
 
   it('does not throw when a sibling bucket entry also lacks conditions', () => {

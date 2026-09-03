@@ -69,7 +69,13 @@ export function createIam<
 
     checks: <const T extends readonly IamClient.IPermissionCheck<TAction, TResource, TScope>[]>(checks: T) => checks,
 
-    validateRoles: (roles: readonly AccessControl.IRole<TAction, TResource, string, TScope>[]) => validateRoles(roles),
+    // The declared vocabulary is passed through, so a grant naming an action,
+    // resource or scope this config never declared is reported rather than
+    // shipped as a permission that can never match. Previously this discarded
+    // `input`, which made `access.validateRoles` indistinguishable from the
+    // bare export and left the declared `scopes` array purely decorative.
+    validateRoles: (roles: readonly AccessControl.IRole[]) =>
+      validateRoles(roles, { actions: input.actions, resources: input.resources, scopes: input.scopes }),
 
     validatePolicy: (input: unknown) => validatePolicy(input),
   }

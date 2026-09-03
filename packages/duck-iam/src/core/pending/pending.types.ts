@@ -26,7 +26,12 @@ export namespace Pending {
   export interface Effects<TRole extends string = string> {
     /** Number of distinct buffered invalidations. */
     readonly size: number
-    /** Applies everything buffered against the target, in record order, then empties. Idempotent. */
+    /**
+     * Applies everything buffered against the target, in record order, and
+     * removes each entry as it succeeds. Entries whose target threw stay
+     * buffered and an `AggregateError` is raised, so a retry re-applies exactly
+     * those. Idempotent: a flush with nothing buffered is a no-op.
+     */
     flush(): Promise<void>
     /** Drops everything buffered, for an explicit rollback path. */
     discard(): void
