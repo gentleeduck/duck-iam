@@ -33,6 +33,17 @@ export class ApiKeysFacet {
     private readonly _cfg: ApiKeys.Cfg = DEFAULT_APIKEYS_CONFIG,
   ) {}
 
+  /**
+   * Re-bind to a caller's transaction. Must live inside the class:
+   * `_credentials`, `_crypto` and `_cfg` are private, so nothing outside can
+   * reconstruct the facet. Returns `null` when the store cannot join.
+   */
+  withClient(client: unknown, events: Events.IBus): ApiKeysFacet | null {
+    const credentials = this._credentials.withClient?.(client)
+    if (!credentials) return null
+    return new ApiKeysFacet(credentials, events, this._crypto, this._cfg)
+  }
+
   /** Create a new API key. Returns plaintext exactly once. */
   async create(
     identityId: string,
@@ -208,6 +219,17 @@ export class AuthApiKeyImpl<Profile extends Identities.ProfileMetadataBase = Ide
 
   constructor(private readonly opts: ApiKeys.Options) {
     this.prefix = opts.limiterKeyPrefix ?? 'signin:api-key:'
+  }
+
+  /**
+   * The facet is captured in `opts`, not read from `ctx` (see `complete` below,
+   * which calls `this.opts.apiKeys.verify`), so re-binding the context is not
+   * enough - swap in a facet bound to the caller's client.
+   */
+  withClient(client: unknown, events: Events.IBus): AuthApiKeyImpl<Profile> | null {
+    const apiKeys = this.opts.apiKeys.withClient(client, events)
+    if (!apiKeys) return null
+    return new AuthApiKeyImpl<Profile>({ ...this.opts, apiKeys })
   }
 
   async begin(): Promise<Provider.Intent[]> {

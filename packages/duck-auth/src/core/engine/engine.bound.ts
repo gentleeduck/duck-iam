@@ -1,3 +1,6 @@
+import { ApiKeysFacet } from '~/providers/api-key'
+import { MfaFacet } from '~/providers/mfa'
+import { PasswordsImpl } from '~/providers/passwords'
 import type { Credential } from '../credentials/credentials.types'
 import { AuthError } from '../errors'
 import type { Events } from '../events'
@@ -34,6 +37,14 @@ export namespace Bound {
     readonly sessions: SessionsImpl
     readonly orgs: OrgsImpl<OrgMeta> | null
     readonly flows: FlowsImpl<Profile>
+    /**
+     * Resolved from the bound registry, exactly as the engine's own getters
+     * resolve from its registry. Throws `AUTH_PROVIDER_NOT_REGISTERED` when the
+     * corresponding provider was never added - same as on the engine.
+     */
+    readonly mfa: MfaFacet
+    readonly apiKeys: ApiKeysFacet
+    readonly passwords: PasswordsImpl
     readonly providers: Providers<Profile>
     readonly stores: Stores<Profile, OrgMeta>
     readonly pending: Pending.Effects
@@ -93,5 +104,34 @@ export function buildBoundEngine<Profile extends Identities.ProfileMetadataBase,
   const providers = args.buildProviders(bus)
   const flows = args.buildFlows({ events: bus, identities, providers, sessions, stores })
 
-  return { flows, identities, orgs, pending, providers, sessions, stores }
+  const resolveFacet = <T>(ctor: new (...a: never[]) => T, name: string): T => {
+    const facet = providers.resolve(ctor)
+    if (!facet) {
+      throw new AuthError('AUTH_PROVIDER_NOT_REGISTERED', {
+        detail: `this operation needs the '${name}' provider; add ${name}Provider() to providers[]`,
+      })
+    }
+    return facet
+  }
+
+  return {
+    flows,
+    identities,
+    orgs,
+    pending,
+    providers,
+    sessions,
+    stores,
+    // Lazy, so a facade built without the mfa provider is still usable for
+    // identities and sessions - matching how the engine's own getters behave.
+    get mfa() {
+      return resolveFacet(MfaFacet, 'mfa')
+    },
+    get apiKeys() {
+      return resolveFacet(ApiKeysFacet, 'api-key')
+    },
+    get passwords() {
+      return resolveFacet(PasswordsImpl, 'password')
+    },
+  }
 }

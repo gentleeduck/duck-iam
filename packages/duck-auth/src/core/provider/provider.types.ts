@@ -1,4 +1,5 @@
 import type { Credential } from '~/core/credentials/credentials.types'
+import type { Events } from '~/core/events/events.types'
 import type { Identities } from '~/core/identities/identities.types'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
@@ -85,5 +86,22 @@ export namespace Provider {
     kind: string
     begin?: Me['begin']
     complete?: Me['complete']
+    /**
+     * Re-bind a capability that captured a store or an event bus at
+     * construction, so it joins a caller's transaction and buffers its events.
+     *
+     * Two arguments, unlike `Store.withClient`, because a facet also emits: it
+     * must be re-bound to the buffering bus as well as the transaction client.
+     *
+     * Capabilities that read everything from {@link Context} need not implement
+     * this - the bound engine hands them a bound context already. `PasswordsImpl`
+     * is in that group. `MfaImpl`, `ApiKeysFacet` and `AuthApiKeyImpl` are not:
+     * they capture, so they must re-bind.
+     *
+     * Returning `null` means "I hold something that cannot join a transaction";
+     * `Providers.withClient` then keeps the original instance rather than
+     * dropping the capability from the registry.
+     */
+    withClient?(client: unknown, events: Events.IBus): Capability | null
   }
 }
