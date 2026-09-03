@@ -31,6 +31,14 @@ const INITIAL: IamIDecisionInput = {
   scope: '',
 }
 
+/**
+ * Runs an ad-hoc authorization check and renders the full trace of why it came
+ * out that way, via {@link IamTraceTree}.
+ *
+ * Calls `engine.explain()` rather than `can()` - the point is the reasoning,
+ * not the boolean. The attribute and environment boxes are free-text JSON, so a
+ * parse error is shown next to the field instead of failing the request.
+ */
 export function IamDecisionInspector({
   engine,
   defaults,

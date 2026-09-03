@@ -78,6 +78,15 @@ const CSS = `
 .iam-dt-empty--dashed { margin: 12px; padding: 20px; border: 1px dashed var(--border); border-radius: 8px; background: color-mix(in oklab, var(--card) 60%, transparent); }
 `
 
+/**
+ * Injects the devtools stylesheet into `document.head` once per document.
+ *
+ * A `<style>` tag rather than imported CSS: the devtools ship inside a library,
+ * and a bare `import './x.css'` would force every consumer's bundler to have a
+ * CSS pipeline for a component most builds drop entirely. Guarded on both
+ * `document` (so an SSR render is a no-op instead of a crash) and the existing
+ * tag id, so mounting several panels does not stack duplicates.
+ */
 export function ensureStylesInjected() {
   if (typeof document === 'undefined') return
   if (document.getElementById(STYLE_ID)) return

@@ -3,6 +3,14 @@ import type { IamEngine, IamEngineTypes } from '../engine'
 import type { AccessControl, DotPath, IamClient } from '../types'
 import type { IamValidate } from '../validate'
 
+/**
+ * The shape of what a consumer passes to `createIam`, and the fully-resolved
+ * config the engine runs on once defaults are applied. Type-only.
+ *
+ * The two are deliberately different types: almost everything is optional on
+ * the way in and required on the way out, so engine code never has to ask
+ * whether a setting was supplied - by then it always was.
+ */
 export namespace IamConfig {
   /**
    * Input shape for {@link createIam}. Pass `as const` arrays so the

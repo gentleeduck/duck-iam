@@ -1,6 +1,15 @@
 import type { IamClient } from './client'
 import type { IamPrimitives } from './primitives'
 
+/**
+ * The authorization model itself: policies, rules, roles and the algorithms
+ * that combine their votes. Type-only - nothing here exists at runtime, so
+ * importing it costs nothing in a bundle.
+ *
+ * These are the shapes an adapter stores and the engine evaluates. Everything
+ * is generic over the caller's action / resource / role / scope literal unions,
+ * so a typo in a rule is a compile error rather than a silent never-match.
+ */
 export namespace AccessControl {
   /**
    * The outcome a rule produces when it matches: grant or block access.

@@ -16,6 +16,7 @@ import { emitMetrics, safeHookCall } from './engine.hooks'
 import {
   applyInvalidateEvent,
   type IEngineCacheBag,
+  type IEngineInFlightBag,
   invalidateAll,
   invalidatePolicies,
   invalidateRoles,
@@ -86,10 +87,6 @@ function maskFromRoles(table: CompiledTable, roles: readonly string[]): number {
  * can write a bare `null` — inferring from `{ value: null }` would fix the
  * slot type at `null` and force a widening cast at every assignment.
  */
-interface ISingleFlightSlot<T> {
-  value: Promise<T> | null
-}
-
 /**
  * Central runtime that evaluates access requests against RBAC roles and ABAC
  * policies.
@@ -148,13 +145,7 @@ export class IamEngine<
   private _subjectCache: IamLRUCache<IamRequest.ISubject>
   // Single-flight: coalesce concurrent cache-misses so a cold start under load
   // doesn't fan out N identical adapter calls. Cleared once the promise settles.
-  private _inFlight: {
-    policies: ISingleFlightSlot<AccessControl.IPolicy[]>
-    roles: ISingleFlightSlot<AccessControl.IRole[]>
-    rbac: ISingleFlightSlot<AccessControl.IPolicy>
-    merged: ISingleFlightSlot<AccessControl.IPolicy[]>
-    subjects: Map<string, Promise<IamRequest.ISubject>>
-  } = {
+  private _inFlight: IEngineInFlightBag = {
     policies: { value: null },
     roles: { value: null },
     rbac: { value: null },

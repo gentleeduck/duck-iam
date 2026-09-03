@@ -11,6 +11,16 @@ import { IamPoliciesPanel } from './panels/policies'
 import { IamRolesPanel } from './panels/roles'
 import { IamSubjectsPanel } from './panels/subjects'
 
+/**
+ * Props for the panel body - the tab strip and whichever panel is open.
+ *
+ * `engine` is the only requirement. `metrics` and `flow` are the two optional
+ * data sources: without them the Telemetry and Flow tabs render empty rather
+ * than break, because both are opt-in wiring on the consumer's side (see
+ * {@link iamCreateFlowRecorder}). `pollMs` sets how often the live panels
+ * re-read the engine; `embedded` drops the panel chrome for a consumer framing
+ * it themselves.
+ */
 export interface IIamDevtoolsInnerProps {
   engine: IamIDevtoolsEngine
   metrics?: IamIDevtoolsMetrics

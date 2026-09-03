@@ -6,6 +6,11 @@ import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from 
 import { Alert, Badge, Button } from '../components/ui'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
+/**
+ * Browses role definitions and their permissions, including what each role
+ * inherits. Read-only; the counterpart to {@link IamPoliciesPanel} for the RBAC
+ * half of the model.
+ */
 export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)

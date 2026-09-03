@@ -1,3 +1,11 @@
+/**
+ * The leaf value types every other namespace is built from - what an attribute
+ * is allowed to be, and the bags they come in. Type-only.
+ *
+ * Deliberately narrow: attribute values are restricted to what can be compared,
+ * serialized and stored by every supported adapter, so a value that survives
+ * one backend cannot fail on another.
+ */
 export namespace IamPrimitives {
   /**
    * Single scalar value: every JSON-compatible primitive the condition engine

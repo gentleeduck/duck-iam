@@ -5,6 +5,9 @@ import { iamAssertAttributesParam } from '../../shared/attributes'
 import { iamAssertSavablePolicy, iamAssertSavableRole, iamNormalizePolicy } from '../../shared/rows'
 import { iamAssertAssignableScope } from '../../shared/scope'
 
+/**
+ * Types for the in-memory adapter. Type-only namespace - zero bundle cost.
+ */
 export namespace IamMemory {
   /**
    * Describes initial seed data for {@link IamMemoryAdapter}.

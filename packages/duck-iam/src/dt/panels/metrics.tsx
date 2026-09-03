@@ -15,6 +15,13 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
   )
 }
 
+/**
+ * Live cache and decision counters, re-read every `pollMs`.
+ *
+ * Polls rather than subscribes: the engine publishes no metrics event, and a
+ * hook that fired per decision would put devtools rendering on the hot path of
+ * every authorization check.
+ */
 export function IamMetricsPanel({
   engine,
   metrics,

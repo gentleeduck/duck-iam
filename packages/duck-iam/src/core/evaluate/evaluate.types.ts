@@ -1,5 +1,15 @@
 import type { AccessControl } from '../types'
 
+/**
+ * The evaluator's internals: the combining-algorithm signature, and the
+ * pre-computed per-policy rule index the fast path looks rules up in.
+ * Type-only.
+ *
+ * The index exists because the naive form - scan every rule of every policy on
+ * every request - is the shape that does not survive a policy set growing.
+ * Rules are bucketed by whichever of `action` / `resource` is literal, so a
+ * request only ever scans the wildcards whose literal side already matched.
+ */
 export namespace Evaluate {
   /**
    * Signature of a combining-algorithm implementation. Takes an array of

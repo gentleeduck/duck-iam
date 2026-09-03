@@ -7,6 +7,16 @@ import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
 import { safeParseJson } from '../lib/format'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
+/**
+ * Inspects one subject - its attributes and role assignments - and, unlike the
+ * other panels, edits them: assigning and revoking roles and saving attributes
+ * through `engine.admin`.
+ *
+ * The only panel that writes, and the reason `isDevtoolsAllowed` blocks by
+ * default: without an explicit development signal from both `NODE_ENV` and the
+ * engine's own mode, this would ship as a role-assignment UI with no
+ * authorization in front of it.
+ */
 export function IamSubjectsPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   const [subjectId, setSubjectId] = React.useState('')
   const [attrs, setAttrs] = React.useState<IamPrimitives.Attributes | null>(null)

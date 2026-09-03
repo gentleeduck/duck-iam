@@ -6,6 +6,12 @@ import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from 
 import { Alert, Badge, Button } from '../components/ui'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
+/**
+ * Browses the policies the engine's adapter currently holds, with the selected
+ * one's rules shown beside the list. Read-only, and loaded through
+ * `engine.admin.listPolicies()` - so what it shows is the live model, not a
+ * cached copy the panel keeps of its own.
+ */
 export function IamPoliciesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   const [policies, setPolicies] = React.useState<AccessControl.IPolicy[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)

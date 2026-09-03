@@ -146,6 +146,28 @@ function provenance(actor: string | undefined): {
   return { create: { createdBy: actor }, update: { updatedBy: actor } }
 }
 
+/**
+ * Backs the engine with Prisma models. Structurally typed against
+ * {@link IamPrisma.ILike} rather than importing `@prisma/client`, so the
+ * generated client - which every project generates differently - stays out of
+ * this package's dependency graph, and a transaction handle (`tx`) is accepted
+ * wherever the base client is.
+ *
+ * Rows are validated on the way out, never trusted: a policy or role row that
+ * fails to parse is reported through `onPolicyError` and replaced with an
+ * unreadable placeholder that grants nothing, so one corrupt row degrades to a
+ * denial instead of taking down every check that loads the table.
+ *
+ * @example
+ * ```ts
+ * const engine = new IamEngine({ adapter: new IamPrismaAdapter(prisma) })
+ *
+ * await prisma.$transaction(async (tx) => {
+ *   const scoped = new IamPrismaAdapter(prisma).withClient(tx)
+ *   await scoped.createRole(role)
+ * })
+ * ```
+ */
 export class IamPrismaAdapter<
   TAction extends string = string,
   TResource extends string = string,

@@ -48,6 +48,14 @@ function SubjectChip({ id }: { id: string }) {
   )
 }
 
+/**
+ * The live decision log: every check the recorder captured, newest first, with
+ * allow/deny filters and a detail pane for the selected entry.
+ *
+ * Driven entirely by the {@link IamIFlowRecorder} the consumer wired to the
+ * engine's `afterEvaluate` hook - this panel never asks the engine anything,
+ * so opening it cannot itself perturb what it is measuring.
+ */
 export function IamFlowPanel({ flow }: { flow: IamIFlowRecorder }) {
   const [entries, setEntries] = React.useState<readonly IamIFlowEntry[]>(() => flow.list())
   const [selected, setSelected] = React.useState<number | null>(null)

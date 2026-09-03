@@ -233,6 +233,31 @@ function returnedTriples(returned: unknown): ReturnedTriple[] {
   return triples
 }
 
+/**
+ * Backs the engine with Drizzle tables across all three dialects - Postgres,
+ * MySQL and SQLite - from one implementation.
+ *
+ * Drizzle's operators and table types are handed in through
+ * {@link IamDrizzle.IConfig} rather than imported, so this package never picks
+ * a dialect for the consumer. Two things vary by dialect and are settled once
+ * at construction instead of at every call site: whether JSON columns come back
+ * parsed or as strings (`json`), and whether the driver can return the rows a
+ * write touched (only Postgres and SQLite can, which is why batch writes fall
+ * back to counting on MySQL).
+ *
+ * Rows are validated on read; a row that fails to parse is reported through
+ * `onPolicyError` and replaced with a placeholder granting nothing, so a
+ * corrupt row denies rather than throws.
+ *
+ * @example
+ * ```ts
+ * const adapter = new IamDrizzleAdapter({ db, tables, ops: { eq, and, isNull, or } })
+ *
+ * await db.transaction(async (tx) => {
+ *   await adapter.withClient(tx).assignRole('user_1', 'admin')
+ * })
+ * ```
+ */
 export class IamDrizzleAdapter<
   TAction extends string,
   TResource extends string,

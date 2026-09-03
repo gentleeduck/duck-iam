@@ -221,12 +221,39 @@ async function startPostgres(): Promise<string> {
   return `postgres://${PG_USER}:${PG_PASSWORD}@127.0.0.1:${port}/${PG_DB}`
 }
 
+/**
+ * Vitest `globalSetup`: bring up the Postgres the e2e suites need, once for the
+ * whole run, and publish its URL through `DUCKIAM_E2E_DATABASE_URL`.
+ *
+ * Defers to an already-set URL, so `.env.test` and real CI service containers
+ * win over anything *started* here - but the aged-stray sweep still runs, since
+ * suites that own their own backends leak them either way. Absent docker is not a failure - the suites
+ * read the same variable and skip themselves - except under
+ * `DUCKIAM_E2E_REQUIRE_DOCKER`, which exists so CI cannot pass by silently
+ * skipping every e2e file. A setup that fails halfway tears itself down and
+ * unsets the variable rather than leaving suites pointed at a half-built stack.
+ */
 export async function setup(): Promise<void> {
+  const hasDocker = await dockerAvailable()
+
+  // Above the early return below, not after it. Suites that own their own
+  // backends - the redis invalidation e2e starts both a Redis and a Postgres of
+  // its own - label them `OWNED_LABEL` and start them whether or not this setup
+  // started anything. Left below the return, the sweep never ran at all for
+  // anyone with `DUCKIAM_E2E_DATABASE_URL` in `.env.test`, which is the normal
+  // local setup, so their crashed runs accumulated containers (and the
+  // anonymous volumes behind them) indefinitely.
+  //
+  // Safe to hoist precisely because it is age-bounded: everything it collects
+  // is older than `OWNED_MAX_AGE` and so cannot belong to a run in progress.
+  // The cost is one docker probe on a path that used to skip it.
+  if (hasDocker) await removeAgedOwnedStrays()
+
   // `.env.test` and real CI service containers both win: if the caller already
   // pointed us somewhere, do not start anything.
   if (process.env.DUCKIAM_E2E_DATABASE_URL) return
 
-  if (!(await dockerAvailable())) {
+  if (!hasDocker) {
     if (dockerIsRequired()) {
       throw new Error(
         '[e2e] DUCKIAM_E2E_REQUIRE_DOCKER is set but docker did not answer within ' +
@@ -239,7 +266,6 @@ export async function setup(): Promise<void> {
 
   await removeStrays()
 
-  await removeAgedOwnedStrays()
   try {
     process.env.DUCKIAM_E2E_DATABASE_URL = await startPostgres()
   } catch (err) {
@@ -250,6 +276,14 @@ export async function setup(): Promise<void> {
   }
 }
 
+/**
+ * Vitest `globalTeardown`: remove every container this run started.
+ *
+ * `-v` as well as `-f`, or the anonymous volume behind each container outlives
+ * it and the disk fills one run at a time. Failures are logged rather than
+ * thrown - throwing here would fail an otherwise green run, and the aged-stray
+ * sweep in {@link setup} collects whatever is left behind.
+ */
 export async function teardown(): Promise<void> {
   if (started.length === 0) return
   const names = started.splice(0, started.length)

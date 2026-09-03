@@ -1,3 +1,10 @@
+/**
+ * One recorded authorization decision, as the Flow panel renders it: the
+ * request that was asked, the answer, and - when the engine explained itself -
+ * which policy and rule decided it. Flattened out of the engine's own request /
+ * result types so the panel does not have to reach through nested objects, and
+ * so a consumer can record from their own instrumentation.
+ */
 export interface IamIFlowEntry {
   id: number
   ts: number
@@ -16,6 +23,11 @@ export interface IamIFlowEntry {
 
 type IFlowRecordInput = Omit<IamIFlowEntry, 'id' | 'ts'> & { ts?: number }
 
+/**
+ * The append-and-subscribe surface over the decision ring buffer. `record`
+ * returns the stamped entry (with the `id` and `ts` it assigned) so a caller
+ * can correlate; `subscribe` returns its own unsubscribe.
+ */
 export interface IamIFlowRecorder {
   record(entry: IFlowRecordInput): IamIFlowEntry
   list(): readonly IamIFlowEntry[]
@@ -24,6 +36,7 @@ export interface IamIFlowRecorder {
   subscribe(listener: () => void): () => void
 }
 
+/** Options for {@link iamCreateFlowRecorder}. */
 export interface IamIFlowRecorderOptions {
   /** Ring-buffer capacity. Must be a positive integer; defaults to 250. */
   bufferSize?: number

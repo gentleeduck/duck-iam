@@ -1,7 +1,18 @@
+/**
+ * The shared skeleton every devtools panel is built from: a list on the left, a
+ * detail pane on the right, and the filter / section / empty-state pieces that
+ * go inside them.
+ *
+ * Factored out because five of the six panels are the same shape, and a panel
+ * that reuses this one gets keyboard and overflow behaviour right for free
+ * rather than re-deriving it. Purely presentational - each export does what its
+ * name says.
+ */
 import { cn } from '@gentleduck/libs/cn'
 import React from 'react'
 import { ChevronDown, ChevronRight, Search } from './icons'
 
+/** The two-pane frame the panels sit in: a fixed 300px list beside a fluid detail pane, both scrolling independently. */
 export function SplitView({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
   return (
     <div className="grid h-full min-h-0 grid-cols-[300px_1fr] overflow-hidden">
@@ -11,6 +22,7 @@ export function SplitView({ left, right }: { left: React.ReactNode; right: React
   )
 }
 
+/** A scrolling list under a fixed header carrying its title, item count and toolbar - so the header stays put while the list moves. */
 export function ListShell({
   title,
   count,
@@ -42,6 +54,7 @@ export function ListShell({
   )
 }
 
+/** One selectable row. `active` is the caller's selection state, not internal: the panels keep the selected id, so the list stays consistent when the underlying data reloads. */
 export function ListItem({
   active,
   onClick,
@@ -81,6 +94,7 @@ export function ListItem({
   )
 }
 
+/** A collapsible block in a detail pane. Open state is internal and seeded once from `defaultOpen`, so a re-render from polling cannot snap a section the reader opened back shut. */
 export function Section({
   title,
   defaultOpen = true,
@@ -109,6 +123,7 @@ export function Section({
   )
 }
 
+/** The centred placeholder shown in a detail pane before anything is selected. */
 export function DetailEmpty({ message }: { message: string }) {
   return (
     <div className="flex h-full items-center justify-center p-6 text-center text-muted-foreground text-xs">
@@ -117,6 +132,7 @@ export function DetailEmpty({ message }: { message: string }) {
   )
 }
 
+/** The search input above a list. Fully controlled - the panel owns the filter string, since it also decides what filtering means for its own data. */
 export function FilterBar({
   value,
   onChange,

@@ -117,6 +117,21 @@ function hasQuantifiedGroup(stripped: string): boolean {
   return /\)[+*]/.test(stripped) || /\)\{\d+,\}/.test(stripped)
 }
 
+/**
+ * Static screen for regex patterns that can backtrack exponentially, applied
+ * before a policy-supplied pattern is ever compiled or run.
+ *
+ * A condition's pattern comes from the policy store, so it is attacker-adjacent
+ * whenever policy authorship is: one `(a+)+$` against a crafted attribute is a
+ * single-request CPU stall that no timeout on the adapter can catch, because
+ * the stall is in this process. Reports the most specific shape it recognises -
+ * backreference plus quantifier, a quantified lookaround body, then nested
+ * quantifiers - so the reason names what to fix.
+ *
+ * Conservative in the safe direction: it rejects some patterns that would in
+ * fact have been fine. A refused pattern is a policy that fails closed and an
+ * author who gets told why; a missed one is an outage.
+ */
 export function detectCatastrophicRegex(pattern: string): { safe: boolean; reason?: string } {
   if (typeof pattern !== 'string') return { safe: false, reason: 'pattern must be a string' }
   if (pattern.length > MAX_REGEX_LENGTH) {

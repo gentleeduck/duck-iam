@@ -318,6 +318,15 @@ drift the way the hand-maintained version did.
 
 ---
 
+## Other
+
+| File | Tests | Covers |
+|---|---|---|
+| `test/__tests__/global-setup-stray-sweep.test.ts` | 4 | globalSetup stray sweep |
+| **Subtotal** | **4** | |
+
+---
+
 ## Totals by area
 
 | Area | Files | Tests |
@@ -332,4 +341,5 @@ drift the way the hand-maintained version did.
 | Server | 18 | 547 |
 | Shared | 4 | 94 |
 | Package surface | 11 | 114 |
-| **Total** | **222** | **4419** |
+| Other | 1 | 4 |
+| **Total** | **223** | **4423** |

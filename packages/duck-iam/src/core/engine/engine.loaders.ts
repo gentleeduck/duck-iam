@@ -10,6 +10,13 @@ import type { AccessControl, IamAdapter, IamRequest } from '../types'
 import type { IEngineInFlightBag } from './engine.invalidation'
 import { deepFreezePolicy, runSingleFlight, runSingleFlightKeyed } from './engine.libs'
 
+/**
+ * Everything a loader needs, passed explicitly rather than reached for through
+ * `this`. Nothing here is optional at the call site: the Engine builds one bag
+ * per instance and hands the same object to every loader, so a test can supply
+ * a fake adapter and real caches - or real adapter and no caches - without
+ * standing up an Engine.
+ */
 export interface IIamLoaderDeps<
   TAction extends string,
   TResource extends string,
@@ -40,6 +47,17 @@ export interface IIamLoaderDeps<
   withTimeout: <T>(fn: (opts: { signal: AbortSignal }) => Promise<T>, label: string) => Promise<T>
 }
 
+/**
+ * Every explicit policy the adapter holds, cached under one key and loaded at
+ * most once per cold cache regardless of how many callers ask at the same time.
+ *
+ * Refuses a result larger than `maxPolicies` instead of caching it. An adapter
+ * that suddenly answers with the whole table - an unbounded query, a lost
+ * tenant filter - would otherwise be pinned in memory for the life of the TTL,
+ * and every later evaluation would walk it. The throw names the count and the
+ * limit so the fix is a decision (raise it, or repair the adapter) rather than
+ * a hunt.
+ */
 export async function loadPolicies<
   TAction extends string,
   TResource extends string,
@@ -69,6 +87,14 @@ export async function loadPolicies<
   )
 }
 
+/**
+ * Every role definition the adapter holds. Same cache-then-single-flight shape
+ * as {@link loadPolicies}, guarded by `maxRoles` for the same reason.
+ *
+ * Roles are loaded whole rather than per-subject because inheritance closure
+ * needs the full graph: {@link resolveSubject} cannot expand `inherits` from a
+ * subject's directly assigned ids alone.
+ */
 export async function loadRoles<
   TAction extends string,
   TResource extends string,
@@ -98,6 +124,24 @@ export async function loadRoles<
   )
 }
 
+/**
+ * The full authorization picture for one subject: effective roles (direct plus
+ * everything they inherit), scoped role assignments, and attributes.
+ *
+ * Single-flighted per subject id, so a burst of concurrent checks for the same
+ * subject issues one set of adapter reads. Two things make this loader more
+ * than a cached read:
+ *
+ *   - **Load shedding.** A cold cache hit by many distinct subjects at once
+ *     would open one adapter call per subject with no back-pressure;
+ *     `maxConcurrentSubjectLoads` caps the in-flight set and rejects beyond it.
+ *     Cache hits and joins onto an existing load never count against the cap.
+ *   - **Grant boundary.** When the adapter can say when this subject's grants
+ *     next change, the answer is cached only until then. The boundary read is
+ *     advisory - if it fails, the subject is resolved but not cached, because
+ *     a full TTL on an entry whose expiry nobody could name is exactly the
+ *     stale allow the boundary exists to prevent.
+ */
 export async function resolveSubject<
   TAction extends string,
   TResource extends string,
@@ -179,6 +223,14 @@ export async function resolveSubject<
   )
 }
 
+/**
+ * The single synthetic policy that role definitions compile down to, so RBAC
+ * and explicit ABAC policies are evaluated by one code path rather than two.
+ *
+ * Deep-frozen before caching: it is shared by every evaluation on this instance,
+ * and a caller that mutated a rule in place would silently rewrite the
+ * authorization model for everyone until the next invalidation.
+ */
 export async function loadRbacPolicy<
   TAction extends string,
   TResource extends string,
@@ -203,6 +255,13 @@ export async function loadRbacPolicy<
   )
 }
 
+/**
+ * Explicit policies plus the compiled RBAC policy, in the order the evaluator
+ * expects, memoized under one key so the merge is not redone per check.
+ *
+ * The RBAC policy is prepended only when it has rules - a deployment with no
+ * roles should not pay for an empty policy on every evaluation.
+ */
 export async function loadAllPolicies<
   TAction extends string,
   TResource extends string,

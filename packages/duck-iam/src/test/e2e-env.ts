@@ -30,6 +30,15 @@ function loadEnvTest(): void {
   }
 }
 
+/**
+ * The e2e Postgres URL, or `undefined` when none is configured.
+ *
+ * `undefined` is the signal that lets an e2e suite skip itself rather than
+ * fail: a developer without the container stack up should see skips, while CI -
+ * which does set it - runs everything. Loads `.env.test` on first call and
+ * never overwrites a variable already present in the environment, so an
+ * explicit `DUCKIAM_E2E_DATABASE_URL` wins over the file.
+ */
 export function databaseUrl(): string | undefined {
   loadEnvTest()
   return process.env.DUCKIAM_E2E_DATABASE_URL

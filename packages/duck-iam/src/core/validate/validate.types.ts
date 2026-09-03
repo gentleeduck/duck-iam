@@ -1,3 +1,10 @@
+/**
+ * Results and issue shapes produced by the validators. Type-only.
+ *
+ * Validation reports rather than throws wherever a caller may want to see every
+ * problem at once - an admin UI saving a policy should show all the issues, not
+ * the first one.
+ */
 export namespace IamValidate {
   /**
    * Closed set of machine-readable codes the validator can emit. Switch on this
