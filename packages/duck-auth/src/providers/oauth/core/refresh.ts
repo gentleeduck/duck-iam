@@ -16,6 +16,14 @@ export async function authRefreshoauthToken(opts: {
   credentials: Credential.Store
   events: Events.IBus
   exchange: () => Promise<OAuth.TokenResponse>
+  /**
+   * Optional, and it should be supplied. Without it this refreshes tokens for
+   * an identity that has since been deleted and hands its id back to the
+   * caller, because nothing on the credential-first path looks at the identity
+   * - the same gap that let an API key outlive its owner. `findById` filters
+   * soft-deleted rows, so a `null` means deleted or erased.
+   */
+  identities?: { findById(id: string): Promise<unknown | null> }
 }): Promise<{ tokens: OAuth.TokenResponse; identityId: string; familyId: string }> {
   const presentedHash = sha256(opts.presentedRefreshToken)
   const row = await opts.credentials.findByHashedSecret(presentedHash, 'oauth', opts.tenant)
@@ -46,6 +54,14 @@ export async function authRefreshoauthToken(opts: {
       meta: { familyId: meta.familyId, provider: meta.provider, sub: meta.sub },
     })
     throw new AuthError('AUTH_OAUTH_REUSE_DETECTED', { familyRevoked: true })
+  }
+
+  // Checked before the CAS and before the exchange, so a refresh for a deleted
+  // account neither burns the row nor makes a call to the provider. The family
+  // is left alone rather than revoked: a soft delete is reversible, and the
+  // tokens should work again if the account comes back within its grace window.
+  if (opts.identities && row.identityId && !(await opts.identities.findById(row.identityId))) {
+    throw new AuthError('AUTH_UNAUTHENTICATED')
   }
 
   // Claim the row via CAS on `version` before the (slow) exchange so
