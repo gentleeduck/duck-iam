@@ -606,12 +606,6 @@
     "why": "The asymmetric downgrade is per-signal. An attacker on a different address who also omits the User-Agent turns a `revoke` on user-agent-change into a `rotate`, and the surviving reaction is whatever the ip policy says. With the default policy (ip: rotate, ua: mfa) the result is `rotate` rather than the `mfa` an operator configured for a changed browser. Sending no header is entirely within an attacker's control."
   },
   {
-    "file": "src/core/identities/__tests__/deleted-identity-guards.test.ts",
-    "line": 139,
-    "title": "a password reset completes against a soft-deleted account",
-    "why": "`completePasswordReset` resolves the token to `row.identityId` and writes the new password without ever loading the identity, so a reset mail sent before the deletion still works afterwards. It cannot produce a login - `findByEmail` and `findById` both hide the row - so the new password is written to an account nobody can sign in to, and the flow emits `recovery.password.completed` for it. Recorded rather than repaired: the fix belongs with the same identity probe the api-key path now takes, and it changes the shape of `Flows.Deps`."
-  },
-  {
     "file": "src/core/m2m/__tests__/m2m-grant.test.ts",
     "line": 75,
     "title": "a key with no tenant mints a token for whatever tenant the caller names",

@@ -11,7 +11,6 @@ Deleting an identity now ends every way into it, and a restore no longer resurre
 - `softDelete` clears `emailVerified`. The unique indexes are partial on `deletedAt` and `findByEmail` filters the same way, so the address is genuinely free while the row is hidden; restoring must not hand back a verified claim to an address the identity may no longer control.
 - `restore` refuses once the grace window has closed, reporting `AUTH_GRACE_EXPIRED`. The SQL bridges previously cleared `deletedAt` unconditionally, bringing back accounts whose window had long since closed — including ones already queued for hard purge — while the memory adapter refused them. The dialects now agree with the memory adapter.
 - `restore` refuses when the address was claimed while the row was hidden, reporting `AUTH_EMAIL_TAKEN` instead of a raw unique-index driver error on SQL, or two live rows sharing an email on an adapter with no such index.
+- `completePasswordReset` refuses a token whose identity has been deleted, reporting `AUTH_RECOVERY_TOKEN_INVALID` so a reset link cannot double as a way to ask whether an account still exists. It previously rotated the token, wrote the new password and emitted `recovery.password.completed` for an account nobody could sign in to.
 
 `assertRestorable`, `assertEmailFree` and `profileEmail` are exported from `~/adapters/sql` for bridge authors implementing `restore`.
-
-Known gap, pinned as a `FINDING:` test rather than fixed: `completePasswordReset` still writes a new password to a soft-deleted account. It cannot produce a login, since both `findByEmail` and `findById` hide the row, but the write and its `recovery.password.completed` event both land.

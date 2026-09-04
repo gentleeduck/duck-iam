@@ -132,15 +132,7 @@ describe('a deleted identity cannot be authenticated', () => {
     })
   })
 
-  it('FINDING: a password reset completes against a soft-deleted account', async () => {
-    // `completePasswordReset` resolves the token to `row.identityId` and writes
-    // the new password without ever loading the identity, so a reset mail sent
-    // before the deletion still works afterwards. It cannot produce a login -
-    // `findByEmail` and `findById` both hide the row - so the new password is
-    // written to an account nobody can sign in to, and the flow emits
-    // `recovery.password.completed` for it. Recorded rather than repaired: the
-    // fix belongs with the same identity probe the api-key path now takes, and
-    // it changes the shape of `Flows.Deps`.
+  it('a password reset no longer completes against a soft-deleted account', async () => {
     const { adapter, auth, channel } = build()
     const ident = await auth.identities.create({ profile: { email: 'r@x.com', username: 'r' } })
 
@@ -154,6 +146,26 @@ describe('a deleted identity cannot be authenticated', () => {
     await auth.identities.softDelete(ident.id)
     expect(await adapter.identities.findById(ident.id)).toBeNull()
 
+    // Reported as an invalid token, not a distinct code: a reset link must not
+    // double as a way to ask whether an account still exists.
+    await expect(auth.flows.completePasswordReset({ newPassword: 'a-new-password-1', token })).rejects.toMatchObject({
+      code: 'AUTH_RECOVERY_TOKEN_INVALID',
+    })
+  })
+
+  it('a password reset still completes for a live identity (control)', async () => {
+    const { auth, channel } = build()
+    const ident = await auth.identities.create({ profile: { email: 'live@x.com', username: 'live' } })
+
+    await auth.flows.requestPasswordReset({
+      channels: { email: channel },
+      findIdentityByEmail: async () => ({ id: ident.id }),
+      input: { email: 'live@x.com' },
+    })
+    const token = new URL(channel.sent.at(-1)?.url ?? '').searchParams.get('token') ?? ''
+
+    // Without this the refusal above would also pass against a reset flow that
+    // was simply broken for everyone.
     await expect(auth.flows.completePasswordReset({ newPassword: 'a-new-password-1', token })).resolves.toBeDefined()
   })
 })
