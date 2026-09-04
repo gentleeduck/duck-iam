@@ -211,6 +211,60 @@ import { IamRedisAdapter } from '@gentleduck/iam/adapters/redis'
 import { IamHttpAdapter } from '@gentleduck/iam/adapters/http'
 ```
 
+### Transactions
+
+Writes and reads can run on a transaction you own. `withTransaction(tx)` returns a view of
+the engine bound to your transaction handle; the handle is opaque to duck-iam and is handed
+straight back to your adapter.
+
+```typescript
+let pending
+await db.transaction(async (tx) => {
+  const perms = engine.withTransaction(tx)
+  await perms.admin.assignRole(userId, 'admin', orgId)
+  await tx.insert(members).values({ userId, orgId })
+  pending = perms.pending
+})
+await pending.flush()   // invalidate and broadcast only after the commit
+```
+
+Writes go through `.admin`, the same interface as `engine.admin`, so there is one write
+surface rather than two.
+
+Reads on the bound view run against transaction-local caches, so they see the transaction's
+own uncommitted grants; the shared engine keeps answering from its warm caches, which the
+transaction never pollutes. An empty local cache always misses through to the bound adapter,
+which is what makes a read-after-write inside the transaction correct.
+
+**Cache invalidations do not fire inside a transaction** - including the `config.invalidator`
+fleet broadcast. They buffer in `pending`, de-duplicated, and fire on `flush()`. A
+rolled-back grant therefore never evicts another node's cache for a write that did not
+happen. `pending.discard()` drops the buffer for an explicit rollback path.
+
+`withTransaction` needs an adapter that implements `withClient`. The drizzle and prisma
+adapters do; memory, file, redis and http do not - they have no transaction to join - and
+`withTransaction` throws rather than silently leaving writes outside yours.
+
+### Batch writes
+
+`assignRoles`, `revokeRoles`, `moveRoleScopes` and `invalidateSubjects` take a list and
+report per-row outcomes:
+
+```typescript
+const result = await engine.admin.assignRoles([
+  { subjectId: 'u1', roleId: 'admin' },
+  { subjectId: 'u2', roleId: 'editor', scope: 'org-1' },
+])
+result.applied   // 2
+result.outcomes  // one entry per input row, in input order
+```
+
+Every row is validated before any is written, so a malformed row aborts the batch instead
+of half-applying it. Each affected subject is invalidated once, however many rows named it.
+The drizzle adapter collapses the writes into one `INSERT` and one `DELETE` - the `DELETE`
+needs `or` in the adapter's `ops`, and revokes row by row without it. Adapters with no
+set-based form loop, so every adapter supports every batch form.
+
 ### Operability
 
 ```typescript

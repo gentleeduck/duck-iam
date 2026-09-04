@@ -1,0 +1,177 @@
+---
+title: transactions
+description: Run duck-iam and duck-auth writes and reads on a transaction you own, with events and cache invalidations held until after the commit.
+---
+
+## Overview
+
+`@gentleduck/iam` and `@gentleduck/auth` both expose `withTransaction(tx)`. It returns a view
+of the engine bound to a transaction handle you own. The handle is opaque to the library and
+is handed straight back to your adapter, so the engine never learns what driver you use.
+
+The two packages deliberately share one shape: bind, do the work, keep the announcements
+until the commit lands.
+
+<MermaidDiagram chart={`flowchart TB
+    OPEN["db.transaction(tx)"] --> BIND["engine.withTransaction(tx)"]
+    BIND --> WRITE["Writes and reads on the bound view"]
+    WRITE --> OWN["Your own SQL on the same tx"]
+    OWN --> DECIDE{"Commit or rollback"}
+    DECIDE -->|commit| FLUSH["pending.flush()"]
+    DECIDE -->|rollback| DROP["pending discarded"]
+    FLUSH --> OUT["Events published, caches invalidated, fleet notified"]
+    DROP --> NOTHING["Nothing announced"]`} />
+
+## duck-auth
+
+```typescript
+let pending
+await db.transaction(async (tx) => {
+  const auth = engine.withTransaction(tx)
+  await auth.identities.softDelete(identityId)
+  await auth.sessions.revokeAllForIdentity(identityId)
+  await tx.delete(users).where(eq(users.id, identityId))
+  pending = auth.pending
+})
+await pending.flush()
+```
+
+Nested calls inherit the transaction. `auth.flows.completeAccountDeletion()` reaches
+`identities.softDelete`, `sessions.revokeAllForIdentity` and `credentials.delete`, and all
+three land on your transaction rather than on the engine's own connection.
+
+Reads are bound too, so a read inside the transaction sees that transaction's uncommitted
+writes.
+
+### Events wait for the commit
+
+Events do not fire inside a transaction. They buffer in `pending` and publish when you call
+`flush()`, so a rolled-back deletion never appears in the audit trail as a completed one.
+
+- `pending.flush()` publishes everything buffered, in emit order, then empties the buffer.
+  Calling it twice publishes nothing the second time.
+- `pending.discard()` drops the buffer for an explicit rollback path.
+- `pending.peek()` inspects the buffer without draining it.
+
+A listener that throws does not stop the drain. Every buffered event is attempted and the
+call rejects with an `AggregateError` at the end, so a partial failure never leaves events
+to be published twice.
+
+### What is and isn't transactional
+
+| Surface | In a transaction? | On rollback |
+|---|---|---|
+| `identities`, `sessions`, `credentials` -- writes and reads | yes | undone |
+| `flows.*`, including nested facet calls | yes | undone |
+| `mfa`, `apiKeys`, `passwords` credential writes | yes | undone |
+| `orgs` | interface ready, no shipped SQL adapter | n/a |
+| events | buffered in `pending` | never published |
+| channel sends such as verification mail | no, sent immediately | mail already delivered |
+| `limiter` counters | no | token stays consumed |
+| `idempotency` records | no | record stands |
+| `hijack` and `anomaly` scoring | no | scores stand |
+
+<Callout type="info">
+The last four are guards. They decide *whether* to do the work, they write nothing to SQL,
+and they are not reachable on the bound view at all -- reach them on the engine itself. This
+is deliberate: an attacker who can force a rollback must not be able to refund the attempts
+it cost, and a caller whose transaction failed must not be able to clear its idempotency
+record and silently re-run under the old key.
+</Callout>
+
+A flow that sends mail should be called outside a transaction, or split so the send happens
+after the commit. No rollback can retract a delivered email.
+
+## duck-iam
+
+```typescript
+let pending
+await db.transaction(async (tx) => {
+  const perms = engine.withTransaction(tx)
+  await perms.admin.assignRole(userId, 'admin', orgId)
+  await tx.insert(members).values({ userId, orgId })
+  pending = perms.pending
+})
+await pending.flush()
+```
+
+Writes go through `.admin`, the same interface as `engine.admin`, so there is one write
+surface rather than two.
+
+### Transaction-local caches
+
+Reads on the bound view run against caches created for that transaction alone. An empty
+cache always misses through to the transaction-bound adapter, which is what makes a
+read-after-write inside the transaction correct. The shared engine keeps answering from its
+own warm caches, which the transaction never pollutes.
+
+Cache invalidations -- including the `config.invalidator` fleet broadcast -- buffer in
+`pending`, de-duplicated, and fire on `flush()`. A rolled-back grant therefore never evicts
+another node's cache for a write that did not happen.
+
+<Callout type="info">
+The bound view drops the invalidator entirely rather than reusing the parent's. A facade
+built per transaction that subscribed would leak a subscription every time. Buffered entries
+broadcast through the parent engine on `flush()`, after the commit.
+</Callout>
+
+## Adapter support
+
+`withTransaction` needs an adapter that can re-make itself against your driver client, which
+it declares by implementing `withClient`.
+
+| Package | Adapters that can join a transaction | Adapters that cannot |
+|---|---|---|
+| `@gentleduck/auth` | drizzle pg, mysql, sqlite, and any bridge built with `createSqlStores` | memory, redis, valkey |
+| `@gentleduck/iam` | drizzle, prisma | memory, file, redis, http |
+
+An adapter that cannot join makes `withTransaction` throw, naming the store, rather than
+silently leaving those writes outside your transaction. In duck-auth the error is
+`AUTH_MISCONFIGURED` and names the offending store.
+
+An engine with no transaction supplied behaves exactly as it always has: writes go to its
+own connection, and events and invalidations fire immediately.
+
+## Batch writes
+
+Batch forms take a list and report per-row outcomes instead of collapsing to `void`.
+
+```typescript
+const result = await auth.identities.updateProfileMany([
+  { id: a, patch: { displayName: 'A' }, expectedVersion: 3 },
+  { id: b, patch: { displayName: 'B' }, expectedVersion: 7 },
+])
+
+result.applied  // 1
+result.failed   // 1
+result.outcomes // one entry per input row, in input order
+```
+
+Every outcome is either `{ id, ok: true, value }` or `{ id, ok: false, reason }`. duck-auth
+reports `stale-write`, `not-found` or `skipped`; duck-iam has no optimistic-lock race to
+lose, so it reports `not-found` or `skipped`.
+
+**duck-auth** offers `softDeleteMany`, `restoreMany`, `eraseMany`, `updateProfileMany`,
+`linkMany` and `unlinkMany` on `identities`; `revokeAllForIdentities` and `revokeByHashes`
+on `sessions`; and `deleteByIdentities` on the credential store.
+
+**duck-iam** offers `assignRoles`, `revokeRoles`, `moveRoleScopes` and `invalidateSubjects`
+on `admin`. Every row is validated before any is written, so a malformed row aborts the
+batch instead of half-applying it, and each affected subject is invalidated once however
+many rows named it.
+
+Each batch collapses to one statement per table where the adapter can express it and loops
+otherwise, so every adapter supports every batch form.
+
+### Hard and soft failures
+
+<Callout type="info">
+A **hard** failure -- a constraint violation, a driver error -- throws. Inside your
+transaction that aborts the whole thing, which is exactly what makes a batch atomic with
+your own work: one bad row rolls the entire batch back, including the rows that had already
+applied.
+
+A **soft** failure -- a lost optimistic-lock race, a row that was not there -- is reported
+per row and does not throw. A bulk profile update tells you which rows lost the version race
+instead of dying on the first one.
+</Callout>
