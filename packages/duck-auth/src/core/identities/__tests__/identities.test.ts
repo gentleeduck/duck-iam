@@ -161,9 +161,25 @@ describe('IdentitiesFacet', () => {
           { providerId: 'oauth:authGoogle', providerSub: null, addedAt: new Date() },
         ],
       })
-      await facet.unlink(i.id, 'oauth:authGoogle')
+      const unlinked = await facet.unlink(i.id, 'oauth:authGoogle')
+      expect(unlinked.providers).toHaveLength(1)
       const fresh = await facet.getById(i.id)
       expect(fresh?.providers).toHaveLength(1)
+    })
+
+    it('link answers with the identity carrying the new provider', async () => {
+      const i = await facet.create({
+        profile: { username: 'a@x.com', email: 'a@x.com' },
+        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
+      })
+
+      const linked = await facet.link(i.id, { providerId: 'oauth:authGoogle', providerSub: 'g-1' })
+
+      expect(linked.id).toBe(i.id)
+      expect(linked.providers.map((p) => p.providerId)).toContain('oauth:authGoogle')
+      // The addedAt the store stamped travels back with the row, so a caller
+      // that wants to show "linked just now" does not have to guess it.
+      expect(linked.providers.find((p) => p.providerId === 'oauth:authGoogle')?.addedAt).toBeInstanceOf(Date)
     })
   })
 
@@ -171,6 +187,24 @@ describe('IdentitiesFacet', () => {
     it('refuses to merge identity into itself', async () => {
       const i = await facet.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
       await expect(facet.merge(i.id, i.id)).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
+    })
+
+    it('refuses to merge into a survivor that does not exist', async () => {
+      const dup = await facet.create({
+        profile: { username: 'd@x.com', email: 'd@x.com' },
+        providers: [{ providerId: 'password', providerSub: null, addedAt: new Date() }],
+      })
+      const handler = vi.fn()
+      events.on('identity.merged', handler)
+
+      // The store re-points the dup's rows onto the survivor and then deletes
+      // it. With no survivor that is not a merge, it is data loss reported as
+      // success.
+      await expect(facet.merge('00000000-0000-4000-8000-000000000000', dup.id)).rejects.toMatchObject({
+        code: 'AUTH_UNAUTHENTICATED',
+      })
+      expect(await facet.getById(dup.id)).not.toBeNull()
+      expect(handler).not.toHaveBeenCalled()
     })
 
     it('merges dup into survivor and emits identity.merged', async () => {
@@ -184,7 +218,10 @@ describe('IdentitiesFacet', () => {
       })
       const handler = vi.fn()
       events.on('identity.merged', handler)
-      await facet.merge(survivor.id, dup.id)
+      const merged = await facet.merge(survivor.id, dup.id)
+      // The survivor comes back from the call, already carrying both links.
+      expect(merged.id).toBe(survivor.id)
+      expect(merged.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
       expect(handler).toHaveBeenCalledOnce()
       const fresh = await facet.getById(survivor.id)
       expect(fresh?.providers.some((p) => p.providerId === 'oauth:authGoogle')).toBe(true)
@@ -202,6 +239,27 @@ describe('IdentitiesFacet', () => {
       expect(await facet.getById(i.id)).not.toBeNull()
     })
 
+    it('softDelete answers with the hidden row, carrying the grace deadline', async () => {
+      const i = await facet.create({ profile: { username: 'a@x.com', email: 'a@x.com' } })
+
+      const before = Date.now()
+      const hidden = await facet.softDelete(i.id)
+
+      // `deletedAt` is when the window CLOSES, so a caller can tell the user
+      // how long they have to change their mind straight off this row - and
+      // off the same clock reading the store used, not a later one.
+      expect(hidden?.id).toBe(i.id)
+      expect(hidden?.deletedAt?.getTime()).toBeGreaterThanOrEqual(
+        before + DEFAULT_IDENTITIES_CONFIG.softDeleteGracePeriodMs,
+      )
+    })
+
+    it('softDelete and erase answer null for an identity that is not there', async () => {
+      const ghost = '00000000-0000-4000-8000-000000000000'
+      expect(await facet.softDelete(ghost)).toBeNull()
+      expect(await facet.erase(ghost, { reason: 'test' })).toBeNull()
+    })
+
     it('restore after grace expired surfaces AUTH_GRACE_EXPIRED', async () => {
       const tightFacet = new IdentitiesImpl<MyProfile>(adapter.identities, events, {
         softDeleteGracePeriodMs: 1, // 1ms grace = always expired by the time we check
@@ -210,6 +268,16 @@ describe('IdentitiesFacet', () => {
       await tightFacet.softDelete(i.id)
       await new Promise((r) => setTimeout(r, 5))
       await expect(tightFacet.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
+    })
+
+    it('erase answers with the row as it was, since a later read finds nothing', async () => {
+      const i = await facet.create({ profile: { username: 'gone@x.com', email: 'gone@x.com' } })
+
+      const erased = await facet.erase(i.id, { reason: 'gdpr' })
+
+      expect(erased?.id).toBe(i.id)
+      expect(erased?.profile.email).toBe('gone@x.com')
+      expect(await facet.getById(i.id)).toBeNull()
     })
 
     it('erase hard-removes the identity', async () => {

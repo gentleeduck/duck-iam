@@ -50,13 +50,20 @@ export namespace Identities {
     findByProviderSub(providerId: string, sub: string): Promise<Me<Profile> | null>
     create(input: CreateInput<Profile>): Promise<Me<Profile>>
     update(id: string, patch: Partial<Me<Profile>>, expectedVersion: number): Promise<Me<Profile>>
-    softDelete(id: string, gracePeriodMs: number): Promise<void>
+    /**
+     * Every mutating write answers with the row it touched, `null` when no row
+     * matched, rather than `void`. A caller that needs to know what a write did
+     * - the new `deletedAt`, the providers array after a link - should not have
+     * to issue a second read to find out.
+     */
+    softDelete(id: string, gracePeriodMs: number): Promise<Me<Profile> | null>
     restore(id: string): Promise<Me<Profile>>
-    erase(id: string): Promise<void>
-    link(identityId: string, link: ProviderLink): Promise<void>
-    unlink(identityId: string, providerId: string): Promise<void>
+    /** Returns the row as it was immediately before deletion. */
+    erase(id: string): Promise<Me<Profile> | null>
+    link(identityId: string, link: ProviderLink): Promise<Me<Profile> | null>
+    unlink(identityId: string, providerId: string): Promise<Me<Profile> | null>
     /** Merges a duplicate global identity into the survivor, repointing ALL of the dup's tenant-scoped rows (credentials/sessions) before erasing it. */
-    merge(survivorId: string, dupId: string): Promise<void>
+    merge(survivorId: string, dupId: string): Promise<Me<Profile> | null>
     /**
      * Re-bind this store to a caller-supplied driver client - a transaction
      * handle. The client is opaque to duck-auth and is handed straight back to

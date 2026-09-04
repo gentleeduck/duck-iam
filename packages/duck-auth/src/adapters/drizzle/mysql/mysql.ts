@@ -121,10 +121,12 @@ export function createDrizzleMysqlBridge<
         // both ignore soft-deleted rows, so the address is free to be claimed by
         // someone else during the grace window. Restoring must not hand back a
         // verified claim to an address this identity may no longer control.
-        await db
+        const result = await db
           .update(authIdentities)
           .set({ deletedAt, emailVerified: false })
           .where(and(eq(authIdentities.id, id)))
+        if (result[0].affectedRows === 0) return null
+        return reselectIdentity(id)
       },
       /**
        * Three round trips, all on a rare admin path: read the hidden row, refuse
@@ -155,10 +157,14 @@ export function createDrizzleMysqlBridge<
         return reselectIdentity(id)
       },
       erase: async (id) => {
+        // Read first: the row is gone by the time the caller is answered, so
+        // this is the only chance to say what was erased.
+        const row = await reselectIdentity(id)
         // FK CASCADE handles credentials and sessions; explicit deletes are belt-and-suspenders.
         await db.delete(authCredentials).where(eq(authCredentials.identityId, id))
         await db.delete(authSessions).where(eq(authSessions.identityId, id))
         await db.delete(authIdentities).where(and(eq(authIdentities.id, id)))
+        return row
       },
       insertProviderLink: async (identityId, providerId, providerSub, addedAt) => {
         // Read-modify-write: portable across MySQL 5.7/8.x/MariaDB; splice client-side.
@@ -168,14 +174,19 @@ export function createDrizzleMysqlBridge<
           .where(and(eq(authIdentities.id, identityId)))
           .limit(1)
         const cur = rows[0]
-        if (!cur) return
+        if (!cur) return null
         const providers = cur.providers ?? []
-        if (providers.some((p) => p.providerId === providerId && p.providerSub === providerSub)) return
+        // Already linked: nothing to write, but the row still exists and it
+        // already carries the link, so answer with it rather than with `null`.
+        if (providers.some((p) => p.providerId === providerId && p.providerSub === providerSub)) {
+          return reselectIdentity(identityId)
+        }
         providers.push({ providerId, providerSub: providerSub ?? null, addedAt })
         await db
           .update(authIdentities)
           .set({ providers })
           .where(and(eq(authIdentities.id, identityId)))
+        return reselectIdentity(identityId)
       },
       deleteProviderLink: async (identityId, providerId) => {
         const rows = await db
@@ -184,12 +195,13 @@ export function createDrizzleMysqlBridge<
           .where(and(eq(authIdentities.id, identityId)))
           .limit(1)
         const cur = rows[0]
-        if (!cur) return
+        if (!cur) return null
         const providers = (cur.providers ?? []).filter((p) => p.providerId !== providerId)
         await db
           .update(authIdentities)
           .set({ providers })
           .where(and(eq(authIdentities.id, identityId)))
+        return reselectIdentity(identityId)
       },
       /**
        * MySQL has no `RETURNING`, so every set-based write here reads the
@@ -268,17 +280,22 @@ export function createDrizzleMysqlBridge<
           .from(authIdentities)
           .where(eq(authIdentities.id, dupId))
           .limit(1)
-        if (surv && dupRow) {
-          await db
-            .update(authIdentities)
-            .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
-            .where(eq(authIdentities.id, survivorId))
-        }
+        // Both sides must exist BEFORE anything is written: the steps below
+        // re-point the dup's credentials and sessions and then delete it, so a
+        // survivor that is not there turns a merge into silent data loss. The
+        // memory adapter has always refused this; so does every dialect.
+        if (!surv || !dupRow) return null
+        await db
+          .update(authIdentities)
+          .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
+          .where(eq(authIdentities.id, survivorId))
         // Repoint all of the dup's rows across every tenant before erasing it, so the
         // FK cascade on delete cannot orphan another tenant's credentials/sessions.
         await db.update(authCredentials).set({ identityId: survivorId }).where(eq(authCredentials.identityId, dupId))
         await db.update(authSessions).set({ identityId: survivorId }).where(eq(authSessions.identityId, dupId))
         await db.delete(authIdentities).where(eq(authIdentities.id, dupId))
+        // The survivor is what the caller keeps; `null` when there was none.
+        return reselectIdentity(survivorId)
       },
     },
     // --- Credentials ---

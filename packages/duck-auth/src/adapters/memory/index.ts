@@ -117,10 +117,16 @@ export class MemoryAdapter<
       },
       softDelete: async (id, gracePeriodMs) => {
         const cur = store.get(id)
-        if (!cur) return
+        if (!cur) return null
         // See the dialect bridges: the address is released while the row is
         // soft-deleted, so the verified claim must not survive the round trip.
-        store.set(id, { ...cur, deletedAt: new Date(Date.now() + gracePeriodMs), emailVerified: false })
+        const next: Identities.Me<Profile> = {
+          ...cur,
+          deletedAt: new Date(Date.now() + gracePeriodMs),
+          emailVerified: false,
+        }
+        store.set(id, next)
+        return next
       },
       restore: async (id) => {
         const cur = store.get(id)
@@ -147,11 +153,14 @@ export class MemoryAdapter<
         return next
       },
       erase: async (id) => {
+        // Read before the delete, so the caller still gets the row it removed.
+        const cur = store.get(id) ?? null
         store.delete(id)
+        return cur
       },
       link: async (identityId, link) => {
         const cur = store.get(identityId)
-        if (!cur) return
+        if (!cur) return null
         // Closes the TOCTOU window in `findByProviderSub` -> `link` under JS single-threading.
         if (link.providerSub !== null) {
           for (const [otherId, other] of store) {
@@ -164,24 +173,29 @@ export class MemoryAdapter<
             }
           }
         }
-        store.set(identityId, { ...cur, providers: [...cur.providers, link] })
+        const next: Identities.Me<Profile> = { ...cur, providers: [...cur.providers, link] }
+        store.set(identityId, next)
+        return next
       },
       unlink: async (identityId, providerId) => {
         const cur = store.get(identityId)
-        if (!cur) return
-        store.set(identityId, {
+        if (!cur) return null
+        const next: Identities.Me<Profile> = {
           ...cur,
           providers: cur.providers.filter((p) => p.providerId !== providerId),
-        })
+        }
+        store.set(identityId, next)
+        return next
       },
       merge: async (survivorId, dupId) => {
         const survivor = store.get(survivorId)
         const dup = store.get(dupId)
-        if (!survivor || !dup) return
-        store.set(survivorId, {
+        if (!survivor || !dup) return null
+        const merged: Identities.Me<Profile> = {
           ...survivor,
           providers: [...survivor.providers, ...dup.providers],
-        })
+        }
+        store.set(survivorId, merged)
         // Reassign credentials + memberships to survivor.
         for (const c of this._credentials.values()) {
           if (c.identityId === dupId) {
@@ -195,6 +209,8 @@ export class MemoryAdapter<
           }
         }
         store.delete(dupId)
+        // The survivor, which is the row the caller still has a use for.
+        return merged
       },
     }
   }
