@@ -7,6 +7,13 @@ import { MemoryLimiter } from '~/limiters/memory'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { credentialInput } from '~/test/store-inputs'
 
+/**
+ * Stand-in for the host's proof that it completed the provider's dance. These
+ * suites are about what `linkProvider` does once the caller is trusted; the
+ * callback itself is exercised in `flows-c6-open-findings.test.ts`.
+ */
+const ALLOW_LINK = async () => true
+
 interface MyProfile extends Identities.ProfileMetadataBase {
   email: string
 }
@@ -48,6 +55,7 @@ describe('FlowsImpl - account linking', () => {
     const handler = vi.fn()
     auth.events.on('identity.linked', handler)
     const result = await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId: identityA,
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
@@ -67,11 +75,13 @@ describe('FlowsImpl - account linking', () => {
 
   it('linkProvider is idempotent on the same (identityId, providerSub) pair', async () => {
     await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId: identityA,
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
     })
     await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId: identityA,
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
@@ -82,12 +92,14 @@ describe('FlowsImpl - account linking', () => {
 
   it('linkProvider refuses when the sub already belongs to another identity', async () => {
     await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId: identityA,
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
     })
     await expect(
       auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
         identityId: identityB,
         providerId: 'authGoogle',
         providerSub: 'authGoogle|111',
@@ -98,6 +110,7 @@ describe('FlowsImpl - account linking', () => {
   it('linkProvider rejects unknown identity', async () => {
     await expect(
       auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
         identityId: 'does-not-exist',
         providerId: 'authGoogle',
         providerSub: 'authGoogle|111',
@@ -107,6 +120,7 @@ describe('FlowsImpl - account linking', () => {
 
   it('unlinkProvider removes the link', async () => {
     await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId: identityA,
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
@@ -123,6 +137,7 @@ describe('FlowsImpl - account linking', () => {
 
   it('unlinkProvider refuses when removing would leave zero factors', async () => {
     await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId: identityA,
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',
@@ -134,6 +149,7 @@ describe('FlowsImpl - account linking', () => {
 
   it('unlinkProvider with allowLockout:true bypasses the lockout guard', async () => {
     await auth.flows.linkProvider({
+      authorize: ALLOW_LINK,
       identityId: identityA,
       providerId: 'authGoogle',
       providerSub: 'authGoogle|111',

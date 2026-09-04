@@ -601,25 +601,25 @@
   },
   {
     "file": "src/core/flows/__tests__/flows-c6-audit-fixes.test.ts",
-    "line": 256,
-    "title": "beginSignUp still creates a real identity for an address nobody proved they own",
-    "why": "F21's other half. The limiter caps the rate; it does not stop the row existing. An attacker still pre-claims `victim@corp.com`, and what the real victim meets when they sign up is decided entirely by the host's own findByEmail handling. Closing it means not writing the identity until the address is verified - `DECISIONS.md` D1 option A - which the credentials store cannot host today: `fk_auth_credentials_identity` requires the very row that option defers, so the flow state has nowhere to live."
+    "line": 258,
+    "title": "beginSignUp still writes a real identity for an address nobody proved they own",
+    "why": "The residue of F21. Deferring the write is not buildable - `fk_auth_credentials_identity` is a NOT NULL foreign key to the very row the deferral removes - so the row is still written on an unauthenticated request. What is closed is that it can no longer be a claim (D1): the next signup for the address takes it, and the limiter bounds how many exist."
   },
   {
     "file": "src/core/flows/__tests__/flows-c6-audit-fixes.test.ts",
     "line": 269,
-    "title": "a second beginSignUp on a taken address says so, which answers who is registered",
-    "why": "The pre-created row makes the duplicate-email refusal reachable by anyone, so signup reports account existence in a way `requestPasswordReset` goes to some length to avoid. Same root cause as the finding above."
+    "title": "signup still answers whether an address is an established account",
+    "why": "Reduced, not closed. A squat is reclaimed silently, so the old \"any row exists\" oracle is gone; an address behind a real account still has to be refused, because the unique index means a second account for it cannot be created and the caller has to be told something. Closing it needs a channel to answer through - the `requestPasswordReset` shape, where both branches return `{ok:true}` and the owner gets the mail - and `beginSignUp` takes none."
   },
   {
     "file": "src/core/flows/__tests__/flows-c6-audit-fixes.test.ts",
-    "line": 280,
+    "line": 285,
     "title": "requestPasswordReset still spends a write on one branch and a read on the other",
     "why": "The round-trip counts match and the crypto matches; what does not is that the known-address branch writes a credential row and the unknown one reads the same table instead. A write cannot be mirrored - the foreign key means there is no row to hang a decoy on - so the residue is one write against one read, measurable against a store where those differ enough to see."
   },
   {
     "file": "src/core/flows/__tests__/flows-c6-audit-fixes.test.ts",
-    "line": 297,
+    "line": 302,
     "title": "a password reset cannot be served at all unless the mfa provider is registered",
     "why": "`requireMfa()` throws when the provider is absent, and the reset flow reads it on every request to decide one template variable. A deployment with no MFA gets AUTH_PROVIDER_NOT_REGISTERED out of a public endpoint rather than a reset mail. Uniform across both branches now, which is what stops it being an oracle, but it is still a hard dependency nothing declares."
   },
@@ -1234,5 +1234,11 @@
     "line": 396,
     "title": "begin reports a caller mistake as a misconfiguration, not a bad request",
     "why": "`relayState` and `host` come from the request, so a missing one is a four hundred. AUTH_MISCONFIGURED is the code this library uses for boot-time wiring errors, and it carries a five hundred status."
+  },
+  {
+    "file": "src/server/__tests__/actor-context.test.ts",
+    "line": 235,
+    "title": "the middleware and the guard resolve the session twice for one request",
+    "why": "The pairing the adapter recommends - `makeGuard` as an `APP_GUARD`, `nestActorContext` as middleware - is the one arrangement where the `req.session` shortcut cannot fire. Nest runs middleware before guards, so nothing has populated `session` when the middleware runs, and `makeGuard` calls `resolveSession` unconditionally rather than reusing what the middleware already resolved. Every authenticated request therefore reads the session store twice, which on a SQL-backed store is two round trips. A cache in front of `getByHash` is the mitigation and the adapter ships none; a session id is its sid hash, so one key covers the read and every invalidation."
   }
 ]

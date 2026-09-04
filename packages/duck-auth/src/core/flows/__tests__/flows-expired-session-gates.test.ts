@@ -204,8 +204,10 @@ describe('expired sessions are refused at every privileged gate', () => {
       identityId: identity.id,
       kind: 'user',
     })
-    expect(await auth.flows.completePasswordReset({ currentSid: sid, newPassword: 'new-password-9', token })).toEqual({
-      ok: true,
-    })
+    const reset = await auth.flows.completePasswordReset({ currentSid: sid, newPassword: 'new-password-9', token })
+    expect(reset.ok).toBe(true)
+    // A caller who was signed in rotates through `credential-change` rather than
+    // being swept with everyone else, so the reset answers with a replacement bearer.
+    expect(reset.intents.length).toBeGreaterThan(0)
   })
 })

@@ -16,7 +16,9 @@ import {
   toCredentialUpsert,
 } from '~/core/credentials/credentials'
 import { AuthError } from '~/core/errors'
+import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
+import type { Provider } from '~/core/provider/provider.types'
 import { isSafeCallbackPath } from '~/core/url-validators'
 import { NO_IDENTITY_SENTINEL } from '~/providers/passwords/passwords.constants'
 import type { Flows } from './flows.types'
@@ -45,11 +47,14 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
 
   const emailCanonical = email.trim().toLowerCase()
   const limited = await ctx.limiter.consume(`recovery:password:${emailCanonical}`)
-  if (!limited.ok) {
-    throw new AuthError('AUTH_RATE_LIMITED', {
-      retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
-    })
-  }
+  // No subject, deliberately. Resolving this address means calling the host's
+  // `findIdentityByEmail` - arbitrary code, unknown cost - on every refused
+  // request to an unauthenticated endpoint, which is the one place that trade is
+  // worst. And an exhausted reset bucket blocks a *delivery*, not an
+  // authentication: nobody is locked out of anything by it. `authPassword`'s
+  // sign-in bucket is where a flood against one address is worth paging about,
+  // and that is the site that pays for the lookup.
+  if (!limited.ok) await refuseRateLimited(ctx.events, limited, null)
 
   // Hoisted above the identity lookup on purpose. Below it, this throw fired only
   // for an address that exists and returned `{ok:true}` for one that does not -
@@ -80,7 +85,12 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
         identityId: identity.id,
         kind: 'recovery',
         secret: tokenHash,
-        metadata: { purpose: 'password-reset', email },
+        // `purpose` only. This used to carry the raw address alongside it, a
+        // second copy of PII in a table `identities.erase` has no reason to
+        // sweep - so an erased account left its email sitting in credential
+        // metadata until the row's TTL expired. Nothing ever read it back:
+        // `completePasswordReset` resolves the identity from `row.identityId`.
+        metadata: { purpose: 'password-reset' },
         expiresAt: new Date(Date.now() + ttlMs),
       }),
       ctx.tenant,
@@ -123,10 +133,20 @@ export async function requestPasswordReset<Profile extends Identities.ProfileMet
   return { ok: true }
 }
 
+/**
+ * Verify the single-use token, swap the password, and end every session the
+ * old one could still be holding open.
+ *
+ * Answers with the intents the caller must execute. They are empty on the usual
+ * path - a reset arrives from an email link with no session at all - and carry a
+ * replacement bearer when the caller *was* signed in, because that case routes
+ * through `rotateOrCreate({ purpose: 'credential-change' })` and comes back with
+ * a session rather than nothing.
+ */
 export async function completePasswordReset<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   input: Flows.PasswordResetCompleteInput & { currentSid?: string; tenantId?: string },
-): Promise<{ ok: true }> {
+): Promise<{ ok: true; intents: Provider.Intent[] }> {
   const { token, newPassword } = input
   if (typeof token !== 'string' || token.length === 0 || token.length > 256) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
@@ -152,15 +172,32 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
   // rather than a distinct code, so a reset link is not a way to ask whether an
   // account still exists. `findById` filters soft-deleted rows, so a missing row
   // is exactly "deleted or erased".
-  if (!(await ctx.stores.identities.findById(row.identityId))) {
+  const identity = await ctx.stores.identities.findById(row.identityId)
+  if (!identity) {
     throw new AuthError('AUTH_RECOVERY_TOKEN_INVALID')
   }
+
+  // Resolved once, and only counted as this identity's. The MFA gate below used
+  // to accept any session that was AAL 2 and fresh, without asking whose it was:
+  // an attacker holding a victim's reset token passed their OWN stepped-up
+  // session and the victim's TOTP requirement evaporated. Every account with a
+  // second factor was resettable by anyone who had a second factor of their own.
+  const currentSession = input.currentSid === undefined ? null : await deps.sessions.getBySid(input.currentSid)
+  const callerSession = currentSession?.identityId === row.identityId ? currentSession : null
+
   if (await deps.requireMfa().hasTotp(row.identityId, ctx.tenant)) {
-    if (!input.currentSid) {
-      throw new AuthError('AUTH_RECOVERY_REQUIRES_MFA', { methods: ['totp'] })
-    }
-    const currentSession = await deps.sessions.getBySid(input.currentSid)
-    if (!currentSession || currentSession.aal < 2 || !currentSession.fresh) {
+    if (!callerSession || callerSession.aal < 2 || !callerSession.fresh) {
+      // Bounded, then burnt. A failed gate cannot consume the token outright -
+      // the documented flow is exactly to be refused here, step up, and call
+      // again with the same token and a `currentSid` - but leaving it entirely
+      // unconsumed made the endpoint retryable for the token's whole TTL. The
+      // limiter is what tells a user finishing a step-up apart from a caller
+      // grinding the gate; when it is spent, so is the token.
+      const attempt = await ctx.limiter.consume(`recovery:password:mfa:${hash}`)
+      if (!attempt.ok) {
+        await ctx.stores.credentials.delete(row.id, ctx.tenant).catch(() => {})
+        await refuseRateLimited(ctx.events, attempt, row.identityId)
+      }
       throw new AuthError('AUTH_RECOVERY_REQUIRES_MFA', { methods: ['totp'] })
     }
   }
@@ -174,8 +211,42 @@ export async function completePasswordReset<Profile extends Identities.ProfileMe
     throw err
   }
   await ctx.stores.credentials.revoke(row.id, ctx.tenant)
+
+  // Sessions first, password second. The other order left a window with the new
+  // password live and the old sessions still open: if the revoke threw - a store
+  // blip, a network drop - whoever was holding a session the reset was meant to
+  // end kept it, and the account holder had no way to tell. Failing before the
+  // password write is the harmless direction: nothing has changed, and the token
+  // is spent, so the user asks for another link.
+  //
+  // A caller who is signed in rotates rather than merely being swept, which is
+  // what `credential-change` is for and puts this transition back on the single
+  // rotation path `sessions.ts` promises every privilege change takes. It mints
+  // as well as sweeps, which is why the branch is conditional: the ordinary
+  // reset arrives from an email link with no session, and minting one there
+  // would turn a reset link into a way to sign in.
+  let intents: Provider.Intent[] = []
+  if (callerSession) {
+    const rotated = await deps.sessions.rotateOrCreate({
+      purpose: 'credential-change',
+      previousSid: input.currentSid ?? '',
+      identityId: row.identityId,
+      identity,
+      kind: callerSession.kind,
+      aal: callerSession.aal,
+      factors: callerSession.factors,
+      ...(callerSession.tenantId !== null && { tenantId: callerSession.tenantId }),
+    })
+    intents = deps.transport.issue(rotated.sid, rotated.session, {
+      absolute: false,
+      csrfToken: rotated.csrfToken,
+      fresh: true,
+    })
+  } else {
+    await deps.sessions.revokeAllForIdentity(row.identityId)
+  }
+
   await deps.requirePasswords().set(row.identityId, newPassword, ctx.stores.credentials)
-  await deps.sessions.revokeAllForIdentity(row.identityId)
   await deps.events.emit('recovery.password.completed', { identityId: row.identityId })
-  return { ok: true }
+  return { intents, ok: true }
 }

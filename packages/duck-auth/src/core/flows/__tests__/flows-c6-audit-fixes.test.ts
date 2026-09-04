@@ -135,8 +135,10 @@ describe('F1 - requestPasswordReset is not an enumeration oracle', () => {
 
     const url = (channel.outbox[0]!.vars as { url: string }).url
     const token = new URL(url).searchParams.get('token')
+    // No `currentSid`: the email-link path, which sweeps sessions rather than
+    // rotating into a new one, so there is no bearer to hand back.
     await expect(auth.flows.completePasswordReset({ newPassword: 'a-new-password-1', token: token! })).resolves.toEqual(
-      { ok: true },
+      { intents: [], ok: true },
     )
   })
 
@@ -253,25 +255,28 @@ describe('F27 - beginSignUp builds a profile the identity store accepts', () => 
 })
 
 describe('what these fixes did NOT close', () => {
-  it('FINDING: beginSignUp still creates a real identity for an address nobody proved they own', async () => {
-    // F21's other half. The limiter caps the rate; it does not stop the row
-    // existing. An attacker still pre-claims `victim@corp.com`, and what the real
-    // victim meets when they sign up is decided entirely by the host's own
-    // findByEmail handling. Closing it means not writing the identity until the
-    // address is verified - `DECISIONS.md` D1 option A - which the credentials
-    // store cannot host today: `fk_auth_credentials_identity` requires the very
-    // row that option defers, so the flow state has nowhere to live.
+  it('FINDING: beginSignUp still writes a real identity for an address nobody proved they own', async () => {
+    // The residue of F21. Deferring the write is not buildable -
+    // `fk_auth_credentials_identity` is a NOT NULL foreign key to the very row
+    // the deferral removes - so the row is still written on an unauthenticated
+    // request. What is closed is that it can no longer be a claim (D1): the next
+    // signup for the address takes it, and the limiter bounds how many exist.
     const { auth } = build()
     await auth.flows.beginSignUp({ email: 'victim@corp.com' })
     expect(await auth.identities.getByEmail('victim@corp.com')).not.toBeNull()
   })
 
-  it('FINDING: a second beginSignUp on a taken address says so, which answers who is registered', async () => {
-    // The pre-created row makes the duplicate-email refusal reachable by anyone,
-    // so signup reports account existence in a way `requestPasswordReset` goes to
-    // some length to avoid. Same root cause as the finding above.
-    const { auth } = build()
-    await auth.flows.beginSignUp({ email: 'taken@corp.com' })
+  it('FINDING: signup still answers whether an address is an established account', async () => {
+    // Reduced, not closed. A squat is reclaimed silently, so the old "any row
+    // exists" oracle is gone; an address behind a real account still has to be
+    // refused, because the unique index means a second account for it cannot be
+    // created and the caller has to be told something. Closing it needs a channel
+    // to answer through - the `requestPasswordReset` shape, where both branches
+    // return `{ok:true}` and the owner gets the mail - and `beginSignUp` takes
+    // none.
+    const { adapter, auth } = build()
+    const ident = await auth.identities.create({ profile: { email: 'taken@corp.com', username: 'taken' } })
+    await auth.passwords.set(ident.id, 'correct-horse-battery', adapter.credentials)
     await expect(auth.flows.beginSignUp({ email: 'taken@corp.com' })).rejects.toMatchObject({
       code: 'AUTH_EMAIL_TAKEN',
     })

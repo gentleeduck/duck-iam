@@ -125,13 +125,37 @@ export namespace Flows {
     | 'terms-accepted'
     | 'completed'
 
-  export type LinkProviderInput = {
+  export type LinkProviderInput<Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase> = {
     /** Identity to attach the provider link to. */
     identityId: string
     /** Provider id (`'authGoogle'`, `'authGithub'`, etc). */
     providerId: string
     /** Provider-side subject id (verified by the oauth dance the caller just completed). */
     providerSub: string
+    /**
+     * Mandatory. Answers the one question the library cannot: did the caller
+     * actually complete this provider's dance for this subject?
+     *
+     * `providerSub` arrives as a plain string. Nothing about it is verifiable
+     * from inside duck-auth - it is whatever the host passed - and a link is a
+     * permanent authentication factor. Wire it to a route that trusts a request
+     * body and an attacker links their own Google account to a victim's identity
+     * and signs in as them from then on; wire it to a completed OAuth callback
+     * and it is exactly right. The signature used to leave that difference
+     * unstated, so both readings looked like correct usage.
+     *
+     * The callback is where the host states which one it is. It receives the
+     * identity being modified and the link about to be written; answer `false`
+     * unless the `providerSub` came from a token exchange your code performed.
+     * Never `async () => true` - that is the same hole with a callback in front
+     * of it, and `impersonate`'s `authorize` carries the same warning for the
+     * same reason.
+     */
+    authorize: (input: {
+      identity: Identities.Me<Profile>
+      providerId: string
+      providerSub: string
+    }) => Promise<boolean>
     /** Tenant scope. */
     tenantId?: string
   }
@@ -184,15 +208,47 @@ export namespace Flows {
   export type AccountDeletionCompleteInput = {
     /** Token from the confirmation link. */
     token: string
+    /**
+     * Where to send the undo link, if the library should send it. Omit and the
+     * `cancellationToken` comes back in the result for the host to deliver (or
+     * to drop, which is how you turn undo off - nobody else ever holds the
+     * plaintext).
+     */
+    channels?: Partial<Record<'email' | 'sms' | 'webpush', import('~/channels/channels.types').Channel.Channel>>
+    /** Channel kind to use when `channels` is given; default `'email'`. */
+    channel?: 'email' | 'sms' | 'webpush'
+    /** Path on the app that handles the undo. Default `/auth/cancel-deletion`. */
+    callbackPath?: string
     tenantId?: string
   }
 
-  export type AccountDeletionCancelInput = {
+  /**
+   * Cancel by presenting the undo token `completeAccountDeletion` minted.
+   *
+   * The token names its own subject, so no `identityId` is passed and no
+   * callback is consulted: holding the token IS the authorization, exactly as
+   * holding the deletion token is authorization to delete. This is the branch a
+   * user clicking "undo" in their mail takes - they have the token and no admin
+   * rights at all.
+   */
+  export type AccountDeletionCancelByToken = {
+    /** Single-use, expires when the grace window does. */
+    token: string
+    tenantId?: string
+    identityId?: never
+    authorize?: never
+  }
+
+  /**
+   * Cancel on someone else's behalf, with no token in hand - an operator
+   * restoring an account from a support queue.
+   */
+  export type AccountDeletionCancelByAuthorize = {
     /** Identity to restore. */
     identityId: string
     /**
-     * Mandatory. Decides whether this caller may cancel THIS deletion, and the
-     * only gate on the call - a cancel restores an account from an id alone.
+     * Mandatory on this branch, and the only gate on it - a cancel restores an
+     * account from an id alone.
      *
      * Required rather than optional on purpose: every sibling in this flow is
      * gated (`completeAccountDeletion` by a single-use token, `impersonate` by
@@ -205,5 +261,14 @@ export namespace Flows {
      */
     authorize: (identityId: string) => Promise<boolean>
     tenantId?: string
+    token?: never
   }
+
+  /**
+   * One of the two, never both and never neither. Supplying both is refused
+   * rather than resolved in favour of one: which gate applied would depend on a
+   * precedence rule nobody reading the call site can see, and that ambiguity is
+   * the exact shape of the bug this flow used to have.
+   */
+  export type AccountDeletionCancelInput = AccountDeletionCancelByToken | AccountDeletionCancelByAuthorize
 }

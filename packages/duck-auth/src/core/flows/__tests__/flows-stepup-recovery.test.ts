@@ -244,9 +244,13 @@ describe('FlowsImpl - password reset', () => {
         { method: 'totp', completedAt: new Date() },
       ],
     })
-    await expect(
-      auth.flows.completePasswordReset({ token, newPassword: 'new-password-9', currentSid: aal2Sid }),
-    ).resolves.toEqual({ ok: true })
+    const reset = await auth.flows.completePasswordReset({
+      currentSid: aal2Sid,
+      newPassword: 'new-password-9',
+      token,
+    })
+    expect(reset.ok).toBe(true)
+    expect(reset.intents.length).toBeGreaterThan(0)
   })
 
   it('expired reset token surfaces AUTH/RECOVERY_TOKEN_EXPIRED', async () => {
