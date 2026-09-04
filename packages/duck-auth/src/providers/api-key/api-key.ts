@@ -31,6 +31,14 @@ export class ApiKeysFacet {
       sha256(s: string): string
     },
     private readonly _cfg: ApiKeys.Cfg = DEFAULT_APIKEYS_CONFIG,
+    /**
+     * Optional so a direct `new ApiKeysFacet(...)` keeps working, but
+     * `apiKeyProvider()` always supplies it: without it `verify` answers for an
+     * identity that has since been soft-deleted. Structural rather than
+     * `Identities.Store` so the facet stays non-generic and the dependency
+     * stays honest about the one call it makes.
+     */
+    private readonly _identities?: ApiKeys.IdentityProbe,
   ) {}
 
   /**
@@ -41,7 +49,10 @@ export class ApiKeysFacet {
   withClient(client: unknown, events: Events.IBus): ApiKeysFacet | null {
     const credentials = this._credentials.withClient?.(client)
     if (!credentials) return null
-    return new ApiKeysFacet(credentials, events, this._crypto, this._cfg)
+    // The probe follows the credentials onto the caller's transaction, so a key
+    // verified inside it sees that transaction's deletions too.
+    const identities = this._identities?.withClient?.(client) ?? this._identities
+    return new ApiKeysFacet(credentials, events, this._crypto, this._cfg, identities)
   }
 
   /** Create a new API key. Returns plaintext exactly once. */
@@ -160,6 +171,17 @@ export class ApiKeysFacet {
     if (!row) throw new AuthError('AUTH_APIKEY_INVALID')
     if (row.revokedAt != null) throw new AuthError('AUTH_APIKEY_REVOKED')
     if (isCredentialExpired(row)) throw new AuthError('AUTH_APIKEY_REVOKED')
+    // A key outlives its owner otherwise. Sign-in providers are covered because
+    // `flows.signIn` re-reads the identity behind the `startSession` intent, but
+    // nothing re-reads it here - `verify` hands the id straight back, and
+    // `M2MImpl.exchange` mints a session from it - so a soft-deleted account
+    // kept full API access. `findById` filters `deletedAt`, so a missing row is
+    // exactly "deleted or erased".
+    if (this._identities && !(await this._identities.findById(row.identityId))) {
+      // Same error as an unknown key: whether an id still exists is not
+      // something an unauthenticated caller should be able to probe.
+      throw new AuthError('AUTH_APIKEY_INVALID')
+    }
     void this._credentials.rotate(row.id, row.secret, row.version, ctx).catch(() => {})
     const meta = parseApiKeyMetadata(row.metadata)
     return {
@@ -289,7 +311,13 @@ export function apiKeyProvider<
   OrgMeta = unknown,
 >(cfg?: ApiKeys.CfgInput): (auth: AuthEngine<Profile, Tenant, OrgMeta>) => ApiKeysFacet {
   return (auth) =>
-    new ApiKeysFacet(auth.cfg.stores.credentials, auth.events, { randomToken, sha256 }, toApiKeysCfg(cfg))
+    new ApiKeysFacet(
+      auth.cfg.stores.credentials,
+      auth.events,
+      { randomToken, sha256 },
+      toApiKeysCfg(cfg),
+      auth.cfg.stores.identities,
+    )
 }
 
 /** Factory around {@link ApiKeysFacet}, for callers who prefer functions to `new`. */

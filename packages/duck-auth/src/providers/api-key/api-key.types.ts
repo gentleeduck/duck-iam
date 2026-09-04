@@ -7,6 +7,18 @@ import type { ApiKeysFacet } from './api-key'
  * place.
  */
 export namespace ApiKeys {
+  /**
+   * The one thing {@link ApiKeysFacet} needs from the identity store: whether
+   * the key's owner is still there. Structural rather than `Identities.Store`
+   * so the facet stays non-generic, and narrow so it cannot grow into a second
+   * way to read identities. `findById` filters soft-deleted rows, so `null`
+   * means deleted or erased.
+   */
+  export type IdentityProbe = {
+    findById(id: string): Promise<unknown | null>
+    withClient?(client: unknown): IdentityProbe | null
+  }
+
   /** Resolved, total facet config — every field explicit (null-discipline). */
   export type Cfg = {
     /** Token prefix; used to namespace by env. Default 'ak_live_'. */
