@@ -1,12 +1,27 @@
 import { describe, expect, it, vi } from 'vitest'
+import * as crypto from '../crypto'
 import { sha256 } from '../crypto'
 import { csrfGuard, issueCsrfToken, verifyCsrf } from '../csrf'
+
+/**
+ * `sha256` is wrapped, not replaced: every case below still hashes for real,
+ * and the spy only records that it happened. That is what lets the cap tests
+ * assert the property they actually care about - that an oversize token is
+ * refused *before* it reaches the hash - rather than timing the call and
+ * hoping the machine is idle enough for the number to mean something.
+ */
+vi.mock('../crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../crypto')>()
+  return { ...actual, sha256: vi.fn(actual.sha256) }
+})
 
 describe('CSRF - header-token length cap', () => {
   it('rejects oversize X-CSRF-Token (>256 chars) without hashing it', () => {
     const { token, hash: storedHash } = issueCsrfToken()
     void token
     const oversize = 'A'.repeat(257)
+    vi.mocked(crypto.sha256).mockClear()
+
     expect(() =>
       verifyCsrf({
         method: 'POST',
@@ -14,6 +29,11 @@ describe('CSRF - header-token length cap', () => {
         sessionCsrfHash: storedHash,
       }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_CSRF' }))
+
+    // One char over the cap is the boundary the guard has to catch, so this is
+    // where a regression would first show. The title has always claimed
+    // "without hashing it"; now the case checks it.
+    expect(crypto.sha256).not.toHaveBeenCalled()
   })
 
   it('accepts a 256-char token at the cap (boundary)', () => {
@@ -30,12 +50,18 @@ describe('CSRF - header-token length cap', () => {
     ).not.toThrow()
   })
 
-  it('rejects a multi-MB X-CSRF-Token in O(1) time (no authSha256 on the blob)', () => {
-    // The cap fires before sha256, so a 10 MB header is rejected almost
-    // instantly. Time-bound the test to fail loudly if we ever regress
-    // and let the hash function chew on the whole payload.
+  it('rejects a multi-MB X-CSRF-Token without letting sha256 touch the blob', () => {
+    // The DoS this guards against is sha256 amplification: a 10 MB header that
+    // reaches the hash costs real CPU per request. The defence is that the cap
+    // fires first, so the assertion is that the hash was never called.
+    //
+    // This used to assert `elapsed < 250`, which measured the machine as much
+    // as the code - it failed on a loaded runner while the cap was working
+    // perfectly, and would have passed on a fast one even if the cap were
+    // removed, since sha256 of 10 MB is only 30-60 ms.
     const bigToken = 'A'.repeat(10 * 1024 * 1024)
-    const start = performance.now()
+    vi.mocked(crypto.sha256).mockClear()
+
     expect(() =>
       verifyCsrf({
         method: 'POST',
@@ -43,12 +69,25 @@ describe('CSRF - header-token length cap', () => {
         sessionCsrfHash: 'whatever',
       }),
     ).toThrowError(expect.objectContaining({ code: 'AUTH_CSRF' }))
-    const elapsed = performance.now() - start
-    // sha256 of 10 MB on a modern laptop is 30-60 ms (slower on shared CI
-    // runners, ~100-150 ms). The cap should be effectively instant - the
-    // 250 ms ceiling is generous enough to absorb GC/CI noise while still
-    // catching a regression that lets the hash chew the whole payload.
-    expect(elapsed).toBeLessThan(250)
+
+    expect(crypto.sha256).not.toHaveBeenCalled()
+  })
+
+  it('does hash a token within the cap, so the guard above proves something', () => {
+    // A control for the two cases above: if `sha256` were never called on any
+    // path, "not called" would be vacuously true and the cap tests would pass
+    // against a guard that had been deleted.
+    const sized = 'A'.repeat(256)
+    const storedHash = sha256(sized)
+    vi.mocked(crypto.sha256).mockClear()
+
+    verifyCsrf({
+      method: 'POST',
+      headers: new Headers({ 'x-csrf-token': sized }),
+      sessionCsrfHash: storedHash,
+    })
+
+    expect(crypto.sha256).toHaveBeenCalledWith(sized)
   })
 
   it('a normal 43-char base64url token still verifies', () => {
