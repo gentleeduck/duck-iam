@@ -9,7 +9,13 @@
 import { createRequire } from 'node:module'
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase, SQLiteColumn } from 'drizzle-orm/sqlite-core'
-import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
+import {
+  assertEmailFree,
+  assertRestorable,
+  createSqlStores,
+  pickFreshestCredential,
+  profileEmail,
+} from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
 import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './sqlite.schema'
@@ -81,16 +87,43 @@ export function createDrizzleSqliteBridge<
         return result[0] ?? null
       },
       softDelete: async (id, deletedAt) => {
+        // `emailVerified` goes with it: the partial unique index and `findByEmail`
+        // both ignore soft-deleted rows, so the address is free to be claimed by
+        // someone else during the grace window. Restoring must not hand back a
+        // verified claim to an address this identity may no longer control.
         await db
           .update(authIdentities)
-          .set({ deletedAt })
+          .set({ deletedAt, emailVerified: false })
           .where(and(eq(authIdentities.id, id)))
       },
+      /**
+       * Three round trips, all on a rare admin path: read the hidden row, refuse
+       * it if the grace window has closed or its address has since been taken,
+       * then clear the marker. Doing the checks here rather than leaning on the
+       * partial unique index is what turns a raw driver error into a typed one.
+       */
       restore: async (id) => {
+        const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, id)).limit(1)
+        if (!row) return null
+        assertRestorable(row)
+        const email = profileEmail(row.profile)
+        if (email !== undefined) {
+          const clash = await db
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(
+              and(
+                sql`lower(json_extract(${authIdentities.profile}, '$.email')) = lower(${email})`,
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+            .limit(1)
+          assertEmailFree(email, clash.length > 0)
+        }
         const result = await db
           .update(authIdentities)
           .set({ deletedAt: null })
-          .where(and(eq(authIdentities.id, id)))
+          .where(eq(authIdentities.id, id))
           .returning()
         return result[0] ?? null
       },
@@ -134,7 +167,7 @@ export function createDrizzleSqliteBridge<
       softDeleteManyReturningIds: async (ids, deletedAt) => {
         const rows = await db
           .update(authIdentities)
-          .set({ deletedAt })
+          .set({ deletedAt, emailVerified: false })
           .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
           .returning({ id: authIdentities.id })
         return rows.map((r) => r.id)

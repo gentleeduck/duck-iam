@@ -9,7 +9,13 @@ import { createRequire } from 'node:module'
 import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import type { MySqlColumn } from 'drizzle-orm/mysql-core'
 import type { MySql2Database } from 'drizzle-orm/mysql2'
-import { createSqlStores, pickFreshestCredential } from '~/adapters/sql'
+import {
+  assertEmailFree,
+  assertRestorable,
+  createSqlStores,
+  pickFreshestCredential,
+  profileEmail,
+} from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
 import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './mysql.schema'
@@ -111,16 +117,40 @@ export function createDrizzleMysqlBridge<
         return reselectIdentity(id)
       },
       softDelete: async (id, deletedAt) => {
+        // `emailVerified` goes with it: the partial unique index and `findByEmail`
+        // both ignore soft-deleted rows, so the address is free to be claimed by
+        // someone else during the grace window. Restoring must not hand back a
+        // verified claim to an address this identity may no longer control.
         await db
           .update(authIdentities)
-          .set({ deletedAt })
+          .set({ deletedAt, emailVerified: false })
           .where(and(eq(authIdentities.id, id)))
       },
+      /**
+       * Three round trips, all on a rare admin path: read the hidden row, refuse
+       * it if the grace window has closed or its address has since been taken,
+       * then clear the marker. Doing the checks here rather than leaning on the
+       * partial unique index is what turns a raw driver error into a typed one.
+       */
       restore: async (id) => {
-        const result = await db
-          .update(authIdentities)
-          .set({ deletedAt: null })
-          .where(and(eq(authIdentities.id, id)))
+        const row = await reselectIdentity(id)
+        if (!row) return null
+        assertRestorable(row)
+        const email = profileEmail(row.profile)
+        if (email !== undefined) {
+          const clash = await db
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(
+              and(
+                sql`lower(${authIdentities.profile}->>'$.email') = lower(${email})`,
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+            .limit(1)
+          assertEmailFree(email, clash.length > 0)
+        }
+        const result = await db.update(authIdentities).set({ deletedAt: null }).where(eq(authIdentities.id, id))
         if (result[0].affectedRows === 0) return null
         return reselectIdentity(id)
       },
@@ -174,7 +204,7 @@ export function createDrizzleMysqlBridge<
           .where(and(inArray(authIdentities.id, [...ids]), isNull(authIdentities.deletedAt)))
         const hit = live.map((r) => r.id)
         if (hit.length === 0) return []
-        await db.update(authIdentities).set({ deletedAt }).where(inArray(authIdentities.id, hit))
+        await db.update(authIdentities).set({ deletedAt, emailVerified: false }).where(inArray(authIdentities.id, hit))
         return hit
       },
 

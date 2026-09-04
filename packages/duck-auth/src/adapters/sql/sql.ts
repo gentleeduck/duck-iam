@@ -25,6 +25,43 @@ export function pickFreshestCredential(rows: readonly Credential.Me[]): Credenti
   return live ?? revoked
 }
 
+/**
+ * Reads `profile.email` without asserting a shape onto it. `profile` is a JSON
+ * column, so what comes back is whatever was stored - the schema CHECK asks
+ * only that the key exists, not that it holds a string.
+ */
+export function profileEmail(profile: unknown): string | undefined {
+  if (typeof profile !== 'object' || profile === null) return undefined
+  if (!('email' in profile)) return undefined
+  return typeof profile.email === 'string' ? profile.email : undefined
+}
+
+/**
+ * Shared by every dialect bridge's `restore`.
+ *
+ * `deletedAt` holds the moment the grace window *closes*, not the moment of
+ * deletion, so a row is restorable only while that moment is still ahead. The
+ * SQL bridges used to clear `deletedAt` unconditionally, which brought back
+ * accounts whose window had long since closed - including ones already queued
+ * for hard purge - while the memory adapter refused them. This makes the
+ * dialects agree with the memory adapter rather than the other way round.
+ */
+export function assertRestorable(row: { deletedAt: Date | null }): void {
+  const closesAt = row.deletedAt?.getTime()
+  if (closesAt === undefined || closesAt < Date.now()) throw new AuthError('AUTH_GRACE_EXPIRED')
+}
+
+/**
+ * Restoring must not resurrect a claim on an address someone else now holds.
+ * The unique indexes are partial on `deletedAt`, so the address was free the
+ * whole time the row was hidden; without this the `UPDATE` trips the index and
+ * surfaces a raw driver error instead of a typed one, and an adapter with no
+ * such index (memory) would simply end up with two live rows sharing an email.
+ */
+export function assertEmailFree(email: string | undefined, taken: boolean): void {
+  if (email !== undefined && taken) throw new AuthError('AUTH_EMAIL_TAKEN')
+}
+
 export function createSqlStores<Profile extends Identities.ProfileMetadataBase>(
   bridge: SqlBridge.Me<Profile>,
 ): {

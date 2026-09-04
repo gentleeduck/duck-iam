@@ -168,6 +168,70 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       expect(await store.findById(i.id)).toBeNull()
     })
 
+    it('softDelete clears emailVerified, so a restore does not hand back a verified claim', async () => {
+      const store = factory()
+      const i = await store.create(
+        identityInput({ emailVerified: true, profile: { email: 'a@x', username: 'a' } as unknown as P }),
+      )
+      expect(i.emailVerified).toBe(true)
+
+      await store.softDelete(i.id, 60_000)
+
+      // The address is free while the row is hidden - the unique index and
+      // `findByEmail` are both partial on `deletedAt` - so anyone may claim and
+      // verify it during the grace window. Restoring must not assert ownership
+      // the identity can no longer prove.
+      const restored = await store.restore(i.id)
+      expect(restored.emailVerified).toBe(false)
+      expect((await store.findById(i.id))?.emailVerified).toBe(false)
+    })
+
+    it('softDeleteMany clears emailVerified too, when the store implements it', async () => {
+      const store = factory()
+      if (!store.softDeleteMany) return
+      const a = await store.create(
+        identityInput({ emailVerified: true, profile: { email: 'a@x', username: 'a' } as unknown as P }),
+      )
+      const b = await store.create(
+        identityInput({ emailVerified: true, profile: { email: 'b@x', username: 'b' } as unknown as P }),
+      )
+
+      expect((await store.softDeleteMany([a.id, b.id], 60_000)).applied).toBe(2)
+
+      expect((await store.restore(a.id)).emailVerified).toBe(false)
+      expect((await store.restore(b.id)).emailVerified).toBe(false)
+    })
+
+    it('restore refuses once the grace window has closed', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: { email: 'a@x', username: 'a' } as unknown as P }))
+
+      // `deletedAt` holds the moment the window shuts, so a negative grace is a
+      // window that shut before it opened - the same state a row reaches by
+      // simply sitting there, without the test having to wait for it.
+      await store.softDelete(i.id, -1000)
+
+      await expect(store.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_GRACE_EXPIRED' })
+      // Still gone: a refused restore must not half-apply.
+      expect(await store.findById(i.id)).toBeNull()
+    })
+
+    it('restore refuses when the address was taken while the row was hidden', async () => {
+      const store = factory()
+      const i = await store.create(identityInput({ profile: { email: 'a@x', username: 'a' } as unknown as P }))
+      await store.softDelete(i.id, 60_000)
+
+      // Free to claim precisely because the unique index and `findByEmail` are
+      // both partial on `deletedAt`. A different username, so this pins the
+      // email check rather than the username one.
+      const claimant = await store.create(identityInput({ profile: { email: 'a@x', username: 'a2' } as unknown as P }))
+
+      await expect(store.restore(i.id)).rejects.toMatchObject({ code: 'AUTH_EMAIL_TAKEN' })
+      expect(await store.findById(i.id)).toBeNull()
+      // The live claimant is untouched: the refusal costs the innocent row nothing.
+      expect((await store.findById(claimant.id))?.id).toBe(claimant.id)
+    })
+
     it('link / unlink mutate providers; findByProviderSub locates linked identities', async () => {
       const store = factory()
       const i = await store.create(identityInput({ profile: { email: 'a@x', username: 'a' } as unknown as P }))
