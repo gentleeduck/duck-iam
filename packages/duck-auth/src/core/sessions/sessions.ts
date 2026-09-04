@@ -4,7 +4,8 @@ import { isExpiredAt, isFiniteNumber } from '../credentials/credentials'
 import { randomToken, sha256 } from '../crypto'
 import { AuthError } from '../errors'
 import type { Identities } from '../identities/identities.types'
-import { DEFAULT_SESSION_CONFIG } from './sessions.constants'
+import type { TenantContext } from '../tenant/tenant.types'
+import { DEFAULT_SESSION_CONFIG, SESSION_COLUMN_CAPS } from './sessions.constants'
 import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from './sessions.types'
 
 /**
@@ -73,14 +74,16 @@ export class SessionsImpl {
       aal: input.aal,
       factors: input.factors,
       tenantId: input.tenantId ?? null,
-      // Persist truncated ip/UA so a hostile header cannot bloat the session row.
-      ip: typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, 64) : null,
+      // Persist truncated ip/UA/fingerprint so a hostile header cannot bloat the session row.
+      ip: typeof input.ip === 'string' && input.ip.length > 0 ? input.ip.slice(0, SESSION_COLUMN_CAPS.ip) : null,
       userAgent:
-        typeof input.userAgent === 'string' && input.userAgent.length > 0 ? input.userAgent.slice(0, 512) : null,
-      // Header-derived like ip/UA, so capped the same way. 256 matches the library's
-      // other opaque-identifier caps.
+        typeof input.userAgent === 'string' && input.userAgent.length > 0
+          ? input.userAgent.slice(0, SESSION_COLUMN_CAPS.userAgent)
+          : null,
       fingerprint:
-        typeof input.fingerprint === 'string' && input.fingerprint.length > 0 ? input.fingerprint.slice(0, 256) : null,
+        typeof input.fingerprint === 'string' && input.fingerprint.length > 0
+          ? input.fingerprint.slice(0, SESSION_COLUMN_CAPS.fingerprint)
+          : null,
       actingAs: input.actingAs ?? null,
       csrfHash: sha256(csrfToken),
       createdAt: nowDate,
@@ -130,6 +133,7 @@ export class SessionsImpl {
         case 'signin':
         case 're-auth':
         case 'guest-promotion':
+        case 'sign-up':
         case 'step-down':
         case 'impersonate-release':
           await this._store.delete(prevHash)
@@ -206,9 +210,9 @@ export class SessionsImpl {
    * read to emit one event per session, so "you were signed out of 4 devices"
    * needs no second query, and an empty array says there was nothing to end.
    */
-  async revokeAllForIdentity(identityId: string): Promise<Sessions.Me[]> {
-    const all = await this._store.listByIdentity(identityId)
-    await this._store.deleteAllForIdentity(identityId)
+  async revokeAllForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
+    const all = await this._store.listByIdentity(identityId, ctx)
+    await this._store.deleteAllForIdentity(identityId, ctx)
     await Promise.all(all.map((s) => this._events.emit('session.revoked', { sessionId: s.id, identityId })))
     return all
   }
@@ -267,9 +271,15 @@ export class SessionsImpl {
     return this._store.update(s.id, { expiresAt: newExpiresAt, fresh: isSessionFresh(s, now, this._cfg.freshnessMs) })
   }
 
-  /** List all live sessions for an identity. Used by UI's "active devices view. */
-  async listForIdentity(identityId: string): Promise<Sessions.Me[]> {
-    return this._store.listByIdentity(identityId)
+  /**
+   * List all live sessions for an identity. Used by UI's "active devices view.
+   *
+   * Pass a `ctx` in a multi-tenant deployment. Identities are global, so an
+   * unscoped call is a cross-tenant read: tenant A's device list showing the
+   * same person's tenant B sessions, IP and user-agent included.
+   */
+  async listForIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
+    return this._store.listByIdentity(identityId, ctx)
   }
 
   /** Periodic GC. Caller schedules under leader-lock for distributed deployments. */

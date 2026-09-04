@@ -3,6 +3,7 @@ import { AuthError } from '~/core/errors'
 import { stripUndefined } from '~/core/patch'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { AUTH_SESSION_FACTOR_METHODS, AUTH_SESSION_KINDS } from '~/core/sessions/sessions.types'
+import type { TenantContext } from '~/core/tenant/tenant.types'
 
 export namespace RedisSession {
   /** Cfg knobs for {@link RedisSessionImpl}. */
@@ -36,6 +37,15 @@ export namespace RedisSession {
  * the plaintext sid (see SessionsFacet) so the primary key + lookup
  * key are the same value.
  */
+/**
+ * The tenant rule, identical to the credential store's: no ctx, or a ctx with no
+ * `tenantId`, sees every tenant; a named tenant sees only its own rows, so a
+ * global (`tenantId: null`) session is invisible to one.
+ */
+function inTenant(s: Sessions.Me, ctx: TenantContext | undefined): boolean {
+  return ctx?.tenantId === undefined || s.tenantId === ctx.tenantId
+}
+
 export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client> implements Sessions.Store {
   private readonly _redis: TRedis
   private readonly _prefix: string
@@ -263,7 +273,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     await this._redis.zrem(this._expKey(), this._expMember(id, session?.identityId ?? null))
   }
 
-  async listByIdentity(identityId: string): Promise<Sessions.Me[]> {
+  async listByIdentity(identityId: string, ctx?: TenantContext): Promise<Sessions.Me[]> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
     if (ids.length === 0) return []
     // Concurrent, not sequential. This backs the active-devices request and runs
@@ -283,19 +293,47 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
         return parseStoredSession(raw, id)
       }),
     )
-    return rows.filter((row): row is Sessions.Me => row !== null)
+    // The index is keyed by identity, not by identity+tenant, so the filter is
+    // applied to the rows rather than to the read. Identities are global; a
+    // tenant asking for its own device list must not be shown the same person's
+    // sessions in another tenant.
+    return rows.filter((row): row is Sessions.Me => row !== null && inTenant(row, ctx))
   }
 
-  async deleteAllForIdentity(identityId: string): Promise<void> {
+  async deleteAllForIdentity(identityId: string, ctx?: TenantContext): Promise<void> {
     const ids = await this._redis.smembers(this._idxKey(identityId))
-    if (ids.length > 0) {
+    if (ids.length === 0) {
+      await this._redis.del(this._idxKey(identityId))
+      return
+    }
+    // Unscoped, the index key goes with the rows and nothing has to be read.
+    if (ctx?.tenantId === undefined) {
       await this._redis.del(...ids.map((id) => this._sessKey(id)))
       // Every member is known exactly here - the identity is the one we were
       // handed - so none of these rows has to wait for its deadline to leave the
       // expiry index.
       await this._redis.zrem(this._expKey(), ...ids.map((id) => this._expMember(id, identityId)))
+      await this._redis.del(this._idxKey(identityId))
+      return
     }
-    await this._redis.del(this._idxKey(identityId))
+    // Scoped, membership has to be decided per row, so each is read first. An id
+    // whose record is unreadable is left alone rather than swept: it may be a
+    // `create` between its index write and its record write, and its tenant is
+    // exactly what cannot be established. `gc` retires it on its own deadline.
+    const doomed: string[] = []
+    for (const id of ids) {
+      const raw = await this._redis.get(this._sessKey(id))
+      if (!raw) continue
+      const row = parseStoredSession(raw, id)
+      if (row && inTenant(row, ctx)) doomed.push(id)
+    }
+    if (doomed.length === 0) return
+    await this._redis.del(...doomed.map((id) => this._sessKey(id)))
+    await this._redis.zrem(this._expKey(), ...doomed.map((id) => this._expMember(id, identityId)))
+    // `srem`, never `del`: the identity's other tenants still have live sessions
+    // filed under this key, and dropping it would make them unreachable by every
+    // later read and sweep - alive, and impossible to sign out.
+    await this._redis.srem(this._idxKey(identityId), ...doomed)
   }
 
   /**
