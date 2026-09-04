@@ -77,8 +77,8 @@ describe('IAdmin batch writes', () => {
     const result = await engine.admin.assignRoles([{ roleId: 'admin', subjectId: 'u1' }])
     const revoked = await engine.admin.revokeRoles([{ roleId: 'admin', subjectId: 'u1' }])
 
-    expect(result.outcomes[0]).toEqual({ id: 'u1 admin ', ok: true, value: {} })
-    expect(revoked.outcomes[0]).toEqual({ id: 'u1 admin ', ok: true, value: {} })
+    expect(result.outcomes[0]).toEqual({ ok: true, row: { roleId: 'admin', subjectId: 'u1' }, value: {} })
+    expect(revoked.outcomes[0]).toEqual({ ok: true, row: { roleId: 'admin', subjectId: 'u1' }, value: {} })
     expect(result.applied).toBe(1)
   })
 
@@ -88,9 +88,9 @@ describe('IAdmin batch writes', () => {
     // were not already granted, which is what a `RETURNING` clause supplies.
     const answering = Object.assign(adapter, {
       async assignRoleMany(rows: readonly IamAdapter.IAssignRow<string, string>[]) {
-        const fresh: IamAdapter.IAssignRow<string, string>[] = []
-        for (const r of rows) {
-          if (!(await adapter.getSubjectRoles(r.subjectId)).includes(r.roleId)) fresh.push(r)
+        const fresh: number[] = []
+        for (const [i, r] of rows.entries()) {
+          if (!(await adapter.getSubjectRoles(r.subjectId)).includes(r.roleId)) fresh.push(i)
           await adapter.assignRole(r.subjectId, r.roleId, r.scope)
         }
         return fresh
@@ -106,6 +106,9 @@ describe('IAdmin batch writes', () => {
 
     expect(again.applied).toBe(2)
     expect(again.outcomes.map((o) => (o.ok ? o.value.changed : null))).toEqual([false, true])
+    // The row travels with its outcome, so a caller never has to parse an id
+    // back into a triple to know which request an outcome answers.
+    expect(again.outcomes.map((o) => o.row.roleId)).toEqual(['admin', 'editor'])
   })
 
   it('a batch over an empty list is a no-op', async () => {

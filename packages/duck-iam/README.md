@@ -265,6 +265,14 @@ The drizzle adapter collapses the writes into one `INSERT` and one `DELETE` - th
 needs `or` in the adapter's `ops`, and revokes row by row without it. Adapters with no
 set-based form loop, so every adapter supports every batch form.
 
+Each outcome carries the row it answers, so nothing has to parse an id back into a triple,
+and two structurally identical rows stay separate entries:
+
+```typescript
+const result = await engine.admin.assignRoles(rows)
+result.outcomes.map((o) => o.row) // the rows you passed in, same objects, same order
+```
+
 Both role writes are idempotent, so every row is `ok`: granting a role a subject already
 holds is success, not a miss, exactly as the single-row `assignRole` treats it. `changed`
 carries the finer answer:
@@ -280,12 +288,18 @@ if (outcome?.ok) outcome.value.changed // false - this call is not what put it t
 
 | `changed` | Meaning |
 |---|---|
-| `true` | this call wrote the row |
-| `false` | the row was already in the requested state |
+| `true` | this row accounts for a write the statement made |
+| `false` | the row was already in the requested state, or an earlier row of the batch already accounts for that write |
 | absent | the adapter could not say, and did not guess |
 
 It is absent on MySQL, which has no `RETURNING`, and on every adapter that loops the
 single-row methods, which return `void`. Neither pays for an extra read to find out.
+
+Every write is credited to exactly one row - the first that accounts for it. Listing the
+same triple twice reports `true` then `false` rather than both rows claiming a write the
+database made once, and revoking `{u1, admin}` alongside `{u1, admin, scope: 'org-1'}` credits
+the wildcard row, which already covers the narrower one. Neither is rejected; both are
+answered honestly.
 
 ### Operability
 

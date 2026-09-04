@@ -19,7 +19,7 @@ import type { Batch } from '../../batch'
 import { IamEngine } from '../engine'
 
 /** The `changed` flag of every outcome, in input order. `null` marks a failed row. */
-function changedFlags(result: Batch.Result<Batch.Change>): (boolean | undefined | null)[] {
+function changedFlags<TRow>(result: Batch.Result<TRow, Batch.Change>): (boolean | undefined | null)[] {
   return result.outcomes.map((o) => (o.ok ? o.value.changed : null))
 }
 
@@ -192,6 +192,47 @@ suite('E2E IamEngine.withTransaction on real Postgres', () => {
       expect(result.applied).toBe(3)
       expect(changedFlags(result)).toEqual([true, false, true])
       expect(await assignmentCount()).toBe(3)
+    })
+
+    it('credits a write once when the batch names it twice', async () => {
+      // Both rows are `ok` - the grant is in place - but one INSERT happened,
+      // so only the first row is credited with making it. This runs the `or`
+      // path, one statement for the whole list.
+      const result = await engine.admin.assignRoles([
+        { roleId: 'admin', subjectId: 'c5' },
+        { roleId: 'admin', subjectId: 'c5' },
+      ])
+
+      expect(result.applied).toBe(2)
+      expect(changedFlags(result)).toEqual([true, false])
+      expect(await assignmentCount()).toBe(1)
+    })
+
+    it('credits a subsuming revoke, not the narrower row it already covers', async () => {
+      await engine.admin.assignRoles([{ roleId: 'admin', scope: 'org-1', subjectId: 'c6' }])
+
+      // The first row revokes the role in every scope, so it already accounts
+      // for the grant the second row names.
+      const result = await engine.admin.revokeRoles([
+        { roleId: 'admin', subjectId: 'c6' },
+        { roleId: 'admin', scope: 'org-1', subjectId: 'c6' },
+      ])
+
+      expect(changedFlags(result)).toEqual([true, false])
+      expect(await assignmentCount()).toBe(0)
+    })
+
+    it('hands each outcome back the row it answers', async () => {
+      const rows = [
+        { roleId: 'admin' as const, subjectId: 'c7' },
+        { roleId: 'viewer' as const, scope: 'org-1', subjectId: 'c8' },
+      ]
+      const result = await engine.admin.assignRoles(rows)
+
+      // The row travels with its outcome, so nothing has to parse an id back
+      // into a triple - and two structurally identical rows stay distinct.
+      expect(result.outcomes.map((o) => o.row)).toEqual(rows)
+      expect(result.outcomes[0]?.row).toBe(rows[0])
     })
 
     it('revokeRoles reports changed only for triples that were granted', async () => {

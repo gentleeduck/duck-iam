@@ -147,9 +147,12 @@ result.failed   // 1
 result.outcomes // one entry per input row, in input order
 ```
 
-Every outcome is either `{ id, ok: true, value }` or `{ id, ok: false, reason }`. duck-auth
-reports `stale-write`, `not-found` or `skipped`; duck-iam has no optimistic-lock race to
-lose, so it reports `not-found` or `skipped`.
+Every outcome is either `{ ok: true, value }` or `{ ok: false, reason }`, plus a handle on
+the row it answers. duck-auth carries an `id`, which is a real single-field key there.
+duck-iam carries the `row` itself, because a role assignment is identified by a
+`(subject, role, scope)` triple and squeezing three free-form strings into one key is either
+ambiguous or unreadable. duck-auth reports `stale-write`, `not-found` or `skipped`; duck-iam
+has no optimistic-lock race to lose, so it reports `not-found` or `skipped`.
 
 **duck-auth** offers `softDeleteMany`, `restoreMany`, `eraseMany`, `updateProfileMany`,
 `linkMany` and `unlinkMany` on `identities`; `revokeAllForIdentities` and `revokeByHashes`
@@ -181,9 +184,15 @@ if (outcome?.ok) outcome.value.changed // false - this call is not what put it t
 
 | `changed` | Meaning |
 |---|---|
-| `true` | this call wrote the row |
-| `false` | the row was already in the requested state |
+| `true` | this row accounts for a write the statement made |
+| `false` | the row was already in the requested state, or an earlier row of the batch already accounts for that write |
 | absent | the adapter could not say, and did not guess |
+
+Every write is credited to exactly one row -- the first that accounts for it. Listing the
+same triple twice reports `true` then `false` rather than both rows claiming a write the
+database made once, and revoking `{u1, admin}` alongside `{u1, admin, scope: 'org-1'}`
+credits the wildcard row, which already covers the narrower one. Neither batch is rejected;
+both are answered honestly.
 
 <Callout type="info">
 `changed` is read off a `RETURNING` clause on the write itself, so it costs nothing: the

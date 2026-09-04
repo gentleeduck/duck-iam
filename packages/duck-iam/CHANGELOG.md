@@ -1,5 +1,63 @@
 # @gentleduck/iam
 
+## 5.8.0
+
+### Minor Changes
+
+- 7202aa1: **Breaking:** scoped permission keys are now prefixed with `@`.
+
+  `iamBuildPermissionKey` previously emitted `scope:action:resource[:resourceId]`, which is ambiguous with the unscoped `action:resource:resourceId` form - a three-segment key could not be parsed back without knowing which shape produced it, so a scope could be read as a resource id and vice versa. Scoped keys now carry an explicit `@` marker:
+
+  - `org-1:manage:billing` becomes `@org-1:manage:billing`
+  - `org-1:update:post:post-42` becomes `@org-1:update:post:post-42`
+
+  Unscoped keys are unchanged. A literal leading `@` in a segment is escaped as `\@`, and `iamSplitPermissionKey` understands the escape. The new `iamParsePermissionKey` returns `{ scope, action, resource, resourceId }` or `null`, so consumers no longer have to split keys by hand.
+
+  Anything that hardcodes a scoped key string - client-side permission maps, cached `can()` results keyed by string, fixtures - needs the `@` added.
+
+### Patch Changes
+
+- 2e5f5dc: Fix `resolveSubject` mistagging a role reached through cross-scope inheritance with the source assignment's scope instead of the role's own declared scope. A role assigned at one scope that `.inherits()` a role defined at another scope (e.g. a company-level role inheriting a marketplace-level role) had the inherited role silently invisible at the scope it actually belongs to - `enrichSubjectWithScopedRoles` filtered it out because it carried the wrong scope tag, so a policy check at the inherited-into scope only ever saw whatever lower-privilege role was directly assigned there, if any.
+
+  Each role visited during the inheritance walk is now tagged with its own `IRole.scope`, falling back to the assignment row's scope only when the role declares none of its own - a no-op for roles with no cross-scope inheritance.
+
+- 5c96bd5: Fix two places where a rule that was correct in development silently stopped applying in production.
+
+  **`first-match` / `highest-priority` disagreed between the two evaluation paths on a priority tie.** Both algorithms resolve equal priorities by source order. The interpreter walks `policy.rules` directly and honoured that, but `evaluatePolicyFast` walks the rule index, which buckets literal-resource rules separately from wildcard-resource ones and visits the literal bucket first. A `deny read '*'` declared before an `allow read 'post'` at the same priority therefore denied under `mode: 'development'` and allowed under `mode: 'production'` - the deny disappeared exactly where it mattered most. `Evaluate.IIndexedRule` now carries the rule's index in `policy.rules`, and both tie-break sites in the fast path compare it, so bucket order no longer leaks into the decision. `deny-overrides` and `allow-overrides` were never affected; they are order independent.
+
+  The `evaluate == evaluateFast` property oracle covered this shape in principle but drew priorities from 20 values, making ties too rare to hit it. It now draws from 4, so collisions are the common case.
+
+  **The condition-nesting limit was off by one between the validator and the evaluator.** `evalConditionGroup` refuses a group at `depth >= MAX_CONDITION_DEPTH` and fails closed, while `validateConditionGroup` only errored at `depth > MAX_CONDITION_DEPTH`. A group nested exactly at the boundary therefore validated cleanly and then never matched. On an allow rule that merely failed closed, but a deny rule at that depth passed validation and silently stopped denying. Both comparisons are now `>=`, so anything the evaluator will refuse is reported as `LIMIT_EXCEEDED` up front.
+
+- ec678af: Evaluation errors are now Indeterminate and fail closed instead of being silently skipped.
+
+  A condition that threw - an unknown operator, a malformed `all`/`any`/`none` group, a regex rejected for being unsafe - was caught and treated as "policy does not apply", which quietly retired the deny rule that condition was guarding. An error inside a policy or compiled cell that carries a deny rule now vetoes the request. Allow-only policies and RBAC role permissions still skip, since an error there cannot grant anything.
+
+  Also in this release:
+
+  - `matches` uses a real catastrophic-backtracking detector instead of a naive nested-quantifier regex, and checks the compiled-pattern cache before running it.
+  - Unknown condition operators and non-array condition groups throw a prefixed error rather than a raw `TypeError`.
+  - HTTP method-to-action and pathname normalisation reject `//admin` and `/%61dmin` style bypasses; unknown methods and unresolvable resources map to explicit `IAM_UNKNOWN_ACTION` / `IAM_UNKNOWN_RESOURCE` instead of a permissive default.
+  - User-Agent is capped at 2048 characters before it reaches the environment attributes.
+  - The file adapter writes atomically via tmp-file + rename and serialises concurrent flushes; the redis adapter rejects an empty scope; the drizzle adapter rejects non-finite assignment bounds.
+  - `preload()` builds the compiled table in production so a compile error surfaces at startup, and `healthCheck()` awaits it.
+  - `pathCache` is no longer exported from `src/core/resolve`.
+
+- 7a1ce88: `IamEngine.withTransaction(client)` binds reads and writes to a transaction you own, and `admin` gained batch forms that report per-row outcomes.
+
+  The client is opaque to the library and handed straight back to your adapter. Writes go through `.admin`, the same interface as `engine.admin`, so there is one write surface rather than two. Reads on the bound view run against caches created for that transaction alone: an empty cache always misses through to the transaction-bound adapter, which is what makes a read-after-write inside the transaction correct, and the shared engine keeps answering from its own warm caches, which the transaction never pollutes.
+
+  Cache invalidations - including the `config.invalidator` fleet broadcast - buffer in `pending`, de-duplicated, and fire on `flush()`. A rolled-back grant therefore never evicts another node's cache for a write that did not happen. The bound view drops the invalidator rather than reusing the parent's, so a facade built per transaction cannot leak a subscription; buffered entries broadcast through the parent engine on flush.
+
+  Also in this release:
+
+  - `admin` gained `assignRoles`, `revokeRoles`, `moveRoleScopes` and `invalidateSubjects`. Every row is validated before any is written, so a malformed row aborts the batch instead of half-applying it, and each affected subject is invalidated once however many rows named it.
+  - Each outcome carries the `row` it answers rather than an id derived from it. A role assignment is identified by a `(subject, role, scope)` triple of free-form strings, and every encoding of three of those into one key is either ambiguous or unreadable - joining them with a space collided whenever an id contained one, and nothing rejects a space in a subject id. Outcomes stay in input order, so matching by index is exact too.
+  - Both role writes are idempotent, so every row is `ok` - granting a role a subject already holds is success, matching the single-row method. Outcomes carry `changed` for the finer answer: `true` when the row accounts for a write the statement made, `false` when it was already in the requested state, and absent where the adapter could not say. It is read off a `RETURNING` clause on the write itself, so it costs no extra round trip; MySQL, which has no `RETURNING`, and adapters that loop the `void`-returning single-row methods leave it off rather than guess.
+  - Every write is credited to exactly one row, the first that accounts for it. Listing the same triple twice reports `true` then `false` rather than both rows claiming a write the database made once, and revoking a role unscoped alongside a scoped row it already covers credits the wildcard. Neither batch is rejected.
+  - The drizzle adapter collapses the writes into one `INSERT` and one `DELETE`. The `DELETE` needs `or` in the adapter's `ops` and revokes row by row without it.
+  - The adapter contract gained an optional `withClient`. An adapter that cannot join a transaction makes `withTransaction` throw rather than silently leaving those writes outside it.
+
 ## 5.7.0
 
 ### Minor Changes
