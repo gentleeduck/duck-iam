@@ -4,10 +4,22 @@
  * device is unavailable. Codes are stored hashed (sha-256) against
  * `Credential.kind = 'recovery'`; plaintext is returned to the caller
  * exactly once at generation time.
+ *
+ * `recovery` is shared by six unrelated token families - see
+ * {@link RECOVERY_PURPOSES} - so every read and every delete here is filtered on
+ * `metadata.purpose`. Without that filter this facet wiped the user's pending
+ * password reset every time it minted codes, and offered their verification and
+ * trusted-device tokens to `verify` as candidate second factors.
  */
 
 import { randomBytes } from 'node:crypto'
-import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
+import {
+  deleteCredentialsByPurpose,
+  getCredentialPurpose,
+  isRevoked,
+  RECOVERY_PURPOSES,
+  toCredentialUpsert,
+} from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { timingSafeEqual } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
@@ -50,6 +62,13 @@ function generateBackupCode(_crypto: { authRandomToken(b: number): string }, len
   return out
 }
 
+/**
+ * The `metadata.purpose` every row this facet writes carries, and the filter
+ * every row it reads has to pass. Shared with `MfaImpl`, which mints backup
+ * codes of its own against the same column.
+ */
+const BACKUP_CODE_PURPOSE = RECOVERY_PURPOSES.mfaBackupCode
+
 export const DEFAULT_BACKUP_CODES_CONFIG: BackupCodesFacet.Cfg = {
   count: 10,
   byteLength: 5,
@@ -75,11 +94,13 @@ export class BackupCodesFacet {
   /**
    * Generate + persist `count` fresh backup codes for `identityId`.
    * Returns the plaintext array exactly once. Calling generate again
-   * REPLACES any prior set - the existing codes are wiped via
-   * `deleteByKind`.
+   * REPLACES any prior set - and only that set. This used to be a
+   * `deleteByKind(identityId, 'recovery')`, which also took out any reset,
+   * verification, deletion, signup or trusted-device token the identity was
+   * holding at the time.
    */
   async generate(identityId: string, ctx: TenantContext = {}): Promise<{ codes: string[] }> {
-    await this._credentials.deleteByKind(identityId, 'recovery', ctx)
+    await deleteCredentialsByPurpose(this._credentials, identityId, 'recovery', BACKUP_CODE_PURPOSE, ctx)
     const codes: string[] = []
     for (let i = 0; i < this._cfg.count; i++) {
       const mapped = generateBackupCode(this._crypto, 8)
@@ -90,7 +111,7 @@ export class BackupCodesFacet {
           identityId,
           kind: 'recovery',
           secret: this._crypto.authSha256(formatted),
-          metadata: { issuedAt: Date.now() },
+          metadata: { purpose: BACKUP_CODE_PURPOSE, issuedAt: Date.now() },
         }),
         ctx,
       )
@@ -104,7 +125,7 @@ export class BackupCodesFacet {
    */
   async remaining(identityId: string, ctx: TenantContext = {}): Promise<number> {
     const rows = await this._credentials.listByIdentity(identityId, 'recovery', ctx)
-    return rows.filter((r) => !isRevoked(r)).length
+    return rows.filter((r) => getCredentialPurpose(r) === BACKUP_CODE_PURPOSE && !isRevoked(r)).length
   }
 
   /**
@@ -128,7 +149,8 @@ export class BackupCodesFacet {
     // would leak which row matched (and if any did) via timing.
     let matchedId: string | null = null
     for (const cred of matches) {
-      const hit = !isRevoked(cred) && timingSafeEqual(cred.secret, hash)
+      const hit =
+        getCredentialPurpose(cred) === BACKUP_CODE_PURPOSE && !isRevoked(cred) && timingSafeEqual(cred.secret, hash)
       if (hit && matchedId === null) matchedId = cred.id
     }
     if (matchedId === null) return false
@@ -139,10 +161,11 @@ export class BackupCodesFacet {
 
   /**
    * Wipe every backup code for an identity. Caller invokes during MFA
-   * reset / account wipe.
+   * reset / account wipe. Backup codes only - an MFA reset is not a reason to
+   * cancel the reset token the user is holding in their inbox.
    */
   async revokeAll(identityId: string, ctx: TenantContext = {}): Promise<void> {
-    await this._credentials.deleteByKind(identityId, 'recovery', ctx)
+    await deleteCredentialsByPurpose(this._credentials, identityId, 'recovery', BACKUP_CODE_PURPOSE, ctx)
   }
 
   /** Match the format generate() emits so verify() finds the hash. */

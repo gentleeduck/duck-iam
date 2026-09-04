@@ -1,5 +1,14 @@
 import { resolveCompliance } from '~/core/compliance'
-import { isProfileBooleanTrue, toCredentialUpsert } from '~/core/credentials/credentials'
+import {
+  deleteCredentialsByPurpose,
+  getCredentialPurpose,
+  getProfileNumber,
+  getProfileString,
+  isProfileBooleanFalse,
+  isProfileBooleanTrue,
+  RECOVERY_PURPOSES,
+  toCredentialUpsert,
+} from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { sha256, timingSafeEqual } from '~/core/crypto'
 import type { AuthEngine } from '~/core/engine'
@@ -21,7 +30,14 @@ import type { Mfa } from './mfa.types'
  * `kind: 'totp'`, base32 plaintext (low-sensitivity vs passwords because
  * a stolen TOTP secret still requires the user's phone to be online during
  * the attack window - and rotation is one-click). Backup codes are
- * persisted hashed as `kind: 'recovery'`, single-use.
+ * persisted hashed as `kind: 'recovery'` with
+ * `metadata.purpose: 'mfa-backup-code'`, single-use.
+ *
+ * That purpose is load-bearing, not decoration. `recovery` is shared by six
+ * token families ({@link RECOVERY_PURPOSES}); reading or deleting the kind
+ * without filtering on the purpose is how regenerating backup codes used to
+ * void a pending password reset, and how a trusted-device token used to be a
+ * candidate second factor.
  */
 export class MfaImpl {
   readonly id = 'mfa'
@@ -101,7 +117,7 @@ export class MfaImpl {
     ctx: TenantContext = {},
   ): Promise<{ ok: true; backupCodes: string[] } | { ok: false }> {
     const rows = await this._credentials.listByIdentity(identityId, 'totp', ctx)
-    const row = rows.find((r) => (r.metadata as Mfa.TotpMetadata | undefined)?.confirmed === false)
+    const row = rows.find((r) => isProfileBooleanFalse(r.metadata, 'confirmed'))
     if (!row) throw new AuthError('AUTH_MFA_REQUIRED', { methods: ['totp'] })
     const step = matchTotpStep(row.secret, code)
     if (step === null) return { ok: false }
@@ -134,8 +150,8 @@ export class MfaImpl {
     const step = matchTotpStep(row.secret, code)
     if (step === null) return false
 
-    const lastStep = (row.metadata as Mfa.TotpMetadata | undefined)?.lastTotpStep
-    if (typeof lastStep === 'number' && step <= lastStep) return false
+    const lastStep = getProfileNumber(row.metadata, 'lastTotpStep')
+    if (lastStep !== undefined && step <= lastStep) return false
 
     await this._credentials.patchMetadata(row.id, { lastTotpStep: step }, ctx)
     return true
@@ -179,6 +195,9 @@ export class MfaImpl {
     // timing signal an attacker could use to recover the short code.
     let matched: Credential.Me | undefined
     for (const r of rows) {
+      // Backup codes only. The other five `recovery` purposes are tokens the
+      // user holds for entirely different reasons; none of them is a factor.
+      if (getCredentialPurpose(r) !== RECOVERY_PURPOSES.mfaBackupCode) continue
       if (r.revokedAt == null && timingSafeEqual(r.secret, codeHash) && matched === undefined) {
         matched = r
       }
@@ -194,7 +213,10 @@ export class MfaImpl {
   }
 
   private async _regenerateBackupCodes(identityId: string, ctx: TenantContext): Promise<string[]> {
-    await this._credentials.deleteByKind(identityId, 'recovery', ctx)
+    // By purpose, not by kind: regenerating codes replaces the codes, and leaves
+    // the identity's reset / verification / deletion / signup / trusted-device
+    // tokens where they were.
+    await deleteCredentialsByPurpose(this._credentials, identityId, 'recovery', RECOVERY_PURPOSES.mfaBackupCode, ctx)
     const codes: string[] = []
     for (let i = 0; i < this._cfg.backupCodeCount; i++) {
       const code = this._randomBackupCode()
@@ -204,6 +226,7 @@ export class MfaImpl {
           identityId,
           kind: 'recovery',
           secret: sha256(code.toLowerCase()),
+          metadata: { purpose: RECOVERY_PURPOSES.mfaBackupCode },
         }),
         ctx,
       )
@@ -406,8 +429,9 @@ export class MfaImpl {
     if (distinct.has('passkey')) {
       const passkeys = await this._credentials.listByIdentity(identityId, 'passkey', ctx)
       const hardwareBound = passkeys.some((c) => {
-        const m = c.metadata as Mfa.PasskeyMetadata | undefined
-        return m?.deviceType === 'singleDevice' && m.backedUp === false
+        return (
+          getProfileString(c.metadata, 'deviceType') === 'singleDevice' && isProfileBooleanFalse(c.metadata, 'backedUp')
+        )
       })
       if (hardwareBound) return 3
     }

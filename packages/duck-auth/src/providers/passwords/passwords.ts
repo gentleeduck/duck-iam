@@ -2,6 +2,7 @@ import { resolveCompliance } from '~/core/compliance'
 import { isRevoked, toCredentialUpsert } from '~/core/credentials/credentials'
 import type { Credential } from '~/core/credentials/credentials.types'
 import { AuthError } from '~/core/errors'
+import { refuseRateLimited } from '~/core/events/events.lockout'
 import type { Identities } from '~/core/identities'
 import type { Provider } from '~/core/provider/provider.types'
 import type { TenantContext } from '~/core/tenant'
@@ -172,15 +173,20 @@ export class PasswordsImpl<Profile extends Identities.ProfileMetadataBase = Iden
     // would let `A@x.com` and `a@x.com` register/sign-in as distinct
     // accounts.
     const emailCanonical = email.trim().toLowerCase()
+    // Above the limiter, unlike everywhere else, so a refusal can say whose
+    // account is being ground. This is the bucket `lockout` was invented for -
+    // repeated failed sign-ins against one address - and an event with no
+    // subject is a page an operator cannot act on.
+    //
+    // It costs a refused request one indexed read that the limiter used to shed.
+    // Worth it here and nowhere else: the read is a fraction of the argon2
+    // verification below, which is the cost the guard actually exists to stop,
+    // and the happy path is unchanged - it made this same call one line later.
+    const identity = await ctx.stores.identities.findByEmail(emailCanonical)
     const limitKey = `${this.cfg.limiterKeyPrefix}${emailCanonical}`
     const limited = await ctx.limiter.consume(limitKey)
-    if (!limited.ok) {
-      throw new AuthError('AUTH_RATE_LIMITED', {
-        retryAfter: Math.max(0, Math.ceil((limited.resetAt.getTime() - Date.now()) / 1000)),
-      })
-    }
+    if (!limited.ok) await refuseRateLimited(ctx.events, limited, identity?.id ?? null)
 
-    const identity = await ctx.stores.identities.findByEmail(emailCanonical)
     // ALWAYS run verify (even with no matching identity) to keep timing constant.
     const verifyResult = identity
       ? await this.verify(identity.id, pw, ctx.stores.credentials, ctx.tenant)
