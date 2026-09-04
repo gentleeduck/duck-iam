@@ -271,8 +271,11 @@ carries the finer answer:
 
 ```typescript
 const again = await engine.admin.assignRoles([{ subjectId: 'u1', roleId: 'admin' }])
-again.applied                  // 1  - the grant is in place
-again.outcomes[0].value.changed // false - but this call is not what put it there
+again.applied // 1 - the grant is in place
+
+// `Outcome` is a discriminated union, so narrow on `ok` before reading `value`.
+const [outcome] = again.outcomes
+if (outcome?.ok) outcome.value.changed // false - this call is not what put it there
 ```
 
 | `changed` | Meaning |
