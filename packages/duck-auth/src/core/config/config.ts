@@ -40,32 +40,19 @@ export function createAuth<
 
   const transport = config.transport ?? new CookieTransport({ name: 'duck-sid' })
 
-  // Engine-config knobs are genuinely optional tuning (not stored data), so they
-  // stay optional and pass straight through; the `...(x !== undefined && {x})`
-  // spread guard was noise, not safety (`exactOptionalPropertyTypes: false`).
+  // Every `Engine.Cfg` key, by construction. Copying them across by hand is
+  // what this used to do, and it dropped three: `idempotency` (the engine fell
+  // back to MemoryIdempotency and `strict()` then refused to boot production),
+  // `captcha`, and `resolveActor` - so a host that wired an actor resolver the
+  // documented way wrote audit rows with no actor on them. Each one type-checks
+  // on the way in, because `AuthDefine.Cfg` inherits the key, and then goes
+  // nowhere. A spread cannot forget a key that is added later.
+  //
+  // `plugins`, `oauth` and `strict` ride along and the engine never reads them:
+  // the first two are refused above, and `strict` is applied below.
   const rootCfg: Engine.Cfg<Profile, Tenant, OrgMeta> = {
-    baseUrl: config.baseUrl,
-    stores: {
-      credentials: config.stores.credentials,
-      identities: config.stores.identities,
-      sessions: config.stores.sessions,
-      orgs: config.stores.orgs,
-    },
+    ...config,
     transport,
-    limiter: config.limiter,
-    // Inherited from Engine.Cfg, so a caller can always pass it and it type-checks.
-    // Forgetting it here dropped it silently: the engine fell back to
-    // MemoryIdempotency and strict() then refused to boot production.
-    idempotency: config.idempotency,
-    events: config.events,
-    session: config.session,
-    identities: config.identities,
-    hijack: config.hijack,
-    anomaly: config.anomaly,
-    // Provider registration (incl. thunk resolution) happens in the engine
-    // constructor, so `new AuthEngine` and `createAuth` behave identically.
-    providers: config.providers,
-    channels: config.channels,
   }
 
   const auth = new AuthEngine<Profile, Tenant, OrgMeta>(rootCfg)
