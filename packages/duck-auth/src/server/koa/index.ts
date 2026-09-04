@@ -11,10 +11,12 @@
  *   router.post('/AUTH/providers/:id/begin', koaProviderBegin(auth))
  */
 
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
@@ -23,6 +25,8 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 import type { KoaAdapter } from './koa.types'
@@ -74,7 +78,7 @@ export function koaSignIn(auth: AuthEngine): KoaAdapter.Handler {
       }
       const result = await auth.flows.signIn({
         ...parsed,
-        ...callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] }),
+        ...koaCaller(ctx),
       })
       await forward(executeIntents(result.intents), ctx)
     } catch (err) {
@@ -141,6 +145,48 @@ export function koaProviderBegin(auth: AuthEngine): KoaAdapter.Handler {
 }
 
 /** CSRF guard for your own routes: `app.use(koaCsrf(auth))`. Skips `next` on failure. */
+/**
+ * Bind the request's actor scope for everything downstream. Without it a write
+ * a request drives records `created_by` / `updated_by` / `deleted_by` as `null`,
+ * because nothing else in the package opens the scope the stores read.
+ *
+ * Install it above your own routes, alongside the CSRF guard. Anonymous
+ * requests and unresolvable sessions run unbound, which is the honest `null`;
+ * while impersonating, the operator behind `actingAs` is the actor, not the
+ * account being acted on.
+ */
+/** The fingerprint Koa resolved, the same pair {@link koaSignIn} stamps at sign-in. */
+export function koaCaller(ctx: KoaAdapter.Context): CallerFingerprint {
+  return callerContext({ ip: ctx.request.ip, userAgent: ctx.request.headers['user-agent'] })
+}
+
+/**
+ * Options for the actor-context wrapper.
+ *
+ * `getCaller` is the opt-in: omit it and the wrapper is what it has always been, an attribution
+ * scope that refuses nothing. Supply it - {@link koaCaller} reads the same values the sign-in
+ * route already stamps onto the session - and every request's fingerprint is compared with the
+ * session's, running the anomaly detectors and the hijack policy. Switching that on in a live
+ * deployment starts acting on IP and User-Agent drift for sessions already issued.
+ */
+export type KoaActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (ctx: KoaAdapter.Context) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+export function koaActorContext(auth: AuthEngine, opts: KoaActorOptions = {}): KoaAdapter.Middleware {
+  return async (ctx, next) => {
+    await withRequestActor(
+      auth,
+      { headers: toFetchHeaders(ctx.request.headers) },
+      () => next(),
+      requestSecurity(auth, { ...(opts.onHijack && { onHijack: opts.onHijack }), caller: opts.getCaller?.(ctx) ?? {} }),
+    )
+  }
+}
+
 export function koaCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): KoaAdapter.Middleware {
   return async (ctx, next) => {
     try {

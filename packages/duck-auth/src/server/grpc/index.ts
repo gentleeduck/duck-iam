@@ -10,6 +10,7 @@
  * module ships the interceptor + handler factories only.
  */
 
+import { withResolvedActor } from '~/core/actor'
 import type { AuthEngine } from '~/core/engine'
 import { AuthError } from '~/core/errors'
 
@@ -85,12 +86,19 @@ export function withGrpc<Req, Res>(
             })
             return
           }
-        } else {
-          call.session = resolved.session
-          // Adapter is profile-agnostic; store the resolved identity opaquely.
-          call.identity = resolved.identity as GrpcAdapter.UnaryCall['identity']
+          handler(call, callback)
+          return
         }
-        handler(call, callback)
+        call.session = resolved.session
+        // Adapter is profile-agnostic; store the resolved identity opaquely.
+        call.identity = resolved.identity as GrpcAdapter.UnaryCall['identity']
+        // Bound here rather than in a separate wrapper: the session is already
+        // resolved, and a write the handler drives records a `null` actor
+        // without it. The handler starts synchronously inside the scope, so its
+        // async continuations inherit the binding.
+        await withResolvedActor(resolved.session, async () => {
+          handler(call, callback)
+        })
       } catch (err) {
         if (err instanceof AuthError) {
           callback({

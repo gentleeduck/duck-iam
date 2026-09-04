@@ -1,7 +1,9 @@
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   executeIntents,
@@ -9,13 +11,12 @@ import {
   parseBodyStringField,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
 } from '../generic'
 
 /** Hono exposes no resolved address, so `ctx.ip` is whatever the app chose to put there. */
-function honoCaller(ctx: { ip?: string; req: { header: (n?: string) => unknown } }): {
-  ip?: string
-  userAgent?: string
-} {
+export function honoCaller(ctx: { ip?: string; req: { header: (n?: string) => unknown } }): CallerFingerprint {
   const ua = ctx.req.header('user-agent')
   return callerContext({ ip: ctx.ip, userAgent: typeof ua === 'string' ? ua : undefined })
 }
@@ -296,6 +297,44 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 /** CSRF guard for your own routes: `app.use('*', honoCsrf(auth))`. */
+/**
+ * Bind the request's actor scope for everything downstream. Without it a write
+ * a request drives records `created_by` / `updated_by` / `deleted_by` as `null`,
+ * because nothing else in the package opens the scope the stores read.
+ *
+ * Install it above your own routes, alongside the CSRF guard. Anonymous
+ * requests and unresolvable sessions run unbound, which is the honest `null`;
+ * while impersonating, the operator behind `actingAs` is the actor, not the
+ * account being acted on.
+ */
+/**
+ * Options for the actor-context wrapper.
+ *
+ * `getCaller` is the opt-in: omit it and the wrapper is what it has always been, an attribution
+ * scope that refuses nothing. Supply it - {@link honoCaller} reads the same values the sign-in
+ * route already stamps onto the session - and every request's fingerprint is compared with the
+ * session's, running the anomaly detectors and the hijack policy. Switching that on in a live
+ * deployment starts acting on IP and User-Agent drift for sessions already issued.
+ */
+export type HonoActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (ctx: HonoAdapter.Context) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+export function honoActorContext(auth: AuthEngine, opts: HonoActorOptions = {}): HonoAdapter.Middleware {
+  return async (ctx, next) => {
+    await withRequestActor(
+      auth,
+      { headers: ctx.req.raw.headers },
+      () => next(),
+      requestSecurity(auth, { ...(opts.onHijack && { onHijack: opts.onHijack }), caller: opts.getCaller?.(ctx) ?? {} }),
+    )
+    return undefined
+  }
+}
+
 export function honoCsrf(auth: AuthEngine, opts: Csrf.GuardOptions = {}): HonoAdapter.Middleware {
   return async (ctx, next) => {
     try {

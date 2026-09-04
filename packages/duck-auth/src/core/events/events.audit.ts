@@ -7,6 +7,7 @@ import type { Events } from './events.types'
 const AUDITED_EVENTS: Record<Events.AuditedEvent, true> = {
   'identity.linked': true,
   'identity.merged': true,
+  'identity.unlinked': true,
   lockout: true,
   'mfa.enrolled': true,
   'mfa.removed': true,

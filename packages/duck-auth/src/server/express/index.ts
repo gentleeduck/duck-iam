@@ -1,8 +1,10 @@
+import { withRequestActor } from '~/core/actor'
 import type { Csrf } from '~/core/csrf'
 import { csrfGuard } from '~/core/csrf'
 import type { AuthEngine } from '~/core/engine'
 import type { Provider } from '~/core/provider/provider.types'
 import {
+  type CallerFingerprint,
   callerContext,
   errorToHttp,
   isSafeRedirectUrl,
@@ -10,6 +12,8 @@ import {
   nodeHeadersToFetch,
   parseProviderBeginBody,
   parseSignInBody,
+  type RequestSecurityOptions,
+  requestSecurity,
   serializeCookie,
 } from '../generic'
 
@@ -81,7 +85,7 @@ export function mountSignIn(auth: AuthEngine): ExpressAdapter.Handler {
       }
       const result = await auth.flows.signIn({
         ...parsed,
-        ...callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] }),
+        ...expressCaller(req),
       })
       applyIntents(result.intents, res, 200)
     } catch (err) {
@@ -160,6 +164,52 @@ function providerIdFromUrl(url: string, suffix: string): string | null {
   if (parts.length < 4) return null
   if (parts[parts.length - 1] !== suffix) return null
   return parts[parts.length - 2] ?? null
+}
+
+/**
+ * Bind the request's actor scope for everything downstream. Without it a write
+ * a request drives records `created_by` / `updated_by` / `deleted_by` as `null`,
+ * because nothing else in the package opens the scope the stores read.
+ *
+ * Install it above your own routes, alongside the CSRF guard. Anonymous
+ * requests and unresolvable sessions run unbound, which is the honest `null`;
+ * while impersonating, the operator behind `actingAs` is the actor, not the
+ * account being acted on.
+ */
+/** The fingerprint Express resolved, the same pair {@link expressSignIn} stamps at sign-in. */
+export function expressCaller(req: ExpressAdapter.Request): CallerFingerprint {
+  return callerContext({ ip: req.ip, userAgent: req.headers['user-agent'] })
+}
+
+/**
+ * Options for the actor-context wrapper.
+ *
+ * `getCaller` is the opt-in: omit it and the wrapper is what it has always been, an attribution
+ * scope that refuses nothing. Supply it - {@link expressCaller} reads the same values the sign-in
+ * route already stamps onto the session - and every request's fingerprint is compared with the
+ * session's, running the anomaly detectors and the hijack policy. Switching that on in a live
+ * deployment starts acting on IP and User-Agent drift for sessions already issued.
+ */
+export type ExpressActorOptions = {
+  /** Read the request fingerprint. Never from a forwarded header: see `callerContext`. */
+  getCaller?: (req: ExpressAdapter.Request) => CallerFingerprint
+  /** Handle drift yourself, including the `'rotate'` reaction the wrapper cannot perform. */
+  onHijack?: RequestSecurityOptions['onHijack']
+}
+
+export function expressActorContext(auth: AuthEngine, opts: ExpressActorOptions = {}): ExpressAdapter.Middleware {
+  return async (req, _res, next) => {
+    // `next()` is synchronous, so the downstream chain starts inside the scope
+    // and every async continuation of it inherits the binding.
+    await withRequestActor(
+      auth,
+      { headers: toHeaders(req.headers) },
+      async () => {
+        next()
+      },
+      requestSecurity(auth, { ...(opts.onHijack && { onHijack: opts.onHijack }), caller: opts.getCaller?.(req) ?? {} }),
+    )
+  }
 }
 
 /**
