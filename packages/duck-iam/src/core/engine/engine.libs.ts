@@ -1,4 +1,4 @@
-import { batchResult, loopFallback, outcomesFromAffected, tripleKey } from '../batch'
+import { appliedRows, batchResult, loopFallback, tripleKey } from '../batch'
 import type { AccessControl, IamAdapter, IamPrimitives, IamRequest } from '../types'
 import type { IamValidate } from '../validate/validate.types'
 import type { IamEngineTypes } from './engine.types'
@@ -393,21 +393,23 @@ export function createAdmin<
       // Bound, not destructured: the adapter may be a class instance whose
       // method needs its `this`.
       const assignRoleMany = adapter.assignRoleMany?.bind(adapter)
-      const result = assignRoleMany
-        ? outcomesFromAffected(rows, await assignRoleMany(rows), tripleOf)
-        : await loopFallback(rows, tripleOf, (r) => adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts))
+      // `null` means "written, but I cannot say which rows moved". The loop
+      // path is in that position by construction: `assignRole` returns void.
+      let changed: readonly IamEngineTypes.ITripleRow<TRole, TScope>[] | null = null
+      if (assignRoleMany) changed = await assignRoleMany(rows)
+      else for (const r of rows) await adapter.assignRole(r.subjectId, r.roleId, r.scope, r.opts)
       invalidateEach(rows)
-      return result
+      return appliedRows(rows, changed, tripleOf)
     },
     async revokeRoles(rows: readonly IamEngineTypes.ITripleRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])
       for (const r of rows) assertTriple(r.subjectId, r.roleId, r.scope)
       const revokeRoleMany = adapter.revokeRoleMany?.bind(adapter)
-      const result = revokeRoleMany
-        ? outcomesFromAffected(rows, await revokeRoleMany(rows), tripleOf)
-        : await loopFallback(rows, tripleOf, (r) => adapter.revokeRole(r.subjectId, r.roleId, r.scope))
+      let changed: readonly IamEngineTypes.ITripleRow<TRole, TScope>[] | null = null
+      if (revokeRoleMany) changed = await revokeRoleMany(rows)
+      else for (const r of rows) await adapter.revokeRole(r.subjectId, r.roleId, r.scope)
       invalidateEach(rows)
-      return result
+      return appliedRows(rows, changed, tripleOf)
     },
     async moveRoleScopes(rows: readonly IamEngineTypes.IMoveRow<TRole, TScope>[]) {
       if (rows.length === 0) return batchResult([])

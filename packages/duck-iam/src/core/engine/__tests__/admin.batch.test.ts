@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IamMemoryAdapter } from '../../../adapters/memory'
+import type { IamAdapter } from '../../types'
 import { IamEngine } from '../engine'
 
 /**
@@ -67,6 +68,44 @@ describe('IAdmin batch writes', () => {
     engine.admin.invalidateSubjects(['u1', 'u2', 'u1'])
 
     expect(spy).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves changed off when the adapter has no set-based write', async () => {
+    // The memory adapter offers no `assignRoleMany`, so the facade loops
+    // `assignRole`, which returns void. There is nothing to report, and an
+    // absent `changed` says so rather than claiming every row was new.
+    const result = await engine.admin.assignRoles([{ roleId: 'admin', subjectId: 'u1' }])
+    const revoked = await engine.admin.revokeRoles([{ roleId: 'admin', subjectId: 'u1' }])
+
+    expect(result.outcomes[0]).toEqual({ id: 'u1 admin ', ok: true, value: {} })
+    expect(revoked.outcomes[0]).toEqual({ id: 'u1 admin ', ok: true, value: {} })
+    expect(result.applied).toBe(1)
+  })
+
+  it('reports changed per row when the adapter names the rows it moved', async () => {
+    const adapter = new IamMemoryAdapter()
+    // A set-based write that DOES answer: it hands back only the triples that
+    // were not already granted, which is what a `RETURNING` clause supplies.
+    const answering = Object.assign(adapter, {
+      async assignRoleMany(rows: readonly IamAdapter.IAssignRow<string, string>[]) {
+        const fresh: IamAdapter.IAssignRow<string, string>[] = []
+        for (const r of rows) {
+          if (!(await adapter.getSubjectRoles(r.subjectId)).includes(r.roleId)) fresh.push(r)
+          await adapter.assignRole(r.subjectId, r.roleId, r.scope)
+        }
+        return fresh
+      },
+    })
+    const e = new IamEngine({ adapter: answering })
+
+    await e.admin.assignRoles([{ roleId: 'admin', subjectId: 'u1' }])
+    const again = await e.admin.assignRoles([
+      { roleId: 'admin', subjectId: 'u1' },
+      { roleId: 'editor', subjectId: 'u1' },
+    ])
+
+    expect(again.applied).toBe(2)
+    expect(again.outcomes.map((o) => (o.ok ? o.value.changed : null))).toEqual([false, true])
   })
 
   it('a batch over an empty list is a no-op', async () => {

@@ -163,6 +163,36 @@ many rows named it.
 Each batch collapses to one statement per table where the adapter can express it and loops
 otherwise, so every adapter supports every batch form.
 
+### Applied is not the same as changed
+
+duck-iam's role writes are idempotent, so every row of a grant or revoke is `ok`: granting a
+role a subject already holds is success, not a miss, exactly as the single-row `assignRole`
+treats it. That makes `applied` a poor signal on its own, so the outcome carries `changed`
+as well.
+
+```typescript
+const again = await perms.admin.assignRoles([{ subjectId: 'u1', roleId: 'admin' }])
+again.applied                   // 1  - the grant is in place
+again.outcomes[0].value.changed // false - but this call is not what put it there
+```
+
+| `changed` | Meaning |
+|---|---|
+| `true` | this call wrote the row |
+| `false` | the row was already in the requested state |
+| absent | the adapter could not say, and did not guess |
+
+<Callout type="info">
+`changed` is read off a `RETURNING` clause on the write itself, so it costs nothing: the
+conflict clause has already skipped the duplicates, and the driver names the rows that
+landed on the round trip the write was making anyway.
+
+Where there is no `RETURNING` to read -- MySQL, and every adapter that loops the single-row
+methods, which return `void` -- the field is absent rather than guessed. Filling it in would
+mean a second round trip for an answer the caller may not want, so those adapters say
+nothing instead. Check `'changed' in outcome.value` before relying on it.
+</Callout>
+
 ### Hard and soft failures
 
 <Callout type="info">

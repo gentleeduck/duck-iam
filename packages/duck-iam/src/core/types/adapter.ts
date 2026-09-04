@@ -121,12 +121,17 @@ export namespace IamAdapter {
     /**
      * Set-based assign - one statement for the whole list. Optional; the admin
      * loops over {@link assignRole} when it is absent, so an adapter that omits
-     * it is still complete. Returns the triples it actually wrote, so the admin
-     * can report honest per-row outcomes rather than assuming every row landed.
+     * it is still complete.
+     *
+     * Returns the subset of `rows` the statement actually wrote - the grants
+     * that were not already there - or `null` when the driver cannot say. Both
+     * answers are honest and neither costs an extra round trip: report the
+     * subset only where a `RETURNING` clause on the write itself supplies it,
+     * and `null` everywhere else rather than paying for a read to find out.
      */
-    assignRoleMany?(rows: readonly IAssignRow<TRole, TScope>[]): Promise<readonly ITripleRow<TRole, TScope>[]>
+    assignRoleMany?(rows: readonly IAssignRow<TRole, TScope>[]): Promise<readonly ITripleRow<TRole, TScope>[] | null>
     /** Set-based revoke. See {@link assignRoleMany}. */
-    revokeRoleMany?(rows: readonly ITripleRow<TRole, TScope>[]): Promise<readonly ITripleRow<TRole, TScope>[]>
+    revokeRoleMany?(rows: readonly ITripleRow<TRole, TScope>[]): Promise<readonly ITripleRow<TRole, TScope>[] | null>
     /** Returns the attribute bag for a subject. */
     getSubjectAttributes(subjectId: string, opts?: IReadOptions): Promise<IamPrimitives.Attributes>
     /**
