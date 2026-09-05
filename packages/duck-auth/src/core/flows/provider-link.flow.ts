@@ -11,7 +11,7 @@ function isProviderIdSafe(providerId: unknown): providerId is string {
 export async function linkProvider<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   opts: Flows.LinkProviderInput,
-): Promise<{ identityId: string; providerId: string }> {
+): Promise<{ identity: Identities.Me<Profile>; identityId: string; providerId: string }> {
   if (!isProviderIdSafe(opts.providerId)) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'invalid',
@@ -41,25 +41,30 @@ export async function linkProvider<Profile extends Identities.ProfileMetadataBas
     (p) => p.providerId === opts.providerId && p.providerSub === opts.providerSub,
   )
   if (alreadyLinked) {
-    return { identityId: opts.identityId, providerId: opts.providerId }
+    // Idempotent: nothing to write, and `identity` is already the row a caller
+    // would get back from the write.
+    return { identity, identityId: opts.identityId, providerId: opts.providerId }
   }
 
-  await deps.ctxFactory(opts.tenantId).stores.identities.link(opts.identityId, {
+  const linked = await deps.ctxFactory(opts.tenantId).stores.identities.link(opts.identityId, {
     providerId: opts.providerId,
     providerSub: opts.providerSub,
     addedAt: new Date(),
   })
+  // `null` means the row went between the read above and the write - the same
+  // condition the read rejected, so it gets the same answer.
+  if (!linked) throw new AuthError('AUTH_UNAUTHENTICATED')
   await deps.events.emit('identity.linked', {
     identityId: opts.identityId,
     providerId: opts.providerId,
   })
-  return { identityId: opts.identityId, providerId: opts.providerId }
+  return { identity: linked, identityId: opts.identityId, providerId: opts.providerId }
 }
 
 export async function unlinkProvider<Profile extends Identities.ProfileMetadataBase>(
   deps: Flows.Deps<Profile>,
   opts: Flows.UnlinkProviderInput,
-): Promise<{ identityId: string; providerId: string }> {
+): Promise<{ identity: Identities.Me<Profile>; identityId: string; providerId: string }> {
   if (!isProviderIdSafe(opts.providerId)) {
     throw new AuthError('AUTH_PROVIDER_FAILED', {
       providerId: 'invalid',
@@ -72,7 +77,7 @@ export async function unlinkProvider<Profile extends Identities.ProfileMetadataB
 
   const linked = identity.providers.filter((p) => p.providerId === opts.providerId)
   if (linked.length === 0) {
-    return { identityId: opts.identityId, providerId: opts.providerId }
+    return { identity, identityId: opts.identityId, providerId: opts.providerId }
   }
 
   if (!opts.allowLockout) {
@@ -88,6 +93,7 @@ export async function unlinkProvider<Profile extends Identities.ProfileMetadataB
     }
   }
 
-  await deps.ctxFactory(opts.tenantId).stores.identities.unlink(opts.identityId, opts.providerId)
-  return { identityId: opts.identityId, providerId: opts.providerId }
+  const unlinked = await deps.ctxFactory(opts.tenantId).stores.identities.unlink(opts.identityId, opts.providerId)
+  if (!unlinked) throw new AuthError('AUTH_UNAUTHENTICATED')
+  return { identity: unlinked, identityId: opts.identityId, providerId: opts.providerId }
 }

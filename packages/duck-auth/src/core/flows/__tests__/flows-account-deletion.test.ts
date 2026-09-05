@@ -62,6 +62,13 @@ describe('FlowsImpl - account deletion', () => {
     const result = await auth.flows.completeAccountDeletion({ token })
     expect(result.identityId).toBe(identityId)
     expect(result.restorableUntil).toBeGreaterThan(Date.now())
+    // The deadline is read off the row the store wrote, not a second reading
+    // of the clock, so the two can never disagree.
+    expect(result.identity.deletedAt?.getTime()).toBe(result.restorableUntil)
+    // The hidden row itself comes back: `findById` will not answer for it any
+    // more, so this is the caller's only look at what was deleted.
+    expect(result.identity.id).toBe(identityId)
+    expect(result.identity.emailVerified).toBe(false)
 
     // Identity hidden from finds + sessions revoked.
     expect(await adapter.identities.findById(identityId)).toBeNull()
@@ -77,7 +84,9 @@ describe('FlowsImpl - account deletion', () => {
     await auth.flows.completeAccountDeletion({ token })
     expect(await adapter.identities.findById(identityId)).toBeNull()
 
-    await auth.flows.cancelAccountDeletion({ identityId })
+    const cancelled = await auth.flows.cancelAccountDeletion({ identityId })
+    expect(cancelled.identity.id).toBe(identityId)
+    expect(cancelled.identity.deletedAt).toBeNull()
     expect(await adapter.identities.findById(identityId)).not.toBeNull()
   })
 

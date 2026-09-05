@@ -53,7 +53,11 @@ describe('FlowsImpl - email verification', () => {
     const url = (channel.outbox[0]!.vars as { url: string }).url
     const token = new URL(url).searchParams.get('token')
     expect(token).toBeTruthy()
-    await auth.flows.completeEmailVerification({ token: token! })
+    const done = await auth.flows.completeEmailVerification({ token: token! })
+    // The verified row straight off the write that set the flag, so a caller
+    // rendering the account afterwards needs no second read.
+    expect(done.identity.emailVerified).toBe(true)
+    expect(done.identity.id).toBe(done.identityId)
     const ident = await adapter.identities.findById(identityId)
     expect(ident?.emailVerified).toBe(true)
   })
