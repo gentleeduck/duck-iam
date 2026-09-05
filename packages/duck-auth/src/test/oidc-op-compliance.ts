@@ -14,6 +14,14 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { OidcOP } from '~/oidc/op/types'
+import {
+  expectFieldTypes,
+  OIDC_ACCESS_TOKEN_FIELDS,
+  OIDC_CLIENT_FIELDS,
+  OIDC_CODE_FIELDS,
+  OIDC_CONSENT_FIELDS,
+  OIDC_REFRESH_TOKEN_FIELDS,
+} from '~/test/type-fidelity'
 
 export type OidcOpStores = {
   clients: OidcOP.ClientStore
@@ -75,6 +83,33 @@ export function runOidcOpCompliance(factory: () => OidcOpStores): void {
   })
 
   describe('OIDC OP store compliance', () => {
+    it('every read path returns the field types the row type declares', async () => {
+      // Every instant on these rows is an epoch `number`. On Postgres they are
+      // `bigint` columns, which node-postgres returns as strings rather than
+      // round an id past 2^53 - so `exp`, `createdAt`, `consumedAt` and
+      // `grantedAt` are exactly the shape that can arrive declared-number and
+      // delivered-string, with `Date.now() > row.exp` then always false and an
+      // expired token reading as live.
+      const s = factory()
+
+      await s.clients.insert(client())
+      expectFieldTypes(await s.clients.findById('app'), OIDC_CLIENT_FIELDS, 'clients.findById')
+
+      const now = Date.now()
+      await s.codes.insert(code())
+      expectFieldTypes(await s.codes.consume('code-1', now), OIDC_CODE_FIELDS, 'codes.consume')
+
+      await s.accessTokens.insert(accessToken())
+      expectFieldTypes(await s.accessTokens.findByHash('at-1', now), OIDC_ACCESS_TOKEN_FIELDS, 'accessTokens.findByHash')
+
+      await s.refreshTokens.insert(refreshToken())
+      expectFieldTypes(await s.refreshTokens.findByHash('rt-1', now), OIDC_REFRESH_TOKEN_FIELDS, 'refreshTokens.findByHash')
+      expectFieldTypes(await s.refreshTokens.consume('rt-1', now), OIDC_REFRESH_TOKEN_FIELDS, 'refreshTokens.consume')
+
+      await s.consents.upsert({ client_id: 'app', grantedAt: 1_700_000_001, identity_id: 'user-1', scope: ['openid'] })
+      expectFieldTypes(await s.consents.find('user-1', 'app'), OIDC_CONSENT_FIELDS, 'consents.find')
+    })
+
     describe('clients', () => {
       it('round-trips a client, arrays included', async () => {
         const s = factory()
