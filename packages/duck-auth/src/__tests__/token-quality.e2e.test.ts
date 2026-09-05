@@ -281,7 +281,7 @@ suite('E2E token quality on real Postgres + Redis', () => {
       // The first token, issued before nine others, still resets the password.
       await expect(
         auth.flows.completePasswordReset({ newPassword: 'a-brand-new-password', token: tokens[0] as string }),
-      ).resolves.toEqual({ ok: true })
+      ).resolves.toEqual({ intents: [], ok: true })
     })
 
     it('is rate limited per address, so it cannot be used to send mail forever', async () => {

@@ -400,6 +400,69 @@ suite('E2E token flows on real Postgres + Redis', () => {
     })
   })
 
+  describe('what the C6 fixes claim, on real rows', () => {
+    it('a release hands the operator back a working session rather than clearing the cookie', async () => {
+      const admin = await newUser('imp-admin')
+      const target = await newUser('imp-target')
+      const { sid: adminSid } = await signIn(admin.email)
+
+      const started = await auth.flows.impersonate({
+        authorize: async () => true,
+        realSid: adminSid,
+        reason: 'support ticket 1',
+        targetIdentityId: target.id,
+      })
+      // The impersonation session is the target's, at no assurance of its own.
+      expect(started.session.identityId).toBe(target.id)
+      expect(started.session.aal).toBe(1)
+      expect(started.session.factors).toEqual([])
+
+      const released = await auth.flows.releaseImpersonation(started.sid)
+      expect(released.session?.identityId).toBe(admin.id)
+      // The sid it answers with resolves against the real store, and the one it
+      // replaced does not.
+      expect((await auth.resolveSession(cookie(released.sid)))?.session.identityId).toBe(admin.id)
+      expect(await auth.resolveSession(cookie(started.sid))).toBeNull()
+    })
+
+    it('a reset by a signed-in caller rotates them into a new session instead of stranding them', async () => {
+      const user = await newUser('reset-rotate')
+      const { sid } = await signIn(user.email)
+      const { token } = await requestReset(user.email)
+
+      const out = await auth.flows.completePasswordReset({ currentSid: sid, newPassword: NEW_PASSWORD, token })
+      expect(out.intents.length).toBeGreaterThan(0)
+      // The session they arrived on is gone with the rest.
+      expect(await auth.resolveSession(cookie(sid))).toBeNull()
+      // And the new password is the one that works.
+      expect((await auth.passwords.verify(user.id, NEW_PASSWORD, stores.credentials)).ok).toBe(true)
+    })
+
+    it('a reset row on a real table carries a purpose and no address', async () => {
+      const user = await newUser('reset-meta')
+      await requestReset(user.email)
+      const rows = await stores.credentials.listByIdentity(user.id, 'recovery', {})
+      const reset = rows.filter((r) => getCredentialPurpose(r) === 'password-reset')
+      expect(reset).toHaveLength(1)
+      expect(reset[0]?.metadata).toEqual({ purpose: 'password-reset' })
+    })
+
+    it('advancing a signup patches the row in place, leaving one live token', async () => {
+      const email = `advance-${e2ePrefix()}@test.local`
+      const { flow, flowToken } = await auth.flows.beginSignUp({ email, required: ['terms-accepted'] })
+      planted.push(flow.identityId)
+      await auth.flows.advanceSignUp({ flowToken, profilePatch: { username: email }, stage: 'terms-accepted' })
+
+      const rows = await stores.credentials.listByIdentity(flow.identityId, 'recovery', {})
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.revokedAt).toBeNull()
+      // The same token still reads the advanced state back out of Postgres.
+      expect((await auth.flows.getSignUpFlow(flowToken))?.completed).toContain('terms-accepted')
+      const out = await auth.flows.completeSignUp({ flowToken })
+      expect(out.session?.identityId).toBe(flow.identityId)
+    })
+  })
+
   describe('sign-in refuses what it should', () => {
     it('refuses the wrong password', async () => {
       const user = await newUser('wrong-pw')

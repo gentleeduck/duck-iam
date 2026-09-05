@@ -25,6 +25,13 @@ import { ApiKeysFacet } from '~/providers/api-key'
 import { passwords, ScryptHasher } from '~/providers/passwords'
 import { applyPgSchema, databaseUrl, e2ePrefix } from '~/test/e2e-env'
 
+/**
+ * Stand-in for the host's proof that it completed the provider's dance. These
+ * suites are about what `linkProvider` does once the caller is trusted; the
+ * callback itself is exercised in `flows-c6-open-findings.test.ts`.
+ */
+const ALLOW_LINK = async () => true
+
 const URL = databaseUrl()
 const suite = URL ? describe : describe.skip
 
@@ -73,7 +80,12 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       const id = await newUser('link')
       const providerSub = sub('google')
 
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
 
       const found = await stores.identities.findByProviderSub('oauth:authGoogle', providerSub)
       expect(found?.id).toBe(id)
@@ -83,8 +95,18 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       const id = await newUser('link-many')
       const g = sub('google')
       const gh = sub('github')
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub: g })
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGithub', providerSub: gh })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub: g,
+      })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGithub',
+        providerSub: gh,
+      })
 
       const row = await stores.identities.findById(id)
       expect(row?.providers.map((p) => p.providerId).sort()).toEqual(['oauth:authGithub', 'oauth:authGoogle'])
@@ -93,8 +115,18 @@ suite('E2E provider linking and API keys on real Postgres', () => {
     it('is idempotent: linking the same pair twice does not duplicate it', async () => {
       const id = await newUser('link-twice')
       const providerSub = sub('google')
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub })
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
 
       const row = await stores.identities.findById(id)
       expect(row?.providers.filter((p) => p.providerId === 'oauth:authGoogle')).toHaveLength(1)
@@ -106,16 +138,27 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       const mine = await newUser('link-mine')
       const theirs = await newUser('link-theirs')
       const providerSub = sub('shared')
-      await auth.flows.linkProvider({ identityId: mine, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: mine,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
 
       await expect(
-        auth.flows.linkProvider({ identityId: theirs, providerId: 'oauth:authGoogle', providerSub }),
+        auth.flows.linkProvider({
+          authorize: ALLOW_LINK,
+          identityId: theirs,
+          providerId: 'oauth:authGoogle',
+          providerSub,
+        }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
     })
 
     it('refuses an unknown identity', async () => {
       await expect(
         auth.flows.linkProvider({
+          authorize: ALLOW_LINK,
           identityId: '00000000-0000-4000-8000-000000000000',
           providerId: 'oauth:authGoogle',
           providerSub: sub('ghost'),
@@ -126,21 +169,36 @@ suite('E2E provider linking and API keys on real Postgres', () => {
     it('refuses a malformed provider id without echoing it back', async () => {
       const id = await newUser('link-bad-id')
       await expect(
-        auth.flows.linkProvider({ identityId: id, providerId: 'x'.repeat(200), providerSub: sub('s') }),
+        auth.flows.linkProvider({
+          authorize: ALLOW_LINK,
+          identityId: id,
+          providerId: 'x'.repeat(200),
+          providerSub: sub('s'),
+        }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED', meta: { providerId: 'invalid' } })
     })
 
     it('refuses an oversize provider sub', async () => {
       const id = await newUser('link-bad-sub')
       await expect(
-        auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub: 'y'.repeat(600) }),
+        auth.flows.linkProvider({
+          authorize: ALLOW_LINK,
+          identityId: id,
+          providerId: 'oauth:authGoogle',
+          providerSub: 'y'.repeat(600),
+        }),
       ).rejects.toMatchObject({ code: 'AUTH_PROVIDER_FAILED' })
     })
 
     it('a soft-deleted account is not findable by its provider sub', async () => {
       const id = await newUser('link-deleted')
       const providerSub = sub('google')
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
       await stores.identities.softDelete(id, 60_000)
 
       expect(await stores.identities.findByProviderSub('oauth:authGoogle', providerSub)).toBeNull()
@@ -151,10 +209,20 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       const first = await newUser('link-free-a')
       const second = await newUser('link-free-b')
       const providerSub = sub('google')
-      await auth.flows.linkProvider({ identityId: first, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: first,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
       await stores.identities.softDelete(first, 60_000)
 
-      await auth.flows.linkProvider({ identityId: second, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: second,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
       expect((await stores.identities.findByProviderSub('oauth:authGoogle', providerSub))?.id).toBe(second)
     })
   })
@@ -164,8 +232,18 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       const id = await newUser('unlink')
       const g = sub('google')
       const gh = sub('github')
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub: g })
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGithub', providerSub: gh })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub: g,
+      })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGithub',
+        providerSub: gh,
+      })
 
       await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
 
@@ -177,10 +255,25 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       const id = await newUser('unlink-relink')
       const providerSub = sub('google')
       // A second link, so removing the first is not the lockout the flow refuses.
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGithub', providerSub: sub('gh') })
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGithub',
+        providerSub: sub('gh'),
+      })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
       await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
 
       expect((await stores.identities.findByProviderSub('oauth:authGoogle', providerSub))?.id).toBe(id)
     })
@@ -189,7 +282,12 @@ suite('E2E provider linking and API keys on real Postgres', () => {
       // Otherwise "disconnect Google" on an account with no password locks the
       // owner out permanently, and the library is the only thing that can see it.
       const id = await newUser('unlink-lockout')
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub: sub('only') })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub: sub('only'),
+      })
 
       await expect(auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })).rejects.toMatchObject(
         { code: 'AUTH_PROVIDER_FAILED' },
@@ -199,7 +297,12 @@ suite('E2E provider linking and API keys on real Postgres', () => {
     it('allows the lockout when the caller says so explicitly', async () => {
       const id = await newUser('unlink-forced')
       const providerSub = sub('only')
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
 
       await auth.flows.unlinkProvider({ allowLockout: true, identityId: id, providerId: 'oauth:authGoogle' })
       expect(await stores.identities.findByProviderSub('oauth:authGoogle', providerSub)).toBeNull()
@@ -208,7 +311,12 @@ suite('E2E provider linking and API keys on real Postgres', () => {
     it('a password counts as another way in, so the last link can go', async () => {
       const id = await newUser('unlink-has-pw')
       const providerSub = sub('google')
-      await auth.flows.linkProvider({ identityId: id, providerId: 'oauth:authGoogle', providerSub })
+      await auth.flows.linkProvider({
+        authorize: ALLOW_LINK,
+        identityId: id,
+        providerId: 'oauth:authGoogle',
+        providerSub,
+      })
       await auth.passwords.set(id, 'correct-horse-battery', stores.credentials)
 
       await auth.flows.unlinkProvider({ identityId: id, providerId: 'oauth:authGoogle' })
