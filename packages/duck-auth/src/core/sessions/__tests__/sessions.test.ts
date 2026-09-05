@@ -386,9 +386,36 @@ describe('SessionsFacet', () => {
       const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
       const handler = vi.fn()
       events.on('session.revoked', handler)
-      await facet.revoke(sid)
+      const revoked = await facet.revoke(sid)
+      // The session that went, so a caller can name the device without a read
+      // that would now find nothing.
+      expect(revoked?.identityId).toBe('u')
       expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
       expect(handler).toHaveBeenCalledOnce()
+    })
+
+    it('revoke answers null for a sid that matches nothing, and revokes nothing', async () => {
+      const { sid } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
+      const handler = vi.fn()
+      events.on('session.revoked', handler)
+
+      // `null` distinguishes a real revocation from a no-op - the difference
+      // between "signed out" and "that token was already dead".
+      expect(await facet.revoke('not-a-real-sid')).toBeNull()
+      expect(await facet.revoke('')).toBeNull()
+      expect(await facet.revokeByHash(sha256('nope'))).toBeNull()
+
+      expect(handler).not.toHaveBeenCalled()
+      expect(await adapter.sessions.getByHash(sha256(sid))).not.toBeNull()
+    })
+
+    it('revokeByHash answers with the session it revoked', async () => {
+      const { sid, session } = await facet.create({ identityId: 'u', kind: 'user', aal: 1, factors: [] })
+
+      const revoked = await facet.revokeByHash(session.id)
+
+      expect(revoked?.id).toBe(session.id)
+      expect(await adapter.sessions.getByHash(sha256(sid))).toBeNull()
     })
 
     it('revokeAllForIdentity drops every session for that identity', async () => {
@@ -397,7 +424,12 @@ describe('SessionsFacet', () => {
       const { sid: cSid } = await facet.create({ identityId: 'u2', kind: 'user', aal: 1, factors: [] })
       const handler = vi.fn()
       events.on('session.revoked', handler)
-      await facet.revokeAllForIdentity('u1')
+      const revoked = await facet.revokeAllForIdentity('u1')
+      // The sessions that went - "you were signed out of 2 devices" needs no
+      // second query, and the list is already read to emit the events.
+      expect(revoked).toHaveLength(2)
+      expect(revoked.every((s) => s.identityId === 'u1')).toBe(true)
+      expect(await facet.revokeAllForIdentity('nobody')).toEqual([])
       expect(await adapter.sessions.getByHash(sha256(aSid))).toBeNull()
       expect(await adapter.sessions.getByHash(sha256(bSid))).toBeNull()
       expect(await adapter.sessions.getByHash(sha256(cSid))).not.toBeNull()
