@@ -93,10 +93,15 @@ export class WebhookDeliverer {
   /**
    * Public for tests + manual re-deliveries. Drives the per-endpoint
    * fanout + retry loop for a single (name, payload) pair.
+   *
+   * Answers with one outcome per eligible endpoint. A manual re-delivery is
+   * worth making only if the operator can see whether it landed, and the
+   * retry loop already knows - it was throwing the answer away. An empty
+   * array means no endpoint subscribes to this event.
    */
-  async deliverOne(name: Events.EventName, payload: unknown): Promise<void> {
+  async deliverOne(name: Events.EventName, payload: unknown): Promise<WebhookDeliverer.Delivery[]> {
     const eligible = this._endpoints.filter((e) => e.events === '*' || e.events.includes(name))
-    await Promise.all(eligible.map((e) => this._deliverWithRetry(name, payload, e)))
+    return Promise.all(eligible.map((e) => this._deliverWithRetry(name, payload, e)))
   }
 
   private async _deliverWithRetry(
@@ -108,7 +113,7 @@ export class WebhookDeliverer {
       signatureHeader: string
       id: string
     },
-  ): Promise<void> {
+  ): Promise<WebhookDeliverer.Delivery> {
     const firstAttemptAt = Date.now()
     let lastError = ''
     let attempt = 0
@@ -116,7 +121,7 @@ export class WebhookDeliverer {
       attempt++
       try {
         const ok = await this._dispatch(name, payload, endpoint)
-        if (ok) return
+        if (ok) return { attempts: attempt, delivered: true, endpointId: endpoint.id }
         lastError = 'non-2xx response'
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err)
@@ -142,6 +147,7 @@ export class WebhookDeliverer {
           // Dead-letter sink failure is non-fatal; log + drop.
         })
     }
+    return { attempts: attempt, delivered: false, endpointId: endpoint.id, lastError }
   }
 
   private async _dispatch(
@@ -305,6 +311,17 @@ const EVERY_EVENT: Events.EventName[] = [
 ]
 
 export namespace WebhookDeliverer {
+  /** What one endpoint made of one event. Returned by `deliverOne`. */
+  export interface Delivery {
+    endpointId: string
+    /** True when an attempt got a 2xx; false when every attempt was spent. */
+    delivered: boolean
+    /** Attempts actually made, including the successful one. */
+    attempts: number
+    /** Why the last attempt failed. Absent on a delivered event. */
+    lastError?: string
+  }
+
   export interface Cfg {
     endpoints: WebhookDeliverer.IEndpoint[]
     /** Maximum delivery attempts before dead-lettering. Default 5. */
