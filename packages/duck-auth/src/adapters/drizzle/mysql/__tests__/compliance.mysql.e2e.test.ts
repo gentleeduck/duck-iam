@@ -13,6 +13,8 @@
  * when docker is available.
  */
 import { createHash, randomUUID } from 'node:crypto'
+import { eq } from 'drizzle-orm'
+import { drizzle as drizzleMysql } from 'drizzle-orm/mysql2'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { mysqlUrl } from '~/test/e2e-env'
 import {
@@ -21,7 +23,7 @@ import {
   runSessionStoreCompliance,
 } from '~/test/store-compliance'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
-import { drizzleMysqlStorage } from '../index'
+import { authIdentities, authSessions, drizzleMysqlStorage } from '../index'
 
 const URL = mysqlUrl()
 const suite = URL ? describe : describe.skip
@@ -223,5 +225,94 @@ suite('DrizzleMysql compliance matrix (real MySQL)', () => {
       await stores.sessions.deleteAllForIdentity(OWNER)
       expect(await stores.sessions.listByIdentity(OWNER)).toHaveLength(0)
     })
+  })
+})
+
+/**
+ * As in the pg suite: the tables are a public export, so a direct
+ * `db.select()` is a supported read that never touches `createSqlStores`.
+ * MySQL's `json` columns come back parsed, so the ISO string a `Date` was
+ * written as arrived under a type promising `Date` until the columns carried
+ * their own codec.
+ */
+suite('the exported tables hand back the types they declare (real MySQL)', () => {
+  let conn: import('mysql2/promise').Connection
+  let db: ReturnType<typeof drizzleMysql<Record<string, never>, import('mysql2/promise').Connection>>
+  let stores: ReturnType<typeof drizzleMysqlStorage<Profile>>
+  const ID = randomUUID()
+
+  beforeAll(async () => {
+    const mysql = await import('mysql2/promise')
+    conn = await mysql.createConnection(URL as string)
+    db = drizzleMysql(conn)
+    stores = drizzleMysqlStorage<Profile>(URL as string)
+  }, 60_000)
+
+  afterAll(async () => {
+    await conn?.end()
+  })
+
+  beforeEach(async () => {
+    await conn.query('SET FOREIGN_KEY_CHECKS = 0')
+    for (const t of ['auth_events', 'auth_sessions', 'auth_credentials', 'auth_identities']) {
+      await conn.query(`TRUNCATE TABLE ${t}`)
+    }
+    await conn.query('SET FOREIGN_KEY_CHECKS = 1')
+    await conn.query(
+      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
+       VALUES (?, ?, ?, 1, 1, NOW(3), NOW(3))`,
+      [ID, JSON.stringify({ email: 'tbl@fk.local', username: 'tbl' }), JSON.stringify([])],
+    )
+  })
+
+  it('gives providers[].addedAt as a Date on a direct select', async () => {
+    const addedAt = new Date('2026-01-02T03:04:05.000Z')
+    await stores.identities.link(ID, { addedAt, providerId: 'google', providerSub: 'sub-1' })
+
+    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, ID))
+    expect(row?.providers[0]?.addedAt).toBeInstanceOf(Date)
+    expect(row?.providers[0]?.addedAt?.getTime()).toBe(addedAt.getTime())
+  })
+
+  it('gives factors[].completedAt and both actingAs dates as Dates on a direct select', async () => {
+    const completedAt = new Date('2026-01-02T03:04:05.000Z')
+    const startedAt = new Date('2026-01-02T03:00:00.000Z')
+    const expiresAt = new Date('2026-01-02T04:00:00.000Z')
+    const id = sessionId('mysql-table-types')
+    await stores.sessions.create(
+      sessionInput({
+        aal: 2,
+        absoluteExpiresAt: new Date(Date.now() + 600_000),
+        actingAs: { expiresAt, realIdentityId: ID, reason: 'support', startedAt },
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        factors: [{ completedAt, method: 'password' }],
+        fresh: true,
+        id,
+        identityId: ID,
+        kind: 'user',
+        rotatedAt: new Date(),
+      }),
+    )
+
+    const [row] = await db.select().from(authSessions).where(eq(authSessions.id, id))
+    expect(row?.factors[0]?.completedAt).toBeInstanceOf(Date)
+    expect(row?.factors[0]?.completedAt?.getTime()).toBe(completedAt.getTime())
+    expect(row?.actingAs?.startedAt).toBeInstanceOf(Date)
+    expect(row?.actingAs?.expiresAt.getTime()).toBe(expiresAt.getTime())
+  })
+
+  it('reads an unparseable addedAt as null at the table and as createdAt through the store', async () => {
+    await conn.query('UPDATE auth_identities SET providers = ? WHERE id = ?', [
+      JSON.stringify([{ addedAt: 'not-a-date', providerId: 'google', providerSub: 'sub-1' }]),
+      ID,
+    ])
+
+    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, ID))
+    expect(row?.providers[0]?.addedAt).toBeNull()
+
+    const viaStore = await stores.identities.findById(ID)
+    expect(viaStore?.providers[0]?.addedAt).toBeInstanceOf(Date)
+    expect(viaStore?.providers[0]?.addedAt.getTime()).toBe(row?.createdAt.getTime())
   })
 })

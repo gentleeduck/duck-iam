@@ -16,6 +16,8 @@
  * container when docker is available.
  */
 import { createHash, randomUUID } from 'node:crypto'
+import { eq } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { applyPgSchema, databaseUrl, isolatedDatabaseUrl } from '~/test/e2e-env'
@@ -25,7 +27,7 @@ import {
   runSessionStoreCompliance,
 } from '~/test/store-compliance'
 import { credentialInput, identityInput, sessionInput } from '~/test/store-inputs'
-import { drizzlePgStorage } from '../index'
+import { authIdentities, authSessions, drizzlePgStorage } from '../index'
 
 const URL = databaseUrl()
 const suite = URL ? describe : describe.skip
@@ -470,5 +472,129 @@ suite('DrizzlePg compliance matrix (real Postgres)', () => {
       expect(deleted).toBe(10)
       expect(await stores.sessions.listByIdentity(OWNER)).toHaveLength(10)
     })
+  })
+})
+
+/**
+ * The tables are a public export, so a `db.select().from(authIdentities)` is a
+ * supported way to read - and it does not go through `createSqlStores`. Until
+ * the columns carried their own codec, `$type<ProviderLink[]>()` promised
+ * `addedAt: Date` over a value Postgres handed back as an ISO string:
+ * `addedAt.getTime()` threw, `addedAt < new Date()` was always `false`, and
+ * `tsc` had been told the opposite. Everything here reads the table directly on
+ * purpose; routing through the store would test the layer that was never broken.
+ */
+suite('the exported tables hand back the types they declare (real Postgres)', () => {
+  let pool: Pool
+  let db: ReturnType<typeof drizzle>
+  let stores: ReturnType<typeof drizzlePgStorage<Profile>>
+  const ID = randomUUID()
+
+  beforeAll(async () => {
+    const own = (await isolatedDatabaseUrl('pg_table_types')) as string
+    pool = new Pool({ connectionString: own })
+    await applyPgSchema(pool)
+    db = drizzle(pool)
+    stores = drizzlePgStorage<Profile>(own)
+  }, 60_000)
+
+  afterAll(async () => {
+    await pool?.end()
+  })
+
+  beforeEach(async () => {
+    await pool.query('TRUNCATE auth_events, auth_sessions, auth_credentials, auth_identities CASCADE')
+    await pool.query(
+      `INSERT INTO auth_identities (id, profile, providers, version, email_verified, created_at, updated_at)
+       VALUES ($1, $2::jsonb, '[]'::jsonb, 1, true, now(), now())`,
+      [ID, JSON.stringify({ email: 'tbl@fk.local', username: 'tbl' })],
+    )
+  })
+
+  it('gives providers[].addedAt as a Date on a direct select', async () => {
+    const addedAt = new Date('2026-01-02T03:04:05.000Z')
+    await stores.identities.link(ID, { addedAt, providerId: 'google', providerSub: 'sub-1' })
+
+    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, ID))
+    const link = row?.providers[0]
+    expect(link?.addedAt).toBeInstanceOf(Date)
+    expect(link?.addedAt?.getTime()).toBe(addedAt.getTime())
+  })
+
+  it('gives factors[].completedAt and both actingAs dates as Dates on a direct select', async () => {
+    const completedAt = new Date('2026-01-02T03:04:05.000Z')
+    const startedAt = new Date('2026-01-02T03:00:00.000Z')
+    const expiresAt = new Date('2026-01-02T04:00:00.000Z')
+    const id = sessionId('table-types')
+    await stores.sessions.create(
+      sessionInput({
+        aal: 2,
+        absoluteExpiresAt: new Date(Date.now() + 600_000),
+        actingAs: { expiresAt, realIdentityId: ID, reason: 'support', startedAt },
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        factors: [{ completedAt, method: 'password' }],
+        fresh: true,
+        id,
+        identityId: ID,
+        kind: 'user',
+        rotatedAt: new Date(),
+      }),
+    )
+
+    const [row] = await db.select().from(authSessions).where(eq(authSessions.id, id))
+    expect(row?.factors[0]?.completedAt).toBeInstanceOf(Date)
+    expect(row?.factors[0]?.completedAt?.getTime()).toBe(completedAt.getTime())
+    expect(row?.actingAs?.startedAt).toBeInstanceOf(Date)
+    expect(row?.actingAs?.startedAt.getTime()).toBe(startedAt.getTime())
+    expect(row?.actingAs?.expiresAt.getTime()).toBe(expiresAt.getTime())
+  })
+
+  /**
+   * The column is `NOT NULL jsonb` and nothing more, so an older migration or a
+   * hand-run `UPDATE` can leave an unparseable date in it. `null` is the honest
+   * answer at the column - `new Date('nope')` would be an `Invalid Date`, which
+   * satisfies `instanceof Date` and compares `false` against everything - and
+   * the store, which can see the row's own `createdAt`, is where the fallback
+   * belongs.
+   */
+  it('reads an unparseable addedAt as null at the table and as createdAt through the store', async () => {
+    await pool.query(`UPDATE auth_identities SET providers = $1::jsonb WHERE id = $2`, [
+      JSON.stringify([{ addedAt: 'not-a-date', providerId: 'google', providerSub: 'sub-1' }]),
+      ID,
+    ])
+
+    const [row] = await db.select().from(authIdentities).where(eq(authIdentities.id, ID))
+    expect(row?.providers[0]?.addedAt).toBeNull()
+
+    const viaStore = await stores.identities.findById(ID)
+    expect(viaStore?.providers[0]?.addedAt).toBeInstanceOf(Date)
+    expect(viaStore?.providers[0]?.addedAt.getTime()).toBe(row?.createdAt.getTime())
+  })
+
+  /** An impersonation window whose end cannot be read is not one anyone should be inside. */
+  it('drops an actingAs whose dates are unreadable rather than carrying an Invalid Date', async () => {
+    const id = sessionId('acting-corrupt')
+    await stores.sessions.create(
+      sessionInput({
+        aal: 1,
+        absoluteExpiresAt: new Date(Date.now() + 600_000),
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        factors: [],
+        fresh: true,
+        id,
+        identityId: ID,
+        kind: 'user',
+        rotatedAt: new Date(),
+      }),
+    )
+    await pool.query(`UPDATE auth_sessions SET acting_as = $1::jsonb WHERE id = $2`, [
+      JSON.stringify({ expiresAt: 'nope', realIdentityId: ID, reason: 'support', startedAt: 'nope' }),
+      id,
+    ])
+
+    const [row] = await db.select().from(authSessions).where(eq(authSessions.id, id))
+    expect(row?.actingAs).toBeNull()
   })
 })

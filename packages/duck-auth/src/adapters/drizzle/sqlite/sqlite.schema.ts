@@ -1,8 +1,15 @@
 import { isNull, sql } from 'drizzle-orm'
-import { check, foreignKey, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { check, customType, foreignKey, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import type { SqlBridge } from '~/adapters/sql'
+import {
+  fromJsonColumn,
+  parseActingAs,
+  parseFactors,
+  parseProviders,
+  type StoredFactor,
+  type StoredProviderLink,
+} from '~/adapters/sql/stored-json'
 import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/credentials/credentials.types'
-import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
 
 /**
@@ -11,12 +18,38 @@ import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.type
  */
 const nowMs = sql`(unixepoch() * 1000)`
 
+/**
+ * JSON columns holding `Date`s. `$type<T>()` is a compile-time assertion and
+ * nothing more, so a table whose `providers` column claimed `addedAt: Date` was
+ * handing direct `db.select()` callers an ISO string under that name -
+ * `addedAt.getTime()` threw, and `addedAt < new Date()` was quietly always
+ * `false`. `fromDriver` is the runtime half that makes the claim true. Same SQL
+ * type as the column it replaces, so this is not a migration.
+ */
+const providersColumn = customType<{ data: StoredProviderLink[]; driverData: string }>({
+  dataType: () => 'text',
+  fromDriver: (value) => parseProviders(fromJsonColumn(value)),
+  toDriver: (value) => JSON.stringify(value),
+})
+
+const factorsColumn = customType<{ data: StoredFactor[]; driverData: string }>({
+  dataType: () => 'text',
+  fromDriver: (value) => parseFactors(fromJsonColumn(value)),
+  toDriver: (value) => JSON.stringify(value),
+})
+
+const actingAsColumn = customType<{ data: Sessions.ActingAs | null; driverData: string }>({
+  dataType: () => 'text',
+  fromDriver: (value) => parseActingAs(fromJsonColumn(value)),
+  toDriver: (value) => JSON.stringify(value),
+})
+
 export const authIdentities = sqliteTable(
   'auth_identities',
   {
     id: text('id').primaryKey(),
     profile: text('profile', { mode: 'json' }).notNull().$type<SqlBridge.ProfileMetadataBase>(),
-    providers: text('providers', { mode: 'json' }).notNull().default('[]').$type<Identities.ProviderLink[]>(),
+    providers: providersColumn('providers').notNull().default([]),
     version: integer('version').notNull().default(1),
     emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
     createdBy: text('created_by'),
@@ -111,7 +144,7 @@ export const authSessions = sqliteTable(
     tenantId: text('tenant_id'),
     kind: text('kind').notNull().$type<Sessions.Kind>(),
     aal: integer('aal').notNull().$type<Sessions.AAL>(),
-    factors: text('factors', { mode: 'json' }).notNull().default('[]').$type<Sessions.Factor[]>(),
+    factors: factorsColumn('factors').notNull().default([]),
     csrfHash: text('csrf_hash'),
     ip: text('ip'),
     userAgent: text('user_agent'),
@@ -125,7 +158,7 @@ export const authSessions = sqliteTable(
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
     absoluteExpiresAt: integer('absolute_expires_at', { mode: 'timestamp_ms' }).notNull(),
     fresh: integer('fresh', { mode: 'boolean' }).notNull(),
-    actingAs: text('acting_as', { mode: 'json' }).$type<Sessions.ActingAs | null>(),
+    actingAs: actingAsColumn('acting_as'),
   },
   (t) => [
     index('auth_sessions_identity').on(t.identityId),

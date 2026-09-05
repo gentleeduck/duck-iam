@@ -2,6 +2,7 @@ import { isNull, sql } from 'drizzle-orm'
 import {
   boolean,
   check,
+  customType,
   foreignKey,
   index,
   integer,
@@ -13,16 +14,49 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import type { SqlBridge } from '~/adapters/sql'
+import {
+  fromJsonColumn,
+  parseActingAs,
+  parseFactors,
+  parseProviders,
+  type StoredFactor,
+  type StoredProviderLink,
+} from '~/adapters/sql/stored-json'
 import { AUTH_CREDENTIAL_KINDS, type Credential } from '~/core/credentials/credentials.types'
-import type { Identities } from '~/core/identities/identities.types'
 import { AUTH_SESSION_KINDS, type Sessions } from '~/core/sessions/sessions.types'
+
+/**
+ * `jsonb` columns holding `Date`s. `$type<T>()` is a compile-time assertion and
+ * nothing more, so a table whose `providers` column claimed `addedAt: Date` was
+ * handing direct `db.select()` callers an ISO string under that name -
+ * `addedAt.getTime()` threw, and `addedAt < new Date()` was quietly always
+ * `false`. `fromDriver` is the runtime half that makes the claim true. Same SQL
+ * type as the `jsonb` it replaces, so this is not a migration.
+ */
+const providersColumn = customType<{ data: StoredProviderLink[]; driverData: string }>({
+  dataType: () => 'jsonb',
+  fromDriver: (value) => parseProviders(fromJsonColumn(value)),
+  toDriver: (value) => JSON.stringify(value),
+})
+
+const factorsColumn = customType<{ data: StoredFactor[]; driverData: string }>({
+  dataType: () => 'jsonb',
+  fromDriver: (value) => parseFactors(fromJsonColumn(value)),
+  toDriver: (value) => JSON.stringify(value),
+})
+
+const actingAsColumn = customType<{ data: Sessions.ActingAs | null; driverData: string }>({
+  dataType: () => 'jsonb',
+  fromDriver: (value) => parseActingAs(fromJsonColumn(value)),
+  toDriver: (value) => JSON.stringify(value),
+})
 
 export const authIdentities = pgTable(
   'auth_identities',
   {
     id: uuid('id').primaryKey(),
     profile: jsonb('profile').notNull().$type<SqlBridge.ProfileMetadataBase>(),
-    providers: jsonb('providers').notNull().default([]).$type<Identities.ProviderLink[]>(),
+    providers: providersColumn('providers').notNull().default([]),
     version: integer('version').notNull().default(1),
     emailVerified: boolean('email_verified').notNull().default(false),
     createdBy: text('created_by'),
@@ -98,7 +132,7 @@ export const authSessions = pgTable(
     tenantId: text('tenant_id'),
     kind: text('kind').notNull().$type<Sessions.Kind>(),
     aal: integer('aal').notNull().$type<Sessions.AAL>(),
-    factors: jsonb('factors').notNull().default([]).$type<Sessions.Factor[]>(),
+    factors: factorsColumn('factors').notNull().default([]),
     csrfHash: text('csrf_hash'),
     ip: text('ip'),
     userAgent: text('user_agent'),
@@ -112,7 +146,7 @@ export const authSessions = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     absoluteExpiresAt: timestamp('absolute_expires_at', { withTimezone: true }).notNull(),
     fresh: boolean('fresh').notNull(),
-    actingAs: jsonb('acting_as').$type<Sessions.ActingAs | null>(),
+    actingAs: actingAsColumn('acting_as'),
   },
   (t) => [
     // Single-column for deleteAllForIdentity; composite for listActive(identity, expires)
