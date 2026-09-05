@@ -1,4 +1,4 @@
-import type { SQL, SQLWrapper } from 'drizzle-orm'
+import type { BinaryOperator, SQL, SQLWrapper } from 'drizzle-orm'
 import type { MySqlTableWithColumns } from 'drizzle-orm/mysql-core/table'
 import type { PgTableWithColumns } from 'drizzle-orm/pg-core/table'
 import type { SQLiteTableWithColumns } from 'drizzle-orm/sqlite-core/table'
@@ -46,10 +46,29 @@ export namespace IamDrizzle {
     }
     /** Provides IamDrizzle operator functions for building WHERE clauses. */
     ops: {
-      eq: (col: unknown, val: unknown) => unknown
+      /**
+       * Builds an `=` condition. This is drizzle-orm's own `eq`, named by its
+       * own type.
+       *
+       * It was declared `(col: unknown, val: unknown) => unknown`, which is
+       * wrong in both directions. Widening the *parameters* to `unknown` made
+       * drizzle's real `eq` un-assignable under `strictFunctionTypes` - so
+       * `ops: { eq, and }`, the wiring this file's own `@example` shows, did
+       * not compile against the library, and every caller had to hand-write a
+       * re-widening wrapper with two casts in it. Widening the *return* to
+       * `unknown` then cost nine `as SQLWrapper` casts inside this adapter to
+       * get the value back. A cast written nine times is a type that was wrong
+       * once.
+       */
+      eq: BinaryOperator
       and: (...conditions: (SQLWrapper | undefined)[]) => SQL<unknown> | undefined
-      /** Builds an `IS NULL` condition. Optional - required only for `updateAssignmentScope` to match a global (unscoped) assignment. */
-      isNull?: (col: unknown) => SQLWrapper
+      /**
+       * Builds an `IS NULL` condition - drizzle's own `isNull`. Optional:
+       * required only for `updateAssignmentScope` to match a global (unscoped)
+       * assignment. Same signature correction as `eq`; the old `(col: unknown)`
+       * could not accept the real one.
+       */
+      isNull?: (col: SQLWrapper) => SQL
       /**
        * Builds an `OR` of conditions. Optional - required only to collapse
        * `revokeRoleMany` into a single `DELETE`; without it that method revokes
@@ -333,7 +352,10 @@ export class IamDrizzleAdapter<
   private async _upsert(
     table: IamDrizzle.DrizzleTable,
     values: Record<string, unknown>,
-    target: unknown,
+    // A drizzle column, which is an `SQLWrapper`. It was `unknown`, which is
+    // what forced `ops.eq` to declare an `unknown` parameter in the first place
+    // - and that declaration is what made the real `eq` un-assignable.
+    target: SQLWrapper,
     targetValue: unknown,
     set: Record<string, unknown>,
   ) {
@@ -374,13 +396,13 @@ export class IamDrizzleAdapter<
   }
   private async _selectFirst<T>(
     table: IamDrizzle.DrizzleTable,
-    whereCol: unknown,
+    whereCol: SQLWrapper,
     whereVal: unknown,
   ): Promise<T | undefined> {
     const rows = await this._db.select().from(table).where(this._eq(whereCol, whereVal)).limit(1)
     return rows[0]
   }
-  private async _selectWhere<T>(table: IamDrizzle.DrizzleTable, whereCol: unknown, whereVal: unknown): Promise<T[]> {
+  private async _selectWhere<T>(table: IamDrizzle.DrizzleTable, whereCol: SQLWrapper, whereVal: unknown): Promise<T[]> {
     return await this._db.select().from(table).where(this._eq(whereCol, whereVal))
   }
 
@@ -884,10 +906,10 @@ export class IamDrizzleAdapter<
     if (rows.length === 0) return []
     const rowCondition = (r: IamAdapter.ITripleRow<TRole, TScope>): SQLWrapper | undefined => {
       const conditions: (SQLWrapper | undefined)[] = [
-        this._eq(this._t.assignments.subjectId, r.subjectId) as SQLWrapper,
-        this._eq(this._t.assignments.roleId, r.roleId) as SQLWrapper,
+        this._eq(this._t.assignments.subjectId, r.subjectId),
+        this._eq(this._t.assignments.roleId, r.roleId),
       ]
-      if (r.scope !== undefined) conditions.push(this._eq(this._t.assignments.scope, r.scope) as SQLWrapper)
+      if (r.scope !== undefined) conditions.push(this._eq(this._t.assignments.scope, r.scope))
       return this._and(...conditions)
     }
     const or = this._or
@@ -928,22 +950,28 @@ export class IamDrizzleAdapter<
     actor?: string,
   ): Promise<boolean> {
     if (!this._isNull) return false
-    const table = this._t.assignments as unknown as { subjectId: unknown; roleId: unknown; scope: unknown }
-    const scopeCondition = (scope: TScope | undefined) =>
-      scope === undefined ? (this._isNull as (col: unknown) => SQLWrapper)(table.scope) : this._eq(table.scope, scope)
+    // `this._t.assignments` was aliased through
+    // `as unknown as { subjectId: unknown; roleId: unknown; scope: unknown }`
+    // to read its columns. `revokeRoleMany` twenty lines up reads exactly the
+    // same three columns off the same value with no cast at all, so the alias
+    // was asserting a shape the table already had.
+    const table = this._t.assignments
+    const isNull = this._isNull
+    const scopeCondition = (scope: TScope | undefined): SQLWrapper =>
+      scope === undefined ? isNull(table.scope) : this._eq(table.scope, scope)
 
     const fromCondition = this._and(
-      this._eq(table.subjectId, subjectId) as SQLWrapper,
-      this._eq(table.roleId, roleId) as SQLWrapper,
-      scopeCondition(fromScope) as SQLWrapper,
+      this._eq(table.subjectId, subjectId),
+      this._eq(table.roleId, roleId),
+      scopeCondition(fromScope),
     )
     const existing = await this._db.select().from(this._t.assignments).where(fromCondition).limit(1)
     if (!existing[0]) return false
 
     const toCondition = this._and(
-      this._eq(table.subjectId, subjectId) as SQLWrapper,
-      this._eq(table.roleId, roleId) as SQLWrapper,
-      scopeCondition(toScope) as SQLWrapper,
+      this._eq(table.subjectId, subjectId),
+      this._eq(table.roleId, roleId),
+      scopeCondition(toScope),
     )
     const conflict = await this._db.select().from(this._t.assignments).where(toCondition).limit(1)
     if (conflict[0]) {

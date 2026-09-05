@@ -254,32 +254,13 @@ describe('IamFileAdapter', () => {
       ).toThrow(/escapes rootDir/)
     })
 
-    it('warns at most once per process when rootDir is omitted', () => {
-      _warnSpy?.mockClear()
-      const fs = makeFakeFS()
-      // Latch is module-level: prior tests in this file may already have
-      // tripped it, so the warn for these constructions may not fire at all.
-      // Contract is `at most one` across multiple constructions, never per-
-      // construction spam.
-      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-1.json', fs })
-      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-2.json', fs })
-      new IamFileAdapter<Action, Resource, Role, Scope>({ path: '/store-3.json', fs })
-      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c: unknown[]) => /rootDir/.test(String(c[0])))
-      expect(rootDirWarns.length).toBeLessThanOrEqual(1)
-    })
-
-    it('does not reflect the constructed path in the rootDir-missing warn', () => {
-      _warnSpy?.mockClear()
-      const fs = makeFakeFS()
-      const uniquePath = `/very-unique-path-${Date.now()}.json`
-      new IamFileAdapter<Action, Resource, Role, Scope>({ path: uniquePath, fs })
-      const rootDirWarns = (_warnSpy?.mock.calls ?? []).filter((c: unknown[]) => /rootDir/.test(String(c[0])))
-      // Latch may already have fired in prior tests, so this assertion only
-      // applies if a fresh warn did fire here.
-      for (const call of rootDirWarns) {
-        expect(String(call[0])).not.toContain(uniquePath)
-      }
-    })
+    // The missing-`rootDir` warning is pinned in `file-rootdir-warn.test.ts`,
+    // not here. Its latch is module-level and the `runAdapterCompliance(...)`
+    // call at the top of this file trips it at collection time, so no `it` in
+    // this file can ever observe the warning fire: the two clauses that used to
+    // sit here asserted `0 <= 1` and looped over an empty array, and both
+    // passed with the latch and the redaction removed. The other file resets
+    // the module first, which is the only way to make either claim testable.
 
     it('rejects a symlink that resolves outside rootDir (via realpath)', async () => {
       // Inject a fake realpath that mimics a symlink: /srv/iam/store.json is

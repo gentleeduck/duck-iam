@@ -4,6 +4,7 @@ import type { IamConfig } from '../../../core/config'
 import type { AccessControl, IamAdapter } from '../../../core/types'
 import { runAdapterCompliance } from '../../__compliance__/compliance'
 import { createIamDrizzleAdapter, type IamDrizzle, IamDrizzleAdapter, iamDrizzleAdapter } from '../index'
+import { fakeSql } from './fake-sql'
 
 /** `IConfig` gained <TDb, TType> in the rename these suites were disabled for. */
 type TestConfig = IamDrizzle.IConfig<IamDrizzle.AnyDrizzleDb, 'pg'>
@@ -20,7 +21,7 @@ interface Row {
 }
 
 interface WhereCondition {
-  type: 'eq' | 'and'
+  type: 'eq' | 'and' | 'or' | 'isNull'
   args: unknown[]
 }
 
@@ -32,9 +33,28 @@ function isAnd(c: unknown): c is { type: 'and'; args: WhereCondition[] } {
   return typeof c === 'object' && c !== null && (c as { type?: string }).type === 'and'
 }
 
+function isOr(c: unknown): c is { type: 'or'; args: WhereCondition[] } {
+  return typeof c === 'object' && c !== null && (c as { type?: string }).type === 'or'
+}
+
+function isNullCond(c: unknown): c is { type: 'isNull'; args: [{ name: string }] } {
+  return typeof c === 'object' && c !== null && (c as { type?: string }).type === 'isNull'
+}
+
 function rowMatches(row: Row, cond: unknown): boolean {
   if (!cond) return true
   if (isAnd(cond)) return cond.args.every((sub) => rowMatches(row, sub))
+  // `and()`/`or()` drop undefined conditions in drizzle, and an `or` over
+  // nothing matches nothing - the opposite of an `and` over nothing.
+  if (isOr(cond)) return cond.args.filter((sub) => sub !== undefined).some((sub) => rowMatches(row, sub))
+  if (isNullCond(cond)) {
+    const [col] = cond.args
+    // `IS NULL` is true for a stored NULL, not for a column that is merely
+    // absent from the row object: an unscoped assignment is written as
+    // `scope: null`, and treating "no key" as NULL would let a malformed row
+    // satisfy the unscoped lookup.
+    return row[col.name] === null
+  }
   if (isEq(cond)) {
     const [col, val] = cond.args
     return row[col.name] === val
@@ -202,9 +222,19 @@ function makeDrizzleMock(): {
       }) as unknown as TestConfig['db']['delete'],
     },
     tables: tableRefs,
+    // `isNull` and `or` were absent, and both are the *gate* on an optional
+    // code path rather than a detail of one: `updateAssignmentScope` opens with
+    // `if (!this._isNull) return false`, and `revokeRoleMany` falls back to one
+    // DELETE per row without `or`. Omitting them here did not make those paths
+    // fail - it made them never run, so the whole compliance matrix certified
+    // the degraded branch and the shipped one was dark outside the Docker e2e
+    // tier. The real adapter is constructed with drizzle's own operators, so
+    // supplying them is what makes this mock resemble a deployment.
     ops: {
-      eq: (col, val) => ({ type: 'eq', args: [col, val] }),
-      and: (...conditions) => ({ type: 'and', args: conditions }) as unknown as SQL<unknown>,
+      and: (...conditions: unknown[]) => fakeSql({ type: 'and', args: conditions }),
+      eq: (col: unknown, val: unknown) => fakeSql({ type: 'eq', args: [col, val] }),
+      isNull: (col: unknown) => fakeSql({ type: 'isNull', args: [col] }),
+      or: (...conditions: unknown[]) => fakeSql({ type: 'or', args: conditions }),
     },
   }
 
@@ -790,8 +820,8 @@ describe('IamDrizzleAdapter', () => {
         },
         tables: tableRefs as unknown as MysqlTestConfig['tables'],
         ops: {
-          eq: (col, val) => ({ type: 'eq', args: [col, val] }),
-          and: (...c) => ({ type: 'and', args: c }) as unknown as SQL,
+          eq: (col: unknown, val: unknown) => fakeSql({ type: 'eq', args: [col, val] }),
+          and: (...c: unknown[]) => fakeSql({ type: 'and', args: c }),
         },
       }
       return { config, tables }
