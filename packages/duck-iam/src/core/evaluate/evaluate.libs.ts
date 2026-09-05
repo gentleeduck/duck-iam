@@ -443,3 +443,45 @@ export function indexPolicy(policy: AccessControl.IPolicy): Evaluate.IPolicyRule
   indexCache.set(rules, { algorithm: policy.algorithm, index: idx, length: rules.length })
   return idx
 }
+
+/**
+ * One-shot latch for {@link safeErrorReport}. A broken hook is a wiring fault
+ * the operator fixes once; the report is reachable per policy per request on an
+ * attacker-controlled path (a padded field makes `matches` throw), so repeating
+ * it would hand that attacker a log flood. Same reasoning as the file adapter's
+ * `rootDir` warn latch.
+ */
+let _ERROR_HOOK_THREW = false
+
+/**
+ * Run an error-reporting hook so that a throw inside it cannot escape.
+ *
+ * Every caller is *already inside* the catch block that implements the
+ * Indeterminate contract: a policy that threw votes deny if it carries any deny
+ * rule, otherwise it casts `defaultEffect`. Called raw, a hook that throws
+ * propagates out of that catch, so the vote is never cast and the evaluation
+ * unwinds instead - the padded field that defeated the deny rule takes the
+ * whole decision with it. Reporting an error must not be able to change the
+ * decision being reported.
+ *
+ * Synchronous by design: these sites are on the evaluation path, so the async
+ * `safeHookCall` would only leave a floating promise. Prefer `safeHookCall` for
+ * the engine's own lifecycle hooks, which are already awaited.
+ */
+export function safeErrorReport(report: () => void): void {
+  try {
+    report()
+  } catch (err) {
+    if (_ERROR_HOOK_THREW) return
+    _ERROR_HOOK_THREW = true
+    try {
+      console.error(
+        '[@gentleduck/iam:evaluate] an error-reporting hook threw - swallowed to preserve the decision. ' +
+          'This is reported once per process; the hook is still broken.',
+        err,
+      )
+    } catch {
+      /* last-resort: give up logging; the decision matters more than diagnostics */
+    }
+  }
+}

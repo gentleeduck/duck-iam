@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { MAX_REGEX_INPUT_LENGTH } from '../../conditions/conditions.libs'
 import type { AccessControl, IamRequest } from '../../types'
 import { evaluate, evaluateFast, evaluatePolicyFast } from '../evaluate'
+import { indexPolicy } from '../evaluate.libs'
 
 /**
  * Property-based regression guard: generate deterministic-random policy sets
@@ -11,6 +12,22 @@ import { evaluate, evaluateFast, evaluatePolicyFast } from '../evaluate'
  * silently breaks one side trips a failing oracle iteration.
  *
  * Deterministic seed -> reproducible failures.
+ *
+ * **What a passing iteration does and does not prove.** `evaluatePolicyFast`
+ * hands any policy carrying a throwable condition (`matches`, or an operator no
+ * `ops` entry answers to) straight to `evaluatePolicy` - deliberately, so the
+ * two modes agree by construction rather than by two implementations being kept
+ * in step. On those iterations this oracle is comparing the interpreter with
+ * itself, and agreement is guaranteed: they are a coverage measurement of the
+ * *delegation*, not of a second implementation. That is roughly half of them,
+ * because the poison policy is mixed in every fourth iteration and the
+ * generator draws `matches` conditions besides.
+ *
+ * So the iterations that actually put two implementations against each other
+ * are the ones where no policy in the set is throwable. Those are counted and
+ * given a floor below, because "1000 iterations" meant something much smaller
+ * than it sounded, and the delegation is pinned directly, on the shape that
+ * would diverge without it, in `fast-path-throwable-delegation.test.ts`.
  */
 
 function mulberry32(seed: number): () => number {
@@ -222,6 +239,8 @@ describe('property oracle: evaluate == evaluateFast', () => {
       it(`combine="${combine}" default="${defaultEffect}"`, () => {
         const rng = mulberry32(0xdec1ded ^ defaultEffect.length ^ combine.length)
         let thrown = 0
+        /** Iterations where no policy delegates, so two implementations really did run. */
+        let independent = 0
         const onPolicyError = () => {
           thrown++
         }
@@ -232,6 +251,7 @@ describe('property oracle: evaluate == evaluateFast', () => {
           const poisoned = i % 4 === 0
           if (poisoned) policies.push(poisonPolicy(rng() < 0.5 ? 'allow' : 'deny', numPolicies))
           const request = makeRequest(rng, poisoned)
+          if (!policies.some((policy) => indexPolicy(policy).mayThrow)) independent++
           const fullDecision = evaluate(policies, request, defaultEffect, combine, onPolicyError)
           const fastBool =
             combine === 'first-applicable'
@@ -249,6 +269,12 @@ describe('property oracle: evaluate == evaluateFast', () => {
         // The poison `matches` arm has to actually fire, or the Indeterminate
         // dimension is back to being unfuzzed with the generator none the wiser.
         expect(thrown).toBeGreaterThan(0)
+        // ...and the *other* half has to fire too. Without this floor a
+        // generator change that made every policy throwable would leave 1000
+        // iterations of the interpreter agreeing with itself, reported as 1000
+        // iterations of differential testing. The number is a floor on what the
+        // current generator produces (~450-550), not a target.
+        expect(independent, 'no iteration compared two independent implementations').toBeGreaterThan(300)
       })
     }
   }

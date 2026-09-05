@@ -209,6 +209,15 @@ async function whilePaused<T>(body: () => Promise<T>): Promise<T> {
     return await body()
   } finally {
     await docker(['unpause', containerName])
+    // `whileStopped` already waited for the server to answer again; this did
+    // not, and `unpause` returns as soon as the processes are resumed, not as
+    // soon as Postgres is serving. The recovery case below then asked for a
+    // decision against a database that was technically running and not yet
+    // answering, and read the fail-closed deny as "the engine did not
+    // recover". Waiting here is a precondition of the claim under test, not a
+    // relaxation of it: if the database answers and the engine still denies,
+    // the case still fails, which is the whole point of it.
+    await waitUntilReady(containerName, ['psql', '-U', PG_USER, '-d', PG_DB, '-c', 'SELECT 1'])
   }
 }
 

@@ -184,9 +184,14 @@ export function rolesToPolicy(
  * bounded by {@link MAX_INHERITANCE_DEPTH} so a runaway chain can't recurse
  * past the JS stack.
  *
+ * An inherited ID that no role in `allRoles` defines is dropped: it would
+ * otherwise reach `subject.roles` as a phantom role that no permission backs
+ * but an ABAC `subject.roles contains ...` rule still matches. Directly
+ * assigned IDs are kept whether or not the catalog defines them.
+ *
  * @param assignedRoles Role IDs directly assigned to the subject.
  * @param allRoles      Every role definition, used to resolve `inherits`.
- * @returns Closed set of effective role IDs (assigned + inherited).
+ * @returns Closed set of effective role IDs (assigned + defined inherited).
  */
 export function resolveEffectiveRoles(assignedRoles: string[], allRoles: AccessControl.IRole[]): string[] {
   const rolesMap = new Map(allRoles.map((r) => [r.id, r]))
@@ -198,11 +203,29 @@ export function resolveEffectiveRoles(assignedRoles: string[], allRoles: AccessC
 
   function walk(roleId: string, depth: number) {
     if (depth > MAX_INHERITANCE_DEPTH) return
+    const role = rolesMap.get(roleId)
+    // An *inherited* id that no role defines is dropped instead of added. It
+    // used to land in `effective` - and so in `subject.roles` - before this
+    // lookup ever happened, which made it a phantom role: it carries no
+    // permissions, because there is no definition to read any from, but a
+    // hand-written ABAC rule testing `subject.roles contains 'ghost'` still
+    // fired on it. The operator route into that state is ordinary: delete a
+    // role while some other role still names it in `inherits`. `deleteRole`
+    // cascades a role's *assignments* on every adapter, so the direct grant
+    // goes; the inherited id did not, and the check kept answering allow.
+    // `validateRoles` already calls this catalog state `DANGLING_INHERIT` with
+    // `type: 'error'`, so dropping it is not a new opinion about the data.
+    //
+    // Depth 0 is the subject's own assignment and is kept even with no
+    // definition behind it. That is a row an operator wrote rather than an id
+    // derived from one, and dropping it would silently narrow
+    // `getEffectiveRoles` for any deployment where the catalog is not the sole
+    // authority on which role ids exist.
+    if (role === undefined && depth > 0) return
     const best = bestDepth.get(roleId)
     if (best !== undefined && best <= depth) return
     bestDepth.set(roleId, depth)
     effective.add(roleId)
-    const role = rolesMap.get(roleId)
     for (const parent of role?.inherits ?? []) walk(parent, depth + 1)
   }
 

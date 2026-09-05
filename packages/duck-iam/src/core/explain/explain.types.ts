@@ -94,6 +94,14 @@ export namespace Explain {
     readonly conditionsMet: boolean
     readonly conditions: IGroupTrace
     readonly matched: boolean
+    /**
+     * Set when tracing this rule's conditions threw - an unknown operator, or a
+     * `conditions` field that is not a group. The decision path treats that as
+     * Indeterminate rather than as a non-match, so the rule reads
+     * `matched: false` here while the *policy* result reflects the Indeterminate
+     * vote. Absent on every rule that evaluated normally.
+     */
+    readonly conditionError?: string
   }
 
   /**

@@ -166,7 +166,14 @@ describe('When (condition builder)', () => {
 
 describe('RuleBuilder', () => {
   it('builds a rule with defaults', () => {
-    const rule = new RuleBuilder('r1').build()
+    // `.forScope('*')` rather than `.allow()`, which is what this originally
+    // was. `build()` now refuses a builder nobody configured, so the call needs
+    // *something* - but `.allow()` sets the very field the next line asserts,
+    // which turned the only pin on the default effect into a tautology and let
+    // `_effect = 'deny'` survive the whole suite. The wildcard scope is an
+    // explicit statement that narrows nothing and touches no field below, so
+    // every assertion here still reads a genuine default.
+    const rule = new RuleBuilder('r1').forScope('*').build()
     expect(rule.id).toBe('r1')
     expect(rule.effect).toBe('allow')
     expect(rule.priority).toBe(10)
@@ -190,17 +197,17 @@ describe('RuleBuilder', () => {
   })
 
   it('priority() sets priority', () => {
-    const rule = new RuleBuilder('r1').priority(100).build()
+    const rule = new RuleBuilder('r1').allow().priority(100).build()
     expect(rule.priority).toBe(100)
   })
 
   it('desc() sets description', () => {
-    const rule = new RuleBuilder('r1').desc('My rule').build()
+    const rule = new RuleBuilder('r1').allow().desc('My rule').build()
     expect(rule.description).toBe('My rule')
   })
 
   it('meta() sets metadata', () => {
-    const rule = new RuleBuilder('r1').meta({ source: 'test' }).build()
+    const rule = new RuleBuilder('r1').allow().meta({ source: 'test' }).build()
     expect(rule.metadata).toEqual({ source: 'test' })
   })
 
@@ -283,7 +290,7 @@ describe('PolicyBuilder', () => {
   })
 
   it('addRule() adds a pre-built rule', () => {
-    const rule = new RuleBuilder('r1').build()
+    const rule = new RuleBuilder('r1').allow().build()
     const p = new PolicyBuilder('p1').addRule(rule).build()
     expect(p.rules).toHaveLength(1)
   })
@@ -373,7 +380,7 @@ describe('factory functions', () => {
   })
 
   it('defineRule() creates a RuleBuilder', () => {
-    const r = defineRule('r1').build()
+    const r = defineRule('r1').allow().build()
     expect(r.id).toBe('r1')
   })
 
@@ -472,7 +479,7 @@ describe('RuleBuilder (uncovered paths)', () => {
   })
 
   it('defaults to an empty all-group when no conditions are set', () => {
-    expect(new RuleBuilder('r1').build().conditions).toEqual({ all: [] })
+    expect(new RuleBuilder('r1').allow().build().conditions).toEqual({ all: [] })
   })
 })
 

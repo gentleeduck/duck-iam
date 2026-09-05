@@ -1,7 +1,8 @@
 /** biome-ignore-all lint/style/noNonNullAssertion: index iteration guarded by length check. */
 
-import { evaluateOperator, resolveConditionValue } from '../conditions/conditions'
-import { rulePriority } from '../evaluate/evaluate.libs'
+import { evalConditionGroup, resolveConditionValue } from '../conditions/conditions'
+import { evalCondition } from '../conditions/conditions.libs'
+import { policyHasDenyRule, rulePriority } from '../evaluate/evaluate.libs'
 import { matchesAction, matchesResource, matchesResourceHierarchical, resolve } from '../resolve'
 import type { AccessControl, IamRequest } from '../types'
 import type { Explain } from './explain.types'
@@ -14,11 +15,28 @@ function isCondition(item: AccessControl.ICondition | AccessControl.IConditionGr
   return 'field' in item
 }
 
-/** Trace a single leaf condition, capturing actual vs expected values and the result. */
+/**
+ * Trace a single leaf condition, capturing actual vs expected values and the result.
+ *
+ * `result` comes from `evalCondition` - the function the engine decides with -
+ * not from a second evaluation of the same condition. This used to call
+ * `evaluateOperator`, which is the raw operator table: it skips the refusal of
+ * `matches` against a `$`-sourced operand, so a trace reported a leaf as
+ * satisfied that the engine had refused outright, and an operator asking why a
+ * request was denied was shown the condition that supposedly passed. The
+ * sibling parity test records two earlier drifts of the same kind one level up,
+ * at the cross-policy combine; sourcing the verdict from the decision path is
+ * what stops a third.
+ *
+ * `actual` and `expected` stay separately resolved because they are display
+ * values - the trace has to show what the operand resolved *to*, including for
+ * a condition whose verdict is a refusal. The duplicate resolve costs a walk of
+ * the request on a diagnostic path, never on the decision path.
+ */
 function traceLeaf(req: IamRequest.IAccessRequest, cond: AccessControl.ICondition): Explain.ILeafTrace {
   const actual = resolve(req, cond.field)
   const expected = resolveConditionValue(req, cond.value ?? null)
-  const result = evaluateOperator(cond.operator, actual, expected)
+  const result = evalCondition(req, cond)
   return { type: 'condition', field: cond.field, operator: cond.operator, expected, actual, result }
 }
 
@@ -56,7 +74,18 @@ function traceGroup(
     return { type: 'group', logic: 'none', result: children.every((c) => !c.result), children }
   }
 
-  return { type: 'group', logic: 'all', result: false, children: [] }
+  // No `all`/`any`/`none`. The decision path draws a distinction here that this
+  // fallback used to flatten: `{}` is "no conditions", which is unconditionally
+  // true, while a group with keys we do not recognise (a typo'd `all`, a row
+  // from a hand-edited store) is false, because reading it as "no conditions"
+  // would turn a conditional allow into an unconditional one. Returning a flat
+  // `false` made `explain()` report a denial for a rule `can()` allowed.
+  //
+  // Delegated rather than reimplemented. This branch has no children to trace,
+  // so there is nothing to duplicate, and asking the decision path itself is
+  // the only version that cannot drift from it again - which is the third time
+  // a hand-copy of this logic has drifted.
+  return { type: 'group', logic: 'all', result: evalConditionGroup(req, group, depth), children: [] }
 }
 
 /** Trace a single rule evaluation: action match, resource match, and condition tree. */
@@ -70,7 +99,20 @@ function traceRule(rule: AccessControl.IRule, req: IamRequest.IAccessRequest): E
     return matchesResource(r, req.resource.type)
   })
 
-  const conditions = traceGroup(req, rule.conditions)
+  // `evalConditionGroup` throws on an unknown operator, on a `conditions` field
+  // that is not a group, and on an oversized regex input. `explain()` is the
+  // tool you reach for when a decision looks wrong, so raising out of it on
+  // exactly those inputs meant it failed on the cases it exists to explain. The
+  // decision path absorbs them as Indeterminate; this records the failure and
+  // lets `explainPolicy` cast the same vote.
+  let conditions: Explain.IGroupTrace
+  let conditionError: string | undefined
+  try {
+    conditions = traceGroup(req, rule.conditions)
+  } catch (err) {
+    conditionError = err instanceof Error ? err.message : String(err)
+    conditions = { type: 'group', logic: 'all', result: false, children: [] }
+  }
 
   return {
     ruleId: rule.id,
@@ -82,6 +124,7 @@ function traceRule(rule: AccessControl.IRule, req: IamRequest.IAccessRequest): E
     conditionsMet: conditions.result,
     conditions,
     matched: actionMatch && resourceMatch && conditions.result,
+    ...(conditionError === undefined ? {} : { conditionError }),
   }
 }
 
@@ -179,6 +222,30 @@ export function tracePolicy(
   }
 
   const ruleTraces = policy.rules.map((rule) => traceRule(rule, req))
+
+  // A rule that threw is Indeterminate, not "did not match". Running the
+  // combiner over the rules that survived would report an allow the decision
+  // path never gives: `safeEval` in `evaluate.ts` votes deny whenever the
+  // policy carries any deny rule - failing to evaluate it could have hidden
+  // that deny - and otherwise casts `defaultEffect`, staying applicable either
+  // way. `policyHasDenyRule` is the same helper that decision uses rather than
+  // a second reading of the rule list; three of the four drifts between these
+  // two paths were hand-copies that fell out of step.
+  if (ruleTraces.some((r) => r.conditionError !== undefined)) {
+    const hasDeny = policyHasDenyRule(policy)
+    return {
+      policyId: policy.id,
+      policyName: policy.name,
+      algorithm: policy.algorithm,
+      targetMatch: true,
+      rules: ruleTraces,
+      result: hasDeny ? 'deny' : defaultEffect,
+      reason: hasDeny
+        ? 'Policy evaluation error - denied (indeterminate)'
+        : `Policy evaluation error - defaulted to ${defaultEffect} (indeterminate)`,
+    }
+  }
+
   const matched = ruleTraces.filter((r) => r.matched)
   const { effect, reason, decidingRuleId } = applyCombiner(policy.algorithm, matched, defaultEffect)
   const decidingRule = decidingRuleId ? policy.rules.find((r) => r.id === decidingRuleId) : undefined

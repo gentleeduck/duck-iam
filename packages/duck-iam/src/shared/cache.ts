@@ -51,6 +51,31 @@ export class IamLRUCache<V> {
     return entry.value
   }
 
+  /**
+   * When the entry under `key` stops being served, or `undefined` when there
+   * is none (or it has already lapsed).
+   *
+   * Exists so a *derived* cache can inherit its source's expiry through
+   * {@link set}'s `notAfter`. Without that, a value computed from cached
+   * inputs is stamped with a full fresh TTL no matter how old those inputs
+   * are, and the derived entry outlives what it was derived from - the engine
+   * saw an out-of-band revocation take up to two full `cacheTTL`s to converge
+   * because the compiled table was rebuilt from a nearly-expired `roleCache`
+   * and then declared fresh.
+   *
+   * Neither LRU order nor the hit/miss counters move: this is bookkeeping
+   * about an entry, not a read of it, and counting it would make the stats
+   * lie about how often the cache actually served a value.
+   *
+   * @param key - Looks up the entry under this cache key.
+   * @returns Epoch ms the entry expires at, or `undefined`.
+   */
+  expiresAt(key: string): number | undefined {
+    const entry = this._map.get(key)
+    if (!entry) return undefined
+    return Date.now() >= entry.expiresAt ? undefined : entry.expiresAt
+  }
+
   /** Hit/miss counters + current size. */
   get stats(): { hits: number; misses: number; size: number } {
     return { hits: this._hits, misses: this._misses, size: this._map.size }

@@ -327,6 +327,13 @@ suite('E2E compiled-table fallback and TTL on real Postgres', () => {
       const v = await bothModes({ action: 'read', resource: 'doc', subjectId: 'u1' })
       expect(v.disagreements, `disagreement: ${v.disagreements[0] ?? ''}`).toEqual([])
       expect(v.production, 'production must not allow what development denies').toBe(v.development)
+      // Named, not just matched: two engines that both denied everything would
+      // satisfy the line above perfectly. `clean` grants `read doc` with no
+      // condition on it, and the subject holds that grant through inheritance,
+      // so the permission whose `matches` cannot run contributes nothing rather
+      // than revoking it - the same verdict the memory-adapter sibling pins,
+      // now reached through real Postgres and `IamDrizzleAdapter`.
+      expect(v.production, 'the agreed verdict itself').toBe(true)
     })
 
     it('the condition-depth divergence is contained at the store: drizzle drops the row', async () => {

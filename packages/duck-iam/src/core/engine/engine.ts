@@ -647,20 +647,58 @@ export class IamEngine<
     }
   }
 
+  /**
+   * The instant this table should be treated as having been built at: now, or
+   * the moment its oldest input was read, whichever is earlier.
+   *
+   * `cacheTTL` is documented as the convergence window for a write made
+   * outside this engine, and with no invalidator wired - the default - it is
+   * the only one. The table is not compiled from the adapter, though; it is
+   * compiled from `roleCache` and `policyCache`. Stamping it `Date.now()`
+   * therefore gave a table built from nearly-expired roles a second, complete
+   * TTL, and the two clocks only separate when something nulls the table
+   * *without* clearing `roleCache` - which is exactly what `savePolicy`,
+   * `deletePolicy` and an inbound `{kind: 'policies'}` event all do. Measured
+   * at `cacheTTL: 60`: a revoke written at t=1s still answered allow at
+   * t=111s, converging at t=119s.
+   *
+   * An input with no cache entry imposes no cap: it was read live, so it is as
+   * fresh as now.
+   *
+   * @param deps - The loader bag whose caches fed this build.
+   * @returns Epoch ms to record as the build time.
+   */
+  private _derivedBuiltAt(deps: {
+    roleCache: IamLRUCache<AccessControl.IRole[]>
+    policyCache: IamLRUCache<AccessControl.IPolicy[]>
+  }): number {
+    const now = Date.now()
+    const oldestExpiry = Math.min(
+      deps.roleCache.expiresAt('all') ?? Number.POSITIVE_INFINITY,
+      deps.policyCache.expiresAt('all') ?? Number.POSITIVE_INFINITY,
+    )
+    if (!Number.isFinite(oldestExpiry)) return now
+    // An entry expiring at E was read at E - cacheTTL, unless a `notAfter` cap
+    // shortened it - in which case this reads older still, which is the safe
+    // direction. Never later than now.
+    return Math.min(now, oldestExpiry - this._cacheTTL)
+  }
+
   private _rebuildCompiledTable(): Promise<CompiledTable> {
     if (this._compiledTableBuild && this._compiledTableBuildGen === this._compiledTableGen) {
       return this._compiledTableBuild
     }
     const gen = this._compiledTableGen
+    const deps = this._loaderDeps()
     const build = (async () => {
-      const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(this._loaderDeps())])
+      const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(deps)])
       const { compileTable } = await import('./compiled/compiled.compile')
       const table = this._compileOrReport(compileTable, roles, policies)
       // An invalidation that landed mid-build must win: don't resurrect a table
       // built from data that invalidation has already superseded.
       if (this._compiledTableGen === gen) {
         this._compiledTable = table
-        this._compiledTableBuiltAt = Date.now()
+        this._compiledTableBuiltAt = this._derivedBuiltAt(deps)
       }
       return table
     })()
