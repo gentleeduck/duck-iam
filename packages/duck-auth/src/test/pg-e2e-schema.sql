@@ -90,6 +90,7 @@ CREATE INDEX "auth_credentials_tenant" ON "auth_credentials" USING btree ("tenan
 CREATE INDEX "auth_credentials_expires_at" ON "auth_credentials" USING btree ("expires_at") WHERE expires_at IS NOT NULL;
 CREATE INDEX "auth_events_identity_created" ON "auth_events" USING btree ("identity_id","created_at");
 CREATE INDEX "auth_events_tenant_created" ON "auth_events" USING btree ("tenant_id","created_at");
+CREATE INDEX "auth_events_actor_created" ON "auth_events" USING btree ("actor_id","created_at");
 CREATE INDEX "auth_events_created" ON "auth_events" USING btree ("created_at");
 CREATE INDEX "auth_identities_deleted_at" ON "auth_identities" USING btree ("deleted_at") WHERE "auth_identities"."deleted_at" is null;
 CREATE UNIQUE INDEX "uq_auth_identities_email" ON "auth_identities" USING btree (((lower(profile->>'email')))) WHERE "auth_identities"."deleted_at" is null;

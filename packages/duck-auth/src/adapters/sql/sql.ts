@@ -5,9 +5,10 @@ import { authUlid } from '~/core/crypto'
 import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities/identities.types'
 import { stripUndefined } from '~/core/patch'
-import { AUTH_SESSION_FACTOR_METHODS, type Sessions } from '~/core/sessions/sessions.types'
+import type { Sessions } from '~/core/sessions/sessions.types'
 import type { TenantContext } from '~/core/tenant/tenant.types'
 import type { SqlBridge } from './sql.types'
+import { isFactor, isProviderLink, storedDate } from './stored-json'
 
 export function pickFreshestCredential(rows: readonly Credential.Me[]): Credential.Me | null {
   let live: Credential.Me | null = null
@@ -216,47 +217,11 @@ function linkKey(identityId: string, providerId: string): string {
 }
 
 /**
- * A `Date` handed to a JSON column comes back as the ISO string
- * `JSON.stringify` wrote. Three typed-`Date` fields live inside
- * `jsonb`/`json`/`text` columns: `providers[].addedAt`, a session's
- * `factors[].completedAt`, and both dates on `actingAs`. The memory and Redis
- * stores hand back real `Date`s, so leaving these as strings made the SQL
- * adapters the odd ones out - and the row types kept promising `Date`, so it
- * surfaced in caller code as `addedAt.getTime is not a function` rather than
- * here. `parseStoredDate` in the Redis session store does this same job.
- */
-function storedDate(value: unknown): Date | null {
-  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null
-  if (typeof value === 'string') {
-    const parsed = new Date(value)
-    return Number.isFinite(parsed.getTime()) ? parsed : null
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value)
-  return null
-}
-
-/**
- * `$type<ProviderLink[]>()` is a compile-time assertion drizzle makes about a
- * JSON column; the database enforces `NOT NULL` and nothing else. A row written
- * by an older migration, another service, or a hand-run `UPDATE` can hold
- * `null`, `{}`, `"..."` or `[1, 2]` in that column, and every one of those used
- * to reach `.length`/`.map` and throw a `TypeError` out of a plain `findById`.
- * The Redis store already answers `[]` for the same input; failing soft here
- * keeps a malformed row from taking the whole request down with it.
- */
-function isProviderLink(value: unknown): value is Identities.ProviderLink {
-  if (typeof value !== 'object' || value === null) return false
-  if (!('providerId' in value) || typeof value.providerId !== 'string') return false
-  if (!('providerSub' in value)) return false
-  return value.providerSub === null || typeof value.providerSub === 'string'
-}
-
-/**
- * A link whose `addedAt` is unreadable keeps the link and falls back to the
- * row's own `createdAt`: the date is informational, while dropping the entry
- * would silently remove a way into the account. A link missing its `providerId`
- * is a different matter - it can never match a lookup, so keeping it would only
- * inflate the array.
+ * A second, idempotent pass over whatever the bridge handed back. The three
+ * drizzle dialects already revive these columns in their codecs, where
+ * `storedDate` returns an existing `Date` unchanged; a hand-written bridge over
+ * a driver that does not gets the same treatment here rather than shipping ISO
+ * strings under a `Date`-typed contract.
  */
 function reviveIdentity<Profile extends Identities.ProfileMetadataBase>(
   row: Identities.Me<Profile>,
@@ -282,12 +247,6 @@ const reviveIdentityOrNull = <Profile extends Identities.ProfileMetadataBase>(
  * cannot be read is not a window anyone should be inside, so it is dropped,
  * matching the Redis store.
  */
-function isFactor(value: unknown): value is Sessions.Factor {
-  if (typeof value !== 'object' || value === null) return false
-  if (!('method' in value)) return false
-  return AUTH_SESSION_FACTOR_METHODS.some((method) => method === value.method)
-}
-
 function reviveSession(row: Sessions.Me): Sessions.Me {
   // Same story as `providers`: the column is `NOT NULL` json, which excludes SQL
   // NULL and nothing else. A factor whose `method` is outside the union is
@@ -575,8 +534,9 @@ function buildSessions(bridge: SqlBridge.Session<Sessions.Me>): Sessions.Store {
       return reviveSession(next)
     },
     delete: (id) => bridge.delete(id),
-    listByIdentity: async (identityId) => (await bridge.listByIdentity(identityId)).map(reviveSession),
-    deleteAllForIdentity: (identityId) => bridge.deleteAllForIdentity(identityId),
+    listByIdentity: async (identityId, ctx) =>
+      (await bridge.listByIdentity(identityId, ctx?.tenantId)).map(reviveSession),
+    deleteAllForIdentity: (identityId, ctx) => bridge.deleteAllForIdentity(identityId, ctx?.tenantId),
     gc: async (now) => ({ deleted: await bridge.deleteExpired(new Date(now)) }),
 
     ...(deleteAllForIdentitiesReturningIds && {

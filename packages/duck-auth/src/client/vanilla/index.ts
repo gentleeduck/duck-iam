@@ -6,8 +6,16 @@
 
 import type { Envelope } from '~/core/errors/errors.types'
 import type { Identities } from '~/core/identities'
+import { reviveSessionResult } from './revive'
 import type { VanillaClient } from './types'
 
+/**
+ * The wire-to-row converters. `VanillaClient.Serialized<T>` maps `Date -> string`
+ * to describe what `JSON.stringify` actually put on the wire, and these are the
+ * only things that produce the row type from it - so an app calling `/session`
+ * with its own fetch reaches the same `Date`s the client hands back.
+ */
+export { reviveIdentity, reviveSession, reviveSessionResult } from './revive'
 export type { VanillaClient } from './types'
 
 /** Mirrors SAFE_METHODS in core/csrf. */
@@ -104,8 +112,20 @@ export function createAuthClient<Profile extends Identities.ProfileMetadataBase>
       return (res.ok ? res : { ok: true, code: 'AUTH_SIGNOUT_OK', data: {} }) as Envelope<Record<string, never>, string>
     },
     async getSession() {
-      const res = (await call('GET', '/session')) as Envelope<VanillaClient.SessionResult<Profile>, string>
-      notify(res.ok && res.data ? res.data : { session: null, identity: null })
+      // Typed as what the wire carries, not what callers are owed: asserting the
+      // row type here is what hid the missing revival from `tsc`. `| null`
+      // because `call` synthesises `data: parsed`, and an empty 200 parses to
+      // `null` - which the old code returned as `data` under a type promising a
+      // `SessionResult`. Revived once here, so `onChange` subscribers and the
+      // framework clients wrapping this one all agree.
+      const raw = (await call('GET', '/session')) as Envelope<
+        VanillaClient.SerializedSessionResult<Profile> | null,
+        string
+      >
+      const res: Envelope<VanillaClient.SessionResult<Profile>, string> = raw.ok
+        ? { ...raw, data: reviveSessionResult(raw.data ?? { identity: null, session: null }) }
+        : raw
+      notify(res.ok ? res.data : { session: null, identity: null })
       return res
     },
     async beginProvider(id, input) {
