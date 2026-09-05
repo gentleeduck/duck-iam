@@ -64,14 +64,27 @@ export class OrgsImpl<OrgMeta = unknown> {
     return m
   }
 
-  /** Remove (mark leftAt) a membership. Idempotent. */
-  async removeMember(orgId: string, identityId: string, ctx: TenantContext = {}): Promise<void> {
-    await this._store.removeMember(orgId, identityId, ctx)
+  /**
+   * Remove (mark leftAt) a membership. Idempotent. Answers with the membership
+   * as it stands left, `null` when the identity was not a member - which is
+   * how an idempotent call says it did nothing.
+   */
+  async removeMember(orgId: string, identityId: string, ctx: TenantContext = {}): Promise<Org.Membership | null> {
+    return this._store.removeMember(orgId, identityId, ctx)
   }
 
-  /** Replace the role set for a member. */
-  async setRoles(orgId: string, identityId: string, roles: string[], ctx: TenantContext = {}): Promise<void> {
-    await this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx)
+  /**
+   * Replace the role set for a member. Answers with the membership carrying its
+   * new roles - which is the sanitized set actually stored, not the one passed
+   * in - or `null` when there is no such member.
+   */
+  async setRoles(
+    orgId: string,
+    identityId: string,
+    roles: string[],
+    ctx: TenantContext = {},
+  ): Promise<Org.Membership | null> {
+    return this._store.setRoles(orgId, identityId, sanitizeRoles(roles), ctx)
   }
 
   /**

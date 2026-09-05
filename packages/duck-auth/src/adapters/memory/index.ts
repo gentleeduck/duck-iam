@@ -426,13 +426,18 @@ export class MemoryAdapter<
       removeMember: async (orgId, identityId) => {
         const key = `${orgId}:${identityId}`
         const cur = this._memberships.get(key)
-        if (cur) this._memberships.set(key, { ...cur, leftAt: new Date() })
+        if (!cur) return null
+        const next = { ...cur, leftAt: new Date() }
+        this._memberships.set(key, next)
+        return next
       },
       setRoles: async (orgId, identityId, roles) => {
         const key = `${orgId}:${identityId}`
         const cur = this._memberships.get(key)
-        if (!cur) return
-        this._memberships.set(key, { ...cur, roles })
+        if (!cur) return null
+        const next = { ...cur, roles }
+        this._memberships.set(key, next)
+        return next
       },
     }
   }

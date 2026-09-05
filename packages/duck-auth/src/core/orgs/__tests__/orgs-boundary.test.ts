@@ -117,15 +117,35 @@ describe('leaving and rejoining', () => {
     expect(await orgs.resolveMembership(ORG, 'u1')).toBeNull()
   })
 
-  it('removing twice is harmless', async () => {
+  it('removing twice is harmless, and both calls say what they left', async () => {
     const orgs = makeOrgs()
     await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [] })
-    await orgs.removeMember(ORG, 'u1')
-    await expect(orgs.removeMember(ORG, 'u1')).resolves.toBeUndefined()
+
+    const first = await orgs.removeMember(ORG, 'u1')
+    const second = await orgs.removeMember(ORG, 'u1')
+
+    // The row is still there once left, so the second call answers with it too
+    // - idempotent, and honest about which membership it names.
+    expect(first?.leftAt).toBeInstanceOf(Date)
+    expect(second?.identityId).toBe('u1')
   })
 
-  it('removing someone who was never a member is harmless', async () => {
-    await expect(makeOrgs().removeMember(ORG, 'stranger')).resolves.toBeUndefined()
+  it('removing someone who was never a member answers null', async () => {
+    // Not an error - but not a silent success either. `null` is how an
+    // idempotent removal says there was nothing to remove.
+    await expect(makeOrgs().removeMember(ORG, 'stranger')).resolves.toBeNull()
+  })
+
+  it('setRoles answers with the roles it actually stored, not the ones passed in', async () => {
+    const orgs = makeOrgs()
+    await orgs.addMember({ identityId: 'u1', orgId: ORG, roles: [] })
+
+    // The list is sanitized on the way in; the answer is the stored set, so a
+    // caller sees what was dropped without re-reading the membership.
+    const updated = await orgs.setRoles(ORG, 'u1', ['owner', '', 'member'])
+
+    expect(updated?.roles).toEqual(['owner', 'member'])
+    expect(await orgs.setRoles(ORG, 'stranger', ['owner'])).toBeNull()
   })
 
   it('rejoining is allowed once the previous membership ended', async () => {
