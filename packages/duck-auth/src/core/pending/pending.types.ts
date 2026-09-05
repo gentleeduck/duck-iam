@@ -29,9 +29,9 @@ export namespace Pending {
      * any threw. The buffer is empty either way, so a partial failure never
      * leaves events to be published twice.
      */
-    flush(): Promise<void>
+    flush(): Promise<{ published: number }>
     /** Drop everything buffered without publishing. For an explicit rollback path. */
-    discard(): void
+    discard(): { discarded: number }
     /** Inspect the buffer without draining it. For tests and custom routing. */
     peek(): readonly Event[]
   }

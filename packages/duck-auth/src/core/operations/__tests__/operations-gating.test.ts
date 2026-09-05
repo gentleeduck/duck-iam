@@ -42,6 +42,23 @@ describe('the exemption flag', () => {
     expect(() => ops.assertOperationsForRoute('POST', { healthz: false, session: true })).not.toThrow()
   })
 
+  it('the toggles answer with the state they set', async () => {
+    const { ops } = makeOps()
+
+    // No follow-up `snapshot()` to see what a toggle actually did - and the
+    // `since` stamp is the one it wrote, not one taken a moment later.
+    const on = await ops.maintenance(true, { message: 'back at 5', retryAfterSec: 60 })
+    expect(on.maintenance).toMatchObject({ message: 'back at 5', on: true, retryAfterSec: 60 })
+    expect(on).toEqual(ops.snapshot())
+
+    const frozen = await ops.readOnly(true)
+    expect(frozen.readOnly.on).toBe(true)
+    // The other mode is carried through untouched: this is the whole state.
+    expect(frozen.maintenance.on).toBe(true)
+
+    expect((await ops.maintenance(false)).maintenance).toEqual({ on: false })
+  })
+
   it('a route with no exemption is blocked in maintenance', async () => {
     const { ops } = makeOps()
     await ops.maintenance(true)

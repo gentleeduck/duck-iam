@@ -51,8 +51,10 @@ describe('createPending', () => {
 
     const { bus, pending } = createPending(target)
     await bus.emit('session.revoked', { sessionId: 's1', identityId: 'i1' })
-    await pending.flush()
-    await pending.flush()
+    // How many were published, so a second flush after a commit is tellable
+    // from the first: the second drains an empty buffer.
+    expect(await pending.flush()).toEqual({ published: 1 })
+    expect(await pending.flush()).toEqual({ published: 0 })
 
     expect(handler).toHaveBeenCalledTimes(1)
   })
@@ -64,8 +66,10 @@ describe('createPending', () => {
 
     const { bus, pending } = createPending(target)
     await bus.emit('session.revoked', { sessionId: 's1', identityId: 'i1' })
-    pending.discard()
-    await pending.flush()
+    // How many went undelivered, so an explicit rollback path can log what it
+    // dropped rather than discovering the buffer was empty all along.
+    expect(pending.discard()).toEqual({ discarded: 1 })
+    expect(await pending.flush()).toEqual({ published: 0 })
 
     expect(handler).not.toHaveBeenCalled()
     expect(pending.size).toBe(0)

@@ -32,11 +32,14 @@ class BufferingBus implements Events.IBus {
     return this._buffer
   }
 
-  discard(): void {
+  /** Drop the buffer, answering with how many events went undelivered. */
+  discard(): { discarded: number } {
+    const discarded = this._buffer.length
     this._buffer = []
+    return { discarded }
   }
 
-  async flush(): Promise<void> {
+  async flush(): Promise<{ published: number }> {
     // Take the buffer before awaiting: a listener that emits during flush must
     // not append to the batch currently draining, or flush could never finish.
     const draining = this._buffer
@@ -52,6 +55,9 @@ class BufferingBus implements Events.IBus {
     if (errors.length > 0) {
       throw new AggregateError(errors, `pending.flush: ${errors.length} of ${draining.length} listeners threw`)
     }
+    // How many were published, so a second `flush()` after a commit can be
+    // told apart from the first - the second drains an empty buffer.
+    return { published: draining.length }
   }
 }
 

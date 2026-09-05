@@ -247,7 +247,7 @@ describe('AnomalyFacet', () => {
           return []
         },
       })
-      facet.unregister('a')
+      expect(facet.unregister('a')).toBe(true)
       expect(facet.list()).toEqual(['b'])
     })
 
@@ -258,7 +258,9 @@ describe('AnomalyFacet', () => {
           return []
         },
       })
-      facet.unregister('missing')
+      // `false` distinguishes a typo in the id from a detector that really was
+      // removed - the list is otherwise the only way to tell, after the fact.
+      expect(facet.unregister('missing')).toBe(false)
       expect(facet.list()).toEqual(['a'])
     })
 
