@@ -11,6 +11,25 @@ import { DEFAULT_APIKEYS_CONFIG, toApiKeysCfg } from './api-key.constants'
 import type { ApiKeys } from './api-key.types'
 
 /**
+ * Project a credential row onto the public `ApiKey` shape - no secret, and the
+ * optional timestamps only when the row actually carries them. Shared by
+ * `list` and `revoke` so the two can never drift.
+ */
+function toApiKey(row: Credential.Me): ApiKeys.ApiKey {
+  const meta = parseApiKeyMetadata(row.metadata)
+  const key: ApiKeys.ApiKey = {
+    createdAt: row.createdAt,
+    id: row.id,
+    identityId: row.identityId,
+    name: meta.name,
+    scopes: meta.scopes,
+  }
+  if (row.lastUsedAt != null) key.lastUsedAt = row.lastUsedAt
+  if (row.expiresAt != null) key.expiresAt = row.expiresAt
+  return key
+}
+
+/**
  * API key facet - long-lived bearer tokens for service-to-service callers
  * that can't do mTLS
  *
@@ -104,26 +123,18 @@ export class ApiKeysFacet {
   /** List the api keys belonging to an identity. No plaintext returned. */
   async list(identityId: string, ctx: TenantContext = {}): Promise<ApiKeys.ApiKey[]> {
     const rows = await this._credentials.listByIdentity(identityId, 'api-key', ctx)
-    return rows
-      .filter((r) => r.revokedAt == null)
-      .map((r) => {
-        const meta = parseApiKeyMetadata(r.metadata)
-        const k: ApiKeys.ApiKey = {
-          id: r.id,
-          identityId: r.identityId,
-          name: meta.name,
-          scopes: meta.scopes,
-          createdAt: r.createdAt,
-        }
-        if (r.lastUsedAt != null) k.lastUsedAt = r.lastUsedAt
-        if (r.expiresAt != null) k.expiresAt = r.expiresAt
-        return k
-      })
+    return rows.filter((r) => r.revokedAt == null).map(toApiKey)
   }
 
-  /** Revoke an api key by row id. Used by UI "delete key" flow. */
-  async revoke(keyId: string, ctx: TenantContext = {}): Promise<void> {
-    await this._credentials.revoke(keyId, ctx)
+  /**
+   * Revoke an api key by row id. Used by UI "delete key" flow. Answers with the
+   * key as it stands revoked - `null` when there was no such key - so a caller
+   * can show which one went without reading it back.
+   */
+  async revoke(keyId: string, ctx: TenantContext = {}): Promise<ApiKeys.ApiKey | null> {
+    const row = await this._credentials.revoke(keyId, ctx)
+    if (row?.kind !== 'api-key') return null
+    return toApiKey(row)
   }
 
   /**

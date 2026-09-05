@@ -328,13 +328,19 @@ export function createDrizzleSqliteBridge<
         return result[0] ?? null
       },
       revoke: async (id, revokedAt, tenantId) => {
-        await db
+        const result = await db
           .update(authCredentials)
           .set({ revokedAt })
           .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+          .returning()
+        return result[0] ?? null
       },
       delete: async (id, tenantId) => {
-        await db.delete(authCredentials).where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+        const gone = await db
+          .delete(authCredentials)
+          .where(and(eq(authCredentials.id, id), tenantWhere(authCredentials, tenantId)))
+          .returning()
+        return gone[0] ?? null
       },
       deleteByIdentitiesReturningIds: async (identityIds, tenantId) => {
         const rows = await db
@@ -344,7 +350,7 @@ export function createDrizzleSqliteBridge<
         return rows.map((r) => r.id).filter((id): id is string => id !== null)
       },
       deleteByKind: async (identityId, kind, tenantId) => {
-        await db
+        return db
           .delete(authCredentials)
           .where(
             and(
@@ -353,6 +359,7 @@ export function createDrizzleSqliteBridge<
               tenantWhere(authCredentials, tenantId),
             ),
           )
+          .returning()
       },
     },
     // --- Sessions ---

@@ -148,11 +148,19 @@ export class MfaImpl {
     return rows.some((r) => r.revokedAt == null && isProfileBooleanTrue(r.metadata, 'confirmed'))
   }
 
-  /** Remove all TOTP credentials for the identity. Emits `mfa.removed`. */
-  async removeTotp(identityId: string, ctx: TenantContext = {}): Promise<void> {
-    if (typeof identityId !== 'string' || identityId.length === 0 || identityId.length > 256) return
-    await this._credentials.deleteByKind(identityId, 'totp', ctx)
+  /**
+   * Remove all TOTP credentials for the identity. Emits `mfa.removed`. Answers
+   * with how many factors went - `0` says the account had none, which is the
+   * difference between "MFA turned off" and "nothing to turn off". The rows
+   * themselves are not returned: they carry the shared secret.
+   */
+  async removeTotp(identityId: string, ctx: TenantContext = {}): Promise<{ removed: number }> {
+    if (typeof identityId !== 'string' || identityId.length === 0 || identityId.length > 256) {
+      return { removed: 0 }
+    }
+    const gone = await this._credentials.deleteByKind(identityId, 'totp', ctx)
     await this._events.emit('mfa.removed', { identityId, method: 'totp' })
+    return { removed: gone.length }
   }
 
   // --- Backup codes -------------------------------------------------------
@@ -372,10 +380,11 @@ export class MfaImpl {
     return rows.some((r) => r.revokedAt == null)
   }
 
-  /** Remove every WebAuthn-MFA credential for the identity. */
-  async removeWebauthnMfa(identityId: string, ctx: TenantContext = {}): Promise<void> {
-    await this._credentials.deleteByKind(identityId, 'webauthn-mfa', ctx)
+  /** Remove every WebAuthn-MFA credential for the identity. See {@link removeTotp}. */
+  async removeWebauthnMfa(identityId: string, ctx: TenantContext = {}): Promise<{ removed: number }> {
+    const gone = await this._credentials.deleteByKind(identityId, 'webauthn-mfa', ctx)
     await this._events.emit('mfa.removed', { identityId, method: 'webauthn' })
+    return { removed: gone.length }
   }
 
   // --- AAL helpers --------------------------------------------------------

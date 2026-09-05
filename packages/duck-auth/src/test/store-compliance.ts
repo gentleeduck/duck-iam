@@ -671,9 +671,37 @@ export function runCredentialStoreCompliance(factory: () => Credential.Store, id
       const store = factory()
       await store.upsert(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p', metadata: {} }), {})
       await store.upsert(credentialInput({ identityId: OWNER, kind: 'totp', secret: 't', metadata: {} }), {})
-      await store.deleteByKind(OWNER, 'password', {})
+      const removed = await store.deleteByKind(OWNER, 'password', {})
+      // The rows that went, so a caller can say how many factors it dropped
+      // without a count query the delete already answered.
+      expect(removed.map((c) => c.kind)).toEqual(['password'])
       const rest = await store.listByIdentity(OWNER, null, {})
       expect(rest.every((c) => c.kind !== 'password')).toBe(true)
+    })
+
+    it('every credential removal answers with what it removed', async () => {
+      const store = factory()
+      const a = await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k1' }), {})
+      const b = await store.upsert(credentialInput({ identityId: OWNER, kind: 'password', secret: 'p1' }), {})
+
+      const revoked = await store.revoke(a.id, {})
+      expect(revoked?.id).toBe(a.id)
+      expect(revoked?.revokedAt).toBeInstanceOf(Date)
+
+      // The row as it was: once the delete lands there is nothing left to read.
+      const deleted = await store.delete(b.id, {})
+      expect(deleted?.id).toBe(b.id)
+      expect(await store.findById(b.id, {})).toBeNull()
+    })
+
+    it('a credential removal that matches no row answers null or an empty list', async () => {
+      const store = factory()
+      const gone = (await store.upsert(credentialInput({ identityId: OWNER, kind: 'api-key', secret: 'k2' }), {})).id
+      await store.delete(gone, {})
+
+      expect(await store.revoke(gone, {})).toBeNull()
+      expect(await store.delete(gone, {})).toBeNull()
+      expect(await store.deleteByKind(OWNER, 'recovery', {})).toEqual([])
     })
 
     it('patchMetadata shallow-merges + bumps version atomically', async () => {

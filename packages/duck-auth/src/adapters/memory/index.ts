@@ -361,16 +361,26 @@ export class MemoryAdapter<
       },
       revoke: async (id) => {
         const cur = store.get(id)
-        if (!cur) return
-        store.set(id, { ...cur, revokedAt: new Date() })
+        if (!cur) return null
+        const next = { ...cur, revokedAt: new Date() }
+        store.set(id, next)
+        return next
       },
       delete: async (id) => {
+        // Read before the delete: this is the caller's last look at the row.
+        const cur = store.get(id) ?? null
         store.delete(id)
+        return cur
       },
       deleteByKind: async (identityId, kind) => {
+        const removed: Credential.Me[] = []
         for (const c of store.values()) {
-          if (c.identityId === identityId && c.kind === kind) store.delete(c.id)
+          if (c.identityId === identityId && c.kind === kind) {
+            removed.push(c)
+            store.delete(c.id)
+          }
         }
+        return removed
       },
       // oauth refresh-reuse hook; memory walks every row (prod indexes by familyId).
       __familyRevoke: async (familyId: string) => {

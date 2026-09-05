@@ -61,8 +61,15 @@ describe('ApiKeysFacet', () => {
 
     it('revoked token surfaces AUTH/APIKEY_REVOKED', async () => {
       const { key, plaintext } = await facet.create('user-1', { name: 'k', scopes: [] })
-      await facet.revoke(key.id)
+      const revoked = await facet.revoke(key.id)
+      // The key that went, named and scoped, so a "key revoked" confirmation
+      // needs no read - and `list` would no longer return it anyway.
+      expect(revoked).toMatchObject({ id: key.id, identityId: 'user-1', name: 'k' })
       await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
+    })
+
+    it('revoking a key that is not there answers null', async () => {
+      expect(await facet.revoke('01900000-0000-7000-8000-000000000000')).toBeNull()
     })
 
     it('expired token surfaces AUTH/APIKEY_REVOKED', async () => {

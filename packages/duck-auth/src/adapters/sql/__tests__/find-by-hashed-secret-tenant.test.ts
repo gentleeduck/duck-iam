@@ -47,11 +47,13 @@ function makeBridge(): SqlBridge.Me {
         credentials.set(row.id, row)
       },
       updateConditional: async () => null,
-      revoke: async () => {},
+      revoke: async () => null,
       delete: async (id) => {
+        const cur = credentials.get(id) ?? null
         credentials.delete(id)
+        return cur
       },
-      deleteByKind: async () => {},
+      deleteByKind: async () => [],
     },
     sessions: {
       insert: async () => {},

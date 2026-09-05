@@ -75,9 +75,14 @@ export namespace SqlBridge {
       expectedVersion: number,
       tenantId: string | undefined,
     ): Promise<Row | null>
-    revoke(id: string, revokedAt: Date, tenantId: string | undefined): Promise<void>
-    delete(id: string, tenantId: string | undefined): Promise<void>
-    deleteByKind(identityId: string, kind: Credential.Kind, tenantId: string | undefined): Promise<void>
+    /**
+     * As on the identity side, the removals hand back what they removed -
+     * `null` / `[]` when nothing matched. `delete` and `deleteByKind` return
+     * the rows as they were immediately before deletion.
+     */
+    revoke(id: string, revokedAt: Date, tenantId: string | undefined): Promise<Row | null>
+    delete(id: string, tenantId: string | undefined): Promise<Row | null>
+    deleteByKind(identityId: string, kind: Credential.Kind, tenantId: string | undefined): Promise<Row[]>
 
     /** Set-based delete by identity, returning the identity ids actually hit. Optional. */
     deleteByIdentitiesReturningIds?(identityIds: readonly string[], tenantId: string | undefined): Promise<string[]>

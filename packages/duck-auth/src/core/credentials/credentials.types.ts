@@ -67,9 +67,16 @@ export namespace Credential {
     rotate(id: string, newSecret: string, expectedVersion: number, ctx: TenantContext): Promise<Me>
     /** Atomic shallow-merge `patch` into `metadata` + version bump. Throws `AUTH/UNAUTHENTICATED` if `id` is unknown. */
     patchMetadata(id: string, patch: Record<string, unknown>, ctx: TenantContext): Promise<Me>
-    revoke(id: string, ctx: TenantContext): Promise<void>
-    delete(id: string, ctx: TenantContext): Promise<void>
-    deleteByKind(identityId: string, kind: Kind, ctx: TenantContext): Promise<void>
+    /**
+     * The three removals answer with what they removed rather than `void`:
+     * `null` / `[]` when nothing matched. A caller that needs to know what a
+     * removal did - which key was revoked, how many factors were dropped -
+     * should not have to read the rows back, and after a `delete` there is
+     * nothing left to read at all.
+     */
+    revoke(id: string, ctx: TenantContext): Promise<Me | null>
+    delete(id: string, ctx: TenantContext): Promise<Me | null>
+    deleteByKind(identityId: string, kind: Kind, ctx: TenantContext): Promise<Me[]>
     /** See `Identities.Store.withClient`. Absent means this store cannot join a transaction. */
     withClient?(client: unknown): Store
 
