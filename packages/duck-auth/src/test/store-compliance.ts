@@ -242,6 +242,24 @@ export function runIdentityStoreCompliance<P extends SqlBridge.ProfileMetadataBa
       expect(await store.findByProviderSub('oauth:authGoogle', 'sub-1')).toBeNull()
     })
 
+    it('a provider link comes back as a real Date, not the string a JSON column stores', async () => {
+      const store = factory()
+      const addedAt = new Date()
+      const i = await store.create(identityInput({ profile: { email: 'd@x', username: 'd' } as unknown as P }))
+      const linked = await store.link(i.id, { addedAt, providerId: 'oauth:authGoogle', providerSub: 'sub-1' })
+
+      // `providers` is a JSON column on every SQL dialect, and `JSON.stringify`
+      // turns a Date into an ISO string. The row type says `Date`, and the
+      // memory store hands back one, so a caller reading `addedAt.getTime()`
+      // must not have to know which adapter it is talking to.
+      expect(linked?.providers[0]?.addedAt).toBeInstanceOf(Date)
+      expect(linked?.providers[0]?.addedAt.getTime()).toBe(addedAt.getTime())
+
+      const reread = await store.findById(i.id)
+      expect(reread?.providers[0]?.addedAt).toBeInstanceOf(Date)
+      expect(reread?.providers[0]?.addedAt.getTime()).toBe(addedAt.getTime())
+    })
+
     it('merge moves providers from dup into survivor + deletes dup', async () => {
       const store = factory()
       const survivor = await store.create(
@@ -383,6 +401,37 @@ export function runSessionStoreCompliance(factory: () => Sessions.Store, ids: Co
       // Nullable columns the store fills with `null` are extra keys on the
       // returned row, so assert the caller-provided fields are a subset.
       expect(await store.getByHash(sid('hash-1'))).toMatchObject(session)
+    })
+
+    it('factors and actingAs come back as real Dates, not the strings a JSON column stores', async () => {
+      const store = factory()
+      const now = new Date()
+      const exp = new Date(now.getTime() + 60_000)
+      await store.create(
+        sessionInput({
+          absoluteExpiresAt: exp,
+          actingAs: { expiresAt: exp, realIdentityId: 'admin-1', reason: 'support', startedAt: now },
+          aal: 2,
+          createdAt: now,
+          expiresAt: exp,
+          factors: [{ completedAt: now, method: 'password' }],
+          fresh: true,
+          id: sid('json-dates'),
+          identityId: OWNER,
+          kind: 'user',
+          rotatedAt: now,
+        }),
+      )
+
+      // Same JSON-column hazard as `providers[].addedAt`: an impersonation
+      // window is read as `expiresAt.getTime() < Date.now()`, which on a string
+      // is a TypeError rather than an expiry check.
+      const back = await store.getByHash(sid('json-dates'))
+      expect(back?.factors[0]?.completedAt).toBeInstanceOf(Date)
+      expect(back?.factors[0]?.completedAt.getTime()).toBe(now.getTime())
+      expect(back?.actingAs?.startedAt).toBeInstanceOf(Date)
+      expect(back?.actingAs?.expiresAt).toBeInstanceOf(Date)
+      expect(back?.actingAs?.expiresAt.getTime()).toBe(exp.getTime())
     })
 
     it('deleteAllForIdentities, when present, sweeps every named identity', async () => {
