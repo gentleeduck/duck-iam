@@ -3,6 +3,8 @@ import { Refresh } from '../components/icons'
 import { JsonTree } from '../components/json-tree'
 import { Section } from '../components/layout'
 import { Badge, Button, Empty } from '../components/ui'
+import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine, IamIDevtoolsMetrics } from '../lib/types'
 
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
@@ -31,6 +33,7 @@ export function IamMetricsPanel({
   metrics?: IamIDevtoolsMetrics
   pollMs?: number
 }) {
+  useIamDevtoolsStyles()
   const [stats, setStats] = React.useState(() => engine.stats.get())
   const [snap, setSnap] = React.useState(() => metrics?.snapshot() ?? null)
 
@@ -42,10 +45,19 @@ export function IamMetricsPanel({
     return () => clearInterval(id)
   }, [engine, metrics, pollMs])
 
+  // Below every hook, so the hook order is the same on both branches. The same
+  // guard `IamSubjectsPanel` runs, and for the same reason: `package.json`
+  // exports every panel individually under `./dt`, so rendering this one
+  // straight from `@gentleduck/iam/dt` is a supported thing to do, and it
+  // reaches the engine with no check anywhere in its path. `isDevtoolsAllowed`
+  // is idempotent and cheap, so running it again under `IamDevtools` costs
+  // nothing; running it zero times cost the whole protection.
+  if (!isDevtoolsAllowed(engine)) return null
+
   const allowRate = snap && snap.total > 0 ? Math.round((snap.allow / snap.total) * 100) : 0
 
   return (
-    <div className="iam-dt-detail">
+    <div className="iam-dt iam-dt-detail">
       <div className="iam-dt-detail__head">
         <span className="iam-dt-listshell__title">Telemetry</span>
         <Badge tone="info">poll {pollMs}ms</Badge>

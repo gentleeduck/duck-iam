@@ -4,6 +4,8 @@ export type { ButtonPosition, IIamDevtoolsProps, PanelPosition } from './iam-dev
 export { IamDevtools } from './iam-devtools-panel'
 export type { IamIFlowEntry, IamIFlowRecorder, IamIFlowRecorderOptions } from './lib/flow'
 export { iamCreateFlowRecorder } from './lib/flow'
+export type { IamDevtoolsTheme } from './lib/styles'
+export { ensureStylesInjected as iamEnsureDevtoolsStyles } from './lib/styles'
 export type { IamIDecisionInput, IamIDevtoolsEngine, IamIDevtoolsMetrics, IamPanelKey } from './lib/types'
 export { IamDecisionInspector } from './panels/decision'
 export { IamFlowPanel } from './panels/flow'

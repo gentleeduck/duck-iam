@@ -6,6 +6,8 @@ import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button, Field, Input, TextArea } from '../components/ui'
 import { safeParseJson } from '../lib/format'
+import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDecisionInput, IamIDevtoolsEngine } from '../lib/types'
 import { IamTraceTree } from './trace-tree'
 
@@ -46,10 +48,20 @@ export function IamDecisionInspector({
   engine: IamIDevtoolsEngine
   defaults?: Partial<IamIDecisionInput>
 }) {
+  useIamDevtoolsStyles()
   const [input, setInput] = React.useState<IamIDecisionInput>({ ...INITIAL, ...defaults })
   const [result, setResult] = React.useState<Explain.IResult | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
+
+  // Below every hook, so the hook order is the same on both branches. The same
+  // guard `IamSubjectsPanel` runs, and for the same reason: `package.json`
+  // exports every panel individually under `./dt`, so rendering this one
+  // straight from `@gentleduck/iam/dt` is a supported thing to do, and it
+  // reaches the engine with no check anywhere in its path. `isDevtoolsAllowed`
+  // is idempotent and cheap, so running it again under `IamDevtools` costs
+  // nothing; running it zero times cost the whole protection.
+  if (!isDevtoolsAllowed(engine)) return null
 
   const update = (patch: Partial<IamIDecisionInput>) => setInput((s) => ({ ...s, ...patch }))
 

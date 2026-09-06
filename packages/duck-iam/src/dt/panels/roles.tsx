@@ -4,6 +4,8 @@ import { ChevronDown, ChevronRight, CornerUpRight, Refresh } from '../components
 import { JsonTree } from '../components/json-tree'
 import { DetailEmpty, FilterBar, ListItem, ListShell, Section, SplitView } from '../components/layout'
 import { Alert, Badge, Button } from '../components/ui'
+import { isDevtoolsAllowed } from '../lib/guard'
+import { useIamDevtoolsStyles } from '../lib/styles'
 import type { IamIDevtoolsEngine } from '../lib/types'
 
 /**
@@ -12,6 +14,7 @@ import type { IamIDevtoolsEngine } from '../lib/types'
  * half of the model.
  */
 export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
+  useIamDevtoolsStyles()
   const [roles, setRoles] = React.useState<AccessControl.IRole[]>([])
   const [selected, setSelected] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -29,6 +32,15 @@ export function IamRolesPanel({ engine }: { engine: IamIDevtoolsEngine }) {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // Below every hook, so the hook order is the same on both branches. The same
+  // guard `IamSubjectsPanel` runs, and for the same reason: `package.json`
+  // exports every panel individually under `./dt`, so rendering this one
+  // straight from `@gentleduck/iam/dt` is a supported thing to do, and it
+  // reaches the engine with no check anywhere in its path. `isDevtoolsAllowed`
+  // is idempotent and cheap, so running it again under `IamDevtools` costs
+  // nothing; running it zero times cost the whole protection.
+  if (!isDevtoolsAllowed(engine)) return null
 
   const filtered = roles.filter(
     (r) =>

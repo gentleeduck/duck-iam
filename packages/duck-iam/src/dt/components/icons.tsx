@@ -17,12 +17,20 @@ interface IconProps {
   style?: CSSProperties
 }
 
+/**
+ * Every icon here is decorative - each sits beside the text that carries the
+ * meaning, or inside a control that has its own label - so all of them are
+ * hidden from assistive technology and taken out of the tab order rather than
+ * being announced as unnamed graphics.
+ */
 const base = {
+  'aria-hidden': true,
   fill: 'none',
+  focusable: 'false' as const,
   stroke: 'currentColor',
-  strokeWidth: 1.5,
   strokeLinecap: 'round' as const,
   strokeLinejoin: 'round' as const,
+  strokeWidth: 1.5,
 }
 
 /** Disclosure caret, expanded state. */
@@ -92,7 +100,7 @@ export function CornerUpRight({ size = 12, className, style }: IconProps) {
 /** The odd one out: a filled circle, so it takes none of the shared `base` stroke attributes and defaults to 4px rather than 12. */
 export function Dot({ size = 4, className, style }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 4 4" className={className} style={style}>
+    <svg aria-hidden focusable="false" width={size} height={size} viewBox="0 0 4 4" className={className} style={style}>
       <circle cx="2" cy="2" r="2" fill="currentColor" />
     </svg>
   )
