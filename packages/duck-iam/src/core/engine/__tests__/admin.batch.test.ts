@@ -28,7 +28,7 @@ describe('IAdmin batch writes', () => {
 
     expect(result.outcomes).toHaveLength(2)
     expect(result.applied).toBe(2)
-    expect(result.failed).toBe(0)
+    expect(result.outcomes.every((o) => o.ok)).toBe(true)
     expect(await engine.getEffectiveRoles('u1')).toContain('admin')
     expect(await engine.getEffectiveRoles('u2', 'org-1')).toContain('editor')
   })
@@ -115,7 +115,7 @@ describe('IAdmin batch writes', () => {
     const spy = vi.spyOn(engine.cache, 'invalidateSubject')
     const result = await engine.admin.assignRoles([])
 
-    expect(result).toEqual({ applied: 0, failed: 0, outcomes: [] })
+    expect(result).toEqual({ applied: 0, outcomes: [] })
     expect(spy).not.toHaveBeenCalled()
   })
 

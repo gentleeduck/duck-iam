@@ -150,7 +150,14 @@ function buildPathAAdapter(): IamMemoryAdapter {
 }
 
 describe('fail-skip matrix - path A: every group at an ABAC DYNAMIC cell throws (evaluateDynamicCell)', () => {
-  it("unrelated-vote-present, defaultEffect 'deny': the RBAC grant decides, the throw does not veto it (regression)", async () => {
+  // Was "the RBAC grant decides, the throw does not veto it", asserting `true`.
+  // `throwingFlatPolicy` is allow-only, so under the old contract its throw made
+  // it NotApplicable and the RBAC allow stood alone. But an allow-only policy's
+  // vote, had it evaluated, would have been `defaultEffect` - here a deny - and
+  // `blob` is a subject attribute, so padding it past the regex input cap was an
+  // attacker-reachable way to delete that deny. It now votes deny and 'and'
+  // vetoes. Dev and prod still agree; they now agree on the safe answer.
+  it("unrelated-vote-present, defaultEffect 'deny': an allow-only throw casts its deny vote and vetoes (regression)", async () => {
     let reported: Error | undefined
     const production = new IamEngine({
       adapter: buildPathAAdapter(),
@@ -160,7 +167,7 @@ describe('fail-skip matrix - path A: every group at an ABAC DYNAMIC cell throws 
     })
     const development = new IamEngine({ adapter: buildPathAAdapter(), defaultEffect: 'deny' })
     const resource = { type: 'doc', attributes: {} }
-    expect(await production.can('user-1', 'read', resource)).toBe(true)
+    expect(await production.can('user-1', 'read', resource)).toBe(false)
     expect(await production.can('user-1', 'read', resource)).toBe(
       (await development.check('user-1', 'read', resource)).allowed,
     )
@@ -242,7 +249,9 @@ function buildPathBAdapter(unrelated: AccessControl.IPolicy): IamMemoryAdapter {
 }
 
 describe('fail-skip matrix - path B: the rbacResidual policy throws (rbacVote catch)', () => {
-  it("unrelated-vote-present, defaultEffect 'deny', unrelated vote via a residual policy: decides, not vetoed", async () => {
+  // Same correction as path A, one layer over: the residual-policy catch used to
+  // swallow the vote entirely rather than casting `defaultEffect`.
+  it("unrelated-vote-present, defaultEffect 'deny', unrelated vote via a residual policy: the throw vetoes", async () => {
     let reported: Error | undefined
     const production = new IamEngine({
       adapter: buildPathBAdapter(unrelatedResidualAllow),
@@ -252,7 +261,7 @@ describe('fail-skip matrix - path B: the rbacResidual policy throws (rbacVote ca
     })
     const development = new IamEngine({ adapter: buildPathBAdapter(unrelatedResidualAllow), defaultEffect: 'deny' })
     const resource = { type: 'doc2', attributes: {} }
-    expect(await production.can('user-1', 'read', resource)).toBe(true)
+    expect(await production.can('user-1', 'read', resource)).toBe(false)
     expect(await production.can('user-1', 'read', resource)).toBe(
       (await development.check('user-1', 'read', resource)).allowed,
     )
@@ -378,7 +387,11 @@ describe("fail-closed matrix - path C: lookup()'s own residual-policy loop throw
     expect(await production.can('user-1', 'read', { type: 'doc3', attributes: {} })).toBe(false)
   })
 
-  it('control: an allow-only policy that throws stays skippable and does not veto the RBAC grant', async () => {
+  // Was 'stays skippable and does not veto the RBAC grant', asserting `true`.
+  // The allow-only arm is not a skip: the policy's vote would have been
+  // `defaultEffect`, and `blob` is a subject attribute, so dropping that vote is
+  // reachable by padding it. It now votes deny and vetoes the RBAC grant.
+  it('control: an allow-only policy that throws casts its defaultEffect vote and vetoes the RBAC grant', async () => {
     const adapter = new IamMemoryAdapter({
       assignments: { 'user-1': ['reader3'] },
       attributes: { 'user-1': { blob: OVERSIZED } },
@@ -386,6 +399,6 @@ describe("fail-closed matrix - path C: lookup()'s own residual-policy loop throw
       roles: [{ id: 'reader3', name: 'Reader3', permissions: [{ action: 'read', resource: 'doc3' }] }],
     })
     const production = new IamEngine({ adapter, defaultEffect: 'deny', mode: 'production' })
-    expect(await production.can('user-1', 'read', { type: 'doc3', attributes: {} })).toBe(true)
+    expect(await production.can('user-1', 'read', { type: 'doc3', attributes: {} })).toBe(false)
   })
 })

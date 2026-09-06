@@ -1,10 +1,12 @@
 import { IamLRUCache } from '../../shared/cache'
 import { iamBuildPermissionKey } from '../../shared/keys'
 import { clearRegexCache } from '../conditions/conditions.libs'
-import { evaluate } from '../evaluate'
+import { VALID_POLICY_COMBINES } from '../evaluate'
+import { evaluate } from '../evaluate/evaluate'
 import type { Explain } from '../explain'
 import { clearPathCache } from '../resolve/resolve'
 import type { AccessControl, IamAdapter, IamClient, IamRequest } from '../types'
+import { IamPolicyCompileError, IamRoleLimitExceededError } from './compiled/compiled.errors'
 import { lookup } from './compiled/compiled.lookup'
 import type { CompiledTable } from './compiled/compiled.types'
 import { type Bound, buildBoundEngine } from './engine.bound'
@@ -23,7 +25,12 @@ import { type IIamLoaderDeps, loadAllPolicies, loadPolicies, loadRoles, resolveS
 import { resetStats as resetStatsHelper, statsSnapshot as statsSnapshotHelper } from './engine.stats'
 import type { IamEngineTypes } from './engine.types'
 
-/** Flush process-wide regex + dot-path caches; schedule periodically in multi-tenant deployments. */
+/**
+ * Clears the process-global regex and dot-path caches - the fallbacks used by
+ * direct `evaluate()` / operator calls and by `explain()`. Every `can()` path
+ * uses the engine's own per-instance caches, which this does not touch, so it
+ * is not a multi-tenancy mitigation and needs no periodic schedule.
+ */
 export function iamFlushSharedCaches(): void {
   clearRegexCache()
   clearPathCache()
@@ -76,8 +83,10 @@ export class IamEngine<
   private _policyCombine: AccessControl.PolicyCombine
   private _scopeMode: 'flat' | 'hierarchical'
   private _scopeCombine: 'union' | 'override'
-  /** Production mode's evaluator. Lazily built on first `authorize()`/`permissions()` call, rebuilt after any policy/role invalidation. */
+  /** Production mode's evaluator. Lazily built on first `authorize()`/`permissions()` call, rebuilt after any policy/role invalidation or once `cacheTTL` has elapsed. */
   private _compiledTable: CompiledTable | null = null
+  /** `Date.now()` when `_compiledTable` was committed - the TTL clock, mirroring the LRU caches'. */
+  private _compiledTableBuiltAt = 0
   private _hooks: IamEngineTypes.IHooks<TAction, TResource, TScope>
   private _maxPolicies: number
   private _maxRoles: number
@@ -164,6 +173,16 @@ export class IamEngine<
     this._scopeCombine = config.scopeCombine ?? 'union'
     this._hooks = config.hooks ?? {}
 
+    // Both engines branch on 'and' and 'allow-overrides' and fall through to
+    // `first-applicable` for anything else - the most permissive of the three.
+    // A typo, or a value read from a config file rather than written in TS,
+    // therefore lost deny-overrides semantics with no signal at all.
+    if (!VALID_POLICY_COMBINES.includes(this._policyCombine)) {
+      throw new Error(
+        `[@gentleduck/iam:engine] unknown policyCombine ${JSON.stringify(this._policyCombine)}. Must be one of: ${VALID_POLICY_COMBINES.join(', ')}.`,
+      )
+    }
+
     // evaluateFast can't represent first-applicable; fail at construction.
     if (this._mode === 'production' && this._policyCombine === 'first-applicable') {
       throw new Error(
@@ -180,7 +199,6 @@ export class IamEngine<
     // Even with the opt-in, emit a loud startup warning so an operator
     // grep'ing logs for fail-open configurations always finds it.
     if (this._defaultEffect === 'allow') {
-      // eslint-disable-next-line no-console
       console.warn(
         "[@gentleduck/iam:engine] engine configured with defaultEffect: 'allow' (fail-open). Every request with no applicable policy will be allowed.",
       )
@@ -214,6 +232,7 @@ export class IamEngine<
 
     const ttl = (config.cacheTTL ?? 60) * 1000
     const maxSize = config.maxCacheSize ?? 1000
+    this._cacheTTL = ttl
 
     this._policyCache = new IamLRUCache(1, ttl) // single entry
     this._roleCache = new IamLRUCache(1, ttl)
@@ -294,6 +313,7 @@ export class IamEngine<
       maxPolicies: this._maxPolicies,
       maxRoles: this._maxRoles,
       maxConcurrentSubjectLoads: this._maxConcurrentSubjectLoads,
+      scopeMode: this._scopeMode,
       withTimeout: (fn, label) => this._withTimeout(fn, label),
     }
   }
@@ -310,12 +330,171 @@ export class IamEngine<
     return loadRoles(this._loaderDeps())
   }
 
+  /** `cacheTTL` in ms, kept for the compiled table - the LRU caches hold their own copy. */
+  private _cacheTTL: number
+
   /** In-flight rebuild, so concurrent cold callers await the same compile instead of racing/duplicating it. */
   private _compiledTableBuild: Promise<CompiledTable> | null = null
   /** The generation `_compiledTableBuild` was started under - see `_rebuildCompiledTable`. */
   private _compiledTableBuildGen = -1
   /** Bumped by every invalidation; a build that started under an older generation must not overwrite a newer invalidation's null with stale data. */
   private _compiledTableGen = 0
+
+  /**
+   * Cached table, or a build if none is current. The single read path for every caller.
+   *
+   * The table expires on `cacheTTL` like every other cache. Without that it was cleared
+   * only by an explicit invalidation, so a production engine with no `invalidator` wired -
+   * the default - served a grant revoked by another process forever, while the same
+   * adapter in development converged within `cacheTTL`. The two modes are meant to differ
+   * in speed, not in consistency.
+   */
+  /**
+   * The compiled table, or `null` when this config cannot have one.
+   *
+   * `null` means exactly one thing: the role count exceeds what the 32-bit
+   * grant mask can address, so the caller must use the interpreter. Every other
+   * compile failure still throws and still denies - a malformed policy is a bug,
+   * and answering it with a slower correct path would hide it.
+   */
+  private async _getCompiledTable(): Promise<CompiledTable | null> {
+    if (this._roleLimitExceeded) return null
+    const table = this._compiledTable
+    if (table !== null && !this._compiledTableExpired()) return table
+    try {
+      return await this._rebuildCompiledTable()
+    } catch (err) {
+      if (!(err instanceof IamRoleLimitExceededError)) throw err
+      this._roleLimitExceeded = true
+      this._roleLimitDetail = { limit: err.limit, roleCount: err.roleCount }
+      if (!this._roleLimitReported) {
+        this._roleLimitReported = true
+        // Loud once, not per request. A silent fall to a slower path is a
+        // performance cliff with no diagnostic - the same shape of defect as
+        // the dev/prod divergence this fallback exists to remove.
+        console.warn(err.message)
+      }
+      return null
+    }
+  }
+
+  /**
+   * One evaluation, through the same verdict path in every mode.
+   *
+   * This is the fix for the largest recurring defect family in the round-3
+   * audit. Production evaluated through the compiled table and development
+   * through the interpreter, so any disagreement between the two was invisible
+   * until it reached production - and it reached production as an *allow*
+   * against a dev run that denied (A/W-1, B/S-1, B/S-2, B/S-3, B/W-1 were all
+   * this shape). Patching each instance never addressed why they kept arriving.
+   *
+   * Now the compiled table produces the verdict in both modes. Development
+   * additionally runs the interpreter, because the table cannot explain itself:
+   * `CONST_ALLOW`/`CONST_DENY` cells are a single `kind` byte and `allow` is a
+   * raw bitmask, so policy identity is erased at compile time - that erasure is
+   * the optimisation. The interpreter supplies `reason`/`policy`/`rule`, the
+   * table supplies the verdict, and the two are checked against each other.
+   *
+   * A disagreement throws. It means the table and the interpreter answer the
+   * same question differently, which is a duck-iam bug, and the whole point is
+   * that it now surfaces on the developer's machine instead of in production.
+   *
+   * `table === null` (more roles than the 32-bit mask can address) drops both
+   * modes to the interpreter alone. Correct, just slower, and reported once.
+   */
+  private async _evaluateOnce(
+    req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+    onPolicyError: ((err: Error, policy: AccessControl.IPolicy) => void) | undefined,
+    signals: { failOpen?: boolean },
+  ): Promise<{ allowed: boolean; decision?: AccessControl.IDecision }> {
+    const table = await this._getCompiledTable()
+
+    if (table === null) {
+      const decision = await this._interpret(req, onPolicyError, signals)
+      return this._mode === 'production' ? { allowed: decision.allowed } : { allowed: decision.allowed, decision }
+    }
+
+    const compiled = lookup(
+      table,
+      maskFromRoles(table, req.subject.roles),
+      req.action,
+      req.resource.type,
+      req,
+      this._defaultEffect,
+      onPolicyError,
+      signals,
+      this._caches,
+    )
+
+    if (this._mode === 'production') return { allowed: compiled }
+
+    // Development: same verdict path as production, plus the explanation the
+    // table cannot produce.
+    //
+    // The explanatory run must be observationally silent, or running two
+    // evaluators doubles every operator-visible side effect: `onPolicyError`
+    // fired twice per rotten policy, so a handler wired to an alerting pipeline
+    // would page twice for one bad policy, in development only. It is passed
+    // `undefined` here because the authoritative run above already reported.
+    // Safe precisely because the handler is notification-only - `safeEval`'s
+    // control flow (deny-rule present -> Indeterminate deny, else the
+    // `defaultEffect` vote) is identical whether or not one is attached, so the
+    // decision this returns is unchanged.
+    //
+    // It also gets its own `signals`, so a `failOpen` seen only by the
+    // explanatory run cannot rewrite what the authoritative path reported.
+    const interpreterSignals: { failOpen?: boolean } = {}
+    const decision = await this._interpret(req, undefined, interpreterSignals)
+
+    if (decision.allowed !== compiled) {
+      const message =
+        `[@gentleduck/iam:engine] compiled table and interpreter disagree on ` +
+        `${req.action} ${req.resource.type}${req.resource.id === undefined ? '' : `:${req.resource.id}`}` +
+        `${req.scope === undefined ? '' : ` @${req.scope}`} for roles [${req.subject.roles.join(', ')}]: ` +
+        `table=${compiled ? 'allow' : 'deny'}, interpreter=${decision.allowed ? 'allow' : 'deny'} ` +
+        `(interpreter reason: ${decision.reason}). This is a duck-iam bug - production would have ` +
+        `answered "${compiled ? 'allow' : 'deny'}" while this development run says ` +
+        `"${decision.allowed ? 'allow' : 'deny'}". Please report it with the policy set that reproduces it.`
+      // Printed as well as thrown. `authorize()` catches everything and returns
+      // a fail-closed deny with `reason: 'Evaluation error'`, which is right for
+      // the verdict and useless as a diagnostic - a developer with no `onError`
+      // wired would see a generic deny and never learn that production would
+      // have answered the other way. That is the same invisibility this whole
+      // path exists to remove, so the message goes to the console too.
+      //
+      // Unbounded on purpose: this cannot fire unless duck-iam has a bug, and
+      // when it does the developer needs to stop, not to have it rate-limited
+      // into the background.
+      console.error(message)
+      throw new Error(message)
+    }
+
+    // Verdicts agree, so the reported decision is the interpreter's - it is the
+    // one carrying provenance - and `signals` takes the union: a fail-open seen
+    // by either path is a fail-open.
+    if (interpreterSignals.failOpen === true) signals.failOpen = true
+    return { allowed: compiled, decision }
+  }
+
+  /** The interpreter path, shared by every caller so the two can never drift. */
+  private async _interpret(
+    req: IamRequest.IAccessRequest<TAction, TResource, TScope>,
+    onPolicyError: ((err: Error, policy: AccessControl.IPolicy) => void) | undefined,
+    signals: { failOpen?: boolean },
+  ): Promise<AccessControl.IDecision> {
+    const allPolicies = await this._loadAllPolicies()
+    return evaluate(allPolicies, req, this._defaultEffect, this._policyCombine, onPolicyError, signals, this._caches)
+  }
+
+  /** Set once the role count has outrun the compiled table; see {@link _getCompiledTable}. */
+  private _roleLimitExceeded = false
+  private _roleLimitReported = false
+  private _roleLimitDetail: { roleCount: number; limit: number } | null = null
+
+  /** `cacheTTL: 0` means "do not cache", the same reading `IamLRUCache` gives it. */
+  private _compiledTableExpired(): boolean {
+    return Date.now() - this._compiledTableBuiltAt >= this._cacheTTL
+  }
 
   /**
    * Rebuilds production mode's compiled table from the current roles + raw adapter
@@ -330,9 +509,58 @@ export class IamEngine<
    * pre-invalidation data - it starts (or joins) a fresh build against the post-invalidation
    * generation instead, matching what a caller would get with no single-flighting at all.
    */
-  /** Cached table, or a build if none is current. The single read path for every caller. */
-  private async _getCompiledTable(): Promise<CompiledTable> {
-    return this._compiledTable ?? (await this._rebuildCompiledTable())
+  /** Set once a compile failure has been reported, so the log carries one line, not one per request. */
+  private _compileFailureReported = false
+
+  /**
+   * Compile, and report a failure the first time it happens.
+   *
+   * A throw here reaches `authorize()`'s catch and denies, so without this the
+   * whole deployment goes to total-deny silently - the operator sees an
+   * authorization outage and no message. The error is still rethrown: the deny
+   * is the correct behaviour, the silence was not.
+   *
+   * Two failures are not that, and are excluded:
+   *
+   * - {@link IamRoleLimitExceededError} denies nothing. `_getCompiledTable`
+   *   catches it and falls back to the interpreter, so the total-deny wording
+   *   here would be a lie, and it carries its own one-time warning.
+   * - {@link IamPolicyCompileError} names the policy at fault, which is what
+   *   `onPolicyError` exists to deliver. Forwarding it there keeps the
+   *   diagnostic the interpreter used to give before both modes moved onto the
+   *   table.
+   */
+  private _compileOrReport(
+    compileTable: (
+      roles: readonly AccessControl.IRole[],
+      policies: readonly AccessControl.IPolicy[],
+      policyCombine: AccessControl.PolicyCombine,
+      scopeMode: 'flat' | 'hierarchical',
+    ) => CompiledTable,
+    roles: AccessControl.IRole[],
+    policies: AccessControl.IPolicy[],
+  ): CompiledTable {
+    try {
+      return compileTable(roles, policies, this._policyCombine, this._scopeMode)
+    } catch (err) {
+      if (err instanceof IamRoleLimitExceededError) throw err
+      if (err instanceof IamPolicyCompileError) {
+        // Sync, so `_safeHookCall` (async) is not usable here; the try/catch
+        // does the same job - a buggy operator hook must not replace the
+        // compile error with its own.
+        try {
+          this._hooks.onPolicyError?.(err, err.policyId)
+        } catch {}
+        throw err
+      }
+      if (!this._compileFailureReported) {
+        this._compileFailureReported = true
+        console.error(
+          `[@gentleduck/iam:engine] the compiled table could not be built; every request will be denied until this is fixed. ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+      throw err
+    }
   }
 
   private _rebuildCompiledTable(): Promise<CompiledTable> {
@@ -343,10 +571,13 @@ export class IamEngine<
     const build = (async () => {
       const [roles, policies] = await Promise.all([this._loadRoles(), loadPolicies(this._loaderDeps())])
       const { compileTable } = await import('./compiled/compiled.compile')
-      const table = compileTable(roles, policies, this._policyCombine)
+      const table = this._compileOrReport(compileTable, roles, policies)
       // An invalidation that landed mid-build must win: don't resurrect a table
       // built from data that invalidation has already superseded.
-      if (this._compiledTableGen === gen) this._compiledTable = table
+      if (this._compiledTableGen === gen) {
+        this._compiledTable = table
+        this._compiledTableBuiltAt = Date.now()
+      }
       return table
     })()
     this._compiledTableBuild = build
@@ -416,39 +647,15 @@ export class IamEngine<
         : undefined
 
       const signals: { failOpen?: boolean } = {}
-      if (this._mode === 'production') {
-        const table = await this._getCompiledTable()
-        const mask = maskFromRoles(table, req.subject.roles)
-        const allowed = lookup(
-          table,
-          mask,
-          req.action,
-          req.resource.type,
-          req,
-          this._defaultEffect,
-          onPolicyError,
-          signals,
-          this._caches,
-        )
-        allowedForMetrics = allowed
-        failOpenForMetrics = signals.failOpen === true
-        result = this._asResult(allowed)
+      const verdict = await this._evaluateOnce(req, onPolicyError, signals)
+      if (verdict.decision !== undefined) {
+        decisionForHooks = verdict.decision
+        result = this._asResult(verdict.decision)
       } else {
-        const allPolicies = await this._loadAllPolicies()
-        const decision = evaluate(
-          allPolicies,
-          req,
-          this._defaultEffect,
-          this._policyCombine,
-          onPolicyError,
-          signals,
-          this._caches,
-        )
-        decisionForHooks = decision
-        allowedForMetrics = decision.allowed
-        failOpenForMetrics = signals.failOpen === true
-        result = this._asResult(decision)
+        result = this._asResult(verdict.allowed)
       }
+      allowedForMetrics = verdict.allowed
+      failOpenForMetrics = signals.failOpen === true
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
       // onError can itself throw. Don't let an operator's onError bug
@@ -459,6 +666,7 @@ export class IamEngine<
       return this._asResult({
         allowed: false,
         effect: 'deny',
+        failure: 'evaluation',
         reason: 'Evaluation error',
         duration: 0,
         timestamp: Date.now(),
@@ -585,6 +793,7 @@ export class IamEngine<
       return this._asResult({
         allowed: false,
         effect: 'deny',
+        failure: 'input',
         reason: 'invalid subjectId',
         duration: 0,
         timestamp: Date.now(),
@@ -609,6 +818,7 @@ export class IamEngine<
       return this._asResult({
         allowed: false,
         effect: 'deny',
+        failure: 'resolution',
         reason: 'Subject resolution error',
         duration: 0,
         timestamp: Date.now(),
@@ -726,9 +936,12 @@ export class IamEngine<
     const telemetry = opts.telemetry !== false
     // Outer try synthesises all-deny on subject/policy load failure.
     let subject: IamRequest.ISubject
-    let allPolicies: AccessControl.IPolicy[]
     try {
-      ;[subject, allPolicies] = await Promise.all([this._resolveSubject(subjectId), this._loadAllPolicies()])
+      // The policy load is awaited here rather than per check so a load failure
+      // fails the whole batch closed, instead of surfacing on whichever check
+      // happened to run first. Nothing binds the result: `_evaluateOnce` reads
+      // it back from the merged cache this call just warmed.
+      ;[subject] = await Promise.all([this._resolveSubject(subjectId), this._loadAllPolicies()])
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error))
       const failClosed: Record<string, boolean> = {}
@@ -798,40 +1011,14 @@ export class IamEngine<
 
         const signals: { failOpen?: boolean } = {}
 
-        if (this._mode === 'production') {
-          const table = await this._getCompiledTable()
-          const mask = maskFromRoles(table, req.subject.roles)
-          const allowed = lookup(
-            table,
-            mask,
-            req.action,
-            req.resource.type,
-            req,
-            this._defaultEffect,
-            onPolicyError,
-            signals,
-            this._caches,
-          )
-          map[key] = allowed
-          allowedForCheck = allowed
-          failOpenForCheck = signals.failOpen === true
-          evalReq = req
-        } else {
-          const decision = evaluate(
-            allPolicies,
-            req,
-            this._defaultEffect,
-            this._policyCombine,
-            onPolicyError,
-            signals,
-            this._caches,
-          )
-          map[key] = decision.allowed
-          decisionForHooks = decision
-          allowedForCheck = decision.allowed
-          failOpenForCheck = signals.failOpen === true
-          evalReq = req
-        }
+        // Same path as `authorize()` - a batch check must never be able to
+        // answer differently from the single check it batches.
+        const verdict = await this._evaluateOnce(req, onPolicyError, signals)
+        map[key] = verdict.allowed
+        if (verdict.decision !== undefined) decisionForHooks = verdict.decision
+        allowedForCheck = verdict.allowed
+        failOpenForCheck = signals.failOpen === true
+        evalReq = req
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error))
         const errReq: IamRequest.IAccessRequest<TAction, TResource, TScope> = {
@@ -967,6 +1154,12 @@ export class IamEngine<
    * full load + index cost. Bench shows ~15x speedup on the first call vs
    * cold. Recommended to call once at app startup.
    *
+   * **In `'production'` mode it also builds the compiled permission table** -
+   * the structure every production check reads. That is not just warm-up: a
+   * config the table cannot represent (more than 32 roles) throws *here*, at
+   * boot, where an orchestrator sees a failed start, rather than inside the
+   * first authorization request. Development mode has no table and skips it.
+   *
    * Pass `{ validator: true }` to also eagerly load the lazy validator
    * chunk (12 KB gzipped). Useful for operators who want to front-load
    * every cost at boot instead of paying it on first admin write. Read-only
@@ -977,7 +1170,8 @@ export class IamEngine<
       // In production the compiled table is what every check reads. Building it
       // here surfaces a config it cannot represent (over 32 roles) at boot,
       // instead of throwing inside the first authorization request.
-      ...(this._mode === 'production' && { buildCompiledTable: () => this._getCompiledTable() }),
+      // Both modes now evaluate through the table, so both warm it at boot.
+      buildCompiledTable: () => this._getCompiledTable(),
       loadAllPolicies: () => this._loadAllPolicies(),
       loadValidator: opts.validator === true,
     })
@@ -993,12 +1187,25 @@ export class IamEngine<
    * @returns A {@link IamEngineTypes.IHealth} snapshot.
    */
   async healthCheck(): Promise<IamEngineTypes.IHealth> {
-    return runHealthCheck(this._cachesForStats(), async () => {
+    const health = await runHealthCheck(this._cachesForStats(), async () => {
       await this._withTimeout((opts) => this._adapter.listPolicies(opts), 'healthCheck.listPolicies')
-      // A production engine whose table cannot be built answers no check, so a
-      // green probe would be a lie. Uses the cached table when there is one.
-      if (this._mode === 'production') await this._getCompiledTable()
+      // An engine whose table cannot be built answers no check, so a green probe
+      // would be a lie. Uses the cached table when there is one. A role-limit
+      // fallback is not a failure - `_getCompiledTable` returns null for it and
+      // it is reported below instead.
+      await this._getCompiledTable()
     })
+    const detail = this._roleLimitDetail
+    if (detail === null) return health
+    return {
+      ...health,
+      compiledTable: {
+        available: false,
+        limit: detail.limit,
+        reason: 'role-limit-exceeded',
+        roleCount: detail.roleCount,
+      },
+    }
   }
 }
 

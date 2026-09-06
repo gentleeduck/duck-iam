@@ -54,7 +54,11 @@ const orgEditorRole: AccessControl.IRole<Action, ResourceType, RoleId, Scope> = 
   ],
 }
 
-function createEngine(overrides?: { roles?: AccessControl.IRole[]; assignments?: Record<string, RoleId[]> }) {
+function createEngine(overrides?: {
+  roles?: AccessControl.IRole[]
+  assignments?: Record<string, RoleId[]>
+  cacheTTL?: number
+}) {
   const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
     roles: (overrides?.roles ?? [
       viewerRole,
@@ -71,7 +75,7 @@ function createEngine(overrides?: { roles?: AccessControl.IRole[]; assignments?:
       'user-org-editor': ['org-editor'] as RoleId[],
     },
   })
-  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 0 })
+  return new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: overrides?.cacheTTL ?? 0 })
 }
 
 describe('Engine.can() - basic RBAC', () => {
@@ -317,7 +321,7 @@ describe('Engine.permissions() - batch check', () => {
   })
 
   it('forwards onPolicyError to evaluator for batch checks', async () => {
-    // A policy whose evaluator throws (RegexInputTooLargeError when matching
+    // A policy whose evaluator throws (IamRegexInputTooLargeError when matching
     // against an oversize subject attribute) must surface via onPolicyError;
     // permissions() previously passed undefined and the throw was eaten.
     const adapter = new IamMemoryAdapter<Action, ResourceType, RoleId, Scope>({
@@ -499,7 +503,9 @@ describe('Engine.admin - CRUD operations', () => {
     await engine.admin.savePolicy(policy)
     const policies = await engine.admin.listPolicies()
     expect(policies).toHaveLength(1)
-    expect(policies[0]).toEqual(policy)
+    // `version: 1` is filled in on the write path so all six adapters return
+    // one shape for one write; see the compliance suite's shape pins.
+    expect(policies[0]).toEqual({ ...policy, version: 1 })
 
     await engine.admin.deletePolicy('test-policy')
     expect(await engine.admin.listPolicies()).toEqual([])
@@ -1139,8 +1145,13 @@ describe('Engine - DoS bounds at load time (B5)', () => {
   })
 })
 
-describe('Engine - fail-skip on malformed policy (B4)', () => {
-  it('skips a throwing policy and continues evaluating the rest', async () => {
+describe('Engine - Indeterminate on malformed policy (B4)', () => {
+  // Was 'skips a throwing policy and continues evaluating the rest', asserting
+  // `true`. A policy too malformed to evaluate is Indeterminate, not
+  // NotApplicable: nothing is known about what it would have decided, so it
+  // casts its `defaultEffect` vote rather than dropping out. Skipping it is
+  // what let a corrupt or attacker-supplied policy row disable itself.
+  it('a throwing policy casts its defaultEffect vote instead of being skipped', async () => {
     const goodPolicy: AccessControl.IPolicy<Action, ResourceType, RoleId> = {
       id: 'good',
       name: 'good',
@@ -1163,7 +1174,7 @@ describe('Engine - fail-skip on malformed policy (B4)', () => {
       cacheTTL: 0,
       hooks: { onPolicyError: (err, id) => errors.push({ msg: err.message, id }) },
     })
-    expect(await engine.can('u', 'read', { type: 'post', attributes: {} })).toBe(true)
+    expect(await engine.can('u', 'read', { type: 'post', attributes: {} })).toBe(false)
     expect(errors).toHaveLength(1)
     expect(errors[0]?.id).toBe('bad')
   })
@@ -1386,10 +1397,9 @@ describe('Engine - cache invalidation', () => {
       assignments: { 'user-1': ['viewer'] as RoleId[] },
     })
     const engine = new IamEngine<Action, ResourceType, RoleId, Scope>({ adapter, cacheTTL: 60 })
-    // Warm subject cache so .can() proceeds straight to _loadAllPolicies on
-    // the next call (otherwise _resolveSubject's first microtask hides the
-    // race window we want to hit).
-    await engine.can('user-1', 'read', { type: 'post', attributes: {} })
+    // Warm the subject cache so the batch's pre-loop `Promise.all` is waiting
+    // on the merged load alone.
+    await engine.permissions('user-1', [{ action: 'read', resource: 'post' }])
     engine.cache.invalidatePolicies()
 
     const origPolicies = adapter.listPolicies.bind(adapter)
@@ -1397,14 +1407,28 @@ describe('Engine - cache invalidation', () => {
       await new Promise((r) => setTimeout(r, 5))
       return origPolicies()
     }
-    // Now _loadAllPolicies is the very next thing .can() will do.
-    const pending = engine.can('user-1', 'read', { type: 'post', attributes: {} })
-    // Yield once so the merger sets `_mergedInFlight = pending` before invalidate.
-    await Promise.resolve()
-    await Promise.resolve()
+
+    // Driven through `permissions()` with an empty check list, not `can()`.
+    // `permissions()` awaits `_loadAllPolicies` once up front and then runs no
+    // checks at all, so the merged load is genuinely in flight for the 5ms the
+    // stub holds it and nothing reloads afterwards - which is what makes an
+    // empty cache the honest assertion. Under `can()` this no longer holds:
+    // both modes now build the compiled table first, which pre-warms every
+    // input the merged load needs, and any post-invalidation check would
+    // legitimately repopulate the cache. The old version of this test counted
+    // two microtasks to find the window; that count silently stopped landing
+    // inside it, leaving the test passing for the wrong reason.
+    const internals = engine as unknown as { _inFlight: { merged: { value: Promise<unknown> | null } } }
+    const pending = engine.permissions('user-1', [])
+    // Poll on a macrotask, because the stub waits on a `setTimeout` that a
+    // microtask-only spin would starve.
+    while (internals._inFlight.merged.value === null) await new Promise((r) => setTimeout(r, 0))
     engine.cache.invalidatePolicies()
     await pending
 
+    // `runSingleFlight` only writes back when the slot still holds its own
+    // pending promise, so the invalidation that nulled the slot mid-flight wins
+    // and the pre-invalidation value is never cached.
     const cache = (engine as unknown as { _mergedPolicyCache: { get(k: string): unknown } })._mergedPolicyCache
     expect(cache.get('merged')).toBeUndefined()
   })
@@ -1482,7 +1506,11 @@ describe('Engine - cache invalidation', () => {
   })
 
   it('synthesised RBAC policy is deep-frozen (M2)', async () => {
-    const engine = createEngine()
+    // A live TTL: this asserts on the cached object, and the suite default of
+    // `cacheTTL: 0` expires the entry in the same millisecond it is written, so
+    // the read raced the write and the test failed roughly one run in five.
+    // Freezing happens on write, so the TTL is irrelevant to what is asserted.
+    const engine = createEngine({ cacheTTL: 60_000 })
     await engine.can('user-editor', 'read', { type: 'post', attributes: {} })
     const internal = engine as unknown as { _rbacPolicyCache: { get(k: string): AccessControl.IPolicy | undefined } }
     const rbac = internal._rbacPolicyCache.get('rbac')
