@@ -1,5 +1,6 @@
 import type { RedisLike } from '~/adapters/redis/redis-like'
 import { AuthError } from '~/core/errors'
+import { stripUndefined } from '~/core/patch'
 import type { Sessions } from '~/core/sessions/sessions.types'
 import { AUTH_SESSION_FACTOR_METHODS, AUTH_SESSION_KINDS } from '~/core/sessions/sessions.types'
 
@@ -62,7 +63,15 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
       })
     }
     const ttl = this._ttlFor(s)
-    await this._redis.set(this._sessKey(s.id), JSON.stringify(s), { ex: ttl })
+    // `nx`, because a session id is a primary key. Every SQL dialect raises a
+    // unique violation on a duplicate insert; a plain `SET` overwrote the
+    // existing session and returned as though it had created one, so a caller
+    // that reused an id silently destroyed a live session instead of hearing
+    // about the collision.
+    const stored = await this._redis.set(this._sessKey(s.id), JSON.stringify(s), { ex: ttl, nx: true })
+    if (stored === null) {
+      throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${s.id} already exists` })
+    }
     if (s.identityId) {
       await this._redis.sadd(this._idxKey(s.identityId), s.id)
       await this._redis.expire(this._idxKey(s.identityId), this._maxTtlSec)
@@ -72,7 +81,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
   async getByHash(sidHash: string): Promise<Sessions.Me | null> {
     const raw = await this._redis.get(this._sessKey(sidHash))
     if (!raw) return null
-    return parseStoredSession(raw)
+    return parseStoredSession(raw, sidHash)
   }
 
   async update(id: string, patch: Partial<Sessions.Me>): Promise<Sessions.Me> {
@@ -80,13 +89,26 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     if (!raw) {
       throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} not found` })
     }
-    const current = parseStoredSession(raw)
+    const current = parseStoredSession(raw, id)
     if (!current) {
       throw new AuthError('AUTH_SESSION_REVOKED', { reason: `session ${id} corrupted` })
     }
-    const next: Sessions.Me = { ...current, ...patch }
+    // `id` is pinned to the key the row lives under, and `undefined` in a patch
+    // means "leave this alone" rather than "clear it" - the same two rules the
+    // memory and SQL stores follow. A patch that moved `id` would file the row
+    // under a key that disagrees with its own body, and `revoke(next.id)` would
+    // then delete a key that was never this session.
+    const next: Sessions.Me = { ...current, ...stripUndefined(patch), id: current.id }
     const ttl = this._ttlFor(next)
     await this._redis.set(this._sessKey(id), JSON.stringify(next), { ex: ttl })
+    // A patch that repoints the session at another identity has to move it
+    // between the indexes too. Leaving it in the old set made the session
+    // invisible to `listByIdentity` for its new owner and, worse, unreachable by
+    // `deleteAllForIdentity` - a "sign out everywhere" that could not reach it.
+    if (current.identityId !== next.identityId) {
+      if (current.identityId) await this._redis.srem(this._idxKey(current.identityId), current.id)
+      if (next.identityId) await this._redis.sadd(this._idxKey(next.identityId), current.id)
+    }
     if (next.identityId) {
       await this._redis.expire(this._idxKey(next.identityId), this._maxTtlSec)
     }
@@ -97,7 +119,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     const raw = await this._redis.get(this._sessKey(id))
     await this._redis.del(this._sessKey(id))
     if (raw) {
-      const session = parseStoredSession(raw)
+      const session = parseStoredSession(raw, id)
       if (session?.identityId) {
         await this._redis.srem(this._idxKey(session.identityId), id)
       }
@@ -112,7 +134,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
     for (const id of ids) {
       const raw = await this._redis.get(this._sessKey(id))
       if (raw) {
-        const parsed = parseStoredSession(raw)
+        const parsed = parseStoredSession(raw, id)
         if (parsed) out.push(parsed)
         // Corrupted entries are skipped (fail-closed). Caller treats
         // the row as not-present; the next write replaces it.
@@ -169,7 +191,7 @@ export class RedisSessionImpl<TRedis extends RedisLike.Client = RedisLike.Client
               stale.push(id)
               continue
             }
-            const parsed = parseStoredSession(raw)
+            const parsed = parseStoredSession(raw, id)
             // An unparseable row is corruption: drop it rather than leave a record
             // no reader can use.
             if (parsed === null || parsed.expiresAt.getTime() <= now || parsed.absoluteExpiresAt.getTime() <= now) {
@@ -198,8 +220,14 @@ function parseStoredDate(v: unknown): Date | null {
   return null
 }
 
-/** Structural validator for a stored Redis session; SEC-critical fields enforced, rest is trusted. */
-function parseStoredSession(raw: string): Sessions.Me | null {
+/**
+ * Structural validator for a stored Redis session; SEC-critical fields enforced,
+ * rest is trusted.
+ *
+ * `expectedId` is the key the row was read under. Every field below fails
+ * closed, and so does the row's agreement with its own key.
+ */
+function parseStoredSession(raw: string, expectedId: string): Sessions.Me | null {
   let obj: Record<string, unknown>
   try {
     const parsed = JSON.parse(raw)
@@ -210,6 +238,22 @@ function parseStoredSession(raw: string): Sessions.Me | null {
   }
   const id = obj.id
   if (typeof id !== 'string' || id.length === 0) return null
+  // The body's `id` is what callers revoke by, and the key is where the row
+  // actually lives. When they disagree the row is not this session, and acting
+  // on it deletes some other key while leaving this one live - so a stale or
+  // planted body could survive its own revocation.
+  if (id !== expectedId) return null
+
+  // `identityId` decides whose session this is. Coercing a non-string to `null`
+  // quietly turned an authenticated session into a guest one: it belongs to
+  // nobody, sits in no index, and `deleteAllForIdentity` can no longer reach it.
+  if (obj.identityId !== undefined && obj.identityId !== null && typeof obj.identityId !== 'string') return null
+
+  // Same shape of mistake with the opposite blast radius. A caller reads
+  // `csrfHash` and skips the check when it is `null`, so coercing a corrupt
+  // value to `null` did not degrade CSRF protection - it switched it off for
+  // that session.
+  if (obj.csrfHash !== undefined && obj.csrfHash !== null && typeof obj.csrfHash !== 'string') return null
 
   const kind = AUTH_SESSION_KINDS.includes(obj.kind as Sessions.Kind) ? (obj.kind as Sessions.Kind) : null
   if (!kind) return null
@@ -222,8 +266,17 @@ function parseStoredSession(raw: string): Sessions.Me | null {
   if (!expiresAtDate) return null
   const absoluteExpiresAtDate = parseStoredDate(obj.absoluteExpiresAt)
   if (!absoluteExpiresAtDate) return null
-  const createdAtDate = parseStoredDate(obj.createdAt) ?? expiresAtDate
-  const rotatedAtDate = parseStoredDate(obj.rotatedAt) ?? expiresAtDate
+  // These two fail closed like every field above them. They used to fall back to
+  // `expiresAtDate`, which for a live session is by construction in the future -
+  // and `rotatedAt` is exactly what the freshness gate measures against, so
+  // `now - rotatedAt` went negative and the session read as *permanently* fresh.
+  // A row with a missing or corrupt `rotatedAt` was waved through the step-up
+  // that guards password changes and payouts, forever. A session we cannot date
+  // is a session we cannot judge, so it does not resolve at all.
+  const createdAtDate = parseStoredDate(obj.createdAt)
+  if (!createdAtDate) return null
+  const rotatedAtDate = parseStoredDate(obj.rotatedAt)
+  if (!rotatedAtDate) return null
 
   // Reconstitute factors: completedAt may be an ISO string (JSON-serialized Date)
   const rawFactors = Array.isArray(obj.factors) ? obj.factors : []

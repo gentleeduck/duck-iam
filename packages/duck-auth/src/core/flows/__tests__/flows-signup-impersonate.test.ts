@@ -131,12 +131,13 @@ describe('FlowsImpl - signup state machine', () => {
 
 describe('FlowsImpl - impersonation', () => {
   let auth: AuthEngine<MyProfile>
+  let adapter: MemoryAdapter<MyProfile>
   let adminId: string
   let targetId: string
   let adminSid: string
 
   beforeEach(async () => {
-    ;({ auth } = buildAuth())
+    ;({ adapter, auth } = buildAuth())
     const admin = await auth.identities.create({ profile: { username: 'admin@x.com', email: 'admin@x.com' } })
     adminId = admin.id
     const target = await auth.identities.create({ profile: { username: 'target@x.com', email: 'target@x.com' } })
@@ -273,7 +274,10 @@ describe('FlowsImpl - impersonation', () => {
     // TTL elapse without waiting an hour.
     const row = await auth.sessions.getBySid(out.sid)
     if (!row?.actingAs) throw new Error('expected actingAs')
-    ;(row.actingAs as unknown as { expiresAt: Date }).expiresAt = new Date(Date.now() - 1)
+    adapter.raw.sessions.set(row.id, {
+      ...row,
+      actingAs: { ...row.actingAs, expiresAt: new Date(Date.now() - 1) },
+    })
     // Re-fetch via resolveSession: should delete + return null.
     const resolved = await auth.resolveSession({ headers: new Headers({ cookie: `duck-sid=${out.sid}` }) })
     expect(resolved).toBeNull()

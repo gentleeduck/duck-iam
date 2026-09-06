@@ -280,6 +280,109 @@ describe('authCreateSqlStores', () => {
     expect(fetched?.fresh).toBe(true)
   })
 
+  /**
+   * `$type<ProviderLink[]>()` and `$type<Factor[]>()` are assertions drizzle
+   * makes to TypeScript, not constraints the database enforces - the column is
+   * `NOT NULL json`, which rules out SQL NULL and nothing else. These plant the
+   * shapes an older migration, a sibling service, or a hand-run `UPDATE` can
+   * leave behind, and pin that a read survives them.
+   */
+  describe('malformed JSON columns do not take a read down with them', () => {
+    async function plantIdentity(providers: unknown): Promise<string> {
+      const row = {
+        createdAt: new Date(),
+        deletedAt: null,
+        emailVerified: false,
+        id: 'i-malformed',
+        profile: { email: 'a@b.com', username: 'a@b.com' },
+        providers,
+        updatedAt: new Date(),
+        version: 1,
+      }
+      // @ts-expect-error: the point of the test is a row the types forbid
+      await bridge.identities.insert(row)
+      return row.id
+    }
+
+    it.each([
+      ['null', null],
+      ['an object', {}],
+      ['a bare string', 'hello'],
+    ])('providers holding %s reads back as no providers rather than throwing', async (_label, value) => {
+      const id = await plantIdentity(value)
+      const found = await stores.identities.findById(id)
+      expect(found?.providers).toEqual([])
+    })
+
+    it('drops array entries that are not provider links, which could never match a lookup', async () => {
+      const id = await plantIdentity([1, 2, { providerId: 'google', providerSub: 'g1' }])
+      const found = await stores.identities.findById(id)
+      // The two junk entries used to survive as `{ addedAt: Date }` - objects
+      // with no `providerId`, invisible to every link lookup but counted by
+      // anything reading `providers.length`.
+      expect(found?.providers).toHaveLength(1)
+      expect(found?.providers[0]?.providerId).toBe('google')
+      expect(found?.providers[0]?.addedAt).toBeInstanceOf(Date)
+    })
+
+    it('factors holding a non-array reads back as no factors rather than throwing', async () => {
+      const now = new Date()
+      const row = {
+        aal: 1,
+        absoluteExpiresAt: new Date(now.getTime() + 60_000),
+        actingAs: null,
+        createdAt: now,
+        csrfHash: null,
+        expiresAt: new Date(now.getTime() + 60_000),
+        factors: 'nope',
+        fingerprint: null,
+        fresh: true,
+        id: 'h-malformed',
+        identityId: 'i1',
+        ip: null,
+        kind: 'user',
+        rotatedAt: now,
+        tenantId: null,
+        userAgent: null,
+      }
+      // @ts-expect-error: the point of the test is a row the types forbid
+      await bridge.sessions.insert(row)
+      const found = await stores.sessions.getByHash('h-malformed')
+      expect(found?.factors).toEqual([])
+    })
+
+    it('drops a factor whose method is outside the union, matching the Redis store', async () => {
+      const now = new Date()
+      const row = {
+        aal: 1,
+        absoluteExpiresAt: new Date(now.getTime() + 60_000),
+        actingAs: null,
+        createdAt: now,
+        csrfHash: null,
+        expiresAt: new Date(now.getTime() + 60_000),
+        factors: [
+          { completedAt: now, method: 'telepathy' },
+          { completedAt: now, method: 'password' },
+        ],
+        fingerprint: null,
+        fresh: true,
+        id: 'h-oddfactor',
+        identityId: 'i1',
+        ip: null,
+        kind: 'user',
+        rotatedAt: now,
+        tenantId: null,
+        userAgent: null,
+      }
+      // @ts-expect-error: the point of the test is a row the types forbid
+      await bridge.sessions.insert(row)
+      const found = await stores.sessions.getByHash('h-oddfactor')
+      // An AAL decision has to read the same on every backend, and a method no
+      // `switch` handles is worse than one that is simply absent.
+      expect(found?.factors.map((f) => f.method)).toEqual(['password'])
+    })
+  })
+
   it('sessions.gc reports deleted count of expired rows', async () => {
     const now = Date.now()
     await stores.sessions.create(

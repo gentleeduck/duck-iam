@@ -72,14 +72,26 @@ describe('m2m client_credentials', () => {
   })
 
   describe('the tenant the token speaks for', () => {
-    it('FINDING: a key with no tenant mints a token for whatever tenant the caller names', async () => {
-      // The cross-tenant guard only fires when the credential itself carries a
-      // tenant. A global key leaves `verified.tenantId` undefined, so the check is
-      // skipped and `effectiveTenantId` falls through to the caller's value. The
-      // `tid` claim on the resulting JWT is then chosen by the request body, which
-      // is the one thing a client_credentials grant must never let a client pick.
-      const result = await env.m2m.exchange({ clientId, clientSecret, tenantId: 'victim-tenant' })
-      expect(claims(result.access_token).tid).toBe('victim-tenant')
+    it('a key with no tenant cannot mint a token for a tenant the caller names', async () => {
+      // This was a finding: the cross-tenant guard in `exchange` only fires when
+      // the credential itself carries a tenant, so a global key left
+      // `verified.tenantId` undefined, the check was skipped, and the `tid` claim
+      // was chosen by the request body - the one thing a client_credentials grant
+      // must never let a client pick.
+      //
+      // It is closed at the store instead of the facet. Credential lookups are
+      // tenant-scoped, and a global row is not visible to a scoped caller on any
+      // dialect, so naming a tenant the key does not belong to no longer resolves
+      // the key at all.
+      await expect(env.m2m.exchange({ clientId, clientSecret, tenantId: 'victim-tenant' })).rejects.toMatchObject({
+        code: 'AUTH_APIKEY_INVALID',
+      })
+    })
+
+    it('the same global key still works when the caller names no tenant', async () => {
+      // Without this the refusal above could pass by breaking global keys outright.
+      const result = await env.m2m.exchange({ clientId, clientSecret })
+      expect(claims(result.access_token).tid).toBeUndefined()
     })
 
     it('refuses when a tenant-scoped key is asked to mint for a different tenant', async () => {
@@ -95,11 +107,14 @@ describe('m2m client_credentials', () => {
       expect(claims(result.access_token).tid).toBe('tenant-a')
     })
 
-    it('FINDING: an empty-string tenant is a distinct tenant, not an absent one', async () => {
-      // `!== undefined` is the only absence test, so `tenantId: ''` reaches the
-      // session and the claim as a real value.
-      const result = await env.m2m.exchange({ clientId, clientSecret, tenantId: '' })
-      expect(result.access_token.split('.')).toHaveLength(3)
+    it('an empty-string tenant is a distinct tenant, not an absent one - and now fails closed', async () => {
+      // `!== undefined` is still the only absence test, so `tenantId: ''` is
+      // carried as a real tenant rather than collapsing to "unscoped". That used
+      // to mint a token; with lookups tenant-scoped it refuses, because no
+      // credential belongs to the tenant named by the empty string.
+      await expect(env.m2m.exchange({ clientId, clientSecret, tenantId: '' })).rejects.toMatchObject({
+        code: 'AUTH_APIKEY_INVALID',
+      })
     })
   })
 

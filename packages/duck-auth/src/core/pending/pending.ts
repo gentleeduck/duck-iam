@@ -39,25 +39,29 @@ class BufferingBus implements Events.IBus {
     return { discarded }
   }
 
-  async flush(): Promise<{ published: number }> {
+  async flush(): Promise<{ published: number; failed: Error[] }> {
     // Take the buffer before awaiting: a listener that emits during flush must
     // not append to the batch currently draining, or flush could never finish.
     const draining = this._buffer
     this._buffer = []
-    const errors: unknown[] = []
+    const failed: Error[] = []
     for (const entry of draining) {
       try {
         await this._target.emit(entry.name, entry.payload)
       } catch (err) {
-        errors.push(err)
+        // A thrown non-Error still has to arrive as one, because the field is
+        // what callers log; the original is kept on `cause` rather than lost.
+        failed.push(err instanceof Error ? err : new Error(String(err), { cause: err }))
       }
     }
-    if (errors.length > 0) {
-      throw new AggregateError(errors, `pending.flush: ${errors.length} of ${draining.length} listeners threw`)
-    }
-    // How many were published, so a second `flush()` after a commit can be
-    // told apart from the first - the second drains an empty buffer.
-    return { published: draining.length }
+    // Reported, never thrown: the commit already landed and the buffer is gone,
+    // so there is nothing a rejection could ask the caller to retry. See
+    // `Pending.Effects.flush`.
+    //
+    // `published` counts what was announced, so a second `flush()` after a
+    // commit can be told apart from the first - the second drains an empty
+    // buffer.
+    return { failed, published: draining.length - failed.length }
   }
 }
 

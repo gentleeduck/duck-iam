@@ -24,12 +24,22 @@ export namespace Pending {
      * Publish everything buffered, in emit order, then empty the buffer.
      * Idempotent: a second call publishes nothing.
      *
-     * A throwing listener does not stop the drain - every buffered event is
-     * attempted, and the call rejects with an `AggregateError` at the end if
-     * any threw. The buffer is empty either way, so a partial failure never
-     * leaves events to be published twice.
+     * **Never rejects.** A throwing listener does not stop the drain - every
+     * buffered event is attempted and any errors come back in `failed`.
+     *
+     * This is deliberate. `flush` runs AFTER the caller's transaction has
+     * committed, and it empties the buffer whether or not a listener threw, so
+     * there is nothing left to retry. Throwing here would hand a committed
+     * write back to the caller as a failure - a 500 whose one promise, that the
+     * write did not happen, would be false. The write happened; some
+     * announcement of it did not. Those are different facts and the caller
+     * needs to be able to tell them apart, log the second, and still answer
+     * 200.
+     *
+     * Callers who want the old behaviour can `if (failed.length) throw new
+     * AggregateError(failed)` - the reverse was not available.
      */
-    flush(): Promise<{ published: number }>
+    flush(): Promise<{ published: number; failed: Error[] }>
     /** Drop everything buffered without publishing. For an explicit rollback path. */
     discard(): { discarded: number }
     /** Inspect the buffer without draining it. For tests and custom routing. */

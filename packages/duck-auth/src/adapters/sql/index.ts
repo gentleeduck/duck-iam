@@ -2,6 +2,7 @@ export {
   assertEmailFree,
   assertRestorable,
   createSqlStores,
+  isRestorable,
   pickFreshestCredential,
   profileEmail,
 } from './sql'

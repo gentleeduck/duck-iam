@@ -127,6 +127,55 @@ describe('batch operations', () => {
     expect(await identities.getById(a.id)).not.toBeNull()
   })
 
+  /**
+   * The loop fallback - every store with no set-based `restoreMany`, memory and
+   * redis among them - used to catch all three of `restore`'s refusals and call
+   * them `not-found`. Only the first of them is absent; the other two rows are
+   * still there and still restorable once the clash is resolved, and a caller
+   * told `not-found` has no way to learn that.
+   */
+  it('restoreMany names the reason each row was refused', async () => {
+    const { adapter, identities } = makeIdentities()
+    const ok = await identities.create({ profile: { email: 'rr-ok@x', username: 'rrok' } })
+    const expired = await identities.create({ profile: { email: 'rr-exp@x', username: 'rrexp' } })
+    const clashing = await identities.create({ profile: { email: 'rr-dup@x', username: 'rrdup' } })
+    await identities.softDelete(ok.id)
+    await identities.softDelete(expired.id)
+    await identities.softDelete(clashing.id)
+
+    // Wind this one's window shut. `softDelete` always stamps a deadline in the
+    // future, so nothing in the public API can produce an expired row directly.
+    const hidden = adapter.raw.identities.get(expired.id)
+    if (hidden) hidden.deletedAt = new Date(Date.now() - 1000)
+    // Free to take while the row holding it is hidden, which is what blocks the
+    // restore: two live rows must not answer to one address.
+    await identities.create({ profile: { email: 'rr-dup@x', username: 'rrdup2' } })
+
+    const result = await identities.restoreMany([ok.id, expired.id, clashing.id, 'missing-id'])
+
+    expect(result.applied).toBe(1)
+    expect(result.outcomes[0]?.ok).toBe(true)
+    expect(result.outcomes[1]).toMatchObject({ ok: false, reason: 'grace-expired' })
+    expect(result.outcomes[2]).toMatchObject({ ok: false, reason: 'email-taken' })
+    expect(result.outcomes[3]).toMatchObject({ ok: false, reason: 'not-found' })
+    expect(await identities.getById(expired.id)).toBeNull()
+    expect(await identities.getById(clashing.id)).toBeNull()
+  })
+
+  it('a hard failure in restoreMany still aborts the batch', async () => {
+    const { adapter, identities } = makeIdentities()
+    const a = await identities.create({ profile: { email: 'hard@x', username: 'hard' } })
+    await identities.softDelete(a.id)
+    // Dropping the blanket catch means an unexpected error propagates again.
+    // That is the documented hard/soft split - a driver fault is not a per-row
+    // outcome - so pin it rather than let a future catch-all creep back in.
+    adapter.identities.restore = async () => {
+      throw new Error('connection reset')
+    }
+
+    await expect(identities.restoreMany([a.id])).rejects.toThrow('connection reset')
+  })
+
   it('eraseMany hard-deletes each identity', async () => {
     const { identities } = makeIdentities()
     const a = await identities.create({ profile: { email: 'e@x', username: 'e' } })

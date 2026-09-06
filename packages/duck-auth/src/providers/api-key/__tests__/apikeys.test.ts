@@ -90,27 +90,27 @@ describe('ApiKeysFacet', () => {
 
       it('revokedAt === 0 (legitimate epoch number) surfaces as revoked (previously slipped past `if (row.revokedAt)`)', async () => {
         const { plaintext, row } = await createAndGrabRow()
-        row.revokedAt = new Date(0)
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: new Date(0) })
         await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
       })
 
       it('revokedAt as a non-numeric value surfaces as revoked', async () => {
         const { plaintext, row } = await createAndGrabRow()
         // @ts-expect-error: SEC test intentionally violates the typed shape
-        row.revokedAt = 'compromised-marker'
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: 'compromised-marker' })
         await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
       })
 
       it('non-numeric expiresAt is treated as expired (NaN-bypass defense - would have accepted expired key)', async () => {
         const { plaintext, row } = await createAndGrabRow()
         // @ts-expect-error: SEC test intentionally violates the typed shape
-        row.expiresAt = 'not-a-number'
+        adapter.raw.credentials.set(row.id, { ...row, expiresAt: 'not-a-number' })
         await expect(facet.verify(plaintext)).rejects.toMatchObject({ code: 'AUTH_APIKEY_REVOKED' })
       })
 
       it('list() filters out keys with revokedAt === 0 (previously visible via `!r.revokedAt`)', async () => {
         const { plaintext, row } = await createAndGrabRow()
-        row.revokedAt = new Date(0)
+        adapter.raw.credentials.set(row.id, { ...row, revokedAt: new Date(0) })
         const visible = await facet.list('user-1')
         expect(visible.find((k) => k.id === row.id)).toBeUndefined()
         // Sanity: verify is also fail-closed.

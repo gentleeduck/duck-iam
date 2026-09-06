@@ -33,7 +33,7 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
     expect(fromTenantA?.identityId).toBe(ident.id)
   })
 
-  it('returns global (no tenantId) rows from any tenant scope (SQL adapter parity)', async () => {
+  it('does NOT return a global (no tenantId) row to a tenant-scoped caller', async () => {
     const adapter = new MemoryAdapter<{ email: string; username: string }>()
     const ident = await adapter.identities.create(
       identityInput({ profile: { email: 'global@x.com', username: 'global@x.com' }, providers: [] }),
@@ -42,10 +42,18 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
       credentialInput({ identityId: ident.id, kind: 'api-key', secret: 'hash-secret-3' }),
       {},
     )
+    // This case used to assert the opposite, in the name of "SQL adapter
+    // parity" - but every dialect scopes with a bare `eq(tenant_id, $1)` and SQL
+    // NULL equals nothing, so no real backend has ever returned this row here.
+    // Verified against sqlite: findById, findByHashedSecret and listByIdentity
+    // all miss it. A credential belonging to no tenant must not authenticate one.
     const fromTenantA = await adapter.credentials.findByHashedSecret('hash-secret-3', 'api-key', {
       tenantId: 'tenant-A',
     })
-    expect(fromTenantA?.identityId).toBe(ident.id)
+    expect(fromTenantA).toBeNull()
+
+    // Still reachable by an unscoped caller, which is what makes it global.
+    expect(await adapter.credentials.findByHashedSecret('hash-secret-3', 'api-key', {})).not.toBeNull()
   })
 
   it('returns tenant-scoped row when ctx tenantId is undefined (global search)', async () => {
@@ -92,7 +100,8 @@ describe('MemoryAdapter.findByHashedSecret - tenant filter parity with SQL adapt
     )
     const all = await adapter.credentials.listByIdentity(ident.id, 'api-key', {})
     const row = all[0]!
-    ;(row as unknown as { revokedAt?: number }).revokedAt = 0
+    // @ts-expect-error: SEC test intentionally violates the typed shape
+    adapter.raw.credentials.set(row.id, { ...row, revokedAt: 0 })
     const found = await adapter.credentials.findByHashedSecret('hash-secret-5', 'api-key', {})
     expect(found?.revokedAt).toBe(0)
   })

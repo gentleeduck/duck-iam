@@ -57,7 +57,14 @@ export namespace Identities {
      * to issue a second read to find out.
      */
     softDelete(id: string, gracePeriodMs: number): Promise<Me<Profile> | null>
-    restore(id: string): Promise<Me<Profile>>
+    /**
+     * Clears a soft delete. `null` means the id matched nothing, the same as
+     * {@link softDelete} and {@link erase}. A row that WAS matched and then
+     * refused throws instead, carrying which rule refused it -
+     * `AUTH_GRACE_EXPIRED` when the window has closed, `AUTH_EMAIL_TAKEN` when
+     * a live row now holds its address.
+     */
+    restore(id: string): Promise<Me<Profile> | null>
     /** Returns the row as it was immediately before deletion. */
     erase(id: string): Promise<Me<Profile> | null>
     link(identityId: string, link: ProviderLink): Promise<Me<Profile> | null>

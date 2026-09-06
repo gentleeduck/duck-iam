@@ -72,10 +72,10 @@ describe('memory.credentials.patchMetadata - concurrency & convergence', () => {
     expect(row?.revokedAt).toBeDefined()
   })
 
-  it('patch on a missing id throws AUTH/UNAUTHENTICATED', async () => {
+  it('patch on a missing id throws AUTH/STALE_WRITE', async () => {
     const adapter = new MemoryAdapter()
     await expect(adapter.credentials.patchMetadata('missing', { x: 1 }, {})).rejects.toMatchObject({
-      code: 'AUTH_UNAUTHENTICATED',
+      code: 'AUTH_STALE_WRITE',
     })
   })
 })

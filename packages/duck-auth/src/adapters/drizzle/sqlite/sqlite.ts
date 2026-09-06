@@ -7,20 +7,28 @@
  */
 
 import { createRequire } from 'node:module'
-import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm'
 import type { BaseSQLiteDatabase, SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import {
   assertEmailFree,
   assertRestorable,
   createSqlStores,
+  isRestorable,
   pickFreshestCredential,
   profileEmail,
 } from '~/adapters/sql'
 import type { SqlBridge } from '~/adapters/sql/sql.types'
+import { AuthError } from '~/core/errors'
 import type { Identities } from '~/core/identities'
 import { authCredentials, authIdentities, authSessions } from './sqlite.schema'
 import type { Sqlite } from './sqlite.types'
 
+/**
+ * The question {@link assertRestorable} answers by throwing. `restoreMany` has
+ * to ask it per row and keep going, so it needs the predicate rather than the
+ * assertion - the batch reports a closed window as one row's soft failure, not
+ * as an error that takes the other rows down with it.
+ */
 /** Generic over the profile so callers with their own profile shape don't have to cast. */
 export function createDrizzleSqliteBridge<
   Profile extends Identities.ProfileMetadataBase = Identities.ProfileMetadataBase,
@@ -91,10 +99,15 @@ export function createDrizzleSqliteBridge<
         // both ignore soft-deleted rows, so the address is free to be claimed by
         // someone else during the grace window. Restoring must not hand back a
         // verified claim to an address this identity may no longer control.
+        //
+        // Live rows only. `deletedAt` is the moment the purge window closes, so
+        // a second call on an already-hidden row would push that moment forward
+        // and a row could be kept out of reach of the purge indefinitely by
+        // repeating a delete that has nothing left to delete.
         const result = await db
           .update(authIdentities)
           .set({ deletedAt, emailVerified: false })
-          .where(and(eq(authIdentities.id, id)))
+          .where(and(eq(authIdentities.id, id), isNull(authIdentities.deletedAt)))
           .returning()
         return result[0] ?? null
       },
@@ -150,6 +163,37 @@ export function createDrizzleSqliteBridge<
           .limit(1)
         const cur = rows[0]
         if (!cur) return null
+        // A `(providerId, providerSub)` pair identifies one account at the
+        // provider, so letting a second identity claim one is account takeover:
+        // sign in as the attacker, link the victim's Google sub, and the next
+        // `findByProviderSub` may hand the victim's session to either row.
+        // Soft-deleted rows do NOT count: `findByProviderSub` already ignores
+        // them, so holding a sub against a row nothing can read back would keep
+        // someone's provider login hostage forever. `restore` is where a hidden
+        // row re-earns its claims, the same as it does for its email.
+        if (providerSub !== null) {
+          const held = await db
+            .select({ id: authIdentities.id })
+            .from(authIdentities)
+            .where(
+              and(
+                ne(authIdentities.id, identityId),
+                isNull(authIdentities.deletedAt),
+                sql`exists (
+                  select 1 from json_each(${authIdentities.providers}) je
+                  where json_extract(je.value, '$.providerId') = ${providerId}
+                    and json_extract(je.value, '$.providerSub') = ${providerSub}
+                )`,
+              ),
+            )
+            .limit(1)
+          if (held.length > 0) {
+            throw new AuthError('AUTH_PROVIDER_FAILED', {
+              detail: 'provider sub already linked to a different identity',
+              providerId,
+            })
+          }
+        }
         const providers = cur.providers ?? []
         // Already linked: nothing to write, but the row still exists and it
         // already carries the link, so answer with it rather than with `null`.
@@ -203,12 +247,63 @@ export function createDrizzleSqliteBridge<
         return gone.map((r) => r.id)
       },
 
-      restoreManyReturning: (ids) =>
-        db
+      /**
+       * The set-based form of `restore`, and it owes the caller the same two
+       * refusals: a row whose grace window has closed is queued for purge, and a
+       * row whose address a live identity now holds cannot come back without
+       * two live rows answering to one email.
+       *
+       * Both are per-row decisions, so a row that fails one is left out of the
+       * statement rather than throwing - `createSqlStores` reads an id missing
+       * from the response as that row's soft failure, which is what keeps one
+       * bad id in a batch of fifty from aborting the other forty-nine.
+       */
+      restoreManyReturning: async (ids) => {
+        const list = [...ids]
+        if (list.length === 0) return { candidates: [], restored: [] }
+        const candidates = await db.select().from(authIdentities).where(inArray(authIdentities.id, list))
+        const restorable = candidates.filter(isRestorable)
+        const emails = new Map<string, string>()
+        for (const row of restorable) {
+          const email = profileEmail(row.profile)
+          if (email !== undefined) emails.set(row.id, email.toLowerCase())
+        }
+        const taken = new Set<string>()
+        if (emails.size > 0) {
+          const live = await db
+            .select({ profile: authIdentities.profile })
+            .from(authIdentities)
+            .where(
+              and(
+                inArray(sql`lower(json_extract(${authIdentities.profile}, '$.email'))`, [...new Set(emails.values())]),
+                isNull(authIdentities.deletedAt),
+              ),
+            )
+          for (const row of live) {
+            const email = profileEmail(row.profile)
+            if (email !== undefined) taken.add(email.toLowerCase())
+          }
+        }
+        // Two hidden rows in one batch can also answer to the same address -
+        // nothing kept them apart while both were invisible - so an address
+        // claimed by an earlier row in this batch is taken for the rest of it.
+        const okIds: string[] = []
+        for (const row of restorable) {
+          const email = emails.get(row.id)
+          if (email !== undefined) {
+            if (taken.has(email)) continue
+            taken.add(email)
+          }
+          okIds.push(row.id)
+        }
+        if (okIds.length === 0) return { candidates, restored: [] }
+        const restored = await db
           .update(authIdentities)
           .set({ deletedAt: null })
-          .where(inArray(authIdentities.id, [...ids]))
-          .returning(),
+          .where(inArray(authIdentities.id, okIds))
+          .returning()
+        return { candidates, restored }
+      },
 
       /**
        * SQLite has no `UPDATE ... FROM (VALUES ...)`, so each row still needs
@@ -248,6 +343,14 @@ export function createDrizzleSqliteBridge<
         // survivor that is not there turns a merge into silent data loss. The
         // memory adapter has always refused this; so does every dialect.
         if (!surv || !dupRow) return null
+        // Merging a row into itself has nothing to move and one row to keep. Run
+        // the steps below on it and the last of them deletes the survivor, so a
+        // caller that passed the same id twice - a resolved duplicate that was
+        // never a duplicate - would lose the account it was trying to keep.
+        if (survivorId === dupId) {
+          const [self] = await db.select().from(authIdentities).where(eq(authIdentities.id, survivorId)).limit(1)
+          return self ?? null
+        }
         await db
           .update(authIdentities)
           .set({ providers: [...(surv.providers ?? []), ...(dupRow.providers ?? [])] })
@@ -283,14 +386,21 @@ export function createDrizzleSqliteBridge<
           .from(authCredentials)
           .where(and(...where))
       },
-      findByProviderSub: async (provider, sub, _tenantId) => {
+      // `provider`/`sub` live in the free-form `metadata` of an oauth row, and
+      // nothing stops another kind from carrying the same two keys - an api-key
+      // whose metadata records which provider minted it would answer an oauth
+      // lookup. Both filters are the ones the caller already believes are on:
+      // one tenant's oauth rows, and only oauth rows.
+      findByProviderSub: async (provider, sub, tenantId) => {
         const rows = await db
           .select()
           .from(authCredentials)
           .where(
             and(
+              eq(authCredentials.kind, 'oauth'),
               sql`json_extract(${authCredentials.metadata}, '$.provider') = ${provider}`,
               sql`json_extract(${authCredentials.metadata}, '$.sub') = ${sub}`,
+              tenantWhere(authCredentials, tenantId),
             ),
           )
           .limit(1)
@@ -372,6 +482,14 @@ export function createDrizzleSqliteBridge<
         return rows[0] ?? null
       },
       update: async (id, patch) => {
+        // A patch whose every key was an explicit `undefined` arrives here
+        // empty, and drizzle refuses an `UPDATE` with nothing to set. "Change
+        // none of these fields" is a read, not an error: the memory store hands
+        // the row back untouched and so does this.
+        if (Object.keys(patch).length === 0) {
+          const rows = await db.select().from(authSessions).where(eq(authSessions.id, id)).limit(1)
+          return rows[0] ?? null
+        }
         const result = await db.update(authSessions).set(patch).where(eq(authSessions.id, id)).returning()
         return result[0] ?? null
       },
@@ -403,8 +521,15 @@ export function createDrizzleSqliteBridge<
           .select()
           .from(authSessions)
           .where(inArray(authSessions.identityId, [...identityIds])),
+      // Either clock, not just the outer one. `expiresAt` is the idle deadline a
+      // session is renewed against and `absoluteExpiresAt` the ceiling it can
+      // never pass; reading only the ceiling left every idled-out session in the
+      // table until its absolute deadline, hours or days later.
       deleteExpired: async (now) => {
-        const result = await db.delete(authSessions).where(lt(authSessions.absoluteExpiresAt, now)).returning()
+        const result = await db
+          .delete(authSessions)
+          .where(or(lt(authSessions.expiresAt, now), lt(authSessions.absoluteExpiresAt, now)))
+          .returning()
         return result.length
       },
     },

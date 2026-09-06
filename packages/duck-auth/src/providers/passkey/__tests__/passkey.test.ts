@@ -305,7 +305,7 @@ describe('passkey provider - sign-in', () => {
     const creds = await adapter.credentials.listByIdentity(identityId, 'passkey', {})
     const cred = creds[0]
     if (!cred) throw new Error('expected credential')
-    ;(cred.metadata as { counter?: number }).counter = 5
+    await adapter.credentials.patchMetadata(cred.id, { counter: 5 }, {})
 
     mockWebauthn.verifyAuthenticationResponse = vi.fn(async () => ({
       verified: true,
