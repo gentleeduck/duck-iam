@@ -161,9 +161,16 @@ const MISSING_PROVIDER =
  * bundle that never shimmed `process` must not start throwing out of a render.
  */
 function isDevelopment(): boolean {
-  const nodeEnv: string | undefined =
-    typeof process !== 'undefined' ? (process as { env?: { NODE_ENV?: string } }).env?.NODE_ENV : undefined
-  return nodeEnv === 'development'
+  // Read rather than asserted. `process` here is whatever the host bundle put
+  // in scope - a Node global, a bundler's shim, an object with no `env` at all -
+  // and `as { env?: { NODE_ENV?: string } }` claimed a shape none of those is
+  // obliged to have. Every step below is checked, so the answer is `false` for
+  // anything that is not literally the string `'development'`, which is the
+  // direction this gate must fail in.
+  if (typeof process === 'undefined' || process === null) return false
+  const env: unknown = Reflect.get(process, 'env')
+  if (env === null || typeof env !== 'object') return false
+  return Reflect.get(env, 'NODE_ENV') === 'development'
 }
 
 /**
@@ -278,7 +285,16 @@ export function createIamAccessControl<
   /** Stable identity: a fresh `{}` per render would re-set state on every run. */
   const EMPTY_PERMISSIONS: IamClient.PartialPermissionMap<TAction, TResource, TScope> = {}
 
-  /** Hook to asynchronously fetch permissions from a server endpoint. */
+  /**
+   * Fetches a permission map and exposes it as React state.
+   *
+   * @param fetchFn - Loads the permission map (typically one `fetch` call).
+   * @param deps - Re-runs the load when these change, like any effect dependency
+   *   list. Defaults to `[]`, so a `fetchFn` that closes over a subject id must
+   *   list that id here or call `refetch` - otherwise the first subject's grants
+   *   are the only ones this hook will ever hold.
+   * @returns `{ permissions, can, cannot, allowedActions, hasAnyOn, loading, error, refetch }`.
+   */
   function usePermissions(
     fetchFn: () => Promise<IamClient.PartialPermissionMap<TAction, TResource, TScope>>,
     deps: readonly unknown[] = [],
@@ -287,8 +303,23 @@ export function createIamAccessControl<
     const [loading, setLoading] = React.useState(true)
     const [error, setError] = React.useState<Error | null>(null)
 
-    React.useEffect(() => {
-      let cancelled = false
+    /**
+     * Run bookkeeping that survives re-renders without widening `ReactLike`.
+     *
+     * A `useState` box rather than `useRef` deliberately: `ReactLike` is the
+     * shim a consumer injects, and adding a member to it breaks every
+     * hand-built one. Lazy initialiser, so the object is created once.
+     *
+     * `latest` is a monotonic run id, not a boolean. Two loads can be in flight
+     * at once - `refetch` called twice, or a deps change racing a manual call -
+     * and a slow *earlier* one must not overwrite a fast later one with the
+     * previous subject's grants. `unmounted` covers teardown, which a run id
+     * cannot see.
+     */
+    const [run] = React.useState(() => ({ latest: 0, unmounted: false }))
+
+    const load = useCallback((): Promise<void> => {
+      const id = ++run.latest
       // A refetch is a different subject until proven otherwise. Holding the
       // previous map made `can()` answer with the last subject's grants for the
       // whole in-flight window, and keep answering with them indefinitely if the
@@ -299,21 +330,30 @@ export function createIamAccessControl<
       setPermissions(EMPTY_PERMISSIONS)
       setError(null)
       setLoading(true)
-      fetchFn()
-        .then((perms: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => {
-          if (!cancelled) {
-            setPermissions(perms)
-            setLoading(false)
-          }
-        })
-        .catch((err: Error) => {
-          if (!cancelled) {
-            setError(err)
-            setLoading(false)
-          }
-        })
+      const stale = (): boolean => run.unmounted || id !== run.latest
+      return fetchFn().then(
+        (perms: IamClient.PartialPermissionMap<TAction, TResource, TScope>) => {
+          if (stale()) return
+          setPermissions(perms)
+          setLoading(false)
+        },
+        (err: unknown) => {
+          if (stale()) return
+          // `err` is whatever was rejected with, not an `Error` - a rejected
+          // `fetch` chain can carry a string or a `Response`. The state is
+          // typed `Error | null`, so normalise here rather than let the type
+          // describe something the value is not.
+          setError(err instanceof Error ? err : new Error(String(err)))
+          setLoading(false)
+        },
+      )
+    }, deps)
+
+    React.useEffect(() => {
+      run.unmounted = false
+      void load()
       return () => {
-        cancelled = true
+        run.unmounted = true
       }
     }, deps)
 
@@ -334,6 +374,13 @@ export function createIamAccessControl<
       hasAnyOn: (resource: TResource) => iamHasAnyOn(permissions, resource),
       loading,
       error,
+      // Vue's `usePermissions` has had this since it was written, and its
+      // docblock claims the two are the same shape. They were not: without it,
+      // the only way to reload was to change `deps`, so a sign-out or an
+      // account switch that did not happen to move a dependency left the
+      // previous subject's grants in place - the exact case the reset above
+      // exists for, unreachable.
+      refetch: load,
     }
   }
 
